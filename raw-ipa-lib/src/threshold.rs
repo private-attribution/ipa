@@ -1,3 +1,5 @@
+#![allow(clippy::module_name_repetitions)]
+
 use hex::encode as hex;
 use rand_core::{CryptoRng, RngCore};
 pub use rust_elgamal::{Ciphertext, DecryptionKey, EncryptionKey, RistrettoPoint};
@@ -11,7 +13,8 @@ use std::ops::Deref;
 pub struct ThresholdEncryptionKey(EncryptionKey);
 
 impl ThresholdEncryptionKey {
-    pub fn new(k1: &EncryptionKey, k2: &EncryptionKey) -> Self {
+    #[must_use]
+    pub fn new(k1: EncryptionKey, k2: EncryptionKey) -> Self {
         Self(EncryptionKey::from(k1.as_ref() + k2.as_ref()))
     }
 }
@@ -35,22 +38,26 @@ impl Debug for ThresholdEncryptionKey {
 pub struct ThresholdDecryptionKey(DecryptionKey);
 
 impl ThresholdDecryptionKey {
+    #[must_use]
     pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
         Self(DecryptionKey::new(rng))
     }
 
+    #[must_use]
     pub fn threshold_decrypt(&self, c: Ciphertext) -> Ciphertext {
         let (c0, _) = c.inner();
         let p = self.0.decrypt(c);
         Ciphertext::from((c0, p))
     }
 
+    #[must_use]
     pub fn decrypt(&self, c: Ciphertext) -> RistrettoPoint {
         self.0.decrypt(c)
     }
 
-    pub fn encryption_key(&self) -> &EncryptionKey {
-        self.0.encryption_key()
+    #[must_use]
+    pub fn encryption_key(&self) -> EncryptionKey {
+        *self.0.encryption_key()
     }
 }
 

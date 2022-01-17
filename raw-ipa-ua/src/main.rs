@@ -26,6 +26,7 @@ struct UserIds(Range<usize>);
 impl FromStr for UserIds {
     type Err = <usize as FromStr>::Err;
 
+    #[allow(clippy::range_plus_one)] // Target type is not RangeInclusive.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some((start, end)) = s.split_once("..") {
             let start = if start.is_empty() { 0 } else { start.parse()? };

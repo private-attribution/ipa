@@ -24,6 +24,8 @@ impl User {
         f
     }
 
+    /// # Errors
+    /// When a file for the given ID already exists.
     #[cfg(feature = "enable-serde")]
     pub fn create(dir: &Path, id: usize, threshold_key: ThresholdEncryptionKey) -> Res<Self> {
         let f = Self::filename(dir, id);
@@ -37,6 +39,8 @@ impl User {
         })
     }
 
+    /// # Errors
+    /// When the file is invalid JSON, or when it contains a bad ID.
     #[cfg(feature = "enable-serde")]
     pub fn load(dir: &Path, id: usize) -> Res<Self> {
         let f = Self::filename(dir, id);
@@ -48,6 +52,8 @@ impl User {
         Ok(v)
     }
 
+    /// # Errors
+    /// When the file cannot be written.
     #[cfg(feature = "enable-serde")]
     pub fn save(&self, dir: &Path) -> Res<()> {
         let f = Self::filename(dir, self.id);
@@ -65,6 +71,7 @@ impl User {
     }
 
     /// Create an encrypted matchkey for the identified origin.
+    #[must_use]
     pub fn encrypt_matchkey(&self, origin: &str) -> Ciphertext {
         let mut rng = thread_rng();
         // TODO: determine if we need to hide the timing sidechannel here.

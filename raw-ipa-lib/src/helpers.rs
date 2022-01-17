@@ -18,8 +18,9 @@ pub struct PublicHelper1 {
 }
 
 impl PublicHelper1 {
-    pub fn matchkey_encryption_key(&self) -> &EncryptionKey {
-        &self.matchkey_encrypt
+    #[must_use]
+    pub fn matchkey_encryption_key(&self) -> EncryptionKey {
+        self.matchkey_encrypt
     }
 }
 
@@ -42,8 +43,9 @@ pub struct PublicHelper2 {
 }
 
 impl PublicHelper2 {
-    pub fn matchkey_encryption_key(&self) -> &EncryptionKey {
-        &self.matchkey_encrypt
+    #[must_use]
+    pub fn matchkey_encryption_key(&self) -> EncryptionKey {
+        self.matchkey_encrypt
     }
 }
 
@@ -99,6 +101,8 @@ impl Helpers {
         Ok(serde_json::from_str(&s)?)
     }
 
+    /// # Errors
+    /// If JSON files are missing or badly formatted.
     #[cfg(feature = "enable-serde")]
     pub fn load(helper_dirs: impl IntoIterator<Item = impl AsRef<Path>>) -> Res<Self> {
         let mut dirs = helper_dirs.into_iter();
@@ -121,6 +125,7 @@ impl Helpers {
         Ok(v)
     }
 
+    #[must_use]
     pub fn matchkey_encryption_key(&self) -> ThresholdEncryptionKey {
         self.threshold_key
     }
