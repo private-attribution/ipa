@@ -1,9 +1,13 @@
 use hex::encode as hex;
 use rand_core::{CryptoRng, RngCore};
-use rust_elgamal::{Ciphertext, DecryptionKey, EncryptionKey, RistrettoPoint};
+pub use rust_elgamal::{Ciphertext, DecryptionKey, EncryptionKey, RistrettoPoint};
+#[cfg(feature = "enable-serde")]
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct ThresholdEncryptionKey(EncryptionKey);
 
 impl ThresholdEncryptionKey {
@@ -26,6 +30,8 @@ impl Debug for ThresholdEncryptionKey {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct ThresholdDecryptionKey(DecryptionKey);
 
 impl ThresholdDecryptionKey {

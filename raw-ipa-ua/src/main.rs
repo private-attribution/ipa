@@ -1,9 +1,12 @@
+use hex::{self, FromHexError};
+use raw_ipa_lib::{helpers::Helpers, user::User};
+use std::convert::TryFrom;
+use std::fs;
+use std::mem;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
-
-mod user;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -41,45 +44,42 @@ impl FromStr for UserIds {
 
 #[derive(Debug)]
 enum HexArgError {
-    ParseInt(std::num::ParseIntError),
+    Hex(FromHexError),
     Length,
 }
-impl From<std::num::ParseIntError> for HexArgError {
-    fn from(e: std::num::ParseIntError) -> Self {
-        Self::ParseInt(e)
+impl From<FromHexError> for HexArgError {
+    fn from(e: FromHexError) -> Self {
+        Self::Hex(e)
+    }
+}
+impl From<Vec<u8>> for HexArgError {
+    fn from(_: Vec<u8>) -> Self {
+        Self::Length
     }
 }
 impl ToString for HexArgError {
     fn to_string(&self) -> String {
         match self {
-            Self::ParseInt(e) => e.to_string(),
+            Self::Hex(e) => e.to_string(),
             Self::Length => String::from("invalid length"),
         }
     }
 }
 
 #[derive(Debug)]
-struct HexArg32(Vec<u8>);
+struct HexArg32([u8; 32]);
 impl FromStr for HexArg32 {
     type Err = HexArgError;
 
-    fn from_str(mut s: &str) -> Result<Self, Self::Err> {
-        if s.as_bytes().len() != 64 {
-            return Err(HexArgError::Length);
-        }
-
-        let mut buf = Vec::with_capacity(32);
-        while !s.is_empty() {
-            let (v, r) = s.split_at(2);
-            buf.push(u8::from_str_radix(v, 16)?);
-            s = r;
-        }
-        Ok(Self(buf))
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let b = hex::decode(s)?;
+        let v = <[u8; 32]>::try_from(b)?;
+        Ok(Self(v))
     }
 }
 
-impl AsRef<[u8]> for HexArg32 {
-    fn as_ref(&self) -> &[u8] {
+impl AsRef<[u8; 32]> for HexArg32 {
+    fn as_ref(&self) -> &[u8; 32] {
         &self.0
     }
 }
@@ -90,12 +90,25 @@ struct CommonArgs {
     /// Be verbose.
     verbose: bool,
 
-    #[structopt(short = "d", long, global = true, default_value = "./ua")]
+    #[structopt(short = "d", long, global = true, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../db/ua"))]
     dir: PathBuf,
 
     /// The first user to configure.
-    #[structopt(short = "u", long, global = true, default_value = "0")]
-    users: UserIds,
+    #[structopt(
+        short = "u",
+        long,
+        global = true,
+        default_value = "0",
+        multiple = true,
+        use_delimiter = true
+    )]
+    users: Vec<UserIds>,
+}
+
+impl CommonArgs {
+    fn all_users(&self) -> impl Iterator<Item = usize> + '_ {
+        self.users.iter().flat_map(|r| r.0.clone())
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -105,11 +118,12 @@ enum Action {
     Setup {
         /// Files containing keys for each of the helpers.
         #[structopt(number_of_values = 4)]
-        helper: Vec<PathBuf>,
+        helpers: Vec<PathBuf>,
     },
+    /// Set a match key for a particular origin/domain.
     SetMatchKey {
         /// The origin that is setting the match key.
-        domain: String,
+        origin: String,
 
         /// The value of the match key.
         key: HexArg32,
@@ -121,15 +135,43 @@ impl Action {
         if common.verbose {
             println!("Running {:?}", self);
         }
-        assert!(common.dir.is_dir(), "UA directory (-d) not a directory");
         match self {
-            Self::Setup { helper } => {
-                println!("Running setup for users {:?}", common.users);
-                for u in common.users {
-                    let u = User::create(common.dir, u, &<[PathBuf; 4]>::try_from(helper).unwrap());
+            Self::Setup { helpers } => {
+                if !common.dir.is_dir() {
+                    println!("Create directory {}", common.dir.to_string_lossy());
+                    fs::create_dir_all(&common.dir).unwrap();
+                }
+
+                let helpers = Helpers::load(&*helpers).unwrap();
+                for u in common.all_users() {
+                    if common.verbose {
+                        println!("Create user {}", u);
+                    }
+
+                    mem::drop(User::create(
+                        &common.dir,
+                        u,
+                        helpers.matchkey_encryption_key(),
+                    ));
                 }
             }
-            Self::SetMatchKey { domain, key } => {}
+            Self::SetMatchKey { origin, key } => {
+                if common.verbose {
+                    println!(
+                        "Set matchkey for origin {} to {}",
+                        origin,
+                        hex::encode(key.as_ref())
+                    );
+                }
+                for u in common.all_users() {
+                    if common.verbose {
+                        println!("Set matchkey for user {}", u);
+                    }
+                    let mut u = User::load(&common.dir, u).unwrap();
+                    u.set_matchkey(origin, key.as_ref());
+                    u.save(&common.dir).unwrap();
+                }
+            }
         }
     }
 }
