@@ -43,6 +43,6 @@ error() {
    exit 1
 }
 
-cargo clippy --tests || error "Clippy errors"
+cargo clippy --tests -- -D warnings --D clippy::pedantic || error "Clippy errors"
 
 cargo test || error "Test failures"
