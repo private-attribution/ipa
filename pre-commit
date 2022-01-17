@@ -26,7 +26,8 @@ if [[ "$1" == "install" ]]; then
 fi
 
 # Check formatting.
-trap 'git stash pop -q' EXIT
+stashfile=$(mktemp .pre-commit.stashXXXXXX)
+trap 'git stash pop -q; rm -f "$stashfile"' EXIT
 git stash push -k -u -q -m "pre-commit stash"
 if ! errors=($(cargo fmt -- --check -l)); then
     echo "Formatting errors found."
