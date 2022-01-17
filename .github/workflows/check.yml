@@ -7,8 +7,6 @@ jobs:
   check:
     name: All Checks
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -C link-arg=-fuse-ld=lld
 
     steps:
       - uses: actions/checkout@v2
