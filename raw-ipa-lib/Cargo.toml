@@ -5,10 +5,14 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["debug"]
+debug = ["hex"]
+
 [dependencies]
 rust-elgamal = "0.4"
 rand_core = "0.6"
+hex = {version = "0.4", optional = true}
 
 [dev-dependencies]
 rand = "0.8"
-hex = "0.4"
