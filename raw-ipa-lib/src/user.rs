@@ -41,7 +41,11 @@ impl User {
     pub fn load(dir: &Path, id: usize) -> Res<Self> {
         let f = Self::filename(dir, id);
         let s = fs::read_to_string(f)?;
-        Ok(serde_json::from_str(&s)?)
+        let v: Self = serde_json::from_str(&s)?;
+        if v.id != id {
+            return Err(Error::InvalidId);
+        }
+        Ok(v)
     }
 
     #[cfg(feature = "enable-serde")]
@@ -51,16 +55,20 @@ impl User {
         Ok(())
     }
 
-    pub fn set_matchkey(&mut self, domain: &str, match_key: &[u8; 32]) {
+    pub fn set_matchkey(&mut self, origin: &str, match_key: &[u8; 32]) {
+        // Note that ristretto wants 64 bytes of input; also we don't know if the input is uniform.
+        // TODO: Consider salting this input somehow (with the origin, perhaps).
+        //       The caveat being that anything we do needs to be standardized.
         let m = RistrettoPoint::hash_from_bytes::<Sha512>(&match_key[..]);
         let emk = self.threshold_key.encrypt(m, &mut thread_rng());
-        self.encrypted_match_keys.insert(String::from(domain), emk);
+        self.encrypted_match_keys.insert(String::from(origin), emk);
     }
 
-    pub fn encrypt_matchkey(&self, domain: &str) -> Ciphertext {
+    /// Create an encrypted matchkey for the identified origin.
+    pub fn encrypt_matchkey(&self, origin: &str) -> Ciphertext {
         let mut rng = thread_rng();
         // TODO: determine if we need to hide the timing sidechannel here.
-        if let Some(emk) = self.encrypted_match_keys.get(domain) {
+        if let Some(emk) = self.encrypted_match_keys.get(origin) {
             self.threshold_key.rerandomise(*emk, &mut rng)
         } else {
             Ciphertext::from((

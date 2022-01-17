@@ -2,6 +2,7 @@
 pub enum Error {
     AlreadyExists,
     Internal,
+    InvalidId,
     NotEnoughHelpers,
     NotFound,
     TooManyHelpers,
