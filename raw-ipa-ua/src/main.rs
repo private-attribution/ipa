@@ -1,10 +1,11 @@
 use hex::{self, FromHexError};
+use raw_ipa_lib::helpers::HelperLocations;
 use raw_ipa_lib::{helpers::Helpers, user::User};
 use std::convert::TryFrom;
 use std::fs;
 use std::mem;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use structopt::StructOpt;
 
@@ -104,6 +105,9 @@ struct CommonArgs {
         use_delimiter = true
     )]
     users: Vec<UserIds>,
+
+    #[structopt(flatten)]
+    helpers: HelperArgs,
 }
 
 impl CommonArgs {
@@ -113,14 +117,44 @@ impl CommonArgs {
 }
 
 #[derive(Debug, StructOpt)]
+struct HelperArgs {
+    /// The directory that contains source event helper files.
+    #[structopt(long, alias = "seh", global = true)]
+    source_event_helper: PathBuf,
+
+    /// The directory that contains trigger event helper files.
+    #[structopt(long, alias = "teh", global = true)]
+    trigger_event_helper: PathBuf,
+
+    /// The directory that contains the first aggregation helper files.
+    #[structopt(long, alias = "ah1", global = true)]
+    aggregation_helper1: PathBuf,
+
+    /// The directory that contains second aggregation helper files.
+    #[structopt(long, alias = "ah2", global = true)]
+    aggregation_helper2: PathBuf,
+}
+
+impl HelperLocations for HelperArgs {
+    fn source_event(&self) -> &Path {
+        &self.source_event_helper
+    }
+    fn trigger_event(&self) -> &Path {
+        &self.trigger_event_helper
+    }
+    fn aggregation1(&self) -> &Path {
+        &self.aggregation_helper1
+    }
+    fn aggregation2(&self) -> &Path {
+        &self.aggregation_helper2
+    }
+}
+
+#[derive(Debug, StructOpt)]
 #[structopt(name = "action")]
 enum Action {
     /// Generate configuration for client(s).
-    Setup {
-        /// Files containing keys for each of the helpers.
-        #[structopt(number_of_values = 4)]
-        helpers: Vec<PathBuf>,
-    },
+    Setup,
     /// Set a match key for a particular origin/domain.
     SetMatchKey {
         /// The origin that is setting the match key.
@@ -137,13 +171,13 @@ impl Action {
             println!("Running {:?}", self);
         }
         match self {
-            Self::Setup { helpers } => {
+            Self::Setup => {
                 if !common.dir.is_dir() {
                     println!("Create directory {}", common.dir.to_string_lossy());
                     fs::create_dir_all(&common.dir).unwrap();
                 }
 
-                let helpers = Helpers::load(&*helpers).unwrap();
+                let helpers = Helpers::load(&common.helpers).unwrap();
                 for u in common.all_users() {
                     if common.verbose {
                         println!("Create user {}", u);
