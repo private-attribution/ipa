@@ -26,15 +26,15 @@ impl FromStr for UserIds {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some((start, end)) = s.split_once("..") {
             let start = if start.is_empty() { 0 } else { start.parse()? };
-            let (incl, end) = if let Some(e) = end.strip_prefix('=') {
-                (true, e.parse::<usize>()?)
+            let end = if let Some(e) = end.strip_prefix('=') {
+                e.parse::<usize>()? + 1
             } else {
-                (false, end.parse::<usize>()?)
+                end.parse::<usize>()?
             };
-            if start == end && !incl {
+            if start >= end {
                 warn!("Warning: user range {} is empty", s);
             }
-            Ok(Self(start..end + usize::from(incl)))
+            Ok(Self(start..end))
         } else {
             let v = s.parse()?;
             Ok(Self(v..v + 1))
@@ -103,7 +103,7 @@ impl Action {
 
                     let u = User::new(uid, helpers.matchkey_encryption_key());
                     if u.filename(&common.dir).exists() {
-                        warn!("File for user {} exists", uid);
+                        error!("File for user {} exists", uid);
                     } else {
                         u.save(&common.dir).unwrap();
                     }
