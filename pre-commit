@@ -17,7 +17,7 @@ hash cargo
 if [[ "$1" == "install" ]]; then
     hook="$root"/.git/hooks/pre-commit
     if [[ ! -e "$hook" ]]; then
-        ln -s ../../hooks/pre-commit "$hook"
+        ln -s ../../pre-commit "$hook"
         echo "Installed git pre-commit hook at $hook"
     else
         echo "Hook already installed"
@@ -26,7 +26,8 @@ if [[ "$1" == "install" ]]; then
 fi
 
 # Check formatting.
-trap 'git stash pop -q' EXIT
+stashfile=$(mktemp .pre-commit.stashXXXXXX)
+trap 'git stash pop -q; rm -f "$stashfile"' EXIT
 git stash push -k -u -q -m "pre-commit stash"
 if ! errors=($(cargo fmt -- --check -l)); then
     echo "Formatting errors found."
