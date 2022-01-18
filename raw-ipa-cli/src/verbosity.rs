@@ -1,3 +1,4 @@
+use log::info;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -14,7 +15,6 @@ pub struct Verbosity {
 impl Verbosity {
     pub fn setup_logging(&self) {
         stderrlog::new()
-            .module(module_path!())
             .quiet(self.quiet)
             .verbosity(self.verbose)
             .timestamp(stderrlog::Timestamp::Off)
@@ -24,5 +24,6 @@ impl Verbosity {
                     eprintln!("unable to configure logging: {:?}", e);
                 }
             });
+        info!("Logging setup at level {}", self.verbose);
     }
 }

@@ -48,6 +48,7 @@ struct CommonArgs {
     /// Configure logging.
     logging: Verbosity,
 
+    /// Database user agent directory.
     #[structopt(short = "d", long, global = true, default_value = "./db/ua")]
     dir: PathBuf,
 
@@ -58,7 +59,8 @@ struct CommonArgs {
         global = true,
         default_value = "0",
         multiple = true,
-        use_delimiter = true
+        use_delimiter = true,
+        number_of_values = 1
     )]
     users: Vec<UserIds>,
 
@@ -116,7 +118,7 @@ impl Action {
                     hex::encode(key.as_ref())
                 );
                 for uid in common.all_users() {
-                    trace!("Set matchkey for user {}", uid);
+                    debug!("Set matchkey for user {}", uid);
                     if let Ok(mut u) = User::load(&common.dir, uid) {
                         u.set_matchkey(origin, key.as_ref());
                         u.save(&common.dir).unwrap();
@@ -132,5 +134,6 @@ impl Action {
 fn main() {
     let args = Args::from_args();
     args.common.logging.setup_logging();
+    trace!("args: {:?}", args);
     args.action.dispatch(&args.common);
 }
