@@ -3,6 +3,7 @@ pub enum Error {
     AlreadyExists,
     Internal,
     InvalidId,
+    InvalidRole,
     NotEnoughHelpers,
     NotFound,
     TooManyHelpers,

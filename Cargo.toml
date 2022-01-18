@@ -1,9 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+  "raw-ipa-biz",
+  "raw-ipa-cli",
+  "raw-ipa-helper",
   "raw-ipa-lib",
   "raw-ipa-ua",
-  "raw-ipa-helper",
-  "raw-ipa-biz",
 ]
 

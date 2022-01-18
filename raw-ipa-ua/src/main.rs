@@ -1,19 +1,14 @@
-use hex::{self, FromHexError};
-use raw_ipa_lib::helpers::HelperLocations;
+use log::{debug, error, info, trace, warn};
+use raw_ipa_cli::{HelperArgs, HexArg, Verbosity};
 use raw_ipa_lib::{helpers::Helpers, user::User};
-use std::convert::TryFrom;
 use std::fs;
-use std::mem;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(
-    name = "raw-ipa-ua",
-    about = "User Agent functions for demonstration purposes"
-)]
+#[structopt(name = "raw-ipa-ua", about = "Functions for IPA User Agents")]
 struct Args {
     #[structopt(flatten)]
     common: CommonArgs,
@@ -37,7 +32,7 @@ impl FromStr for UserIds {
                 (false, end.parse::<usize>()?)
             };
             if start == end && !incl {
-                eprintln!("Warning: user range {} is empty", s);
+                warn!("Warning: user range {} is empty", s);
             }
             Ok(Self(start..end + usize::from(incl)))
         } else {
@@ -47,64 +42,11 @@ impl FromStr for UserIds {
     }
 }
 
-#[derive(Debug)]
-enum HexArgError {
-    Hex(FromHexError),
-    Length,
-}
-impl From<FromHexError> for HexArgError {
-    fn from(e: FromHexError) -> Self {
-        Self::Hex(e)
-    }
-}
-impl From<Vec<u8>> for HexArgError {
-    fn from(_: Vec<u8>) -> Self {
-        Self::Length
-    }
-}
-impl ToString for HexArgError {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Hex(e) => e.to_string(),
-            Self::Length => String::from("hex value is too short"),
-        }
-    }
-}
-
-struct HexArg32([u8; 32]);
-impl FromStr for HexArg32 {
-    type Err = HexArgError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let b = hex::decode(s)?;
-        let v = <[u8; 32]>::try_from(b)?;
-        Ok(Self(v))
-    }
-}
-
-impl AsRef<[u8; 32]> for HexArg32 {
-    fn as_ref(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for HexArg32 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.write_str(&hex::encode(self.0))
-    }
-}
-
-impl std::fmt::Debug for HexArg32 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        <Self as std::fmt::Display>::fmt(self, f)
-    }
-}
-
 #[derive(Debug, StructOpt)]
 struct CommonArgs {
-    #[structopt(short = "v", long, global = true, parse(from_occurrences))]
-    /// Be verbose.
-    verbose: u8,
+    #[structopt(flatten)]
+    /// Configure logging.
+    logging: Verbosity,
 
     #[structopt(short = "d", long, global = true, default_value = "./db/ua")]
     dir: PathBuf,
@@ -128,64 +70,6 @@ impl CommonArgs {
     fn all_users(&self) -> impl Iterator<Item = usize> + '_ {
         self.users.iter().flat_map(|r| r.0.clone())
     }
-
-    fn verbosity(&self, level: u8) -> bool {
-        self.verbose >= level
-    }
-}
-
-#[derive(Debug, StructOpt)]
-struct HelperArgs {
-    /// The directory that contains source event helper files.
-    #[structopt(
-        long,
-        visible_alias = "seh",
-        global = true,
-        default_value = "./db/helpers/seh"
-    )]
-    source_event_helper: PathBuf,
-
-    /// The directory that contains trigger event helper files.
-    #[structopt(
-        long,
-        visible_alias = "teh",
-        global = true,
-        default_value = "./db/helpers/teh"
-    )]
-    trigger_event_helper: PathBuf,
-
-    /// The directory that contains the first aggregation helper files.
-    #[structopt(
-        long,
-        visible_alias = "ah1",
-        global = true,
-        default_value = "./db/helpers/ah1"
-    )]
-    aggregation_helper1: PathBuf,
-
-    /// The directory that contains second aggregation helper files.
-    #[structopt(
-        long,
-        visible_alias = "ah2",
-        global = true,
-        default_value = "./db/helpers/ah2"
-    )]
-    aggregation_helper2: PathBuf,
-}
-
-impl HelperLocations for HelperArgs {
-    fn source_event(&self) -> &Path {
-        &self.source_event_helper
-    }
-    fn trigger_event(&self) -> &Path {
-        &self.trigger_event_helper
-    }
-    fn aggregation1(&self) -> &Path {
-        &self.aggregation_helper1
-    }
-    fn aggregation2(&self) -> &Path {
-        &self.aggregation_helper2
-    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -199,53 +83,45 @@ enum Action {
         origin: String,
 
         /// The value of the match key.
-        key: HexArg32,
+        key: HexArg<32>,
     },
 }
 
 impl Action {
     fn dispatch(&self, common: &CommonArgs) {
-        println!("v = {:?}", common.verbose);
-        if common.verbosity(1) {
-            println!("Running {:?}", self);
-        }
+        info!("Running {:?}", self);
         match self {
             Self::Setup => {
                 if !common.dir.is_dir() {
-                    println!("Create directory {}", common.dir.to_string_lossy());
+                    debug!("Create directory {}", common.dir.to_string_lossy());
                     fs::create_dir_all(&common.dir).unwrap();
                 }
 
                 let helpers = Helpers::load(&common.helpers).unwrap();
-                for u in common.all_users() {
-                    if common.verbosity(2) {
-                        println!("Create user {}", u);
-                    }
+                for uid in common.all_users() {
+                    trace!("Create user {}", uid);
 
-                    mem::drop(User::create(
-                        &common.dir,
-                        u,
-                        helpers.matchkey_encryption_key(),
-                    ));
+                    let u = User::new(uid, helpers.matchkey_encryption_key());
+                    if u.filename(&common.dir).exists() {
+                        warn!("File for user {} exists", uid);
+                    } else {
+                        u.save(&common.dir).unwrap();
+                    }
                 }
             }
             Self::SetMatchKey { origin, key } => {
-                if common.verbosity(1) {
-                    println!(
-                        "Set matchkey for origin {} to {}",
-                        origin,
-                        hex::encode(key.as_ref())
-                    );
-                }
-                for u in common.all_users() {
-                    if common.verbosity(2) {
-                        println!("Set matchkey for user {}", u);
-                    }
-                    if let Ok(mut u) = User::load(&common.dir, u) {
+                info!(
+                    "Set matchkey for origin {} to {}",
+                    origin,
+                    hex::encode(key.as_ref())
+                );
+                for uid in common.all_users() {
+                    trace!("Set matchkey for user {}", uid);
+                    if let Ok(mut u) = User::load(&common.dir, uid) {
                         u.set_matchkey(origin, key.as_ref());
                         u.save(&common.dir).unwrap();
                     } else {
-                        eprintln!("Error loading user {}, run setup?", u);
+                        error!("Error loading user {}, run setup?", uid);
                     }
                 }
             }
@@ -255,5 +131,6 @@ impl Action {
 
 fn main() {
     let args = Args::from_args();
+    args.common.logging.setup_logging();
     args.action.dispatch(&args.common);
 }

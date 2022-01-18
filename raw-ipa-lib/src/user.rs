@@ -17,36 +17,37 @@ pub struct User {
 }
 
 impl User {
-    #[cfg(feature = "enable-serde")]
-    fn filename(dir: &Path, id: usize) -> PathBuf {
+    fn filename_for(dir: &Path, uid: usize) -> PathBuf {
         let mut f = PathBuf::from(dir);
-        f.push(format!("{}.json", id));
+        f.push(format!("{}.json", uid));
         f
+    }
+
+    #[cfg(feature = "enable-serde")]
+    #[must_use]
+    pub fn filename(&self, dir: &Path) -> PathBuf {
+        Self::filename_for(dir, self.id)
     }
 
     /// # Errors
     /// When a file for the given ID already exists.
-    #[cfg(feature = "enable-serde")]
-    pub fn create(dir: &Path, id: usize, threshold_key: ThresholdEncryptionKey) -> Res<Self> {
-        let f = Self::filename(dir, id);
-        if f.exists() {
-            return Err(Error::AlreadyExists);
-        }
-        Ok(Self {
+    #[must_use]
+    pub fn new(id: usize, threshold_key: ThresholdEncryptionKey) -> Self {
+        Self {
             id,
             threshold_key,
             encrypted_match_keys: HashMap::default(),
-        })
+        }
     }
 
     /// # Errors
     /// When the file is invalid JSON, or when it contains a bad ID.
     #[cfg(feature = "enable-serde")]
-    pub fn load(dir: &Path, id: usize) -> Res<Self> {
-        let f = Self::filename(dir, id);
+    pub fn load(dir: &Path, uid: usize) -> Res<Self> {
+        let f = Self::filename_for(dir, uid);
         let s = fs::read_to_string(f)?;
         let v: Self = serde_json::from_str(&s)?;
-        if v.id != id {
+        if v.id != uid {
             return Err(Error::InvalidId);
         }
         Ok(v)
@@ -56,7 +57,7 @@ impl User {
     /// When the file cannot be written.
     #[cfg(feature = "enable-serde")]
     pub fn save(&self, dir: &Path) -> Res<()> {
-        let f = Self::filename(dir, self.id);
+        let f = self.filename(dir);
         fs::write(f, serde_json::to_string(self)?.as_bytes())?;
         Ok(())
     }

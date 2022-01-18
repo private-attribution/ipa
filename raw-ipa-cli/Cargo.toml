@@ -1,5 +1,5 @@
 [package]
-name = "raw-ipa-helper"
+name = "raw-ipa-cli"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 hex = "0.4"
 log = "0.4"
-raw-ipa-cli = { path = "../raw-ipa-cli" }
 raw-ipa-lib = { path = "../raw-ipa-lib", features = ["enable-serde"] }
 serde = "1.0"
 serde_json = "1.0"
+stderrlog = "0.5"
 structopt = "0.3"
