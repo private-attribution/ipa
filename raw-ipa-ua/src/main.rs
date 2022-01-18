@@ -31,12 +31,15 @@ impl FromStr for UserIds {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some((start, end)) = s.split_once("..") {
             let start = if start.is_empty() { 0 } else { start.parse()? };
-            let (incr, end) = if let Some(e) = end.strip_prefix('=') {
-                (true, e)
+            let (incl, end) = if let Some(e) = end.strip_prefix('=') {
+                (true, e.parse::<usize>()?)
             } else {
-                (false, end)
+                (false, end.parse::<usize>()?)
             };
-            Ok(Self(start..end.parse::<usize>()? + usize::from(incr)))
+            if start == end && !incl {
+                eprintln!("Warning: user range {} is empty", s);
+            }
+            Ok(Self(start..end + usize::from(incl)))
         } else {
             let v = s.parse()?;
             Ok(Self(v..v + 1))
@@ -92,10 +95,10 @@ struct CommonArgs {
     /// Be verbose.
     verbose: bool,
 
-    #[structopt(short = "d", long, global = true, default_value = concat!(env!("CARGO_MANIFEST_DIR"), "/../db/ua"))]
+    #[structopt(short = "d", long, global = true, default_value = "./db/ua")]
     dir: PathBuf,
 
-    /// The first user to configure.
+    /// The set of user IDs to configure.
     #[structopt(
         short = "u",
         long,
@@ -119,19 +122,19 @@ impl CommonArgs {
 #[derive(Debug, StructOpt)]
 struct HelperArgs {
     /// The directory that contains source event helper files.
-    #[structopt(long, alias = "seh", global = true)]
+    #[structopt(long, alias = "seh", global = true, default_value = "./db/helpers/seh")]
     source_event_helper: PathBuf,
 
     /// The directory that contains trigger event helper files.
-    #[structopt(long, alias = "teh", global = true)]
+    #[structopt(long, alias = "teh", global = true, default_value = "./db/helpers/teh")]
     trigger_event_helper: PathBuf,
 
     /// The directory that contains the first aggregation helper files.
-    #[structopt(long, alias = "ah1", global = true)]
+    #[structopt(long, alias = "ah1", global = true, default_value = "./db/helpers/ah1")]
     aggregation_helper1: PathBuf,
 
     /// The directory that contains second aggregation helper files.
-    #[structopt(long, alias = "ah2", global = true)]
+    #[structopt(long, alias = "ah2", global = true, default_value = "./db/helpers/ah2")]
     aggregation_helper2: PathBuf,
 }
 
@@ -202,9 +205,12 @@ impl Action {
                     if common.verbose {
                         println!("Set matchkey for user {}", u);
                     }
-                    let mut u = User::load(&common.dir, u).unwrap();
-                    u.set_matchkey(origin, key.as_ref());
-                    u.save(&common.dir).unwrap();
+                    if let Ok(mut u) = User::load(&common.dir, u) {
+                        u.set_matchkey(origin, key.as_ref());
+                        u.save(&common.dir).unwrap();
+                    } else {
+                        eprintln!("Error loading user {}, run setup?", u);
+                    }
                 }
             }
         }
