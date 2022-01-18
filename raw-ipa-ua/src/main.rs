@@ -66,12 +66,11 @@ impl ToString for HexArgError {
     fn to_string(&self) -> String {
         match self {
             Self::Hex(e) => e.to_string(),
-            Self::Length => String::from("invalid length"),
+            Self::Length => String::from("hex value is too short"),
         }
     }
 }
 
-#[derive(Debug)]
 struct HexArg32([u8; 32]);
 impl FromStr for HexArg32 {
     type Err = HexArgError;
@@ -89,11 +88,23 @@ impl AsRef<[u8; 32]> for HexArg32 {
     }
 }
 
+impl std::fmt::Display for HexArg32 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&hex::encode(self.0))
+    }
+}
+
+impl std::fmt::Debug for HexArg32 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        <Self as std::fmt::Display>::fmt(self, f)
+    }
+}
+
 #[derive(Debug, StructOpt)]
 struct CommonArgs {
-    #[structopt(short = "v", long, global = true)]
+    #[structopt(short = "v", long, global = true, parse(from_occurrences))]
     /// Be verbose.
-    verbose: bool,
+    verbose: u8,
 
     #[structopt(short = "d", long, global = true, default_value = "./db/ua")]
     dir: PathBuf,
@@ -117,24 +128,48 @@ impl CommonArgs {
     fn all_users(&self) -> impl Iterator<Item = usize> + '_ {
         self.users.iter().flat_map(|r| r.0.clone())
     }
+
+    fn verbosity(&self, level: u8) -> bool {
+        self.verbose >= level
+    }
 }
 
 #[derive(Debug, StructOpt)]
 struct HelperArgs {
     /// The directory that contains source event helper files.
-    #[structopt(long, alias = "seh", global = true, default_value = "./db/helpers/seh")]
+    #[structopt(
+        long,
+        visible_alias = "seh",
+        global = true,
+        default_value = "./db/helpers/seh"
+    )]
     source_event_helper: PathBuf,
 
     /// The directory that contains trigger event helper files.
-    #[structopt(long, alias = "teh", global = true, default_value = "./db/helpers/teh")]
+    #[structopt(
+        long,
+        visible_alias = "teh",
+        global = true,
+        default_value = "./db/helpers/teh"
+    )]
     trigger_event_helper: PathBuf,
 
     /// The directory that contains the first aggregation helper files.
-    #[structopt(long, alias = "ah1", global = true, default_value = "./db/helpers/ah1")]
+    #[structopt(
+        long,
+        visible_alias = "ah1",
+        global = true,
+        default_value = "./db/helpers/ah1"
+    )]
     aggregation_helper1: PathBuf,
 
     /// The directory that contains second aggregation helper files.
-    #[structopt(long, alias = "ah2", global = true, default_value = "./db/helpers/ah2")]
+    #[structopt(
+        long,
+        visible_alias = "ah2",
+        global = true,
+        default_value = "./db/helpers/ah2"
+    )]
     aggregation_helper2: PathBuf,
 }
 
@@ -170,7 +205,8 @@ enum Action {
 
 impl Action {
     fn dispatch(&self, common: &CommonArgs) {
-        if common.verbose {
+        println!("v = {:?}", common.verbose);
+        if common.verbosity(1) {
             println!("Running {:?}", self);
         }
         match self {
@@ -182,7 +218,7 @@ impl Action {
 
                 let helpers = Helpers::load(&common.helpers).unwrap();
                 for u in common.all_users() {
-                    if common.verbose {
+                    if common.verbosity(2) {
                         println!("Create user {}", u);
                     }
 
@@ -194,7 +230,7 @@ impl Action {
                 }
             }
             Self::SetMatchKey { origin, key } => {
-                if common.verbose {
+                if common.verbosity(1) {
                     println!(
                         "Set matchkey for origin {} to {}",
                         origin,
@@ -202,7 +238,7 @@ impl Action {
                     );
                 }
                 for u in common.all_users() {
-                    if common.verbose {
+                    if common.verbosity(2) {
                         println!("Set matchkey for user {}", u);
                     }
                     if let Ok(mut u) = User::load(&common.dir, u) {
