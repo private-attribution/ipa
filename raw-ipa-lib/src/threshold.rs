@@ -1,8 +1,6 @@
-#![allow(clippy::module_name_repetitions)]
-
 use hex::encode as hex;
 use rand_core::{CryptoRng, RngCore};
-pub use rust_elgamal::{Ciphertext, DecryptionKey, EncryptionKey, RistrettoPoint};
+pub use rust_elgamal::{Ciphertext, DecryptionKey as DKey, EncryptionKey as EKey, RistrettoPoint};
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
@@ -10,37 +8,41 @@ use std::ops::Deref;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct ThresholdEncryptionKey(EncryptionKey);
+pub struct EncryptionKey(EKey);
 
-impl ThresholdEncryptionKey {
+impl EncryptionKey {
     #[must_use]
-    pub fn new(k1: EncryptionKey, k2: EncryptionKey) -> Self {
-        Self(EncryptionKey::from(k1.as_ref() + k2.as_ref()))
+    pub fn new(keys: impl IntoIterator<Item = impl AsRef<RistrettoPoint>>) -> Self {
+        Self(EKey::from(
+            keys.into_iter()
+                .map(|k| *k.as_ref())
+                .sum::<RistrettoPoint>(),
+        ))
     }
 }
 
-impl Deref for ThresholdEncryptionKey {
-    type Target = EncryptionKey;
+impl Deref for EncryptionKey {
+    type Target = EKey;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Debug for ThresholdEncryptionKey {
+impl Debug for EncryptionKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.write_str("ThresholdEncryptionKey ")?;
+        f.write_str("EncryptionKey ")?;
         f.write_str(&hex(self.as_ref().compress().as_bytes()))
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct ThresholdDecryptionKey(DecryptionKey);
+pub struct DecryptionKey(DKey);
 
-impl ThresholdDecryptionKey {
+impl DecryptionKey {
     #[must_use]
     pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        Self(DecryptionKey::new(rng))
+        Self(DKey::new(rng))
     }
 
     #[must_use]
@@ -56,27 +58,27 @@ impl ThresholdDecryptionKey {
     }
 
     #[must_use]
-    pub fn encryption_key(&self) -> EncryptionKey {
+    pub fn encryption_key(&self) -> EKey {
         *self.0.encryption_key()
     }
 }
 
-impl From<DecryptionKey> for ThresholdDecryptionKey {
-    fn from(k: DecryptionKey) -> Self {
+impl From<DKey> for DecryptionKey {
+    fn from(k: DKey) -> Self {
         Self(k)
     }
 }
 
-impl Debug for ThresholdDecryptionKey {
+impl Debug for DecryptionKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.write_str("ThresholdDecryptionKey ")?;
+        f.write_str("DecryptionKey ")?;
         f.write_str(&hex(self.0.as_ref().to_bytes()))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ThresholdDecryptionKey, ThresholdEncryptionKey};
+    use super::{DecryptionKey, EncryptionKey};
     use hex::encode as hex;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
@@ -101,11 +103,11 @@ mod tests {
     }
 
     #[test]
-    fn threshold_encrypt() {
+    fn encrypt_decrypt() {
         let mut rng = StdRng::from_entropy();
-        let k1 = ThresholdDecryptionKey::new(&mut rng);
+        let k1 = DecryptionKey::new(&mut rng);
         dump_s("k1", k1.0.as_ref());
-        let k2 = ThresholdDecryptionKey::new(&mut rng);
+        let k2 = DecryptionKey::new(&mut rng);
         dump_s("k2", k2.0.as_ref());
 
         let m = RistrettoPoint::random(&mut rng);
@@ -130,8 +132,8 @@ mod tests {
         let c2_1 = c2.inner().1 + r * k1.encryption_key().as_ref();
         dump_p("c2_1", &c2_1);
 
-        // Now try the threshold encryption.
-        let tk = ThresholdEncryptionKey::new(k1.encryption_key(), k2.encryption_key());
+        // Now try the  encryption.
+        let tk = EncryptionKey::new(&[k1.encryption_key(), k2.encryption_key()]);
         dump_p("tk", tk.as_ref());
 
         let c = tk.encrypt_with(m, r);

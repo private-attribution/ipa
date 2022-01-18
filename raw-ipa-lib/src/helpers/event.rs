@@ -1,6 +1,6 @@
 use crate::error::{Error, Res};
 use crate::helpers::Helpers;
-use crate::threshold::ThresholdDecryptionKey;
+use crate::threshold::DecryptionKey as ThresholdDecryptionKey;
 use rand::thread_rng;
 use rust_elgamal::EncryptionKey;
 #[cfg(feature = "enable-serde")]

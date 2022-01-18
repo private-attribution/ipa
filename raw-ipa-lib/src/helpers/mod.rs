@@ -10,7 +10,7 @@ pub use event::{
 };
 
 use crate::error::{Error, Res};
-use crate::threshold::ThresholdEncryptionKey;
+use crate::threshold::EncryptionKey as ThresholdEncryptionKey;
 #[cfg(feature = "enable-serde")]
 use serde::Deserialize;
 use std::fmt::{Debug, Display, Error as FmtError, Formatter};
@@ -123,10 +123,10 @@ impl Helpers {
     pub fn load(locations: &impl HelperLocations) -> Res<Self> {
         let source_event_helper: PublicEventHelper = Self::load_public(locations.source_event())?;
         let trigger_event_helper: PublicEventHelper = Self::load_public(locations.trigger_event())?;
-        let threshold_key = ThresholdEncryptionKey::new(
+        let threshold_key = ThresholdEncryptionKey::new(&[
             source_event_helper.matchkey_encryption_key(),
             trigger_event_helper.matchkey_encryption_key(),
-        );
+        ]);
         let v = Self {
             source_event_helper,
             trigger_event_helper,

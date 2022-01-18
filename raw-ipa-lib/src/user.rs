@@ -1,5 +1,5 @@
 use crate::error::{Error, Res};
-use crate::threshold::{Ciphertext, RistrettoPoint, ThresholdEncryptionKey};
+use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use rand::thread_rng;
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
@@ -62,11 +62,15 @@ impl User {
         Ok(())
     }
 
-    pub fn set_matchkey(&mut self, origin: &str, match_key: &[u8; 32]) {
+    fn point_from_matchkey(mk: &[u8; 32]) -> RistrettoPoint {
         // Note that ristretto wants 64 bytes of input; also we don't know if the input is uniform.
         // TODO: Consider salting this input somehow (with the origin, perhaps).
         //       The caveat being that anything we do needs to be standardized.
-        let m = RistrettoPoint::hash_from_bytes::<Sha512>(&match_key[..]);
+        RistrettoPoint::hash_from_bytes::<Sha512>(&mk[..])
+    }
+
+    pub fn set_matchkey(&mut self, origin: &str, mk: &[u8; 32]) {
+        let m = Self::point_from_matchkey(mk);
         let emk = self.threshold_key.encrypt(m, &mut thread_rng());
         self.encrypted_match_keys.insert(String::from(origin), emk);
     }
@@ -84,5 +88,59 @@ impl User {
                 RistrettoPoint::random(&mut rng),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::User;
+    use crate::threshold::{
+        DecryptionKey as ThresholdDecryptionKey, EncryptionKey as ThresholdEncryptionKey,
+    };
+    use rand::thread_rng;
+
+    const MATCHKEY: &[u8; 32] = &[0; 32];
+    const ORIGIN: &str = "example.com";
+
+    #[test]
+    fn matchkey_two() {
+        let mut rng = thread_rng();
+        let d1 = ThresholdDecryptionKey::new(&mut rng);
+        let d2 = ThresholdDecryptionKey::new(&mut rng);
+        let tek = ThresholdEncryptionKey::new(&[d1.encryption_key(), d2.encryption_key()]);
+        let mut u = User::new(0, tek);
+        u.set_matchkey(ORIGIN, MATCHKEY);
+
+        let c = u.encrypt_matchkey(ORIGIN);
+        let partial1 = d1.threshold_decrypt(c);
+        let complete1 = d2.decrypt(partial1);
+        assert_eq!(complete1, User::point_from_matchkey(MATCHKEY));
+
+        // A redundant check that ordering doesn't matter.
+        let partial2 = d2.threshold_decrypt(c);
+        let complete2 = d1.decrypt(partial2);
+        assert_eq!(complete1, complete2);
+    }
+
+    #[test]
+    fn matchkey_random() {
+        let mut rng = thread_rng();
+        let d1 = ThresholdDecryptionKey::new(&mut rng);
+        let d2 = ThresholdDecryptionKey::new(&mut rng);
+        let tek = ThresholdEncryptionKey::new(&[d1.encryption_key(), d2.encryption_key()]);
+        let u = User::new(0, tek);
+
+        let c = u.encrypt_matchkey(ORIGIN);
+        let partial1 = d1.threshold_decrypt(c);
+        let complete1 = d2.decrypt(partial1);
+
+        assert_ne!(complete1, User::point_from_matchkey(MATCHKEY));
+
+        // A second matchkey is completely random and different again.
+        let c = u.encrypt_matchkey(ORIGIN);
+        let partial2 = d1.threshold_decrypt(c);
+        let complete2 = d2.decrypt(partial2);
+        assert_ne!(complete1, complete2);
+        assert_ne!(complete2, User::point_from_matchkey(MATCHKEY));
     }
 }
