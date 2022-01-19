@@ -194,4 +194,30 @@ mod tests {
         assert_eq!(complete1, complete2);
         assert_ne!(complete2, User::point_from_matchkey(MATCHKEY));
     }
+
+    #[test]
+    fn different_provider_fallback() {
+        const OTHER_PROVIDER: &str = "other.example";
+
+        let mut rng = thread_rng();
+        let d1 = ThresholdDecryptionKey::new(&mut rng);
+        let d2 = ThresholdDecryptionKey::new(&mut rng);
+        let tek = ThresholdEncryptionKey::new(&[d1.encryption_key(), d2.encryption_key()]);
+        let u = User::new(0, tek);
+        // no matchkeys set here
+
+        assert_ne!(PROVIDER, OTHER_PROVIDER);
+        let c1 = u.encrypt_matchkey(PROVIDER);
+        let c2 = u.encrypt_matchkey(OTHER_PROVIDER);
+        assert_ne!(c1, c2, "ciphertext should be different");
+
+        let partial1 = d1.threshold_decrypt(c1);
+        let complete1 = d2.decrypt(partial1);
+        assert_ne!(complete1, User::point_from_matchkey(MATCHKEY));
+
+        let partial2 = d1.threshold_decrypt(c2);
+        let complete2 = d2.decrypt(partial2);
+        assert_ne!(complete1, complete2);
+        assert_ne!(complete2, User::point_from_matchkey(MATCHKEY));
+    }
 }

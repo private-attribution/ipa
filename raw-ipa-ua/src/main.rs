@@ -49,7 +49,7 @@ struct CommonArgs {
     logging: Verbosity,
 
     /// Database user agent directory.
-    #[structopt(short = "d", long, global = true, default_value = "./db/ua")]
+    #[structopt(short = "d", long, global = true, default_value = "./db/users")]
     dir: PathBuf,
 
     /// The set of user IDs to configure.
