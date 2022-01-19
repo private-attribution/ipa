@@ -6,3 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+hex = "0.4"
+log = "0.4"
+raw-ipa-cli = { path = "../raw-ipa-cli" }
+raw-ipa-lib = { path = "../raw-ipa-lib", features = ["enable-serde"] }
+serde = "1.0"
+serde_json = "1.0"
+structopt = "0.3"
