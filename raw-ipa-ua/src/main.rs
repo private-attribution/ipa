@@ -1,5 +1,5 @@
 use log::{debug, error, info, trace, warn};
-use raw_ipa_cli::{HelperArgs, HexArg, Verbosity};
+use raw_ipa_cli::{HelperArgs, StringN, Verbosity};
 use raw_ipa_lib::{helpers::Helpers, user::User};
 use std::fs;
 use std::ops::Range;
@@ -79,13 +79,16 @@ impl CommonArgs {
 enum Action {
     /// Generate configuration for client(s).
     Setup,
-    /// Set a match key for a particular origin/domain.
+    /// Set a match key for a particular provider.
     SetMatchKey {
-        /// The origin that is setting the match key.
-        origin: String,
+        /// The matchkey provider.
+        ///
+        /// Though we ultimately care about the form of this data, these tools don't care.
+        /// Just be consistent.
+        provider: StringN<255>,
 
-        /// The value of the match key.
-        key: HexArg<32>,
+        /// The value of the matchkey.
+        matchkey: StringN<255>,
     },
 }
 
@@ -111,16 +114,12 @@ impl Action {
                     }
                 }
             }
-            Self::SetMatchKey { origin, key } => {
-                info!(
-                    "Set matchkey for origin {} to {}",
-                    origin,
-                    hex::encode(key.as_ref())
-                );
+            Self::SetMatchKey { provider, matchkey } => {
+                info!("Set matchkey for provider '{}' to '{}'", provider, matchkey,);
                 for uid in common.all_users() {
                     debug!("Set matchkey for user {}", uid);
                     if let Ok(mut u) = User::load(&common.dir, uid) {
-                        u.set_matchkey(origin, key.as_ref());
+                        u.set_matchkey(provider, matchkey);
                         u.save(&common.dir).unwrap();
                     } else {
                         error!("Error loading user {}, run setup?", uid);

@@ -1,6 +1,7 @@
 use crate::error::{Error, Res};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
+use log::trace;
 use rand::{thread_rng, RngCore};
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
@@ -68,18 +69,46 @@ impl User {
         Ok(())
     }
 
-    fn point_from_matchkey(mk: &[u8; 32]) -> RistrettoPoint {
-        // Note that ristretto wants 64 bytes of input; also we don't know if the input is uniform.
-        // TODO: Consider salting this input somehow (with the provider, perhaps).
-        //       The caveat being that anything we do needs to be standardized.
-        RistrettoPoint::hash_from_bytes::<Sha512>(&mk[..])
+    /// This part ultimately needs to be standardized.
+    /// This should do for now in terms of getting a good input.
+    fn point_from_matchkey(provider: &str, mk: &[u8]) -> RistrettoPoint {
+        let mut input = Vec::with_capacity(2 + provider.len() + mk.len());
+        input.push(u8::try_from(provider.len()).unwrap());
+        input.extend_from_slice(provider.as_bytes());
+        input.push(u8::try_from(mk.len()).unwrap());
+        input.extend_from_slice(mk);
+        RistrettoPoint::hash_from_bytes::<Sha512>(&input)
     }
 
-    pub fn set_matchkey(&mut self, provider: &str, mk: &[u8; 32]) {
-        let m = Self::point_from_matchkey(mk);
+    pub fn set_matchkey(&mut self, provider: impl AsRef<str>, mk: impl AsRef<str>) {
+        let m = Self::point_from_matchkey(provider.as_ref(), mk.as_ref().as_bytes());
         let emk = self.threshold_key.encrypt(m, &mut thread_rng());
-        self.encrypted_match_keys
-            .insert(String::from(provider), emk);
+        trace!("set matchkey for '{}' to '{:?}'", provider.as_ref(), emk);
+        if let Some(old) = self
+            .encrypted_match_keys
+            .insert(String::from(provider.as_ref()), emk)
+        {
+            trace!("old matchkey for '{}' was '{:?}'", provider.as_ref(), old);
+        }
+    }
+
+    /// Deterministically generate a fallback matchkey for a provider that
+    /// hasn't set one.  This uses the fallback secret (`fallback_prk`) generated
+    /// when the user was created.
+    fn fallback_matchkey(&self, provider: &str) -> Ciphertext {
+        let p = provider.as_bytes();
+        // This method of generating `info` doesn't need to be standardized.
+        // We're just treating HKDF as a PRG.
+        let mut info = Vec::with_capacity(256);
+        info.push(u8::try_from(p.len()).expect("provider names should be <256 bytes"));
+        info.extend_from_slice(p);
+        let mut mk = [0; 32];
+        Hkdf::<Sha512>::from_prk(&self.fallback_prk)
+            .unwrap() // prk came from Hkdf<Sha512>
+            .expand(&info, &mut mk)
+            .unwrap(); // length is valid
+        let m = Self::point_from_matchkey(provider, &mk);
+        self.threshold_key.encrypt(m, &mut thread_rng())
     }
 
     /// Create an encrypted matchkey for the identified provider.
@@ -93,23 +122,7 @@ impl User {
             .encrypted_match_keys
             .get(provider)
             .copied()
-            .unwrap_or_else(|| {
-                let p_bytes = provider.as_bytes();
-                // This method of generating `info` doesn't need to be standardized.
-                // We're just treating HKDF as a PRG.
-                let mut info = Vec::with_capacity(256);
-                info.push(
-                    u8::try_from(p_bytes.len()).expect("provider names should be <256 bytes"),
-                );
-                info.extend_from_slice(p_bytes);
-                let mut mk = [0; 32];
-                Hkdf::<Sha512>::from_prk(&self.fallback_prk)
-                    .unwrap() // prk came from Hkdf<Sha512>
-                    .expand(&info, &mut mk)
-                    .unwrap(); // length is valid
-                let m = Self::point_from_matchkey(&mk);
-                self.threshold_key.encrypt(m, &mut thread_rng())
-            });
+            .unwrap_or_else(|| self.fallback_matchkey(provider));
         self.threshold_key.rerandomise(emk, &mut rng)
     }
 }
@@ -119,11 +132,16 @@ mod tests {
     use super::User;
     use crate::threshold::{
         DecryptionKey as ThresholdDecryptionKey, EncryptionKey as ThresholdEncryptionKey,
+        RistrettoPoint,
     };
     use rand::thread_rng;
 
-    const MATCHKEY: &[u8; 32] = &[0; 32];
+    const MATCHKEY: &str = "matchkey";
     const PROVIDER: &str = "example.com";
+
+    fn default_matchkey() -> RistrettoPoint {
+        User::point_from_matchkey(PROVIDER, MATCHKEY.as_bytes())
+    }
 
     /// Match keys can be decrypted in any order.
     #[test]
@@ -138,7 +156,7 @@ mod tests {
         let c = u.encrypt_matchkey(PROVIDER);
         let partial1 = d1.threshold_decrypt(c);
         let complete1 = d2.decrypt(partial1);
-        assert_eq!(complete1, User::point_from_matchkey(MATCHKEY));
+        assert_eq!(complete1, default_matchkey());
 
         // A redundant check that ordering doesn't matter.
         let partial2 = d2.threshold_decrypt(c);
@@ -162,12 +180,12 @@ mod tests {
 
         let partial1 = d1.threshold_decrypt(c1);
         let complete1 = d2.decrypt(partial1);
-        assert_eq!(complete1, User::point_from_matchkey(MATCHKEY));
+        assert_eq!(complete1, default_matchkey());
 
         let partial2 = d1.threshold_decrypt(c2);
         let complete2 = d2.decrypt(partial2);
         assert_eq!(complete1, complete2);
-        assert_eq!(complete2, User::point_from_matchkey(MATCHKEY));
+        assert_eq!(complete2, default_matchkey());
     }
 
     /// When no matchkey is set the encrypted matchkey appears different,
@@ -187,12 +205,12 @@ mod tests {
 
         let partial1 = d1.threshold_decrypt(c1);
         let complete1 = d2.decrypt(partial1);
-        assert_ne!(complete1, User::point_from_matchkey(MATCHKEY));
+        assert_ne!(complete1, default_matchkey());
 
         let partial2 = d1.threshold_decrypt(c2);
         let complete2 = d2.decrypt(partial2);
         assert_eq!(complete1, complete2);
-        assert_ne!(complete2, User::point_from_matchkey(MATCHKEY));
+        assert_ne!(complete2, default_matchkey());
     }
 
     #[test]
@@ -213,11 +231,14 @@ mod tests {
 
         let partial1 = d1.threshold_decrypt(c1);
         let complete1 = d2.decrypt(partial1);
-        assert_ne!(complete1, User::point_from_matchkey(MATCHKEY));
+        assert_ne!(complete1, default_matchkey());
 
         let partial2 = d1.threshold_decrypt(c2);
         let complete2 = d2.decrypt(partial2);
         assert_ne!(complete1, complete2);
-        assert_ne!(complete2, User::point_from_matchkey(MATCHKEY));
+        assert_ne!(
+            complete2,
+            User::point_from_matchkey(OTHER_PROVIDER, MATCHKEY.as_bytes())
+        );
     }
 }
