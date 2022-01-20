@@ -54,9 +54,9 @@ impl Helper {
     #[cfg(feature = "enable-serde")]
     pub fn save(&self, dir: &Path) -> Res<()> {
         let f = Helpers::filename(dir, true);
-        fs::write(f, serde_json::to_string(&self.public)?.as_bytes())?;
+        fs::write(f, serde_json::to_string_pretty(&self.public)?.as_bytes())?;
         let f = Helpers::filename(dir, false);
-        fs::write(f, serde_json::to_string(&self)?.as_bytes())?;
+        fs::write(f, serde_json::to_string_pretty(&self)?.as_bytes())?;
         Ok(())
     }
 }

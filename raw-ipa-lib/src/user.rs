@@ -66,7 +66,7 @@ impl User {
     #[cfg(feature = "enable-serde")]
     pub fn save(&self, dir: &Path) -> Res<()> {
         let f = self.filename(dir);
-        fs::write(f, serde_json::to_string(self)?.as_bytes())?;
+        fs::write(f, serde_json::to_string_pretty(self)?.as_bytes())?;
         Ok(())
     }
 
