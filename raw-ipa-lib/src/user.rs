@@ -1,3 +1,4 @@
+#[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
@@ -19,6 +20,7 @@ pub struct User {
 }
 
 impl User {
+    #[cfg(feature = "enable-serde")]
     fn filename_for(dir: &Path, uid: usize) -> PathBuf {
         let mut f = PathBuf::from(dir);
         f.push(format!("{}.json", uid));

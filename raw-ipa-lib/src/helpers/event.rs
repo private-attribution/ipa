@@ -1,4 +1,6 @@
+#[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
+#[cfg(feature = "enable-serde")]
 use crate::helpers::Helpers;
 use crate::threshold::DecryptionKey as ThresholdDecryptionKey;
 use rand::thread_rng;

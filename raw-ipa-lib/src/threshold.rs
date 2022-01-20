@@ -80,8 +80,7 @@ impl Debug for DecryptionKey {
 mod tests {
     use super::{DecryptionKey, EncryptionKey};
     use hex::encode as hex;
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
+    use rand::thread_rng;
     use rust_elgamal::{Ciphertext, RistrettoPoint, Scalar};
 
     fn dump_c(n: &str, c: &Ciphertext) {
@@ -104,7 +103,7 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt() {
-        let mut rng = StdRng::from_entropy();
+        let mut rng = thread_rng();
         let k1 = DecryptionKey::new(&mut rng);
         dump_s("k1", k1.0.as_ref());
         let k2 = DecryptionKey::new(&mut rng);

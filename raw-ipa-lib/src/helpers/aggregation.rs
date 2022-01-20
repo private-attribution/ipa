@@ -1,4 +1,6 @@
+#[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
+#[cfg(feature = "enable-serde")]
 use crate::helpers::Helpers;
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
@@ -23,7 +25,7 @@ pub struct PublicHelper {
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Helper {
-    #[serde(flatten)]
+    #[cfg_attr(feature = "enable-serde", serde(flatten))]
     public: PublicHelper,
 }
 

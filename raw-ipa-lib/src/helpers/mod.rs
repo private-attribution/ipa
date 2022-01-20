@@ -9,11 +9,13 @@ pub use event::{
     Helper as EventHelper, PublicHelper as PublicEventHelper, Role as EventHelperRole,
 };
 
+#[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
 use crate::threshold::EncryptionKey as ThresholdEncryptionKey;
 #[cfg(feature = "enable-serde")]
 use serde::Deserialize;
 use std::fmt::{Debug, Display, Error as FmtError, Formatter};
+#[cfg(feature = "enable-serde")]
 use std::fs;
 #[cfg(feature = "enable-serde")]
 use std::ops::Index;
