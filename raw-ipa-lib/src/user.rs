@@ -83,12 +83,22 @@ impl User {
     pub fn set_matchkey(&mut self, provider: impl AsRef<str>, mk: impl AsRef<str>) {
         let m = Self::point_from_matchkey(provider.as_ref(), mk.as_ref().as_bytes());
         let emk = self.threshold_key.encrypt(m, &mut thread_rng());
-        trace!("set matchkey for '{}' to '{:?}'", provider.as_ref(), emk);
+        trace!(
+            "User {}: set matchkey for '{}' to '{:?}'",
+            self.id,
+            provider.as_ref(),
+            emk
+        );
         if let Some(old) = self
             .encrypted_match_keys
             .insert(String::from(provider.as_ref()), emk)
         {
-            trace!("old matchkey for '{}' was '{:?}'", provider.as_ref(), old);
+            trace!(
+                "User {}: old matchkey for '{}' was '{:?}'",
+                self.id,
+                provider.as_ref(),
+                old
+            );
         }
     }
 
