@@ -9,6 +9,7 @@ use sha2::Sha512;
 use std::collections::HashMap;
 #[cfg(feature = "enable-serde")]
 use std::fs;
+#[cfg(feature = "enable-serde")]
 use std::path::{Path, PathBuf};
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
