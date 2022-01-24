@@ -6,10 +6,8 @@ use crate::threshold::DecryptionKey as ThresholdDecryptionKey;
 use crate::user::DecryptedEventReport;
 use crate::user::EventReport;
 use rand::thread_rng;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rust_elgamal::{Ciphertext, EncryptionKey, RistrettoPoint, Scalar, GENERATOR_POINT};
-pub use rust_elgamal::{Ciphertext, EncryptionKey, RistrettoPoint, Scalar, GENERATOR_POINT};
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enable-serde")]
