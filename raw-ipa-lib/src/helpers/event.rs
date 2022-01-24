@@ -1,17 +1,13 @@
-#[cfg(feature = "enable-serde")]
-use std::collections::HashMap;
 use crate::error::{Error, Res};
 use crate::helpers::Helpers;
+use crate::report::{DecryptedEventReport, EventReport};
 use crate::threshold::DecryptionKey as ThresholdDecryptionKey;
-use crate::user::DecryptedEventReport;
-use crate::user::EventReport;
 use rand::thread_rng;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-use rust_elgamal::{Ciphertext, EncryptionKey, RistrettoPoint, Scalar, GENERATOR_POINT};
-pub use rust_elgamal::{Ciphertext, EncryptionKey, RistrettoPoint, Scalar, GENERATOR_POINT};
+use rust_elgamal::EncryptionKey;
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "enable-serde")]
+use std::collections::HashMap;
 #[cfg(feature = "enable-serde")]
 use std::fs;
 use std::ops::{Deref, DerefMut};
@@ -85,17 +81,25 @@ impl Helper {
     }
 
     pub fn threshold_decrypt_event(&self, r: EventReport) -> EventReport {
-        let partially_decrypted_matchkeys: HashMap<_, _> = r.encrypted_match_keys.iter().map(
-            |(p, emk)| (p.to_string(), self.matchkey_decrypt.threshold_decrypt(*emk))
-        ).collect();
-        EventReport{encrypted_match_keys: partially_decrypted_matchkeys}
+        let partially_decrypted_matchkeys: HashMap<_, _> = r
+            .encrypted_match_keys
+            .iter()
+            .map(|(p, emk)| (p.to_string(), self.matchkey_decrypt.threshold_decrypt(*emk)))
+            .collect();
+        EventReport {
+            encrypted_match_keys: partially_decrypted_matchkeys,
+        }
     }
 
     pub fn decrypt_event(&self, r: EventReport) -> DecryptedEventReport {
-        let partially_decrypted_matchkeys: HashMap<_, _> = r.encrypted_match_keys.iter().map(
-            |(p, emk)| (p.to_string(), self.matchkey_decrypt.decrypt(*emk))
-        ).collect();
-        DecryptedEventReport{decrypted_match_keys: partially_decrypted_matchkeys}
+        let partially_decrypted_matchkeys: HashMap<_, _> = r
+            .encrypted_match_keys
+            .iter()
+            .map(|(p, emk)| (p.to_string(), self.matchkey_decrypt.decrypt(*emk)))
+            .collect();
+        DecryptedEventReport {
+            decrypted_match_keys: partially_decrypted_matchkeys,
+        }
     }
 }
 
@@ -115,27 +119,25 @@ impl DerefMut for Helper {
 #[cfg(test)]
 mod tests {
     use super::{Helper, Role};
+    use crate::threshold::EncryptionKey as ThresholdEncryptionKey;
     use crate::user::User;
-    use crate::user::EventReport;
-        use crate::threshold::{
-        DecryptionKey as ThresholdDecryptionKey, EncryptionKey as ThresholdEncryptionKey,
-    };
-    pub use rust_elgamal::{Ciphertext, EncryptionKey, RistrettoPoint, Scalar, GENERATOR_POINT};
-    use rand::thread_rng;
 
     #[test]
     fn test_the_basics() {
-        let h_se = Helper::new(Role::Source);
-        let h_te = Helper::new(Role::Trigger);
-
-        let tek = ThresholdEncryptionKey::new(&[h_se.public.matchkey_encrypt, h_te.public.matchkey_encrypt]);
-
         const PROVIDER_1: &str = "social.example";
         const PROVIDER_2: &str = "news.example";
         const PROVIDER_3: &str = "email.example";
         const PROVIDER_4: &str = "game.example";
 
         const MATCHING_MATCHKEY: &str = "12345678";
+
+        let h_se = Helper::new(Role::Source);
+        let h_te = Helper::new(Role::Trigger);
+
+        let tek = ThresholdEncryptionKey::new(&[
+            h_se.public.matchkey_encrypt,
+            h_te.public.matchkey_encrypt,
+        ]);
 
         let mut u123 = User::new(123, tek);
         u123.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);

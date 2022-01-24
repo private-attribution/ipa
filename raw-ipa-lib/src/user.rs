@@ -1,5 +1,6 @@
 #[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
+use crate::report::{DecryptedEventReport, EventReport};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
 use log::trace;
@@ -18,23 +19,6 @@ pub struct User {
     threshold_key: ThresholdEncryptionKey,
     encrypted_match_keys: HashMap<String, Ciphertext>,
     fallback_prk: Vec<u8>,
-}
-
-pub struct EventReport {
-    pub encrypted_match_keys: HashMap<String, Ciphertext>,
-    //event_generating_biz: String,
-    //ad_destination_biz: String,
-    //h3_secret_shares: EncryptedSecretShares,
-    //h4_secret_shares: EncryptedSecretShares,
-    //range_proofs: ,
-}
-
-pub struct DecryptedEventReport {
-    pub decrypted_match_keys: HashMap<String, RistrettoPoint>,
-    //event_generating_biz: String,
-    //ad_destination_biz: String,
-    //h3_secret_shares: EncryptedSecretShares,
-    //h4_secret_shares: EncryptedSecretShares,
 }
 
 impl User {
@@ -156,8 +140,13 @@ impl User {
     }
 
     pub fn generate_event_report(&self, providers: &[&str]) -> EventReport {
-        let m: HashMap<_, _> = providers.iter().map(|p| (p.to_string(), self.encrypt_matchkey(p))).collect();
-        EventReport{encrypted_match_keys: m}
+        let m: HashMap<_, _> = providers
+            .iter()
+            .map(|p| (p.to_string(), self.encrypt_matchkey(p)))
+            .collect();
+        EventReport {
+            encrypted_match_keys: m,
+        }
     }
 }
 
@@ -305,31 +294,71 @@ mod tests {
         let r2 = u2.generate_event_report(&providers);
 
         // None combination of encrypted match keys should match
-        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_1), r2.encrypted_match_keys.get(PROVIDER_1));
-        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_1), r2.encrypted_match_keys.get(PROVIDER_2));
-        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_1), r2.encrypted_match_keys.get(PROVIDER_3));
+        assert_ne!(
+            r1.encrypted_match_keys.get(PROVIDER_1),
+            r2.encrypted_match_keys.get(PROVIDER_1)
+        );
+        assert_ne!(
+            r1.encrypted_match_keys.get(PROVIDER_1),
+            r2.encrypted_match_keys.get(PROVIDER_2)
+        );
+        assert_ne!(
+            r1.encrypted_match_keys.get(PROVIDER_1),
+            r2.encrypted_match_keys.get(PROVIDER_3)
+        );
 
-        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_2), r2.encrypted_match_keys.get(PROVIDER_2));
-        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_2), r2.encrypted_match_keys.get(PROVIDER_3));
+        assert_ne!(
+            r1.encrypted_match_keys.get(PROVIDER_2),
+            r2.encrypted_match_keys.get(PROVIDER_2)
+        );
+        assert_ne!(
+            r1.encrypted_match_keys.get(PROVIDER_2),
+            r2.encrypted_match_keys.get(PROVIDER_3)
+        );
 
-        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_3), r2.encrypted_match_keys.get(PROVIDER_3));
+        assert_ne!(
+            r1.encrypted_match_keys.get(PROVIDER_3),
+            r2.encrypted_match_keys.get(PROVIDER_3)
+        );
 
-        let fully_decrypted_r1: HashMap<_, _> = r1.encrypted_match_keys.iter().map(
-            |(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk)))
-        ).collect();
+        let fully_decrypted_r1: HashMap<_, _> = r1
+            .encrypted_match_keys
+            .iter()
+            .map(|(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk))))
+            .collect();
 
-        let fully_decrypted_r2: HashMap<_, _> = r2.encrypted_match_keys.iter().map(
-            |(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk)))
-        ).collect();
+        let fully_decrypted_r2: HashMap<_, _> = r2
+            .encrypted_match_keys
+            .iter()
+            .map(|(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk))))
+            .collect();
 
         // Once fully decrypted, only one combination should match
-        assert_eq!(fully_decrypted_r1.get(PROVIDER_1), fully_decrypted_r2.get(PROVIDER_1));
-        assert_ne!(fully_decrypted_r1.get(PROVIDER_1), fully_decrypted_r2.get(PROVIDER_2));
-        assert_ne!(fully_decrypted_r1.get(PROVIDER_1), fully_decrypted_r2.get(PROVIDER_3));
+        assert_eq!(
+            fully_decrypted_r1.get(PROVIDER_1),
+            fully_decrypted_r2.get(PROVIDER_1)
+        );
+        assert_ne!(
+            fully_decrypted_r1.get(PROVIDER_1),
+            fully_decrypted_r2.get(PROVIDER_2)
+        );
+        assert_ne!(
+            fully_decrypted_r1.get(PROVIDER_1),
+            fully_decrypted_r2.get(PROVIDER_3)
+        );
 
-        assert_ne!(fully_decrypted_r1.get(PROVIDER_2), fully_decrypted_r2.get(PROVIDER_2));
-        assert_ne!(fully_decrypted_r1.get(PROVIDER_2), fully_decrypted_r2.get(PROVIDER_3));
+        assert_ne!(
+            fully_decrypted_r1.get(PROVIDER_2),
+            fully_decrypted_r2.get(PROVIDER_2)
+        );
+        assert_ne!(
+            fully_decrypted_r1.get(PROVIDER_2),
+            fully_decrypted_r2.get(PROVIDER_3)
+        );
 
-        assert_ne!(fully_decrypted_r1.get(PROVIDER_3), fully_decrypted_r2.get(PROVIDER_3));
+        assert_ne!(
+            fully_decrypted_r1.get(PROVIDER_3),
+            fully_decrypted_r2.get(PROVIDER_3)
+        );
     }
 }
