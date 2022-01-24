@@ -20,6 +20,29 @@ pub struct User {
     fallback_prk: Vec<u8>,
 }
 
+pub struct EventReport {
+    pub encrypted_match_keys: HashMap<String, Ciphertext>,
+    //event_generating_biz: String,
+    //ad_destination_biz: String,
+    //h3_secret_shares: EncryptedSecretShares,
+    //h4_secret_shares: EncryptedSecretShares,
+    //range_proofs: ,
+}
+
+pub struct DecryptedEventReport {
+    pub decrypted_match_keys: HashMap<String, RistrettoPoint>,
+    //event_generating_biz: String,
+    //ad_destination_biz: String,
+    //h3_secret_shares: EncryptedSecretShares,
+    //h4_secret_shares: EncryptedSecretShares,
+}
+
+impl EventReport {
+    fn from_encrypted_match_keys(m: HashMap<String, Ciphertext>) -> EventReport {
+        Self {encrypted_match_keys: m}
+    }
+}
+
 impl User {
     #[cfg(feature = "enable-serde")]
     fn filename_for(dir: &Path, uid: usize) -> PathBuf {
@@ -137,6 +160,13 @@ impl User {
             .unwrap_or_else(|| self.fallback_matchkey(provider));
         self.threshold_key.rerandomise(emk, &mut rng)
     }
+
+    pub fn generate_event_report(&self, providers: &[&str]) -> EventReport {
+        let m: HashMap<_, _> = providers.iter().map(|p| (p.to_string(), self.encrypt_matchkey(p))).collect();
+        println!("map: {:?}", m);
+
+        EventReport::from_encrypted_match_keys(m)
+    }
 }
 
 #[cfg(test)]
@@ -147,6 +177,7 @@ mod tests {
         RistrettoPoint,
     };
     use rand::thread_rng;
+    use std::collections::HashMap;
 
     const MATCHKEY: &str = "matchkey";
     const PROVIDER: &str = "example.com";
@@ -252,5 +283,59 @@ mod tests {
             complete2,
             User::point_from_matchkey(OTHER_PROVIDER, MATCHKEY.as_bytes())
         );
+    }
+
+    #[test]
+    fn test_generate_event_report() {
+        const PROVIDER_1: &str = "social.example";
+        const PROVIDER_2: &str = "email.example";
+        const PROVIDER_3: &str = "news.example";
+        const MATCHING_MATCHKEY: &str = "this_one_matches";
+
+        let mut rng = thread_rng();
+        let d1 = ThresholdDecryptionKey::new(&mut rng);
+        let d2 = ThresholdDecryptionKey::new(&mut rng);
+        let tek = ThresholdEncryptionKey::new(&[d1.encryption_key(), d2.encryption_key()]);
+
+        let providers = [PROVIDER_1, PROVIDER_2, PROVIDER_3];
+
+        let mut u1 = User::new(0, tek);
+        u1.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
+        u1.set_matchkey(PROVIDER_2, "something_random");
+        u1.set_matchkey(PROVIDER_3, "also_very_random");
+
+        let mut u2 = User::new(1, tek);
+        u2.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
+        u2.set_matchkey(PROVIDER_2, "does_not_match");
+        u2.set_matchkey(PROVIDER_3, "also_does_not_match");
+
+        let r1 = u1.generate_event_report(&providers);
+        let r2 = u2.generate_event_report(&providers);
+
+        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_1), r2.encrypted_match_keys.get(PROVIDER_1));
+        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_1), r2.encrypted_match_keys.get(PROVIDER_2));
+        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_1), r2.encrypted_match_keys.get(PROVIDER_3));
+
+        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_2), r2.encrypted_match_keys.get(PROVIDER_2));
+        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_2), r2.encrypted_match_keys.get(PROVIDER_3));
+
+        assert_ne!(r1.encrypted_match_keys.get(PROVIDER_3), r2.encrypted_match_keys.get(PROVIDER_3));
+
+        let fully_decrypted_r1: HashMap<_, _> = r1.encrypted_match_keys.iter().map(
+            |(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk)))
+        ).collect();
+
+        let fully_decrypted_r2: HashMap<_, _> = r2.encrypted_match_keys.iter().map(
+            |(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk)))
+        ).collect();
+
+        assert_eq!(fully_decrypted_r1.get(PROVIDER_1), fully_decrypted_r2.get(PROVIDER_1));
+        assert_ne!(fully_decrypted_r1.get(PROVIDER_1), fully_decrypted_r2.get(PROVIDER_2));
+        assert_ne!(fully_decrypted_r1.get(PROVIDER_1), fully_decrypted_r2.get(PROVIDER_3));
+
+        assert_ne!(fully_decrypted_r1.get(PROVIDER_2), fully_decrypted_r2.get(PROVIDER_2));
+        assert_ne!(fully_decrypted_r1.get(PROVIDER_2), fully_decrypted_r2.get(PROVIDER_3));
+
+        assert_ne!(fully_decrypted_r1.get(PROVIDER_3), fully_decrypted_r2.get(PROVIDER_3));
     }
 }
