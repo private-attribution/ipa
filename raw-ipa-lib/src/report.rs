@@ -70,6 +70,7 @@ impl From<HashMap<String, RistrettoPoint>> for DecryptedMatchkeys {
 }
 
 #[allow(clippy::module_name_repetitions)]
+#[derive(Debug)]
 pub struct EventReport {
     pub encrypted_match_keys: EncryptedMatchkeys,
     //event_generating_biz: String,
@@ -83,12 +84,6 @@ impl EventReport {
     #[must_use]
     pub fn matchkeys(&self) -> &EncryptedMatchkeys {
         &self.encrypted_match_keys
-    }
-}
-
-impl fmt::Debug for EventReport {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "encrypted_match_keys: {:?}", self.encrypted_match_keys)
     }
 }
 
