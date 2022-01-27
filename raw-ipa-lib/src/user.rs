@@ -294,32 +294,7 @@ mod tests {
         let r2 = u2.generate_event_report(&providers);
 
         // None combination of encrypted match keys should match
-        assert_ne!(
-            r1.encrypted_match_keys.get(PROVIDER_1),
-            r2.encrypted_match_keys.get(PROVIDER_1)
-        );
-        assert_ne!(
-            r1.encrypted_match_keys.get(PROVIDER_1),
-            r2.encrypted_match_keys.get(PROVIDER_2)
-        );
-        assert_ne!(
-            r1.encrypted_match_keys.get(PROVIDER_1),
-            r2.encrypted_match_keys.get(PROVIDER_3)
-        );
-
-        assert_ne!(
-            r1.encrypted_match_keys.get(PROVIDER_2),
-            r2.encrypted_match_keys.get(PROVIDER_2)
-        );
-        assert_ne!(
-            r1.encrypted_match_keys.get(PROVIDER_2),
-            r2.encrypted_match_keys.get(PROVIDER_3)
-        );
-
-        assert_ne!(
-            r1.encrypted_match_keys.get(PROVIDER_3),
-            r2.encrypted_match_keys.get(PROVIDER_3)
-        );
+        assert_ne!(r1, r2);
 
         let fully_decrypted_r1: HashMap<_, _> = r1
             .encrypted_match_keys

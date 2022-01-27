@@ -139,62 +139,34 @@ mod tests {
             h_te.public.matchkey_encrypt,
         ]);
 
-        let mut u123 = User::new(123, tek);
-        u123.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
-        u123.set_matchkey(PROVIDER_2, "23456789");
-        u123.set_matchkey(PROVIDER_3, "34567890");
-        u123.set_matchkey(PROVIDER_4, "45678901");
+        let mut u1 = User::new(1, tek);
+        u1.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
+        u1.set_matchkey(PROVIDER_2, "23456789");
+        u1.set_matchkey(PROVIDER_3, "34567890");
+        u1.set_matchkey(PROVIDER_4, "45678901");
 
-        let mut u234 = User::new(234, tek);
-        u234.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
-        u234.set_matchkey(PROVIDER_2, "does_not_match");
-        u234.set_matchkey(PROVIDER_3, "something_else");
+        let mut u2 = User::new(2, tek);
+        u2.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
+        u2.set_matchkey(PROVIDER_2, "does_not_match");
+        u2.set_matchkey(PROVIDER_3, "something_else");
 
-        let r123 = u123.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3, PROVIDER_4]);
-        let r234 = u234.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3]);
+        let r1 = u1.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3, PROVIDER_4]);
+        let r2 = u2.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3]);
 
         // Source Event Helper partially decrypts both events
-        let partially_decrypted_123 = h_se.threshold_decrypt_event(r123);
-        let partially_decrypted_234 = h_se.threshold_decrypt_event(r234);
+        let partially_decrypted_1 = h_se.threshold_decrypt_event(r1);
+        let partially_decrypted_2 = h_se.threshold_decrypt_event(r2);
 
         // At this point, none of the match keys should match
-        assert_ne!(
-            partially_decrypted_123.encrypted_match_keys.get(PROVIDER_1),
-            partially_decrypted_234.encrypted_match_keys.get(PROVIDER_1),
-        );
-        assert_ne!(
-            partially_decrypted_123.encrypted_match_keys.get(PROVIDER_2),
-            partially_decrypted_234.encrypted_match_keys.get(PROVIDER_2),
-        );
-        assert_ne!(
-            partially_decrypted_123.encrypted_match_keys.get(PROVIDER_3),
-            partially_decrypted_234.encrypted_match_keys.get(PROVIDER_3),
-        );
-        assert_ne!(
-            partially_decrypted_123.encrypted_match_keys.get(PROVIDER_4),
-            partially_decrypted_234.encrypted_match_keys.get(PROVIDER_4),
-        );
+        assert_ne!(partially_decrypted_1, partially_decrypted_2);
 
         // Trigger Event Helper partially decrypts both events
-        let decrypted_123 = h_te.decrypt_event(partially_decrypted_123);
-        let decrypted_234 = h_te.decrypt_event(partially_decrypted_234);
+        let decrypted_1 = h_te.decrypt_event(partially_decrypted_1);
+        let decrypted_2 = h_te.decrypt_event(partially_decrypted_2);
 
         // At this point, only the PROVIDER_1 match key should match
-        assert_eq!(
-            decrypted_123.decrypted_match_keys.get(PROVIDER_1),
-            decrypted_234.decrypted_match_keys.get(PROVIDER_1),
-        );
-        assert_ne!(
-            decrypted_123.decrypted_match_keys.get(PROVIDER_2),
-            decrypted_234.decrypted_match_keys.get(PROVIDER_2),
-        );
-        assert_ne!(
-            decrypted_123.decrypted_match_keys.get(PROVIDER_3),
-            decrypted_234.decrypted_match_keys.get(PROVIDER_3),
-        );
-        assert_ne!(
-            decrypted_123.decrypted_match_keys.get(PROVIDER_4),
-            decrypted_234.decrypted_match_keys.get(PROVIDER_4),
-        );
+        // TODO: consider adding debugging functions to get the matching providers,
+        // or at least return the count of how many matches there were.
+        assert_eq!(decrypted_1, decrypted_2);
     }
 }

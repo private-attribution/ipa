@@ -1,5 +1,6 @@
 use crate::threshold::{Ciphertext, RistrettoPoint};
 use std::collections::HashMap;
+use std::fmt;
 
 pub struct EventReport {
     pub encrypted_match_keys: HashMap<String, Ciphertext>,
@@ -16,6 +17,18 @@ pub struct DecryptedEventReport {
     //ad_destination_biz: String,
     //h3_secret_shares: EncryptedSecretShares,
     //h4_secret_shares: EncryptedSecretShares,
+}
+
+impl fmt::Debug for EventReport {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "encrypted_match_keys: {:?}", self.encrypted_match_keys)
+    }
+}
+
+impl fmt::Debug for DecryptedEventReport {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "decrypted_match_keys: {:?}", self.decrypted_match_keys)
+    }
 }
 
 fn n_matches<T>(
