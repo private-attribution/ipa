@@ -15,14 +15,17 @@ impl PartialEq for EncryptedMatchkeys {
 }
 
 impl EncryptedMatchkeys {
+    #[must_use]
     pub fn count_matches(&self, other: &Self) -> usize {
         n_matches(self.match_keys.values(), &other.match_keys.values())
     }
 
+    #[must_use]
     pub fn from_matchkeys(match_keys: HashMap<String, Ciphertext>) -> EncryptedMatchkeys {
         EncryptedMatchkeys { match_keys }
     }
 
+    #[must_use]
     pub fn threshold_decrypt(
         &self,
         matchkey_decrypt: &ThresholdDecryptionKey,
@@ -35,6 +38,7 @@ impl EncryptedMatchkeys {
         EncryptedMatchkeys::from_matchkeys(partially_decrypted_matchkeys)
     }
 
+    #[must_use]
     pub fn decrypt(&self, matchkey_decrypt: &ThresholdDecryptionKey) -> DecryptedMatchkeys {
         let decrypted_matchkeys = self
             .match_keys
@@ -62,10 +66,12 @@ impl PartialEq for DecryptedMatchkeys {
 }
 
 impl DecryptedMatchkeys {
+    #[must_use]
     pub fn count_matches(&self, other: &Self) -> usize {
         n_matches(self.match_keys.values(), &other.match_keys.values())
     }
 
+    #[must_use]
     pub fn from_matchkeys(match_keys: HashMap<String, RistrettoPoint>) -> DecryptedMatchkeys {
         DecryptedMatchkeys { match_keys }
     }
@@ -88,6 +94,7 @@ pub struct EventReport {
 }
 
 impl EventReport {
+    #[must_use]
     pub fn matchkeys(&self) -> &EncryptedMatchkeys {
         &self.encrypted_match_keys
     }
@@ -109,6 +116,7 @@ pub struct DecryptedEventReport {
 }
 
 impl DecryptedEventReport {
+    #[must_use]
     pub fn matchkeys(&self) -> &DecryptedMatchkeys {
         &self.decrypted_match_keys
     }

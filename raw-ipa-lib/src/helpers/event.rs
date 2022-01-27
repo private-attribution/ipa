@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(
             partially_decrypted_1
                 .matchkeys()
-                .count_matches(&partially_decrypted_2.matchkeys()),
+                .count_matches(partially_decrypted_2.matchkeys()),
             0
         );
 
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(
             decrypted_1
                 .matchkeys()
-                .count_matches(&decrypted_2.matchkeys()),
+                .count_matches(decrypted_2.matchkeys()),
             1
         );
     }
