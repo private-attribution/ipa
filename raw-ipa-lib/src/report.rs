@@ -4,18 +4,13 @@ use crate::threshold::{Ciphertext, RistrettoPoint};
 use std::collections::HashMap;
 use std::fmt;
 
+#[derive(Debug)]
 pub struct EncryptedMatchkeys {
     match_keys: HashMap<String, Ciphertext>,
 }
 
-impl PartialEq for EncryptedMatchkeys {
-    fn eq(&self, other: &Self) -> bool {
-        any_matches(self.match_keys.values(), &other.match_keys.values())
-    }
-}
-
 impl EncryptedMatchkeys {
-    #[must_use]
+    #[cfg(test)]
     pub fn count_matches(&self, other: &Self) -> usize {
         n_matches(self.match_keys.values(), &other.match_keys.values())
     }
@@ -30,31 +25,26 @@ impl EncryptedMatchkeys {
         &self,
         matchkey_decrypt: &ThresholdDecryptionKey,
     ) -> EncryptedMatchkeys {
-        let partially_decrypted_matchkeys = self
+        let partially_decrypted_matchkeys: HashMap<_,_> = self
             .match_keys
             .iter()
             .map(|(p, emk)| (p.to_string(), matchkey_decrypt.threshold_decrypt(*emk)))
             .collect();
-        EncryptedMatchkeys::from_matchkeys(partially_decrypted_matchkeys)
+        EncryptedMatchkeys::from(partially_decrypted_matchkeys)
     }
 
     #[must_use]
     pub fn decrypt(&self, matchkey_decrypt: &ThresholdDecryptionKey) -> DecryptedMatchkeys {
-        let decrypted_matchkeys = self
+        let decrypted_matchkeys: HashMap<_,_> = self
             .match_keys
             .iter()
             .map(|(p, emk)| (p.to_string(), matchkey_decrypt.decrypt(*emk)))
             .collect();
-        DecryptedMatchkeys::from_matchkeys(decrypted_matchkeys)
+        DecryptedMatchkeys::from(decrypted_matchkeys)
     }
 }
 
-impl fmt::Debug for EncryptedMatchkeys {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.match_keys)
-    }
-}
-
+#[derive(Debug)]
 pub struct DecryptedMatchkeys {
     match_keys: HashMap<String, RistrettoPoint>,
 }
@@ -70,16 +60,11 @@ impl DecryptedMatchkeys {
     pub fn count_matches(&self, other: &Self) -> usize {
         n_matches(self.match_keys.values(), &other.match_keys.values())
     }
-
-    #[must_use]
-    pub fn from_matchkeys(match_keys: HashMap<String, RistrettoPoint>) -> DecryptedMatchkeys {
-        DecryptedMatchkeys { match_keys }
-    }
 }
 
-impl fmt::Debug for DecryptedMatchkeys {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.match_keys)
+impl From<HashMap<String, RistrettoPoint>> for DecryptedMatchkeys {
+    fn from(match_keys: HashMap<String, RistrettoPoint>) -> Self {
+        Self { match_keys }
     }
 }
 
@@ -125,6 +110,12 @@ impl DecryptedEventReport {
 impl fmt::Debug for DecryptedEventReport {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "decrypted_match_keys: {:?}", self.decrypted_match_keys)
+    }
+}
+
+impl From<HashMap<String, Ciphertext>> for EncryptedMatchkeys {
+    fn from(match_keys: HashMap<String, Ciphertext>) -> Self {
+        Self { match_keys }
     }
 }
 

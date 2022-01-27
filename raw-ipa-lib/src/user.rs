@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_event_report() {
+    fn generate_event_report() {
         const PROVIDER_1: &str = "social.example";
         const PROVIDER_2: &str = "email.example";
         const PROVIDER_3: &str = "news.example";
@@ -293,8 +293,8 @@ mod tests {
         let r1 = u1.generate_event_report(&providers);
         let r2 = u2.generate_event_report(&providers);
 
-        // None combination of encrypted match keys should match
-        assert_ne!(r1.matchkeys(), r2.matchkeys());
+        // No combination of encrypted match keys should match
+        assert_eq!(r1.matchkeys().count_matches(r2.matchkeys()), 0,);
 
         let fully_decrypted_r1 = r1.matchkeys().threshold_decrypt(&d1).decrypt(&d2);
         let fully_decrypted_r2 = r2.matchkeys().threshold_decrypt(&d1).decrypt(&d2);

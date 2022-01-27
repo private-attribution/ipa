@@ -154,10 +154,6 @@ mod tests {
         let partially_decrypted_2 = h_source.threshold_decrypt_event(&r2);
 
         // At this point, none of the match keys should match
-        assert_ne!(
-            partially_decrypted_1.matchkeys(),
-            partially_decrypted_2.matchkeys()
-        );
         assert_eq!(
             partially_decrypted_1
                 .matchkeys()
