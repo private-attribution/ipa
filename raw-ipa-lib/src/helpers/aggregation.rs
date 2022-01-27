@@ -2,6 +2,11 @@
 use crate::error::{Error, Res};
 #[cfg(feature = "enable-serde")]
 use crate::helpers::Helpers;
+use crate::ss::{
+    AdditiveShare, DecryptionKey as ShareDecryptionKey, EncryptedSecret,
+    EncryptionKey as ShareEncryptionKey,
+};
+use rand::thread_rng;
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enable-serde")]
@@ -21,19 +26,35 @@ pub enum Role {
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct PublicHelper {
     role: Role,
+
+    share_encryption: ShareEncryptionKey,
+}
+
+impl PublicHelper {
+    #[allow(dead_code)]
+    fn share_public_key(&self) -> ShareEncryptionKey {
+        self.share_encryption
+    }
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Helper {
     #[cfg_attr(feature = "enable-serde", serde(flatten))]
     public: PublicHelper,
+
+    share_decryption: ShareDecryptionKey,
 }
 
 impl Helper {
     #[must_use]
     pub fn new(role: Role) -> Self {
+        let share_decryption = ShareDecryptionKey::new(&mut thread_rng());
         Self {
-            public: PublicHelper { role },
+            public: PublicHelper {
+                role,
+                share_encryption: share_decryption.encryption_key(),
+            },
+            share_decryption,
         }
     }
 
@@ -59,6 +80,20 @@ impl Helper {
         fs::write(f, serde_json::to_string(&self)?.as_bytes())?;
         Ok(())
     }
+
+    pub fn sum<'item, const N: u32>(
+        self,
+        shares: impl IntoIterator<Item = (AdditiveShare<N>, &'item EncryptedSecret)>,
+    ) -> AdditiveShare<N> {
+        shares
+            .into_iter()
+            .map(|(share, secret)| {
+                let v = self.share_decryption.decryptor(secret).decrypt(share);
+                println!("add: {}", v);
+                v
+            })
+            .sum()
+    }
 }
 
 impl Deref for Helper {
@@ -71,5 +106,108 @@ impl Deref for Helper {
 impl DerefMut for Helper {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.public
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Helper, Role};
+    use crate::ss::{AdditiveShare, EncryptedSecret};
+    use rand::{thread_rng, RngCore};
+
+    fn make_some_values<const N: usize>() -> [u64; N] {
+        let mut rng = thread_rng();
+        let mut values = [0; N];
+        for i in &mut values {
+            *i = u64::from(rng.next_u32());
+        }
+        values
+    }
+
+    // This ensures that we get the right mix of values and references from a collection of values.
+    fn unref_share<const N: u32>(
+        (value, secret): &(AdditiveShare<N>, EncryptedSecret),
+    ) -> (AdditiveShare<N>, &EncryptedSecret) {
+        (*value, secret)
+    }
+
+    #[test]
+    fn encrypt_and_aggregate() {
+        let values = make_some_values::<100>();
+        let expected_total: u64 = values.iter().sum();
+
+        let mut rng = thread_rng();
+        let (shares1, shares2): (Vec<_>, Vec<_>) = values
+            .iter()
+            .map(|&v| AdditiveShare::<64>::share(v, &mut rng))
+            .unzip();
+
+        let helper1 = Helper::new(Role::Helper1);
+        let helper2 = Helper::new(Role::Helper2);
+
+        let encrypted_shares1: Vec<_> = shares1
+            .into_iter()
+            .map(|share| {
+                let (mut encryptor, secret) = helper1.share_public_key().encryptor(&mut rng);
+                (encryptor.encrypt(share), secret)
+            })
+            .collect();
+        let encrypted_shares2: Vec<_> = shares2
+            .into_iter()
+            .map(|share| {
+                let (mut encryptor, secret) = helper2.share_public_key().encryptor(&mut rng);
+                (encryptor.encrypt(share), secret)
+            })
+            .collect();
+
+        let sum1 = helper1.sum(encrypted_shares1.iter().map(unref_share));
+        let sum2 = helper2.sum(encrypted_shares2.iter().map(unref_share));
+
+        let total = sum1 + sum2;
+        assert_eq!(total.value(), u128::from(expected_total));
+    }
+
+    #[test]
+    fn encrypt_rerandomize_aggregate() {
+        let values = make_some_values::<100>();
+        let expected_total: u64 = values.iter().sum();
+
+        let mut rng = thread_rng();
+        let (shares1, shares2): (Vec<_>, Vec<_>) = values
+            .iter()
+            .map(|&v| AdditiveShare::<64>::share(v, &mut rng))
+            .unzip();
+
+        let helper1 = Helper::new(Role::Helper1);
+        let helper2 = Helper::new(Role::Helper2);
+
+        let offset = AdditiveShare::from(rng.next_u64());
+
+        let encrypted_shares1: Vec<_> = shares1
+            .into_iter()
+            .map(|share| {
+                let (mut encryptor, secret) = helper1.share_public_key().encryptor(&mut rng);
+                (
+                    encryptor.encrypt(share) + offset,
+                    secret.rerandomize(helper1.share_public_key(), &mut rng),
+                )
+            })
+            .collect();
+        let encrypted_shares2: Vec<_> = shares2
+            .into_iter()
+            .map(|share| {
+                let (mut encryptor, secret) = helper2.share_public_key().encryptor(&mut rng);
+                (
+                    encryptor.encrypt(share) - offset,
+                    secret.rerandomize(helper2.share_public_key(), &mut rng),
+                )
+            })
+            .collect();
+
+        let sum1 = helper1.sum(encrypted_shares1.iter().map(unref_share));
+        let sum2 = helper2.sum(encrypted_shares2.iter().map(unref_share));
+
+        let total = sum1 + sum2;
+        assert_eq!(total.value(), u128::from(expected_total));
     }
 }

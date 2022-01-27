@@ -4,9 +4,12 @@ use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
+#[cfg(feature = "enable-serde")]
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Error as FmtError, Formatter};
+use std::iter::Sum;
 use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Sub, SubAssign};
 
 /// An N-bit additive secret share.  N is any number in the range `(0, 128]`.
@@ -16,6 +19,11 @@ pub struct AdditiveShare<const N: u32> {
 }
 
 impl<const N: u32> AdditiveShare<N> {
+    #[must_use]
+    pub fn zero() -> Self {
+        Self { v: 0 }
+    }
+
     #[must_use]
     pub fn share<R>(value: impl Into<u128>, rng: &mut R) -> (Self, Self)
     where
@@ -88,6 +96,16 @@ where
     fn sub_assign(&mut self, rhs: I) {
         self.v = self.v.wrapping_sub(rhs.into());
         self.mask();
+    }
+}
+
+impl<const N: u32> Sum<Self> for AdditiveShare<N> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut s = Self::zero();
+        for i in iter {
+            s += i;
+        }
+        s
     }
 }
 
@@ -236,6 +254,7 @@ impl<const N: u32> DecryptSelf<u128> for XorShare<N> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct DecryptionKey {
     d: Scalar,
 }
@@ -266,6 +285,7 @@ impl DecryptionKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct EncryptionKey {
     e: EdwardsPoint,
 }
