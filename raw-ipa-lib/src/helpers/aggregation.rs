@@ -87,11 +87,7 @@ impl Helper {
     ) -> AdditiveShare<N> {
         shares
             .into_iter()
-            .map(|(share, secret)| {
-                let v = self.share_decryption.decryptor(secret).decrypt(share);
-                println!("add: {}", v);
-                v
-            })
+            .map(|(share, secret)| self.share_decryption.decryptor(secret).decrypt(share))
             .sum()
     }
 }
