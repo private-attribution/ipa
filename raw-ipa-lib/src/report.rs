@@ -48,13 +48,6 @@ impl PartialEq for EventReport {
             other.encrypted_match_keys.values(),
         ) > 0
     }
-
-    fn ne(&self, other: &Self) -> bool {
-        n_matches(
-            self.encrypted_match_keys.values(),
-            other.encrypted_match_keys.values(),
-        ) == 0
-    }
 }
 
 impl PartialEq for DecryptedEventReport {
@@ -63,12 +56,5 @@ impl PartialEq for DecryptedEventReport {
             self.decrypted_match_keys.values(),
             other.decrypted_match_keys.values(),
         ) > 0
-    }
-
-    fn ne(&self, other: &Self) -> bool {
-        n_matches(
-            self.decrypted_match_keys.values(),
-            other.decrypted_match_keys.values(),
-        ) == 0
     }
 }

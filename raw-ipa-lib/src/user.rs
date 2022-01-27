@@ -1,6 +1,6 @@
 #[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
-use crate::report::{DecryptedEventReport, EventReport};
+use crate::report::EventReport;
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
 use log::trace;
@@ -139,10 +139,11 @@ impl User {
         self.threshold_key.rerandomise(emk, &mut rng)
     }
 
+    #[must_use]
     pub fn generate_event_report(&self, providers: &[&str]) -> EventReport {
         let m: HashMap<_, _> = providers
             .iter()
-            .map(|p| (p.to_string(), self.encrypt_matchkey(p)))
+            .map(|p| ((*p).to_string(), self.encrypt_matchkey(p)))
             .collect();
         EventReport {
             encrypted_match_keys: m,

@@ -80,7 +80,8 @@ impl Helper {
         Ok(())
     }
 
-    pub fn threshold_decrypt_event(&self, r: EventReport) -> EventReport {
+    #[must_use]
+    pub fn threshold_decrypt_event(&self, r: &EventReport) -> EventReport {
         let partially_decrypted_matchkeys: HashMap<_, _> = r
             .encrypted_match_keys
             .iter()
@@ -91,7 +92,8 @@ impl Helper {
         }
     }
 
-    pub fn decrypt_event(&self, r: EventReport) -> DecryptedEventReport {
+    #[must_use]
+    pub fn decrypt_event(&self, r: &EventReport) -> DecryptedEventReport {
         let partially_decrypted_matchkeys: HashMap<_, _> = r
             .encrypted_match_keys
             .iter()
@@ -131,12 +133,12 @@ mod tests {
 
         const MATCHING_MATCHKEY: &str = "12345678";
 
-        let h_se = Helper::new(Role::Source);
-        let h_te = Helper::new(Role::Trigger);
+        let h_source = Helper::new(Role::Source);
+        let h_trigger = Helper::new(Role::Trigger);
 
         let tek = ThresholdEncryptionKey::new(&[
-            h_se.public.matchkey_encrypt,
-            h_te.public.matchkey_encrypt,
+            h_source.public.matchkey_encrypt,
+            h_trigger.public.matchkey_encrypt,
         ]);
 
         let mut u1 = User::new(1, tek);
@@ -154,15 +156,15 @@ mod tests {
         let r2 = u2.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3]);
 
         // Source Event Helper partially decrypts both events
-        let partially_decrypted_1 = h_se.threshold_decrypt_event(r1);
-        let partially_decrypted_2 = h_se.threshold_decrypt_event(r2);
+        let partially_decrypted_1 = h_source.threshold_decrypt_event(&r1);
+        let partially_decrypted_2 = h_source.threshold_decrypt_event(&r2);
 
         // At this point, none of the match keys should match
         assert_ne!(partially_decrypted_1, partially_decrypted_2);
 
         // Trigger Event Helper partially decrypts both events
-        let decrypted_1 = h_te.decrypt_event(partially_decrypted_1);
-        let decrypted_2 = h_te.decrypt_event(partially_decrypted_2);
+        let decrypted_1 = h_trigger.decrypt_event(&partially_decrypted_1);
+        let decrypted_2 = h_trigger.decrypt_event(&partially_decrypted_2);
 
         // At this point, only the PROVIDER_1 match key should match
         // TODO: consider adding debugging functions to get the matching providers,
