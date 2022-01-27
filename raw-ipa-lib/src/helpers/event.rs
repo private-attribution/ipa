@@ -1,13 +1,12 @@
 use crate::error::{Error, Res};
 use crate::helpers::Helpers;
-use crate::report::{DecryptedEventReport, EventReport};
+use crate::report::{DecryptedEventReport, DecryptedMatchkeys, EncryptedMatchkeys, EventReport};
 use crate::threshold::DecryptionKey as ThresholdDecryptionKey;
 use rand::thread_rng;
 use rust_elgamal::EncryptionKey;
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enable-serde")]
-use std::collections::HashMap;
 #[cfg(feature = "enable-serde")]
 use std::fs;
 use std::ops::{Deref, DerefMut};
@@ -82,11 +81,9 @@ impl Helper {
 
     #[must_use]
     pub fn threshold_decrypt_event(&self, r: &EventReport) -> EventReport {
-        let partially_decrypted_matchkeys: HashMap<_, _> = r
+        let partially_decrypted_matchkeys: EncryptedMatchkeys = r
             .encrypted_match_keys
-            .iter()
-            .map(|(p, emk)| (p.to_string(), self.matchkey_decrypt.threshold_decrypt(*emk)))
-            .collect();
+            .threshold_decrypt(&self.matchkey_decrypt);
         EventReport {
             encrypted_match_keys: partially_decrypted_matchkeys,
         }
@@ -94,13 +91,10 @@ impl Helper {
 
     #[must_use]
     pub fn decrypt_event(&self, r: &EventReport) -> DecryptedEventReport {
-        let partially_decrypted_matchkeys: HashMap<_, _> = r
-            .encrypted_match_keys
-            .iter()
-            .map(|(p, emk)| (p.to_string(), self.matchkey_decrypt.decrypt(*emk)))
-            .collect();
+        let decrypted_matchkeys: DecryptedMatchkeys =
+            r.encrypted_match_keys.decrypt(&self.matchkey_decrypt);
         DecryptedEventReport {
-            decrypted_match_keys: partially_decrypted_matchkeys,
+            decrypted_match_keys: decrypted_matchkeys,
         }
     }
 }
@@ -160,15 +154,28 @@ mod tests {
         let partially_decrypted_2 = h_source.threshold_decrypt_event(&r2);
 
         // At this point, none of the match keys should match
-        assert_ne!(partially_decrypted_1, partially_decrypted_2);
+        assert_ne!(
+            partially_decrypted_1.matchkeys(),
+            partially_decrypted_2.matchkeys()
+        );
+        assert_eq!(
+            partially_decrypted_1
+                .matchkeys()
+                .count_matches(&partially_decrypted_2.matchkeys()),
+            0
+        );
 
         // Trigger Event Helper partially decrypts both events
         let decrypted_1 = h_trigger.decrypt_event(&partially_decrypted_1);
         let decrypted_2 = h_trigger.decrypt_event(&partially_decrypted_2);
 
         // At this point, only the PROVIDER_1 match key should match
-        // TODO: consider adding debugging functions to get the matching providers,
-        // or at least return the count of how many matches there were.
-        assert_eq!(decrypted_1, decrypted_2);
+        assert_eq!(decrypted_1.matchkeys(), decrypted_2.matchkeys());
+        assert_eq!(
+            decrypted_1
+                .matchkeys()
+                .count_matches(&decrypted_2.matchkeys()),
+            1
+        );
     }
 }

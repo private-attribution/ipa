@@ -1,6 +1,6 @@
 #[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
-use crate::report::EventReport;
+use crate::report::{EncryptedMatchkeys, EventReport};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
 use log::trace;
@@ -146,7 +146,7 @@ impl User {
             .map(|p| ((*p).to_string(), self.encrypt_matchkey(p)))
             .collect();
         EventReport {
-            encrypted_match_keys: m,
+            encrypted_match_keys: EncryptedMatchkeys::from_matchkeys(m),
         }
     }
 }
@@ -159,7 +159,6 @@ mod tests {
         RistrettoPoint,
     };
     use rand::thread_rng;
-    use std::collections::HashMap;
 
     const MATCHKEY: &str = "matchkey";
     const PROVIDER: &str = "example.com";
@@ -295,46 +294,13 @@ mod tests {
         let r2 = u2.generate_event_report(&providers);
 
         // None combination of encrypted match keys should match
-        assert_ne!(r1, r2);
+        assert_ne!(r1.matchkeys(), r2.matchkeys());
 
-        let fully_decrypted_r1: HashMap<_, _> = r1
-            .encrypted_match_keys
-            .iter()
-            .map(|(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk))))
-            .collect();
-
-        let fully_decrypted_r2: HashMap<_, _> = r2
-            .encrypted_match_keys
-            .iter()
-            .map(|(p, emk)| (p.to_string(), d2.decrypt(d1.threshold_decrypt(*emk))))
-            .collect();
+        let fully_decrypted_r1 = r1.matchkeys().threshold_decrypt(&d1).decrypt(&d2);
+        let fully_decrypted_r2 = r2.matchkeys().threshold_decrypt(&d1).decrypt(&d2);
 
         // Once fully decrypted, only one combination should match
-        assert_eq!(
-            fully_decrypted_r1.get(PROVIDER_1),
-            fully_decrypted_r2.get(PROVIDER_1)
-        );
-        assert_ne!(
-            fully_decrypted_r1.get(PROVIDER_1),
-            fully_decrypted_r2.get(PROVIDER_2)
-        );
-        assert_ne!(
-            fully_decrypted_r1.get(PROVIDER_1),
-            fully_decrypted_r2.get(PROVIDER_3)
-        );
-
-        assert_ne!(
-            fully_decrypted_r1.get(PROVIDER_2),
-            fully_decrypted_r2.get(PROVIDER_2)
-        );
-        assert_ne!(
-            fully_decrypted_r1.get(PROVIDER_2),
-            fully_decrypted_r2.get(PROVIDER_3)
-        );
-
-        assert_ne!(
-            fully_decrypted_r1.get(PROVIDER_3),
-            fully_decrypted_r2.get(PROVIDER_3)
-        );
+        assert_eq!(fully_decrypted_r1, fully_decrypted_r2,);
+        assert_eq!(fully_decrypted_r1.count_matches(&fully_decrypted_r2), 1,);
     }
 }
