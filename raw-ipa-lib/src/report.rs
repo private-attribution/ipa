@@ -11,6 +11,7 @@ pub struct EncryptedMatchkeys {
 
 impl EncryptedMatchkeys {
     #[cfg(test)]
+    #[must_use]
     pub fn count_matches(&self, other: &Self) -> usize {
         n_matches(self.match_keys.values(), &other.match_keys.values())
     }
@@ -25,7 +26,7 @@ impl EncryptedMatchkeys {
         &self,
         matchkey_decrypt: &ThresholdDecryptionKey,
     ) -> EncryptedMatchkeys {
-        let partially_decrypted_matchkeys: HashMap<_,_> = self
+        let partially_decrypted_matchkeys: HashMap<_, _> = self
             .match_keys
             .iter()
             .map(|(p, emk)| (p.to_string(), matchkey_decrypt.threshold_decrypt(*emk)))
@@ -35,7 +36,7 @@ impl EncryptedMatchkeys {
 
     #[must_use]
     pub fn decrypt(&self, matchkey_decrypt: &ThresholdDecryptionKey) -> DecryptedMatchkeys {
-        let decrypted_matchkeys: HashMap<_,_> = self
+        let decrypted_matchkeys: HashMap<_, _> = self
             .match_keys
             .iter()
             .map(|(p, emk)| (p.to_string(), matchkey_decrypt.decrypt(*emk)))
