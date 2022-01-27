@@ -2,6 +2,7 @@ use crate::threshold::{Ciphertext, RistrettoPoint};
 use std::collections::HashMap;
 use std::fmt;
 
+#[allow(clippy::module_name_repetitions)]
 pub struct EventReport {
     pub encrypted_match_keys: HashMap<String, Ciphertext>,
     //event_generating_biz: String,
@@ -11,6 +12,7 @@ pub struct EventReport {
     //range_proofs: ,
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct DecryptedEventReport {
     pub decrypted_match_keys: HashMap<String, RistrettoPoint>,
     //event_generating_biz: String,
@@ -35,7 +37,6 @@ fn n_matches<T>(
     a: impl Iterator<Item = impl PartialEq<T>>,
     b: impl Iterator<Item = T> + Clone,
 ) -> usize {
-    let b = b.into_iter();
     a.into_iter()
         .map(|x| b.clone().filter(|y| x.eq(y)).count())
         .sum()
