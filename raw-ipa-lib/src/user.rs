@@ -1,5 +1,6 @@
 #[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
+use crate::report::{EncryptedMatchkeys, EventReport};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
 use log::trace;
@@ -137,6 +138,17 @@ impl User {
             .unwrap_or_else(|| self.fallback_matchkey(provider));
         self.threshold_key.rerandomise(emk, &mut rng)
     }
+
+    #[must_use]
+    pub fn generate_event_report(&self, providers: &[&str]) -> EventReport {
+        let m: HashMap<_, _> = providers
+            .iter()
+            .map(|p| ((*p).to_string(), self.encrypt_matchkey(p)))
+            .collect();
+        EventReport {
+            encrypted_match_keys: EncryptedMatchkeys::from_matchkeys(m),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -252,5 +264,43 @@ mod tests {
             complete2,
             User::point_from_matchkey(OTHER_PROVIDER, MATCHKEY.as_bytes())
         );
+    }
+
+    #[test]
+    fn generate_event_report() {
+        const PROVIDER_1: &str = "social.example";
+        const PROVIDER_2: &str = "email.example";
+        const PROVIDER_3: &str = "news.example";
+        const MATCHING_MATCHKEY: &str = "this_one_matches";
+
+        let mut rng = thread_rng();
+        let d1 = ThresholdDecryptionKey::new(&mut rng);
+        let d2 = ThresholdDecryptionKey::new(&mut rng);
+        let tek = ThresholdEncryptionKey::new(&[d1.encryption_key(), d2.encryption_key()]);
+
+        let providers = [PROVIDER_1, PROVIDER_2, PROVIDER_3];
+
+        let mut u1 = User::new(0, tek);
+        u1.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
+        u1.set_matchkey(PROVIDER_2, "something_random");
+        u1.set_matchkey(PROVIDER_3, "also_very_random");
+
+        let mut u2 = User::new(1, tek);
+        u2.set_matchkey(PROVIDER_1, MATCHING_MATCHKEY);
+        u2.set_matchkey(PROVIDER_2, "does_not_match");
+        u2.set_matchkey(PROVIDER_3, "also_does_not_match");
+
+        let r1 = u1.generate_event_report(&providers);
+        let r2 = u2.generate_event_report(&providers);
+
+        // No combination of encrypted match keys should match
+        assert_eq!(r1.matchkeys().count_matches(r2.matchkeys()), 0,);
+
+        let fully_decrypted_r1 = r1.matchkeys().threshold_decrypt(&d1).decrypt(&d2);
+        let fully_decrypted_r2 = r2.matchkeys().threshold_decrypt(&d1).decrypt(&d2);
+
+        // Once fully decrypted, only one combination should match
+        assert_eq!(fully_decrypted_r1, fully_decrypted_r2,);
+        assert_eq!(fully_decrypted_r1.count_matches(&fully_decrypted_r2), 1,);
     }
 }
