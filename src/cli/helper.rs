@@ -1,8 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-use raw_ipa_lib::helpers::{
-    AggregationHelperRole, EventHelperRole, HelperLocations, Role as HelperRole,
-};
+use crate::helpers::{AggregationHelperRole, EventHelperRole, HelperLocations, Role as HelperRole};
 use std::ops::Index;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;

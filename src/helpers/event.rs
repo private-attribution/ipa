@@ -1,4 +1,6 @@
+#[cfg(feature = "enable-serde")]
 use crate::error::{Error, Res};
+#[cfg(feature = "enable-serde")]
 use crate::helpers::Helpers;
 use crate::report::{DecryptedEventReport, DecryptedMatchkeys, EncryptedMatchkeys, EventReport};
 use crate::threshold::DecryptionKey as ThresholdDecryptionKey;
@@ -6,7 +8,6 @@ use rand::thread_rng;
 use rust_elgamal::EncryptionKey;
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "enable-serde")]
 #[cfg(feature = "enable-serde")]
 use std::fs;
 use std::ops::{Deref, DerefMut};

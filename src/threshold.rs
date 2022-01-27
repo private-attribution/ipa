@@ -1,8 +1,10 @@
+#[cfg(feature = "debug")]
 use hex::encode as hex;
 use rand_core::{CryptoRng, RngCore};
 pub use rust_elgamal::{Ciphertext, DecryptionKey as DKey, EncryptionKey as EKey, RistrettoPoint};
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "debug")]
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
@@ -28,6 +30,7 @@ impl Deref for EncryptionKey {
     }
 }
 
+#[cfg(feature = "debug")]
 impl Debug for EncryptionKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("EncryptionKey ")?;
@@ -69,6 +72,7 @@ impl From<DKey> for DecryptionKey {
     }
 }
 
+#[cfg(feature = "debug")]
 impl Debug for DecryptionKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str("DecryptionKey ")?;
