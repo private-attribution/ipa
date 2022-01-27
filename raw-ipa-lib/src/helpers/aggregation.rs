@@ -181,8 +181,14 @@ mod tests {
         let helper1 = Helper::new(Role::Helper1);
         let helper2 = Helper::new(Role::Helper2);
 
+        // In a real deployment these steps wouldn't look quite like this.
+        // A client would split the shares and encrypt them to each helper.
+        // Then it would send both to the source or trigger helper,
+        // which would rerandomize as we do here (adding an offset and re-encrypting the share)
+        // That would then send to its peer, which would add its own offset.
+        // Then the shares would be separated and sent to the aggregation helpers for decryption.
+        // This runs the whole process at once, with a single offset and no shuffle.
         let offset = AdditiveShare::from(rng.next_u64());
-
         let encrypted_shares1: Vec<_> = shares1
             .into_iter()
             .map(|share| {
