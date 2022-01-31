@@ -168,43 +168,40 @@ mod tests {
         let values = make_some_values::<100>();
         let expected_total: u64 = values.iter().sum();
 
-        let mut rng = thread_rng();
-        let (shares1, shares2): (Vec<_>, Vec<_>) = values
-            .iter()
-            .map(|&v| AdditiveShare::<64>::share(v, &mut rng))
-            .unzip();
-
         let helper1 = Helper::new(Role::Helper1);
         let helper2 = Helper::new(Role::Helper2);
 
-        // In a real deployment these steps wouldn't look quite like this.
-        // A client would split the shares and encrypt them to each helper.
-        // Then it would send both to the source or trigger helper,
-        // which would rerandomize as we do here (adding an offset and re-encrypting the share).
-        // The helper then sends the shuffled result to its peer, which would add its own offset.
-        // Then the shares would be separated and sent to the aggregation helpers for decryption.
-        // This runs the whole process at once, with a single offset and no shuffle.
-        let offset = AdditiveShare::from(rng.next_u64());
-        let encrypted_shares1: Vec<_> = shares1
-            .into_iter()
-            .map(|share| {
-                let (mut encryptor, secret) = helper1.share_public_key().encryptor(&mut rng);
-                (
-                    encryptor.encrypt(share) + offset,
-                    secret.rerandomize(helper1.share_public_key(), &mut rng),
-                )
-            })
-            .collect();
-        let encrypted_shares2: Vec<_> = shares2
-            .into_iter()
-            .map(|share| {
-                let (mut encryptor, secret) = helper2.share_public_key().encryptor(&mut rng);
-                (
-                    encryptor.encrypt(share) - offset,
-                    secret.rerandomize(helper2.share_public_key(), &mut rng),
-                )
-            })
-            .collect();
+        let mut encrypted_shares1 = Vec::new();
+        let mut encrypted_shares2 = Vec::new();
+        let mut rng = thread_rng();
+
+        // The client takes each
+        for v in values {
+            // This is the step that clients would perform on each pair of shares:
+            // Split the value into two shares.
+            let (share1, share2) = AdditiveShare::<64>::share(v, &mut rng);
+            // Create an encryptor and encrypt the share.
+            let (mut encryptor1, secret1) = helper1.share_public_key().encryptor(&mut rng);
+            let share1 = encryptor1.encrypt(share1);
+            let (mut encryptor2, secret2) = helper2.share_public_key().encryptor(&mut rng);
+            let share2 = encryptor2.encrypt(share2);
+
+            // The data from clients would be batched into a report.
+            // A single loop is easier to manage, so pretend it happened as two loops.
+
+            // The source or trigger helpers perform this on each pair of shares:
+            // Add a random offset to the shares and then re-randomize the shared secret.
+            // The two values are then sent the two aggregation helpers.
+            let offset = AdditiveShare::from(rng.next_u64());
+            encrypted_shares1.push((
+                share1 + offset,
+                secret1.rerandomize(helper1.share_public_key(), &mut rng),
+            ));
+            encrypted_shares2.push((
+                share2 - offset,
+                secret2.rerandomize(helper2.share_public_key(), &mut rng),
+            ));
+        }
 
         let sum1 = helper1.sum(encrypted_shares1.iter().map(unref_share));
         let sum2 = helper2.sum(encrypted_shares2.iter().map(unref_share));
