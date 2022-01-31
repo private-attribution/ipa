@@ -27,7 +27,7 @@ fi
 
 # Check formatting.
 stashfile=$(mktemp .pre-commit.stashXXXXXX)
-trap 'git stash pop -q; rm -f "$stashfile"' EXIT
+trap 'set +e;git stash pop -q; rm -f "$stashfile"' EXIT
 git stash push -k -u -q -m "pre-commit stash"
 if ! errors=($(cargo fmt -- --check -l)); then
     echo "Formatting errors found."
