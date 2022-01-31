@@ -16,12 +16,6 @@ pub struct AdditiveShare<const N: u32> {
 }
 
 impl<const N: u32> AdditiveShare<N> {
-    fn mask() -> u128 {
-        assert!(N > 0);
-        assert!(N < 128);
-        u128::MAX.wrapping_shr(128 - N)
-    }
-
     #[must_use]
     pub fn share<R>(value: impl Into<u128>, rng: &mut R) -> (Self, Self)
     where
@@ -29,20 +23,19 @@ impl<const N: u32> AdditiveShare<N> {
     {
         let value = value.into();
         let r = u128::from(rng.next_u64()) << 64 | u128::from(rng.next_u64());
-
-        let mut s1 = Self { v: r };
-        s1.wrap();
-        let s2 = Self { v: value } - r;
-        (s1, s2)
+        (Self::wrap(r), Self::wrap(value) - r)
     }
 
-    #[must_use]
-    pub fn value(self) -> u128 {
-        self.v
+    fn wrap(v: u128) -> Self {
+        let mut s = Self { v };
+        s.mask();
+        s
     }
 
-    fn wrap(&mut self) {
-        self.v &= Self::mask();
+    fn mask(&mut self) {
+        assert!(N > 0);
+        assert!(N < 128);
+        self.v &= u128::MAX.wrapping_shr(128 - N);
     }
 }
 
@@ -58,12 +51,17 @@ impl<const N: u32> Debug for AdditiveShare<N> {
     }
 }
 
+impl<const N: u32> From<AdditiveShare<N>> for u128 {
+    fn from(v: AdditiveShare<N>) -> Self {
+        v.v
+    }
+}
+
 // Natural implementations of `From` take the size from the type.
 
 impl From<u128> for AdditiveShare<128> {
     fn from(v: u128) -> Self {
-        assert_eq!(v, v & Self::mask());
-        Self { v }
+        Self::wrap(v)
     }
 }
 
@@ -103,27 +101,13 @@ where
     }
 }
 
-impl<const N: u32> Add<Self> for AdditiveShare<N> {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        self + rhs.v
-    }
-}
-
-impl<const N: u32> Sub<Self> for AdditiveShare<N> {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        self - rhs.v
-    }
-}
-
 impl<I, const N: u32> AddAssign<I> for AdditiveShare<N>
 where
     I: Into<u128>,
 {
     fn add_assign(&mut self, rhs: I) {
         self.v = self.v.wrapping_add(rhs.into());
-        self.wrap();
+        self.mask();
     }
 }
 
@@ -133,19 +117,7 @@ where
 {
     fn sub_assign(&mut self, rhs: I) {
         self.v = self.v.wrapping_sub(rhs.into());
-        self.wrap();
-    }
-}
-
-impl<const N: u32> AddAssign<Self> for AdditiveShare<N> {
-    fn add_assign(&mut self, rhs: Self) {
-        self.v += rhs.v;
-    }
-}
-
-impl<const N: u32> SubAssign<Self> for AdditiveShare<N> {
-    fn sub_assign(&mut self, rhs: Self) {
-        self.v -= rhs.v;
+        self.mask();
     }
 }
 
@@ -156,12 +128,6 @@ pub struct XorShare<const N: u32> {
 }
 
 impl<const N: u32> XorShare<N> {
-    fn mask() -> u128 {
-        assert!(N > 0);
-        assert!(N < 128);
-        u128::MAX.wrapping_shr(128 - N)
-    }
-
     #[must_use]
     pub fn share<R>(value: impl Into<u128>, rng: &mut R) -> (Self, Self)
     where
@@ -169,20 +135,19 @@ impl<const N: u32> XorShare<N> {
     {
         let value = value.into();
         let r = u128::from(rng.next_u64()) << 64 | u128::from(rng.next_u64());
-
-        let mut s1 = Self { v: r };
-        s1.wrap();
-        let s2 = Self { v: value } ^ r;
-        (s1, s2)
+        (Self::wrap(r), Self::wrap(value) ^ r)
     }
 
-    #[must_use]
-    pub fn value(self) -> u128 {
-        self.v
+    fn wrap(v: u128) -> Self {
+        let mut s = Self { v };
+        s.mask();
+        s
     }
 
-    fn wrap(&mut self) {
-        self.v &= Self::mask();
+    fn mask(&mut self) {
+        assert!(N > 0);
+        assert!(N < 128);
+        self.v &= u128::MAX.wrapping_shr(128 - N);
     }
 }
 
@@ -198,12 +163,17 @@ impl<const N: u32> Debug for XorShare<N> {
     }
 }
 
+impl<const N: u32> From<XorShare<N>> for u128 {
+    fn from(v: XorShare<N>) -> Self {
+        v.v
+    }
+}
+
 // Natural implementations of `From` take the size from the type.
 
 impl From<u128> for XorShare<128> {
     fn from(v: u128) -> Self {
-        assert_eq!(v, v & Self::mask());
-        Self { v }
+        Self::wrap(v)
     }
 }
 
@@ -223,26 +193,13 @@ where
     }
 }
 
-impl<const N: u32> BitXor<Self> for XorShare<N> {
-    type Output = Self;
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        self ^ rhs.v
-    }
-}
-
 impl<I, const N: u32> BitXorAssign<I> for XorShare<N>
 where
     I: Into<u128>,
 {
     fn bitxor_assign(&mut self, rhs: I) {
         self.v ^= rhs.into();
-        self.wrap();
-    }
-}
-
-impl<const N: u32> BitXorAssign<Self> for XorShare<N> {
-    fn bitxor_assign(&mut self, rhs: Self) {
-        self.v ^= rhs.v;
+        self.mask();
     }
 }
 
