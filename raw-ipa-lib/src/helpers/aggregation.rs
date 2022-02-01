@@ -160,7 +160,7 @@ mod tests {
         let sum2 = helper2.sum(encrypted_shares2.iter().map(unref_share));
 
         let total = sum1 + sum2;
-        assert_eq!(total.value(), u128::from(expected_total));
+        assert_eq!(u128::from(total), u128::from(expected_total));
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
             // The source or trigger helpers perform this on each pair of shares:
             // Add a random offset to the shares and then re-randomize the shared secret.
             // The two values are then sent the two aggregation helpers.
-            let offset = AdditiveShare::from(rng.next_u64());
+            let offset = AdditiveShare::<64>::try_from(u128::from(rng.next_u64())).unwrap();
             encrypted_shares1.push((
                 share1 + offset,
                 secret1.rerandomize(helper1.share_public_key(), &mut rng),
@@ -207,6 +207,6 @@ mod tests {
         let sum2 = helper2.sum(encrypted_shares2.iter().map(unref_share));
 
         let total = sum1 + sum2;
-        assert_eq!(total.value(), u128::from(expected_total));
+        assert_eq!(u128::from(total), u128::from(expected_total));
     }
 }
