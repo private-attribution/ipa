@@ -23,19 +23,11 @@ impl<const N: u32> AdditiveShare<N> {
     {
         let value = value.into();
         let r = u128::from(rng.next_u64()) << 64 | u128::from(rng.next_u64());
-        (Self::wrap(r), Self::wrap(value) - r)
-    }
-
-    fn wrap(v: u128) -> Self {
-        let mut s = Self { v };
-        s.mask();
-        s
+        (Self::new(r), Self::new(value) - r)
     }
 
     fn mask(&mut self) {
-        assert!(N > 0);
-        assert!(N < 128);
-        self.v &= u128::MAX.wrapping_shr(128 - N);
+        self.v &= <Self as BitWidth<N>>::mask();
     }
 }
 
@@ -56,28 +48,6 @@ impl<const N: u32> From<AdditiveShare<N>> for u128 {
         v.v
     }
 }
-
-// Natural implementations of `From` take the size from the type.
-
-impl From<u128> for AdditiveShare<128> {
-    fn from(v: u128) -> Self {
-        Self::wrap(v)
-    }
-}
-
-macro_rules! from_smaller {
-    ($i:ty, $s:ty) => {
-        impl From<$i> for $s {
-            fn from(v: $i) -> Self {
-                Self { v: u128::from(v) }
-            }
-        }
-    };
-}
-from_smaller!(u64, AdditiveShare<64>);
-from_smaller!(u32, AdditiveShare<32>);
-from_smaller!(u16, AdditiveShare<16>);
-from_smaller!(u8, AdditiveShare<8>);
 
 impl<I, const N: u32> Add<I> for AdditiveShare<N>
 where
@@ -135,19 +105,11 @@ impl<const N: u32> XorShare<N> {
     {
         let value = value.into();
         let r = u128::from(rng.next_u64()) << 64 | u128::from(rng.next_u64());
-        (Self::wrap(r), Self::wrap(value) ^ r)
-    }
-
-    fn wrap(v: u128) -> Self {
-        let mut s = Self { v };
-        s.mask();
-        s
+        (Self::new(r), Self::new(value) ^ r)
     }
 
     fn mask(&mut self) {
-        assert!(N > 0);
-        assert!(N < 128);
-        self.v &= u128::MAX.wrapping_shr(128 - N);
+        self.v &= <Self as BitWidth<N>>::mask();
     }
 }
 
@@ -168,19 +130,6 @@ impl<const N: u32> From<XorShare<N>> for u128 {
         v.v
     }
 }
-
-// Natural implementations of `From` take the size from the type.
-
-impl From<u128> for XorShare<128> {
-    fn from(v: u128) -> Self {
-        Self::wrap(v)
-    }
-}
-
-from_smaller!(u64, XorShare<64>);
-from_smaller!(u32, XorShare<32>);
-from_smaller!(u16, XorShare<16>);
-from_smaller!(u8, XorShare<8>);
 
 impl<I, const N: u32> BitXor<I> for XorShare<N>
 where
@@ -204,9 +153,53 @@ where
 }
 
 /// Marker trait for shares of a certain width.
-pub trait BitWidth<const N: u32> {}
-impl<const N: u32> BitWidth<N> for AdditiveShare<N> {}
-impl<const N: u32> BitWidth<N> for XorShare<N> {}
+pub trait BitWidth<const N: u32> {
+    fn new(v: u128) -> Self;
+
+    #[must_use]
+    fn mask() -> u128 {
+        assert!(N > 0);
+        assert!(N < 128);
+        u128::MAX.wrapping_shr(128 - N)
+    }
+}
+impl<const N: u32> BitWidth<N> for AdditiveShare<N> {
+    fn new(v: u128) -> Self {
+        let mut s = Self { v };
+        s.mask();
+        s
+    }
+}
+
+impl<const N: u32> BitWidth<N> for XorShare<N> {
+    fn new(v: u128) -> Self {
+        let mut s = Self { v };
+        s.mask();
+        s
+    }
+}
+
+impl<const N: u32> TryFrom<u128> for AdditiveShare<N> {
+    type Error = ();
+    fn try_from(v: u128) -> Result<Self, Self::Error> {
+        if v & <Self as BitWidth<N>>::mask() == v {
+            Ok(Self::new(v))
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<const N: u32> TryFrom<u128> for XorShare<N> {
+    type Error = ();
+    fn try_from(v: u128) -> Result<Self, Self::Error> {
+        if v & <Self as BitWidth<N>>::mask() == v {
+            Ok(Self::new(v))
+        } else {
+            Err(())
+        }
+    }
+}
 
 pub trait EncryptSelf<U> {
     /// Encrypt value using entropy, `e`.
@@ -403,15 +396,22 @@ impl EncryptedSecret {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdditiveShare, DecryptionKey, XorShare};
+    use super::{AdditiveShare, BitWidth, DecryptionKey, XorShare};
     use rand::{thread_rng, RngCore};
+
+    fn from64<T>(v: u64) -> T
+    where
+        T: BitWidth<64> + TryFrom<u128, Error = ()>,
+    {
+        T::try_from(u128::from(v)).unwrap()
+    }
 
     #[test]
     fn share() {
         let mut rng = thread_rng();
         let v = rng.next_u64();
         let (s1, s2) = AdditiveShare::<64>::share(v, &mut rng);
-        assert_eq!(s1 + s2, AdditiveShare::from(v));
+        assert_eq!(s1 + s2, from64(v));
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
         let mut rng = thread_rng();
         let v = rng.next_u64();
         let (s1, s2) = XorShare::<64>::share(v, &mut rng);
-        assert_eq!(s1 ^ s2, XorShare::from(v));
+        assert_eq!(s1 ^ s2, from64(v));
     }
 
     #[test]
@@ -429,11 +429,11 @@ mod tests {
         let (mut s1, mut s2) = AdditiveShare::<64>::share(v, &mut rng);
         let r = rng.next_u64();
         // Check addition and subtraction.
-        assert_eq!((s1 + r) + (s2 - r), AdditiveShare::from(v));
+        assert_eq!((s1 + r) + (s2 - r), from64(v));
         // Separately with assignment.
         s1 += r;
         s2 -= r;
-        assert_eq!(s1 + s2, AdditiveShare::from(v));
+        assert_eq!(s1 + s2, from64(v));
     }
 
     #[test]
@@ -443,11 +443,11 @@ mod tests {
         let (mut s1, mut s2) = XorShare::<64>::share(v, &mut rng);
         let r = rng.next_u64();
         // Check addition and subtraction.
-        assert_eq!((s1 ^ r) ^ (s2 ^ r), XorShare::from(v));
+        assert_eq!((s1 ^ r) ^ (s2 ^ r), from64(v));
         // Separately with assignment.
         s1 ^= r;
         s2 ^= r;
-        assert_eq!(s1 ^ s2, XorShare::from(v));
+        assert_eq!(s1 ^ s2, from64(v));
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
         let mut rng = thread_rng();
         let v = rng.next_u64();
         let (s1, s2) = AdditiveShare::<64>::share(v, &mut rng);
-        let v = AdditiveShare::from(v);
+        let v = from64(v);
         assert_ne!(s1, s2);
         assert_ne!(s1, v);
         assert_ne!(s2, v);
@@ -478,7 +478,7 @@ mod tests {
         let mut rng = thread_rng();
         let v = rng.next_u64();
         let (s1, s2) = XorShare::<64>::share(v, &mut rng);
-        let v = XorShare::from(v);
+        let v = from64(v);
         assert_ne!(s1, s2);
         assert_ne!(s1, v);
         assert_ne!(s2, v);
@@ -501,7 +501,7 @@ mod tests {
         let mut rng = thread_rng();
         let v = rng.next_u64();
         let (s1, s2) = AdditiveShare::<64>::share(v, &mut rng);
-        let v = AdditiveShare::from(v);
+        let v = from64(v);
         assert_ne!(s1, s2);
         assert_ne!(s1, v);
         assert_ne!(s2, v);
@@ -536,7 +536,7 @@ mod tests {
         let mut rng = thread_rng();
         let v = rng.next_u64();
         let (s1, s2) = AdditiveShare::<64>::share(v, &mut rng);
-        let v = AdditiveShare::from(v);
+        let v = from64(v);
         assert_ne!(s1, s2);
         assert_ne!(s1, v);
         assert_ne!(s2, v);
