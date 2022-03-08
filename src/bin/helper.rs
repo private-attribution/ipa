@@ -1,6 +1,6 @@
 use log::{error, info};
-use raw_ipa_cli::{HelperArgs, Verbosity};
-use raw_ipa_lib::helpers::{AggregationHelper, EventHelper, Role as HelperRole};
+use raw_ipa::cli::{HelperArgs, Verbosity};
+use raw_ipa::helpers::{AggregationHelper, EventHelper, Role as HelperRole};
 use std::fs;
 use structopt::StructOpt;
 
@@ -15,7 +15,7 @@ struct CommonArgs {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "raw-ipa-helper", about = "Functions for IPA helper servers")]
+#[structopt(name = "helper", about = "Functions for IPA helper servers")]
 struct Args {
     #[structopt(flatten)]
     common: CommonArgs,
@@ -27,7 +27,7 @@ struct Args {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "action")]
 enum Action {
-    /// Generate configuration for client(s).
+    /// Setup a helper.
     Setup {
         /// The type of helper to configure.
         helper: HelperRole,

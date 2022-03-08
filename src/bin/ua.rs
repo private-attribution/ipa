@@ -1,6 +1,6 @@
 use log::{debug, error, info, trace, warn};
-use raw_ipa_cli::{HelperArgs, StringN, Verbosity};
-use raw_ipa_lib::{helpers::Helpers, user::User};
+use raw_ipa::cli::{HelperArgs, StringN, Verbosity};
+use raw_ipa::{helpers::Helpers, user::User};
 use std::fs;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "raw-ipa-ua", about = "Functions for IPA User Agents")]
+#[structopt(name = "ua", about = "Functions for IPA User Agents")]
 struct Args {
     #[structopt(flatten)]
     common: CommonArgs,
