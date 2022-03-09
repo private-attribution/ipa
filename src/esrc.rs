@@ -129,6 +129,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_enc_dec() {
+        let mut rng = StdRng::from_entropy();
+        let (enc_key, dec_key) = setup_encryption_keys(&mut rng);
+
+        // the message to encrypt
+        let m = G1Affine::from(G1Affine::generator() * Scalar::from(rng.next_u64()));
+
+        // encrypt then decrypt
+        let enc_m = encrypt(&mut rng, m, enc_key);
+        let dec_m = decrypt(enc_m, dec_key);
+        assert_eq!(m, dec_m);
+    }
+
+    #[test]
     fn test_enc_randomize_verify() {
         let mut rng = StdRng::from_entropy();
         let (enc_key, _) = setup_encryption_keys(&mut rng);
