@@ -8,6 +8,7 @@ pub enum Error {
     NotFound,
     TooManyHelpers,
 
+    #[cfg(feature = "cli")]
     Hex(hex::FromHexError),
     Io(std::io::Error),
     #[cfg(feature = "enable-serde")]
@@ -43,6 +44,7 @@ impl std::fmt::Display for Error {
 }
 
 forward_errors! {
+    #[cfg(feature = "cli")]
     hex::FromHexError => Hex,
     std::io::Error => Io,
     #[cfg(feature = "enable-serde")]
