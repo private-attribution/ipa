@@ -12,6 +12,7 @@ debug = ["hex"]
 enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
 
 [dependencies]
+bls12_381 = "0.6.0"
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
 digest = "0.9"
 hex = {version = "0.4", optional = true}
