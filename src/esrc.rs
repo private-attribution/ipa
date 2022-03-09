@@ -17,7 +17,7 @@ impl From<EncryptionKey> for G1Affine {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 struct DecryptionKey(Scalar);
 impl Mul<DecryptionKey> for G1Projective {
     type Output = G1Projective;
@@ -145,23 +145,24 @@ mod tests {
     #[test]
     fn test_enc_randomize_verify() {
         let mut rng = StdRng::from_entropy();
-        let (enc_key, _) = setup_encryption_keys(&mut rng);
+        let (enc_key, dec_key) = setup_encryption_keys(&mut rng);
         let (sign_key, verify_key) = setup_signing_keys(&mut rng);
 
         // the message to transfer
         let m = G1Affine::from(G1Affine::generator() * Scalar::from(rng.next_u64()));
 
         // initial encryption and signing
-        let enc_m1 = encrypt(&mut rng, m, enc_key);
-        let signature = sign(&mut rng, enc_m1, enc_key, sign_key);
+        let enc_m = encrypt(&mut rng, m, enc_key);
+        let signature = sign(&mut rng, enc_m, enc_key, sign_key);
 
         // rerandomize
         let r_prime = Scalar::from(rng.next_u64());
-        let r_enc_m1 = randomize(enc_m1, enc_key, r_prime);
+        let r_enc_m = randomize(enc_m, enc_key, r_prime);
         let r_signature = adapt(&mut rng, signature, r_prime);
 
         // verify
-        assert!(verify(verify_key, enc_key, r_enc_m1, r_signature));
-        assert!(!verify(verify_key, enc_key, r_enc_m1, signature));
+        assert!(verify(verify_key, enc_key, r_enc_m, r_signature));
+        assert!(!verify(verify_key, enc_key, r_enc_m, signature));
+        assert_eq!(decrypt(r_enc_m, dec_key), m);
     }
 }
