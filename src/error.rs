@@ -6,6 +6,7 @@ pub enum Error {
     InvalidRole,
     NotEnoughHelpers,
     NotFound,
+    RedisError(redis::RedisError),
     TooManyHelpers,
 
     #[cfg(feature = "cli")]
@@ -49,6 +50,7 @@ forward_errors! {
     std::io::Error => Io,
     #[cfg(feature = "enable-serde")]
     serde_json::Error => Serde,
+    redis::RedisError => RedisError,
 }
 
 pub type Res<T> = Result<T, Error>;
