@@ -1,9 +1,8 @@
 [package]
 name = "raw-ipa"
 version = "0.1.0"
+rust-version = "1.57.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 default = ["debug", "cli"]
@@ -28,7 +27,6 @@ serde_json = {version = "1.0", optional = true}
 sha2 = "0.9"
 stderrlog = {version = "0.5", optional = true}
 structopt = {version = "0.3", optional = true}
-
 
 [dev-dependencies]
 hex = "0.4"
