@@ -1,6 +1,5 @@
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
-#[allow(unused_imports)]
-use rand::{CryptoRng, RngCore, SeedableRng};
+use rand::{CryptoRng, RngCore};
 use std::ops::Mul;
 
 #[derive(Copy, Clone, Debug)]
@@ -154,6 +153,7 @@ fn verify(
 mod tests {
     use super::*;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn test_enc_dec() {
