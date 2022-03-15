@@ -1,4 +1,5 @@
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
+#[allow(unused_imports)]
 use rand::{CryptoRng, RngCore, SeedableRng};
 use std::ops::Mul;
 
@@ -37,12 +38,14 @@ struct VerifyKey(G2Projective, G2Projective);
 #[derive(Copy, Clone, Debug)]
 struct Signature(G1Projective, G1Projective, G2Projective, G1Projective);
 
+#[allow(dead_code)]
 fn setup_encryption_keys(rng: &mut (impl RngCore + CryptoRng)) -> (EncryptionKey, DecryptionKey) {
     let dec_key = Scalar::from(rng.next_u64());
     let enc_key = G1Affine::generator() * dec_key;
     (EncryptionKey(enc_key), DecryptionKey(dec_key))
 }
 
+#[allow(dead_code)]
 fn setup_signing_keys(rng: &mut (impl RngCore + CryptoRng)) -> (SigningKey, VerifyKey) {
     let x0 = Scalar::from(rng.next_u64()).double();
     let x1 = Scalar::from(rng.next_u64()).double();
@@ -51,6 +54,7 @@ fn setup_signing_keys(rng: &mut (impl RngCore + CryptoRng)) -> (SigningKey, Veri
     (SigningKey(x0, x1), VerifyKey(x_hat0, x_hat1))
 }
 
+#[allow(dead_code)]
 fn encrypt(
     rng: &mut (impl RngCore + CryptoRng),
     m: G1Affine,
@@ -62,12 +66,14 @@ fn encrypt(
     CipherText(c0, c1)
 }
 
+#[allow(dead_code)]
 fn decrypt(cm: &CipherText, dec_key: &DecryptionKey) -> G1Affine {
     let CipherText(c0, c1) = cm;
     let dec = c1 - (c0 * dec_key);
     G1Affine::from(dec)
 }
 
+#[allow(dead_code)]
 fn randomize(cm: &CipherText, enc_key: &EncryptionKey, r_prime: Scalar) -> CipherText {
     let CipherText(c0, c1) = cm;
     let rc0 = c0 + (G1Affine::generator() * r_prime);
@@ -75,6 +81,7 @@ fn randomize(cm: &CipherText, enc_key: &EncryptionKey, r_prime: Scalar) -> Ciphe
     CipherText(rc0, rc1)
 }
 
+#[allow(dead_code)]
 fn sign(
     rng: &mut (impl RngCore + CryptoRng),
     cm: &CipherText,
@@ -92,6 +99,7 @@ fn sign(
     Signature(z, s, s_hat, t)
 }
 
+#[allow(dead_code)]
 fn adapt(
     rng: &mut (impl RngCore + CryptoRng),
     signature: &Signature,
@@ -108,6 +116,7 @@ fn adapt(
     Signature(z_prime, s_prime, s_hat_prime, t_prime)
 }
 
+#[allow(dead_code, clippy::similar_names)] // g_g_hat_pair and g_s_hat_pair
 fn verify(
     verify_key: &VerifyKey,
     enc_key: &EncryptionKey,
