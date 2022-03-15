@@ -3,7 +3,7 @@ use rand::{CryptoRng, RngCore};
 use std::ops::Mul;
 
 #[derive(Copy, Clone, Debug)]
-struct EncryptionKey(G1Projective);
+pub struct EncryptionKey(G1Projective);
 impl Mul<Scalar> for &EncryptionKey {
     type Output = G1Projective;
 
@@ -18,7 +18,7 @@ impl From<&EncryptionKey> for G1Affine {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-struct DecryptionKey(Scalar);
+pub struct DecryptionKey(Scalar);
 impl Mul<&DecryptionKey> for &G1Projective {
     type Output = G1Projective;
 
@@ -28,24 +28,24 @@ impl Mul<&DecryptionKey> for &G1Projective {
 }
 
 #[derive(Copy, Clone, Debug)]
-struct CipherText(G1Projective, G1Projective);
+pub struct CipherText(G1Projective, G1Projective);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct SigningKey(Scalar, Scalar);
+pub struct SigningKey(Scalar, Scalar);
 #[derive(Copy, Clone, Debug)]
-struct VerifyKey(G2Projective, G2Projective);
+pub struct VerifyKey(G2Projective, G2Projective);
 #[derive(Copy, Clone, Debug)]
-struct Signature(G1Projective, G1Projective, G2Projective, G1Projective);
+pub struct Signature(G1Projective, G1Projective, G2Projective, G1Projective);
 
-#[allow(dead_code)]
-fn setup_encryption_keys(rng: &mut (impl RngCore + CryptoRng)) -> (EncryptionKey, DecryptionKey) {
+pub fn setup_encryption_keys(
+    rng: &mut (impl RngCore + CryptoRng),
+) -> (EncryptionKey, DecryptionKey) {
     let dec_key = Scalar::from(rng.next_u64());
     let enc_key = G1Affine::generator() * dec_key;
     (EncryptionKey(enc_key), DecryptionKey(dec_key))
 }
 
-#[allow(dead_code)]
-fn setup_signing_keys(rng: &mut (impl RngCore + CryptoRng)) -> (SigningKey, VerifyKey) {
+pub fn setup_signing_keys(rng: &mut (impl RngCore + CryptoRng)) -> (SigningKey, VerifyKey) {
     let x0 = Scalar::from(rng.next_u64()).double();
     let x1 = Scalar::from(rng.next_u64()).double();
     let x_hat0 = G2Affine::generator() * x0;
@@ -53,8 +53,7 @@ fn setup_signing_keys(rng: &mut (impl RngCore + CryptoRng)) -> (SigningKey, Veri
     (SigningKey(x0, x1), VerifyKey(x_hat0, x_hat1))
 }
 
-#[allow(dead_code)]
-fn encrypt(
+pub fn encrypt(
     rng: &mut (impl RngCore + CryptoRng),
     m: G1Affine,
     enc_key: &EncryptionKey,
@@ -65,23 +64,22 @@ fn encrypt(
     CipherText(c0, c1)
 }
 
-#[allow(dead_code)]
-fn decrypt(cm: &CipherText, dec_key: &DecryptionKey) -> G1Affine {
+#[allow(clippy::must_use_candidate)]
+pub fn decrypt(cm: &CipherText, dec_key: &DecryptionKey) -> G1Affine {
     let CipherText(c0, c1) = cm;
     let dec = c1 - (c0 * dec_key);
     G1Affine::from(dec)
 }
 
-#[allow(dead_code)]
-fn randomize(cm: &CipherText, enc_key: &EncryptionKey, r_prime: Scalar) -> CipherText {
+#[allow(clippy::must_use_candidate)]
+pub fn randomize(cm: &CipherText, enc_key: &EncryptionKey, r_prime: Scalar) -> CipherText {
     let CipherText(c0, c1) = cm;
     let rc0 = c0 + (G1Affine::generator() * r_prime);
     let rc1 = c1 + (enc_key * r_prime);
     CipherText(rc0, rc1)
 }
 
-#[allow(dead_code)]
-fn sign(
+pub fn sign(
     rng: &mut (impl RngCore + CryptoRng),
     cm: &CipherText,
     enc_key: &EncryptionKey,
@@ -98,8 +96,7 @@ fn sign(
     Signature(z, s, s_hat, t)
 }
 
-#[allow(dead_code)]
-fn adapt(
+pub fn adapt(
     rng: &mut (impl RngCore + CryptoRng),
     signature: &Signature,
     r_prime: Scalar,
@@ -115,8 +112,8 @@ fn adapt(
     Signature(z_prime, s_prime, s_hat_prime, t_prime)
 }
 
-#[allow(dead_code, clippy::similar_names)] // g_g_hat_pair and g_s_hat_pair
-fn verify(
+#[allow(clippy::must_use_candidate, clippy::similar_names)] // g_g_hat_pair and g_s_hat_pair
+pub fn verify(
     verify_key: &VerifyKey,
     enc_key: &EncryptionKey,
     cm: &CipherText,
