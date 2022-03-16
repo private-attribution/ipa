@@ -10,6 +10,9 @@ use raw_ipa::esrc;
 use test::Bencher;
 
 #[bench]
+// running on a 2021 MBP 14":
+// test bench_enc_randomize_verify ... bench:  19,898,745 ns/iter (+/- 471,474)
+// aka about 20ms
 fn bench_enc_randomize_verify(b: &mut Bencher) {
     let mut rng = StdRng::from_entropy();
     let (enc_key, _dec_key) = esrc::setup_encryption_keys(&mut rng);
