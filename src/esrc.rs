@@ -18,7 +18,7 @@ use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar}
 use rand::{CryptoRng, RngCore};
 use std::ops::Mul;
 
-/// DecryptionKey represents a random Scalar value
+/// `DecryptionKey` represents a random scalar value
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 struct DecryptionKey(Scalar);
 impl DecryptionKey {
@@ -41,7 +41,7 @@ impl Mul<DecryptionKey> for G1Affine {
     }
 }
 
-/// EncryptionKey represents an elliptic curve point as generated via a decryption key
+/// `EncryptionKey` represents an elliptic curve point as generated via a decryption key
 #[derive(Copy, Clone, Debug)]
 struct EncryptionKey(G1Projective);
 impl EncryptionKey {
@@ -63,7 +63,7 @@ impl From<EncryptionKey> for G1Affine {
     }
 }
 
-/// SigningKey represents 2 random Scalar values
+/// `SigningKey` represents 2 random scalar values
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct SigningKey(Scalar, Scalar);
 impl SigningKey {
@@ -74,7 +74,7 @@ impl SigningKey {
     }
 }
 
-/// VerifyKey represents 2 elliptic curve points on a paired elliptic curve, as generated via a
+/// `VerifyKey` represents 2 elliptic curve points on a paired elliptic curve, as generated via a
 /// signing key
 #[derive(Copy, Clone, Debug)]
 struct VerifyKey(G2Projective, G2Projective);
@@ -87,16 +87,17 @@ impl VerifyKey {
     }
 }
 
-/// CipherText represents an encrypted message generated with an encryption key
+/// `CipherText` represents an encrypted message generated with an encryption key
 #[derive(Copy, Clone, Debug)]
 pub struct CipherText(G1Projective, G1Projective);
 
-/// Signature represents a signature of a CipherText that can be used to verify the CipherText's
-/// authenticity
+/// `Signature` represents a signature of a `CipherText` that can be used to verify the
+/// `CipherText`'s authenticity
 #[derive(Copy, Clone, Debug)]
 pub struct Signature(G1Projective, G1Projective, G2Projective, G1Projective);
 
-/// Esrc implements [Efficient Signatures on Randomizable Ciphertexts](https://eprint.iacr.org/2020/524.pdf)
+/// `Esrc` implements
+/// [Efficient Signatures on Randomizable Ciphertexts](https://eprint.iacr.org/2020/524.pdf)
 pub struct Esrc {
     dec_key: DecryptionKey,
     enc_key: EncryptionKey,
