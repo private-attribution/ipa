@@ -1,3 +1,14 @@
+//! benchmarks are still experimental in rust, so will only compile with the nightly compiler.
+//! In order to run this benchmark:
+//! * install nightly compiler
+//!   ```sh
+//!   rustup toolchain install nightly
+//!   ```
+//! * compile and benchmark using nightly compiler
+//!   ```sh
+//!   rustup run nightly cargo bench
+//!   ```
+
 #![feature(test)]
 
 extern crate test;
