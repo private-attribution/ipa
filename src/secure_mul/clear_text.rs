@@ -52,6 +52,18 @@ mod test {
         move || Integer::from(Integer::random_bits(256, &mut rng))
     }
 
+    macro_rules! sum_ref {
+        (&$e:expr, $(&$es:expr),*) => {
+            {
+                let mut sum = $e.clone();
+                $(
+                    sum += &$es;
+                )*
+                sum
+            }
+        };
+    }
+
     #[test]
     fn test_mul() {
         let mut rng = RandState::new();
@@ -73,6 +85,9 @@ mod test {
 
         let res = ClearText::mul(&h1, &h2, &h3);
 
-        assert_eq!(res, h1.r_ * (h1.m + h1.k + h2.m + h2.k + h3.m + h3.k));
+        assert_eq!(
+            res,
+            h1.r() * sum_ref!(&h1.m, &h1.k, &h2.m, &h2.k, &h3.m, &h3.k)
+        );
     }
 }
