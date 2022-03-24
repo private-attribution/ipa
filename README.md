@@ -21,3 +21,22 @@ A token effort will be made to meet privacy and security goals. However, this is
 only for the purposes of learning.  No serious effort will be made to ensure
 that these goals are met and therefore this code is **not fit for production
 use**.
+
+## Testing
+
+Test with 
+
+```sh
+cargo test
+```
+
+## Committing
+
+Before committing, run
+
+```sh
+cargo fmt --all
+cargo clippy --tests -- -D warnings -D clippy::pedantic
+```
+
+and make sure both complete without error
