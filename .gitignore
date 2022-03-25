@@ -3,4 +3,5 @@
 *~
 /Cargo.lock
 /.vscode/
-/db
+*.code-workspace
+*/db

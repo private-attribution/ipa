@@ -125,6 +125,7 @@ mod tests {
         const PROVIDER_2: &str = "news.example";
         const PROVIDER_3: &str = "email.example";
         const PROVIDER_4: &str = "game.example";
+        const PROVIDER_5: &str = "404.example";
 
         const MATCHING_MATCHKEY: &str = "12345678";
 
@@ -148,7 +149,7 @@ mod tests {
         u2.set_matchkey(PROVIDER_3, "something_else");
 
         let r1 = u1.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3, PROVIDER_4]);
-        let r2 = u2.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3]);
+        let r2 = u2.generate_event_report(&[PROVIDER_1, PROVIDER_2, PROVIDER_3, PROVIDER_5]);
 
         // Source Event Helper partially decrypts both events
         let partially_decrypted_1 = h_source.threshold_decrypt_event(&r1);
