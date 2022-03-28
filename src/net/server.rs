@@ -6,6 +6,7 @@ pub struct Server {
 }
 
 impl Server {
+    #[must_use]
     pub fn new() -> Server {
         Server {
             connection_handler_thread: Thread::new(),
@@ -22,6 +23,12 @@ impl Server {
             // read
             // write
         });
+    }
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

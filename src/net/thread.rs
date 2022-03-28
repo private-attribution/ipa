@@ -20,6 +20,7 @@ pub enum Message {
 }
 
 impl Thread {
+    #[must_use]
     pub fn new() -> Thread {
         let (sender, receiver) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(receiver));
@@ -30,6 +31,9 @@ impl Thread {
         }
     }
 
+    /// Sends a function to the running thread for it to be executed.
+    /// # Panics
+    /// If the thread has been terminated.
     pub fn execute<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
@@ -37,6 +41,12 @@ impl Thread {
         let job = Box::new(f);
 
         self.sender.send(Message::NewJob(job)).unwrap();
+    }
+}
+
+impl Default for Thread {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
