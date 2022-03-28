@@ -1,4 +1,3 @@
-#[cfg(feature = "debug")]
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 

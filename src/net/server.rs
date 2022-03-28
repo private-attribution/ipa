@@ -1,5 +1,4 @@
-#[cfg(feature = "debug")]
-use crate::net::thread::Thread;
+use crate::net::Thread;
 
 pub struct Server {
     connection_handler_thread: Thread,

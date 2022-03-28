@@ -1,2 +1,5 @@
-pub mod server;
-pub mod thread;
+pub use self::thread::Thread;
+pub use self::server::Server;
+
+mod server;
+mod thread;
