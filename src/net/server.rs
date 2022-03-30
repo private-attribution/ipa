@@ -16,12 +16,17 @@ impl Server {
         self.start_connection_handler();
     }
 
+    /// Spawns a new thread to handle incoming connections.
+    /// # Panics
+    /// If the thread could not be spawned.
     fn start_connection_handler(&self) {
-        self.connection_handler_thread.execute(|| {
+        if let Err(e) = self.connection_handler_thread.execute(|| {
             // listen
             // read
             // write
-        });
+        }) {
+            panic!("Could not start the connection handler: {}", e);
+        }
     }
 }
 
@@ -34,13 +39,10 @@ impl Default for Server {
 #[cfg(test)]
 mod tests {
     use super::Server;
-    use std::thread;
-    use std::time;
 
     #[test]
-    fn test_no_panic() {
+    fn no_panic() {
         let server = Server::new();
         server.start();
-        thread::sleep(time::Duration::from_millis(500));
     }
 }
