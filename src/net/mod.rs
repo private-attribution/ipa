@@ -1,5 +1,5 @@
 pub use self::server::Server;
-pub use self::thread::{Message, Pool};
+pub use self::thread::{Job, Message, Pool};
 
 mod server;
 mod thread;

@@ -14,7 +14,7 @@ struct Worker {
     thread: Option<thread::JoinHandle<()>>,
 }
 
-type Job = Box<dyn FnOnce() + Send + 'static>;
+pub type Job = Box<dyn FnOnce() + Send + 'static>;
 
 pub enum Message {
     NewJob(Job),
