@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{error, info, warn};
 use std::fmt::{Debug, Formatter};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -6,7 +6,11 @@ use std::thread;
 use crate::error::Res;
 
 pub struct Thread {
-    worker: Worker,
+    thread: Pool,
+}
+
+pub struct Pool {
+    workers: Vec<Worker>,
     sender: mpsc::Sender<Message>,
 }
 
@@ -24,13 +28,36 @@ pub enum Message {
 impl Thread {
     #[must_use]
     pub fn new() -> Thread {
+        Thread {
+            thread: Pool::new(1),
+        }
+    }
+
+    /// Sends a function to the running thread for it to be executed.
+    /// # Errors
+    ///  If the thread has been terminated.
+    pub fn execute<F>(&self, f: F) -> Res<()>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.thread.execute(f)?;
+
+        Ok(())
+    }
+}
+
+impl Pool {
+    #[must_use]
+    pub fn new(size: usize) -> Pool {
         let (sender, receiver) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(receiver));
+        let mut workers = Vec::with_capacity(size);
 
-        Thread {
-            worker: Worker::spawn(receiver),
-            sender,
+        for _ in 0..size {
+            workers.push(Worker::spawn(Arc::clone(&receiver)));
         }
+
+        Pool { workers, sender }
     }
 
     /// Sends a function to the running thread for it to be executed.
@@ -54,11 +81,19 @@ impl Default for Thread {
     }
 }
 
-impl Drop for Thread {
+impl Drop for Pool {
     fn drop(&mut self) {
-        info!("Terminating thread {:?}", self.worker);
-        if let Ok(()) = self.sender.send(Message::Terminate) {
-            if let Some(thread) = self.worker.thread.take() {
+        for _ in &self.workers {
+            if self.sender.send(Message::Terminate).is_err() {
+                warn!("Receiver channel is closed.");
+                // If SendError occurs, that means the receiver is deallocated and all following send() calls will fail.
+                break;
+            }
+        }
+
+        for worker in &mut self.workers {
+            info!("Terminating thread {:?}", worker);
+            if let Some(thread) = worker.thread.take() {
                 thread.join().unwrap();
             }
         }
