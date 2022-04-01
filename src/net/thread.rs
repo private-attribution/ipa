@@ -1,4 +1,5 @@
 use log::{error, info};
+use std::fmt::{Debug, Formatter};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
@@ -10,7 +11,6 @@ pub struct Thread {
 }
 
 struct Worker {
-    id: usize,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -28,7 +28,7 @@ impl Thread {
         let receiver = Arc::new(Mutex::new(receiver));
 
         Thread {
-            worker: Worker::spawn(0, receiver),
+            worker: Worker::spawn(receiver),
             sender,
         }
     }
@@ -56,7 +56,7 @@ impl Default for Thread {
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        info!("Terminating thread {}", self.worker.id);
+        info!("Terminating thread {:?}", self.worker);
         if let Ok(()) = self.sender.send(Message::Terminate) {
             if let Some(thread) = self.worker.thread.take() {
                 thread.join().unwrap();
@@ -66,7 +66,7 @@ impl Drop for Thread {
 }
 
 impl Worker {
-    fn spawn(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
+    fn spawn(receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let thread = thread::spawn(move || loop {
             let message: Message;
 
@@ -85,19 +85,33 @@ impl Worker {
 
             match message {
                 Message::NewJob(job) => {
-                    info!("Worker {} received a job; executing.", id);
+                    info!(
+                        "Worker {:?} received a job; executing.",
+                        thread::current().id()
+                    );
                     job();
                 }
                 Message::Terminate => {
-                    info!("Worker {} is shutting down.", id);
+                    info!("Worker {:?} is shutting down.", thread::current().id());
                     break;
                 }
             }
         });
 
+        info!("Spawned worker {:?}.", thread.thread().id());
+
         Worker {
-            id,
             thread: Some(thread),
+        }
+    }
+}
+
+impl Debug for Worker {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        if let Some(thread) = &self.thread {
+            write!(f, "{:?}", thread.thread().id())
+        } else {
+            write!(f, "(dead thread)")
         }
     }
 }
