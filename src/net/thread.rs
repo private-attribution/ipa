@@ -5,10 +5,6 @@ use std::thread;
 
 use crate::error::Res;
 
-pub struct Thread {
-    thread: Pool,
-}
-
 pub struct Pool {
     workers: Vec<Worker>,
     sender: mpsc::Sender<Message>,
@@ -23,27 +19,6 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 pub enum Message {
     NewJob(Job),
     Terminate,
-}
-
-impl Thread {
-    #[must_use]
-    pub fn new() -> Thread {
-        Thread {
-            thread: Pool::new(1),
-        }
-    }
-
-    /// Sends a function to the running thread for it to be executed.
-    /// # Errors
-    ///  If the thread has been terminated.
-    pub fn execute<F>(&self, f: F) -> Res<()>
-    where
-        F: FnOnce() + Send + 'static,
-    {
-        self.thread.execute(f)?;
-
-        Ok(())
-    }
 }
 
 impl Pool {
@@ -73,16 +48,12 @@ impl Pool {
 
         Ok(())
     }
-}
 
-impl Default for Thread {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+    /// Sends Terminate instructions to all active threads. This function will
+    /// not wait for threads to finish.
+    fn terminate(&self) {
+        info!("Terminating threads.");
 
-impl Drop for Pool {
-    fn drop(&mut self) {
         for _ in &self.workers {
             if self.sender.send(Message::Terminate).is_err() {
                 warn!("Receiver channel is closed.");
@@ -90,13 +61,36 @@ impl Drop for Pool {
                 break;
             }
         }
+    }
+
+    /// Waits for all threads to finish.
+    /// # Errors
+    /// If any of threads has panicked.
+    pub fn shutdown(&mut self) -> Res<()> {
+        self.terminate();
 
         for worker in &mut self.workers {
-            info!("Terminating thread {:?}", worker);
             if let Some(thread) = worker.thread.take() {
-                thread.join().unwrap();
+                if let Err(err) = thread.join() {
+                    let message = match err.downcast_ref::<&'static str>() {
+                        Some(s) => *s,
+                        None => match err.downcast_ref::<String>() {
+                            Some(s) => &s[..],
+                            None => "Unknown error.",
+                        },
+                    };
+                    warn!("Dead thread detected: {}", message);
+                };
             }
         }
+
+        Ok(())
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        self.terminate();
     }
 }
 

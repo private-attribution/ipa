@@ -1,19 +1,26 @@
-use crate::net::Thread;
+use crate::net::Pool;
+use log::warn;
 
 pub struct Server {
-    connection_handler_thread: Thread,
+    connection_handler_thread: Pool,
 }
 
 impl Server {
     #[must_use]
     pub fn new() -> Server {
         Server {
-            connection_handler_thread: Thread::new(),
+            connection_handler_thread: Pool::new(1),
         }
     }
 
     pub fn start(&self) {
         self.start_connection_handler();
+    }
+
+    pub fn stop(&mut self) {
+        if let Err(e) = self.connection_handler_thread.shutdown() {
+            warn!("Graceful shutdown failed: {}", e);
+        }
     }
 
     /// Spawns a new thread to handle incoming connections.
@@ -42,7 +49,10 @@ mod tests {
 
     #[test]
     fn no_panic() {
-        let server = Server::new();
+        let mut server = Server::new();
+
         server.start();
+
+        server.stop();
     }
 }
