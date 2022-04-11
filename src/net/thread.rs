@@ -35,7 +35,7 @@ impl Pool {
         Pool { workers, sender }
     }
 
-    /// Sends a function to the running thread for it to be executed.
+    /// Sends a function to a running thread for it to be executed.
     /// # Errors
     ///  If the thread has been terminated.
     pub fn execute<F>(&self, f: F) -> Res<()>
