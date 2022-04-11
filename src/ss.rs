@@ -43,5 +43,7 @@ mod tests {
         // recover from secret shares
         let recovered_integer_matchkey = recover_from_shares(sh1.share, sh2.share, sh3.share);
         println!("recovered_integer_matchkey = {}.", recovered_integer_matchkey);
+
+        assert_eq!(integer_matchkey, recovered_integer_matchkey);
     }
 }
