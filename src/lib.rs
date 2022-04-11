@@ -5,3 +5,4 @@ pub mod helpers;
 pub mod report;
 pub mod threshold;
 pub mod user;
+pub mod ss;
