@@ -1,5 +1,6 @@
 pub mod aggregation;
 pub mod event;
+pub mod prf_compute;
 pub mod privacy_budget;
 
 pub use aggregation::{
