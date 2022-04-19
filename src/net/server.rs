@@ -1,4 +1,3 @@
-#[cfg(feature = "enable-serde")]
 use super::handler::TcpConnection;
 use crate::net::Pool;
 use log::warn;
@@ -36,7 +35,7 @@ impl IPAService {
 
     /// Spawns a new thread to handle incoming connections.
     /// # Panics
-    /// If the thread could not be spawned.
+    /// If a thread could not be spawned.
     fn start_connection_handler(&self) {
         if self
             .rc_connection_handler_thread
