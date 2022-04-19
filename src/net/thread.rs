@@ -1,12 +1,12 @@
-use log::{error, info};
+use log::{error, info, warn};
 use std::fmt::{Debug, Formatter};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use crate::error::Res;
 
-pub struct Thread {
-    worker: Worker,
+pub struct Pool {
+    workers: Vec<Worker>,
     sender: mpsc::Sender<Message>,
 }
 
@@ -21,16 +21,18 @@ pub enum Message {
     Terminate,
 }
 
-impl Thread {
+impl Pool {
     #[must_use]
-    pub fn new() -> Thread {
+    pub fn new(size: usize) -> Pool {
         let (sender, receiver) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(receiver));
+        let mut workers = Vec::with_capacity(size);
 
-        Thread {
-            worker: Worker::spawn(receiver),
-            sender,
+        for _ in 0..size {
+            workers.push(Worker::spawn(Arc::clone(&receiver)));
         }
+
+        Pool { workers, sender }
     }
 
     /// Sends a function to the running thread for it to be executed.
@@ -46,22 +48,49 @@ impl Thread {
 
         Ok(())
     }
-}
 
-impl Default for Thread {
-    fn default() -> Self {
-        Self::new()
+    /// Sends Terminate instructions to all active threads. This function will
+    /// not wait for threads to finish.
+    fn terminate(&self) {
+        info!("Terminating threads.");
+
+        for _ in &self.workers {
+            if self.sender.send(Message::Terminate).is_err() {
+                warn!("Receiver channel is closed.");
+                // If SendError occurs, that means the receiver is deallocated and all following send() calls will fail.
+                break;
+            }
+        }
+    }
+
+    /// Waits for all threads to finish.
+    /// # Errors
+    /// If any of threads has panicked.
+    pub fn shutdown(&mut self) -> Res<()> {
+        self.terminate();
+
+        for worker in &mut self.workers {
+            if let Some(thread) = worker.thread.take() {
+                if let Err(err) = thread.join() {
+                    let message = match err.downcast_ref::<&'static str>() {
+                        Some(s) => *s,
+                        None => match err.downcast_ref::<String>() {
+                            Some(s) => &s[..],
+                            None => "Unknown error.",
+                        },
+                    };
+                    warn!("Dead thread detected: {}", message);
+                };
+            }
+        }
+
+        Ok(())
     }
 }
 
-impl Drop for Thread {
+impl Drop for Pool {
     fn drop(&mut self) {
-        info!("Terminating thread {:?}", self.worker);
-        if let Ok(()) = self.sender.send(Message::Terminate) {
-            if let Some(thread) = self.worker.thread.take() {
-                thread.join().unwrap();
-            }
-        }
+        self.terminate();
     }
 }
 
