@@ -21,7 +21,7 @@ macro_rules! build_pipeline {
         move |x| last.compute(x)
     }};
     ($head:expr, $($tail:expr),+) => {{
-        let mut head = ($head);
+        let head = ($head);
         move |x| {
             let outer_res = head.compute(x)?;
             let inner = build_pipeline!($($tail),+);
