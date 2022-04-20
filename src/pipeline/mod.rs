@@ -13,7 +13,7 @@ pub trait PStep {
 /// shortcut to composing all of the steps of the pipeline.
 /// takes a list of `PStep`s and feeds the outputs of one into the inputs of the next
 /// final result is a function with arguments matching `Input` of the first `PStep`, and return
-/// value matching `Output` of the last `PStep`.
+/// value matching `Res<Output>` of the last `PStep`.
 #[macro_export]
 macro_rules! build_pipeline {
     ($last:expr) => {{
