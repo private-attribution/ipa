@@ -36,12 +36,11 @@
 //! type is required to store secrets.
 //!
 //!
-//! [Paper] - https://eprint.iacr.org/2019/1390.pdf
-
+//! [Paper] - <https://eprint.iacr.org/2019/1390.pdf>
 
 use hkdf::Hkdf;
 use rand::distributions::{Distribution, Standard};
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 use sha2::Sha256;
 
 /// Represents a secret in the system that must obey the following properties:
@@ -66,6 +65,7 @@ impl SharedSecret {
     ///
     /// assert_eq!(SharedSecret::from(15), u.wrapping_add(v));
     /// ```
+    #[must_use]
     pub fn wrapping_add(self, other: Self) -> Self {
         SharedSecret(self.0.wrapping_add(other.0))
     }
@@ -79,6 +79,7 @@ impl SharedSecret {
     ///
     /// assert_eq!(SharedSecret::from(7), v.wrapping_sub(u));
     /// ```
+    #[must_use]
     pub fn wrapping_sub(self, other: Self) -> Self {
         SharedSecret(self.0.wrapping_sub(other.0))
     }
@@ -92,12 +93,14 @@ impl SharedSecret {
     ///
     /// assert_eq!(SharedSecret::from(77), v.wrapping_mul(u));
     /// ```
+    #[must_use]
     pub fn wrapping_mul(self, other: Self) -> Self {
         SharedSecret(self.0.wrapping_mul(other.0))
     }
 
     /// Shares this secret to 3 parties by choosing three random elements (v1..v3)
     /// under the constraint that v1+v2+v3 == self
+    #[must_use]
     pub fn share(&self) -> [Share; 3] {
         // thread_rng() is secure, but may not be secure enough for us. need to check
         // what rand crate uses for it.
@@ -117,6 +120,7 @@ impl SharedSecret {
     /// let s = SharedSecret::from(5);
     /// assert_eq!(s, SharedSecret::from_shares(s.share()));
     /// ```
+    #[must_use]
     pub fn from_shares(shares: [Share; 3]) -> Self {
         let u1 = shares[0].0;
         let u2 = shares[1].0;
@@ -126,11 +130,13 @@ impl SharedSecret {
     }
 
     /// Computes KDF over this secret with a given seed.
+    #[must_use]
     pub(crate) fn kdf(&self, seed: u64) -> Self {
         // require thorough security review
         let prf: Hkdf<Sha256> = Hkdf::new(None, &seed.to_be_bytes());
         let mut output = [0u8; 16];
-        prf.expand(&self.0.to_be_bytes(), &mut output).expect("Failed to expand HKDF");
+        prf.expand(&self.0.to_be_bytes(), &mut output)
+            .expect("Failed to expand HKDF");
 
         Self(u128::from_be_bytes(output))
     }
@@ -156,6 +162,7 @@ pub struct Share(SharedSecret, SharedSecret);
 
 impl Share {
     /// Computes HKDF over this share and returns a new instance of `SharedSecret`.
+    #[must_use]
     pub fn kdf(&self, seed: u64) -> SharedSecret {
         self.0.kdf(seed).wrapping_sub(self.1.kdf(seed))
     }
@@ -163,8 +170,10 @@ impl Share {
     /// Multiplies two shares with a given randomness and returns a new instance of `SharedSecret`.
     /// if `(u0, u1)` and `(v0, v1)` are two shares and `a` is randomness,
     /// then the product is defined as `u0`*`v0` + `u0`*`v1` + `u1`*`v0` + `a`.
+    #[must_use]
     pub fn wrapping_mul(self, other: Share, rand: Randomness) -> SharedSecret {
-        self.0.wrapping_mul(other.0)
+        self.0
+            .wrapping_mul(other.0)
             .wrapping_add(self.0.wrapping_mul(other.1))
             .wrapping_add(self.1.wrapping_mul(other.0))
             .wrapping_add(rand.share.kdf(rand.seed))
@@ -189,9 +198,18 @@ mod shared_secret_tests {
 
     #[test]
     pub fn mul() {
-        assert_eq!(SharedSecret(9), SharedSecret(3).wrapping_mul(SharedSecret(3)));
-        assert_eq!(SharedSecret(0), SharedSecret(3).wrapping_mul(SharedSecret(0)));
-        assert_eq!(SharedSecret(u128::MAX - 3), SharedSecret(u128::MAX - 1).wrapping_mul(SharedSecret(2)));
+        assert_eq!(
+            SharedSecret(9),
+            SharedSecret(3).wrapping_mul(SharedSecret(3))
+        );
+        assert_eq!(
+            SharedSecret(0),
+            SharedSecret(3).wrapping_mul(SharedSecret(0))
+        );
+        assert_eq!(
+            SharedSecret(u128::MAX - 3),
+            SharedSecret(u128::MAX - 1).wrapping_mul(SharedSecret(2))
+        );
     }
 
     #[test]
@@ -210,48 +228,52 @@ mod share_tests {
     pub fn mul() {
         let u_shares = SharedSecret(5).share();
         let v_shares = SharedSecret(10).share();
-        let randomness = SharedSecret(10202002).share()
-            .map(|s| Randomness { share: s, seed: 123 });
+        let randomness = SharedSecret(10_202_002).share().map(|s| Randomness {
+            share: s,
+            seed: 123,
+        });
 
-        let actual = u_shares.iter().enumerate()
+        let actual = u_shares
+            .iter()
+            .enumerate()
             .map(|(i, u)| u.wrapping_mul(v_shares[i], randomness[i]))
-            .fold(SharedSecret(0), |acc, secret| acc.wrapping_add(secret));
+            .fold(SharedSecret(0), SharedSecret::wrapping_add);
 
-        assert_eq!(SharedSecret(50), actual)
+        assert_eq!(SharedSecret(50), actual);
     }
 }
 
 #[allow(dead_code)]
 mod helper {
-    use std::sync::{mpsc};
+    use crate::shmc::{Randomness, Share, SharedSecret};
+    use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
     use std::thread;
     use std::thread::JoinHandle;
-    use crate::shmc::{Randomness, Share, SharedSecret};
 
-    pub type NextHelper = Sender<HelperCommand>;
+    pub type Next = Sender<Command>;
 
     /// Messages that are accepted and understood by the helper process.
     #[derive(Debug)]
-    pub enum HelperCommand {
-        SetNext(NextHelper),
+    pub enum Command {
+        SetNext(Next),
         SetMultiplier(Share),
         SetMultiplicand(Share, Randomness),
         PeerSecret(SharedSecret),
     }
 
-    pub enum HelperMessage {
-        MulComplete(SharedSecret)
+    pub enum Message {
+        MulComplete(SharedSecret),
     }
 
     pub struct Helper {
         _process: JoinHandle<()>,
-        pub output: Receiver<HelperMessage>,
+        pub output: Receiver<Message>,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct HelperState {
-        next: Option<NextHelper>,
+        next: Option<Next>,
         multiplier: Option<Share>,
         multiplicand: (Option<Share>, Option<Randomness>),
         peer_secret: Option<SharedSecret>,
@@ -259,21 +281,8 @@ mod helper {
         peer_notified: bool,
     }
 
-    impl Default for HelperState {
-        fn default() -> Self {
-            HelperState {
-                next: None,
-                multiplier: None,
-                multiplicand: (None, None),
-                peer_secret: None,
-                peer_notified: false,
-                result: None,
-            }
-        }
-    }
-
     impl HelperState {
-        pub fn set_next(&mut self, next: NextHelper) {
+        pub fn set_next(&mut self, next: Next) {
             self.next.get_or_insert(next);
         }
         pub fn set_multiplier(&mut self, s: Share) {
@@ -298,7 +307,8 @@ mod helper {
                 multiplicand: (Some(md), Some(r)),
                 result: None,
                 ..
-            } = self {
+            } = self
+            {
                 self.result = Some(mr.wrapping_mul(*md, *r));
             }
 
@@ -309,8 +319,10 @@ mod helper {
                 result: Some(r),
                 peer_notified: false,
                 ..
-            } = self {
-                next.send(HelperCommand::PeerSecret(*r)).expect("Failed to notify next helper");
+            } = self
+            {
+                next.send(Command::PeerSecret(*r))
+                    .expect("Failed to notify next helper");
                 self.peer_notified = true;
             }
 
@@ -319,8 +331,10 @@ mod helper {
             if let HelperState {
                 result: Some(r),
                 peer_notified: true,
-                peer_secret: Some(p), ..
-            } = self {
+                peer_secret: Some(p),
+                ..
+            } = self
+            {
                 self.multiplier = Some(Share(*r, *p));
                 self.multiplicand = (None, None);
                 self.peer_secret = None;
@@ -333,45 +347,49 @@ mod helper {
         }
     }
 
-    fn event_loop(state: &mut HelperState, rx: Receiver<HelperCommand>, publish: Sender<HelperMessage>) {
+    fn event_loop(state: &mut HelperState, rx: Receiver<Command>, publish: &Sender<Message>) {
         for msg in rx {
             match msg {
-                HelperCommand::SetNext(next) => state.set_next(next),
-                HelperCommand::SetMultiplier(share) => state.set_multiplier(share),
-                HelperCommand::SetMultiplicand(share, rand) => state.set_multiplicand(share, rand),
-                HelperCommand::PeerSecret(peer_secret) => state.set_peer_secret(peer_secret)
+                Command::SetNext(next) => state.set_next(next),
+                Command::SetMultiplier(share) => state.set_multiplier(share),
+                Command::SetMultiplicand(share, rand) => state.set_multiplicand(share, rand),
+                Command::PeerSecret(peer_secret) => state.set_peer_secret(peer_secret),
             }
 
             if let Some(product) = state.compute() {
-                publish.send(HelperMessage::MulComplete(product))
-                    .expect("Failed to send the result of the multiplication")
+                publish
+                    .send(Message::MulComplete(product))
+                    .expect("Failed to send the result of the multiplication");
             }
         }
     }
 
     impl Helper {
-        pub fn new(rx: Receiver<HelperCommand>) -> Helper {
+        pub fn new(rx: Receiver<Command>) -> Helper {
             let (publish_tx, publish_rx) = mpsc::channel();
             let mut state = HelperState::default();
 
-            let thread = thread::spawn(move || event_loop(&mut state, rx, publish_tx));
+            let thread = thread::spawn(move || event_loop(&mut state, rx, &publish_tx));
 
-            Helper { _process: thread, output: publish_rx }
+            Helper {
+                _process: thread,
+                output: publish_rx,
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-    use std::sync::mpsc;
-    use rand::{Rng, thread_rng};
-    use crate::shmc::helper::{Helper, HelperCommand, HelperMessage, NextHelper};
+    use crate::shmc::helper::{Command, Helper, Message, Next};
     use crate::shmc::{Randomness, Share, SharedSecret};
+    use rand::{thread_rng, Rng};
+    use std::sync::mpsc;
+    use std::sync::mpsc::RecvError;
 
     struct HelperClient {
         helper: Helper,
-        tx: NextHelper,
+        tx: Next,
         mul_result: Option<SharedSecret>,
     }
 
@@ -379,38 +397,31 @@ mod tests {
         pub fn new() -> HelperClient {
             let (tx, rx) = mpsc::channel();
             let helper = Helper::new(rx);
-            HelperClient { helper, tx, mul_result: None }
+            HelperClient {
+                helper,
+                tx,
+                mul_result: None,
+            }
         }
 
         pub fn send_multiplier(&self, share: Share) {
-            self.tx
-                .send(HelperCommand::SetMultiplier(share))
-                .unwrap();
+            self.tx.send(Command::SetMultiplier(share)).unwrap();
         }
         pub fn send_multiplicand(&self, share: Share, rand: Randomness) {
-            self.tx
-                .send(HelperCommand::SetMultiplicand(share, rand))
-                .unwrap();
+            self.tx.send(Command::SetMultiplicand(share, rand)).unwrap();
         }
         pub fn get_product(&self) -> SharedSecret {
             self.mul_result.expect("Multiplier hasn't been set")
         }
 
         pub fn set_next(&self, next: &HelperClient) {
-            self.tx
-                .send(HelperCommand::SetNext(next.tx.clone()))
-                .unwrap();
+            self.tx.send(Command::SetNext(next.tx.clone())).unwrap();
         }
 
-        pub fn await_mul(&mut self) {
-            loop {
-                match self.helper.output.recv().expect("mul completion message is expected") {
-                    HelperMessage::MulComplete(share) => {
-                        self.mul_result = Some(share);
-                        break;
-                    }
-                }
-            }
+        pub fn await_mul(&mut self) -> Result<(), RecvError> {
+            let Message::MulComplete(share) = self.helper.output.recv()?;
+            self.mul_result = Some(share);
+            Ok(())
         }
     }
 
@@ -444,7 +455,6 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-
     fn init_helpers(helpers: &[HelperClient], multiplier: SharedSecret) {
         connect_helpers(helpers);
         let multiplier = multiplier.share();
@@ -465,23 +475,32 @@ mod tests {
         helpers[i - 1].set_next(&helpers[0]);
     }
 
-
-    fn multiply_by(helpers: &mut [HelperClient],
-                   multiplicand: SharedSecret, seed: u64) -> Result<SharedSecret, Box<dyn Error>> {
+    fn multiply_by(
+        helpers: &mut [HelperClient],
+        multiplicand: SharedSecret,
+        seed: u64,
+    ) -> Result<SharedSecret, RecvError> {
         let mul_shares = multiplicand.share();
         let randomness = thread_rng().gen::<SharedSecret>().share();
 
         assert_eq!(helpers.len(), mul_shares.len());
 
         for (i, client) in helpers.iter().enumerate() {
-            client.send_multiplicand(mul_shares[i], Randomness { share: randomness[i], seed });
+            client.send_multiplicand(
+                mul_shares[i],
+                Randomness {
+                    share: randomness[i],
+                    seed,
+                },
+            );
         }
 
         for client in helpers.iter_mut() {
-            client.await_mul();
+            client.await_mul()?;
         }
 
-        let result = helpers.iter()
+        let result = helpers
+            .iter()
             .fold(SharedSecret(0), |acc, x| x.get_product().wrapping_add(acc));
 
         Ok(result)

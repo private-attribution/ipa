@@ -6,6 +6,6 @@ pub mod error;
 pub mod helpers;
 pub mod net;
 pub mod report;
+pub mod shmc;
 pub mod threshold;
 pub mod user;
-pub mod shmc;
