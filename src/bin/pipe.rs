@@ -1,3 +1,5 @@
+/// this file is for demonstration purposes. I plan to delete it before merging anything, but it's
+/// a good way to show off some ideas for review
 use raw_ipa::build_pipeline;
 use raw_ipa::error::Res;
 use raw_ipa::pipeline::{PStep, Pipeline};
