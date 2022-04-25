@@ -4,6 +4,7 @@ use raw_ipa::error::{Error, Res};
 use raw_ipa::pipeline::async_pipe::{APipeline, AStep};
 use std::time::Duration;
 
+/// unchanged from regular pipeline
 struct Start {
     x: i32,
     y: i32,
@@ -18,6 +19,7 @@ impl AStep for Start {
     }
 }
 
+/// unchanged from regular pipeline
 struct Add {}
 #[async_trait]
 impl AStep for Add {
@@ -29,6 +31,7 @@ impl AStep for Add {
     }
 }
 
+/// arbitrary async work done (literally a `time::sleep`) to prove that it can occur
 struct PairWith3 {}
 #[async_trait]
 impl AStep for PairWith3 {
