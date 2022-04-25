@@ -1,3 +1,5 @@
+pub mod async_pipe;
+
 use crate::error::Res;
 
 pub trait PStep {
