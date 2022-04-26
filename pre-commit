@@ -46,4 +46,6 @@ error() {
 
 cargo clippy --tests -- -D warnings --D clippy::pedantic || error "Clippy errors"
 
+./install_and_start_redis
+
 cargo test || error "Test failures"

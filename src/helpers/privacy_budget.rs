@@ -131,7 +131,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn privacy_budget_didnot_exceed() {
         let mut privacy_budget = PRIVACY_BUDGET.lock().unwrap();
         let blinded_match_keys = create_blinded_match_keys();
@@ -149,7 +148,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn privacy_budget_exceed() {
         let mut privacy_budget = PRIVACY_BUDGET.lock().unwrap();
         let blinded_match_keys = create_blinded_match_keys();
@@ -164,7 +162,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn privacy_budget_multiple_runs_exceed() {
         let mut privacy_budget = PRIVACY_BUDGET.lock().unwrap();
         let blinded_match_keys = create_blinded_match_keys();
@@ -192,7 +189,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn privacy_budget_multiple_runs_mix() {
         let mut privacy_budget = PRIVACY_BUDGET.lock().unwrap();
         let blinded_match_keys = create_blinded_match_keys();

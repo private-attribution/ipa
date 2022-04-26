@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -e
+
+REDIS_VERSION="6.2.4"
+pwd=$PWD
+TEST_DIR=$PWD/test_dependencies
+REDIS_SERVER_SCRIPT=$TEST_DIR/redis-$REDIS_VERSION/src/redis-server
+
+if [ $(ps aux | grep -v grep | grep -c $REDIS_SERVER_SCRIPT) -gt 0 ]
+then
+    echo "Redis server already running"
+    exit 0
+fi
+
+rm -rf $TEST_DIR
+mkdir -p $TEST_DIR && cd $TEST_DIR
+echo "Installing Redis server, please wait"
+
+wget https://github.com/redis/redis/archive/$REDIS_VERSION.tar.gz &> /dev/null
+tar -xzvf $REDIS_VERSION.tar.gz &> /dev/null
+cd redis-$REDIS_VERSION
+BUILD_TLS="yes" make &> /dev/null
+cd -
+
+$REDIS_SERVER_SCRIPT &> /dev/null &
+echo "Redis server is running now"
+
+cd $pwd
