@@ -15,7 +15,7 @@ pub trait AStep {
 /// `.compute`.
 #[macro_export]
 macro_rules! build_async_pipeline {
-    ($($step:expr),+) => {{
+    ($($step:expr)=>+) => {{
         move |res| async move {
             $(
                 let res = $step.compute(res).await?;

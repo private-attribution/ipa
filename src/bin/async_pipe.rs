@@ -39,12 +39,11 @@ impl AStep for PairWith3 {
     type Output = (i32, i32);
 
     async fn compute(&self, inp: Self::Input) -> Res<Self::Output> {
-        let (send, recv) = tokio::sync::oneshot::channel::<i32>();
-        tokio::spawn(async move {
+        let res = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            let _ = send.send(3);
+            3
         });
-        recv.await
+        res.await
             .map_or(Err(Error::Internal), |three| Ok((inp, three)))
     }
 }
@@ -53,7 +52,7 @@ struct ExampleAPipeline {}
 #[async_trait]
 impl APipeline<(), i32> for ExampleAPipeline {
     async fn pipeline(&self, _: ()) -> Res<i32> {
-        let pipe = build_async_pipeline!(Start { x: 1, y: 2 }, Add {}, PairWith3 {}, Add {});
+        let pipe = build_async_pipeline!(Start { x: 1, y: 2 } => Add {} => PairWith3 {} => Add {});
         pipe(()).await
     }
 }

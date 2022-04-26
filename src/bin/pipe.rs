@@ -45,7 +45,7 @@ struct ExamplePipeline {}
 impl Pipeline<(), i32> for ExamplePipeline {
     fn pipeline(&self, inp: ()) -> Res<i32> {
         // usage of build_pipeline! that produces a `Fn(()) -> Res<i32>`
-        let finally = build_pipeline!(Start { x: 1, y: 2 }, Add {}, Split {}, Add {});
+        let finally = build_pipeline!(Start { x: 1, y: 2 } => Add {} => Split {} => Add {});
         finally(inp)
     }
 }

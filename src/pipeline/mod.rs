@@ -18,7 +18,7 @@ pub trait PStep {
 /// value matching `Res<Output>` of the last `PStep`.
 #[macro_export]
 macro_rules! build_pipeline {
-    ($($step:expr),+) => {{
+    ($($step:expr)=>+) => {{
         move |res| {
             $(
                 let res = $step.compute(res)?;
