@@ -1,5 +1,6 @@
 pub mod aggregation;
 pub mod event;
+pub mod privacy_budget;
 
 pub use aggregation::{
     Helper as AggregationHelper, PublicHelper as PublicAggregationHelper,
