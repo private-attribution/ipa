@@ -26,6 +26,7 @@ serde_json = {version = "1.0", optional = true}
 sha2 = "0.9"
 stderrlog = {version = "0.5", optional = true}
 structopt = {version = "0.3", optional = true}
+sha3 = "0.10.1"
 
 [dev-dependencies]
 hex = "0.4"
