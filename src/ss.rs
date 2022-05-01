@@ -55,9 +55,49 @@ impl SecureCoinTossing {
     }
 }
 
+pub struct RejectionSampling {}
+
+impl RejectionSampling {
+    pub fn generate_permutation(bit_string_as_int: u128, dimension: u8) -> Vec<u8> {
+        // Check if input dimension can be supported.
+        // bit_string_as_int is 128 bit. It only enough to generate 4 bit dimension.
+        // E.g. if demension is 30, we needs 5 bits to generate 1 integer number
+        // between 1 to 30, and we need at least 30 group of 5 bits to generate
+        // 20 number to meet the demension. 5 bits times 30 is bigger 128 bit.
+        let max_dimension = 2u8.pow(4);
+        if dimension > max_dimension {
+            panic!(
+                "dimension ({}) > {} is not supported!",
+                dimension, max_dimension
+            );
+        }
+
+        // calculate how many bit we need to generate an integer number in dimension.
+        // ceiling of log2(n), n is the number of dimensions.
+        let bit = ((dimension) as f64).log2().ceil() as u8;
+
+        // covert bit_string_as_int to bit_string.
+        let bit_string = format!("{:b}", bit_string_as_int);
+
+        let mut v = vec![];
+        let mut i = 0;
+        while (bit * (i + i) < 128) & (v.len() < dimension as usize) {
+            let intval =
+                u8::from_str_radix(&bit_string[(bit * i) as usize..(bit * (i + 1)) as usize], 2)
+                    .unwrap();
+            if (intval < dimension) & !v.contains(&(intval + 1)) {
+                v.push(intval + 1);
+            }
+            i += 1;
+        }
+        v
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::BitXORShare;
+    use super::RejectionSampling;
     use super::SecureCoinTossing;
     use rand::Rng;
 
@@ -110,5 +150,27 @@ mod tests {
         println!("c: {:b}", c);
 
         assert_eq!(c, r1 ^ r2);
+    }
+
+    #[allow(clippy::similar_names)] // deal with it.
+    #[test]
+    fn test_generate_permutation() {
+        let dimension = 8;
+        let r1 = SecureCoinTossing::get_random();
+        let mut v = RejectionSampling::generate_permutation(r1, dimension);
+        println!("{:?}", v);
+        print!("{} numbers generated.", v.len());
+        if v.len() < dimension as usize {
+            print!(" No enought bits to generate {} numbers.", dimension);
+        }
+        println!();
+        println!();
+        for i in &v {
+            assert_eq!(i > &0, true);
+            assert_eq!(i <= &dimension, true);
+        }
+        v.sort();
+        v.dedup();
+        assert_eq!(v.len(), (dimension as usize));
     }
 }
