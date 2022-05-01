@@ -4,6 +4,6 @@ pub mod error;
 pub mod helpers;
 pub mod net;
 pub mod report;
+pub mod ss;
 pub mod threshold;
 pub mod user;
-pub mod ss;
