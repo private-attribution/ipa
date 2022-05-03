@@ -5,12 +5,32 @@ pub struct BitXORShare {}
 
 impl BitXORShare {
     #[must_use]
-    pub fn generate(value: u32) -> (u32, u32, u32) {
+    pub fn create(value: u32, share_amount: u8) -> Vec<u32> {
+        if share_amount < 2 {
+            panic!("Amount of shares must be at least 2.");
+        }
         let mut rng = rand::thread_rng();
-        let sh1 = rng.gen::<u32>();
-        let sh2 = rng.gen::<u32>();
-        let sh3 = value ^ sh1 ^ sh2;
-        (sh1, sh2, sh3)
+        let mut last_sh = value;
+        let mut sh_vec = vec![];
+        for _i in 0..share_amount - 1 {
+            let sh = rng.gen::<u32>();
+            sh_vec.push(sh);
+            last_sh ^= sh;
+        }
+        sh_vec.push(last_sh);
+        sh_vec
+    }
+
+    pub fn combine(shares: Vec<u32>) -> u32 {
+        let mut value = 0;
+        for sh in shares {
+            if value == 0 {
+                value = sh;
+            } else {
+                value ^= sh;
+            }
+        }
+        value
     }
 }
 
@@ -94,10 +114,6 @@ mod tests {
     use super::SecureCoinTossing;
     use rand::Rng;
 
-    fn recover_from_shares(share1: u32, share2: u32, share3: u32) -> u32 {
-        share1 ^ share2 ^ share3
-    }
-
     #[allow(clippy::similar_names)] // deal with it.
     #[test]
     fn generate_shares_and_recover() {
@@ -107,14 +123,16 @@ mod tests {
         println!("integer_matchkey = {}.", integer_matchkey);
 
         // generate 3 party secret shares by bit XOR from the integer matchkey.
-        let (sh1, sh2, sh3) = BitXORShare::generate(integer_matchkey);
-        println!(
-            "Shares generated: sh1 = {}, sh2 = {}, sh3 = {}.",
-            sh1, sh2, sh3
-        );
+        let shares = BitXORShare::create(integer_matchkey, 255);
+        println!("{}", shares.len());
+        print!("Shares generated:");
+        for i in 0..(shares.len() - 1) {
+            print!(" sh{}={},", i, shares[i + 1]);
+        }
+        println!(" sh{}={}.", shares.len(), shares[shares.len() - 1]);
 
         // recover from secret shares
-        let recovered_integer_matchkey = recover_from_shares(sh1, sh2, sh3);
+        let recovered_integer_matchkey = BitXORShare::combine(shares);
         println!(
             "recovered_integer_matchkey = {}.",
             recovered_integer_matchkey
