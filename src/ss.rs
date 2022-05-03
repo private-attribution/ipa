@@ -63,7 +63,7 @@ impl SecureCoinTossing {
         h == hv
     }
 
-    pub fn calculate_c(r1: u128, r2: u128) -> u128 {
+    pub fn calculate_shared_random(r1: u128, r2: u128) -> u128 {
         r1 ^ r2
     }
 }
@@ -71,13 +71,13 @@ impl SecureCoinTossing {
 pub struct RejectionSampling {}
 
 impl RejectionSampling {
-    pub fn generate_permutation(bit_string_as_int: u128, dimension: u8) -> Vec<u8> {
+    pub fn generate_permutation(bit_string_as_int: u128, dimension: usize) -> Vec<usize> {
         // Check if input dimension can be supported.
         // bit_string_as_int is 128 bit. It only enough to generate 4 bit dimension.
         // E.g. if demension is 30, we needs 5 bits to generate 1 integer number
         // between 1 to 30, and we need at least 30 group of 5 bits to generate
         // 20 number to meet the demension. 5 bits times 30 is bigger 128 bit.
-        let max_dimension = 2u8.pow(4);
+        let max_dimension = 2usize.pow(4);
         if dimension > max_dimension {
             panic!(
                 "dimension ({}) > {} is not supported!",
@@ -96,10 +96,10 @@ impl RejectionSampling {
         let mut i = 0;
         while (bit * (i + i) < 128) & (v.len() < dimension as usize) {
             let intval =
-                u8::from_str_radix(&bit_string[(bit * i) as usize..(bit * (i + 1)) as usize], 2)
+                usize::from_str_radix(&bit_string[(bit * i) as usize..(bit * (i + 1)) as usize], 2)
                     .unwrap();
-            if (intval < dimension) & !v.contains(&(intval + 1)) {
-                v.push(intval + 1);
+            if (intval < dimension) & !v.contains(&(intval)) {
+                v.push(intval);
             }
             i += 1;
         }
@@ -157,7 +157,7 @@ mod tests {
         );
         assert_eq!(SecureCoinTossing::verify_random_and_hash(r2, h1), false);
 
-        let c = SecureCoinTossing::calculate_c(r1, r2);
+        let c = SecureCoinTossing::calculate_shared_random(r1, r2);
         println!("c: {:b}", c);
 
         assert_eq!(c, r1 ^ r2);
@@ -177,8 +177,8 @@ mod tests {
         println!();
 
         for i in &v {
-            assert_eq!(i > &0, true);
-            assert_eq!(i <= &dimension, true);
+            assert_eq!(i >= &0, true);
+            assert_eq!(i < &dimension, true);
         }
         v.sort();
         v.dedup();
