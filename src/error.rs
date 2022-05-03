@@ -3,13 +3,16 @@ pub enum Error {
     AlreadyExists,
     Internal,
     InvalidId,
+    WrongType,
     InvalidRole,
     NotEnoughHelpers,
     NotFound,
     RedisError(redis::RedisError),
     TooManyHelpers,
     DeadThread(std::sync::mpsc::SendError<crate::net::Message>),
-
+    AsyncDeadThread(tokio::sync::mpsc::error::SendError<Vec<u8>>),
+    DecodeError(prost::DecodeError),
+    
     #[cfg(feature = "cli")]
     Hex(hex::FromHexError),
     Io(std::io::Error),
@@ -47,6 +50,8 @@ impl std::fmt::Display for Error {
 
 forward_errors! {
     std::sync::mpsc::SendError<crate::net::Message> => DeadThread,
+    tokio::sync::mpsc::error::SendError<Vec<u8>> => AsyncDeadThread,
+    prost::DecodeError => DecodeError,
 
     #[cfg(feature = "cli")]
     hex::FromHexError => Hex,

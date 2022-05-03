@@ -1,0 +1,15 @@
+syntax = "proto3";
+package pipe;
+
+service Forwarder {
+  rpc Forward (ForwardRequest) returns (ForwardReply);
+}
+
+message ForwardRequest {
+  string id = 10;
+  bytes num = 20;
+}
+
+message ForwardReply {
+  string id = 10;
+}
