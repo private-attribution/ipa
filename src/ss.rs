@@ -1,23 +1,16 @@
 use rand::Rng;
 use sha3::{Digest, Sha3_256};
 
-pub struct BitXORShare {
-    share: u32,
-}
+pub struct BitXORShare {}
 
 impl BitXORShare {
     #[must_use]
-    pub fn generate(value: u32) -> (Self, Self, Self) {
+    pub fn generate(value: u32) -> (u32, u32, u32) {
         let mut rng = rand::thread_rng();
         let sh1 = rng.gen::<u32>();
         let sh2 = rng.gen::<u32>();
         let sh3 = value ^ sh1 ^ sh2;
-
-        (
-            Self { share: sh1 },
-            Self { share: sh2 },
-            Self { share: sh3 },
-        )
+        (sh1, sh2, sh3)
     }
 }
 
@@ -117,11 +110,11 @@ mod tests {
         let (sh1, sh2, sh3) = BitXORShare::generate(integer_matchkey);
         println!(
             "Shares generated: sh1 = {}, sh2 = {}, sh3 = {}.",
-            sh1.share, sh2.share, sh3.share
+            sh1, sh2, sh3
         );
 
         // recover from secret shares
-        let recovered_integer_matchkey = recover_from_shares(sh1.share, sh2.share, sh3.share);
+        let recovered_integer_matchkey = recover_from_shares(sh1, sh2, sh3);
         println!(
             "recovered_integer_matchkey = {}.",
             recovered_integer_matchkey
@@ -164,7 +157,7 @@ mod tests {
             print!(" No enought bits to generate {} numbers.", dimension);
         }
         println!();
-        println!();
+
         for i in &v {
             assert_eq!(i > &0, true);
             assert_eq!(i <= &dimension, true);
