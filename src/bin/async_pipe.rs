@@ -7,6 +7,7 @@ use raw_ipa::proto::pipe::ForwardRequest;
 use std::io::Cursor;
 use std::time::Duration;
 use tokio::sync::mpsc::channel;
+use tokio::task::JoinHandle;
 use tokio::try_join;
 use uuid::Uuid;
 
@@ -153,13 +154,17 @@ async fn main() -> Res<()> {
     let (h3_send, _) = channel(32);
     let h1_recv_uuid = Uuid::new_v4();
     let h2_recv_uuid = Uuid::new_v4();
-    let h1_helper = ChannelHelper::new(h2_send, h3_send, h1_recv);
-    let pipe = ForwardingPipeline {
-        helper: h1_helper,
-        send_uuid: h1_recv_uuid,
-        receive_uuid: h2_recv_uuid,
-    };
-    let h2_mock_res = async move {
+    let run_pipe = tokio::spawn(async move {
+        let h1_helper = ChannelHelper::new(h2_send, h3_send, h1_recv);
+        let pipe = ForwardingPipeline {
+            helper: h1_helper,
+            send_uuid: h1_recv_uuid,
+            receive_uuid: h2_recv_uuid,
+        };
+        pipe.pipeline(()).await
+    });
+
+    let run_h2_mock: JoinHandle<Res<String>> = tokio::spawn(async move {
         let message = "mocked_h2_data".as_bytes().to_vec();
         let mocked_data = ForwardRequest {
             id: h2_recv_uuid.to_string(),
@@ -174,9 +179,12 @@ async fn main() -> Res<()> {
             .map_err(Error::from)?;
         let str: SendStr = req.num.try_into()?;
         Ok(str.0)
-    };
-    let pipe_res = pipe.pipeline(());
-    let res = try_join!(pipe_res, h2_mock_res)?;
-    println!("pipe output: {}; h2 mocked output: {}", res.0, res.1);
+    });
+    let (pipe_res, h2_mock_res) = try_join!(run_pipe, run_h2_mock).map_err(Error::from)?;
+    println!(
+        "pipe output: {}; h2 mocked output: {}",
+        pipe_res.unwrap(),
+        h2_mock_res.unwrap()
+    );
     Ok(())
 }

@@ -1,4 +1,5 @@
-#[allow(clippy::similar_names)]
+#![allow(clippy::pedantic)]
+
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ForwardRequest {
     #[prost(string, tag="10")]
@@ -6,7 +7,6 @@ pub struct ForwardRequest {
     #[prost(bytes="vec", tag="20")]
     pub num: ::prost::alloc::vec::Vec<u8>,
 }
-#[allow(clippy::similar_names)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ForwardReply {
     #[prost(string, tag="10")]

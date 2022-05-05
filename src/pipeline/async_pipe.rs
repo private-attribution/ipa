@@ -57,6 +57,7 @@ pub struct ChannelHelper {
     cache: Arc<DashMap<String, ProstVec<u8>, RandomState>>,
 }
 impl ChannelHelper {
+    #[must_use]
     pub fn new(
         next_send_chan: Sender<Vec<u8>>,
         prev_send_chan: Sender<Vec<u8>>,
@@ -105,7 +106,7 @@ impl TryFrom<ProstVec<u8>> for SendStr {
 }
 impl From<SendStr> for ProstVec<u8> {
     fn from(str: SendStr) -> Self {
-        str.into()
+        str.0.into()
     }
 }
 
@@ -129,7 +130,7 @@ impl THelper for ChannelHelper {
                 time::sleep(Duration::from_millis(500)).await;
                 Box::pin(async move { self.receive_from(key).await }).await
             }
-            Some((_, v)) => v.try_into().map_err(|err: T::Error| err.into()),
+            Some((_, v)) => v.try_into().map_err(Into::into),
         }
     }
 }

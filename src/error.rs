@@ -11,14 +11,18 @@ pub enum Error {
     TooManyHelpers,
     DeadThread(std::sync::mpsc::SendError<crate::net::Message>),
     AsyncDeadThread(tokio::sync::mpsc::error::SendError<Vec<u8>>),
+    FailedThread(tokio::task::JoinError),
     DecodeError(prost::DecodeError),
-    
+
     #[cfg(feature = "cli")]
     Hex(hex::FromHexError),
     Io(std::io::Error),
     #[cfg(feature = "enable-serde")]
     Serde(serde_json::Error),
 }
+
+// TODO: is this helpful?
+unsafe impl Send for Error {}
 
 macro_rules! forward_errors {
     {$($(#[$a:meta])* $t:path => $v:ident),* $(,)?} => {
@@ -51,6 +55,7 @@ impl std::fmt::Display for Error {
 forward_errors! {
     std::sync::mpsc::SendError<crate::net::Message> => DeadThread,
     tokio::sync::mpsc::error::SendError<Vec<u8>> => AsyncDeadThread,
+    tokio::task::JoinError => FailedThread,
     prost::DecodeError => DecodeError,
 
     #[cfg(feature = "cli")]
