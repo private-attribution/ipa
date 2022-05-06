@@ -5,6 +5,7 @@ use raw_ipa::error::{Error, Res};
 use raw_ipa::pipeline::async_pipe::{APipeline, AStep, ChannelHelper, SendStr, THelper};
 use raw_ipa::proto::pipe::ForwardRequest;
 use std::io::Cursor;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::channel;
 use tokio::task::JoinHandle;
@@ -17,12 +18,12 @@ struct Start {
     x: i32,
     y: i32,
 }
-#[async_trait(?Send)]
+#[async_trait]
 impl AStep for Start {
     type Input = ();
     type Output = (i32, i32);
 
-    async fn compute(&self, _: Self::Input, _: &(impl THelper + 'static)) -> Res<Self::Output> {
+    async fn compute(&self, _: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
         Ok((self.x, self.y))
     }
 
@@ -35,12 +36,12 @@ impl AStep for Start {
 struct Add {
     uuid: Uuid,
 }
-#[async_trait(?Send)]
+#[async_trait]
 impl AStep for Add {
     type Input = (i32, i32);
     type Output = i32;
 
-    async fn compute(&self, inp: Self::Input, _: &(impl THelper + 'static)) -> Res<Self::Output> {
+    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
         Ok(inp.0 + inp.1)
     }
 
@@ -53,12 +54,12 @@ impl AStep for Add {
 struct PairWith3 {
     uuid: Uuid,
 }
-#[async_trait(?Send)]
+#[async_trait]
 impl AStep for PairWith3 {
     type Input = i32;
     type Output = (i32, i32);
 
-    async fn compute(&self, inp: Self::Input, _: &(impl THelper + 'static)) -> Res<Self::Output> {
+    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
         let res = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
             3
@@ -75,12 +76,12 @@ impl AStep for PairWith3 {
 struct Stringify {
     uuid: Uuid,
 }
-#[async_trait(?Send)]
+#[async_trait]
 impl AStep for Stringify {
     type Input = i32;
     type Output = String;
 
-    async fn compute(&self, inp: Self::Input, _: &(impl THelper + 'static)) -> Res<Self::Output> {
+    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
         Ok(inp.to_string())
     }
 
@@ -92,7 +93,7 @@ struct ForwardData {
     uuid: Uuid,
     receive_uuid: Uuid,
 }
-#[async_trait(?Send)]
+#[async_trait]
 impl AStep for ForwardData {
     type Input = String;
     type Output = String;
@@ -100,7 +101,7 @@ impl AStep for ForwardData {
     async fn compute(
         &self,
         inp: Self::Input,
-        helper: &(impl THelper + 'static),
+        helper: Arc<impl THelper + Send + Sync + 'static>,
     ) -> Res<Self::Output> {
         let sent = helper.send_to_next(self.unique_id().to_string(), SendStr(inp.clone()));
         let received = helper.receive_from::<SendStr>(self.receive_uuid.to_string());
@@ -114,12 +115,12 @@ impl AStep for ForwardData {
 }
 
 struct ExampleAPipeline<H: THelper> {
-    helper: H,
+    helper: Arc<H>,
 }
-#[async_trait(?Send)]
-impl<H: THelper + 'static> APipeline<(), i32, H> for ExampleAPipeline<H> {
+#[async_trait]
+impl<H: THelper + Send + Sync + 'static> APipeline<(), i32, H> for ExampleAPipeline<H> {
     async fn pipeline(&self, _: ()) -> Res<i32> {
-        let pipe = build_async_pipeline!(&self.helper,
+        let pipe = build_async_pipeline!(self.helper.clone(),
             Start { x: 1, y: 2, uuid: Uuid::new_v4() } =>
             Add { uuid: Uuid::new_v4() } =>
             PairWith3 { uuid: Uuid::new_v4() } =>
@@ -130,14 +131,14 @@ impl<H: THelper + 'static> APipeline<(), i32, H> for ExampleAPipeline<H> {
 }
 
 struct ForwardingPipeline<H: THelper> {
-    helper: H,
+    helper: Arc<H>,
     send_uuid: Uuid,
     receive_uuid: Uuid,
 }
-#[async_trait(?Send)]
-impl<H: THelper + 'static> APipeline<(), String, H> for ForwardingPipeline<H> {
+#[async_trait]
+impl<H: THelper + Send + Sync + 'static> APipeline<(), String, H> for ForwardingPipeline<H> {
     async fn pipeline(&self, _: ()) -> Res<String> {
-        let pipe = build_async_pipeline!(&self.helper,
+        let pipe = build_async_pipeline!(self.helper.clone(),
             Start { x: 1, y: 2, uuid: Uuid::new_v4() } =>
             Add { uuid: Uuid::new_v4() } =>
             Stringify { uuid: Uuid::new_v4() } =>
@@ -155,7 +156,7 @@ async fn main() -> Res<()> {
     let h1_recv_uuid = Uuid::new_v4();
     let h2_recv_uuid = Uuid::new_v4();
     let run_pipe = tokio::spawn(async move {
-        let h1_helper = ChannelHelper::new(h2_send, h3_send, h1_recv);
+        let h1_helper = Arc::new(ChannelHelper::new(h2_send, h3_send, h1_recv));
         let pipe = ForwardingPipeline {
             helper: h1_helper,
             send_uuid: h1_recv_uuid,

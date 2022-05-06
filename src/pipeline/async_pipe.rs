@@ -15,14 +15,14 @@ use tokio::time;
 use uuid::Uuid;
 
 /// The only difference from `PStep` is the `async fn compute`
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AStep {
     type Input;
     type Output;
     async fn compute(
         &self,
         inp: Self::Input,
-        helper: &(impl THelper + 'static),
+        helper: Arc<impl THelper + Send + Sync + 'static>,
     ) -> Res<Self::Output>;
     fn unique_id(&self) -> &Uuid;
 }
@@ -41,11 +41,11 @@ macro_rules! build_async_pipeline {
     }};
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait THelper {
-    async fn send_to_next<T: Into<ProstVec<u8>>>(&self, key: String, data: T) -> Res<()>;
-    async fn send_to_prev<T: Into<ProstVec<u8>>>(&self, key: String, data: T) -> Res<()>;
-    async fn receive_from<T: TryFrom<ProstVec<u8>>>(&self, key: String) -> Res<T>
+    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()>;
+    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()>;
+    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: String) -> Res<T>
     where
         T::Error: Into<Error>;
 }
@@ -110,17 +110,17 @@ impl From<SendStr> for ProstVec<u8> {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl THelper for ChannelHelper {
-    async fn send_to_next<T: Into<ProstVec<u8>>>(&self, key: String, data: T) -> Res<()> {
+    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
         self.send_to(key, data, &self.next_send_chan).await
     }
 
-    async fn send_to_prev<T: Into<ProstVec<u8>>>(&self, key: String, data: T) -> Res<()> {
+    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
         self.send_to(key, data, &self.prev_send_chan).await
     }
 
-    async fn receive_from<T: TryFrom<ProstVec<u8>>>(&self, key: String) -> Res<T>
+    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: String) -> Res<T>
     where
         T::Error: Into<Error>,
     {
@@ -136,7 +136,7 @@ impl THelper for ChannelHelper {
 }
 
 /// The only difference from `Pipeline` is the `async fn pipeline`
-#[async_trait(?Send)]
-pub trait APipeline<Input, Output, H: THelper> {
+#[async_trait]
+pub trait APipeline<Input, Output, H: THelper + Send + Sync + 'static> {
     async fn pipeline(&self, inp: Input) -> Res<Output>;
 }
