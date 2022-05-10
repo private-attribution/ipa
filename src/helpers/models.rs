@@ -1,22 +1,19 @@
+use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
-type CipherText = [u8; 32];
+type CipherText = BigInt;
 type PlainText = String;
 type SecretShare = [CipherText; 3];
+type PBRange = Range<u8>;
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 struct Event {
-    /// Name of the business entity that generated this event. For source-fanout,
-    /// it's the business who promotes ads. For trigger-fanout, it's the business
-    /// where a user has made a conversion.
-    entity_name: PlainText,
-
     /// Secret shared and then encrypted match keys.
-    matchkey: SecretShare,
+    matchkeys: Vec<SecretShare>,
 
     /// Date and time of the event occurence. Secret shared and encrypted.
     timestamp: SecretShare,
@@ -26,8 +23,8 @@ struct Event {
 struct SourceEvent {
     event: Event,
 
-    /// Campaign ID of the ad served to the user.
-    campaign_id: PlainText,
+    /// A key to group sets of the events into.
+    breakdown_key: PlainText,
 }
 
 #[cfg(feature = "debug")]
@@ -35,8 +32,8 @@ impl Debug for SourceEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "SourceEvent:\n  matchkey={:?}\n  campaign_id={}",
-            &self.event.matchkey, &self.campaign_id
+            "SourceEvent:\n  matchkeys={:?}\n  breakdown_key={}",
+            &self.event.matchkeys, &self.breakdown_key
         )
     }
 }
@@ -48,7 +45,7 @@ struct TriggerEvent {
     /// Conversion value.
     value: SecretShare,
 
-    /// Zero knowledge proom that the trigger value lies within a specific range
+    /// Zero knowledge proof that the trigger value lies within a specific range
     /// of values. The range is specified in [TriggerFanoutQuery].
     zkp: PlainText,
 }
@@ -58,16 +55,16 @@ impl Debug for TriggerEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "TriggerEvent:\n  matchkey={:?}\n  value={:?}",
-            &self.event.matchkey, &self.value
+            "TriggerEvent:\n  matchkeys={:?}\n  value={:?}",
+            &self.event.matchkeys, &self.value
         )
     }
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 enum QueryType {
-    Source,
-    Trigger,
+    SourceFanout,
+    TriggerFanout,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -78,7 +75,7 @@ enum Node {
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct Query {
+struct IPAQuery {
     /// Caller authentication token.
     auth_token: PlainText,
 
@@ -91,8 +88,8 @@ struct Query {
     /// Source-fanout or Trigger-fanout.
     query_type: QueryType,
 
-    /// Percentage of epoch-level privacy budget this query should consume.
-    privacy_budget: f32,
+    /// Percentage of epoch-level privacy budget this query should consume. Likely 1-100.
+    privacy_budget: PBRange,
 
     /// A collection of source events. At least 100 (TBD) unique source events must be provided.
     source_events: Vec<SourceEvent>,
@@ -103,11 +100,11 @@ struct Query {
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 struct SourceFanoutQuery {
-    query: Query,
+    query: IPAQuery,
 
     /// The maximum number of attributed conversion events that a single person can contribute
     /// towards the final output.
-    cap: u32,
+    cap: u8,
 }
 
 #[cfg(feature = "debug")]
@@ -124,7 +121,7 @@ impl Debug for SourceFanoutQuery {
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 struct TriggerFanoutQuery {
-    query: Query,
+    query: IPAQuery,
 
     /// The range which all trigger event's conversion values must lie within.
     value_range: Range<u32>,
