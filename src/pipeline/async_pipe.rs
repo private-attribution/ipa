@@ -140,14 +140,14 @@ impl THelper for ChannelHelper {
     async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
         self.send_to(key.clone(), data, &self.next_send_chan)
             .await?;
-        println!("sent data to next helper: {}", key);
+        println!("sent data to next helper: {key}");
         Ok(())
     }
 
     async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
         self.send_to(key.clone(), data, &self.prev_send_chan)
             .await?;
-        println!("sent data to prev helper: {}", key);
+        println!("sent data to prev helper: {key}");
         Ok(())
     }
 

@@ -40,7 +40,7 @@ impl HashMapHandler {
         value: Vec<u8>,
         ack: oneshot::Sender<Option<ProstVec<u8>>>,
     ) -> Res<()> {
-        println!("writing data with key {}", key);
+        println!("writing data with key {key}");
         let ousted = self.m.insert(key, value);
         ack.send(ousted).map_or(
             Err(Error::AsyncDeadThread(mpsc::error::SendError(vec![]))),
@@ -48,7 +48,7 @@ impl HashMapHandler {
         )
     }
     async fn remove(&mut self, key: String, ack: oneshot::Sender<Option<ProstVec<u8>>>) -> Res<()> {
-        println!("removing data with key {}", key);
+        println!("removing data with key {key}");
         let removed = self.m.remove(key.as_str());
         ack.send(removed).map_or(
             Err(Error::AsyncDeadThread(mpsc::error::SendError(vec![]))),

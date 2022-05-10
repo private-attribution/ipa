@@ -52,5 +52,5 @@ impl Pipeline<(), i32> for ExamplePipeline {
 
 fn main() -> Res<()> {
     let example = ExamplePipeline {};
-    example.pipeline(()).map(|res| println!("{}", res))
+    example.pipeline(()).map(|res| println!("{res}"))
 }

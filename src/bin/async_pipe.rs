@@ -180,7 +180,7 @@ async fn main() -> Res<()> {
         let mut buf = Vec::new();
         buf.reserve(mocked_data.encoded_len());
         mocked_data.encode(&mut buf).unwrap();
-        println!("sending mock data from h2: {}", h2_recv_uuid);
+        println!("sending mock data from h2: {h2_recv_uuid}");
         h1_send.send(buf).await.map_err(Error::from)?;
         let received_data = h2_recv.recv().await.unwrap();
         let req = ForwardRequest::decode(&mut Cursor::new(received_data.as_slice()))

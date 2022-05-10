@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::{read_dir, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -27,6 +28,8 @@ fn visit_files(
     if dir_or_file.is_dir() {
         read_dir(dir_or_file)?
             .try_for_each(|inner_dir_or_file| visit_files(&inner_dir_or_file?.path(), cb))
+    } else if dir_or_file.file_name().unwrap() == OsStr::new("rustfmt.toml") {
+        Ok(())
     } else {
         cb(dir_or_file)
     }
