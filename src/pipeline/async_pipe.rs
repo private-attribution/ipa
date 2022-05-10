@@ -1,16 +1,16 @@
 /// this module mirrors the synchronous pipeline, but with async/await via tokio.
 /// requires a workaround `async_trait` to use async functions inside traits
 use crate::error::{Error, Res};
+use crate::pipeline::hashmap_thread::HashMapCommand;
 use crate::proto::pipe::ForwardRequest;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use prost::alloc::vec::Vec as ProstVec;
 use prost::Message;
-use std::collections::hash_map::RandomState;
+use std::io::Cursor;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time;
 use uuid::Uuid;
 
@@ -51,23 +51,21 @@ pub trait THelper {
 }
 
 pub struct ChannelHelper {
-    pub next_send_chan: Sender<ProstVec<u8>>,
-    pub prev_send_chan: Sender<ProstVec<u8>>,
-    pub recv_chan: Receiver<ProstVec<u8>>,
-    cache: Arc<DashMap<String, ProstVec<u8>, RandomState>>,
+    pub next_send_chan: mpsc::Sender<ProstVec<u8>>,
+    pub prev_send_chan: mpsc::Sender<ProstVec<u8>>,
+    hashmap_chan: mpsc::Sender<HashMapCommand>,
 }
 impl ChannelHelper {
     #[must_use]
     pub fn new(
-        next_send_chan: Sender<Vec<u8>>,
-        prev_send_chan: Sender<Vec<u8>>,
-        recv_chan: Receiver<Vec<u8>>,
+        next_send_chan: mpsc::Sender<Vec<u8>>,
+        prev_send_chan: mpsc::Sender<Vec<u8>>,
+        hashmap_chan: mpsc::Sender<HashMapCommand>,
     ) -> ChannelHelper {
         ChannelHelper {
             next_send_chan,
             prev_send_chan,
-            recv_chan,
-            cache: Arc::new(DashMap::with_capacity(32)),
+            hashmap_chan,
         }
     }
 
@@ -75,7 +73,7 @@ impl ChannelHelper {
         &self,
         key: String,
         data: T,
-        chan: &Sender<ProstVec<u8>>,
+        chan: &mpsc::Sender<ProstVec<u8>>,
     ) -> Res<()> {
         let freq = ForwardRequest {
             id: key,
@@ -86,6 +84,33 @@ impl ChannelHelper {
         // unwrap is safe because `buf` has `encoded_len` reserved
         freq.encode(&mut buf).unwrap();
         chan.send(buf).await.map_err(Error::from)
+    }
+
+    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<ProstVec<u8>>) {
+        while let Some(data) = recv_chan.recv().await {
+            match ForwardRequest::decode(&mut Cursor::new(data.as_slice())) {
+                Err(err) => {
+                    println!("received unexpected message: {}", Error::from(err));
+                }
+                Ok(decoded) => {
+                    let (tx, rx) = oneshot::channel();
+                    let sent = self
+                        .hashmap_chan
+                        .send(HashMapCommand::Write(decoded.id, decoded.num, tx))
+                        .await;
+                    if sent.is_err() {
+                        println!("could not send message to hashmap: {}", sent.unwrap_err());
+                    }
+                    let res = rx.await;
+                    if res.is_err() {
+                        println!(
+                            "could not receive response from hashmap: {}",
+                            res.unwrap_err()
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -113,30 +138,43 @@ impl From<SendStr> for ProstVec<u8> {
 #[async_trait]
 impl THelper for ChannelHelper {
     async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
-        self.send_to(key, data, &self.next_send_chan).await
+        self.send_to(key.clone(), data, &self.next_send_chan)
+            .await?;
+        println!("sent data to next helper: {}", key);
+        Ok(())
     }
 
     async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
-        self.send_to(key, data, &self.prev_send_chan).await
+        self.send_to(key.clone(), data, &self.prev_send_chan)
+            .await?;
+        println!("sent data to prev helper: {}", key);
+        Ok(())
     }
 
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: String) -> Res<T>
     where
         T::Error: Into<Error>,
     {
-        match self.cache.remove(&key) {
-            None => {
+        let (tx, rx) = oneshot::channel();
+        self.hashmap_chan
+            .send(HashMapCommand::Remove(key.clone(), tx))
+            .await
+            .map_err(Error::from)?;
+        match rx.await {
+            Err(_) => Err(Error::AsyncDeadThread4),
+            Ok(None) => {
+                println!("nothing in cache, waiting...");
                 // basic poll for now; will use watchers in real implementation
                 time::sleep(Duration::from_millis(500)).await;
                 Box::pin(async move { self.receive_from(key).await }).await
             }
-            Some((_, v)) => v.try_into().map_err(Into::into),
+            Ok(Some(v)) => v.try_into().map_err(Into::into),
         }
     }
 }
 
 /// The only difference from `Pipeline` is the `async fn pipeline`
 #[async_trait]
-pub trait APipeline<Input, Output, H: THelper + Send + Sync + 'static> {
+pub trait APipeline<Input, Output> {
     async fn pipeline(&self, inp: Input) -> Res<Output>;
 }

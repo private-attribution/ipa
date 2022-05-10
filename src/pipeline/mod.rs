@@ -1,4 +1,5 @@
 pub mod async_pipe;
+pub mod hashmap_thread;
 
 use crate::error::Res;
 

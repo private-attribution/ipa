@@ -11,8 +11,7 @@ debug = ["hex"]
 enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
 
 [dependencies]
-async-trait = "0.1.53"
-dashmap = "5.2.0"
+async-trait = "0.1"
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
 digest = "0.9"
 hex = {version = "0.4", optional = true}
@@ -39,7 +38,7 @@ tonic-build = "0.7"
 
 [dev-dependencies]
 hex = "0.4"
-lazy_static = "1.4.0"
+lazy_static = "1.4"
 
 [lib]
 name = "raw_ipa"

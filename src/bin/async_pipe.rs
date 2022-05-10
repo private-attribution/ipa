@@ -3,6 +3,7 @@ use prost::Message;
 use raw_ipa::build_async_pipeline;
 use raw_ipa::error::{Error, Res};
 use raw_ipa::pipeline::async_pipe::{APipeline, AStep, ChannelHelper, SendStr, THelper};
+use raw_ipa::pipeline::hashmap_thread::HashMapHandler;
 use raw_ipa::proto::pipe::ForwardRequest;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -118,7 +119,7 @@ struct ExampleAPipeline<H: THelper> {
     helper: Arc<H>,
 }
 #[async_trait]
-impl<H: THelper + Send + Sync + 'static> APipeline<(), i32, H> for ExampleAPipeline<H> {
+impl<H: THelper + Send + Sync + 'static> APipeline<(), i32> for ExampleAPipeline<H> {
     async fn pipeline(&self, _: ()) -> Res<i32> {
         let pipe = build_async_pipeline!(self.helper.clone(),
             Start { x: 1, y: 2, uuid: Uuid::new_v4() } =>
@@ -136,7 +137,7 @@ struct ForwardingPipeline<H: THelper> {
     receive_uuid: Uuid,
 }
 #[async_trait]
-impl<H: THelper + Send + Sync + 'static> APipeline<(), String, H> for ForwardingPipeline<H> {
+impl<H: THelper + Send + Sync + 'static> APipeline<(), String> for ForwardingPipeline<H> {
     async fn pipeline(&self, _: ()) -> Res<String> {
         let pipe = build_async_pipeline!(self.helper.clone(),
             Start { x: 1, y: 2, uuid: Uuid::new_v4() } =>
@@ -153,10 +154,15 @@ async fn main() -> Res<()> {
     let (h1_send, h1_recv) = channel(32);
     let (h2_send, mut h2_recv) = channel(32);
     let (h3_send, _) = channel(32);
+    let (hashmap_send, hashmap_recv) = channel(32);
     let h1_recv_uuid = Uuid::new_v4();
     let h2_recv_uuid = Uuid::new_v4();
+    let h1_helper = Arc::new(ChannelHelper::new(h2_send, h3_send, hashmap_send));
+    let helper_runner = h1_helper.clone();
+
+    let run_hashmap = tokio::spawn(HashMapHandler::new(hashmap_recv).run());
+    let run_helper = tokio::spawn(async move { helper_runner.receive_data(h1_recv).await });
     let run_pipe = tokio::spawn(async move {
-        let h1_helper = Arc::new(ChannelHelper::new(h2_send, h3_send, h1_recv));
         let pipe = ForwardingPipeline {
             helper: h1_helper,
             send_uuid: h1_recv_uuid,
@@ -174,6 +180,7 @@ async fn main() -> Res<()> {
         let mut buf = Vec::new();
         buf.reserve(mocked_data.encoded_len());
         mocked_data.encode(&mut buf).unwrap();
+        println!("sending mock data from h2: {}", h2_recv_uuid);
         h1_send.send(buf).await.map_err(Error::from)?;
         let received_data = h2_recv.recv().await.unwrap();
         let req = ForwardRequest::decode(&mut Cursor::new(received_data.as_slice()))
@@ -181,7 +188,8 @@ async fn main() -> Res<()> {
         let str: SendStr = req.num.try_into()?;
         Ok(str.0)
     });
-    let (pipe_res, h2_mock_res) = try_join!(run_pipe, run_h2_mock).map_err(Error::from)?;
+    let (_, _, pipe_res, h2_mock_res) =
+        try_join!(run_hashmap, run_helper, run_pipe, run_h2_mock).map_err(Error::from)?;
     println!(
         "pipe output: {}; h2 mocked output: {}",
         pipe_res.unwrap(),
