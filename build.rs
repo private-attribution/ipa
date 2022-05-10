@@ -4,12 +4,18 @@ use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = "src/proto";
+    let prepend_str = String::from(
+        "\
+#![allow(clippy::pedantic)]
+
+",
+    );
     tonic_build::configure()
         .out_dir(out_dir)
         .compile(&["proto/pipe.proto"], &["proto"])?;
     visit_files(
         Path::new(&out_dir),
-        &(|file| prepend(file, String::from("#![allow(clippy::pedantic)]\n\n"))),
+        &(|file| prepend(file, prepend_str.clone())),
     )?;
     Ok(())
 }
