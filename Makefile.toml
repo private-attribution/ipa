@@ -1,7 +1,3 @@
-extend=[
-    { path = "grcov.makefile.toml" }
-]
-
 [tasks.format]
 install_crate = "rustfmt"
 command = "cargo"
@@ -11,25 +7,10 @@ args = ["fmt", "--all", "--", "--check"]
 command = "cargo"
 args = ["clippy", "--tests", "--", "-D","warnings", "-D", "clippy::pedantic"]
 
-[tasks.coverage]
-alias="coverage_grcov"
-
-[tasks.doctest]
-command = "cargo"
-args = ["test", "--doc"]
-
 [tasks.touch]
 dependencies = [
     "check",
     "format",
     "clippy",
-    "doctest",
-    "test",
-]
-
-[tasks.san]
-dependencies = [
-    "touch",
-    "doctest",
     "test",
 ]

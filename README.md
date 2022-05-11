@@ -21,3 +21,24 @@ A token effort will be made to meet privacy and security goals. However, this is
 only for the purposes of learning.  No serious effort will be made to ensure
 that these goals are met and therefore this code is **not fit for production
 use**.
+
+
+## Getting started
+
+1. Install [cargo-make](https://github.com/sagiegurari/cargo-make):
+
+```bash
+cargo install cargo-make
+```
+
+2. Building code
+
+The following command runs the same checks as Github CI approval workflow, so it is useful 
+to validate code before submitting a PR
+
+```bash
+cargo make touch
+```
+
+to produce binaries, run `cargo build`
+
