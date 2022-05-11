@@ -8,6 +8,7 @@ use prost::alloc::vec::Vec as ProstVec;
 use prost::Message;
 use std::io::Cursor;
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -24,7 +25,7 @@ pub trait AStep {
         inp: Self::Input,
         helper: Arc<impl THelper + Send + Sync + 'static>,
     ) -> Res<Self::Output>;
-    fn unique_id(&self) -> &Uuid;
+    fn unique_id(&self) -> Uuid;
 }
 
 /// the only difference from `build_pipeline` is the `async move` block, and the `.await` on
@@ -43,9 +44,9 @@ macro_rules! build_async_pipeline {
 
 #[async_trait]
 pub trait THelper {
-    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()>;
-    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()>;
-    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: String) -> Res<T>
+    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()>;
+    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()>;
+    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
         T::Error: Into<Error>;
 }
@@ -71,12 +72,12 @@ impl ChannelHelper {
 
     async fn send_to<T: Into<Vec<u8>>>(
         &self,
-        key: String,
+        key: Uuid,
         data: T,
         chan: &mpsc::Sender<ProstVec<u8>>,
     ) -> Res<()> {
         let freq = ForwardRequest {
-            id: key,
+            id: key.to_string(),
             num: data.into(),
         };
         let mut buf = Vec::new();
@@ -93,10 +94,17 @@ impl ChannelHelper {
                     println!("received unexpected message: {}", Error::from(err));
                 }
                 Ok(decoded) => {
+                    let decoded_uuid = match Uuid::from_str(decoded.id.as_str()) {
+                        Err(err) => {
+                            println!("message id was not a uuid: {}", err);
+                            continue;
+                        }
+                        Ok(uuid) => uuid,
+                    };
                     let (tx, rx) = oneshot::channel();
                     let sent = self
                         .hashmap_chan
-                        .send(HashMapCommand::Write(decoded.id, decoded.num, tx))
+                        .send(HashMapCommand::Write(decoded_uuid, decoded.num, tx))
                         .await;
                     if sent.is_err() {
                         println!("could not send message to hashmap: {}", sent.unwrap_err());
@@ -137,27 +145,25 @@ impl From<SendStr> for ProstVec<u8> {
 
 #[async_trait]
 impl THelper for ChannelHelper {
-    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
-        self.send_to(key.clone(), data, &self.next_send_chan)
-            .await?;
+    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()> {
+        self.send_to(key, data, &self.next_send_chan).await?;
         println!("sent data to next helper: {key}");
         Ok(())
     }
 
-    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: String, data: T) -> Res<()> {
-        self.send_to(key.clone(), data, &self.prev_send_chan)
-            .await?;
+    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()> {
+        self.send_to(key, data, &self.prev_send_chan).await?;
         println!("sent data to prev helper: {key}");
         Ok(())
     }
 
-    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: String) -> Res<T>
+    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
         T::Error: Into<Error>,
     {
         let (tx, rx) = oneshot::channel();
         self.hashmap_chan
-            .send(HashMapCommand::Remove(key.clone(), tx))
+            .send(HashMapCommand::Remove(key, tx))
             .await
             .map_err(Error::from)?;
         match rx.await {
@@ -166,7 +172,7 @@ impl THelper for ChannelHelper {
                 println!("nothing in cache, waiting...");
                 // basic poll for now; will use watchers in real implementation
                 time::sleep(Duration::from_millis(500)).await;
-                Box::pin(async move { self.receive_from(key).await }).await
+                Box::pin(self.receive_from(key)).await
             }
             Ok(Some(v)) => v.try_into().map_err(Into::into),
         }

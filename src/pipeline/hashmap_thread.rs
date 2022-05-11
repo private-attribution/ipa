@@ -2,14 +2,15 @@ use crate::error::{Error, Res};
 use prost::alloc::vec::Vec as ProstVec;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum HashMapCommand {
-    Write(String, ProstVec<u8>, oneshot::Sender<Option<ProstVec<u8>>>),
-    Remove(String, oneshot::Sender<Option<ProstVec<u8>>>),
+    Write(Uuid, ProstVec<u8>, oneshot::Sender<Option<ProstVec<u8>>>),
+    Remove(Uuid, oneshot::Sender<Option<ProstVec<u8>>>),
 }
 pub struct HashMapHandler {
-    m: HashMap<String, ProstVec<u8>>,
+    m: HashMap<Uuid, ProstVec<u8>>,
     receiver: mpsc::Receiver<HashMapCommand>,
 }
 impl HashMapHandler {
@@ -36,7 +37,7 @@ impl HashMapHandler {
     }
     async fn write(
         &mut self,
-        key: String,
+        key: Uuid,
         value: Vec<u8>,
         ack: oneshot::Sender<Option<ProstVec<u8>>>,
     ) -> Res<()> {
@@ -47,9 +48,9 @@ impl HashMapHandler {
             |_| Ok(()),
         )
     }
-    async fn remove(&mut self, key: String, ack: oneshot::Sender<Option<ProstVec<u8>>>) -> Res<()> {
+    async fn remove(&mut self, key: Uuid, ack: oneshot::Sender<Option<ProstVec<u8>>>) -> Res<()> {
         println!("removing data with key {key}");
-        let removed = self.m.remove(key.as_str());
+        let removed = self.m.remove(&key);
         ack.send(removed).map_or(
             Err(Error::AsyncDeadThread(mpsc::error::SendError(vec![]))),
             |_| Ok(()),

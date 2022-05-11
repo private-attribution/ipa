@@ -28,8 +28,8 @@ impl AStep for Start {
         Ok((self.x, self.y))
     }
 
-    fn unique_id(&self) -> &Uuid {
-        &self.uuid
+    fn unique_id(&self) -> Uuid {
+        self.uuid
     }
 }
 
@@ -46,8 +46,8 @@ impl AStep for Add {
         Ok(inp.0 + inp.1)
     }
 
-    fn unique_id(&self) -> &Uuid {
-        &self.uuid
+    fn unique_id(&self) -> Uuid {
+        self.uuid
     }
 }
 
@@ -69,8 +69,8 @@ impl AStep for PairWith3 {
             .map_or(Err(Error::Internal), |three| Ok((inp, three)))
     }
 
-    fn unique_id(&self) -> &Uuid {
-        &self.uuid
+    fn unique_id(&self) -> Uuid {
+        self.uuid
     }
 }
 
@@ -86,8 +86,8 @@ impl AStep for Stringify {
         Ok(inp.to_string())
     }
 
-    fn unique_id(&self) -> &Uuid {
-        &self.uuid
+    fn unique_id(&self) -> Uuid {
+        self.uuid
     }
 }
 struct ForwardData {
@@ -104,14 +104,14 @@ impl AStep for ForwardData {
         inp: Self::Input,
         helper: Arc<impl THelper + Send + Sync + 'static>,
     ) -> Res<Self::Output> {
-        let sent = helper.send_to_next(self.unique_id().to_string(), SendStr(inp.clone()));
-        let received = helper.receive_from::<SendStr>(self.receive_uuid.to_string());
+        let sent = helper.send_to_next(self.unique_id(), SendStr(inp.clone()));
+        let received = helper.receive_from::<SendStr>(self.receive_uuid);
         let completed = try_join!(sent, received);
         completed.map(|(_, res)| res.to_string())
     }
 
-    fn unique_id(&self) -> &Uuid {
-        &self.uuid
+    fn unique_id(&self) -> Uuid {
+        self.uuid
     }
 }
 
