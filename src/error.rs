@@ -1,3 +1,5 @@
+use crate::shmc::ShareError;
+
 #[derive(Debug)]
 pub enum Error {
     AlreadyExists,
@@ -15,6 +17,7 @@ pub enum Error {
     Io(std::io::Error),
     #[cfg(feature = "enable-serde")]
     Serde(serde_json::Error),
+    SemiHonestProtocolError(ShareError)
 }
 
 macro_rules! forward_errors {
@@ -54,6 +57,7 @@ forward_errors! {
     #[cfg(feature = "enable-serde")]
     serde_json::Error => Serde,
     redis::RedisError => RedisError,
+    ShareError => SemiHonestProtocolError
 }
 
 pub type Res<T> = Result<T, Error>;

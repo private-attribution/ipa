@@ -32,163 +32,134 @@
 //! multiplication round and annotating messages that carry `u` or `v` information with it.
 //! Secondly, message processing and computation is done in the same thread and this implementation
 //! does not use async model which may be beneficial here for performance reasons.
-//! Lastly, using `u128` as a backing field to store shared secrets is too optimistic - a larger
-//! type is required to store secrets.
-//!
 //!
 //! [Paper] - <https://eprint.iacr.org/2019/1390.pdf>
 
+use std::fmt::{Display, Formatter};
+use std::ops::{Add, Mul, Sub};
 use hkdf::Hkdf;
-use rand::distributions::{Distribution, Standard};
-use rand::{thread_rng, Rng};
+use rand_core::{CryptoRng, RngCore};
+use rust_elgamal::Scalar;
 use sha2::Sha256;
-
-/// Represents a secret in the system that must obey the following properties:
-/// - addition
-/// - multiplication
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
-pub struct SharedSecret(u128);
-
-impl From<u128> for SharedSecret {
-    fn from(v: u128) -> Self {
-        SharedSecret(v)
-    }
-}
-
-impl SharedSecret {
-    /// Adds a given shared secret and returns a new instance
-    ///
-    /// ```
-    /// use raw_ipa::shmc::SharedSecret;
-    /// let u = SharedSecret::from(5);
-    /// let v = SharedSecret::from(10);
-    ///
-    /// assert_eq!(SharedSecret::from(15), u.wrapping_add(v));
-    /// ```
-    #[must_use]
-    pub fn wrapping_add(self, other: Self) -> Self {
-        SharedSecret(self.0.wrapping_add(other.0))
-    }
-
-    /// Subtracts a given shared secret and returns a new instance
-    ///
-    /// ```
-    /// use raw_ipa::shmc::SharedSecret;
-    /// let u = SharedSecret::from(3);
-    /// let v = SharedSecret::from(10);
-    ///
-    /// assert_eq!(SharedSecret::from(7), v.wrapping_sub(u));
-    /// ```
-    #[must_use]
-    pub fn wrapping_sub(self, other: Self) -> Self {
-        SharedSecret(self.0.wrapping_sub(other.0))
-    }
-
-    /// Multiplies by a given shared secret and returns a new instance
-    ///
-    /// ```
-    /// use raw_ipa::shmc::SharedSecret;
-    /// let u = SharedSecret::from(7);
-    /// let v = SharedSecret::from(11);
-    ///
-    /// assert_eq!(SharedSecret::from(77), v.wrapping_mul(u));
-    /// ```
-    #[must_use]
-    pub fn wrapping_mul(self, other: Self) -> Self {
-        SharedSecret(self.0.wrapping_mul(other.0))
-    }
-
-    /// Shares this secret to 3 parties by choosing three random elements (v1..v3)
-    /// under the constraint that v1+v2+v3 == self
-    #[must_use]
-    pub fn share(&self) -> [Share; 3] {
-        // thread_rng() is secure, but may not be secure enough for us. need to check
-        // what rand crate uses for it.
-        let u1 = thread_rng().gen::<Self>();
-        let u2 = thread_rng().gen::<Self>();
-        let u3 = self.wrapping_sub(u1.wrapping_add(u2));
-
-        [Share(u1, u3), Share(u2, u1), Share(u3, u2)]
-    }
-
-    /// Assembles a new `SharedSecret` from the given shares.
-    ///
-    /// Example:
-    /// ```
-    /// use raw_ipa::shmc::SharedSecret;
-    ///
-    /// let s = SharedSecret::from(5);
-    /// assert_eq!(s, SharedSecret::from_shares(s.share()));
-    /// ```
-    #[must_use]
-    pub fn from_shares(shares: [Share; 3]) -> Self {
-        let u1 = shares[0].0;
-        let u2 = shares[1].0;
-        let u3 = shares[2].0;
-
-        u1.wrapping_add(u2).wrapping_add(u3)
-    }
-
-    /// Computes KDF over this secret with a given seed.
-    #[must_use]
-    pub(crate) fn kdf(&self, seed: u64) -> Self {
-        // require thorough security review
-        let prf: Hkdf<Sha256> = Hkdf::new(None, &seed.to_be_bytes());
-        let mut output = [0u8; 16];
-        prf.expand(&self.0.to_be_bytes(), &mut output)
-            .expect("Failed to expand HKDF");
-
-        Self(u128::from_be_bytes(output))
-    }
-}
-
-impl Distribution<SharedSecret> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SharedSecret {
-        let v = rng.gen();
-
-        SharedSecret(v)
-    }
-}
+use crate::error::Res;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Randomness {
     share: Share,
-    seed: u64,
+    seed: Scalar,
 }
 
-/// A share of `SharedSecret`.
+/// A share of `Scalar`.
 #[derive(Copy, Clone, Debug)]
-pub struct Share(SharedSecret, SharedSecret);
+pub struct Share(Scalar, Scalar);
 
-impl Share {
-    /// Computes HKDF over this share and returns a new instance of `SharedSecret`.
+#[derive(Debug)]
+pub enum ShareError {
+    ReconstructionFailed([Share; 3])
+}
+
+impl Display for ShareError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShareError::ReconstructionFailed(_) => {
+                f.write_str("Share reconstruction failed")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ShareError { }
+
+trait ShareComposite: Add + Sub + Sized {
+    /// Splits self into 3 shares by choosing three random elements (v1..v3)
+    /// under the constraint that v1+v2+v3 == Self
+    fn share<R: RngCore + CryptoRng>(&self, rng: &mut R) -> [Share; 3];
+
+    /// Assembles a new instance from the given shares.
+    fn from_shares(inp: [Share; 3]) -> Res<Self>;
+}
+
+trait Kdf {
+    type Output;
+    fn kdf(&self, seed: Self::Output) -> Self::Output;
+}
+
+impl Kdf for Scalar {
+    type Output = Scalar;
+
+    fn kdf(&self, seed: Self::Output) -> Self::Output {
+        let prf: Hkdf<Sha256> = Hkdf::new(None, seed.as_bytes());
+
+        let mut output = [0u8; 32];
+        prf.expand(self.as_bytes(), &mut output)
+            .expect("Failed to expand HDKF");
+
+        Scalar::from_bits(output)
+    }
+}
+
+
+impl ShareComposite for Scalar {
     #[must_use]
-    pub fn kdf(&self, seed: u64) -> SharedSecret {
-        self.0.kdf(seed).wrapping_sub(self.1.kdf(seed))
+    fn share<R: RngCore + CryptoRng>(&self, rng: &mut R) -> [Share; 3] {
+        let u1 = Scalar::random(rng);
+        let u2 = Scalar::random(rng);
+        let u3 = self.sub(u1.add(u2));
+
+        [Share(u1, u3), Share(u2, u1), Share(u3, u2)]
     }
 
-    /// Multiplies two shares with a given randomness and returns a new instance of `SharedSecret`.
+    #[must_use]
+    fn from_shares(shares: [Share; 3]) -> Res<Self> {
+        let u1 = shares[0].0;
+        let u2 = shares[1].0;
+        let u3 = shares[2].0;
+
+        if u1 != shares[1].1 || u2 != shares[2].1 || u3 != shares[0].1 {
+            Err(ShareError::ReconstructionFailed(shares).into())
+        } else {
+            Ok(u1.add(u2).add(u3))
+        }
+
+    }
+}
+
+impl Share {
+    /// Multiplies two shares with a given randomness and returns a new instance of `Scalar`.
     /// if `(u0, u1)` and `(v0, v1)` are two shares and `a` is randomness,
     /// then the product is defined as `u0`*`v0` + `u0`*`v1` + `u1`*`v0` + `a`.
     #[must_use]
-    pub fn wrapping_mul(self, other: Share, rand: Randomness) -> SharedSecret {
+    pub fn mul(self, other: Share, rand: Randomness) -> Scalar {
         self.0
-            .wrapping_mul(other.0)
-            .wrapping_add(self.0.wrapping_mul(other.1))
-            .wrapping_add(self.1.wrapping_mul(other.0))
-            .wrapping_add(rand.share.kdf(rand.seed))
+            .mul(other.0)
+            .add(self.0.mul(other.1))
+            .add(self.1.mul(other.0))
+            .add(rand.share.0.kdf(rand.seed))
+            .sub(rand.share.1.kdf(rand.seed))
     }
 }
 
 #[cfg(test)]
-mod shared_secret_tests {
-    use crate::shmc::SharedSecret;
+mod scalar_composite_tests {
+    use std::ops::{Add, AddAssign, Mul};
+    use rand::rngs::StdRng;
+    use rand::thread_rng;
+    use rand_core::SeedableRng;
+    use rust_elgamal::Scalar;
+    use crate::error::Error::SemiHonestProtocolError;
+    use crate::shmc::{ShareComposite, ShareError};
 
     #[test]
-    pub fn share() {
+    pub fn works() {
         fn verify(v: u128) {
-            let secret = SharedSecret(v);
-            assert_eq!(secret, SharedSecret::from_shares(secret.share()));
+            let mut rng = StdRng::seed_from_u64(1);
+            let scalar_v = Scalar::from(v);
+            let shares = scalar_v.share(&mut rng);
+            assert_eq!(scalar_v, Scalar::from_shares(shares.clone()).unwrap());
+
+            // summing up shares yields the initial value * 2
+            assert_eq!(scalar_v.mul(Scalar::from(2_u32)), shares.iter()
+                .fold(Scalar::zero(), |acc, share| acc.add(share.0).add(share.1)));
         }
 
         verify(0);
@@ -197,59 +168,69 @@ mod shared_secret_tests {
     }
 
     #[test]
-    pub fn mul() {
-        assert_eq!(
-            SharedSecret(9),
-            SharedSecret(3).wrapping_mul(SharedSecret(3))
-        );
-        assert_eq!(
-            SharedSecret(0),
-            SharedSecret(3).wrapping_mul(SharedSecret(0))
-        );
-        assert_eq!(
-            SharedSecret(u128::MAX - 3),
-            SharedSecret(u128::MAX - 1).wrapping_mul(SharedSecret(2))
-        );
+    pub fn uses_rng() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let scalar = Scalar::from(1_u64);
+        let shares = scalar.share(&mut rng);
+
+        for share in &shares {
+            assert_ne!(share.0, share.1)
+        }
     }
 
     #[test]
-    pub fn kdf() {
-        assert_eq!(SharedSecret(5).kdf(10), SharedSecret(5).kdf(10));
-        assert_ne!(SharedSecret(5).kdf(10), SharedSecret(6).kdf(10));
-        assert_ne!(SharedSecret(5).kdf(10), SharedSecret(5).kdf(11));
+    pub fn reconstruction_is_fallible() {
+        let scalar_v = Scalar::from(5_u32);
+        let mut shares = scalar_v.share(&mut thread_rng());
+        shares[0].1.add_assign(Scalar::from(1_u32));
+        assert!(matches!(Scalar::from_shares(shares), Err(SemiHonestProtocolError(ShareError::ReconstructionFailed(_)))))
     }
 }
 
 #[cfg(test)]
 mod share_tests {
-    use crate::shmc::{Randomness, SharedSecret};
+    use std::ops::Add;
+    use rand::thread_rng;
+    use rust_elgamal::Scalar;
+    use crate::shmc::{Kdf, Randomness, ShareComposite};
 
     #[test]
     pub fn mul() {
-        let u_shares = SharedSecret(5).share();
-        let v_shares = SharedSecret(10).share();
-        let randomness = SharedSecret(10_202_002).share().map(|s| Randomness {
-            share: s,
-            seed: 123,
-        });
+        let u_shares = Scalar::from(5_u32).share(&mut thread_rng());
+        let v_shares = Scalar::from(10_u32).share(&mut thread_rng());
+        let randomness = Scalar::from(10_202_002_u32).share(&mut thread_rng())
+            .map(|s| Randomness {
+                share: s,
+                seed: Scalar::from(123_u32),
+            });
 
         let actual = u_shares
             .iter()
             .enumerate()
-            .map(|(i, u)| u.wrapping_mul(v_shares[i], randomness[i]))
-            .fold(SharedSecret(0), SharedSecret::wrapping_add);
+            .map(|(i, u)| u.mul(v_shares[i], randomness[i]))
+            .fold(Scalar::zero(), Scalar::add);
 
-        assert_eq!(SharedSecret(50), actual);
+        assert_eq!(Scalar::from(50_u32), actual);
+    }
+
+    #[test]
+    pub fn kdf() {
+        let seed = Scalar::from(10_u32);
+        let another_seed = seed.add(Scalar::from(2_u32));
+        assert_eq!(Scalar::from(5_u32).kdf(seed), Scalar::from(5_u32).kdf(seed));
+        assert_ne!(Scalar::from(5_u32).kdf(seed), Scalar::from(6_u32).kdf(seed));
+        assert_ne!(Scalar::from(5_u32).kdf(seed), Scalar::from(5_u32).kdf(another_seed));
     }
 }
 
 #[allow(dead_code)]
 mod helper {
-    use crate::shmc::{Randomness, Share, SharedSecret};
+    use crate::shmc::{Randomness, Share};
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
     use std::thread;
     use std::thread::JoinHandle;
+    use rust_elgamal::Scalar;
 
     pub type Next = Sender<Command>;
 
@@ -259,13 +240,14 @@ mod helper {
         SetNext(Next),
         SetMultiplier(Share),
         SetMultiplicand(Share, Randomness),
-        PeerSecret(SharedSecret),
+        PeerSecret(Scalar),
     }
 
     pub enum Message {
-        MulComplete(SharedSecret),
+        MulComplete(Scalar),
     }
 
+    #[derive(Debug)]
     pub struct Helper {
         _process: JoinHandle<()>,
         pub output: Receiver<Message>,
@@ -276,8 +258,8 @@ mod helper {
         next: Option<Next>,
         multiplier: Option<Share>,
         multiplicand: (Option<Share>, Option<Randomness>),
-        peer_secret: Option<SharedSecret>,
-        result: Option<SharedSecret>,
+        peer_secret: Option<Scalar>,
+        result: Option<Scalar>,
         peer_notified: bool,
     }
 
@@ -295,11 +277,11 @@ mod helper {
             }
         }
 
-        pub fn set_peer_secret(&mut self, v: SharedSecret) {
+        pub fn set_peer_secret(&mut self, v: Scalar) {
             self.peer_secret.get_or_insert(v);
         }
 
-        pub fn compute(&mut self) -> Option<SharedSecret> {
+        pub fn compute(&mut self) -> Option<Scalar> {
             // This state indicates that helper is ready to perform multiplication
             // and it hasn't done it yet
             if let HelperState {
@@ -309,7 +291,7 @@ mod helper {
                 ..
             } = self
             {
-                self.result = Some(mr.wrapping_mul(*md, *r));
+                self.result = Some(mr.mul(*md, *r));
             }
 
             // If helper carries the result of the multiplication but hasn't notified the peer
@@ -381,16 +363,19 @@ mod helper {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::{Add, Mul};
     use crate::shmc::helper::{Command, Helper, Message, Next};
-    use crate::shmc::{Randomness, Share, SharedSecret};
-    use rand::{thread_rng, Rng};
+    use crate::shmc::{Randomness, Share, ShareComposite};
+    use rand::{thread_rng};
     use std::sync::mpsc;
     use std::sync::mpsc::RecvError;
+    use rust_elgamal::Scalar;
 
+    #[derive(Debug)]
     struct HelperClient {
         helper: Helper,
         tx: Next,
-        mul_result: Option<SharedSecret>,
+        mul_result: Option<Scalar>,
     }
 
     impl HelperClient {
@@ -410,7 +395,7 @@ mod tests {
         pub fn send_multiplicand(&self, share: Share, rand: Randomness) {
             self.tx.send(Command::SetMultiplicand(share, rand)).unwrap();
         }
-        pub fn get_product(&self) -> SharedSecret {
+        pub fn get_product(&self) -> Scalar {
             self.mul_result.expect("Multiplier hasn't been set")
         }
 
@@ -427,61 +412,66 @@ mod tests {
 
     #[test]
     fn computes_shares() {
-        let mut helper_clients: Vec<_> = (0..=2).map(|_| HelperClient::new()).collect();
-        let secret_u = SharedSecret(3);
-        let secret_v = SharedSecret(6);
-        let expected = secret_u.wrapping_mul(secret_v);
+        let mut helper_clients = make_helpers();
 
-        init_helpers(helper_clients.as_slice(), secret_u);
+        let secret_u = Scalar::from(3_u64);
+        let secret_v = Scalar::from(6_u64);
+        let seed = Scalar::from(9_u64);
+        let expected = secret_u.mul(secret_v);
 
-        let result = multiply_by(helper_clients.as_mut_slice(), secret_v, 6).unwrap();
+        init_helpers(&helper_clients, secret_u);
+
+        let result = multiply_by(&mut helper_clients, secret_v, seed).unwrap();
         assert_eq!(result, expected);
     }
 
     #[test]
     fn computes_two_shares() {
-        let mut helper_clients: Vec<_> = (0..=2).map(|_| HelperClient::new()).collect();
+        let mut helper_clients = make_helpers();
 
-        let secret_u = SharedSecret(3);
-        let secret_v = SharedSecret(6);
-        let secret_w = SharedSecret(5);
+        let secret_u = Scalar::from(3_u32);
+        let secret_v = Scalar::from(6_u32);
+        let secret_w = Scalar::from(5_u32);
+        let seed = Scalar::from(9_u64);
         // expect 90=3*6*5
-        let expected = secret_u.wrapping_mul(secret_v).wrapping_mul(secret_w);
+        let expected = secret_u.mul(secret_v).mul(secret_w);
 
-        init_helpers(helper_clients.as_slice(), secret_u);
-        multiply_by(helper_clients.as_mut_slice(), secret_v, 6).unwrap();
-        let result = multiply_by(helper_clients.as_mut_slice(), secret_w, 6).unwrap();
+        init_helpers(&helper_clients, secret_u);
+        multiply_by(&mut helper_clients, secret_v, seed).unwrap();
+        let result = multiply_by(&mut helper_clients, secret_w, seed).unwrap();
 
         assert_eq!(result, expected);
     }
 
-    fn init_helpers(helpers: &[HelperClient], multiplier: SharedSecret) {
+    fn make_helpers() -> [HelperClient; 3] {
+        (0..=2).map(|_| HelperClient::new())
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("Failed to create exactly 3 helpers")
+    }
+
+    fn init_helpers(helpers: &[HelperClient; 3], multiplier: Scalar) {
         connect_helpers(helpers);
-        let multiplier = multiplier.share();
+        let multiplier = multiplier.share(&mut thread_rng());
         for (i, client) in helpers.iter().enumerate() {
             client.send_multiplier(multiplier[i]);
         }
     }
 
-    fn connect_helpers(helpers: &[HelperClient]) {
-        assert_eq!(helpers.len(), 3);
-
-        let mut i = 1;
-        while i < helpers.len() {
-            helpers[i - 1].set_next(&helpers[i]);
-            i += 1;
-        }
-
-        helpers[i - 1].set_next(&helpers[0]);
+    fn connect_helpers(helpers: &[HelperClient; 3]) {
+        helpers[0].set_next(&helpers[1]);
+        helpers[1].set_next(&helpers[2]);
+        helpers[2].set_next(&helpers[0]);
     }
 
     fn multiply_by(
-        helpers: &mut [HelperClient],
-        multiplicand: SharedSecret,
-        seed: u64,
-    ) -> Result<SharedSecret, RecvError> {
-        let mul_shares = multiplicand.share();
-        let randomness = thread_rng().gen::<SharedSecret>().share();
+        helpers: &mut [HelperClient; 3],
+        multiplicand: Scalar,
+        seed: Scalar,
+    ) -> Result<Scalar, RecvError> {
+        let mut rng = thread_rng();
+        let mul_shares = multiplicand.share(&mut rng);
+        let randomness = Scalar::random(&mut rng).share(&mut rng);
 
         assert_eq!(helpers.len(), mul_shares.len());
 
@@ -501,7 +491,7 @@ mod tests {
 
         let result = helpers
             .iter()
-            .fold(SharedSecret(0), |acc, x| x.get_product().wrapping_add(acc));
+            .fold(Scalar::zero(), |acc, x| x.get_product().add(acc));
 
         Ok(result)
     }
