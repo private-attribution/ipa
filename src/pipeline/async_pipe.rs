@@ -1,6 +1,6 @@
 /// this module mirrors the synchronous pipeline, but with async/await via tokio.
 /// requires a workaround `async_trait` to use async functions inside traits
-use crate::pipeline::error::{PipelineError, Res};
+use crate::pipeline::error::{Error, Res};
 use crate::pipeline::hashmap_thread::HashMapCommand;
 use crate::proto::pipe::ForwardRequest;
 use async_trait::async_trait;
@@ -48,7 +48,7 @@ pub trait THelper {
     async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()>;
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
-        PipelineError: From<T::Error>;
+        Error: From<T::Error>;
 }
 
 pub struct ChannelHelper {
@@ -92,10 +92,7 @@ impl ChannelHelper {
         while let Some(data) = recv_chan.recv().await {
             match ForwardRequest::decode(&mut Cursor::new(data.as_slice())) {
                 Err(err) => {
-                    println!(
-                        "received unexpected message: {}",
-                        PipelineError::DecodeError(err)
-                    );
+                    println!("received unexpected message: {}", Error::DecodeError(err));
                 }
                 Ok(decoded) => {
                     let decoded_uuid = match Uuid::from_str(decoded.id.as_str()) {
@@ -135,7 +132,7 @@ impl Deref for SendStr {
     }
 }
 impl TryFrom<ProstVec<u8>> for SendStr {
-    type Error = PipelineError;
+    type Error = Error;
 
     fn try_from(v: ProstVec<u8>) -> Result<Self, Self::Error> {
         let str = std::str::from_utf8(&*v)?;
@@ -164,7 +161,7 @@ impl THelper for ChannelHelper {
 
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
-        PipelineError: From<T::Error>,
+        Error: From<T::Error>,
     {
         let (tx, rx) = oneshot::channel();
         self.hashmap_chan

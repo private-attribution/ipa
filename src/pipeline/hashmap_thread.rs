@@ -44,12 +44,12 @@ impl HashMapHandler {
         println!("writing data with key {key}");
         let ousted = self.m.insert(key, value);
         ack.send(ousted)
-            .or(Err(mpsc::error::SendError::<Vec<u8>>(vec![]).into()))
+            .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
     }
     async fn remove(&mut self, key: Uuid, ack: oneshot::Sender<Option<ProstVec<u8>>>) -> Res<()> {
         println!("removing data with key {key}");
         let removed = self.m.remove(&key);
         ack.send(removed)
-            .or(Err(mpsc::error::SendError::<Vec<u8>>(vec![]).into()))
+            .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
     }
 }

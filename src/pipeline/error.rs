@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum PipelineError {
+pub enum Error {
     #[error("failed to decode message: {0}")]
     DecodeError(#[from] prost::DecodeError),
     #[error("failed to parse message: {0}")]
@@ -11,22 +11,20 @@ pub enum PipelineError {
     ThreadError(Box<dyn std::error::Error + Send + Sync>),
 }
 
-impl<T: Debug + Send + Sync + 'static> From<tokio::sync::mpsc::error::SendError<T>>
-    for PipelineError
-{
+impl<T: Debug + Send + Sync + 'static> From<tokio::sync::mpsc::error::SendError<T>> for Error {
     fn from(e: tokio::sync::mpsc::error::SendError<T>) -> Self {
-        PipelineError::ThreadError(e.into())
+        Error::ThreadError(e.into())
     }
 }
-impl From<tokio::sync::oneshot::error::RecvError> for PipelineError {
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
     fn from(e: tokio::sync::oneshot::error::RecvError) -> Self {
-        PipelineError::ThreadError(e.into())
+        Error::ThreadError(e.into())
     }
 }
-impl From<tokio::task::JoinError> for PipelineError {
+impl From<tokio::task::JoinError> for Error {
     fn from(e: tokio::task::JoinError) -> Self {
-        PipelineError::ThreadError(e.into())
+        Error::ThreadError(e.into())
     }
 }
 
-pub type Res<T> = Result<T, PipelineError>;
+pub type Res<T> = Result<T, Error>;

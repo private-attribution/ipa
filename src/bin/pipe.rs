@@ -2,6 +2,7 @@
 /// a good way to show off some ideas for review
 use raw_ipa::build_pipeline;
 use raw_ipa::error::Res;
+use raw_ipa::pipeline::error::Res as PipelineRes;
 use raw_ipa::pipeline::{PStep, Pipeline};
 
 /// Takes no inputs, and produces a hard-coded tuple value.
@@ -14,7 +15,7 @@ impl PStep for Start {
     type Input = ();
     type Output = (i32, i32);
 
-    fn compute(&self, _: Self::Input) -> Res<Self::Output> {
+    fn compute(&self, _: Self::Input) -> PipelineRes<Self::Output> {
         Ok((self.x, self.y))
     }
 }
@@ -24,7 +25,7 @@ impl PStep for Add {
     type Input = (i32, i32);
     type Output = i32;
 
-    fn compute(&self, inp: Self::Input) -> Res<Self::Output> {
+    fn compute(&self, inp: Self::Input) -> PipelineRes<Self::Output> {
         Ok(inp.0 + inp.1)
     }
 }
@@ -35,7 +36,7 @@ impl PStep for Split {
     type Input = i32;
     type Output = (i32, i32);
 
-    fn compute(&self, inp: Self::Input) -> Res<Self::Output> {
+    fn compute(&self, inp: Self::Input) -> PipelineRes<Self::Output> {
         let half = inp / 2;
         Ok((half, inp - half))
     }
@@ -43,7 +44,7 @@ impl PStep for Split {
 
 struct ExamplePipeline {}
 impl Pipeline<(), i32> for ExamplePipeline {
-    fn pipeline(&self, inp: ()) -> Res<i32> {
+    fn pipeline(&self, inp: ()) -> PipelineRes<i32> {
         // usage of build_pipeline! that produces a `Fn(()) -> Res<i32>`
         let finally = build_pipeline!(Start { x: 1, y: 2 } => Add {} => Split {} => Add {});
         finally(inp)
@@ -52,5 +53,7 @@ impl Pipeline<(), i32> for ExamplePipeline {
 
 fn main() -> Res<()> {
     let example = ExamplePipeline {};
-    example.pipeline(()).map(|res| println!("{res}"))
+    let res = example.pipeline(())?;
+    println!("{res}");
+    Ok(())
 }
