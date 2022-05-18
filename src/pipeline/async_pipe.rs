@@ -1,6 +1,6 @@
 /// this module mirrors the synchronous pipeline, but with async/await via tokio.
 /// requires a workaround `async_trait` to use async functions inside traits
-use crate::error::{Error, Res};
+use crate::pipeline::error::{PipelineError, Res};
 use crate::pipeline::hashmap_thread::HashMapCommand;
 use crate::proto::pipe::ForwardRequest;
 use async_trait::async_trait;
@@ -48,7 +48,7 @@ pub trait THelper {
     async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()>;
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
-        T::Error: Into<Error>;
+        PipelineError: From<T::Error>;
 }
 
 pub struct ChannelHelper {
@@ -84,14 +84,18 @@ impl ChannelHelper {
         buf.reserve(freq.encoded_len());
         // unwrap is safe because `buf` has `encoded_len` reserved
         freq.encode(&mut buf).unwrap();
-        chan.send(buf).await.map_err(Error::from)
+        chan.send(buf).await?;
+        Ok(())
     }
 
     pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<ProstVec<u8>>) {
         while let Some(data) = recv_chan.recv().await {
             match ForwardRequest::decode(&mut Cursor::new(data.as_slice())) {
                 Err(err) => {
-                    println!("received unexpected message: {}", Error::from(err));
+                    println!(
+                        "received unexpected message: {}",
+                        PipelineError::DecodeError(err)
+                    );
                 }
                 Ok(decoded) => {
                     let decoded_uuid = match Uuid::from_str(decoded.id.as_str()) {
@@ -131,10 +135,11 @@ impl Deref for SendStr {
     }
 }
 impl TryFrom<ProstVec<u8>> for SendStr {
-    type Error = Error;
+    type Error = PipelineError;
 
     fn try_from(v: ProstVec<u8>) -> Result<Self, Self::Error> {
-        std::str::from_utf8(&*v).map_or(Err(Error::WrongType), |str| Ok(SendStr(str.to_string())))
+        let str = std::str::from_utf8(&*v)?;
+        Ok(SendStr(str.to_string()))
     }
 }
 impl From<SendStr> for ProstVec<u8> {
@@ -159,22 +164,24 @@ impl THelper for ChannelHelper {
 
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
-        T::Error: Into<Error>,
+        PipelineError: From<T::Error>,
     {
         let (tx, rx) = oneshot::channel();
         self.hashmap_chan
             .send(HashMapCommand::Remove(key, tx))
-            .await
-            .map_err(Error::from)?;
+            .await?;
         match rx.await {
-            Err(_) => Err(Error::AsyncDeadThread4),
+            Err(err) => Err(err.into()),
             Ok(None) => {
                 println!("nothing in cache, waiting...");
                 // basic poll for now; will use watchers in real implementation
                 time::sleep(Duration::from_millis(500)).await;
                 Box::pin(self.receive_from(key)).await
             }
-            Ok(Some(v)) => v.try_into().map_err(Into::into),
+            Ok(Some(v)) => {
+                let res = v.try_into()?;
+                Ok(res)
+            }
         }
     }
 }

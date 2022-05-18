@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use prost::Message;
 use raw_ipa::build_async_pipeline;
-use raw_ipa::error::{Error, Res};
+use raw_ipa::error::Res;
 use raw_ipa::pipeline::async_pipe::{APipeline, AStep, ChannelHelper, SendStr, THelper};
+use raw_ipa::pipeline::error::Res as PipelineRes;
 use raw_ipa::pipeline::hashmap_thread::HashMapHandler;
 use raw_ipa::proto::pipe::ForwardRequest;
 use std::io::Cursor;
@@ -24,7 +25,7 @@ impl AStep for Start {
     type Input = ();
     type Output = (i32, i32);
 
-    async fn compute(&self, _: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
+    async fn compute(&self, _: Self::Input, _: Arc<impl THelper>) -> PipelineRes<Self::Output> {
         Ok((self.x, self.y))
     }
 
@@ -42,7 +43,7 @@ impl AStep for Add {
     type Input = (i32, i32);
     type Output = i32;
 
-    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
+    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> PipelineRes<Self::Output> {
         Ok(inp.0 + inp.1)
     }
 
@@ -60,13 +61,13 @@ impl AStep for PairWith3 {
     type Input = i32;
     type Output = (i32, i32);
 
-    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
+    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> PipelineRes<Self::Output> {
         let res = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
             3
         });
-        res.await
-            .map_or(Err(Error::Internal), |three| Ok((inp, three)))
+        let three = res.await?;
+        Ok((inp, three))
     }
 
     fn unique_id(&self) -> Uuid {
@@ -82,7 +83,7 @@ impl AStep for Stringify {
     type Input = i32;
     type Output = String;
 
-    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> Res<Self::Output> {
+    async fn compute(&self, inp: Self::Input, _: Arc<impl THelper>) -> PipelineRes<Self::Output> {
         Ok(inp.to_string())
     }
 
@@ -103,11 +104,11 @@ impl AStep for ForwardData {
         &self,
         inp: Self::Input,
         helper: Arc<impl THelper + Send + Sync + 'static>,
-    ) -> Res<Self::Output> {
+    ) -> PipelineRes<Self::Output> {
         let sent = helper.send_to_next(self.unique_id(), SendStr(inp.clone()));
         let received = helper.receive_from::<SendStr>(self.receive_uuid);
-        let completed = try_join!(sent, received);
-        completed.map(|(_, res)| res.to_string())
+        let (_, res) = try_join!(sent, received)?;
+        Ok(res.to_string())
     }
 
     fn unique_id(&self) -> Uuid {
@@ -120,7 +121,7 @@ struct ExampleAPipeline<H: THelper> {
 }
 #[async_trait]
 impl<H: THelper + Send + Sync + 'static> APipeline<(), i32> for ExampleAPipeline<H> {
-    async fn pipeline(&self, _: ()) -> Res<i32> {
+    async fn pipeline(&self, _: ()) -> PipelineRes<i32> {
         let pipe = build_async_pipeline!(self.helper.clone(),
             Start { x: 1, y: 2, uuid: Uuid::new_v4() } =>
             Add { uuid: Uuid::new_v4() } =>
@@ -138,7 +139,7 @@ struct ForwardingPipeline<H: THelper> {
 }
 #[async_trait]
 impl<H: THelper + Send + Sync + 'static> APipeline<(), String> for ForwardingPipeline<H> {
-    async fn pipeline(&self, _: ()) -> Res<String> {
+    async fn pipeline(&self, _: ()) -> PipelineRes<String> {
         let pipe = build_async_pipeline!(self.helper.clone(),
             Start { x: 1, y: 2, uuid: Uuid::new_v4() } =>
             Add { uuid: Uuid::new_v4() } =>
@@ -181,15 +182,13 @@ async fn main() -> Res<()> {
         buf.reserve(mocked_data.encoded_len());
         mocked_data.encode(&mut buf).unwrap();
         println!("sending mock data from h2: {h2_recv_uuid}");
-        h1_send.send(buf).await.map_err(Error::from)?;
+        h1_send.send(buf).await?;
         let received_data = h2_recv.recv().await.unwrap();
-        let req = ForwardRequest::decode(&mut Cursor::new(received_data.as_slice()))
-            .map_err(Error::from)?;
+        let req = ForwardRequest::decode(&mut Cursor::new(received_data.as_slice()))?;
         let str: SendStr = req.num.try_into()?;
         Ok(str.0)
     });
-    let (_, _, pipe_res, h2_mock_res) =
-        try_join!(run_hashmap, run_helper, run_pipe, run_h2_mock).map_err(Error::from)?;
+    let (_, _, pipe_res, h2_mock_res) = try_join!(run_hashmap, run_helper, run_pipe, run_h2_mock)?;
     println!(
         "pipe output: {}; h2 mocked output: {}",
         pipe_res.unwrap(),

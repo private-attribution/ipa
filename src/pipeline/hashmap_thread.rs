@@ -1,4 +1,4 @@
-use crate::error::{Error, Res};
+use crate::pipeline::error::Res;
 use prost::alloc::vec::Vec as ProstVec;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -43,17 +43,13 @@ impl HashMapHandler {
     ) -> Res<()> {
         println!("writing data with key {key}");
         let ousted = self.m.insert(key, value);
-        ack.send(ousted).map_or(
-            Err(Error::AsyncDeadThread(mpsc::error::SendError(vec![]))),
-            |_| Ok(()),
-        )
+        ack.send(ousted)
+            .or(Err(mpsc::error::SendError::<Vec<u8>>(vec![]).into()))
     }
     async fn remove(&mut self, key: Uuid, ack: oneshot::Sender<Option<ProstVec<u8>>>) -> Res<()> {
         println!("removing data with key {key}");
         let removed = self.m.remove(&key);
-        ack.send(removed).map_or(
-            Err(Error::AsyncDeadThread(mpsc::error::SendError(vec![]))),
-            |_| Ok(()),
-        )
+        ack.send(removed)
+            .or(Err(mpsc::error::SendError::<Vec<u8>>(vec![]).into()))
     }
 }

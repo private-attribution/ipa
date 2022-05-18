@@ -1,7 +1,8 @@
 pub mod async_pipe;
+pub mod error;
 pub mod hashmap_thread;
 
-use crate::error::Res;
+use error::Res;
 
 pub trait PStep {
     type Input;

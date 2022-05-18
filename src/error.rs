@@ -25,6 +25,9 @@ pub enum Error {
     Io(std::io::Error),
     #[cfg(feature = "enable-serde")]
     Serde(serde_json::Error),
+
+    // module errors
+    PipelineError(crate::pipeline::error::PipelineError),
 }
 
 macro_rules! forward_errors {
@@ -69,6 +72,8 @@ forward_errors! {
     #[cfg(feature = "enable-serde")]
     serde_json::Error => Serde,
     redis::RedisError => RedisError,
+
+    crate::pipeline::error::PipelineError => PipelineError,
 }
 
 pub type Res<T> = Result<T, Error>;
