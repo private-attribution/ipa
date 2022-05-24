@@ -8,7 +8,7 @@ edition = "2021"
 default = ["debug", "cli"]
 cli = ["enable-serde", "stderrlog", "structopt"]
 debug = ["hex"]
-enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde", "num-bigint/serde"]
+enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
 
 [dependencies]
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
@@ -27,7 +27,6 @@ serde_json = {version = "1.0", optional = true}
 sha2 = "0.9"
 stderrlog = {version = "0.5", optional = true}
 structopt = {version = "0.3", optional = true}
-num-bigint = {version = "0.4.3", optional = true}
 
 [dev-dependencies]
 hex = "0.4"

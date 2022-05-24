@@ -1,21 +1,23 @@
-use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
-type CipherText = BigInt;
+type CipherText = Vec<u8>;
 type PlainText = String;
 type SecretShare = [CipherText; 3];
-type PBRange = Range<u8>;
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 struct Event {
     /// Secret shared and then encrypted match keys.
     matchkeys: Vec<SecretShare>,
 
-    /// Date and time of the event occurence. Secret shared and encrypted.
+    /// The epoch which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
+    /// This field is in the clear.
+    epoch: u8,
+
+    /// An offset in seconds into a given offset. The clear is u32 (< 2^20 seconds), then encrypted and secret shared.
     timestamp: SecretShare,
 }
 
@@ -23,7 +25,7 @@ struct Event {
 struct SourceEvent {
     event: Event,
 
-    /// A key to group sets of the events into.
+    /// A key to group sets of the events.
     breakdown_key: PlainText,
 }
 
@@ -89,7 +91,7 @@ struct IPAQuery {
     query_type: QueryType,
 
     /// Percentage of epoch-level privacy budget this query should consume. Likely 1-100.
-    privacy_budget: PBRange,
+    privacy_budget: u8,
 
     /// A collection of source events. At least 100 (TBD) unique source events must be provided.
     source_events: Vec<SourceEvent>,
@@ -103,7 +105,8 @@ struct SourceFanoutQuery {
     query: IPAQuery,
 
     /// The maximum number of attributed conversion events that a single person can contribute
-    /// towards the final output.
+    /// towards the final output. We could also express this using sum of trigger values.
+    /// We'll leave it for the future spec to decide.
     cap: u8,
 }
 
@@ -123,7 +126,7 @@ impl Debug for SourceFanoutQuery {
 struct TriggerFanoutQuery {
     query: IPAQuery,
 
-    /// The range which all trigger event's conversion values must lie within.
+    /// The range within which all the trigger event values must lie.
     value_range: Range<u32>,
 }
 
