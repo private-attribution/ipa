@@ -1,38 +1,42 @@
-pub mod async_pipe;
+pub mod comms;
 pub mod error;
 pub mod hashmap_thread;
 
+use async_trait::async_trait;
+use comms::Comms;
 use error::Res;
+use std::sync::Arc;
+use uuid::Uuid;
 
-pub trait PStep {
+/// The only difference from `PStep` is the `async fn compute`
+#[async_trait]
+pub trait Step {
     type Input;
     type Output;
-    /// takes inputs from previous step, transforms to produce outputs for next step.
-    /// # Errors
-    /// If there was an unrecoverable error when processing inputs, return error and abort
-    /// computation.
-    fn compute(&self, inp: Self::Input) -> Res<Self::Output>;
+    async fn compute(
+        &self,
+        inp: Self::Input,
+        helper: Arc<impl Comms + Send + Sync + 'static>,
+    ) -> Res<Self::Output>;
+    fn unique_id(&self) -> Uuid;
 }
 
-/// shortcut to composing all of the steps of the pipeline.
-/// takes a list of `PStep`s and feeds the outputs of one into the inputs of the next
-/// final result is a function with arguments matching `Input` of the first `PStep`, and return
-/// value matching `Res<Output>` of the last `PStep`.
+/// the only difference from `build_pipeline` is the `async move` block, and the `.await` on
+/// `.compute`.
 #[macro_export]
-macro_rules! build_pipeline {
-    ($($step:expr)=>+) => {{
-        move |res| {
+macro_rules! build_async_pipeline {
+    ($comms:expr, $($step:expr)=>+) => {{
+        move |res| async move {
             $(
-                let res = $step.compute(res)?;
+                let res = $step.compute(res, $comms).await?;
             )*
             Ok(res)
         }
     }};
 }
 
+/// The only difference from `Pipeline` is the `async fn pipeline`
+#[async_trait]
 pub trait Pipeline<Input, Output> {
-    /// runs all steps of a given pipeline.
-    /// # Errors
-    /// if any steps in the pipeline fail, return that failure.
-    fn pipeline(&self, inp: Input) -> Res<Output>;
+    async fn pipeline(&self, inp: Input) -> Res<Output>;
 }
