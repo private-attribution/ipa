@@ -16,6 +16,7 @@ use tokio::{time, try_join};
 use uuid::Uuid;
 
 pub struct Channel {
+    name: &'static str,
     pub next_send_chan: mpsc::Sender<ProstVec<u8>>,
     pub prev_send_chan: mpsc::Sender<ProstVec<u8>>,
     hashmap_send: mpsc::Sender<HashMapCommand>,
@@ -23,11 +24,13 @@ pub struct Channel {
 impl Channel {
     #[must_use]
     pub fn new(
+        name: &'static str,
         next_send_chan: mpsc::Sender<ProstVec<u8>>,
         prev_send_chan: mpsc::Sender<ProstVec<u8>>,
         hashmap_send: mpsc::Sender<HashMapCommand>,
     ) -> Channel {
         Channel {
+            name,
             next_send_chan,
             prev_send_chan,
             hashmap_send,
@@ -47,21 +50,24 @@ impl Channel {
         let (h1_hashmap_send, h1_hashmap_recv) = mpsc::channel(32);
         let (h2_hashmap_send, h2_hashmap_recv) = mpsc::channel(32);
         let (h3_hashmap_send, h3_hashmap_recv) = mpsc::channel(32);
-        let h1_hashmap = HashMapHandler::new(h1_hashmap_recv);
-        let h2_hashmap = HashMapHandler::new(h2_hashmap_recv);
-        let h3_hashmap = HashMapHandler::new(h3_hashmap_recv);
+        let h1_hashmap = HashMapHandler::new("hm1", h1_hashmap_recv);
+        let h2_hashmap = HashMapHandler::new("hm2", h2_hashmap_recv);
+        let h3_hashmap = HashMapHandler::new("hm3", h3_hashmap_recv);
 
         let h1 = Arc::new(Channel::new(
+            "helper_1",
             h2_send.clone(),
             h3_send.clone(),
             h1_hashmap_send,
         ));
         let h2 = Arc::new(Channel::new(
+            "helper_2",
             h3_send.clone(),
             h1_send.clone(),
             h2_hashmap_send,
         ));
         let h3 = Arc::new(Channel::new(
+            "helper_3",
             h1_send.clone(),
             h2_send.clone(),
             h3_hashmap_send,
@@ -75,19 +81,13 @@ impl Channel {
             let chan2 = h2.clone();
             let chan3 = h3.clone();
             async move {
-                let h1_recvd = chan1.receive_data(h1_recv);
-                let h1_run_hashmap = h1_hashmap.run();
-                let h2_recvd = chan2.receive_data(h2_recv);
-                let h2_run_hashmap = h2_hashmap.run();
-                let h3_recvd = chan3.receive_data(h3_recv);
-                let h3_run_hashmap = h3_hashmap.run();
                 try_join!(
-                    tokio::spawn(h1_recvd),
-                    tokio::spawn(h1_run_hashmap),
-                    tokio::spawn(h2_recvd),
-                    tokio::spawn(h2_run_hashmap),
-                    tokio::spawn(h3_recvd),
-                    tokio::spawn(h3_run_hashmap)
+                    tokio::spawn(async move { chan1.receive_data(h1_recv).await }),
+                    tokio::spawn(async move { chan2.receive_data(h2_recv).await }),
+                    tokio::spawn(async move { chan3.receive_data(h3_recv).await }),
+                    tokio::spawn(async move { h1_hashmap.run().await }),
+                    tokio::spawn(async move { h2_hashmap.run().await }),
+                    tokio::spawn(async move { h3_hashmap.run().await }),
                 )?;
                 Ok(())
             }
@@ -175,13 +175,13 @@ impl From<SendStr> for ProstVec<u8> {
 impl Comms for Channel {
     async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()> {
         self.send_to(key, data, &self.next_send_chan).await?;
-        println!("sent data to next helper: {key}");
+        println!("{} sent data to next helper: {key}", self.name);
         Ok(())
     }
 
     async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()> {
         self.send_to(key, data, &self.prev_send_chan).await?;
-        println!("sent data to prev helper: {key}");
+        println!("{} sent data to prev helper: {key}", self.name);
         Ok(())
     }
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
@@ -195,13 +195,14 @@ impl Comms for Channel {
         match rx.await {
             Err(err) => Err(err.into()),
             Ok(None) => {
-                println!("nothing in cache, waiting...");
+                println!("nothing in cache, {} waiting...", self.name);
                 // basic poll for now; will use watchers in real implementation
                 time::sleep(Duration::from_millis(500)).await;
                 Box::pin(self.receive_from(key)).await
             }
             Ok(Some(v)) => {
                 let res = v.try_into()?;
+                println!("{} received data", self.name);
                 Ok(res)
             }
         }

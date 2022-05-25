@@ -10,17 +10,24 @@ pub enum HashMapCommand {
     Remove(Uuid, oneshot::Sender<Option<ProstVec<u8>>>),
 }
 pub struct HashMapHandler {
+    name: &'static str,
     m: HashMap<Uuid, ProstVec<u8>>,
     receiver: mpsc::Receiver<HashMapCommand>,
 }
 impl HashMapHandler {
     #[must_use]
-    pub fn new(receiver: mpsc::Receiver<HashMapCommand>) -> HashMapHandler {
+    pub fn new(name: &'static str, receiver: mpsc::Receiver<HashMapCommand>) -> HashMapHandler {
         HashMapHandler {
+            name,
             m: HashMap::new(),
             receiver,
         }
     }
+
+    pub fn close(&mut self) {
+        self.receiver.close();
+    }
+
     pub async fn run(mut self) {
         while let Some(command) = self.receiver.recv().await {
             let res = match command {
@@ -29,7 +36,8 @@ impl HashMapHandler {
             };
             if res.is_err() {
                 println!(
-                    "could not complete operation on HashMap: {}",
+                    "{} could not complete operation on HashMap: {}",
+                    self.name,
                     res.unwrap_err()
                 );
             }
@@ -41,13 +49,13 @@ impl HashMapHandler {
         value: Vec<u8>,
         ack: oneshot::Sender<Option<ProstVec<u8>>>,
     ) -> Res<()> {
-        println!("writing data with key {key}");
+        println!("{} writing data with key {key}", self.name);
         let ousted = self.m.insert(key, value);
         ack.send(ousted)
             .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
     }
     async fn remove(&mut self, key: Uuid, ack: oneshot::Sender<Option<ProstVec<u8>>>) -> Res<()> {
-        println!("removing data with key {key}");
+        println!("{} removing data with key {key}", self.name);
         let removed = self.m.remove(&key);
         ack.send(removed)
             .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
