@@ -43,7 +43,7 @@ impl HashMapHandler {
                 );
             }
         }
-        println!("{} closing", self.name)
+        println!("{} closing", self.name);
     }
     async fn write(
         &mut self,
