@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub enum HashMapCommand {
     Write(Uuid, ProstVec<u8>, oneshot::Sender<Option<ProstVec<u8>>>),
     Remove(Uuid, oneshot::Sender<Option<ProstVec<u8>>>),
+    Close,
 }
 pub struct HashMapHandler {
     name: &'static str,
@@ -24,15 +25,15 @@ impl HashMapHandler {
         }
     }
 
-    pub fn close(&mut self) {
-        self.receiver.close();
-    }
-
     pub async fn run(mut self) {
         while let Some(command) = self.receiver.recv().await {
             let res = match command {
                 HashMapCommand::Write(key, value, ack) => self.write(key, value, ack).await,
                 HashMapCommand::Remove(key, ack) => self.remove(key, ack).await,
+                HashMapCommand::Close => {
+                    self.close();
+                    Ok(())
+                }
             };
             if res.is_err() {
                 println!(
@@ -42,6 +43,7 @@ impl HashMapHandler {
                 );
             }
         }
+        println!("{} closing", self.name)
     }
     async fn write(
         &mut self,
@@ -59,5 +61,9 @@ impl HashMapHandler {
         let removed = self.m.remove(&key);
         ack.send(removed)
             .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
+    }
+
+    fn close(&mut self) {
+        self.receiver.close();
     }
 }

@@ -12,4 +12,5 @@ pub trait Comms {
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
         Error: From<T::Error>;
+    async fn close(&self) -> Res<()>;
 }

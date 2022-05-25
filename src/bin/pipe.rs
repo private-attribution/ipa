@@ -151,33 +151,33 @@ async fn main() -> Res<()> {
     let run_comms = tokio::spawn(c_run);
     let root_uuid = Uuid::new_v4();
     let run_pipe1 = tokio::spawn(async move {
-        let res = ForwardingPipeline {
+        let pipe = ForwardingPipeline {
             comms: c1,
             root_uuid,
-        }
-        .pipeline(())
-        .await;
+        };
+        let res = pipe.pipeline(()).await;
         println!("pipeline 1 completed");
+        pipe.comms.close().await?;
         res
     });
     let run_pipe2 = tokio::spawn(async move {
-        let res = ForwardingPipeline {
+        let pipe = ForwardingPipeline {
             comms: c2,
             root_uuid,
-        }
-        .pipeline(())
-        .await;
+        };
+        let res = pipe.pipeline(()).await;
         println!("pipeline 2 completed");
+        pipe.comms.close().await?;
         res
     });
     let run_pipe3 = tokio::spawn(async move {
-        let res = ForwardingPipeline {
+        let pipe = ForwardingPipeline {
             comms: c3,
             root_uuid,
-        }
-        .pipeline(())
-        .await;
+        };
+        let res = pipe.pipeline(()).await;
         println!("pipeline 3 completed");
+        pipe.comms.close().await?;
         res
     });
     let (_, pipe1_res, pipe2_res, pipe3_res) =

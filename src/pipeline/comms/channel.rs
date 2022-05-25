@@ -15,22 +15,31 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::{time, try_join};
 use uuid::Uuid;
 
+#[derive(Debug)]
+pub enum Msg {
+    Data(ProstVec<u8>),
+    Close,
+}
+
 pub struct Channel {
     name: &'static str,
-    pub next_send_chan: mpsc::Sender<ProstVec<u8>>,
-    pub prev_send_chan: mpsc::Sender<ProstVec<u8>>,
+    self_send_chan: mpsc::Sender<Msg>,
+    next_send_chan: mpsc::Sender<Msg>,
+    prev_send_chan: mpsc::Sender<Msg>,
     hashmap_send: mpsc::Sender<HashMapCommand>,
 }
 impl Channel {
     #[must_use]
     pub fn new(
         name: &'static str,
-        next_send_chan: mpsc::Sender<ProstVec<u8>>,
-        prev_send_chan: mpsc::Sender<ProstVec<u8>>,
+        self_send_chan: mpsc::Sender<Msg>,
+        next_send_chan: mpsc::Sender<Msg>,
+        prev_send_chan: mpsc::Sender<Msg>,
         hashmap_send: mpsc::Sender<HashMapCommand>,
     ) -> Channel {
         Channel {
             name,
+            self_send_chan,
             next_send_chan,
             prev_send_chan,
             hashmap_send,
@@ -56,18 +65,21 @@ impl Channel {
 
         let h1 = Arc::new(Channel::new(
             "helper_1",
+            h1_send.clone(),
             h2_send.clone(),
             h3_send.clone(),
             h1_hashmap_send,
         ));
         let h2 = Arc::new(Channel::new(
             "helper_2",
+            h2_send.clone(),
             h3_send.clone(),
             h1_send.clone(),
             h2_hashmap_send,
         ));
         let h3 = Arc::new(Channel::new(
             "helper_3",
+            h3_send.clone(),
             h1_send.clone(),
             h2_send.clone(),
             h3_hashmap_send,
@@ -99,7 +111,7 @@ impl Channel {
         &self,
         key: Uuid,
         data: T,
-        chan: &mpsc::Sender<ProstVec<u8>>,
+        chan: &mpsc::Sender<Msg>,
     ) -> Res<()> {
         let freq = ForwardRequest {
             id: key.to_string(),
@@ -109,43 +121,51 @@ impl Channel {
         buf.reserve(freq.encoded_len());
         // unwrap is safe because `buf` has `encoded_len` reserved
         freq.encode(&mut buf).unwrap();
-        chan.send(buf).await?;
+        chan.send(Msg::Data(buf)).await?;
         Ok(())
     }
 
-    // TODO: why do you need `self: Arc<Self>` here, where `&self` does not work?
-    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<ProstVec<u8>>) {
-        while let Some(data) = recv_chan.recv().await {
-            match ForwardRequest::decode(&mut Cursor::new(data.as_slice())) {
-                Err(err) => {
-                    println!("received unexpected message: {}", Error::DecodeError(err));
-                }
-                Ok(decoded) => {
-                    let decoded_uuid = match Uuid::from_str(decoded.id.as_str()) {
+    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Msg>) {
+        while let Some(msg) = recv_chan.recv().await {
+            match msg {
+                Msg::Data(data) => {
+                    match ForwardRequest::decode(&mut Cursor::new(data.as_slice())) {
                         Err(err) => {
-                            println!("message id was not a uuid: {}", err);
-                            continue;
+                            println!("received unexpected message: {}", Error::DecodeError(err));
                         }
-                        Ok(uuid) => uuid,
-                    };
-                    let (tx, rx) = oneshot::channel();
-                    let sent = self
-                        .hashmap_send
-                        .send(HashMapCommand::Write(decoded_uuid, decoded.num, tx))
-                        .await;
-                    if sent.is_err() {
-                        println!("could not send message to hashmap: {}", sent.unwrap_err());
-                    }
-                    let res = rx.await;
-                    if res.is_err() {
-                        println!(
-                            "could not receive response from hashmap: {}",
-                            res.unwrap_err()
-                        );
+                        Ok(decoded) => {
+                            let decoded_uuid = match Uuid::from_str(decoded.id.as_str()) {
+                                Err(err) => {
+                                    println!("message id was not a uuid: {}", err);
+                                    continue;
+                                }
+                                Ok(uuid) => uuid,
+                            };
+                            let (tx, rx) = oneshot::channel();
+                            let sent = self
+                                .hashmap_send
+                                .send(HashMapCommand::Write(decoded_uuid, decoded.num, tx))
+                                .await;
+                            if sent.is_err() {
+                                println!(
+                                    "could not send message to hashmap: {}",
+                                    sent.unwrap_err()
+                                );
+                            }
+                            let res = rx.await;
+                            if res.is_err() {
+                                println!(
+                                    "could not receive response from hashmap: {}",
+                                    res.unwrap_err()
+                                );
+                            }
+                        }
                     }
                 }
+                Msg::Close => recv_chan.close(),
             }
         }
+        println!("{} receiver_from closing", self.name);
     }
 }
 
@@ -184,6 +204,7 @@ impl Comms for Channel {
         println!("{} sent data to prev helper: {key}", self.name);
         Ok(())
     }
+
     async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
     where
         Error: From<T::Error>,
@@ -206,5 +227,11 @@ impl Comms for Channel {
                 Ok(res)
             }
         }
+    }
+
+    async fn close(&self) -> Res<()> {
+        self.self_send_chan.send(Msg::Close).await?;
+        self.hashmap_send.send(HashMapCommand::Close).await?;
+        Ok(())
     }
 }
