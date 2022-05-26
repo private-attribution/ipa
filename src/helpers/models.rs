@@ -17,7 +17,7 @@ struct Event {
     /// This field is in the clear.
     epoch: u8,
 
-    /// An offset in seconds into a given offset. The clear is u32 (< 2^20 seconds), then encrypted and secret shared.
+    /// An offset in seconds into a given epoch. The clear is u32 (< 2^20 seconds), then encrypted and secret shared.
     timestamp: SecretShare,
 }
 
