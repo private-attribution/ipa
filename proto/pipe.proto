@@ -2,14 +2,13 @@ syntax = "proto3";
 package pipe;
 
 service Forwarder {
-  rpc Forward (ForwardRequest) returns (ForwardReply);
+  rpc Forward (ExampleRequest) returns (ExampleReply);
 }
 
-message ForwardRequest {
-  string id = 10;
-  bytes num = 20;
+message ExampleRequest {
+  string message = 10;
 }
 
-message ForwardReply {
+message ExampleReply {
   string id = 10;
 }

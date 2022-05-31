@@ -5,6 +5,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("failed to decode message: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error("failed to handle serde message: {0}")]
+    SerdeError(#[from] serde_json::Error),
     #[error("failed to parse message: {0}")]
     ParseError(#[from] std::str::Utf8Error),
     #[error("problem communicating between threads: {0}")]

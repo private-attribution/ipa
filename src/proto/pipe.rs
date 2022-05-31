@@ -1,14 +1,12 @@
 #![allow(clippy::pedantic)]
 
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ForwardRequest {
+pub struct ExampleRequest {
     #[prost(string, tag="10")]
-    pub id: ::prost::alloc::string::String,
-    #[prost(bytes="vec", tag="20")]
-    pub num: ::prost::alloc::vec::Vec<u8>,
+    pub message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ForwardReply {
+pub struct ExampleReply {
     #[prost(string, tag="10")]
     pub id: ::prost::alloc::string::String,
 }
@@ -78,8 +76,8 @@ pub mod forwarder_client {
         }
         pub async fn forward(
             &mut self,
-            request: impl tonic::IntoRequest<super::ForwardRequest>,
-        ) -> Result<tonic::Response<super::ForwardReply>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::ExampleRequest>,
+        ) -> Result<tonic::Response<super::ExampleReply>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -104,8 +102,8 @@ pub mod forwarder_server {
     pub trait Forwarder: Send + Sync + 'static {
         async fn forward(
             &self,
-            request: tonic::Request<super::ForwardRequest>,
-        ) -> Result<tonic::Response<super::ForwardReply>, tonic::Status>;
+            request: tonic::Request<super::ExampleRequest>,
+        ) -> Result<tonic::Response<super::ExampleReply>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ForwarderServer<T: Forwarder> {
@@ -157,16 +155,16 @@ pub mod forwarder_server {
                 "/pipe.Forwarder/Forward" => {
                     #[allow(non_camel_case_types)]
                     struct ForwardSvc<T: Forwarder>(pub Arc<T>);
-                    impl<T: Forwarder> tonic::server::UnaryService<super::ForwardRequest>
+                    impl<T: Forwarder> tonic::server::UnaryService<super::ExampleRequest>
                     for ForwardSvc<T> {
-                        type Response = super::ForwardReply;
+                        type Response = super::ExampleReply;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ForwardRequest>,
+                            request: tonic::Request<super::ExampleRequest>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
                             let fut = async move { (*inner).forward(request).await };

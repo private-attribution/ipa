@@ -1,48 +1,40 @@
-use crate::pipeline::comms::Comms;
-use crate::pipeline::error::{Error, Res};
+use crate::pipeline::comms::{Comms, Target};
+use crate::pipeline::error::Res;
 use crate::pipeline::hashmap_thread::{HashMapCommand, HashMapHandler};
-use crate::proto::pipe::ForwardRequest;
 use async_trait::async_trait;
 use prost::alloc::vec::Vec as ProstVec;
 use prost::Message;
+use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::io::Cursor;
-use std::ops::Deref;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::{time, try_join};
 use uuid::Uuid;
 
-#[derive(Debug)]
-pub enum Msg {
-    Data(ProstVec<u8>),
-    Close,
-}
-
 pub struct Channel {
     name: &'static str,
-    self_send_chan: mpsc::Sender<Msg>,
-    next_send_chan: mpsc::Sender<Msg>,
-    prev_send_chan: mpsc::Sender<Msg>,
+    next_send_chan: mpsc::Sender<ProstVec<u8>>,
+    prev_send_chan: mpsc::Sender<ProstVec<u8>>,
     hashmap_send: mpsc::Sender<HashMapCommand>,
+    shared_id: Uuid,
 }
 impl Channel {
     #[must_use]
     pub fn new(
         name: &'static str,
-        self_send_chan: mpsc::Sender<Msg>,
-        next_send_chan: mpsc::Sender<Msg>,
-        prev_send_chan: mpsc::Sender<Msg>,
+        next_send_chan: mpsc::Sender<ProstVec<u8>>,
+        prev_send_chan: mpsc::Sender<ProstVec<u8>>,
         hashmap_send: mpsc::Sender<HashMapCommand>,
+        shared_id: Uuid,
     ) -> Channel {
         Channel {
             name,
-            self_send_chan,
             next_send_chan,
             prev_send_chan,
             hashmap_send,
+            shared_id,
         }
     }
 
@@ -52,6 +44,7 @@ impl Channel {
         Arc<Channel>,
         impl Future<Output = Res<()>>,
     ) {
+        let shared_id = Uuid::new_v4();
         let (h1_send, h1_recv) = mpsc::channel(32);
         let (h2_send, h2_recv) = mpsc::channel(32);
         let (h3_send, h3_recv) = mpsc::channel(32);
@@ -65,24 +58,24 @@ impl Channel {
 
         let h1 = Arc::new(Channel::new(
             "helper_1",
-            h1_send.clone(),
             h2_send.clone(),
             h3_send.clone(),
             h1_hashmap_send,
+            shared_id,
         ));
         let h2 = Arc::new(Channel::new(
             "helper_2",
-            h2_send.clone(),
             h3_send.clone(),
             h1_send.clone(),
             h2_hashmap_send,
+            shared_id,
         ));
         let h3 = Arc::new(Channel::new(
             "helper_3",
-            h3_send.clone(),
             h1_send.clone(),
             h2_send.clone(),
             h3_hashmap_send,
+            shared_id,
         ));
         drop(h1_send);
         drop(h2_send);
@@ -107,111 +100,76 @@ impl Channel {
         (h1, h2, h3, run)
     }
 
-    async fn send_to<T: Into<ProstVec<u8>>>(
-        &self,
-        key: Uuid,
-        data: T,
-        chan: &mpsc::Sender<Msg>,
-    ) -> Res<()> {
-        let freq = ForwardRequest {
-            id: key.to_string(),
-            num: data.into(),
-        };
-        let mut buf = ProstVec::new();
-        buf.reserve(freq.encoded_len());
-        // unwrap is safe because `buf` has `encoded_len` reserved
-        freq.encode(&mut buf).unwrap();
-        chan.send(Msg::Data(buf)).await?;
-        Ok(())
-    }
-
-    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Msg>) {
-        while let Some(msg) = recv_chan.recv().await {
-            match msg {
-                Msg::Data(data) => {
-                    match ForwardRequest::decode(&mut Cursor::new(data.as_slice())) {
-                        Err(err) => {
-                            println!("received unexpected message: {}", Error::DecodeError(err));
-                        }
-                        Ok(decoded) => {
-                            let decoded_uuid = match Uuid::from_str(decoded.id.as_str()) {
-                                Err(err) => {
-                                    println!("message id was not a uuid: {}", err);
-                                    continue;
-                                }
-                                Ok(uuid) => uuid,
-                            };
-                            let (tx, rx) = oneshot::channel();
-                            let sent = self
-                                .hashmap_send
-                                .send(HashMapCommand::Write(decoded_uuid, decoded.num, tx))
-                                .await;
-                            if sent.is_err() {
-                                println!(
-                                    "could not send message to hashmap: {}",
-                                    sent.unwrap_err()
-                                );
-                            }
-                            let res = rx.await;
-                            if res.is_err() {
-                                println!(
-                                    "could not receive response from hashmap: {}",
-                                    res.unwrap_err()
-                                );
-                            }
-                        }
+    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<ProstVec<u8>>) {
+        while let Some(data) = recv_chan.recv().await {
+            let chan_mess_res: Res<ChannelMessage> =
+                serde_json::from_slice(data.as_slice()).map_err(Into::into);
+            match chan_mess_res {
+                Err(err) => println!("received unexpected message: {}", err),
+                Ok(chan_mess) => {
+                    let (tx, rx) = oneshot::channel();
+                    let sent = self
+                        .hashmap_send
+                        .send(HashMapCommand::Write(
+                            chan_mess.shared_id,
+                            chan_mess.buf,
+                            tx,
+                        ))
+                        .await;
+                    if sent.is_err() {
+                        println!("could not send message to hashmap: {}", sent.unwrap_err());
+                        continue;
+                    }
+                    let res = rx.await;
+                    if res.is_err() {
+                        println!(
+                            "could not receive response from hashmap: {}",
+                            res.unwrap_err()
+                        );
+                        continue;
                     }
                 }
-                Msg::Close => recv_chan.close(),
             }
         }
-        println!("{} receiver_from closing", self.name);
     }
 }
 
-pub struct SendStr(pub String);
-impl Deref for SendStr {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl Drop for Channel {
+    fn drop(&mut self) {
+        println!("{} comms closing", self.name);
     }
 }
-impl TryFrom<ProstVec<u8>> for SendStr {
-    type Error = Error;
 
-    fn try_from(v: ProstVec<u8>) -> Result<Self, Self::Error> {
-        let str = std::str::from_utf8(&*v)?;
-        Ok(SendStr(str.to_string()))
-    }
-}
-impl From<SendStr> for ProstVec<u8> {
-    fn from(str: SendStr) -> Self {
-        str.0.into()
-    }
+#[derive(Serialize, Deserialize)]
+struct ChannelMessage {
+    shared_id: Uuid,
+    buf: ProstVec<u8>,
 }
 
 #[async_trait]
 impl Comms for Channel {
-    async fn send_to_next<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()> {
-        self.send_to(key, data, &self.next_send_chan).await?;
-        println!("{} sent data to next helper: {key}", self.name);
+    async fn send_to<M: Message>(&self, target: Target, data: M) -> Res<()> {
+        let mut buf = ProstVec::new();
+        buf.reserve(data.encoded_len());
+        // unwrap is safe because `buf` has `encoded_len` reserved
+        data.encode(&mut buf).unwrap();
+        let chan_message = ChannelMessage {
+            shared_id: self.shared_id(),
+            buf,
+        };
+        let res = serde_json::to_vec(&chan_message)?;
+        let chan = match target {
+            Target::Next => &self.next_send_chan,
+            Target::Prev => &self.prev_send_chan,
+        };
+        chan.send(res).await?;
         Ok(())
     }
 
-    async fn send_to_prev<T: Into<ProstVec<u8>> + Send>(&self, key: Uuid, data: T) -> Res<()> {
-        self.send_to(key, data, &self.prev_send_chan).await?;
-        println!("{} sent data to prev helper: {key}", self.name);
-        Ok(())
-    }
-
-    async fn receive_from<T: TryFrom<ProstVec<u8>> + Send>(&self, key: Uuid) -> Res<T>
-    where
-        Error: From<T::Error>,
-    {
+    async fn receive_from<M: Message + Default>(&self) -> Res<M> {
         let (tx, rx) = oneshot::channel();
         self.hashmap_send
-            .send(HashMapCommand::Remove(key, tx))
+            .send(HashMapCommand::Remove(self.shared_id(), tx))
             .await?;
         match rx.await {
             Err(err) => Err(err.into()),
@@ -219,19 +177,17 @@ impl Comms for Channel {
                 println!("nothing in cache, {} waiting...", self.name);
                 // basic poll for now; will use watchers in real implementation
                 time::sleep(Duration::from_millis(500)).await;
-                Box::pin(self.receive_from(key)).await
+                Box::pin(self.receive_from()).await
             }
             Ok(Some(v)) => {
-                let res = v.try_into()?;
+                let res = M::decode(&mut Cursor::new(v.as_slice()))?;
                 println!("{} received data", self.name);
                 Ok(res)
             }
         }
     }
-
-    async fn close(&self) -> Res<()> {
-        self.self_send_chan.send(Msg::Close).await?;
-        self.hashmap_send.send(HashMapCommand::Close).await?;
-        Ok(())
+    #[inline]
+    fn shared_id(&self) -> Uuid {
+        self.shared_id
     }
 }
