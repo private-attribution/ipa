@@ -1,65 +1,41 @@
-#[derive(Debug)]
+use std::fmt::Debug;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
 pub enum Error {
+    #[error("already exists")]
     AlreadyExists,
+    #[error("internal")]
     Internal,
+    #[error("invalid id")]
     InvalidId,
+    #[error("invalid role")]
     InvalidRole,
+    #[error("not enough helpers")]
     NotEnoughHelpers,
+    #[error("not found")]
     NotFound,
-    RedisError(redis::RedisError),
+    #[error("problem during redis operation: {0}")]
+    RedisError(#[from] redis::RedisError),
+    #[error("too many helpers")]
     TooManyHelpers,
-    DeadThread(std::sync::mpsc::SendError<crate::net::Message>),
-    FailedThread(tokio::task::JoinError),
+    #[error("thread died: {0}")]
+    DeadThread(#[from] std::sync::mpsc::SendError<crate::net::Message>),
+    #[error("thread failed: {0}")]
+    FailedThread(#[from] tokio::task::JoinError),
+
+    #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]
-    Hex(hex::FromHexError),
-    Io(std::io::Error),
+    Hex(#[from] hex::FromHexError),
+    #[error("problem during IO: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("failed to parse json: {0}")]
     #[cfg(feature = "enable-serde")]
-    Serde(serde_json::Error),
+    Serde(#[from] serde_json::Error),
 
     // module errors
-    PipelineError(crate::pipeline::error::Error),
-}
-
-macro_rules! forward_errors {
-    {$($(#[$a:meta])* $t:path => $v:ident),* $(,)?} => {
-        $(
-            $(#[$a])*
-            impl From<$t> for Error {
-                fn from(e: $t) -> Self {
-                    Self::$v(e)
-                }
-            }
-        )*
-
-        impl std::error::Error for Error {
-            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-                match self {
-                    $( $(#[$a])* Self::$v(e) => Some(e), )*
-                    _ => None,
-                }
-            }
-        }
-    };
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{:?}", self)
-    }
-}
-
-forward_errors! {
-    std::sync::mpsc::SendError<crate::net::Message> => DeadThread,
-    tokio::task::JoinError => FailedThread,
-
-    #[cfg(feature = "cli")]
-    hex::FromHexError => Hex,
-    std::io::Error => Io,
-    #[cfg(feature = "enable-serde")]
-    serde_json::Error => Serde,
-    redis::RedisError => RedisError,
-
-    crate::pipeline::error::Error => PipelineError,
+    #[error("pipeline error: {0}")]
+    PipelineError(#[from] crate::pipeline::error::Error),
 }
 
 pub type Res<T> = Result<T, Error>;
