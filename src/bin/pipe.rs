@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use raw_ipa::build_async_pipeline;
+use raw_ipa::build_pipeline;
 use raw_ipa::error::Res;
 use raw_ipa::pipeline::comms::channel::Channel;
 use raw_ipa::pipeline::comms::{Comms, Target};
@@ -95,7 +95,7 @@ struct ExampleAPipeline<H: Comms> {
 #[async_trait]
 impl<C: Comms + Send + Sync + 'static> Pipeline<(), i32> for ExampleAPipeline<C> {
     async fn pipeline(&self, _: ()) -> PipelineRes<i32> {
-        let pipe = build_async_pipeline!(self.comms.clone(),
+        let pipe = build_pipeline!(self.comms.clone(),
             Start { x: 1, y: 2 } =>
             Add {} =>
             PairWith3 {} =>
@@ -111,7 +111,7 @@ struct ForwardingPipeline<H: Comms> {
 #[async_trait]
 impl<C: Comms + Send + Sync + 'static> Pipeline<(), String> for ForwardingPipeline<C> {
     async fn pipeline(&self, _: ()) -> PipelineRes<String> {
-        let pipe = build_async_pipeline!(self.comms.clone(),
+        let pipe = build_pipeline!(self.comms.clone(),
             Start { x: 1, y: 2 } =>
             Add {} =>
             Stringify {} =>

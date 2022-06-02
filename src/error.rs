@@ -12,11 +12,6 @@ pub enum Error {
     RedisError(redis::RedisError),
     TooManyHelpers,
     DeadThread(std::sync::mpsc::SendError<crate::net::Message>),
-    // TODO: figure out better way to do errors
-    AsyncDeadThread(tokio::sync::mpsc::error::SendError<Vec<u8>>),
-    AsyncDeadThread2(tokio::sync::mpsc::error::SendError<i32>),
-    AsyncDeadThread3(tokio::sync::mpsc::error::SendError<HashMapCommand>),
-    AsyncDeadThread4,
     FailedThread(tokio::task::JoinError),
     DecodeError(prost::DecodeError),
 
@@ -60,9 +55,6 @@ impl std::fmt::Display for Error {
 
 forward_errors! {
     std::sync::mpsc::SendError<crate::net::Message> => DeadThread,
-    tokio::sync::mpsc::error::SendError<Vec<u8>> => AsyncDeadThread,
-    tokio::sync::mpsc::error::SendError<i32> => AsyncDeadThread2,
-    tokio::sync::mpsc::error::SendError<HashMapCommand> => AsyncDeadThread3,
     tokio::task::JoinError => FailedThread,
     prost::DecodeError => DecodeError,
 

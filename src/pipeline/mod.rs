@@ -22,7 +22,7 @@ pub trait Step {
 /// the only difference from `build_pipeline` is the `async move` block, and the `.await` on
 /// `.compute`.
 #[macro_export]
-macro_rules! build_async_pipeline {
+macro_rules! build_pipeline {
     ($comms:expr, $($step:expr)=>+) => {{
         move |res| async move {
             $(
