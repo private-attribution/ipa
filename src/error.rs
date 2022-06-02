@@ -1,11 +1,8 @@
-use crate::pipeline::hashmap_thread::HashMapCommand;
-
 #[derive(Debug)]
 pub enum Error {
     AlreadyExists,
     Internal,
     InvalidId,
-    WrongType,
     InvalidRole,
     NotEnoughHelpers,
     NotFound,
@@ -13,8 +10,6 @@ pub enum Error {
     TooManyHelpers,
     DeadThread(std::sync::mpsc::SendError<crate::net::Message>),
     FailedThread(tokio::task::JoinError),
-    DecodeError(prost::DecodeError),
-
     #[cfg(feature = "cli")]
     Hex(hex::FromHexError),
     Io(std::io::Error),
@@ -56,7 +51,6 @@ impl std::fmt::Display for Error {
 forward_errors! {
     std::sync::mpsc::SendError<crate::net::Message> => DeadThread,
     tokio::task::JoinError => FailedThread,
-    prost::DecodeError => DecodeError,
 
     #[cfg(feature = "cli")]
     hex::FromHexError => Hex,
