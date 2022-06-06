@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::error::Res;
+use crate::error::Result;
 use redis::{transaction, Commands, RedisWrite, ToRedisArgs};
 use rust_elgamal::RistrettoPoint;
 #[derive(Debug, PartialEq, Eq)]
@@ -29,7 +29,7 @@ struct PrivacyBudget {
 }
 
 impl PrivacyBudget {
-    fn new(redis_host_name: &str, redis_password: &str, is_tls: bool) -> Res<PrivacyBudget> {
+    fn new(redis_host_name: &str, redis_password: &str, is_tls: bool) -> Result<PrivacyBudget> {
         //if Redis server needs secure connection
         let uri_scheme = if is_tls { "rediss" } else { "redis" };
 
@@ -68,7 +68,7 @@ impl PrivacyBudget {
         &mut self,
         blinded_match_key: &BlindedMatchKey,
         budget_to_consume: u32,
-    ) -> Res<bool> {
+    ) -> Result<bool> {
         let total_privacy_budget = self.get_total_privacy_budget();
 
         Ok(transaction(

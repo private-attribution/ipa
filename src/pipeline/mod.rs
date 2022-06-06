@@ -2,9 +2,10 @@ pub mod comms;
 pub mod error;
 pub mod hashmap_thread;
 
+pub use error::Result;
+
 use async_trait::async_trait;
 use comms::Comms;
-use error::Res;
 use std::sync::Arc;
 
 /// The only difference from `PStep` is the `async fn compute`
@@ -16,7 +17,7 @@ pub trait Step {
         &self,
         inp: Self::Input,
         helper: Arc<impl Comms + Send + Sync + 'static>,
-    ) -> Res<Self::Output>;
+    ) -> Result<Self::Output>;
 }
 
 /// the only difference from `build_pipeline` is the `async move` block, and the `.await` on
@@ -36,5 +37,5 @@ macro_rules! build_pipeline {
 /// The only difference from `Pipeline` is the `async fn pipeline`
 #[async_trait]
 pub trait Pipeline<Input, Output> {
-    async fn pipeline(&self, inp: Input) -> Res<Output>;
+    async fn pipeline(&self, inp: Input) -> Result<Output>;
 }

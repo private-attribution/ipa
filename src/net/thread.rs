@@ -1,9 +1,8 @@
+use crate::error::Result;
 use log::{error, info, warn};
 use std::fmt::{Debug, Formatter};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-
-use crate::error::Res;
 
 pub struct Pool {
     workers: Vec<Worker>,
@@ -38,7 +37,7 @@ impl Pool {
     /// Sends a function to a running thread for it to be executed.
     /// # Errors
     ///  If the thread has been terminated.
-    pub fn execute<F>(&self, f: F) -> Res<()>
+    pub fn execute<F>(&self, f: F) -> Result<()>
     where
         F: FnOnce() + Send + 'static,
     {
@@ -66,7 +65,7 @@ impl Pool {
     /// Waits for all threads to finish.
     /// # Errors
     /// If any of threads has panicked.
-    pub fn shutdown(&mut self) -> Res<()> {
+    pub fn shutdown(&mut self) -> Result<()> {
         self.terminate();
 
         for worker in &mut self.workers {

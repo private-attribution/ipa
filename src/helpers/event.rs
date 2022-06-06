@@ -1,5 +1,5 @@
 #[cfg(feature = "enable-serde")]
-use crate::error::{Error, Res};
+use crate::error::{Error, Result};
 #[cfg(feature = "enable-serde")]
 use crate::helpers::Helpers;
 use crate::report::{DecryptedEventReport, DecryptedMatchkeys, EncryptedMatchkeys, EventReport};
@@ -60,7 +60,7 @@ impl Helper {
     /// # Errors
     /// Missing or badly formatted files.
     #[cfg(feature = "enable-serde")]
-    pub fn load(dir: &Path, role: Role) -> Res<Self> {
+    pub fn load(dir: &Path, role: Role) -> Result<Self> {
         let s = fs::read_to_string(&Helpers::filename(dir, false))?;
         let v: Self = serde_json::from_str(&s)?;
         if role != v.public.role {
@@ -72,7 +72,7 @@ impl Helper {
     /// # Errors
     /// Unable to write files.
     #[cfg(feature = "enable-serde")]
-    pub fn save(&self, dir: &Path) -> Res<()> {
+    pub fn save(&self, dir: &Path) -> Result<()> {
         let f = Helpers::filename(dir, true);
         fs::write(f, serde_json::to_string_pretty(&self.public)?.as_bytes())?;
         let f = Helpers::filename(dir, false);

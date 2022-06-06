@@ -1,10 +1,8 @@
 use async_trait::async_trait;
 use raw_ipa::build_pipeline;
-use raw_ipa::error::Res;
-use raw_ipa::pipeline::comms::channel::Channel;
-use raw_ipa::pipeline::comms::{Comms, Target};
-use raw_ipa::pipeline::error::Res as PipelineRes;
-use raw_ipa::pipeline::{Pipeline, Step};
+use raw_ipa::error::Result;
+use raw_ipa::pipeline::comms::{channel::Channel, Comms, Target};
+use raw_ipa::pipeline::{self, Pipeline, Step};
 use raw_ipa::proto::pipe::ExampleRequest;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +18,7 @@ impl Step for Start {
     type Input = ();
     type Output = (i32, i32);
 
-    async fn compute(&self, _: Self::Input, _: Arc<impl Comms>) -> PipelineRes<Self::Output> {
+    async fn compute(&self, _: Self::Input, _: Arc<impl Comms>) -> pipeline::Result<Self::Output> {
         Ok((self.x, self.y))
     }
 }
@@ -32,7 +30,11 @@ impl Step for Add {
     type Input = (i32, i32);
     type Output = i32;
 
-    async fn compute(&self, inp: Self::Input, _: Arc<impl Comms>) -> PipelineRes<Self::Output> {
+    async fn compute(
+        &self,
+        inp: Self::Input,
+        _: Arc<impl Comms>,
+    ) -> pipeline::Result<Self::Output> {
         Ok(inp.0 + inp.1)
     }
 }
@@ -44,7 +46,11 @@ impl Step for PairWith3 {
     type Input = i32;
     type Output = (i32, i32);
 
-    async fn compute(&self, inp: Self::Input, _: Arc<impl Comms>) -> PipelineRes<Self::Output> {
+    async fn compute(
+        &self,
+        inp: Self::Input,
+        _: Arc<impl Comms>,
+    ) -> pipeline::Result<Self::Output> {
         let res = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(500)).await;
             3
@@ -60,7 +66,11 @@ impl Step for Stringify {
     type Input = i32;
     type Output = String;
 
-    async fn compute(&self, inp: Self::Input, _: Arc<impl Comms>) -> PipelineRes<Self::Output> {
+    async fn compute(
+        &self,
+        inp: Self::Input,
+        _: Arc<impl Comms>,
+    ) -> pipeline::Result<Self::Output> {
         Ok(inp.to_string())
     }
 }
@@ -75,7 +85,7 @@ impl Step for ForwardData {
         &self,
         inp: Self::Input,
         helper: Arc<impl Comms + Send + Sync + 'static>,
-    ) -> PipelineRes<Self::Output> {
+    ) -> pipeline::Result<Self::Output> {
         let sent = helper.send_to(
             Target::Next,
             ExampleRequest {
@@ -94,7 +104,7 @@ struct ExampleAPipeline<H: Comms> {
 }
 #[async_trait]
 impl<C: Comms + Send + Sync + 'static> Pipeline<(), i32> for ExampleAPipeline<C> {
-    async fn pipeline(&self, _: ()) -> PipelineRes<i32> {
+    async fn pipeline(&self, _: ()) -> pipeline::Result<i32> {
         let pipe = build_pipeline!(self.comms.clone(),
             Start { x: 1, y: 2 } =>
             Add {} =>
@@ -110,7 +120,7 @@ struct ForwardingPipeline<H: Comms> {
 }
 #[async_trait]
 impl<C: Comms + Send + Sync + 'static> Pipeline<(), String> for ForwardingPipeline<C> {
-    async fn pipeline(&self, _: ()) -> PipelineRes<String> {
+    async fn pipeline(&self, _: ()) -> pipeline::Result<String> {
         let pipe = build_pipeline!(self.comms.clone(),
             Start { x: 1, y: 2 } =>
             Add {} =>
@@ -122,7 +132,7 @@ impl<C: Comms + Send + Sync + 'static> Pipeline<(), String> for ForwardingPipeli
 }
 
 #[tokio::main]
-async fn main() -> Res<()> {
+async fn main() -> Result<()> {
     let (c1, c2, c3, c_run) = Channel::all_comms();
     tokio::spawn(c_run);
     let pipe1 = Arc::new(ForwardingPipeline { comms: c1.clone() });

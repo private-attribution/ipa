@@ -12,7 +12,7 @@ pub use event::{
 };
 
 #[cfg(feature = "enable-serde")]
-use crate::error::{Error, Res};
+use crate::error::{Error, Result};
 use crate::threshold::EncryptionKey as ThresholdEncryptionKey;
 #[cfg(feature = "enable-serde")]
 use serde::Deserialize;
@@ -29,7 +29,7 @@ use std::str::FromStr;
 pub struct HelperRoleUnknown(String);
 
 impl Display for HelperRoleUnknown {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::result::Result<(), FmtError> {
         f.write_str("unknown helper type: ")?;
         f.write_str(&self.0)
     }
@@ -54,7 +54,7 @@ impl Role {
 
 impl FromStr for Role {
     type Err = HelperRoleUnknown;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         let s = s.to_ascii_lowercase();
         match s.as_str() {
             "sourceeventhelper" | "seh" => Ok(Self::Event(EventHelperRole::Source)),
@@ -67,7 +67,7 @@ impl FromStr for Role {
 }
 
 impl Display for Role {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::result::Result<(), FmtError> {
         f.write_str(self.as_str())
     }
 }
@@ -109,7 +109,7 @@ impl Helpers {
     }
 
     #[cfg(feature = "enable-serde")]
-    fn load_public<T>(dir: &Path) -> Res<T>
+    fn load_public<T>(dir: &Path) -> Result<T>
     where
         T: for<'de> Deserialize<'de>,
     {
@@ -124,7 +124,7 @@ impl Helpers {
     /// # Errors
     /// If JSON files are missing or badly formatted.
     #[cfg(feature = "enable-serde")]
-    pub fn load(locations: &impl HelperLocations) -> Res<Self> {
+    pub fn load(locations: &impl HelperLocations) -> Result<Self> {
         let source_event_helper: PublicEventHelper = Self::load_public(locations.source_event())?;
         let trigger_event_helper: PublicEventHelper = Self::load_public(locations.trigger_event())?;
         let threshold_key = ThresholdEncryptionKey::new(&[

@@ -29,4 +29,4 @@ impl From<tokio::task::JoinError> for Error {
     }
 }
 
-pub type Res<T> = Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;

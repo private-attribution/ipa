@@ -1,5 +1,5 @@
 #[cfg(feature = "enable-serde")]
-use crate::error::{Error, Res};
+use crate::error::{Error, Result};
 use crate::report::{EncryptedMatchkeys, EventReport};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
@@ -54,7 +54,7 @@ impl User {
     /// # Errors
     /// When the file is invalid JSON, or when it contains a bad ID.
     #[cfg(feature = "enable-serde")]
-    pub fn load(dir: &Path, uid: usize) -> Res<Self> {
+    pub fn load(dir: &Path, uid: usize) -> Result<Self> {
         let f = Self::filename_for(dir, uid);
         let s = fs::read_to_string(f)?;
         let v: Self = serde_json::from_str(&s)?;
@@ -67,7 +67,7 @@ impl User {
     /// # Errors
     /// When the file cannot be written.
     #[cfg(feature = "enable-serde")]
-    pub fn save(&self, dir: &Path) -> Res<()> {
+    pub fn save(&self, dir: &Path) -> Result<()> {
         let f = self.filename(dir);
         fs::write(f, serde_json::to_string_pretty(self)?.as_bytes())?;
         Ok(())

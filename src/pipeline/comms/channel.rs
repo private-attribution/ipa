@@ -1,8 +1,7 @@
 use crate::pipeline::comms::{Comms, Target};
-use crate::pipeline::error::Res;
 use crate::pipeline::hashmap_thread::{HashMapCommand, HashMapHandler};
+use crate::pipeline::Result;
 use async_trait::async_trait;
-use prost::alloc::vec::Vec as ProstVec;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -15,8 +14,8 @@ use uuid::Uuid;
 
 pub struct Channel {
     name: &'static str,
-    next_send_chan: mpsc::Sender<ProstVec<u8>>,
-    prev_send_chan: mpsc::Sender<ProstVec<u8>>,
+    next_send_chan: mpsc::Sender<Vec<u8>>,
+    prev_send_chan: mpsc::Sender<Vec<u8>>,
     hashmap_send: mpsc::Sender<HashMapCommand>,
     shared_id: Uuid,
 }
@@ -24,8 +23,8 @@ impl Channel {
     #[must_use]
     pub fn new(
         name: &'static str,
-        next_send_chan: mpsc::Sender<ProstVec<u8>>,
-        prev_send_chan: mpsc::Sender<ProstVec<u8>>,
+        next_send_chan: mpsc::Sender<Vec<u8>>,
+        prev_send_chan: mpsc::Sender<Vec<u8>>,
         hashmap_send: mpsc::Sender<HashMapCommand>,
         shared_id: Uuid,
     ) -> Channel {
@@ -42,7 +41,7 @@ impl Channel {
         Arc<Channel>,
         Arc<Channel>,
         Arc<Channel>,
-        impl Future<Output = Res<()>>,
+        impl Future<Output = Result<()>>,
     ) {
         let shared_id = Uuid::new_v4();
         let (h1_send, h1_recv) = mpsc::channel(32);
@@ -100,32 +99,19 @@ impl Channel {
         (h1, h2, h3, run)
     }
 
-    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<ProstVec<u8>>) {
+    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>) {
         while let Some(data) = recv_chan.recv().await {
-            let chan_mess_res: Res<ChannelMessage> =
+            let chan_mess_res: Result<ChannelMessage> =
                 serde_json::from_slice(data.as_slice()).map_err(Into::into);
             match chan_mess_res {
                 Err(err) => println!("received unexpected message: {}", err),
                 Ok(chan_mess) => {
-                    let (tx, rx) = oneshot::channel();
                     let sent = self
                         .hashmap_send
-                        .send(HashMapCommand::Write(
-                            chan_mess.shared_id,
-                            chan_mess.buf,
-                            tx,
-                        ))
+                        .send(HashMapCommand::Write(chan_mess.shared_id, chan_mess.buf))
                         .await;
                     if sent.is_err() {
                         println!("could not send message to hashmap: {}", sent.unwrap_err());
-                        continue;
-                    }
-                    let res = rx.await;
-                    if res.is_err() {
-                        println!(
-                            "could not receive response from hashmap: {}",
-                            res.unwrap_err()
-                        );
                         continue;
                     }
                 }
@@ -143,14 +129,13 @@ impl Drop for Channel {
 #[derive(Serialize, Deserialize)]
 struct ChannelMessage {
     shared_id: Uuid,
-    buf: ProstVec<u8>,
+    buf: Vec<u8>,
 }
 
 #[async_trait]
 impl Comms for Channel {
-    async fn send_to<M: Message>(&self, target: Target, data: M) -> Res<()> {
-        let mut buf = ProstVec::new();
-        buf.reserve(data.encoded_len());
+    async fn send_to<M: Message>(&self, target: Target, data: M) -> Result<()> {
+        let mut buf = Vec::with_capacity(data.encoded_len());
         // unwrap is safe because `buf` has `encoded_len` reserved
         data.encode(&mut buf).unwrap();
         let chan_message = ChannelMessage {
@@ -166,26 +151,28 @@ impl Comms for Channel {
         Ok(())
     }
 
-    async fn receive_from<M: Message + Default>(&self) -> Res<M> {
-        let (tx, rx) = oneshot::channel();
-        self.hashmap_send
-            .send(HashMapCommand::Remove(self.shared_id(), tx))
-            .await?;
-        match rx.await {
-            Err(err) => Err(err.into()),
-            Ok(None) => {
-                println!("nothing in cache, {} waiting...", self.name);
-                // basic poll for now; will use watchers in real implementation
-                time::sleep(Duration::from_millis(500)).await;
-                Box::pin(self.receive_from()).await
-            }
-            Ok(Some(v)) => {
-                let res = M::decode(&mut Cursor::new(v.as_slice()))?;
-                println!("{} received data", self.name);
-                Ok(res)
+    async fn receive_from<M: Message + Default>(&self) -> Result<M> {
+        // basic poll for now; will use watchers in real implementation
+        loop {
+            let (tx, rx) = oneshot::channel();
+            self.hashmap_send
+                .send(HashMapCommand::Remove(self.shared_id(), tx))
+                .await?;
+            match rx.await {
+                Err(err) => return Err(err.into()),
+                Ok(None) => {
+                    println!("nothing in cache, {} waiting...", self.name);
+                    time::sleep(Duration::from_millis(500)).await;
+                }
+                Ok(Some(v)) => {
+                    let res = M::decode(&mut Cursor::new(v.as_slice()))?;
+                    println!("{} received data", self.name);
+                    return Ok(res);
+                }
             }
         }
     }
+
     #[inline]
     fn shared_id(&self) -> Uuid {
         self.shared_id

@@ -35,7 +35,7 @@ pub enum Error {
 
     // module errors
     #[error("pipeline error: {0}")]
-    PipelineError(#[from] crate::pipeline::error::Error),
+    Pipeline(#[from] crate::pipeline::error::Error),
 }
 
-pub type Res<T> = Result<T, Error>;
+pub type Result<T> = core::result::Result<T, Error>;
