@@ -1,4 +1,5 @@
 use crate::pipeline::Result;
+use log::{debug, error, info};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -33,7 +34,7 @@ impl HashMapHandler {
                 HashMapCommand::Remove(key, ack) => self.remove(key, ack).await,
             };
             if res.is_err() {
-                println!(
+                error!(
                     "{} could not complete operation on HashMap: {}",
                     self.name,
                     res.unwrap_err()
@@ -42,11 +43,11 @@ impl HashMapHandler {
         }
     }
     fn write(&mut self, key: Uuid, value: Vec<u8>) {
-        println!("{} writing data with key {key}", self.name);
+        debug!("{} writing data with key {key}", self.name);
         self.m.insert(key, value);
     }
     async fn remove(&mut self, key: Uuid, ack: oneshot::Sender<Option<Vec<u8>>>) -> Result<()> {
-        println!("{} removing data with key {key}", self.name);
+        debug!("{} removing data with key {key}", self.name);
         let removed = self.m.remove(&key);
         ack.send(removed)
             .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
@@ -55,6 +56,6 @@ impl HashMapHandler {
 
 impl Drop for HashMapHandler {
     fn drop(&mut self) {
-        println!("{} closing", self.name);
+        info!("{} closing", self.name);
     }
 }

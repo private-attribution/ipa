@@ -1,7 +1,33 @@
+//! Implementation of [Comms] for channels within the same process.
+//!
+//! Mostly for use in testing and prototyping on the same machine. Since there is no network
+//! activity, should not be used for any kind of performance testing.
+//!
+//! # Examples
+//!
+//! ```
+//! # use raw_ipa::pipeline::comms::channel::Channel;
+//! # use raw_ipa::pipeline::comms::Target;
+//! # use raw_ipa::proto;
+//! # use raw_ipa::pipeline::comms::Comms;
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let (c1, c2, c3, c_run) = Channel::all_comms();
+//! tokio::spawn(c_run); // this initializes all of the runtime pieces for channels
+//!
+//! let message = "hello";
+//! c1.send_to(Target::Next, proto::pipe::ExampleRequest { message })?;
+//! let recvd = c2.receive_from::<proto::pipe::ExampleRequest>()?;
+//! assert_eq!(message, recvd.message);
+//! # Ok(())
+//! # }
+//! ```
+
 use crate::pipeline::comms::{Comms, Target};
 use crate::pipeline::hashmap_thread::{HashMapCommand, HashMapHandler};
 use crate::pipeline::Result;
 use async_trait::async_trait;
+use log::{debug, error, info};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -64,21 +90,18 @@ impl Channel {
         ));
         let h2 = Arc::new(Channel::new(
             "helper_2",
-            h3_send.clone(),
+            h3_send,
             h1_send.clone(),
             h2_hashmap_send,
             shared_id,
         ));
         let h3 = Arc::new(Channel::new(
             "helper_3",
-            h1_send.clone(),
-            h2_send.clone(),
+            h1_send,
+            h2_send,
             h3_hashmap_send,
             shared_id,
         ));
-        drop(h1_send);
-        drop(h2_send);
-        drop(h3_send);
 
         let run = {
             let chan1 = h1.clone();
@@ -104,14 +127,14 @@ impl Channel {
             let chan_mess_res: Result<ChannelMessage> =
                 serde_json::from_slice(data.as_slice()).map_err(Into::into);
             match chan_mess_res {
-                Err(err) => println!("received unexpected message: {}", err),
+                Err(err) => error!("received unexpected message: {}", err),
                 Ok(chan_mess) => {
                     let sent = self
                         .hashmap_send
                         .send(HashMapCommand::Write(chan_mess.shared_id, chan_mess.buf))
                         .await;
                     if sent.is_err() {
-                        println!("could not send message to hashmap: {}", sent.unwrap_err());
+                        error!("could not send message to hashmap: {}", sent.unwrap_err());
                         continue;
                     }
                 }
@@ -122,7 +145,7 @@ impl Channel {
 
 impl Drop for Channel {
     fn drop(&mut self) {
-        println!("{} comms closing", self.name);
+        info!("{} comms closing", self.name);
     }
 }
 
@@ -161,12 +184,12 @@ impl Comms for Channel {
             match rx.await {
                 Err(err) => return Err(err.into()),
                 Ok(None) => {
-                    println!("nothing in cache, {} waiting...", self.name);
+                    debug!("nothing in cache, {} waiting...", self.name);
                     time::sleep(Duration::from_millis(500)).await;
                 }
                 Ok(Some(v)) => {
                     let res = M::decode(&mut Cursor::new(v.as_slice()))?;
-                    println!("{} received data", self.name);
+                    debug!("{} received data", self.name);
                     return Ok(res);
                 }
             }

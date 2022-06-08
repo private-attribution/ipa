@@ -24,6 +24,6 @@ impl Verbosity {
                     eprintln!("unable to configure logging: {:?}", e);
                 }
             });
-        info!("Logging setup at level {}", self.verbose);
+        info!("Logging setup at level {}", log::max_level());
     }
 }

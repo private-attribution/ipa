@@ -1,3 +1,4 @@
+/*
 use std::fs::{read_dir, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -37,5 +38,11 @@ fn prepend(path: &Path, mut str: String) -> Result<(), Box<dyn std::error::Error
     file.read_to_string(&mut str)?;
     let mut file = OpenOptions::new().write(true).truncate(true).open(path)?;
     file.write_all(str.as_bytes())?;
+    Ok(())
+}
+ */
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tonic_build::compile_protos("proto/pipe.proto")?;
     Ok(())
 }

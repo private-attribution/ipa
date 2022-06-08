@@ -22,7 +22,7 @@ pub enum Error {
     #[error("thread died: {0}")]
     DeadThread(#[from] std::sync::mpsc::SendError<crate::net::Message>),
     #[error("thread failed: {0}")]
-    FailedThread(#[from] tokio::task::JoinError),
+    TaskFailed(#[from] tokio::task::JoinError),
 
     #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]

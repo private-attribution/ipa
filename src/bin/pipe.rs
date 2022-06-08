@@ -1,11 +1,14 @@
 use async_trait::async_trait;
+use log::info;
 use raw_ipa::build_pipeline;
+use raw_ipa::cli::Verbosity;
 use raw_ipa::error::Result;
 use raw_ipa::pipeline::comms::{channel::Channel, Comms, Target};
 use raw_ipa::pipeline::{self, Pipeline, Step};
 use raw_ipa::proto::pipe::ExampleRequest;
 use std::sync::Arc;
 use std::time::Duration;
+use structopt::StructOpt;
 use tokio::try_join;
 
 /// unchanged from regular pipeline
@@ -99,11 +102,11 @@ impl Step for ForwardData {
     }
 }
 
-struct ExampleAPipeline<H: Comms> {
-    comms: Arc<H>,
+struct ExampleAPipeline<C: Comms> {
+    comms: Arc<C>,
 }
 #[async_trait]
-impl<C: Comms + Send + Sync + 'static> Pipeline<(), i32> for ExampleAPipeline<C> {
+impl<C: Comms> Pipeline<(), i32> for ExampleAPipeline<C> {
     async fn pipeline(&self, _: ()) -> pipeline::Result<i32> {
         let pipe = build_pipeline!(self.comms.clone(),
             Start { x: 1, y: 2 } =>
@@ -115,11 +118,11 @@ impl<C: Comms + Send + Sync + 'static> Pipeline<(), i32> for ExampleAPipeline<C>
     }
 }
 
-struct ForwardingPipeline<H: Comms> {
-    comms: Arc<H>,
+struct ForwardingPipeline<C: Comms> {
+    comms: Arc<C>,
 }
 #[async_trait]
-impl<C: Comms + Send + Sync + 'static> Pipeline<(), String> for ForwardingPipeline<C> {
+impl<C: Comms> Pipeline<(), String> for ForwardingPipeline<C> {
     async fn pipeline(&self, _: ()) -> pipeline::Result<String> {
         let pipe = build_pipeline!(self.comms.clone(),
             Start { x: 1, y: 2 } =>
@@ -133,6 +136,9 @@ impl<C: Comms + Send + Sync + 'static> Pipeline<(), String> for ForwardingPipeli
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let logging = Verbosity::from_args();
+    logging.setup_logging();
+
     let (c1, c2, c3, c_run) = Channel::all_comms();
     tokio::spawn(c_run);
     let pipe1 = Arc::new(ForwardingPipeline { comms: c1.clone() });
@@ -140,7 +146,7 @@ async fn main() -> Result<()> {
         let pipe = pipe1.clone();
         tokio::spawn(async move {
             let res = pipe.pipeline(()).await;
-            println!("pipeline 1 completed");
+            info!("pipeline 1 completed");
             res
         })
     };
@@ -149,7 +155,7 @@ async fn main() -> Result<()> {
         let pipe = pipe2.clone();
         tokio::spawn(async move {
             let res = pipe.pipeline(()).await;
-            println!("pipeline 2 completed");
+            info!("pipeline 2 completed");
             res
         })
     };
@@ -158,12 +164,12 @@ async fn main() -> Result<()> {
         let pipe = pipe3.clone();
         tokio::spawn(async move {
             let res = pipe.pipeline(()).await;
-            println!("pipeline 3 completed");
+            info!("pipeline 3 completed");
             res
         })
     };
     let (pipe1_res, pipe2_res, pipe3_res) = try_join!(run_pipe1, run_pipe2, run_pipe3)?;
-    println!(
+    info!(
         "result: 1: {}, 2: {}, 3: {}",
         pipe1_res?, pipe2_res?, pipe3_res?
     );
