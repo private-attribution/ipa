@@ -9,6 +9,7 @@ pub mod pipeline;
 pub mod proto {
     #[rustfmt::skip]
     #[allow(clippy::pedantic)]
+    #[allow(clippy::clone_on_ref_ptr)]
     pub mod pipe {
         include!(concat!(env!("OUT_DIR"), "/pipe.rs"));
     }
