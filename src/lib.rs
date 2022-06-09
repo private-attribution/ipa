@@ -11,7 +11,7 @@ pub mod proto {
     #[allow(clippy::pedantic)]
     #[allow(clippy::clone_on_ref_ptr)]
     pub mod pipe {
-        include!(concat!(env!("OUT_DIR"), "/pipe.rs"));
+        tonic::include_proto!("pipe");
     }
 }
 pub mod report;
