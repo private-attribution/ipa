@@ -14,19 +14,19 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let (tx, rx) = mpsc::channel(32);
 //! let hmh = HashMapHandler::new("example_handler", rx);
-//! tokio::spawn(async move { hmh.run() }); // watch for incoming messages on `rx`
+//! tokio::spawn(hmh.run()); // watch for incoming messages on `rx`
 //!
 //! // write data into HashMap
 //! let id = Uuid::new_v4();
-//! let data: Vec<u8> = "example_data".into();
-//! tx.send(HashMapCommand::Write(id, data)).await?;
+//! let data = Vec::from("example_data");
+//! tx.send(HashMapCommand::Write(id, data.clone())).await?;
 //!
 //! // read data from HashMap; this also removes the data from the map
 //! let (one_tx, one_rx) = oneshot::channel();
 //! tx.send(HashMapCommand::Remove(id, one_tx)).await?;
 //! let removed = one_rx.await?;
 //!
-//! assert_eq!(data, removed);
+//! assert_eq!(Some(data), removed);
 //! # Ok(())
 //! # }
 //! ```

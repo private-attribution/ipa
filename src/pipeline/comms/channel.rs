@@ -15,9 +15,9 @@
 //! let (c1, c2, c3, c_run) = Channel::all_comms();
 //! tokio::spawn(c_run); // this initializes all of the runtime pieces for channels
 //!
-//! let message = "hello";
-//! c1.send_to(Target::Next, proto::pipe::ExampleRequest { message })?;
-//! let recvd = c2.receive_from::<proto::pipe::ExampleRequest>()?;
+//! let message = String::from("hello");
+//! c1.send_to(Target::Next, proto::pipe::ExampleRequest { message: message.clone() }).await?;
+//! let recvd = c2.receive_from::<proto::pipe::ExampleRequest>().await?;
 //! assert_eq!(message, recvd.message);
 //! # Ok(())
 //! # }
@@ -104,9 +104,9 @@ impl Channel {
         ));
 
         let run = {
-            let chan1 = h1.clone();
-            let chan2 = h2.clone();
-            let chan3 = h3.clone();
+            let chan1 = Arc::clone(&h1);
+            let chan2 = Arc::clone(&h2);
+            let chan3 = Arc::clone(&h3);
             async move {
                 try_join!(
                     tokio::spawn(async move { chan1.receive_data(h1_recv).await }),

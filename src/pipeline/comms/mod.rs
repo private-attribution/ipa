@@ -26,8 +26,8 @@ use uuid::Uuid;
 /// # let (c1, c2, c3, c_run) = Channel::all_comms();
 /// # tokio::spawn(c_run); // this initializes all of the runtime pieces for channels
 ///
-/// let message = "hello";
-/// c1.send_to(Target::Next, proto::pipe::ExampleRequest { message })?;
+/// let message = String::from("hello");
+/// c1.send_to(Target::Next, proto::pipe::ExampleRequest { message }).await?;
 /// # Ok(())
 /// # }
 /// ```

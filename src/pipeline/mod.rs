@@ -13,35 +13,44 @@
 //! shows the most basic work you have to do to implement the [Step]s of a pipeline, and how to
 //! compose those into a working [Pipeline].
 //! ```
-//! # use std::sync::Arc;
-//! # use raw_ipa::build_pipeline;
-//! # use raw_ipa::pipeline::{self, Step, Pipeline};
-//! # use raw_ipa::pipeline::comms::Comms;
-//! # use raw_ipa::error::Result;
+//! # use uuid::Uuid;
+//! # use tokio::sync::mpsc;
+//! # use raw_ipa::pipeline::comms::channel::Channel;
+//! use async_trait::async_trait;
+//! use std::sync::Arc;
+//! use raw_ipa::build_pipeline;
+//! use raw_ipa::pipeline::{self, Step, Pipeline};
+//! use raw_ipa::pipeline::comms::Comms;
+//! use raw_ipa::error::Result;
 //!
 //! struct FirstStep{}
+//! #[async_trait]
 //! impl Step for FirstStep {
-//!     type Input = (int32, int32);
-//!     type Output = int32;
+//!     type Input = (i32, i32);
+//!     type Output = i32;
 //!
 //!     async fn compute(&self, inp: Self::Input, helper: Arc<impl Comms>) -> pipeline::Result<Self::Output> {
 //!         let (x, y) = inp;
-//!         x + y
+//!         Ok(x + y)
 //!     }
 //! }
 //!
 //! struct SecondStep{}
+//! #[async_trait]
 //! impl Step for SecondStep {
-//!     type Input = int32;
+//!     type Input = i32;
 //!     type Output = String;
 //!     async fn compute(&self, inp: Self::Input, helper: Arc<impl Comms>) -> pipeline::Result<Self::Output> {
-//!         inp.to_string()
+//!         Ok(inp.to_string())
 //!     }
 //! }
 //!
-//! struct ExamplePipeline{}
-//! impl Pipeline<(int32, int32), String> for ExamplePipeline {
-//!     async fn pipeline(&self, inp: (int32, int32)) -> pipeline::Result<String> {
+//! struct ExamplePipeline{
+//!     comms: Arc<Channel>
+//! }
+//! #[async_trait]
+//! impl Pipeline<(i32, i32), String> for ExamplePipeline {
+//!     async fn pipeline(&self, inp: (i32, i32)) -> pipeline::Result<String> {
 //!         let pipe = build_pipeline!(self.comms.clone(),
 //!             FirstStep{} =>
 //!             SecondStep{}
@@ -52,9 +61,15 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//!     let example = ExamplePipeline{};
+//! #   let shared_id = Uuid::new_v4();
+//! #   let (next_send, _) = mpsc::channel(32);
+//! #   let (prev_send, _) = mpsc::channel(32);
+//! #   let (hm_send, _) = mpsc::channel(32);
+//! #   let comms = Arc::new(Channel::new("example_comms", next_send, prev_send, hm_send, shared_id));
+//!     // `comms` definition omitted here
+//!     let example = ExamplePipeline{ comms };
 //!     let res = example.pipeline((4, 5)).await?;
-//!     assert_eq!("20", res);
+//!     assert_eq!("9", res);
 //!     Ok(())
 //! }
 //! ```
