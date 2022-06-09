@@ -4,7 +4,7 @@
 //!
 //! * [rust channels in the same process](channel)
 //!   * should only be used for testing purposes
-//! * \[COMING SOON\] gRPC
+//! * \[COMING SOON\] `gRPC`
 
 pub mod channel;
 

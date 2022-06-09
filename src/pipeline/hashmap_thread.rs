@@ -1,14 +1,50 @@
+//! [HashMapHandler] is a wrapper around a hashmap with reads/writes gated by a channel. This allows
+//! for multiple threads to access the same hashmap safely.
+//!
+//! To use, must pass in the channel receiver.
+//!
+//! # Examples
+//!
+//! ```
+//! use tokio::sync::{mpsc, oneshot};
+//! use uuid::Uuid;
+//! use raw_ipa::pipeline::hashmap_thread::{HashMapCommand, HashMapHandler};
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let (tx, rx) = mpsc::channel(32);
+//! let hmh = HashMapHandler::new("example_handler", rx);
+//! tokio::spawn(async move { hmh.run() }); // watch for incoming messages on `rx`
+//!
+//! // write data into HashMap
+//! let id = Uuid::new_v4();
+//! let data: Vec<u8> = "example_data".into();
+//! tx.send(HashMapCommand::Write(id, data)).await?;
+//!
+//! // read data from HashMap; this also removes the data from the map
+//! let (one_tx, one_rx) = oneshot::channel();
+//! tx.send(HashMapCommand::Remove(id, one_tx)).await?;
+//! let removed = one_rx.await?;
+//!
+//! assert_eq!(data, removed);
+//! # Ok(())
+//! # }
+//! ```
+
 use crate::pipeline::Result;
 use log::{debug, error, info};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+/// Possible commands to act on the [HashMapHandler]
 #[derive(Debug)]
 pub enum HashMapCommand {
     Write(Uuid, Vec<u8>),
+    /// Removes and returns the value in the oneshot receiver
     Remove(Uuid, oneshot::Sender<Option<Vec<u8>>>),
 }
+
 pub struct HashMapHandler {
     name: &'static str,
     m: HashMap<Uuid, Vec<u8>>,
