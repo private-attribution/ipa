@@ -1,4 +1,4 @@
-//! [HashMapHandler] is a wrapper around a hashmap with reads/writes gated by a channel. This allows
+//! [`HashMapHandler`] is a wrapper around a hashmap with reads/writes gated by a channel. This allows
 //! for multiple threads to access the same hashmap safely.
 //!
 //! To use, must pass in the channel receiver.
@@ -37,7 +37,7 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-/// Possible commands to act on the [HashMapHandler]
+/// Possible commands to act on the [`HashMapHandler`]
 #[derive(Debug)]
 pub enum HashMapCommand {
     Write(Uuid, Vec<u8>),
