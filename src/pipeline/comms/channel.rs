@@ -6,13 +6,12 @@
 //! # Examples
 //!
 //! ```
-//! # use raw_ipa::pipeline::comms::channel::Channel;
-//! # use raw_ipa::pipeline::comms::Target;
+//! # use raw_ipa::pipeline::comms::{Channel, Comms, Target};
 //! # use raw_ipa::proto;
-//! # use raw_ipa::pipeline::comms::Comms;
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let (c1, c2, c3, c_run) = Channel::all_comms();
+//! // helper function that sets up 3 helpers hooked up to each other with channels
+//! let (c1, c2, c3, c_run) = raw_ipa::pipeline::util::intra_process_comms();
 //! tokio::spawn(c_run); // this initializes all of the runtime pieces for channels
 //!
 //! let message = String::from("hello");
@@ -23,26 +22,24 @@
 //! # }
 //! ```
 
+use crate::pipeline::buffer;
 use crate::pipeline::comms::{Comms, Target};
-use crate::pipeline::hashmap_thread::{HashMapCommand, HashMapHandler};
 use crate::pipeline::Result;
 use async_trait::async_trait;
 use log::{debug, error, info};
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use std::future::Future;
 use std::io::Cursor;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::{time, try_join};
+use tokio::time;
 use uuid::Uuid;
 
 pub struct Channel {
     name: &'static str,
     next_send_chan: mpsc::Sender<Vec<u8>>,
     prev_send_chan: mpsc::Sender<Vec<u8>>,
-    hashmap_send: mpsc::Sender<HashMapCommand>,
+    buffer: mpsc::Sender<buffer::Command>,
     shared_id: Uuid,
 }
 impl Channel {
@@ -51,94 +48,15 @@ impl Channel {
         name: &'static str,
         next_send_chan: mpsc::Sender<Vec<u8>>,
         prev_send_chan: mpsc::Sender<Vec<u8>>,
-        hashmap_send: mpsc::Sender<HashMapCommand>,
+        buffer: mpsc::Sender<buffer::Command>,
         shared_id: Uuid,
     ) -> Channel {
         Channel {
             name,
             next_send_chan,
             prev_send_chan,
-            hashmap_send,
+            buffer,
             shared_id,
-        }
-    }
-
-    pub fn all_comms() -> (
-        Arc<Channel>,
-        Arc<Channel>,
-        Arc<Channel>,
-        impl Future<Output = Result<()>>,
-    ) {
-        let shared_id = Uuid::new_v4();
-        let (h1_send, h1_recv) = mpsc::channel(32);
-        let (h2_send, h2_recv) = mpsc::channel(32);
-        let (h3_send, h3_recv) = mpsc::channel(32);
-
-        let (h1_hashmap_send, h1_hashmap_recv) = mpsc::channel(32);
-        let (h2_hashmap_send, h2_hashmap_recv) = mpsc::channel(32);
-        let (h3_hashmap_send, h3_hashmap_recv) = mpsc::channel(32);
-        let h1_hashmap = HashMapHandler::new("hm1", h1_hashmap_recv);
-        let h2_hashmap = HashMapHandler::new("hm2", h2_hashmap_recv);
-        let h3_hashmap = HashMapHandler::new("hm3", h3_hashmap_recv);
-
-        let h1 = Arc::new(Channel::new(
-            "helper_1",
-            h2_send.clone(),
-            h3_send.clone(),
-            h1_hashmap_send,
-            shared_id,
-        ));
-        let h2 = Arc::new(Channel::new(
-            "helper_2",
-            h3_send,
-            h1_send.clone(),
-            h2_hashmap_send,
-            shared_id,
-        ));
-        let h3 = Arc::new(Channel::new(
-            "helper_3",
-            h1_send,
-            h2_send,
-            h3_hashmap_send,
-            shared_id,
-        ));
-
-        let run = {
-            let chan1 = Arc::clone(&h1);
-            let chan2 = Arc::clone(&h2);
-            let chan3 = Arc::clone(&h3);
-            async move {
-                try_join!(
-                    tokio::spawn(async move { chan1.receive_data(h1_recv).await }),
-                    tokio::spawn(async move { chan2.receive_data(h2_recv).await }),
-                    tokio::spawn(async move { chan3.receive_data(h3_recv).await }),
-                    tokio::spawn(async move { h1_hashmap.run().await }),
-                    tokio::spawn(async move { h2_hashmap.run().await }),
-                    tokio::spawn(async move { h3_hashmap.run().await }),
-                )?;
-                Ok(())
-            }
-        };
-        (h1, h2, h3, run)
-    }
-
-    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>) {
-        while let Some(data) = recv_chan.recv().await {
-            let chan_mess_res: Result<ChannelMessage> =
-                serde_json::from_slice(data.as_slice()).map_err(Into::into);
-            match chan_mess_res {
-                Err(err) => error!("received unexpected message: {}", err),
-                Ok(chan_mess) => {
-                    let sent = self
-                        .hashmap_send
-                        .send(HashMapCommand::Write(chan_mess.shared_id, chan_mess.buf))
-                        .await;
-                    if sent.is_err() {
-                        error!("could not send message to hashmap: {}", sent.unwrap_err());
-                        continue;
-                    }
-                }
-            }
         }
     }
 }
@@ -178,8 +96,8 @@ impl Comms for Channel {
         // basic poll for now; will use watchers in real implementation
         loop {
             let (tx, rx) = oneshot::channel();
-            self.hashmap_send
-                .send(HashMapCommand::Remove(self.shared_id(), tx))
+            self.buffer
+                .send(buffer::Command::Remove(self.shared_id(), tx))
                 .await?;
             match rx.await {
                 Err(err) => return Err(err.into()),
@@ -191,6 +109,26 @@ impl Comms for Channel {
                     let res = M::decode(&mut Cursor::new(v.as_slice()))?;
                     debug!("{} received data", self.name);
                     return Ok(res);
+                }
+            }
+        }
+    }
+
+    async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>) {
+        while let Some(data) = recv_chan.recv().await {
+            let chan_mess_res: Result<ChannelMessage> =
+                serde_json::from_slice(data.as_slice()).map_err(Into::into);
+            match chan_mess_res {
+                Err(err) => error!("received unexpected message: {}", err),
+                Ok(chan_mess) => {
+                    let sent = self
+                        .buffer
+                        .send(buffer::Command::Write(chan_mess.shared_id, chan_mess.buf))
+                        .await;
+                    if sent.is_err() {
+                        error!("could not send message to buffer: {}", sent.unwrap_err());
+                        continue;
+                    }
                 }
             }
         }

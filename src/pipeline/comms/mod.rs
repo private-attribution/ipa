@@ -7,9 +7,11 @@
 //! * \[COMING SOON\] `gRPC`
 
 pub mod channel;
+pub use channel::Channel;
 
 use crate::pipeline::Result;
 use async_trait::async_trait;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// Choose which helper to send data to
@@ -17,14 +19,13 @@ use uuid::Uuid;
 /// # Examples
 ///
 /// ```
-/// # use raw_ipa::pipeline::comms::channel::Channel;
-/// # use raw_ipa::pipeline::comms::Target;
+/// # use raw_ipa::pipeline::comms::{Channel, Comms, Target};
 /// # use raw_ipa::proto;
-/// # use raw_ipa::pipeline::comms::Comms;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let (c1, c2, c3, c_run) = Channel::all_comms();
-/// # tokio::spawn(c_run); // this initializes all of the runtime pieces for channels
+/// // this initializes all of the runtime pieces for channels
+/// # let (c1, c2, c3, c_run) = raw_ipa::pipeline::util::intra_process_comms();
+/// # tokio::spawn(c_run);
 ///
 /// let message = String::from("hello");
 /// c1.send_to(Target::Next, proto::pipe::ExampleRequest { message }).await?;
@@ -41,5 +42,6 @@ pub enum Target {
 pub trait Comms: Send + Sync + 'static {
     async fn send_to<M: prost::Message>(&self, target: Target, data: M) -> Result<()>;
     async fn receive_from<M: prost::Message + Default>(&self) -> Result<M>;
+    async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>);
     fn shared_id(&self) -> Uuid;
 }

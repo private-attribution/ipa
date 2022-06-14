@@ -3,7 +3,8 @@ use log::info;
 use raw_ipa::build_pipeline;
 use raw_ipa::cli::Verbosity;
 use raw_ipa::error::Result;
-use raw_ipa::pipeline::comms::{channel::Channel, Comms, Target};
+use raw_ipa::pipeline::comms::{Comms, Target};
+use raw_ipa::pipeline::util::intra_process_comms;
 use raw_ipa::pipeline::{self, Pipeline, Step};
 use raw_ipa::proto::pipe::ExampleRequest;
 use std::sync::Arc;
@@ -139,7 +140,7 @@ async fn main() -> Result<()> {
     let logging = Verbosity::from_args();
     logging.setup_logging();
 
-    let (c1, c2, c3, c_run) = Channel::all_comms();
+    let (c1, c2, c3, c_run) = intra_process_comms();
     tokio::spawn(c_run);
     let pipe1 = Arc::new(ForwardingPipeline { comms: c1.clone() });
     let run_pipe1 = {

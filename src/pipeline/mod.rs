@@ -15,7 +15,7 @@
 //! ```
 //! # use uuid::Uuid;
 //! # use tokio::sync::mpsc;
-//! # use raw_ipa::pipeline::comms::channel::Channel;
+//! # use raw_ipa::pipeline::comms;
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
 //! use raw_ipa::build_pipeline;
@@ -46,7 +46,7 @@
 //! }
 //!
 //! struct ExamplePipeline{
-//!     comms: Arc<Channel>
+//!     comms: Arc<comms::Channel>
 //! }
 //! #[async_trait]
 //! impl Pipeline<(i32, i32), String> for ExamplePipeline {
@@ -65,7 +65,7 @@
 //! #   let (next_send, _) = mpsc::channel(32);
 //! #   let (prev_send, _) = mpsc::channel(32);
 //! #   let (hm_send, _) = mpsc::channel(32);
-//! #   let comms = Arc::new(Channel::new("example_comms", next_send, prev_send, hm_send, shared_id));
+//! #   let comms = Arc::new(comms::Channel::new("example_comms", next_send, prev_send, hm_send, shared_id));
 //!     // `comms` definition omitted here
 //!     let example = ExamplePipeline{ comms };
 //!     let res = example.pipeline((4, 5)).await?;
@@ -77,9 +77,10 @@
 //! If you need communication with other pipelines, use the `helper` argument. See [Comms](comms)
 //! for more about its usage.
 
+pub mod buffer;
 pub mod comms;
 pub mod error;
-pub mod hashmap_thread;
+pub mod util;
 
 pub use error::Result;
 
