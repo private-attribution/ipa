@@ -11,6 +11,7 @@ debug = ["hex"]
 enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
 web-app = ["tokio", "axum", "axum-server", "hyper", "hyper-tls", "tower-http"]
 self-signed-certs = ["hyper-tls"]
+test-harness = []
 
 [dependencies]
 axum = { version = "0.5.7", optional = true, features = ["http2"] }
@@ -44,9 +45,12 @@ tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "1"
 
+ff = { version = "0.12.0", features = ["derive"] } # Prime finite field implementation
+
 [dev-dependencies]
 hex = "0.4"
 lazy_static = "1.4.0"
+proptest = "1.0.0"
 
 [lib]
 name = "raw_ipa"
