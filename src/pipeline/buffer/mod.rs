@@ -1,4 +1,4 @@
-//! [`HashMapBuffer`] is a buffer for network communication and running pipelines. When a pipeline
+//! [`Mem`] is an in-memory buffer for network communication and running pipelines. When a pipeline
 //! needs to send data to another pipeline, this buffer acts as the place to write the incoming
 //! message from one pipeline, and read that message from the other.
 //!
@@ -15,8 +15,8 @@
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let (tx, rx) = mpsc::channel(32);
-//! let mut hmb = Mem::new("example_handler");
-//! tokio::spawn(async move { hmb.run(rx).await }); // watch for incoming messages on `rx`
+//! let mut mem = Mem::new("example_handler");
+//! tokio::spawn(async move { mem.run(rx).await }); // watch for incoming messages on `rx`
 //!
 //! // write data into HashMap
 //! let id = Uuid::new_v4();
@@ -70,7 +70,7 @@ impl Mem {
             };
             if res.is_err() {
                 error!(
-                    "{} could not complete operation on HashMap: {}",
+                    "{} could not complete operation on buffer: {}",
                     self.name,
                     res.unwrap_err()
                 );
