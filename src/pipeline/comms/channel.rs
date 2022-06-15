@@ -31,26 +31,26 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::time;
 use uuid::Uuid;
 
-pub struct Channel {
+pub struct Channel<B: buffer::Buffer> {
     name: &'static str,
     next_send_chan: mpsc::Sender<Vec<u8>>,
     prev_send_chan: mpsc::Sender<Vec<u8>>,
-    buffer: mpsc::Sender<buffer::Command>,
+    buffer: B,
     shared_id: Uuid,
 }
-impl Channel {
+impl<B: buffer::Buffer> Channel<B> {
     #[must_use]
     pub fn new(
         name: &'static str,
         next_send_chan: mpsc::Sender<Vec<u8>>,
         prev_send_chan: mpsc::Sender<Vec<u8>>,
-        buffer: mpsc::Sender<buffer::Command>,
+        buffer: B,
         shared_id: Uuid,
-    ) -> Channel {
+    ) -> Channel<B> {
         Channel {
             name,
             next_send_chan,
@@ -61,7 +61,7 @@ impl Channel {
     }
 }
 
-impl Drop for Channel {
+impl<B: buffer::Buffer> Drop for Channel<B> {
     fn drop(&mut self) {
         info!("{} comms closing", self.name);
     }
@@ -74,7 +74,7 @@ struct ChannelMessage {
 }
 
 #[async_trait]
-impl Comms for Channel {
+impl<B: buffer::Buffer + 'static> Comms for Channel<B> {
     async fn send_to<M: Message>(&self, target: Target, data: M) -> Result<()> {
         let mut buf = Vec::with_capacity(data.encoded_len());
         // unwrap is safe because `buf` has `encoded_len` reserved
@@ -95,12 +95,8 @@ impl Comms for Channel {
     async fn receive_from<M: Message + Default>(&self) -> Result<M> {
         // basic poll for now; will use watchers in real implementation
         loop {
-            let (tx, rx) = oneshot::channel();
-            self.buffer
-                .send(buffer::Command::Remove(self.shared_id(), tx))
-                .await?;
-            match rx.await {
-                Err(err) => return Err(err.into()),
+            match self.buffer.get_and_remove(self.shared_id).await {
+                Err(err) => return Err(err),
                 Ok(None) => {
                     debug!("nothing in cache, {} waiting...", self.name);
                     time::sleep(Duration::from_millis(500)).await;
@@ -121,10 +117,7 @@ impl Comms for Channel {
             match chan_mess_res {
                 Err(err) => error!("received unexpected message: {}", err),
                 Ok(chan_mess) => {
-                    let sent = self
-                        .buffer
-                        .send(buffer::Command::Write(chan_mess.shared_id, chan_mess.buf))
-                        .await;
+                    let sent = self.buffer.write(chan_mess.shared_id, chan_mess.buf).await;
                     if sent.is_err() {
                         error!("could not send message to buffer: {}", sent.unwrap_err());
                         continue;
