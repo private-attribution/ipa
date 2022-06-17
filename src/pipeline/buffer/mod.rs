@@ -28,5 +28,5 @@ pub trait Buffer: Send + Sync {
 enum Command {
     Write(Uuid, Vec<u8>),
     /// Removes and returns the value in the oneshot receiver
-    Remove(Uuid, oneshot::Sender<Option<Vec<u8>>>),
+    GetAndRemove(Uuid, oneshot::Sender<Option<Vec<u8>>>),
 }

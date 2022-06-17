@@ -1,5 +1,5 @@
 use crate::pipeline::buffer;
-use crate::pipeline::comms::{self, Comms};
+use crate::pipeline::comms;
 use crate::pipeline::Result;
 use std::future::Future;
 use std::sync::Arc;

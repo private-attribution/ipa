@@ -11,7 +11,6 @@ pub use channel::Channel;
 
 use crate::pipeline::Result;
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// Choose which helper to send data to
@@ -42,6 +41,5 @@ pub enum Target {
 pub trait Comms: Send + Sync + 'static {
     async fn send_to<M: prost::Message>(&self, target: Target, data: M) -> Result<()>;
     async fn receive_from<M: prost::Message + Default>(&self) -> Result<M>;
-    async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>);
     fn shared_id(&self) -> Uuid;
 }

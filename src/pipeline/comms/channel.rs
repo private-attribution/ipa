@@ -59,6 +59,23 @@ impl<B: buffer::Buffer> Channel<B> {
             shared_id,
         }
     }
+
+    pub async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>) {
+        while let Some(data) = recv_chan.recv().await {
+            let chan_mess_res: Result<ChannelMessage> =
+                serde_json::from_slice(data.as_slice()).map_err(Into::into);
+            match chan_mess_res {
+                Err(err) => error!("received unexpected message: {}", err),
+                Ok(chan_mess) => {
+                    let sent = self.buffer.write(chan_mess.shared_id, chan_mess.buf).await;
+                    if sent.is_err() {
+                        error!("could not send message to buffer: {}", sent.unwrap_err());
+                        continue;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl<B: buffer::Buffer> Drop for Channel<B> {
@@ -105,23 +122,6 @@ impl<B: buffer::Buffer + 'static> Comms for Channel<B> {
                     let res = M::decode(&mut Cursor::new(v.as_slice()))?;
                     debug!("{} received data", self.name);
                     return Ok(res);
-                }
-            }
-        }
-    }
-
-    async fn receive_data(&self, mut recv_chan: mpsc::Receiver<Vec<u8>>) {
-        while let Some(data) = recv_chan.recv().await {
-            let chan_mess_res: Result<ChannelMessage> =
-                serde_json::from_slice(data.as_slice()).map_err(Into::into);
-            match chan_mess_res {
-                Err(err) => error!("received unexpected message: {}", err),
-                Ok(chan_mess) => {
-                    let sent = self.buffer.write(chan_mess.shared_id, chan_mess.buf).await;
-                    if sent.is_err() {
-                        error!("could not send message to buffer: {}", sent.unwrap_err());
-                        continue;
-                    }
                 }
             }
         }

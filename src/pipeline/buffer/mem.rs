@@ -57,7 +57,7 @@ impl Mem {
                     m.insert(key, value);
                     Ok(())
                 }
-                Command::Remove(key, ack) => {
+                Command::GetAndRemove(key, ack) => {
                     debug!("{} removing data with key {key}", name);
                     let removed = m.remove(&key);
                     ack.send(removed)
@@ -83,7 +83,7 @@ impl Buffer for Mem {
     }
     async fn get_and_remove(&self, key: Uuid) -> Result<Option<Vec<u8>>> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Command::Remove(key, tx)).await?;
+        self.tx.send(Command::GetAndRemove(key, tx)).await?;
         let resp = rx.await?;
         Ok(resp)
     }
