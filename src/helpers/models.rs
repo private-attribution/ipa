@@ -4,29 +4,29 @@ use std::ops::Range;
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
-type CipherText = Vec<u8>;
+pub type CipherText = Vec<u8>;
 type PlainText = String;
-type SecretShare = [CipherText; 3];
+pub type SecretShare = [CipherText; 3];
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct Event {
+pub struct Event {
     /// Secret shared and then encrypted match keys.
-    matchkeys: Vec<SecretShare>,
+    pub matchkeys: Vec<SecretShare>,
 
     /// The epoch which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
     /// This field is in the clear.
-    epoch: u8,
+    pub epoch: u8,
 
     /// An offset in seconds into a given epoch. The clear is u32 (< 2^20 seconds), then encrypted and secret shared.
-    timestamp: SecretShare,
+    pub timestamp: SecretShare,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct SourceEvent {
-    event: Event,
+pub struct SourceEvent {
+    pub event: Event,
 
     /// A key to group sets of the events.
-    breakdown_key: PlainText,
+    pub breakdown_key: PlainText,
 }
 
 #[cfg(feature = "debug")]
@@ -41,15 +41,15 @@ impl Debug for SourceEvent {
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct TriggerEvent {
-    event: Event,
+pub struct TriggerEvent {
+    pub event: Event,
 
     /// Conversion value.
-    value: SecretShare,
+    pub value: SecretShare,
 
     /// Zero knowledge proof that the trigger value lies within a specific range
     /// of values. The range is specified in [TriggerFanoutQuery].
-    zkp: PlainText,
+    pub zkp: PlainText,
 }
 
 #[cfg(feature = "debug")]
