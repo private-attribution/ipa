@@ -1,5 +1,6 @@
 mod cmd;
 mod gen;
+mod sample;
 
 use structopt::StructOpt;
 

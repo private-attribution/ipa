@@ -19,6 +19,7 @@ axum-server = { version = "0.4.0", optional = true, features = ["rustls", "rustl
 byteorder = "1"
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
 digest = "0.9"
+
 hex = { version = "0.4", optional = true }
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, so pin this
 hkdf = "0.11"
@@ -44,11 +45,21 @@ tower-http = { version = "0.3.4", optional = true, features = ["trace"] }
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "1"
+rand_distr = "0.4.3"
+chrono = "0.4.19"
 
 [dev-dependencies]
 hex = "0.4"
 lazy_static = "1.4.0"
 proptest = "1.0.0"
+
+[dev-dependencies.uuid]
+version = "1.1.2"
+features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
 
 [lib]
 name = "raw_ipa"
