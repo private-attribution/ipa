@@ -1,4 +1,5 @@
 use super::gen::generate_events;
+use super::run::generate_report;
 
 use log::{debug, error, info};
 use raw_ipa::cli::Verbosity;
@@ -38,7 +39,7 @@ pub struct Args {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "init")]
+#[structopt(name = "command")]
 pub enum Command {
     Init {
         #[structopt(
@@ -67,6 +68,32 @@ pub enum Command {
         #[structopt(long, help = "Output secret shared values")]
         secret_share: bool,
     },
+
+    Run {
+        #[structopt(
+            short,
+            long,
+            help = "File containing source and trigger events. If not set, stdin will be used.",
+            parse(from_os_str)
+        )]
+        input_file: Option<PathBuf>,
+
+        #[structopt(
+            short,
+            long,
+            default_value = "28",
+            help = "Attribution window in days. Trigger events within the window are attributed to the preceeding source event."
+        )]
+        attribution_window: u32,
+
+        #[structopt(
+            short,
+            long,
+            possible_values = &["LastTouch", "Linear", "TimeDecay"],
+            default_value = "LastTouch",
+        )]
+        model: String,
+    },
 }
 
 impl Command {
@@ -82,6 +109,12 @@ impl Command {
             } => {
                 Command::init(common, *scale_factor, random_seed, *epoch, *secret_share);
             }
+
+            Self::Run {
+                input_file,
+                attribution_window,
+                model,
+            } => Command::run(common, input_file, *attribution_window, model),
         }
     }
 
@@ -121,6 +154,37 @@ impl Command {
             "trigger/source ratio: {}",
             f64::from(t_count) / f64::from(s_count)
         );
+    }
+
+    fn run(
+        common: &CommonArgs,
+        input_file: &Option<PathBuf>,
+        attribution_window: u32,
+        model: &str,
+    ) {
+        let mut input = get_input(input_file).unwrap_or_else(|e| {
+            error!("Failed to open the input file. {}", e);
+            process::exit(1);
+        });
+
+        let mut out = get_output(&common.output_file, common.overwrite).unwrap_or_else(|e| {
+            error!("Failed to open the output file. {}", e);
+            process::exit(1);
+        });
+
+        info!(
+            "input: {:?}, attribution_window: {}, model: {}",
+            input_file, attribution_window, model
+        );
+
+        generate_report(&mut input, attribution_window, model, &mut out);
+    }
+}
+
+fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {
+    match path {
+        Some(ref path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
+        None => Ok(Box::new(io::stdin())),
     }
 }
 
