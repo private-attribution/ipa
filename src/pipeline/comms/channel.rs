@@ -7,29 +7,32 @@
 //!
 //! ```
 //! # use raw_ipa::pipeline::comms::{Channel, Comms, Target};
-//! # use raw_ipa::proto;
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // helper function that sets up 3 helpers hooked up to each other with channels
 //! let (c1, c2, c3, c_run) = raw_ipa::pipeline::util::intra_process_comms();
 //! tokio::spawn(c_run); // this initializes all of the runtime pieces for channels
 //!
-//! let message = String::from("hello");
-//! c1.send_to(Target::Next, proto::pipe::ExampleRequest { message: message.clone() }).await?;
-//! let recvd = c2.receive_from::<proto::pipe::ExampleRequest>().await?;
-//! assert_eq!(message, recvd.message);
+//! #[derive(Clone, serde::Serialize, serde::Deserialize)]
+//! struct ExampleRequest {
+//!     message: String,
+//! }
+//! let req = ExampleRequest {
+//!     message: String::from("hello"),
+//! };
+//! c1.send_to(Target::Next, req.clone()).await?;
+//! let recvd = c2.receive_from::<ExampleRequest>(Target::Prev).await?;
+//! assert_eq!(req.message, recvd.message);
 //! # Ok(())
 //! # }
 //! ```
 
-use crate::pipeline::buffer;
+use crate::pipeline::comms::buffer::{self, as_source};
 use crate::pipeline::comms::{Comms, Target};
 use crate::pipeline::Result;
 use async_trait::async_trait;
 use log::{debug, error, info};
-use prost::Message;
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -67,7 +70,10 @@ impl<B: buffer::Buffer> Channel<B> {
             match chan_mess_res {
                 Err(err) => error!("received unexpected message: {}", err),
                 Ok(chan_mess) => {
-                    let sent = self.buffer.write(chan_mess.shared_id, chan_mess.buf).await;
+                    let sent = self
+                        .buffer
+                        .write(chan_mess.shared_id, chan_mess.source, chan_mess.data)
+                        .await;
                     if sent.is_err() {
                         error!("could not send message to buffer: {}", sent.unwrap_err());
                         continue;
@@ -87,39 +93,45 @@ impl<B: buffer::Buffer> Drop for Channel<B> {
 #[derive(Serialize, Deserialize)]
 struct ChannelMessage {
     shared_id: Uuid,
-    buf: Vec<u8>,
+    source: Target,
+    data: Vec<u8>,
 }
 
 #[async_trait]
 impl<B: buffer::Buffer + 'static> Comms for Channel<B> {
-    async fn send_to<M: Message>(&self, target: Target, data: M) -> Result<()> {
-        let mut buf = Vec::with_capacity(data.encoded_len());
-        // unwrap is safe because `buf` has `encoded_len` reserved
-        data.encode(&mut buf).unwrap();
-        let chan_message = ChannelMessage {
-            shared_id: self.shared_id(),
-            buf,
-        };
-        let res = serde_json::to_vec(&chan_message)?;
+    async fn send_to<S: serde::Serialize + Send>(&self, target: Target, data: S) -> Result<()> {
         let chan = match target {
             Target::Next => &self.next_send_chan,
             Target::Prev => &self.prev_send_chan,
         };
-        chan.send(res).await?;
+
+        let data_se = serde_json::to_vec(&data)?;
+        let chan_message = ChannelMessage {
+            shared_id: self.shared_id,
+            source: as_source(&target),
+            data: data_se,
+        };
+        let b = serde_json::to_vec(&chan_message)?;
+
+        chan.send(b).await?;
         Ok(())
     }
 
-    async fn receive_from<M: Message + Default>(&self) -> Result<M> {
+    async fn receive_from<D: serde::de::DeserializeOwned>(&self, source: Target) -> Result<D> {
         // basic poll for now; will use watchers in real implementation
         loop {
-            match self.buffer.get_and_remove(self.shared_id).await {
+            match self
+                .buffer
+                .get_and_remove(self.shared_id, source.clone())
+                .await
+            {
                 Err(err) => return Err(err),
                 Ok(None) => {
                     debug!("nothing in cache, {} waiting...", self.name);
                     time::sleep(Duration::from_millis(500)).await;
                 }
                 Ok(Some(v)) => {
-                    let res = M::decode(&mut Cursor::new(v.as_slice()))?;
+                    let res: D = serde_json::from_reader(std::io::Cursor::new(v))?;
                     debug!("{} received data", self.name);
                     return Ok(res);
                 }

@@ -20,7 +20,7 @@
 //! use std::sync::Arc;
 //! use raw_ipa::build_pipeline;
 //! use raw_ipa::pipeline::{self, Step, Pipeline};
-//! use raw_ipa::pipeline::buffer;
+//! use raw_ipa::pipeline::comms::buffer;
 //! use raw_ipa::pipeline::comms::Comms;
 //! use raw_ipa::error::Result;
 //!
@@ -78,7 +78,6 @@
 //! If you need communication with other pipelines, use the `helper` argument. See [Comms](comms)
 //! for more about its usage.
 
-pub mod buffer;
 pub mod comms;
 pub mod error;
 pub mod util;

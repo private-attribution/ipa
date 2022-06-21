@@ -13,6 +13,7 @@ pub mod mem;
 
 pub use mem::Mem;
 
+use crate::pipeline::comms::Target;
 use crate::pipeline::Result;
 use async_trait::async_trait;
 use tokio::sync::oneshot;
@@ -20,13 +21,22 @@ use uuid::Uuid;
 
 #[async_trait]
 pub trait Buffer: Send + Sync {
-    async fn write(&self, key: Uuid, value: Vec<u8>) -> Result<()>;
-    async fn get_and_remove(&self, key: Uuid) -> Result<Option<Vec<u8>>>;
+    async fn write(&self, key: Uuid, source: Target, value: Vec<u8>) -> Result<()>;
+    async fn get_and_remove(&self, key: Uuid, source: Target) -> Result<Option<Vec<u8>>>;
 }
 
 #[derive(Debug)]
 enum Command {
-    Write(Uuid, Vec<u8>),
+    Write(Uuid, Target, Vec<u8>),
     /// Removes and returns the value in the oneshot receiver
-    GetAndRemove(Uuid, oneshot::Sender<Option<Vec<u8>>>),
+    GetAndRemove(Uuid, Target, oneshot::Sender<Option<Vec<u8>>>),
+}
+
+/// When sending data to a different helper, the receiving helper should know which helper sent the
+/// data. This function determines which helper is acting as the source of the data.
+pub(super) fn as_source(target: &Target) -> Target {
+    match target {
+        Target::Next => Target::Prev, // if sending data to next helper, acting as the prev helper
+        Target::Prev => Target::Next, // if sending data to prev helper, acting as the next helper
+    }
 }

@@ -9,7 +9,8 @@
 //!
 //! ```
 //! use uuid::Uuid;
-//! use raw_ipa::pipeline::buffer::{Buffer, Mem};
+//! use raw_ipa::pipeline::comms::buffer::{Buffer, Mem};
+//! use raw_ipa::pipeline::comms::Target;
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,10 +19,10 @@
 //! // write data into HashMap
 //! let id = Uuid::new_v4();
 //! let data = Vec::from("example_data");
-//! mem.write(id, data.clone()).await?;
+//! mem.write(id, Target::Prev, data.clone()).await?;
 //!
 //! // read data from HashMap; this also removes the data from the map
-//! let removed = mem.get_and_remove(id).await?;
+//! let removed = mem.get_and_remove(id, Target::Prev).await?;
 //!
 //! assert_eq!(Some(data), removed);
 //! # Ok(())
@@ -29,12 +30,16 @@
 //! ```
 
 use super::{Buffer, Command};
+use crate::pipeline::comms::Target;
 use crate::pipeline::Result;
 use async_trait::async_trait;
 use log::{debug, error, info};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
+
+#[derive(Hash, Eq, PartialEq)]
+struct Key(Uuid, Target);
 
 pub struct Mem {
     name: &'static str,
@@ -52,14 +57,20 @@ impl Mem {
         let mut m = HashMap::new();
         while let Some(command) = rx.recv().await {
             let res: Result<()> = match command {
-                Command::Write(key, value) => {
-                    debug!("{} writing data with key {key}", name);
-                    m.insert(key, value);
+                Command::Write(key, source, value) => {
+                    debug!(
+                        "{} writing data with key {key} from target {:?}",
+                        name, source
+                    );
+                    m.insert(Key(key, source), value);
                     Ok(())
                 }
-                Command::GetAndRemove(key, ack) => {
-                    debug!("{} removing data with key {key}", name);
-                    let removed = m.remove(&key);
+                Command::GetAndRemove(key, source, ack) => {
+                    debug!(
+                        "{} removing data with key {key} from target {:?}",
+                        name, source
+                    );
+                    let removed = m.remove(&Key(key, source));
                     ack.send(removed)
                         .map_err(|_| mpsc::error::SendError::<Vec<u8>>(vec![]).into())
                 }
@@ -77,13 +88,13 @@ impl Mem {
 
 #[async_trait]
 impl Buffer for Mem {
-    async fn write(&self, key: Uuid, value: Vec<u8>) -> Result<()> {
-        self.tx.send(Command::Write(key, value)).await?;
+    async fn write(&self, key: Uuid, source: Target, value: Vec<u8>) -> Result<()> {
+        self.tx.send(Command::Write(key, source, value)).await?;
         Ok(())
     }
-    async fn get_and_remove(&self, key: Uuid) -> Result<Option<Vec<u8>>> {
+    async fn get_and_remove(&self, key: Uuid, source: Target) -> Result<Option<Vec<u8>>> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Command::GetAndRemove(key, tx)).await?;
+        self.tx.send(Command::GetAndRemove(key, source, tx)).await?;
         let resp = rx.await?;
         Ok(resp)
     }

@@ -6,7 +6,7 @@ use raw_ipa::error::Result;
 use raw_ipa::pipeline::comms::{Comms, Target};
 use raw_ipa::pipeline::util::intra_process_comms;
 use raw_ipa::pipeline::{self, Pipeline, Step};
-use raw_ipa::proto::pipe::ExampleRequest;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
 use structopt::StructOpt;
@@ -80,6 +80,11 @@ impl Step for Stringify {
 }
 struct ForwardData {}
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ExampleRequest {
+    message: String,
+}
+
 #[async_trait]
 impl Step for ForwardData {
     type Input = String;
@@ -97,7 +102,7 @@ impl Step for ForwardData {
             },
         );
         // let sent = helper.send_to_next(self.unique_id(), SendStr(inp.clone()));
-        let received = helper.receive_from::<ExampleRequest>();
+        let received = helper.receive_from::<ExampleRequest>(Target::Prev);
         let (_, res) = try_join!(sent, received)?;
         Ok(res.message)
     }

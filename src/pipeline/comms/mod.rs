@@ -6,11 +6,14 @@
 //!   * should only be used for testing purposes
 //! * \[COMING SOON\] `gRPC`
 
+pub mod buffer;
 pub mod channel;
+
 pub use channel::Channel;
 
 use crate::pipeline::Result;
 use async_trait::async_trait;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Choose which helper to send data to
@@ -19,19 +22,24 @@ use uuid::Uuid;
 ///
 /// ```
 /// # use raw_ipa::pipeline::comms::{Channel, Comms, Target};
-/// # use raw_ipa::proto;
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // this initializes all of the runtime pieces for channels
 /// # let (c1, c2, c3, c_run) = raw_ipa::pipeline::util::intra_process_comms();
 /// # tokio::spawn(c_run);
 ///
-/// let message = String::from("hello");
-/// c1.send_to(Target::Next, proto::pipe::ExampleRequest { message }).await?;
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct ExampleRequest {
+///     message: String,
+/// }
+/// let req = ExampleRequest {
+///     message: String::from("hello"),
+/// };
+/// c1.send_to(Target::Next, req).await?;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Target {
     Next,
     Prev,
@@ -39,7 +47,7 @@ pub enum Target {
 
 #[async_trait]
 pub trait Comms: Send + Sync + 'static {
-    async fn send_to<M: prost::Message>(&self, target: Target, data: M) -> Result<()>;
-    async fn receive_from<M: prost::Message + Default>(&self) -> Result<M>;
+    async fn send_to<S: Serialize + Send>(&self, target: Target, data: S) -> Result<()>;
+    async fn receive_from<D: DeserializeOwned>(&self, target: Target) -> Result<D>;
     fn shared_id(&self) -> Uuid;
 }
