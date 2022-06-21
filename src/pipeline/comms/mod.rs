@@ -14,7 +14,6 @@ pub use channel::Channel;
 use crate::pipeline::Result;
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Choose which helper to send data to
 ///
@@ -49,5 +48,5 @@ pub enum Target {
 pub trait Comms: Send + Sync + 'static {
     async fn send_to<S: Serialize + Send>(&self, target: Target, data: S) -> Result<()>;
     async fn receive_from<D: DeserializeOwned>(&self, target: Target) -> Result<D>;
-    fn shared_id(&self) -> Uuid;
+    fn shared_id(&self) -> u128;
 }

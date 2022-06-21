@@ -1,11 +1,11 @@
 use crate::pipeline::comms;
 use crate::pipeline::comms::buffer;
 use crate::pipeline::Result;
+use rand::{thread_rng, Rng};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::try_join;
-use uuid::Uuid;
 
 #[allow(clippy::type_complexity)]
 pub fn intra_process_comms() -> (
@@ -14,7 +14,7 @@ pub fn intra_process_comms() -> (
     Arc<comms::Channel<buffer::Mem>>,
     impl Future<Output = Result<()>>,
 ) {
-    let shared_id = Uuid::new_v4();
+    let shared_id = thread_rng().gen();
     let (h1_send, h1_recv) = mpsc::channel(32);
     let (h2_send, h2_recv) = mpsc::channel(32);
     let (h3_send, h3_recv) = mpsc::channel(32);

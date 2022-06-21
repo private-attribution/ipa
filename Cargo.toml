@@ -30,7 +30,6 @@ stderrlog = {version = "0.5", optional = true}
 structopt = {version = "0.3", optional = true}
 thiserror = "1.0"
 tokio = {version = "1", features=["macros", "rt-multi-thread", "sync", "time"]}
-uuid = {version = "1", features=["v4", "v5", "serde"]}
 
 [dev-dependencies]
 hex = "0.4"

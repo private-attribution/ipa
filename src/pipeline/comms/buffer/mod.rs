@@ -17,19 +17,18 @@ use crate::pipeline::comms::Target;
 use crate::pipeline::Result;
 use async_trait::async_trait;
 use tokio::sync::oneshot;
-use uuid::Uuid;
 
 #[async_trait]
 pub trait Buffer: Send + Sync {
-    async fn write(&self, key: Uuid, source: Target, value: Vec<u8>) -> Result<()>;
-    async fn get_and_remove(&self, key: Uuid, source: Target) -> Result<Option<Vec<u8>>>;
+    async fn write(&self, key: u128, source: Target, value: Vec<u8>) -> Result<()>;
+    async fn get_and_remove(&self, key: u128, source: Target) -> Result<Option<Vec<u8>>>;
 }
 
 #[derive(Debug)]
 enum Command {
-    Write(Uuid, Target, Vec<u8>),
+    Write(u128, Target, Vec<u8>),
     /// Removes and returns the value in the oneshot receiver
-    GetAndRemove(Uuid, Target, oneshot::Sender<Option<Vec<u8>>>),
+    GetAndRemove(u128, Target, oneshot::Sender<Option<Vec<u8>>>),
 }
 
 /// When sending data to a different helper, the receiving helper should know which helper sent the

@@ -13,9 +13,9 @@
 //! shows the most basic work you have to do to implement the [Step]s of a pipeline, and how to
 //! compose those into a working [Pipeline].
 //! ```
-//! # use uuid::Uuid;
 //! # use tokio::sync::mpsc;
 //! # use raw_ipa::pipeline::comms;
+//! # use rand::{thread_rng, Rng};
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
 //! use raw_ipa::build_pipeline;
@@ -62,7 +62,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//! #   let shared_id = Uuid::new_v4();
+//! #   let shared_id = thread_rng().gen();
 //! #   let (next_send, _) = mpsc::channel(32);
 //! #   let (prev_send, _) = mpsc::channel(32);
 //! #   let buffer = buffer::Mem::new("example_buffer");

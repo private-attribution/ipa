@@ -8,16 +8,16 @@
 //! # Examples
 //!
 //! ```
-//! use uuid::Uuid;
 //! use raw_ipa::pipeline::comms::buffer::{Buffer, Mem};
 //! use raw_ipa::pipeline::comms::Target;
+//! use rand::{thread_rng, Rng};
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mem = Mem::new("example_handler");
 //!
 //! // write data into HashMap
-//! let id = Uuid::new_v4();
+//! let id = thread_rng().gen();
 //! let data = Vec::from("example_data");
 //! mem.write(id, Target::Prev, data.clone()).await?;
 //!
@@ -36,10 +36,9 @@ use async_trait::async_trait;
 use log::{debug, error, info};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
 
 #[derive(Hash, Eq, PartialEq)]
-struct Key(Uuid, Target);
+struct Key(u128, Target);
 
 pub struct Mem {
     name: &'static str,
@@ -88,11 +87,11 @@ impl Mem {
 
 #[async_trait]
 impl Buffer for Mem {
-    async fn write(&self, key: Uuid, source: Target, value: Vec<u8>) -> Result<()> {
+    async fn write(&self, key: u128, source: Target, value: Vec<u8>) -> Result<()> {
         self.tx.send(Command::Write(key, source, value)).await?;
         Ok(())
     }
-    async fn get_and_remove(&self, key: Uuid, source: Target) -> Result<Option<Vec<u8>>> {
+    async fn get_and_remove(&self, key: u128, source: Target) -> Result<Option<Vec<u8>>> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Command::GetAndRemove(key, source, tx)).await?;
         let resp = rx.await?;

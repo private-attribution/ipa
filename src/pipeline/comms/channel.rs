@@ -36,14 +36,13 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time;
-use uuid::Uuid;
 
 pub struct Channel<B: buffer::Buffer> {
     name: &'static str,
     next_send_chan: mpsc::Sender<Vec<u8>>,
     prev_send_chan: mpsc::Sender<Vec<u8>>,
     buffer: B,
-    shared_id: Uuid,
+    shared_id: u128,
 }
 impl<B: buffer::Buffer> Channel<B> {
     #[must_use]
@@ -52,7 +51,7 @@ impl<B: buffer::Buffer> Channel<B> {
         next_send_chan: mpsc::Sender<Vec<u8>>,
         prev_send_chan: mpsc::Sender<Vec<u8>>,
         buffer: B,
-        shared_id: Uuid,
+        shared_id: u128,
     ) -> Channel<B> {
         Channel {
             name,
@@ -92,7 +91,7 @@ impl<B: buffer::Buffer> Drop for Channel<B> {
 
 #[derive(Serialize, Deserialize)]
 struct ChannelMessage {
-    shared_id: Uuid,
+    shared_id: u128,
     source: Target,
     data: Vec<u8>,
 }
@@ -140,7 +139,7 @@ impl<B: buffer::Buffer + 'static> Comms for Channel<B> {
     }
 
     #[inline]
-    fn shared_id(&self) -> Uuid {
+    fn shared_id(&self) -> u128 {
         self.shared_id
     }
 }
