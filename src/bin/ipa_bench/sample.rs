@@ -172,6 +172,13 @@ impl Sample {
         let days = CONVERSIONS_DURATION_DISTR[self.conversions_duration_distr.sample(rng)]
             .0
             .clone();
-        Duration::new(rng.gen_range(days).to_u64().unwrap() * 24 * 60 * 60, 0)
+        let diff = rng.gen_range(days);
+
+        // Since [diff] is a range of days, randomly choose hours and seconds for the given range.
+        // E.g. return [1..3) days + y hours + z seconds
+        Duration::new(diff.to_u64().unwrap() * 24 * 60 * 60, 0)
+            + Duration::new(rng.gen_range(0..23) * 60 * 60, 0)
+            + Duration::new(rng.gen_range(0..59) * 60, 0)
+            + Duration::new(rng.gen_range(0..59), 0)
     }
 }

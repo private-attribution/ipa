@@ -1,5 +1,5 @@
 mod cmd;
-mod gen;
+mod init;
 mod run;
 mod sample;
 

@@ -3,9 +3,11 @@ use log::{debug, info, trace};
 use rand::SeedableRng;
 use rand::{CryptoRng, Rng, RngCore};
 use rand_chacha::ChaCha20Rng;
-use rand_distr::{num_traits::ToPrimitive, Bernoulli, Distribution};
+use rand_distr::num_traits::ToPrimitive;
+use rand_distr::{Bernoulli, Distribution};
 use raw_ipa::helpers::models::{
-    Event as EEvent, SecretShare, SourceEvent as ESourceEvent, TriggerEvent as ETriggerEvent,
+    Event as EEvent, SecretSharable, SecretShare, SourceEvent as ESourceEvent,
+    TriggerEvent as ETriggerEvent,
 };
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -13,28 +15,30 @@ use std::time::Duration;
 
 const DAYS_IN_EPOCH: u64 = 7;
 
+#[derive(Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct Event {
-    matchkeys: Vec<u64>,
-    epoch: u8,
-    timestamp: u64,
+pub struct Event {
+    // For this tool, we'll fix the length of a matchkey to u64
+    pub matchkeys: Vec<u64>,
+    pub epoch: u8,
+    pub timestamp: u32,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct SourceEvent {
-    event: Event,
-    breakdown_key: String,
+pub struct SourceEvent {
+    pub event: Event,
+    pub breakdown_key: String,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-struct TriggerEvent {
-    event: Event,
-    value: u32,
-    zkp: String,
+pub struct TriggerEvent {
+    pub event: Event,
+    pub value: u32,
+    pub zkp: String,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-enum EventType {
+pub enum EventType {
     // Source event in clear
     S(SourceEvent),
     // Trigger event in clear
@@ -165,12 +169,10 @@ fn gen_events<R: RngCore + CryptoRng>(
 
     if secret_share {
         for mk in &matchkeys {
-            let bytes = mk.to_be_bytes();
-
             // Currently, all geneerated match keys are set in all source events from the same user. This is an ideal
             // scenario where all devices are used equally. In reality, however, that isn't the case. Should we pick
             // a few match keys out from the events?
-            ss_mks.push(to_secret_share(&bytes, ss_rng));
+            ss_mks.push(mk.split(ss_rng));
         }
     }
 
@@ -185,8 +187,9 @@ fn gen_events<R: RngCore + CryptoRng>(
             events.push(EventType::ES(ESourceEvent {
                 event: EEvent {
                     matchkeys: ss_mks.clone(),
+                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
                     epoch: params.epoch,
-                    timestamp: to_secret_share(&t.as_secs().to_be_bytes(), ss_rng),
+                    timestamp: u32::try_from(t.as_secs()).unwrap().split(ss_rng),
                 },
                 breakdown_key: params.breakdown_key.clone(),
             }));
@@ -194,8 +197,9 @@ fn gen_events<R: RngCore + CryptoRng>(
             events.push(EventType::S(SourceEvent {
                 event: Event {
                     matchkeys: matchkeys.clone(),
+                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
                     epoch: params.epoch,
-                    timestamp: t.as_secs().to_u64().unwrap(),
+                    timestamp: u32::try_from(t.as_secs()).unwrap(),
                 },
                 breakdown_key: params.breakdown_key.clone(),
             }));
@@ -210,26 +214,26 @@ fn gen_events<R: RngCore + CryptoRng>(
 
     for _ in 0..params.conversions {
         let conversion_value = sample.conversion_value_per_ad(rng);
-
-        // TODO: Need to make sure the time is > SourceEvent.timestamp + imp_cv_interval_distribution
         let t = last_conversion + sample.conversions_time_diff(rng);
 
         if secret_share {
             events.push(EventType::ET(ETriggerEvent {
                 event: EEvent {
                     matchkeys: ss_mks.clone(),
+                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
                     epoch: params.epoch,
-                    timestamp: to_secret_share(&t.as_secs().to_be_bytes(), ss_rng),
+                    timestamp: u32::try_from(t.as_secs()).unwrap().split(ss_rng),
                 },
-                value: to_secret_share(&conversion_value.to_be_bytes(), ss_rng),
+                value: conversion_value.split(ss_rng),
                 zkp: String::from("zkp"),
             }));
         } else {
             events.push(EventType::T(TriggerEvent {
                 event: Event {
                     matchkeys: matchkeys.clone(),
+                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
                     epoch: params.epoch,
-                    timestamp: t.as_secs().to_u64().unwrap(),
+                    timestamp: u32::try_from(t.as_secs()).unwrap(),
                 },
                 value: conversion_value,
                 zkp: String::from("zkp"),
@@ -251,32 +255,12 @@ fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<u64> {
     mks
 }
 
-fn to_secret_share<R: RngCore + CryptoRng>(data: &[u8], rng: &mut R) -> SecretShare {
-    let mut ss: SecretShare = [
-        Vec::with_capacity(data.len()),
-        Vec::with_capacity(data.len()),
-        Vec::with_capacity(data.len()),
-    ];
-
-    for x in data {
-        let ss1 = rng.gen::<u8>();
-        let ss2 = rng.gen::<u8>();
-        let ss3 = ss1 ^ ss2 ^ x;
-
-        ss[0].push(ss1);
-        ss[1].push(ss2);
-        ss[2].push(ss3);
-    }
-    ss
-}
-
 #[cfg(test)]
 mod tests {
     use super::{generate_events, EventType};
-    use byteorder::{BigEndian, ReadBytesExt};
     use rand::Rng;
     use rand_distr::Alphanumeric;
-    use raw_ipa::helpers::models::SecretShare;
+    use raw_ipa::helpers::models::SecretSharable;
     use std::env::temp_dir;
     use std::fs::{self, File};
     use std::io::prelude::*;
@@ -293,18 +277,6 @@ mod tests {
 
         dir.push(file);
         dir
-    }
-
-    fn from_secret_share_to_u64(ss: &SecretShare) -> u64 {
-        ss[0].as_slice().read_u64::<BigEndian>().unwrap()
-            ^ ss[1].as_slice().read_u64::<BigEndian>().unwrap()
-            ^ ss[2].as_slice().read_u64::<BigEndian>().unwrap()
-    }
-
-    fn from_secret_share_to_u32(ss: &SecretShare) -> u32 {
-        ss[0].as_slice().read_u32::<BigEndian>().unwrap()
-            ^ ss[1].as_slice().read_u32::<BigEndian>().unwrap()
-            ^ ss[2].as_slice().read_u32::<BigEndian>().unwrap()
     }
 
     #[test]
@@ -388,12 +360,12 @@ mod tests {
                 EventType::S(s) => {
                     if let EventType::ES(es) = e2 {
                         for (k, v) in s.event.matchkeys.iter().enumerate() {
-                            let ssm = from_secret_share_to_u64(&es.event.matchkeys[k]);
+                            let ssm = u64::combine(&es.event.matchkeys[k]).unwrap();
                             assert!(*v == ssm);
                         }
 
-                        let sst = from_secret_share_to_u64(&es.event.timestamp);
-                        assert!(s.event.timestamp == sst);
+                        let timestamp = u32::combine(&es.event.timestamp).unwrap();
+                        assert!(s.event.timestamp == timestamp);
                         assert!(s.breakdown_key == es.breakdown_key);
                         assert!(s.event.epoch == es.event.epoch);
                     } else {
@@ -404,12 +376,12 @@ mod tests {
                 EventType::T(t) => {
                     if let EventType::ET(et) = e2 {
                         for (k, v) in t.event.matchkeys.iter().enumerate() {
-                            let matchkey = from_secret_share_to_u64(&et.event.matchkeys[k]);
+                            let matchkey = u64::combine(&et.event.matchkeys[k]).unwrap();
                             assert!(*v == matchkey);
                         }
 
-                        let timestamp = from_secret_share_to_u64(&et.event.timestamp);
-                        let value = from_secret_share_to_u32(&et.value);
+                        let timestamp = u32::combine(&et.event.timestamp).unwrap();
+                        let value = u32::combine(&et.value).unwrap();
                         assert!(t.event.timestamp == timestamp);
                         assert!(t.value == value);
                         assert!(t.zkp == et.zkp);

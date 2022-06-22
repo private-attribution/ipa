@@ -1,4 +1,4 @@
-use super::gen::generate_events;
+use super::init::generate_events;
 use super::run::generate_report;
 
 use log::{debug, error, info};
@@ -81,7 +81,7 @@ pub enum Command {
         #[structopt(
             short,
             long,
-            default_value = "28",
+            default_value = "7",
             help = "Attribution window in days. Trigger events within the window are attributed to the preceeding source event."
         )]
         attribution_window: u32,
@@ -89,7 +89,7 @@ pub enum Command {
         #[structopt(
             short,
             long,
-            possible_values = &["LastTouch", "Linear", "TimeDecay"],
+            possible_values = &["LastTouch"],
             default_value = "LastTouch",
         )]
         model: String,

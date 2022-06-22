@@ -1,12 +1,110 @@
+use rand::{CryptoRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::ops::Range;
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
 pub type CipherText = Vec<u8>;
 type PlainText = String;
-pub type SecretShare = [CipherText; 3];
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+pub struct SecretShare {
+    ss: [CipherText; 3],
+}
+
+impl SecretShare {
+    fn combine(&self) -> Vec<u8> {
+        let mut result = Vec::new();
+
+        assert!(self.ss[0].len() == self.ss[1].len());
+        assert!(self.ss[0].len() == self.ss[2].len());
+
+        for i in 0..self.ss[0].len() {
+            result.push(self.ss[0][i] ^ self.ss[1][i] ^ self.ss[2][i]);
+        }
+
+        result
+    }
+
+    fn xor<R: RngCore + CryptoRng>(data: &[u8], rng: &mut R) -> Self {
+        let mut ss = [Vec::new(), Vec::new(), Vec::new()];
+
+        for x in data {
+            let ss1 = rng.gen::<u8>();
+            let ss2 = rng.gen::<u8>();
+            let ss3 = ss1 ^ ss2 ^ x;
+
+            ss[0].push(ss1);
+            ss[1].push(ss2);
+            ss[2].push(ss3);
+        }
+
+        SecretShare { ss }
+    }
+}
+
+pub trait SecretSharable {
+    /// Splits the number into secret shares
+    fn split<R: RngCore + CryptoRng>(&self, rng: &mut R) -> SecretShare;
+
+    /// Combines the given secret shares back to [Self]
+    /// # Errors
+    /// if the combined data overflows [Self]
+    fn combine(data: &SecretShare) -> Result<Self, IoError>
+    where
+        Self: Sized;
+}
+
+impl SecretSharable for u32 {
+    fn split<R: RngCore + CryptoRng>(&self, rng: &mut R) -> SecretShare {
+        SecretShare::xor(&self.to_be_bytes(), rng)
+    }
+
+    fn combine(data: &SecretShare) -> Result<Self, IoError> {
+        let ss = data.combine();
+
+        let mut high = ss[0..ss.len() - 4].to_vec();
+        high.retain(|x| *x != 0);
+
+        if ss.len() > 4 && !high.is_empty() {
+            return Err(IoError::from(IoErrorKind::InvalidData));
+        }
+
+        let mut bytes = [0u8; 4];
+        for (i, v) in ss[ss.len() - 4..].iter().enumerate() {
+            bytes[i] = *v;
+        }
+
+        Ok(u32::from_be_bytes(bytes))
+    }
+}
+
+impl SecretSharable for u64 {
+    fn split<R: RngCore + CryptoRng>(&self, rng: &mut R) -> SecretShare {
+        SecretShare::xor(&self.to_be_bytes(), rng)
+    }
+
+    fn combine(data: &SecretShare) -> Result<Self, IoError> {
+        let ss = data.combine();
+
+        let mut high = ss[0..ss.len() - 8].to_vec();
+        high.retain(|x| *x != 0);
+
+        if ss.len() > 8 && !high.is_empty() {
+            return Err(IoError::from(IoErrorKind::InvalidData));
+        }
+
+        let mut bytes = [0u8; 8];
+        for (i, v) in ss[ss.len() - 8..].iter().enumerate() {
+            bytes[i] = *v;
+        }
+
+        Ok(u64::from_be_bytes(bytes))
+    }
+}
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Event {
