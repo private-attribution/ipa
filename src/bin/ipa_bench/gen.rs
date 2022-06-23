@@ -1,6 +1,4 @@
 use super::sample::Sample;
-use byteorder::ByteOrder;
-use chrono::Duration;
 use log::{debug, info, trace};
 use rand::SeedableRng;
 use rand::{CryptoRng, Rng, RngCore};
@@ -11,8 +9,9 @@ use raw_ipa::helpers::models::{
 };
 use serde::{Deserialize, Serialize};
 use std::io;
+use std::time::Duration;
 
-const DAYS_IN_EPOCH: i64 = 7;
+const DAYS_IN_EPOCH: u64 = 7;
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 struct Event {
@@ -34,23 +33,36 @@ struct TriggerEvent {
     zkp: String,
 }
 
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 enum EventType {
+    // Source event in clear
     S(SourceEvent),
+    // Trigger event in clear
     T(TriggerEvent),
+    // Source event in cipher if --secret-share option is enabled
     ES(ESourceEvent),
+    // Trigger event in cipher if --secret-share option is enabled
     ET(ETriggerEvent),
+}
+
+struct GenEventParams {
+    devices: u8,
+    impressions: u8,
+    conversions: u8,
+    epoch: u8,
+    breakdown_key: String,
 }
 
 // TODO: Currently, users are mutually exclusive in each ad loop (i.e. User A in ad X will never appear in other ads).
 // We need to generate events from same users across ads (but how often should a user appear in different ads?)
 // "Ads" doesn't mean FB's L3 ads. It could be ads from different businesses.
 
-pub fn generate_events(
+pub fn generate_events<W: io::Write>(
     total_count: u32,
     epoch: u8,
     secret_share: bool,
     seed: &Option<u64>,
-    out: &mut Box<dyn io::Write>,
+    out: &mut W,
 ) -> (u32, u32) {
     let mut rng = match seed {
         None => ChaCha20Rng::from_entropy(),
@@ -68,8 +80,8 @@ pub fn generate_events(
 
     let mut ad_count = 0;
     let mut event_count = 0;
-    let mut s_count = 0;
-    let mut t_count = 0;
+    let mut total_impressions = 0;
+    let mut total_conversions = 0;
 
     // Simulate impressions and conversions from an ad.
     // We define "ad" as a group of impressions and conversions from targeted users who are selected by predefined
@@ -106,38 +118,25 @@ pub fn generate_events(
             trace!("conversions per user: {}", conversions);
 
             let events = gen_events(
-                devices,
-                impressions,
-                conversions,
-                epoch,
-                &ad_id.to_string(),
+                &GenEventParams {
+                    devices,
+                    impressions,
+                    conversions,
+                    epoch,
+                    breakdown_key: ad_id.to_string(),
+                },
                 secret_share,
                 &sample,
                 &mut rng,
                 &mut ss_rng,
             );
 
-            for e in events {
-                let json_string = match e {
-                    EventType::S(s) => {
-                        s_count += 1;
-                        serde_json::to_string(&s).unwrap()
-                    }
-                    EventType::ES(s) => {
-                        s_count += 1;
-                        serde_json::to_string(&s).unwrap()
-                    }
-                    EventType::T(t) => {
-                        t_count += 1;
-                        serde_json::to_string(&t).unwrap()
-                    }
-                    EventType::ET(t) => {
-                        t_count += 1;
-                        serde_json::to_string(&t).unwrap()
-                    }
-                };
+            total_impressions += impressions.to_u32().unwrap();
+            total_conversions += conversions.to_u32().unwrap();
 
-                out.write_all(json_string.as_bytes()).unwrap();
+            for e in events {
+                out.write_all(serde_json::to_string(&e).unwrap().as_bytes())
+                    .unwrap();
                 writeln!(out).unwrap();
 
                 event_count += 1;
@@ -145,20 +144,15 @@ pub fn generate_events(
                     info!("{}", event_count);
                 }
                 if event_count >= total_count {
-                    return (s_count, t_count);
+                    return (total_impressions, total_conversions);
                 }
             }
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn gen_events<R: RngCore + CryptoRng>(
-    devices: u8,
-    impressions: u8,
-    conversions: u8,
-    epoch: u8,
-    breakdown_key: &str,
+    params: &GenEventParams,
     secret_share: bool,
     sample: &Sample,
     rng: &mut R,
@@ -166,13 +160,12 @@ fn gen_events<R: RngCore + CryptoRng>(
 ) -> Vec<EventType> {
     let mut events: Vec<EventType> = Vec::new();
 
-    let matchkeys = gen_matchkeys(devices, rng);
+    let matchkeys = gen_matchkeys(params.devices, rng);
     let mut ss_mks: Vec<SecretShare> = Vec::new();
 
     if secret_share {
         for mk in &matchkeys {
-            let mut bytes = [0; 8];
-            byteorder::BigEndian::write_u64(&mut bytes, *mk);
+            let bytes = mk.to_be_bytes();
 
             // Currently, all geneerated match keys are set in all source events from the same user. This is an ideal
             // scenario where all devices are used equally. In reality, however, that isn't the case. Should we pick
@@ -181,40 +174,30 @@ fn gen_events<R: RngCore + CryptoRng>(
         }
     }
 
-    // Randomly choose a datetime of the first impression
-    // TODO: Assume that impressions happen any time within 0-6 days into epoch
-    let mut last_impression = Duration::days(rng.gen_range(0..DAYS_IN_EPOCH - 1))
-        + Duration::hours(rng.gen_range(0..23))
-        + Duration::minutes(rng.gen_range(0..59))
-        + Duration::seconds(rng.gen_range(0..59));
-    trace!(
-        "ad created at epoch + {}d {}h {}m {}s",
-        last_impression.num_days(),
-        last_impression.num_hours() - last_impression.num_days() * 24,
-        last_impression.num_minutes() - last_impression.num_hours() * 60,
-        last_impression.num_seconds() - last_impression.num_minutes() * 60,
-    );
+    // Randomly choose a datetime of the first impression in [0..DAYS_IN_EPOCH)
+    // TODO: Assume that impressions happen any time within the epoch
+    let mut last_impression = Duration::new(rng.gen_range(0..DAYS_IN_EPOCH * 24 * 60 * 60), 0);
 
-    for _ in 0..impressions {
+    for _ in 0..params.impressions {
         let t = last_impression + sample.impressions_time_diff(rng);
 
         if secret_share {
             events.push(EventType::ES(ESourceEvent {
                 event: EEvent {
                     matchkeys: ss_mks.clone(),
-                    epoch,
-                    timestamp: to_secret_share(&t.num_seconds().to_be_bytes(), ss_rng),
+                    epoch: params.epoch,
+                    timestamp: to_secret_share(&t.as_secs().to_be_bytes(), ss_rng),
                 },
-                breakdown_key: String::from(breakdown_key),
+                breakdown_key: params.breakdown_key.clone(),
             }));
         } else {
             events.push(EventType::S(SourceEvent {
                 event: Event {
                     matchkeys: matchkeys.clone(),
-                    epoch,
-                    timestamp: t.num_seconds().to_u64().unwrap(),
+                    epoch: params.epoch,
+                    timestamp: t.as_secs().to_u64().unwrap(),
                 },
-                breakdown_key: String::from(breakdown_key),
+                breakdown_key: params.breakdown_key.clone(),
             }));
         }
 
@@ -225,7 +208,7 @@ fn gen_events<R: RngCore + CryptoRng>(
 
     let mut last_conversion = last_impression;
 
-    for _ in 0..conversions {
+    for _ in 0..params.conversions {
         let conversion_value = sample.conversion_value_per_ad(rng);
 
         // TODO: Need to make sure the time is > SourceEvent.timestamp + imp_cv_interval_distribution
@@ -235,8 +218,8 @@ fn gen_events<R: RngCore + CryptoRng>(
             events.push(EventType::ET(ETriggerEvent {
                 event: EEvent {
                     matchkeys: ss_mks.clone(),
-                    epoch,
-                    timestamp: to_secret_share(&t.num_seconds().to_be_bytes(), ss_rng),
+                    epoch: params.epoch,
+                    timestamp: to_secret_share(&t.as_secs().to_be_bytes(), ss_rng),
                 },
                 value: to_secret_share(&conversion_value.to_be_bytes(), ss_rng),
                 zkp: String::from("zkp"),
@@ -245,8 +228,8 @@ fn gen_events<R: RngCore + CryptoRng>(
             events.push(EventType::T(TriggerEvent {
                 event: Event {
                     matchkeys: matchkeys.clone(),
-                    epoch,
-                    timestamp: t.num_seconds().to_u64().unwrap(),
+                    epoch: params.epoch,
+                    timestamp: t.as_secs().to_u64().unwrap(),
                 },
                 value: conversion_value,
                 zkp: String::from("zkp"),
@@ -269,7 +252,11 @@ fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<u64> {
 }
 
 fn to_secret_share<R: RngCore + CryptoRng>(data: &[u8], rng: &mut R) -> SecretShare {
-    let mut ss: SecretShare = [Vec::new(), Vec::new(), Vec::new()];
+    let mut ss: SecretShare = [
+        Vec::with_capacity(data.len()),
+        Vec::with_capacity(data.len()),
+        Vec::with_capacity(data.len()),
+    ];
 
     for x in data {
         let ss1 = rng.gen::<u8>();
@@ -285,16 +272,28 @@ fn to_secret_share<R: RngCore + CryptoRng>(data: &[u8], rng: &mut R) -> SecretSh
 
 #[cfg(test)]
 mod tests {
+    use super::{generate_events, EventType};
     use byteorder::{BigEndian, ReadBytesExt};
+    use rand::Rng;
+    use rand_distr::Alphanumeric;
     use raw_ipa::helpers::models::SecretShare;
+    use std::env::temp_dir;
     use std::fs::{self, File};
     use std::io::prelude::*;
     use std::io::{BufReader, Read, Write};
-    use uuid::Uuid;
+    use std::path::PathBuf;
 
-    use crate::gen::{ESourceEvent, ETriggerEvent, SourceEvent, TriggerEvent};
+    fn gen_temp_file_path() -> PathBuf {
+        let mut dir = temp_dir();
+        let file: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
 
-    use super::generate_events;
+        dir.push(file);
+        dir
+    }
 
     fn from_secret_share_to_u64(ss: &SecretShare) -> u64 {
         ss[0].as_slice().read_u64::<BigEndian>().unwrap()
@@ -309,9 +308,9 @@ mod tests {
     }
 
     #[test]
-    fn same_seed_geenrates_same_output() {
-        let temp1 = Uuid::new_v4().to_string();
-        let temp2 = Uuid::new_v4().to_string();
+    fn same_seed_generates_same_output() {
+        let temp1 = gen_temp_file_path();
+        let temp2 = gen_temp_file_path();
 
         let seed = Some(0);
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
@@ -336,8 +335,8 @@ mod tests {
 
     #[test]
     fn same_seed_generates_same_ss_output() {
-        let temp1 = Uuid::new_v4().to_string();
-        let temp2 = Uuid::new_v4().to_string();
+        let temp1 = gen_temp_file_path();
+        let temp2 = gen_temp_file_path();
 
         let seed = Some(0);
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
@@ -362,8 +361,8 @@ mod tests {
 
     #[test]
     fn same_seed_ss_matchkeys_and_plain_matchkeys_are_same() {
-        let temp1 = Uuid::new_v4().to_string();
-        let temp2 = Uuid::new_v4().to_string();
+        let temp1 = gen_temp_file_path();
+        let temp2 = gen_temp_file_path();
 
         let seed = Some(0);
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
@@ -379,46 +378,48 @@ mod tests {
 
         for line in buf1.lines() {
             let l1 = line.unwrap();
+            let mut l2 = String::new();
+            buf2.read_line(&mut l2).unwrap();
 
-            // Try to deserialize a line of text to SourceEvent
-            let result = serde_json::from_str::<SourceEvent>(&l1);
-            if let Ok(s) = result {
-                // Source Event
+            let e1 = serde_json::from_str::<EventType>(&l1).unwrap();
+            let e2 = serde_json::from_str::<EventType>(&l2).unwrap();
 
-                // Read from the second file (SS matchkeys) and deserialize
-                let mut l2 = String::new();
-                buf2.read_line(&mut l2).unwrap();
-                let es = serde_json::from_str::<ESourceEvent>(l2.as_str()).unwrap();
+            match e1 {
+                EventType::S(s) => {
+                    if let EventType::ES(es) = e2 {
+                        for (k, v) in s.event.matchkeys.iter().enumerate() {
+                            let ssm = from_secret_share_to_u64(&es.event.matchkeys[k]);
+                            assert!(*v == ssm);
+                        }
 
-                for (k, v) in s.event.matchkeys.iter().enumerate() {
-                    let ssm = from_secret_share_to_u64(&es.event.matchkeys[k]);
-                    assert!(*v == ssm);
+                        let sst = from_secret_share_to_u64(&es.event.timestamp);
+                        assert!(s.event.timestamp == sst);
+                        assert!(s.breakdown_key == es.breakdown_key);
+                        assert!(s.event.epoch == es.event.epoch);
+                    } else {
+                        unreachable!();
+                    }
                 }
 
-                let sst = from_secret_share_to_u64(&es.event.timestamp);
-                assert!(s.event.timestamp == sst);
-                assert!(s.breakdown_key == es.breakdown_key);
-                assert!(s.event.epoch == es.event.epoch);
-            } else {
-                // Trigger Event
-                let t = serde_json::from_str::<TriggerEvent>(&l1).unwrap();
+                EventType::T(t) => {
+                    if let EventType::ET(et) = e2 {
+                        for (k, v) in t.event.matchkeys.iter().enumerate() {
+                            let matchkey = from_secret_share_to_u64(&et.event.matchkeys[k]);
+                            assert!(*v == matchkey);
+                        }
 
-                // Read from the second file (SS matchkeys) and deserialize
-                let mut l2 = String::new();
-                buf2.read_line(&mut l2).unwrap();
-                let et = serde_json::from_str::<ETriggerEvent>(l2.as_str()).unwrap();
-
-                for (k, v) in t.event.matchkeys.iter().enumerate() {
-                    let matchkey = from_secret_share_to_u64(&et.event.matchkeys[k]);
-                    assert!(*v == matchkey);
+                        let timestamp = from_secret_share_to_u64(&et.event.timestamp);
+                        let value = from_secret_share_to_u32(&et.value);
+                        assert!(t.event.timestamp == timestamp);
+                        assert!(t.value == value);
+                        assert!(t.zkp == et.zkp);
+                        assert!(t.event.epoch == et.event.epoch);
+                    } else {
+                        unreachable!();
+                    }
                 }
 
-                let timestamp = from_secret_share_to_u64(&et.event.timestamp);
-                let value = from_secret_share_to_u32(&et.value);
-                assert!(t.event.timestamp == timestamp);
-                assert!(t.value == value);
-                assert!(t.zkp == et.zkp);
-                assert!(t.event.epoch == et.event.epoch);
+                EventType::ES(_) | EventType::ET(_) => unreachable!(),
             }
         }
 

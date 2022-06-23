@@ -1,8 +1,8 @@
-use chrono::Duration;
 use rand::distributions::WeightedIndex;
 use rand::{CryptoRng, Rng, RngCore};
 use rand_distr::{num_traits::ToPrimitive, Distribution, Normal};
 use std::ops::Range;
+use std::time::Duration;
 
 const DEVICES_PER_USER_DISTR_WEIGHT: [(u8, f64); 10] = [
     (0, 0.0),
@@ -125,7 +125,7 @@ impl Sample {
             )
             .unwrap(),
             // FB Feed = >2hrs, IG Feed = >3hrs, IG Stories = >6hrs
-            frequency_cap_distr: Normal::new(9.0, 2.0).unwrap(),
+            frequency_cap_distr: Normal::new(6.0, 0.5).unwrap(),
 
             // TODO: Need data
             trigger_value_distr: Normal::new(1000.0, 100.0).unwrap(),
@@ -164,14 +164,14 @@ impl Sample {
     }
 
     pub fn impressions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
-        let diff = self.frequency_cap_distr.sample(rng);
-        Duration::seconds((diff * 60.0 * 60.0).floor().to_i64().unwrap())
+        let diff = self.frequency_cap_distr.sample(rng).min(2.0);
+        Duration::new((diff * 60.0 * 60.0).floor().to_u64().unwrap(), 0)
     }
 
     pub fn conversions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
         let days = CONVERSIONS_DURATION_DISTR[self.conversions_duration_distr.sample(rng)]
             .0
             .clone();
-        Duration::days(rng.gen_range(days).to_i64().unwrap())
+        Duration::new(rng.gen_range(days).to_u64().unwrap() * 24 * 60 * 60, 0)
     }
 }
