@@ -1,3 +1,5 @@
+use crate::config::Config;
+
 use super::sample::Sample;
 use log::{debug, info, trace};
 use rand::SeedableRng;
@@ -62,6 +64,7 @@ struct GenEventParams {
 // "Ads" doesn't mean FB's L3 ads. It could be ads from different businesses.
 
 pub fn generate_events<W: io::Write>(
+    config: &Config,
     total_count: u32,
     epoch: u8,
     secret_share: bool,
@@ -80,7 +83,7 @@ pub fn generate_events<W: io::Write>(
         Some(seed) => ChaCha20Rng::seed_from_u64(*seed),
     };
 
-    let sample = Sample::new();
+    let sample = Sample::new(config);
 
     let mut ad_count = 0;
     let mut event_count = 0;
@@ -94,7 +97,7 @@ pub fn generate_events<W: io::Write>(
         ad_count += 1;
         debug!("ad: {}", ad_count);
 
-        // TODO: 99.97% queries in ads manager account for L1-3 breakdown only. For now, we'll do 1 ad = 1 breakdown key
+        // For now, we'll do 1 ad = 1 breakdown key
         let ad_id: u32 = rng.gen();
 
         // Number of unique people who saw the ad
@@ -258,14 +261,85 @@ fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::{generate_events, EventType};
+    use crate::config::parse;
     use rand::Rng;
     use rand_distr::Alphanumeric;
     use raw_ipa::helpers::models::SecretSharable;
     use std::env::temp_dir;
     use std::fs::{self, File};
     use std::io::prelude::*;
-    use std::io::{BufReader, Read, Write};
+    use std::io::{BufReader, Cursor, Read, Write};
     use std::path::PathBuf;
+
+    const DATA: &str = r#"
+      {
+        "devices_per_user": {
+          "weighted_index": [
+            { "index": 0, "weight": 0.0 },
+            { "index": 1, "weight": 0.6 },
+            { "index": 2, "weight": 0.4 }
+          ]
+        },
+      
+        "cvr_per_ad": {
+          "weighted_index": [
+            { "index": { "start": 0.001, "end": 0.002 }, "weight": 0.2 },
+            { "index": { "start": 0.002, "end": 0.004 }, "weight": 0.3 },
+            { "index": { "start": 0.004, "end": 0.007 }, "weight": 0.3 },
+            { "index": { "start": 0.007, "end": 0.01 }, "weight": 0.2 }
+          ]
+        },
+      
+        "conversion_value_per_user": {
+          "weighted_index": [
+            { "index": { "start": 0, "end": 100 }, "weight": 0.3 },
+            { "index": { "start": 100, "end": 1000 }, "weight": 0.6 },
+            { "index": { "start": 1000, "end": 5000 }, "weight": 0.1 }
+          ]
+        },
+      
+        "reach_per_ad": {
+          "weighted_index": [
+            { "index": { "start": 1, "end": 100 }, "weight": 0.1 },
+            { "index": { "start": 100, "end": 1000 }, "weight": 0.2 },
+            { "index": { "start": 1000, "end": 5000 }, "weight": 0.4 },
+            { "index": { "start": 5000, "end": 10000 }, "weight": 0.3 }
+          ]
+        },
+      
+        "impression_per_user": {
+          "weighted_index": [
+            { "index": 1, "weight": 0.9 },
+            { "index": 2, "weight": 0.1 }
+          ]
+        },
+      
+        "conversion_per_user": {
+          "weighted_index": [
+            { "index": 1, "weight": 0.9 },
+            { "index": 2, "weight": 0.1 }
+          ]
+        },
+      
+        "impression_impression_duration": {
+          "weighted_index": [
+            { "index": { "start": 1.0, "end": 2.0 }, "weight": 0.1 },
+            { "index": { "start": 2.0, "end": 3.0 }, "weight": 0.2 },
+            { "index": { "start": 3.0, "end": 4.0 }, "weight": 0.5 },
+            { "index": { "start": 4.0, "end": 5.0 }, "weight": 0.2 }
+          ]
+        },
+      
+        "impression_conversion_duration": {
+          "weighted_index": [
+            { "index": { "start": 0, "end": 1 }, "weight": 0.7 },
+            { "index": { "start": 1, "end": 2 }, "weight": 0.1 },
+            { "index": { "start": 2, "end": 4 }, "weight": 0.1 },
+            { "index": { "start": 4, "end": 7 }, "weight": 0.1 }
+          ]
+        }
+      }
+    "#;
 
     fn gen_temp_file_path() -> PathBuf {
         let mut dir = temp_dir();
@@ -288,8 +362,10 @@ mod tests {
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
         let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        generate_events(100, 0, false, &seed, &mut out1);
-        generate_events(100, 0, false, &seed, &mut out2);
+        let config = parse(&mut Cursor::new(DATA));
+
+        generate_events(&config, 100, 0, false, &seed, &mut out1);
+        generate_events(&config, 100, 0, false, &seed, &mut out2);
 
         let mut file1 = File::open(&temp1).unwrap();
         let mut file2 = File::open(&temp2).unwrap();
@@ -314,8 +390,10 @@ mod tests {
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
         let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        generate_events(100, 0, false, &seed, &mut out1);
-        generate_events(100, 0, false, &seed, &mut out2);
+        let config = parse(&mut Cursor::new(DATA));
+
+        generate_events(&config, 100, 0, false, &seed, &mut out1);
+        generate_events(&config, 100, 0, false, &seed, &mut out2);
 
         let mut file1 = File::open(&temp1).unwrap();
         let mut file2 = File::open(&temp2).unwrap();
@@ -340,8 +418,10 @@ mod tests {
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
         let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        generate_events(10000, 0, false, &seed, &mut out1);
-        generate_events(10000, 0, true, &seed, &mut out2);
+        let config = parse(&mut Cursor::new(DATA));
+
+        generate_events(&config, 10000, 0, false, &seed, &mut out1);
+        generate_events(&config, 10000, 0, true, &seed, &mut out2);
 
         let file1 = File::open(&temp1).unwrap();
         let file2 = File::open(&temp2).unwrap();

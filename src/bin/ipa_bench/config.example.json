@@ -1,0 +1,113 @@
+{
+  "devices_per_user": {
+    "weighted_index": [
+      { "index": 0, "weight": 0.0 },
+      { "index": 1, "weight": 0.6 },
+      { "index": 2, "weight": 0.31 },
+      { "index": 3, "weight": 0.085 },
+      { "index": 4, "weight": 0.002 },
+      { "index": 5, "weight": 0.001 },
+      { "index": 6, "weight": 0.001 },
+      { "index": 7, "weight": 0.001 },
+      { "index": 8, "weight": 0.0 },
+      { "index": 9, "weight": 0.0 }
+    ]
+  },
+
+  "cvr_per_ad": {
+    "weighted_index": [
+      { "index": { "start": 0.0, "end": 0.0 }, "weight": 0.0 },
+      { "index": { "start": 0.001, "end": 0.002 }, "weight": 0.1 },
+      { "index": { "start": 0.002, "end": 0.004 }, "weight": 0.2 },
+      { "index": { "start": 0.004, "end": 0.007 }, "weight": 0.3 },
+      { "index": { "start": 0.007, "end": 0.01 }, "weight": 0.2 },
+      { "index": { "start": 0.01, "end": 0.015 }, "weight": 0.08 },
+      { "index": { "start": 0.015, "end": 0.02 }, "weight": 0.02 },
+      { "index": { "start": 0.02, "end": 0.03 }, "weight": 0.007 },
+      { "index": { "start": 0.03, "end": 0.05 }, "weight": 0.002 },
+      { "index": { "start": 0.05, "end": 0.1 }, "weight": 0.001 }
+    ]
+  },
+
+  "conversion_value_per_user": {
+    "weighted_index": [
+      { "index": { "start": 0, "end": 100 }, "weight": 0.05 },
+      { "index": { "start": 100, "end": 1000 }, "weight": 0.35 },
+      { "index": { "start": 1000, "end": 2000 }, "weight": 0.25 },
+      { "index": { "start": 2000, "end": 5000 }, "weight": 0.15 },
+      { "index": { "start": 5000, "end": 10000 }, "weight": 0.15 },
+      { "index": { "start": 10000, "end": 50000 }, "weight": 0.05 }
+    ]
+  },
+
+  "reach_per_ad": {
+    "weighted_index": [
+      { "index": { "start": 1, "end": 100 }, "weight": 0.055 },
+      { "index": { "start": 100, "end": 1000 }, "weight": 0.25 },
+      { "index": { "start": 1000, "end": 2000 }, "weight": 0.2 },
+      { "index": { "start": 2000, "end": 5000 }, "weight": 0.19 },
+      { "index": { "start": 5000, "end": 10000 }, "weight": 0.175 },
+      { "index": { "start": 10000, "end": 50000 }, "weight": 0.13 }
+    ]
+  },
+
+  "impression_per_user": {
+    "weighted_index": [
+      { "index": 0, "weight": 0.0 },
+      { "index": 1, "weight": 0.845 },
+      { "index": 2, "weight": 0.105 },
+      { "index": 3, "weight": 0.026 },
+      { "index": 4, "weight": 0.01 },
+      { "index": 5, "weight": 0.005 },
+      { "index": 6, "weight": 0.004 },
+      { "index": 7, "weight": 0.003 },
+      { "index": 8, "weight": 0.002 },
+      { "index": 9, "weight": 0.001 }
+    ]
+  },
+
+  "conversion_per_user": {
+    "weighted_index": [
+      { "index": 0, "weight": 0.0 },
+      { "index": 1, "weight": 0.8 },
+      { "index": 2, "weight": 0.09 },
+      { "index": 3, "weight": 0.03 },
+      { "index": 4, "weight": 0.02 },
+      { "index": 5, "weight": 0.01 },
+      { "index": 6, "weight": 0.015 },
+      { "index": 7, "weight": 0.013 },
+      { "index": 8, "weight": 0.011 },
+      { "index": 9, "weight": 0.011 }
+    ]
+  },
+
+  "impression_impression_duration": {
+    "weighted_index": [
+      { "index": { "start": 0.0, "end": 1.0 }, "weight": 0.0 },
+      { "index": { "start": 1.0, "end": 2.0 }, "weight": 0.0 },
+      { "index": { "start": 2.0, "end": 3.0 }, "weight": 0.1 },
+      { "index": { "start": 3.0, "end": 4.0 }, "weight": 0.2 },
+      { "index": { "start": 4.0, "end": 5.0 }, "weight": 0.3 },
+      { "index": { "start": 5.0, "end": 6.0 }, "weight": 0.2 },
+      { "index": { "start": 6.0, "end": 7.0 }, "weight": 0.1 },
+      { "index": { "start": 7.0, "end": 8.0 }, "weight": 0.05 },
+      { "index": { "start": 8.0, "end": 9.0 }, "weight": 0.025 },
+      { "index": { "start": 9.0, "end": 10.0 }, "weight": 0.025 }
+    ]
+  },
+
+  "impression_conversion_duration": {
+    "weighted_index": [
+      { "index": { "start": 0, "end": 1 }, "weight": 0.32 },
+      { "index": { "start": 1, "end": 2 }, "weight": 0.08 },
+      { "index": { "start": 2, "end": 4 }, "weight": 0.1 },
+      { "index": { "start": 4, "end": 7 }, "weight": 0.11 },
+      { "index": { "start": 7, "end": 10 }, "weight": 0.075 },
+      { "index": { "start": 10, "end": 12 }, "weight": 0.035 },
+      { "index": { "start": 12, "end": 14 }, "weight": 0.04 },
+      { "index": { "start": 14, "end": 17 }, "weight": 0.05 },
+      { "index": { "start": 17, "end": 20 }, "weight": 0.045 },
+      { "index": { "start": 20, "end": 28 }, "weight": 0.145 }
+    ]
+  }
+}

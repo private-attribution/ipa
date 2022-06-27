@@ -1,10 +1,12 @@
+use crate::config::parse;
+
 use super::init::generate_events;
 use super::run::generate_report;
 
 use log::{debug, error, info};
 use raw_ipa::cli::Verbosity;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{io, process};
 use structopt::StructOpt;
 
@@ -41,7 +43,8 @@ pub struct Args {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "command")]
 pub enum Command {
-    Init {
+    #[structopt(about = "Generate synthetic events.")]
+    GenEvents {
         #[structopt(
             short,
             long,
@@ -67,9 +70,18 @@ pub enum Command {
 
         #[structopt(long, help = "Output secret shared values")]
         secret_share: bool,
+
+        #[structopt(
+            short,
+            long,
+            help = "Configuration file containing distributions data.",
+            parse(from_os_str)
+        )]
+        config_file: PathBuf,
     },
 
-    Run {
+    #[structopt(about = "Execute a specified attribution logic.")]
+    Attribute {
         #[structopt(
             short,
             long,
@@ -101,31 +113,44 @@ impl Command {
         info!("Command {:?}", self);
 
         match self {
-            Self::Init {
+            Self::GenEvents {
                 scale_factor,
                 random_seed,
                 epoch,
                 secret_share,
+                config_file,
             } => {
-                Command::init(common, *scale_factor, random_seed, *epoch, *secret_share);
+                Command::gen_events(
+                    common,
+                    *scale_factor,
+                    random_seed,
+                    *epoch,
+                    *secret_share,
+                    config_file,
+                );
             }
 
-            Self::Run {
+            Self::Attribute {
                 input_file,
                 attribution_window,
                 model,
-            } => Command::run(common, input_file, *attribution_window, model),
+            } => Command::attribute(common, input_file, *attribution_window, model),
         }
     }
 
-    // Execute [init] subcommand
-    fn init(
+    fn gen_events(
         common: &CommonArgs,
         scale_factor: u32,
         random_seed: &Option<u64>,
         epoch: u8,
         secret_share: bool,
+        config_file: &Path,
     ) {
+        let mut input = get_input(&Some(config_file.to_path_buf())).unwrap_or_else(|e| {
+            error!("Failed to open the input file. {}", e);
+            process::exit(1);
+        });
+
         let mut out = get_output(&common.output_file, common.overwrite).unwrap_or_else(|e| {
             error!("Failed to open the output file. {}", e);
             process::exit(1);
@@ -140,7 +165,10 @@ impl Command {
             DEFAULT_EVENT_GEN_COUNT * scale_factor
         );
 
+        let config = parse(&mut input);
+
         let (s_count, t_count) = generate_events(
+            &config,
             DEFAULT_EVENT_GEN_COUNT * scale_factor,
             epoch,
             secret_share,
@@ -156,7 +184,7 @@ impl Command {
         );
     }
 
-    fn run(
+    fn attribute(
         common: &CommonArgs,
         input_file: &Option<PathBuf>,
         attribution_window: u32,
@@ -173,8 +201,8 @@ impl Command {
         });
 
         info!(
-            "input: {:?}, attribution_window: {}, model: {}",
-            input_file, attribution_window, model
+            "attribution_window: {}, model: {}",
+            attribution_window, model
         );
 
         generate_report(&mut input, attribution_window, model, &mut out);
