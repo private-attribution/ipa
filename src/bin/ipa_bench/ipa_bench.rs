@@ -1,7 +1,7 @@
+mod attribute;
 mod cmd;
 mod config;
-mod init;
-mod run;
+mod gen_events;
 mod sample;
 
 use structopt::StructOpt;

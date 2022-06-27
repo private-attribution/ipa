@@ -1,7 +1,7 @@
 use crate::config::parse;
 
-use super::init::generate_events;
-use super::run::generate_report;
+use super::attribute::generate_report;
+use super::gen_events::generate_events;
 
 use log::{debug, error, info};
 use raw_ipa::cli::Verbosity;

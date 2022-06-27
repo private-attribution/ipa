@@ -1,4 +1,4 @@
-use crate::init::{Event, EventType, SourceEvent, TriggerEvent};
+use crate::gen_events::{Event, EventType, SourceEvent, TriggerEvent};
 use log::info;
 use raw_ipa::helpers::models::SecretSharable;
 use serde::Serialize;
