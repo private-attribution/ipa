@@ -1,9 +1,11 @@
-use super::gen::generate_events;
+use crate::config::parse;
+
+use super::gen_events::generate_events;
 
 use log::{debug, error, info};
 use raw_ipa::cli::Verbosity;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{io, process};
 use structopt::StructOpt;
 
@@ -38,9 +40,10 @@ pub struct Args {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "init")]
+#[structopt(name = "command")]
 pub enum Command {
-    Init {
+    #[structopt(about = "Generate synthetic events.")]
+    GenEvents {
         #[structopt(
             short,
             long,
@@ -66,6 +69,14 @@ pub enum Command {
 
         #[structopt(long, help = "Output secret shared values")]
         secret_share: bool,
+
+        #[structopt(
+            short,
+            long,
+            help = "Configuration file containing distributions data.",
+            parse(from_os_str)
+        )]
+        config_file: PathBuf,
     },
 }
 
@@ -74,25 +85,38 @@ impl Command {
         info!("Command {:?}", self);
 
         match self {
-            Self::Init {
+            Self::GenEvents {
                 scale_factor,
                 random_seed,
                 epoch,
                 secret_share,
+                config_file,
             } => {
-                Command::init(common, *scale_factor, random_seed, *epoch, *secret_share);
+                Command::gen_events(
+                    common,
+                    *scale_factor,
+                    random_seed,
+                    *epoch,
+                    *secret_share,
+                    config_file,
+                );
             }
         }
     }
 
-    // Execute [init] subcommand
-    fn init(
+    fn gen_events(
         common: &CommonArgs,
         scale_factor: u32,
         random_seed: &Option<u64>,
         epoch: u8,
         secret_share: bool,
+        config_file: &Path,
     ) {
+        let mut input = get_input(&Some(config_file.to_path_buf())).unwrap_or_else(|e| {
+            error!("Failed to open the input file. {}", e);
+            process::exit(1);
+        });
+
         let mut out = get_output(&common.output_file, common.overwrite).unwrap_or_else(|e| {
             error!("Failed to open the output file. {}", e);
             process::exit(1);
@@ -107,7 +131,10 @@ impl Command {
             DEFAULT_EVENT_GEN_COUNT * scale_factor
         );
 
+        let config = parse(&mut input);
+
         let (s_count, t_count) = generate_events(
+            &config,
             DEFAULT_EVENT_GEN_COUNT * scale_factor,
             epoch,
             secret_share,
@@ -121,6 +148,13 @@ impl Command {
             "trigger/source ratio: {}",
             f64::from(t_count) / f64::from(s_count)
         );
+    }
+}
+
+fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {
+    match path {
+        Some(ref path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
+        None => Ok(Box::new(io::stdin())),
     }
 }
 
