@@ -5,22 +5,47 @@ use std::io::{BufReader, Read};
 use std::ops::Range;
 use std::process;
 
-pub fn parse<R: Read>(input: &mut R) -> Config {
-    let f = BufReader::new(input);
-
-    let config: Value = serde_json::from_reader(f).unwrap();
-
-    Config { config }
-}
-
 #[derive(Clone)]
 pub struct Config {
-    config: Value,
+    pub devices_per_user: Vec<(u8, f64)>,
+    pub cvr_per_ad: Vec<(Range<f64>, f64)>,
+    pub conversion_value_per_user: Vec<(Range<u32>, f64)>,
+    pub reach_per_ad: Vec<(Range<u32>, f64)>,
+    pub impression_per_user: Vec<(u8, f64)>,
+    pub conversion_per_user: Vec<(u8, f64)>,
+    pub impression_impression_duration: Vec<(Range<f64>, f64)>,
+    pub impression_conversion_duration: Vec<(Range<u32>, f64)>,
 }
 
 impl Config {
-    fn weighted_index_u8_f64(&self, name: &str) -> Vec<(u8, f64)> {
-        let config: &Vec<Value> = self.config[name]["weighted_index"]
+    pub fn parse<R: Read>(input: &mut R) -> Self {
+        let f = BufReader::new(input);
+
+        let config: Value = serde_json::from_reader(f).unwrap();
+
+        Config {
+            devices_per_user: Config::weighted_index_u8_f64(&config, "devices_per_user"),
+            cvr_per_ad: Config::weighted_index_range_f64_f64(&config, "cvr_per_ad"),
+            conversion_value_per_user: Config::weighted_index_range_u32_f64(
+                &config,
+                "conversion_value_per_user",
+            ),
+            reach_per_ad: Config::weighted_index_range_u32_f64(&config, "reach_per_ad"),
+            impression_per_user: Config::weighted_index_u8_f64(&config, "impression_per_user"),
+            conversion_per_user: Config::weighted_index_u8_f64(&config, "conversion_per_user"),
+            impression_impression_duration: Config::weighted_index_range_f64_f64(
+                &config,
+                "impression_impression_duration",
+            ),
+            impression_conversion_duration: Config::weighted_index_range_u32_f64(
+                &config,
+                "impression_conversion_duration",
+            ),
+        }
+    }
+
+    fn weighted_index_u8_f64(config: &Value, name: &str) -> Vec<(u8, f64)> {
+        let config: &Vec<Value> = config[name]["weighted_index"]
             .as_array()
             .unwrap_or_else(|| {
                 error!("Failed to read '{}' config.", name);
@@ -53,8 +78,8 @@ impl Config {
         distr
     }
 
-    fn weighted_index_range_f64_f64(&self, name: &str) -> Vec<(Range<f64>, f64)> {
-        let config: &Vec<Value> = self.config[name]["weighted_index"]
+    fn weighted_index_range_f64_f64(config: &Value, name: &str) -> Vec<(Range<f64>, f64)> {
+        let config: &Vec<Value> = config[name]["weighted_index"]
             .as_array()
             .unwrap_or_else(|| {
                 error!("Failed to read '{}' config.", name);
@@ -83,9 +108,9 @@ impl Config {
         distr
     }
 
-    fn weighted_index_range_u32_f64(&self, name: &str) -> Vec<(Range<u32>, f64)> {
+    fn weighted_index_range_u32_f64(config: &Value, name: &str) -> Vec<(Range<u32>, f64)> {
         // Reuse range_f64_f64 and cast to u32
-        let config = self.weighted_index_range_f64_f64(name);
+        let config = Config::weighted_index_range_f64_f64(config, name);
         config
             .iter()
             .map(|i| {
@@ -98,37 +123,5 @@ impl Config {
                 )
             })
             .collect()
-    }
-
-    pub fn devices_per_user(&self) -> Vec<(u8, f64)> {
-        self.weighted_index_u8_f64("devices_per_user")
-    }
-
-    pub fn cvr_per_ad(&self) -> Vec<(Range<f64>, f64)> {
-        self.weighted_index_range_f64_f64("cvr_per_ad")
-    }
-
-    pub fn conversion_value_per_user(&self) -> Vec<(Range<u32>, f64)> {
-        self.weighted_index_range_u32_f64("conversion_value_per_user")
-    }
-
-    pub fn reach_per_ad(&self) -> Vec<(Range<u32>, f64)> {
-        self.weighted_index_range_u32_f64("reach_per_ad")
-    }
-
-    pub fn impression_per_user(&self) -> Vec<(u8, f64)> {
-        self.weighted_index_u8_f64("impression_per_user")
-    }
-
-    pub fn conversion_per_user(&self) -> Vec<(u8, f64)> {
-        self.weighted_index_u8_f64("conversion_per_user")
-    }
-
-    pub fn impression_impression_duration(&self) -> Vec<(Range<f64>, f64)> {
-        self.weighted_index_range_f64_f64("impression_impression_duration")
-    }
-
-    pub fn impression_conversion_duration(&self) -> Vec<(Range<u32>, f64)> {
-        self.weighted_index_range_u32_f64("impression_conversion_duration")
     }
 }

@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use crate::config::Config;
 
-pub struct Sample {
-    config: Config,
+pub struct Sample<'a> {
+    config: &'a Config,
 
     // Event Count
     reach_per_ad_distr: WeightedIndex<f64>,
@@ -25,85 +25,83 @@ pub struct Sample {
     trigger_value_distr: WeightedIndex<f64>,
 }
 
-impl Sample {
+impl<'a> Sample<'a> {
     // <# of events> = X = DEFAULT_EVENT_GEN_COUNT * scale
     // # of events per day = impressions/day + conversions/day
     // impressions per day = devices * impression/device/day
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &'a Config) -> Self {
         Self {
-            config: config.clone(),
-            reach_per_ad_distr: WeightedIndex::new(config.reach_per_ad().iter().map(|i| i.1))
+            config,
+
+            reach_per_ad_distr: WeightedIndex::new(config.reach_per_ad.iter().map(|i| i.1))
                 .unwrap(),
-            cvr_per_adaccount_distr: WeightedIndex::new(config.cvr_per_ad().iter().map(|i| i.1))
+            cvr_per_adaccount_distr: WeightedIndex::new(config.cvr_per_ad.iter().map(|i| i.1))
                 .unwrap(),
             ad_impression_per_user_distr: WeightedIndex::new(
-                config.impression_per_user().iter().map(|i| i.1),
+                config.impression_per_user.iter().map(|i| i.1),
             )
             .unwrap(),
             ad_conversion_per_user_distr: WeightedIndex::new(
-                config.conversion_per_user().iter().map(|i| i.1),
+                config.conversion_per_user.iter().map(|i| i.1),
             )
             .unwrap(),
 
-            devices_per_user_distr: WeightedIndex::new(
-                config.devices_per_user().iter().map(|i| i.1),
-            )
-            .unwrap(),
+            devices_per_user_distr: WeightedIndex::new(config.devices_per_user.iter().map(|i| i.1))
+                .unwrap(),
 
             conversions_duration_distr: WeightedIndex::new(
-                config.impression_conversion_duration().iter().map(|i| i.1),
+                config.impression_conversion_duration.iter().map(|i| i.1),
             )
             .unwrap(),
 
             frequency_cap_distr: WeightedIndex::new(
-                config.impression_impression_duration().iter().map(|i| i.1),
+                config.impression_impression_duration.iter().map(|i| i.1),
             )
             .unwrap(),
 
             // TODO: Need data
             trigger_value_distr: WeightedIndex::new(
-                config.conversion_value_per_user().iter().map(|i| i.1),
+                config.conversion_value_per_user.iter().map(|i| i.1),
             )
             .unwrap(),
         }
     }
 
     pub fn reach_per_ad<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
-        // TODO: Using impressions distribution here because 93% of users see only have one impression per ad
-        let r = self.config.reach_per_ad()[self.reach_per_ad_distr.sample(rng)]
+        let r = self.config.reach_per_ad[self.reach_per_ad_distr.sample(rng)]
             .0
             .clone();
         rng.gen_range(r)
     }
 
     pub fn devices_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.devices_per_user()[self.devices_per_user_distr.sample(rng)].0
+        self.config.devices_per_user[self.devices_per_user_distr.sample(rng)].0
     }
 
     pub fn cvr_per_ad_account<R: RngCore + CryptoRng>(&self, rng: &mut R) -> f64 {
-        let r = self.config.cvr_per_ad()[self.cvr_per_adaccount_distr.sample(rng)]
+        let r = self.config.cvr_per_ad[self.cvr_per_adaccount_distr.sample(rng)]
             .0
             .clone();
         rng.gen_range(r)
     }
 
     pub fn impression_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.impression_per_user()[self.ad_impression_per_user_distr.sample(rng)].0
+        self.config.impression_per_user[self.ad_impression_per_user_distr.sample(rng)].0
     }
 
     pub fn conversion_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.conversion_per_user()[self.ad_conversion_per_user_distr.sample(rng)].0
+        self.config.conversion_per_user[self.ad_conversion_per_user_distr.sample(rng)].0
     }
 
     pub fn conversion_value_per_ad<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
-        let r = self.config.conversion_value_per_user()[self.trigger_value_distr.sample(rng)]
+        let r = self.config.conversion_value_per_user[self.trigger_value_distr.sample(rng)]
             .0
             .clone();
         rng.gen_range(r)
     }
 
     pub fn impressions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
-        let r = self.config.impression_impression_duration()[self.frequency_cap_distr.sample(rng)]
+        let r = self.config.impression_impression_duration[self.frequency_cap_distr.sample(rng)]
             .0
             .clone();
         let diff = rng.gen_range(r);
@@ -111,7 +109,7 @@ impl Sample {
     }
 
     pub fn conversions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
-        let days = self.config.impression_conversion_duration()
+        let days = self.config.impression_conversion_duration
             [self.conversions_duration_distr.sample(rng)]
         .0
         .clone();

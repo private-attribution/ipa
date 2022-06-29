@@ -1,5 +1,3 @@
-use crate::config::Config;
-
 use super::sample::Sample;
 use log::{debug, info, trace};
 use rand::SeedableRng;
@@ -64,7 +62,7 @@ struct GenEventParams {
 // "Ads" doesn't mean FB's L3 ads. It could be ads from different businesses.
 
 pub fn generate_events<W: io::Write>(
-    config: &Config,
+    sample: &Sample,
     total_count: u32,
     epoch: u8,
     secret_share: bool,
@@ -82,8 +80,6 @@ pub fn generate_events<W: io::Write>(
         None => ChaCha20Rng::from_entropy(),
         Some(seed) => ChaCha20Rng::seed_from_u64(*seed),
     };
-
-    let sample = Sample::new(config);
 
     let mut ad_count = 0;
     let mut event_count = 0;
@@ -133,7 +129,7 @@ pub fn generate_events<W: io::Write>(
                     breakdown_key: ad_id.to_string(),
                 },
                 secret_share,
-                &sample,
+                sample,
                 &mut rng,
                 &mut ss_rng,
             );
@@ -261,7 +257,8 @@ fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<u64> {
 #[cfg(test)]
 mod tests {
     use super::{generate_events, EventType};
-    use crate::config::parse;
+    use crate::config::Config;
+    use crate::sample::Sample;
     use rand::Rng;
     use rand_distr::Alphanumeric;
     use raw_ipa::helpers::models::SecretSharable;
@@ -362,10 +359,11 @@ mod tests {
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
         let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        let config = parse(&mut Cursor::new(DATA));
+        let config = Config::parse(&mut Cursor::new(DATA));
+        let sample = Sample::new(&config);
 
-        generate_events(&config, 100, 0, false, &seed, &mut out1);
-        generate_events(&config, 100, 0, false, &seed, &mut out2);
+        generate_events(&sample, 100, 0, false, &seed, &mut out1);
+        generate_events(&sample, 100, 0, false, &seed, &mut out2);
 
         let mut file1 = File::open(&temp1).unwrap();
         let mut file2 = File::open(&temp2).unwrap();
@@ -390,10 +388,11 @@ mod tests {
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
         let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        let config = parse(&mut Cursor::new(DATA));
+        let config = Config::parse(&mut Cursor::new(DATA));
+        let sample = Sample::new(&config);
 
-        generate_events(&config, 100, 0, false, &seed, &mut out1);
-        generate_events(&config, 100, 0, false, &seed, &mut out2);
+        generate_events(&sample, 100, 0, false, &seed, &mut out1);
+        generate_events(&sample, 100, 0, false, &seed, &mut out2);
 
         let mut file1 = File::open(&temp1).unwrap();
         let mut file2 = File::open(&temp2).unwrap();
@@ -418,10 +417,11 @@ mod tests {
         let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
         let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        let config = parse(&mut Cursor::new(DATA));
+        let config = Config::parse(&mut Cursor::new(DATA));
+        let sample = Sample::new(&config);
 
-        generate_events(&config, 10000, 0, false, &seed, &mut out1);
-        generate_events(&config, 10000, 0, true, &seed, &mut out2);
+        generate_events(&sample, 10000, 0, false, &seed, &mut out1);
+        generate_events(&sample, 10000, 0, true, &seed, &mut out2);
 
         let file1 = File::open(&temp1).unwrap();
         let file2 = File::open(&temp2).unwrap();

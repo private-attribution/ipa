@@ -1,4 +1,5 @@
-use crate::config::parse;
+use crate::config::Config;
+use crate::sample::Sample;
 
 use super::gen_events::generate_events;
 
@@ -131,10 +132,11 @@ impl Command {
             DEFAULT_EVENT_GEN_COUNT * scale_factor
         );
 
-        let config = parse(&mut input);
+        let config = Config::parse(&mut input);
+        let sample = Sample::new(&config);
 
         let (s_count, t_count) = generate_events(
-            &config,
+            &sample,
             DEFAULT_EVENT_GEN_COUNT * scale_factor,
             epoch,
             secret_share,
