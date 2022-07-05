@@ -1,6 +1,6 @@
-use futures::FutureExt;
-use futures::Stream;
-use futures::StreamExt;
+#![allow(clippy::unnecessary_fold)] // contrived example; also, `.sum()` is not implemented for stream
+
+use futures::{FutureExt, Stream, StreamExt};
 
 pub struct MultiplySumAndStringify {}
 
@@ -12,9 +12,7 @@ impl MultiplySumAndStringify {
             // map provides a way to act on the collected chunk.
             // in this case, multiply the 2 chunked values
             .map(|v| {
-                if v.len() != 2 {
-                    panic!("invalid number of integers in stream; must be even number")
-                }
+                // panics if invalid number of integers in stream; must be even number
                 v[0] * v[1]
             })
             // fold provides a way to accumulate all values at the end of computation.
@@ -44,6 +42,6 @@ mod tests {
             .to_string();
         let inp_stream = stream::iter(inp);
         let res = pipe.run(inp_stream).await;
-        assert_eq!(expected_res, res)
+        assert_eq!(expected_res, res);
     }
 }
