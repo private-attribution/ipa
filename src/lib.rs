@@ -5,6 +5,7 @@ pub mod cli;
 pub mod error;
 pub mod field;
 pub mod helpers;
+pub mod modulus_convert;
 pub mod net;
 pub mod prss;
 pub mod report;
