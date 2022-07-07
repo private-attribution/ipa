@@ -2,6 +2,7 @@ pub mod aggregation;
 pub mod event;
 pub mod models;
 pub mod privacy_budget;
+pub mod radix_sort;
 
 pub use aggregation::{
     Helper as AggregationHelper, PublicHelper as PublicAggregationHelper,
