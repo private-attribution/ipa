@@ -11,6 +11,7 @@ use ff::{Field, PrimeField};
 use rand_core::RngCore;
 use std::iter::repeat_with;
 use std::num::NonZeroU8;
+use std::ops::Add;
 use thiserror::Error;
 
 /// Shamir secret sharing
@@ -32,17 +33,11 @@ pub enum Error {
     InvertError { v: Box<[u8]> },
 }
 
-/// Represents a single share: (x, f(x)) point
+/// Represents a single share: f(x) point. The index of it inside the share slice is used to represent
+/// the "x" coordinate of this share.
 #[derive(Clone)]
 pub struct Share<F> {
-    x: u8,
     y: F,
-}
-
-#[derive(Debug, Error)]
-pub enum ShareError {
-    #[error("Can't perform operation on shares as they don't have the same X coordinate: ({lhs} != {rhs})")]
-    MisalignedShares { lhs: u8, rhs: u8 },
 }
 
 impl SecretSharing {
@@ -94,7 +89,7 @@ impl SecretSharing {
 
             y += secret;
 
-            shares.push(Share { x: i, y });
+            shares.push(Share { y });
         }
 
         shares
@@ -117,13 +112,13 @@ impl SecretSharing {
 
         let mut r = F::zero();
 
-        for share_i in shares {
+        for i in 1..=shares.len() {
             let mut x = F::one();
             let mut denom = F::one();
-            for share_j in shares {
-                if share_j.x != share_i.x {
-                    x *= F::from(u64::from(share_j.x));
-                    denom *= F::from(u64::from(share_j.x)) - F::from(u64::from(share_i.x));
+            for j in 1..=shares.len() {
+                if i != j {
+                    x *= F::from(j as u64);
+                    denom *= F::from(j as u64) - F::from(i as u64);
                 }
             }
 
@@ -134,8 +129,28 @@ impl SecretSharing {
                 });
             }
 
-            r += share_i.y * x * maybe_denom.unwrap();
+            r += shares.get(i-1).unwrap().y * x * maybe_denom.unwrap();
         }
+
+        // for (i, share_i) in shares.iter().enumerate() {
+        //     let mut x = F::one();
+        //     let mut denom = F::one();
+        //     for (j, share_j) in shares.iter().enumerate() {
+        //         if i != j {
+        //             x *= F::from(j as u64);
+        //             denom *= F::from(j as u64) - F::from(i as u64);
+        //         }
+        //     }
+        //
+        //     let maybe_denom = denom.invert();
+        //     if maybe_denom.is_none().into() {
+        //         return Err(Error::InvertError {
+        //             v: Box::from(denom.to_repr().as_ref()),
+        //         });
+        //     }
+        //
+        //     r += share_i.y * x * maybe_denom.unwrap();
+        // }
 
         Ok(r)
     }
@@ -146,29 +161,37 @@ impl SecretSharing {
     }
 }
 
-impl<F: Field> Share<F> {
-    /// Adds two shares together.
-    #[allow(dead_code)]
-    fn add(&self, rhs: &Share<F>) -> Result<Self, ShareError> {
-        if self.x == rhs.x {
-            Ok(Share {
-                x: self.x,
-                y: self.y.add(rhs.y),
-            })
-        } else {
-            Err(ShareError::MisalignedShares {
-                lhs: self.x,
-                rhs: rhs.x,
-            })
-        }
+impl <F: Field> Add for &Share<F> {
+    type Output = Share<F>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Share { y: self.y + rhs.y }
     }
 }
+
+// impl<F: Field> Share<F> {
+//     /// Adds two shares together.
+//     #[allow(dead_code)]
+//     fn add(&self, rhs: &Share<F>) -> Self {
+//         if self.x == rhs.x {
+//             Ok(Share {
+//                 x: self.x,
+//                 y: self.y.add(rhs.y),
+//             })
+//         } else {
+//             Err(ShareError::MisalignedShares {
+//                 lhs: self.x,
+//                 rhs: rhs.x,
+//             })
+//         }
+//     }
+// }
 
 #[cfg(test)]
 // PrimeField macro panics if this attribute is added to `Fp` struct.
 #[allow(clippy::expl_impl_clone_on_copy)]
 mod tests {
-    use crate::shamir::{Error, SecretSharing, Share, ShareError};
+    use crate::shamir::{Error, SecretSharing, Share};
     use ff::PrimeField;
     use proptest::prelude::*;
     use rand::rngs::StdRng;
@@ -224,7 +247,7 @@ mod tests {
             let sum_shares = lhs_shares
                 .iter()
                 .zip(rhs_shares.iter())
-                .map(|(lhs, rhs)| lhs.add(rhs).unwrap())
+                .map(|(lhs, rhs)| lhs + rhs)
                 .collect::<Vec<_>>();
 
             let sum_secret = shamir
@@ -240,19 +263,6 @@ mod tests {
         check_addition(&shamir, 0, 0);
         check_addition(&shamir, Fp::modulus(), 2);
         check_addition(&shamir, 0, Fp::modulus());
-    }
-
-    #[test]
-    fn can_detect_bad_shares() {
-        let shamir =
-            SecretSharing::new(NonZeroU8::new(2).unwrap(), NonZeroU8::new(3).unwrap()).unwrap();
-
-        let shares = shamir.split(Fp::from(42), thread_rng());
-
-        assert!(matches!(
-            shares[0].add(&shares[1]),
-            Err(ShareError::MisalignedShares { .. })
-        ));
     }
 
     #[test]
@@ -307,8 +317,7 @@ mod tests {
 
         let mut shares = sharing.split(secret, rng);
         shares[2] = Share {
-            x: 1,
-            y: Fp::from(5),
+            y: shares[1].y
         };
 
         assert_eq!(secret, sharing.reconstruct(&shares[0..2]).unwrap());
@@ -319,80 +328,80 @@ mod tests {
     // Randomized tests
     //
 
-    #[derive(Debug)]
-    struct ShareReconstructInput {
-        rng_seed: u64,
-        k: u8,
-        n: u8,
-        indices: Vec<u8>,
-    }
-
-    impl ShareReconstructInput {
-        fn gen() -> impl Strategy<Value = Self> {
-            (2u8..250)
-                .prop_flat_map(|v| {
-                    let k = Just(v);
-                    let n = v..=255;
-                    let rng_seed = any::<u64>();
-
-                    (rng_seed, k, n)
-                })
-                .prop_flat_map(|(rng_seed, k, n)| {
-                    let indices = Just((0..n).collect::<Vec<_>>()).prop_shuffle();
-                    (Just(rng_seed), Just(k), Just(n), indices)
-                })
-                .prop_map(|(rng_seed, k, n, indices)| ShareReconstructInput {
-                    rng_seed,
-                    k,
-                    n,
-                    indices,
-                })
-        }
-    }
-
-    #[test]
-    fn sharing_is_reversible() {
-        fn can_share_and_reconstruct(
-            input: ShareReconstructInput,
-            secret: u64,
-        ) -> Result<(), TestCaseError> {
-            let ShareReconstructInput {
-                k,
-                n,
-                indices,
-                rng_seed,
-            } = input;
-
-            let k = NonZeroU8::new(k).unwrap();
-            let n = NonZeroU8::new(n).unwrap();
-            let r = StdRng::seed_from_u64(rng_seed);
-
-            let shamir = SecretSharing::new(k, n).unwrap();
-            let shares = shamir.split(Fp::from(secret), r);
-
-            let reconstruct_shares = indices
-                .iter()
-                .take(k.get() as usize)
-                .map(|&i| shares[i as usize].clone())
-                .collect::<Vec<_>>();
-
-            let reconstructed_secret = shamir
-                .reconstruct(&reconstruct_shares)
-                .map_err(|e| TestCaseError::fail(e.to_string()))?;
-
-            prop_assert_eq!(Fp::from(secret), reconstructed_secret);
-            Ok(())
-        }
-
-        let test_config = if cfg!(feature = "test-harness") {
-            ProptestConfig::default()
-        } else {
-            // to allow fast test execution while running tests locally
-            ProptestConfig::with_cases(10)
-        };
-
-        proptest!(test_config, |(input in ShareReconstructInput::gen(), v in 0..PRIME)| {
-            can_share_and_reconstruct(input, v)?;
-        });
-    }
+    // #[derive(Debug)]
+    // struct ShareReconstructInput {
+    //     rng_seed: u64,
+    //     k: u8,
+    //     n: u8,
+    //     indices: Vec<u8>,
+    // }
+    //
+    // impl ShareReconstructInput {
+    //     fn gen() -> impl Strategy<Value = Self> {
+    //         (2u8..250)
+    //             .prop_flat_map(|v| {
+    //                 let k = Just(v);
+    //                 let n = v..=255;
+    //                 let rng_seed = any::<u64>();
+    //
+    //                 (rng_seed, k, n)
+    //             })
+    //             .prop_flat_map(|(rng_seed, k, n)| {
+    //                 let indices = Just((0..n).collect::<Vec<_>>()).prop_shuffle();
+    //                 (Just(rng_seed), Just(k), Just(n), indices)
+    //             })
+    //             .prop_map(|(rng_seed, k, n, indices)| ShareReconstructInput {
+    //                 rng_seed,
+    //                 k,
+    //                 n,
+    //                 indices,
+    //             })
+    //     }
+    // }
+    //
+    // #[test]
+    // fn sharing_is_reversible() {
+    //     fn can_share_and_reconstruct(
+    //         input: ShareReconstructInput,
+    //         secret: u64,
+    //     ) -> Result<(), TestCaseError> {
+    //         let ShareReconstructInput {
+    //             k,
+    //             n,
+    //             indices,
+    //             rng_seed,
+    //         } = input;
+    //
+    //         let k = NonZeroU8::new(k).unwrap();
+    //         let n = NonZeroU8::new(n).unwrap();
+    //         let r = StdRng::seed_from_u64(rng_seed);
+    //
+    //         let shamir = SecretSharing::new(k, n).unwrap();
+    //         let shares = shamir.split(Fp::from(secret), r);
+    //
+    //         let reconstruct_shares = indices
+    //             .iter()
+    //             .take(k.get() as usize)
+    //             .map(|&i| shares[i as usize].clone())
+    //             .collect::<Vec<_>>();
+    //
+    //         let reconstructed_secret = shamir
+    //             .reconstruct(&reconstruct_shares)
+    //             .map_err(|e| TestCaseError::fail(e.to_string()))?;
+    //
+    //         prop_assert_eq!(Fp::from(secret), reconstructed_secret);
+    //         Ok(())
+    //     }
+    //
+    //     let test_config = if cfg!(feature = "test-harness") {
+    //         ProptestConfig::default()
+    //     } else {
+    //         // to allow fast test execution while running tests locally
+    //         ProptestConfig::with_cases(10)
+    //     };
+    //
+    //     proptest!(test_config, |(input in ShareReconstructInput::gen(), v in 0..PRIME)| {
+    //         can_share_and_reconstruct(input, v)?;
+    //     });
+    // }
 }
