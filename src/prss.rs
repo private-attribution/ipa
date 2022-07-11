@@ -1,3 +1,4 @@
+use crate::field::Field;
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -17,10 +18,24 @@ pub struct Participant {
 }
 
 impl Participant {
-    /// Generate an additive share of zero.
-    /// TODO: generate these in the appropriate field rather than `ZZ_{2^128}`.
+    /// Generate two random values, one that is known to the left helper
+    /// and one that is known to the right helper.
     #[must_use]
-    pub fn zero_share(&self, index: u128) -> u128 {
+    pub fn generate_values(&self, index: u128) -> (u128, u128) {
+        (self.left.generate(index), self.right.generate(index))
+    }
+
+    /// Generate two random field values, one that is known to the left helper
+    /// and one that is known to the right helper.
+    #[must_use]
+    pub fn generate_fields<F: Field>(&self, index: u128) -> (F, F) {
+        let (l, r) = self.generate_values(index);
+        (F::from(l), F::from(r))
+    }
+
+    /// Generate an additive share of zero.
+    #[must_use]
+    pub fn zero_u128(&self, index: u128) -> u128 {
         let (l, r) = self.generate_values(index);
         l.wrapping_sub(r)
     }
@@ -33,24 +48,30 @@ impl Participant {
     }
 
     /// Generate an additive shares of a random value.
-    /// TODO: generate these in the appropriate field rather than `ZZ_{2^128}`.
     #[must_use]
-    pub fn random_share(&self, index: u128) -> u128 {
+    pub fn random_u128(&self, index: u128) -> u128 {
         let (l, r) = self.generate_values(index);
         l.wrapping_add(r)
-    }
-
-    /// Generate two random values, one that is known to the left helper
-    /// and one that is known to the right helper.
-    #[must_use]
-    pub fn generate_values(&self, index: u128) -> (u128, u128) {
-        (self.left.generate(index), self.right.generate(index))
     }
 
     /// Generate the next share in `ZZ_2`
     #[must_use]
     pub fn next_zero_bit_share(&mut self) -> bool {
         self.left_bits.next_bit() ^ self.right_bits.next_bit()
+    }
+
+    /// Generate additive shares of zero in a field.
+    #[must_use]
+    pub fn zero<F: Field>(&self, index: u128) -> F {
+        let (l, r): (F, F) = self.generate_fields(index);
+        l - r
+    }
+
+    /// Generate additive shares of zero in a field.
+    #[must_use]
+    pub fn random<F: Field>(&self, index: u128) -> F {
+        let (l, r): (F, F) = self.generate_fields(index);
+        l + r
     }
 }
 
@@ -231,6 +252,8 @@ mod rng {
 mod test {
     use rand::thread_rng;
 
+    use crate::field::Fp31;
+
     use super::{BitGenerator, Generator, KeyExchange, Participant, ParticipantSetup};
 
     fn make() -> (Generator, Generator) {
@@ -362,13 +385,13 @@ mod test {
     }
 
     #[test]
-    fn three_party_zero() {
+    fn three_party_zero_u128() {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_three();
 
-        let z1 = p1.zero_share(IDX);
-        let z2 = p2.zero_share(IDX);
-        let z3 = p3.zero_share(IDX);
+        let z1 = p1.zero_u128(IDX);
+        let z2 = p2.zero_u128(IDX);
+        let z3 = p3.zero_u128(IDX);
 
         assert_eq!(0, z1.wrapping_add(z2).wrapping_add(z3));
     }
@@ -386,21 +409,21 @@ mod test {
     }
 
     #[test]
-    fn three_party_random() {
+    fn three_party_random_u128() {
         const IDX1: u128 = 7;
         const IDX2: u128 = 21362;
         let (p1, p2, p3) = make_three();
 
-        let r1 = p1.random_share(IDX1);
-        let r2 = p2.random_share(IDX1);
-        let r3 = p3.random_share(IDX1);
+        let r1 = p1.random_u128(IDX1);
+        let r2 = p2.random_u128(IDX1);
+        let r3 = p3.random_u128(IDX1);
 
         let v1 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(0, v1);
 
-        let r1 = p1.random_share(IDX2);
-        let r2 = p2.random_share(IDX2);
-        let r3 = p3.random_share(IDX2);
+        let r1 = p1.random_u128(IDX2);
+        let r2 = p2.random_u128(IDX2);
+        let r3 = p3.random_u128(IDX2);
 
         let v2 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(v1, v2);
@@ -417,5 +440,54 @@ mod test {
 
             assert!(!(z1 ^ z2 ^ z3));
         }
+    }
+
+    #[test]
+    fn three_party_fields() {
+        const IDX: u128 = 7;
+        let (p1, p2, p3) = make_three();
+
+        // These tests do not check that left != right because
+        // the field might not be large enough.
+        let (r1_l, r1_r): (Fp31, Fp31) = p1.generate_fields(IDX);
+        let (r2_l, r2_r) = p2.generate_fields(IDX);
+        let (r3_l, r3_r) = p3.generate_fields(IDX);
+
+        assert_eq!(r1_l, r3_r);
+        assert_eq!(r2_l, r1_r);
+        assert_eq!(r3_l, r2_r);
+    }
+
+    #[test]
+    fn three_party_zero() {
+        const IDX: u128 = 72;
+        let (p1, p2, p3) = make_three();
+
+        let z1: Fp31 = p1.zero(IDX);
+        let z2 = p2.zero(IDX);
+        let z3 = p3.zero(IDX);
+
+        assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
+    }
+
+    #[test]
+    fn three_party_random() {
+        const IDX1: u128 = 87;
+        const IDX2: u128 = 12;
+        let (p1, p2, p3) = make_three();
+
+        let r1: Fp31 = p1.random(IDX1);
+        let r2 = p2.random(IDX1);
+        let r3 = p3.random(IDX1);
+
+        let v1 = r1 + r2 + r3;
+        assert_ne!(Fp31::from(0_u8), v1);
+
+        let r1: Fp31 = p1.random(IDX2);
+        let r2 = p2.random(IDX2);
+        let r3 = p3.random(IDX2);
+
+        let v2 = r1 + r2 + r3;
+        assert_ne!(v1, v2);
     }
 }

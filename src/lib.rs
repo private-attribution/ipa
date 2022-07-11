@@ -3,6 +3,7 @@
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod error;
+pub mod field;
 pub mod helpers;
 pub mod net;
 pub mod prss;
