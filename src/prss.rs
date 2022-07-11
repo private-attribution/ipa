@@ -8,21 +8,43 @@ use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-pub struct Endpoint {
+/// A participant in a 2-of-3 replicated secret sharing.
+pub struct Participant {
     left: Generator,
     left_bits: BitGenerator,
     right: Generator,
     right_bits: BitGenerator,
 }
 
-impl Endpoint {
-    /// Generate additive shares of zero.
+impl Participant {
+    /// Generate an additive share of zero.
     /// TODO: generate these in the appropriate field rather than `ZZ_{2^128}`.
     #[must_use]
-    pub fn zero_value_share(&self, index: u128) -> u128 {
-        self.left
-            .generate(index)
-            .wrapping_sub(self.right.generate(index))
+    pub fn zero_share(&self, index: u128) -> u128 {
+        let (l, r) = self.generate_values(index);
+        l.wrapping_sub(r)
+    }
+
+    /// Generate an XOR share of zero.
+    #[must_use]
+    pub fn zero_xor(&self, index: u128) -> u128 {
+        let (l, r) = self.generate_values(index);
+        l ^ r
+    }
+
+    /// Generate an additive shares of a random value.
+    /// TODO: generate these in the appropriate field rather than `ZZ_{2^128}`.
+    #[must_use]
+    pub fn random_share(&self, index: u128) -> u128 {
+        let (l, r) = self.generate_values(index);
+        l.wrapping_add(r)
+    }
+
+    /// Generate two random values, one that is known to the left helper
+    /// and one that is known to the right helper.
+    #[must_use]
+    pub fn generate_values(&self, index: u128) -> (u128, u128) {
+        (self.left.generate(index), self.right.generate(index))
     }
 
     /// Generate the next share in `ZZ_2`
@@ -33,15 +55,17 @@ impl Endpoint {
 }
 
 /// Use this to setup a three-party PRSS configuration.
-pub struct EndpointSetup {
+pub struct ParticipantSetup {
     left: KeyExchange,
     right: KeyExchange,
 }
 
-impl EndpointSetup {
+impl ParticipantSetup {
     const CONTEXT_VALUES: &'static [u8] = b"IPA PRSS values";
     const CONTEXT_BITS: &'static [u8] = b"IPA PRSS bits";
 
+    /// Construct a new, unconfigured participant.  This can be configured by
+    /// providing public keys for the left and right participants to `setup()`.
     pub fn new<R: RngCore + CryptoRng>(r: &mut R) -> Self {
         Self {
             left: KeyExchange::new(r),
@@ -49,11 +73,21 @@ impl EndpointSetup {
         }
     }
 
+    /// Get the public keys that this setup instance intends to use.
+    /// The public key that applies to the left participant is at `.0`,
+    /// with the key for the right participant in `.1`.
     #[must_use]
-    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
+    pub fn public_keys(&self) -> (PublicKey, PublicKey) {
+        (self.left.public_key(), self.right.public_key())
+    }
+
+    /// Provide the left and right public keys to construct a functioning
+    /// participant instance.
+    #[must_use]
+    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
-        Endpoint {
+        Participant {
             left: fl.generator(Self::CONTEXT_VALUES),
             left_bits: BitGenerator::from(fl.generator(Self::CONTEXT_BITS)),
             right: fr.generator(Self::CONTEXT_VALUES),
@@ -62,6 +96,7 @@ impl EndpointSetup {
     }
 }
 
+/// The key exchange component of a participant.
 pub struct KeyExchange {
     sk: EphemeralSecret,
 }
@@ -196,18 +231,19 @@ mod rng {
 mod test {
     use rand::thread_rng;
 
-    use super::{BitGenerator, Generator, KeyExchange};
+    use super::{BitGenerator, Generator, KeyExchange, Participant, ParticipantSetup};
 
     fn make() -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
         let mut r = thread_rng();
 
-        let (ke1, ke2) = (KeyExchange::new(&mut r), KeyExchange::new(&mut r));
-        let (pk1, pk2) = (ke1.public_key(), ke2.public_key());
-        let (f1, f2) = (ke1.key_exchange(&pk2), ke2.key_exchange(&pk1));
+        let (x1, x2) = (KeyExchange::new(&mut r), KeyExchange::new(&mut r));
+        let (pk1, pk2) = (x1.public_key(), x2.public_key());
+        let (f1, f2) = (x1.key_exchange(&pk2), x2.key_exchange(&pk1));
         (f1.generator(CONTEXT), f2.generator(CONTEXT))
     }
 
+    /// When inputs are the same, outputs are the same.
     #[test]
     fn generate_equal() {
         let (g1, g2) = make();
@@ -215,15 +251,16 @@ mod test {
         assert_eq!(g1.generate(1), g2.generate(1));
         assert_eq!(g1.generate(u128::MAX), g2.generate(u128::MAX));
 
-        assert_eq!(g1.generate(12), g1.generate(12), "g1 -> g1");
-        assert_eq!(
-            g1.generate(100),
-            g2.generate(100),
-            "not just using an internal counter"
-        );
-        assert_eq!(g2.generate(13), g2.generate(13), "g2 -> g2");
+        // Calling g1 twice with the same input produces the same output.
+        assert_eq!(g1.generate(12), g1.generate(12));
+        // Now that g1 has been invoked more times than g2, we can check
+        // that it isn't cheating by using an internal counter.
+        assert_eq!(g1.generate(100), g2.generate(100));
+        assert_eq!(g2.generate(13), g2.generate(13));
     }
 
+    /// It is *highly* unlikely that two different inputs will produce
+    /// equal outputs.
     #[test]
     fn generate_unlikely() {
         let (g1, g2) = make();
@@ -244,12 +281,13 @@ mod test {
         }
     }
 
+    /// The bits produced by a `BitGenerator` aren't all 0 or 1.
     #[test]
     fn bit_non_uniform() {
         let (g1, _g2) = make();
         let mut b1 = BitGenerator::from(g1);
         let (mut all_f, mut all_t) = (true, true);
-        for _ in 0..128 {
+        for _ in 0..100 {
             let v = b1.next_bit();
             all_f &= !v;
             all_t &= v;
@@ -258,6 +296,8 @@ mod test {
         assert!(!all_t);
     }
 
+    /// A bit generator starting at 0 has 128 bit values before it
+    /// starts to agree with a generator starting at 1.
     #[test]
     fn offset_bit_generator() {
         let (g1, g2) = make();
@@ -273,6 +313,7 @@ mod test {
         }
     }
 
+    /// Creating generators with different contexts means different output.
     #[test]
     fn mismatched_context() {
         let mut r = thread_rng();
@@ -282,5 +323,99 @@ mod test {
         let (f1, f2) = (e1.key_exchange(&pk2), e2.key_exchange(&pk1));
         let (g1, g2) = (f1.generator(b"one"), f2.generator(b"two"));
         assert_ne!(g1.generate(1), g2.generate(1));
+    }
+
+    /// Generate three participants.
+    /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
+    #[must_use]
+    fn make_three() -> (Participant, Participant, Participant) {
+        let mut r = thread_rng();
+        let setup1 = ParticipantSetup::new(&mut r);
+        let setup2 = ParticipantSetup::new(&mut r);
+        let setup3 = ParticipantSetup::new(&mut r);
+        let (pk1_l, pk1_r) = setup1.public_keys();
+        let (pk2_l, pk2_r) = setup2.public_keys();
+        let (pk3_l, pk3_r) = setup3.public_keys();
+
+        let p1 = setup1.setup(&pk3_r, &pk2_l);
+        let p2 = setup2.setup(&pk1_r, &pk3_l);
+        let p3 = setup3.setup(&pk2_r, &pk1_l);
+
+        (p1, p2, p3)
+    }
+
+    #[test]
+    fn three_party_values() {
+        const IDX: u128 = 7;
+        let (p1, p2, p3) = make_three();
+
+        let (r1_l, r1_r) = p1.generate_values(IDX);
+        assert_ne!(r1_l, r1_r);
+        let (r2_l, r2_r) = p2.generate_values(IDX);
+        assert_ne!(r2_l, r2_r);
+        let (r3_l, r3_r) = p3.generate_values(IDX);
+        assert_ne!(r3_l, r3_r);
+
+        assert_eq!(r1_l, r3_r);
+        assert_eq!(r2_l, r1_r);
+        assert_eq!(r3_l, r2_r);
+    }
+
+    #[test]
+    fn three_party_zero() {
+        const IDX: u128 = 7;
+        let (p1, p2, p3) = make_three();
+
+        let z1 = p1.zero_share(IDX);
+        let z2 = p2.zero_share(IDX);
+        let z3 = p3.zero_share(IDX);
+
+        assert_eq!(0, z1.wrapping_add(z2).wrapping_add(z3));
+    }
+
+    #[test]
+    fn three_party_xor_zero() {
+        const IDX: u128 = 7;
+        let (p1, p2, p3) = make_three();
+
+        let z1 = p1.zero_xor(IDX);
+        let z2 = p2.zero_xor(IDX);
+        let z3 = p3.zero_xor(IDX);
+
+        assert_eq!(0, z1 ^ z2 ^ z3);
+    }
+
+    #[test]
+    fn three_party_random() {
+        const IDX1: u128 = 7;
+        const IDX2: u128 = 21362;
+        let (p1, p2, p3) = make_three();
+
+        let r1 = p1.random_share(IDX1);
+        let r2 = p2.random_share(IDX1);
+        let r3 = p3.random_share(IDX1);
+
+        let v1 = r1.wrapping_add(r2).wrapping_add(r3);
+        assert_ne!(0, v1);
+
+        let r1 = p1.random_share(IDX2);
+        let r2 = p2.random_share(IDX2);
+        let r3 = p3.random_share(IDX2);
+
+        let v2 = r1.wrapping_add(r2).wrapping_add(r3);
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn three_party_zero_bit() {
+        let (mut p1, mut p2, mut p3) = make_three();
+
+        for _ in 0..129 {
+            let z1 = p1.next_zero_bit_share();
+            let z2 = p2.next_zero_bit_share();
+            let z3 = p3.next_zero_bit_share();
+
+            assert!(!(z1 ^ z2 ^ z3));
+        }
     }
 }
