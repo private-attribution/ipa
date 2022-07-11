@@ -1,4 +1,4 @@
-use std::io;
+use std::io::stderr;
 use structopt::StructOpt;
 use tracing::metadata::LevelFilter;
 use tracing::{info, Level};
@@ -15,29 +15,29 @@ pub struct Verbosity {
     verbose: usize,
 }
 
-fn from_verbosity(quiet: bool, verbose: usize) -> LevelFilter {
-    if quiet {
-        LevelFilter::OFF
-    } else {
-        LevelFilter::from_level(match verbose {
-            0 => Level::ERROR,
-            1 => Level::WARN,
-            2 => Level::INFO,
-            3 => Level::DEBUG,
-            _ => Level::TRACE,
-        })
-    }
-}
-
 impl Verbosity {
     pub fn setup_logging(&self) {
-        let filter_layer = from_verbosity(self.quiet, self.verbose);
-        let fmt_layer = fmt::layer().without_time().with_writer(io::stderr);
+        let filter_layer = self.level_filter();
+        let fmt_layer = fmt::layer().without_time().with_writer(stderr);
 
         tracing_subscriber::registry()
-            .with(filter_layer)
+            .with(self.level_filter())
             .with(fmt_layer)
             .init();
         info!("Logging setup at level {}", filter_layer);
+    }
+
+    fn level_filter(&self) -> LevelFilter {
+        if self.quiet {
+            LevelFilter::OFF
+        } else {
+            LevelFilter::from_level(match self.verbose {
+                0 => Level::ERROR,
+                1 => Level::WARN,
+                2 => Level::INFO,
+                3 => Level::DEBUG,
+                _ => Level::TRACE,
+            })
+        }
     }
 }
