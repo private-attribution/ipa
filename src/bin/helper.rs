@@ -1,11 +1,11 @@
 use std::error::Error;
 
 use hyper::http::uri::Scheme;
-use log::info;
 use raw_ipa::cli::Verbosity;
 use raw_ipa::net::{bind_mpc_helper_server, BindTarget};
 use std::net::SocketAddr;
 use structopt::StructOpt;
+use tracing::info;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]

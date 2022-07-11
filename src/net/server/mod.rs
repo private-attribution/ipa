@@ -10,6 +10,7 @@ use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinHandle;
+use tower_http::trace::TraceLayer;
 
 mod handlers;
 
@@ -45,7 +46,9 @@ pub enum BindTarget {
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
 pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router().into_make_service();
+    let svc = router()
+        .layer(TraceLayer::new_for_http())
+        .into_make_service();
     let handle = Handle::new();
 
     let task_handle = match target {
