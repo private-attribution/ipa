@@ -3,7 +3,7 @@ use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
 };
-use byteorder::{ByteOrder, NativeEndian};
+use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
@@ -181,10 +181,10 @@ impl Generator {
     #[must_use]
     pub fn generate(&self, index: u128) -> u128 {
         let mut buf = [0_u8; 16];
-        NativeEndian::write_u128(&mut buf, index);
+        LittleEndian::write_u128(&mut buf, index);
         self.cipher
             .encrypt_block(GenericArray::from_mut_slice(&mut buf));
-        NativeEndian::read_u128(&buf)
+        LittleEndian::read_u128(&buf)
     }
 }
 
@@ -202,9 +202,15 @@ pub struct BitGenerator {
 }
 
 impl BitGenerator {
+    /// Create a new sequential bit generator starting at the given index.
+    /// # Panics
+    /// If the index is more than 2^121.  This type shifts the index left and
+    /// uses the low bits of that value for a bit index into the `u128` provided
+    /// by the underlying `Generator`.
     #[must_use]
-    pub fn new(g: Generator, i: u128) -> Self {
-        let i = i.checked_shl(7).expect("Index needs to be less than 2^121");
+    pub fn new(g: Generator, index: u128) -> Self {
+        assert!(index.leading_zeros() >= 7, "indices >= 2^121 not supported");
+        let i = index << 7;
         Self { g, i, v: 0 }
     }
 
@@ -260,6 +266,8 @@ mod rng {
 
 #[cfg(test)]
 mod test {
+    use aes::{cipher::KeyInit, Aes256};
+    use digest::generic_array::GenericArray;
     use rand::thread_rng;
 
     use crate::field::Fp31;
@@ -499,5 +507,14 @@ mod test {
 
         let v2 = r1 + r2 + r3;
         assert_ne!(v1, v2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_bit_generator() {
+        let g = Generator {
+            cipher: Aes256::new(&GenericArray::default()),
+        };
+        let _ = BitGenerator::new(g, u128::MAX);
     }
 }
