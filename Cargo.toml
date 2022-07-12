@@ -14,12 +14,14 @@ self-signed-certs = ["hyper-tls"]
 test-harness = []
 
 [dependencies]
+aes = "0.8"
 axum = { version = "0.5.7", optional = true, features = ["http2"] }
 axum-server = { version = "0.4.0", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
-aes = "0.8"
 byteorder = "1"
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
 digest = "0.9"
+
+ff = { version = "0.12.0", features = ["derive"] } # Prime finite field implementation
 hex = { version = "0.4", optional = true }
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, so pin this
 hkdf = "0.11"
@@ -44,8 +46,6 @@ tower-http = { version = "0.3.4", optional = true, features = ["trace"] }
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "1"
-
-ff = { version = "0.12.0", features = ["derive"] } # Prime finite field implementation
 
 [dev-dependencies]
 hex = "0.4"
