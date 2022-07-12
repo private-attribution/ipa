@@ -34,6 +34,10 @@ impl Participant {
     }
 
     /// Generate an additive share of zero.
+    /// Each party generates two values, one that is shared with the party to their left,
+    /// one with the party to their right.  If all entities add their left share
+    /// and subtract their right value, each share will be added once (as a left share)
+    /// and subtracted once (as a right share), resulting in values that sum to zero.
     #[must_use]
     pub fn zero_u128(&self, index: u128) -> u128 {
         let (l, r) = self.generate_values(index);
@@ -48,6 +52,10 @@ impl Participant {
     }
 
     /// Generate an additive shares of a random value.
+    /// This is like `zero_u128`, except that the values are added.
+    /// The result is that each random value is added twice.  Note that thanks to
+    /// using a wrapping add, the result won't be even because the high bit will
+    /// wrap around and populate the low bit.
     #[must_use]
     pub fn random_u128(&self, index: u128) -> u128 {
         let (l, r) = self.generate_values(index);
@@ -67,7 +75,7 @@ impl Participant {
         l - r
     }
 
-    /// Generate additive shares of zero in a field.
+    /// Generate additive shares of a random field value.
     #[must_use]
     pub fn random<F: Field>(&self, index: u128) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
@@ -152,8 +160,7 @@ pub struct GeneratorFactory {
 
 impl GeneratorFactory {
     /// Create a new generator using the provided context string.
-    /// # Panics
-    /// Never: we don't let that happen.
+    #[allow(clippy::missing_panics_doc)] // Panic should be impossible.
     #[must_use]
     pub fn generator(&self, context: &[u8]) -> Generator {
         let mut k = GenericArray::default();
@@ -185,7 +192,10 @@ impl Generator {
 pub struct BitGenerator {
     /// The underlying generator.
     g: Generator,
-    /// The current index, shifted left by 7 bits, plus a 7 bit index.
+    /// The current index, shifted left by 7 bits, plus 7 bits that are used
+    /// to index into the bits of the u128 the underlying generator creates.
+    /// That is, 121 bits of index that are passed to `g` and 7 bits that are
+    /// used to select which bit from the output of `g` to return.
     i: u128,
     /// The value we got from the current index (this is outdated if `i & 0x7f == 0`).
     v: u128,
@@ -203,7 +213,7 @@ impl BitGenerator {
         if self.i.trailing_zeros() >= 7 {
             self.v = self.g.generate(self.i >> 7);
         }
-        let v = (self.v >> (self.i & 0x7f)) & 1 == 1;
+        let v = ((self.v >> (self.i & 0x7f)) & 1) == 1;
         self.i += 1;
         v
     }

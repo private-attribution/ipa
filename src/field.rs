@@ -53,7 +53,7 @@ impl Neg for Fp31 {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Self(Self::PRIME - self.0)
+        Self((Self::PRIME - self.0) % Self::PRIME)
     }
 }
 
@@ -113,6 +113,8 @@ impl Debug for Fp31 {
 
 #[cfg(test)]
 mod test {
+    use crate::field::Field;
+
     use super::Fp31;
 
     #[test]
@@ -127,5 +129,18 @@ mod test {
         let mut x = Fp31(1);
         x += Fp31(2);
         assert_eq!(Fp31(3), x);
+    }
+
+    #[test]
+    fn zero() {
+        assert_eq!(
+            Fp31(0),
+            Fp31::from(<Fp31 as Field>::PRIME),
+            "from takes a modulus"
+        );
+        assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
+        assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
+        assert_eq!(Fp31(<Fp31 as Field>::PRIME - 1), Fp31(0) - Fp31(1));
+        assert_eq!(Fp31(0), Fp31(0) * Fp31(1));
     }
 }
