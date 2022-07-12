@@ -33,35 +33,43 @@ impl<'a> Sample<'a> {
         Self {
             config,
 
-            reach_per_ad_distr: WeightedIndex::new(config.reach_per_ad.iter().map(|i| i.1))
+            reach_per_ad_distr: WeightedIndex::new(config.reach_per_ad.iter().map(|i| i.weight))
                 .unwrap(),
-            cvr_per_adaccount_distr: WeightedIndex::new(config.cvr_per_ad.iter().map(|i| i.1))
+            cvr_per_adaccount_distr: WeightedIndex::new(config.cvr_per_ad.iter().map(|i| i.weight))
                 .unwrap(),
             ad_impression_per_user_distr: WeightedIndex::new(
-                config.impression_per_user.iter().map(|i| i.1),
+                config.impression_per_user.iter().map(|i| i.weight),
             )
             .unwrap(),
             ad_conversion_per_user_distr: WeightedIndex::new(
-                config.conversion_per_user.iter().map(|i| i.1),
+                config.conversion_per_user.iter().map(|i| i.weight),
             )
             .unwrap(),
 
-            devices_per_user_distr: WeightedIndex::new(config.devices_per_user.iter().map(|i| i.1))
-                .unwrap(),
+            devices_per_user_distr: WeightedIndex::new(
+                config.devices_per_user.iter().map(|i| i.weight),
+            )
+            .unwrap(),
 
             conversions_duration_distr: WeightedIndex::new(
-                config.impression_conversion_duration.iter().map(|i| i.1),
+                config
+                    .impression_conversion_duration
+                    .iter()
+                    .map(|i| i.weight),
             )
             .unwrap(),
 
             frequency_cap_distr: WeightedIndex::new(
-                config.impression_impression_duration.iter().map(|i| i.1),
+                config
+                    .impression_impression_duration
+                    .iter()
+                    .map(|i| i.weight),
             )
             .unwrap(),
 
             // TODO: Need data
             trigger_value_distr: WeightedIndex::new(
-                config.conversion_value_per_user.iter().map(|i| i.1),
+                config.conversion_value_per_user.iter().map(|i| i.weight),
             )
             .unwrap(),
         }
@@ -69,40 +77,40 @@ impl<'a> Sample<'a> {
 
     pub fn reach_per_ad<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
         let r = self.config.reach_per_ad[self.reach_per_ad_distr.sample(rng)]
-            .0
+            .index
             .clone();
         rng.gen_range(r)
     }
 
     pub fn devices_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.devices_per_user[self.devices_per_user_distr.sample(rng)].0
+        self.config.devices_per_user[self.devices_per_user_distr.sample(rng)].index
     }
 
     pub fn cvr_per_ad_account<R: RngCore + CryptoRng>(&self, rng: &mut R) -> f64 {
         let r = self.config.cvr_per_ad[self.cvr_per_adaccount_distr.sample(rng)]
-            .0
+            .index
             .clone();
         rng.gen_range(r)
     }
 
     pub fn impression_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.impression_per_user[self.ad_impression_per_user_distr.sample(rng)].0
+        self.config.impression_per_user[self.ad_impression_per_user_distr.sample(rng)].index
     }
 
     pub fn conversion_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.conversion_per_user[self.ad_conversion_per_user_distr.sample(rng)].0
+        self.config.conversion_per_user[self.ad_conversion_per_user_distr.sample(rng)].index
     }
 
     pub fn conversion_value_per_ad<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u32 {
         let r = self.config.conversion_value_per_user[self.trigger_value_distr.sample(rng)]
-            .0
+            .index
             .clone();
         rng.gen_range(r)
     }
 
     pub fn impressions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
         let r = self.config.impression_impression_duration[self.frequency_cap_distr.sample(rng)]
-            .0
+            .index
             .clone();
         let diff = rng.gen_range(r);
         Duration::new((diff * 60.0 * 60.0).floor().to_u64().unwrap(), 0)
@@ -111,7 +119,7 @@ impl<'a> Sample<'a> {
     pub fn conversions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
         let days = self.config.impression_conversion_duration
             [self.conversions_duration_distr.sample(rng)]
-        .0
+        .index
         .clone();
         let diff = rng.gen_range(days);
 

@@ -1,8 +1,7 @@
 use super::sample::Sample;
+use byteorder::WriteBytesExt;
 use log::{debug, info, trace};
-use rand::SeedableRng;
 use rand::{CryptoRng, Rng, RngCore};
-use rand_chacha::ChaCha20Rng;
 use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Distribution};
 use raw_ipa::helpers::models::{
@@ -13,47 +12,58 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
 
+// 0x1E. https://datatracker.ietf.org/doc/html/rfc7464
+const RECORD_SEPARATOR: u8 = 30;
+
 const DAYS_IN_EPOCH: u64 = 7;
+type MatchKey = Vec<u64>;
+type Epoch = u8;
 
 #[derive(Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct Event {
+pub struct EventBase {
     // For this tool, we'll fix the length of a matchkey to u64
-    pub matchkeys: Vec<u64>,
-    pub epoch: u8,
+    pub matchkeys: MatchKey,
+    pub epoch: Epoch,
     pub timestamp: u32,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct SourceEvent {
-    pub event: Event,
+    pub event: EventBase,
+
+    /// Ad breakdown key value
     pub breakdown_key: String,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct TriggerEvent {
-    pub event: Event,
+    pub event: EventBase,
+
+    /// Conversion value
     pub value: u32,
+
+    /// Zero-knowledge proof value
     pub zkp: String,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub enum EventType {
+pub enum Event {
     // Source event in clear
-    S(SourceEvent),
+    Source(SourceEvent),
     // Trigger event in clear
-    T(TriggerEvent),
+    Trigger(TriggerEvent),
     // Source event in cipher if --secret-share option is enabled
-    ES(ESourceEvent),
+    EncryptedSource(ESourceEvent),
     // Trigger event in cipher if --secret-share option is enabled
-    ET(ETriggerEvent),
+    EncryptedTrigger(ETriggerEvent),
 }
 
 struct GenEventParams {
     devices: u8,
     impressions: u8,
     conversions: u8,
-    epoch: u8,
+    epoch: Epoch,
     breakdown_key: String,
 }
 
@@ -61,26 +71,15 @@ struct GenEventParams {
 // We need to generate events from same users across ads (but how often should a user appear in different ads?)
 // "Ads" doesn't mean FB's L3 ads. It could be ads from different businesses.
 
-pub fn generate_events<W: io::Write>(
+pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     sample: &Sample,
     total_count: u32,
-    epoch: u8,
+    epoch: Epoch,
     secret_share: bool,
-    seed: &Option<u64>,
+    rng: &mut R,
+    ss_rng: &mut R,
     out: &mut W,
 ) -> (u32, u32) {
-    let mut rng = match seed {
-        None => ChaCha20Rng::from_entropy(),
-        Some(seed) => ChaCha20Rng::seed_from_u64(*seed),
-    };
-    debug!("seed: {:?}", rng.get_seed());
-
-    // Separate RNG for generating secret shares
-    let mut ss_rng = match seed {
-        None => ChaCha20Rng::from_entropy(),
-        Some(seed) => ChaCha20Rng::seed_from_u64(*seed),
-    };
-
     let mut ad_count = 0;
     let mut event_count = 0;
     let mut total_impressions = 0;
@@ -97,24 +96,24 @@ pub fn generate_events<W: io::Write>(
         let ad_id: u32 = rng.gen();
 
         // Number of unique people who saw the ad
-        let reach = sample.reach_per_ad(&mut rng);
+        let reach = sample.reach_per_ad(rng);
         debug!("reach: {}", reach);
 
         // CVR for the ad
-        let cvr = sample.cvr_per_ad_account(&mut rng);
+        let cvr = sample.cvr_per_ad_account(rng);
         debug!("CVR: {}", cvr);
 
         for _ in 0..reach {
             // # of devices == # of matchkeys
-            let devices = sample.devices_per_user(&mut rng);
+            let devices = sample.devices_per_user(rng);
             trace!("devices per user: {}", devices);
 
-            let impressions = sample.impression_per_user(&mut rng);
+            let impressions = sample.impression_per_user(rng);
             trace!("impressions per user: {}", impressions);
 
             // Probabilistically decide whether this user has converted or not
-            let conversions = if Bernoulli::new(cvr).unwrap().sample(&mut rng) {
-                sample.conversion_per_user(&mut rng)
+            let conversions = if Bernoulli::new(cvr).unwrap().sample(rng) {
+                sample.conversion_per_user(rng)
             } else {
                 0
             };
@@ -130,17 +129,17 @@ pub fn generate_events<W: io::Write>(
                 },
                 secret_share,
                 sample,
-                &mut rng,
-                &mut ss_rng,
+                rng,
+                ss_rng,
             );
 
             total_impressions += impressions.to_u32().unwrap();
             total_conversions += conversions.to_u32().unwrap();
 
             for e in events {
+                out.write_u8(RECORD_SEPARATOR).unwrap();
                 out.write_all(serde_json::to_string(&e).unwrap().as_bytes())
                     .unwrap();
-                writeln!(out).unwrap();
 
                 event_count += 1;
                 if event_count % 10000 == 0 {
@@ -160,8 +159,8 @@ fn gen_events<R: RngCore + CryptoRng>(
     sample: &Sample,
     rng: &mut R,
     ss_rng: &mut R,
-) -> Vec<EventType> {
-    let mut events: Vec<EventType> = Vec::new();
+) -> Vec<Event> {
+    let mut events: Vec<Event> = Vec::new();
 
     let matchkeys = gen_matchkeys(params.devices, rng);
     let mut ss_mks: Vec<SecretShare> = Vec::new();
@@ -183,7 +182,7 @@ fn gen_events<R: RngCore + CryptoRng>(
         let t = last_impression + sample.impressions_time_diff(rng);
 
         if secret_share {
-            events.push(EventType::ES(ESourceEvent {
+            events.push(Event::EncryptedSource(ESourceEvent {
                 event: EEvent {
                     matchkeys: ss_mks.clone(),
                     //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
@@ -193,8 +192,8 @@ fn gen_events<R: RngCore + CryptoRng>(
                 breakdown_key: params.breakdown_key.clone(),
             }));
         } else {
-            events.push(EventType::S(SourceEvent {
-                event: Event {
+            events.push(Event::Source(SourceEvent {
+                event: EventBase {
                     matchkeys: matchkeys.clone(),
                     //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
                     epoch: params.epoch,
@@ -216,7 +215,7 @@ fn gen_events<R: RngCore + CryptoRng>(
         let t = last_conversion + sample.conversions_time_diff(rng);
 
         if secret_share {
-            events.push(EventType::ET(ETriggerEvent {
+            events.push(Event::EncryptedTrigger(ETriggerEvent {
                 event: EEvent {
                     matchkeys: ss_mks.clone(),
                     //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
@@ -227,8 +226,8 @@ fn gen_events<R: RngCore + CryptoRng>(
                 zkp: String::from("zkp"),
             }));
         } else {
-            events.push(EventType::T(TriggerEvent {
-                event: Event {
+            events.push(Event::Trigger(TriggerEvent {
+                event: EventBase {
                     matchkeys: matchkeys.clone(),
                     //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
                     epoch: params.epoch,
@@ -245,7 +244,7 @@ fn gen_events<R: RngCore + CryptoRng>(
     events
 }
 
-fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<u64> {
+fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> MatchKey {
     let mut mks = Vec::new();
 
     for _ in 0..count {
@@ -256,189 +255,160 @@ fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_events, EventType};
-    use crate::config::Config;
+    use super::{generate_events, Event};
     use crate::sample::Sample;
-    use rand::Rng;
-    use rand_distr::Alphanumeric;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use raw_ipa::helpers::models::SecretSharable;
-    use std::env::temp_dir;
-    use std::fs::{self, File};
     use std::io::prelude::*;
-    use std::io::{BufReader, Cursor, Read, Write};
-    use std::path::PathBuf;
+    use std::io::{BufReader, Cursor, Write};
 
     const DATA: &str = r#"
       {
-        "devices_per_user": {
-          "weighted_index": [
-            { "index": 0, "weight": 0.0 },
-            { "index": 1, "weight": 0.6 },
-            { "index": 2, "weight": 0.4 }
-          ]
-        },
-      
-        "cvr_per_ad": {
-          "weighted_index": [
-            { "index": { "start": 0.001, "end": 0.002 }, "weight": 0.2 },
-            { "index": { "start": 0.002, "end": 0.004 }, "weight": 0.3 },
-            { "index": { "start": 0.004, "end": 0.007 }, "weight": 0.3 },
-            { "index": { "start": 0.007, "end": 0.01 }, "weight": 0.2 }
-          ]
-        },
-      
-        "conversion_value_per_user": {
-          "weighted_index": [
-            { "index": { "start": 0, "end": 100 }, "weight": 0.3 },
-            { "index": { "start": 100, "end": 1000 }, "weight": 0.6 },
-            { "index": { "start": 1000, "end": 5000 }, "weight": 0.1 }
-          ]
-        },
-      
-        "reach_per_ad": {
-          "weighted_index": [
-            { "index": { "start": 1, "end": 100 }, "weight": 0.1 },
-            { "index": { "start": 100, "end": 1000 }, "weight": 0.2 },
-            { "index": { "start": 1000, "end": 5000 }, "weight": 0.4 },
-            { "index": { "start": 5000, "end": 10000 }, "weight": 0.3 }
-          ]
-        },
-      
-        "impression_per_user": {
-          "weighted_index": [
-            { "index": 1, "weight": 0.9 },
-            { "index": 2, "weight": 0.1 }
-          ]
-        },
-      
-        "conversion_per_user": {
-          "weighted_index": [
-            { "index": 1, "weight": 0.9 },
-            { "index": 2, "weight": 0.1 }
-          ]
-        },
-      
-        "impression_impression_duration": {
-          "weighted_index": [
-            { "index": { "start": 1.0, "end": 2.0 }, "weight": 0.1 },
-            { "index": { "start": 2.0, "end": 3.0 }, "weight": 0.2 },
-            { "index": { "start": 3.0, "end": 4.0 }, "weight": 0.5 },
-            { "index": { "start": 4.0, "end": 5.0 }, "weight": 0.2 }
-          ]
-        },
-      
-        "impression_conversion_duration": {
-          "weighted_index": [
-            { "index": { "start": 0, "end": 1 }, "weight": 0.7 },
-            { "index": { "start": 1, "end": 2 }, "weight": 0.1 },
-            { "index": { "start": 2, "end": 4 }, "weight": 0.1 },
-            { "index": { "start": 4, "end": 7 }, "weight": 0.1 }
-          ]
-        }
+        "devices_per_user": [
+          { "index": 0, "weight": 0.0 },
+          { "index": 1, "weight": 0.6 },
+          { "index": 2, "weight": 0.4 }
+        ],
+
+        "cvr_per_ad": [
+          { "index": { "start": 0.001, "end": 0.002 }, "weight": 0.2 },
+          { "index": { "start": 0.002, "end": 0.004 }, "weight": 0.3 },
+          { "index": { "start": 0.004, "end": 0.007 }, "weight": 0.3 },
+          { "index": { "start": 0.007, "end": 0.01 }, "weight": 0.2 }
+        ],
+
+        "conversion_value_per_user": [
+          { "index": { "start": 0, "end": 100 }, "weight": 0.3 },
+          { "index": { "start": 100, "end": 1000 }, "weight": 0.6 },
+          { "index": { "start": 1000, "end": 5000 }, "weight": 0.1 }
+        ],
+
+        "reach_per_ad": [
+          { "index": { "start": 1, "end": 100 }, "weight": 0.1 },
+          { "index": { "start": 100, "end": 1000 }, "weight": 0.2 },
+          { "index": { "start": 1000, "end": 5000 }, "weight": 0.4 },
+          { "index": { "start": 5000, "end": 10000 }, "weight": 0.3 }
+        ],
+
+        "impression_per_user": [
+          { "index": 1, "weight": 0.9 },
+          { "index": 2, "weight": 0.1 }
+        ],
+
+        "conversion_per_user": [
+          { "index": 1, "weight": 0.9 },
+          { "index": 2, "weight": 0.1 }
+        ],
+
+        "impression_impression_duration": [
+          { "index": { "start": 1.0, "end": 2.0 }, "weight": 0.1 },
+          { "index": { "start": 2.0, "end": 3.0 }, "weight": 0.2 },
+          { "index": { "start": 3.0, "end": 4.0 }, "weight": 0.5 },
+          { "index": { "start": 4.0, "end": 5.0 }, "weight": 0.2 }
+        ],
+
+        "impression_conversion_duration": [
+          { "index": { "start": 0, "end": 1 }, "weight": 0.7 },
+          { "index": { "start": 1, "end": 2 }, "weight": 0.1 },
+          { "index": { "start": 2, "end": 4 }, "weight": 0.1 },
+          { "index": { "start": 4, "end": 7 }, "weight": 0.1 }
+        ]
       }
     "#;
 
-    fn gen_temp_file_path() -> PathBuf {
-        let mut dir = temp_dir();
-        let file: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(16)
-            .map(char::from)
-            .collect();
-
-        dir.push(file);
-        dir
-    }
-
     #[test]
     fn same_seed_generates_same_output() {
-        let temp1 = gen_temp_file_path();
-        let temp2 = gen_temp_file_path();
+        let mut buf1 = Cursor::new(Vec::<u8>::new());
+        let mut buf2 = Cursor::new(Vec::<u8>::new());
+
+        let mut out1 = Box::new(&mut buf1) as Box<dyn Write>;
+        let mut out2 = Box::new(&mut buf2) as Box<dyn Write>;
 
         let seed = Some(0);
-        let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
-        let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        let config = Config::parse(&mut Cursor::new(DATA));
+        let config = serde_json::from_reader(&mut Cursor::new(DATA)).unwrap();
         let sample = Sample::new(&config);
 
-        generate_events(&sample, 100, 0, false, &seed, &mut out1);
-        generate_events(&sample, 100, 0, false, &seed, &mut out2);
+        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out1);
 
-        let mut file1 = File::open(&temp1).unwrap();
-        let mut file2 = File::open(&temp2).unwrap();
-        let mut buf1 = Vec::new();
-        let mut buf2 = Vec::new();
+        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out2);
 
-        file1.read_to_end(&mut buf1).unwrap();
-        file2.read_to_end(&mut buf2).unwrap();
+        drop(out1);
+        drop(out2);
 
         assert!(buf1.eq(&buf2));
-
-        fs::remove_file(&temp1).unwrap();
-        fs::remove_file(&temp2).unwrap();
     }
 
     #[test]
     fn same_seed_generates_same_ss_output() {
-        let temp1 = gen_temp_file_path();
-        let temp2 = gen_temp_file_path();
+        let mut buf1 = Cursor::new(Vec::<u8>::new());
+        let mut buf2 = Cursor::new(Vec::<u8>::new());
+
+        let mut out1 = Box::new(&mut buf1) as Box<dyn Write>;
+        let mut out2 = Box::new(&mut buf2) as Box<dyn Write>;
 
         let seed = Some(0);
-        let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
-        let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        let config = Config::parse(&mut Cursor::new(DATA));
+        let config = serde_json::from_reader(&mut Cursor::new(DATA)).unwrap();
         let sample = Sample::new(&config);
 
-        generate_events(&sample, 100, 0, false, &seed, &mut out1);
-        generate_events(&sample, 100, 0, false, &seed, &mut out2);
+        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out1);
 
-        let mut file1 = File::open(&temp1).unwrap();
-        let mut file2 = File::open(&temp2).unwrap();
-        let mut buf1 = Vec::new();
-        let mut buf2 = Vec::new();
+        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out2);
 
-        file1.read_to_end(&mut buf1).unwrap();
-        file2.read_to_end(&mut buf2).unwrap();
+        drop(out1);
+        drop(out2);
 
         assert!(buf1.eq(&buf2));
-
-        fs::remove_file(&temp1).unwrap();
-        fs::remove_file(&temp2).unwrap();
     }
 
     #[test]
     fn same_seed_ss_matchkeys_and_plain_matchkeys_are_same() {
-        let temp1 = gen_temp_file_path();
-        let temp2 = gen_temp_file_path();
+        let mut buf1 = Cursor::new(Vec::<u8>::new());
+        let mut buf2 = Cursor::new(Vec::<u8>::new());
+
+        let mut out1 = Box::new(&mut buf1) as Box<dyn Write>;
+        let mut out2 = Box::new(&mut buf2) as Box<dyn Write>;
 
         let seed = Some(0);
-        let mut out1 = Box::new(File::create(&temp1).unwrap()) as Box<dyn Write>;
-        let mut out2 = Box::new(File::create(&temp2).unwrap()) as Box<dyn Write>;
 
-        let config = Config::parse(&mut Cursor::new(DATA));
+        let config = serde_json::from_reader(&mut Cursor::new(DATA)).unwrap();
         let sample = Sample::new(&config);
 
-        generate_events(&sample, 10000, 0, false, &seed, &mut out1);
-        generate_events(&sample, 10000, 0, true, &seed, &mut out2);
+        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        generate_events(&sample, 10000, 0, false, &mut rng, &mut ss_rng, &mut out1);
 
-        let file1 = File::open(&temp1).unwrap();
-        let file2 = File::open(&temp2).unwrap();
-        let buf1 = BufReader::new(file1);
-        let mut buf2 = BufReader::new(file2);
+        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        generate_events(&sample, 10000, 0, true, &mut rng, &mut ss_rng, &mut out2);
+
+        drop(out1);
+        drop(out2);
+
+        let buf1 = BufReader::new(buf1);
+        let mut buf2 = BufReader::new(buf2);
 
         for line in buf1.lines() {
             let l1 = line.unwrap();
             let mut l2 = String::new();
             buf2.read_line(&mut l2).unwrap();
 
-            let e1 = serde_json::from_str::<EventType>(&l1).unwrap();
-            let e2 = serde_json::from_str::<EventType>(&l2).unwrap();
+            let e1 = serde_json::from_str::<Event>(&l1).unwrap();
+            let e2 = serde_json::from_str::<Event>(&l2).unwrap();
 
             match e1 {
-                EventType::S(s) => {
-                    if let EventType::ES(es) = e2 {
+                Event::Source(s) => {
+                    if let Event::EncryptedSource(es) = e2 {
                         for (k, v) in s.event.matchkeys.iter().enumerate() {
                             let ssm = u64::combine(&es.event.matchkeys[k]).unwrap();
                             assert!(*v == ssm);
@@ -453,8 +423,8 @@ mod tests {
                     }
                 }
 
-                EventType::T(t) => {
-                    if let EventType::ET(et) = e2 {
+                Event::Trigger(t) => {
+                    if let Event::EncryptedTrigger(et) = e2 {
                         for (k, v) in t.event.matchkeys.iter().enumerate() {
                             let matchkey = u64::combine(&et.event.matchkeys[k]).unwrap();
                             assert!(*v == matchkey);
@@ -471,11 +441,8 @@ mod tests {
                     }
                 }
 
-                EventType::ES(_) | EventType::ET(_) => unreachable!(),
+                Event::EncryptedSource(_) | Event::EncryptedTrigger(_) => unreachable!(),
             }
         }
-
-        fs::remove_file(&temp1).unwrap();
-        fs::remove_file(&temp2).unwrap();
     }
 }

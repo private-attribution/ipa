@@ -1,9 +1,10 @@
-use crate::config::Config;
 use crate::sample::Sample;
 
 use super::gen_events::generate_events;
 
 use log::{debug, error, info};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use raw_ipa::cli::Verbosity;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,27 @@ pub struct CommonArgs {
 
     #[structopt(long, global = true, help = "Overwrite the specified output file.")]
     overwrite: bool,
+}
+
+impl CommonArgs {
+    fn get_output(&self) -> Result<Box<dyn io::Write>, io::Error> {
+        match self.output_file {
+            Some(ref path) => {
+                let mut file = File::options();
+
+                if self.overwrite {
+                    file.truncate(true).create(true);
+                } else {
+                    file.create_new(true);
+                }
+
+                file.write(true)
+                    .open(path)
+                    .map(|f| Box::new(f) as Box<dyn io::Write>)
+            }
+            None => Ok(Box::new(io::stdout())),
+        }
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -113,12 +135,12 @@ impl Command {
         secret_share: bool,
         config_file: &Path,
     ) {
-        let mut input = get_input(&Some(config_file.to_path_buf())).unwrap_or_else(|e| {
+        let mut input = Command::get_input(&Some(config_file.to_path_buf())).unwrap_or_else(|e| {
             error!("Failed to open the input file. {}", e);
             process::exit(1);
         });
 
-        let mut out = get_output(&common.output_file, common.overwrite).unwrap_or_else(|e| {
+        let mut out = common.get_output().unwrap_or_else(|e| {
             error!("Failed to open the output file. {}", e);
             process::exit(1);
         });
@@ -132,15 +154,19 @@ impl Command {
             DEFAULT_EVENT_GEN_COUNT * scale_factor
         );
 
-        let config = Config::parse(&mut input);
+        let config = serde_json::from_reader(&mut input).unwrap();
         let sample = Sample::new(&config);
+
+        let mut rng = random_seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
+        let mut ss_rng = random_seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
 
         let (s_count, t_count) = generate_events(
             &sample,
             DEFAULT_EVENT_GEN_COUNT * scale_factor,
             epoch,
             secret_share,
-            random_seed,
+            &mut rng,
+            &mut ss_rng,
             &mut out,
         );
 
@@ -151,30 +177,11 @@ impl Command {
             f64::from(t_count) / f64::from(s_count)
         );
     }
-}
 
-fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {
-    match path {
-        Some(ref path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
-        None => Ok(Box::new(io::stdin())),
-    }
-}
-
-fn get_output(path: &Option<PathBuf>, overwrite: bool) -> Result<Box<dyn io::Write>, io::Error> {
-    match path {
-        Some(ref path) => {
-            let mut file = File::options();
-
-            if overwrite {
-                file.truncate(true).create(true);
-            } else {
-                file.create_new(true);
-            }
-
-            file.write(true)
-                .open(path)
-                .map(|f| Box::new(f) as Box<dyn io::Write>)
+    fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {
+        match path {
+            Some(ref path) => File::open(path).map(|f| Box::new(f) as Box<dyn io::Read>),
+            None => Ok(Box::new(io::stdin())),
         }
-        None => Ok(Box::new(io::stdout())),
     }
 }
