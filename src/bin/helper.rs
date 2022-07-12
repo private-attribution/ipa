@@ -1,9 +1,13 @@
 use std::error::Error;
 
 use hyper::http::uri::Scheme;
+
 use raw_ipa::cli::Verbosity;
 use raw_ipa::net::{bind_mpc_helper_server, BindTarget};
+
 use std::net::SocketAddr;
+use std::panic;
+
 use structopt::StructOpt;
 use tracing::info;
 
@@ -26,7 +30,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::from_args();
-    args.logging.setup_logging();
+    let _handle = args.logging.setup_logging();
 
     // decide what protocol we're going to use here
     let addr = SocketAddr::from(([127, 0, 0, 1], args.port.unwrap_or(0)));
@@ -44,8 +48,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // start server
     let (addr, server_handle) = bind_mpc_helper_server(target).await;
-    info!("listening to {}://{}", args.scheme, addr);
-    server_handle.await?;
+    info!(
+        "listening to {}://{}, press Enter to quit",
+        args.scheme, addr
+    );
+    let _ = std::io::stdin().read_line(&mut String::new())?;
+    server_handle.abort();
 
     Ok(())
 }
