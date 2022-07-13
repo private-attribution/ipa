@@ -6,7 +6,7 @@ use std::ops::Add;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// implementation of how incrementer_adder works
+/// implementation of how `incrementer_adder` works
 /// holds the stream being consumed, and a stateful incrementer that increases with every item
 #[pin_project]
 pub struct IncrementerAdder<St: Stream> {
@@ -15,13 +15,12 @@ pub struct IncrementerAdder<St: Stream> {
     inc: St::Item,
 }
 
-impl<St: Stream> IncrementerAdder<St>
-where
-    Self: Sized,
-    St::Item: Default,
-{
+impl<St: Stream> IncrementerAdder<St> {
     /// initialize with the default zero value of the item being incremented
-    pub fn new(stream: St) -> Self {
+    pub fn new(stream: St) -> Self
+    where
+        St::Item: Default,
+    {
         Self {
             stream,
             inc: St::Item::default(),
@@ -43,15 +42,16 @@ where
 /// of a custom transform is that it can be stateful, as seen here with an incrementer.
 impl<St: Stream> Stream for IncrementerAdder<St>
 where
-    St::Item: Copy + From<u8> + Add<St::Item, Output = St::Item>,
+    St::Item: From<u8> + for<'a> Add<&'a St::Item, Output = St::Item>,
 {
     type Item = St::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         let res = ready!(this.stream.as_mut().poll_next(cx));
-        *this.inc = *this.inc + 1u8.into();
-        Poll::Ready(res.map(|i| i + *this.inc))
+        let one: St::Item = 1u8.into();
+        *this.inc = one + this.inc;
+        Poll::Ready(res.map(|i| i + this.inc))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

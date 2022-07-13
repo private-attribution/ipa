@@ -2,9 +2,11 @@
 
 mod incrementer_adder;
 mod map2;
+mod sum;
 
 use incrementer_adder::IncrementerAdder;
 use map2::Map2;
+use sum::Sum;
 
 use futures::{FutureExt, Stream, StreamExt};
 
@@ -29,10 +31,19 @@ trait PipelineExt: Stream {
     {
         IncrementerAdder::new(self)
     }
+    /// a custom, stateful future operation. Consumes a stream, and produces a future of the sum
+    /// of all members of the stream
+    fn sum(self) -> Sum<Self>
+    where
+        Self: Sized,
+        Self::Item: Default,
+    {
+        Sum::new(self)
+    }
 }
 
 /// magic so that any [`Stream`] implements [`PipelineExt`]
-impl<T: Stream + ?Sized> PipelineExt for T {}
+impl<T: Stream> PipelineExt for T {}
 
 // this is the first of a pair of pipelines to process a stream of data
 // in this stage, simply pair up values, then multiply them together
@@ -61,9 +72,9 @@ impl PairAndMultiply {
 pub struct SumAndStringify {}
 impl SumAndStringify {
     pub async fn run(&self, inp: impl Stream<Item = i32>) -> String {
-        // fold provides a way to accumulate all values at the end of computation.
-        // in this case, sum them
-        inp.fold(0, |acc, i| async move { acc + i })
+        // sum consumes a Stream and produces a Future with the single value sum
+        inp.sum()
+            // inp.fold(0, |acc, i| async move { acc + i })
             // finally, it is possible to further work on the value, since it is within a future.
             // alternatively, just `await` the future and act on the value at that time.
             // in this case, stringify
@@ -80,11 +91,7 @@ mod tests {
     #[tokio::test]
     async fn usage() {
         let inp: Vec<i32> = (1..=10).collect();
-        let expected_res = inp
-            .chunks(2)
-            .map(|v| v[0] * v[1])
-            .fold(0, |acc, i| acc + i)
-            .to_string();
+        let expected_res = inp.chunks(2).map(|v| v[0] * v[1]).sum::<i32>().to_string();
         let inp_stream = stream::iter([0i32; 10]);
 
         // combine both pipelines to produce the final output.
