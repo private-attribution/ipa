@@ -48,6 +48,10 @@ impl Field for Fp31 {
     const ONE: Self = Fp31(1);
 
     fn invert(&self) -> Self {
+        debug_assert!(
+            self != &Self::ZERO,
+            "Multiplicative inverse is not defined for Fp31(0)"
+        );
         self.pow(Self::PRIME - 2)
     }
 
@@ -201,5 +205,13 @@ mod test {
                 "{field_element:?}*1/{field_element:?} != 1"
             );
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn invert_panics_if_called_on_zero() {
+        // assertion does not matter here, test should panic when `invert` is called.
+        // it is here to silence #must_use warning
+        assert_ne!(Fp31::ZERO, Fp31(0).invert());
     }
 }
