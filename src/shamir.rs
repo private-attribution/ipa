@@ -23,25 +23,34 @@ impl<F: Field> LagrangePolynomial<F> {
     /// ## Errors
     /// Returns an error if it fails to evaluate at least one of the coefficients
     pub fn new(degree: NonZeroU8) -> Result<Self, Error> {
-        let mut coefficients = Vec::with_capacity(degree.get() as usize);
-        let n = degree.get();
-        for i in 1..=n {
-            let mut x = F::ONE;
-            let mut denom = F::ONE;
+        if u128::from(degree.get()) >= F::PRIME.into() {
+            // SAFETY: F::Prime <= u8::MAX here
+            #[allow(clippy::cast_possible_truncation)]
+            Err(Error::FieldSizeError {
+                field_size: F::PRIME.into() as u8,
+                polynomial_degree: degree.get(),
+            })
+        } else {
+            let mut coefficients = Vec::with_capacity(degree.get() as usize);
+            let n = degree.get();
+            for i in 1..=n {
+                let mut x = F::ONE;
+                let mut denom = F::ONE;
 
-            let x_i = F::from(u128::from(i));
-            for j in 1..=n {
-                if i != j {
-                    let x_j = F::from(u128::from(j));
-                    x *= x_j;
-                    denom *= x_j - x_i;
+                let x_i = F::from(u128::from(i));
+                for j in 1..=n {
+                    if i != j {
+                        let x_j = F::from(u128::from(j));
+                        x *= x_j;
+                        denom *= x_j - x_i;
+                    }
                 }
+
+                coefficients.push(x * denom.invert());
             }
 
-            coefficients.push(x * denom.invert());
+            Ok(Self { coefficients })
         }
-
-        Ok(Self { coefficients })
     }
 
     #[must_use]
@@ -79,6 +88,11 @@ pub enum Error {
     BadPolynomial {
         polynomial_degree: u8,
         points_count: u8,
+    },
+    #[error("The degree of Lagrange polynomial {polynomial_degree} is greater than the field size {field_size}")]
+    FieldSizeError {
+        field_size: u8,
+        polynomial_degree: u8,
     },
     #[error("Prime field element inversion failed: {v:?}")]
     InvertError { v: Box<[u8]> },
@@ -209,7 +223,7 @@ mod tests {
     fn can_share_8_byte_int() {
         let mut rng = StepRng::new(1, 1);
         for k in 2..Fp31::PRIME {
-            for n in k..=(k+5).max(Fp31::PRIME - 1) {
+            for n in k..=(k + 5).min(Fp31::PRIME - 1) {
                 let k = NonZeroU8::new(k).unwrap();
                 let n = NonZeroU8::new(n).unwrap();
                 let lc = LagrangePolynomial::new(n).unwrap();
@@ -221,7 +235,7 @@ mod tests {
                     secret,
                     SecretSharing::reconstruct(&shares, &lc).unwrap(),
                     "Failed to reconstruct the secret using Shamir(k={k}, n={n})"
-                )
+                );
             }
         }
     }
@@ -336,6 +350,18 @@ mod tests {
             secret,
             SecretSharing::reconstruct(&shares, &LagrangePolynomial::new(n).unwrap()).unwrap()
         );
+    }
+
+    #[test]
+    fn rejects_polynomials_larger_than_field_modulus() {
+        let bad_n = NonZeroU8::new(Fp31::PRIME).unwrap();
+        assert!(matches!(
+            LagrangePolynomial::<Fp31>::new(bad_n),
+            Err(Error::FieldSizeError {
+                polynomial_degree: _,
+                field_size: _
+            })
+        ));
     }
 
     //

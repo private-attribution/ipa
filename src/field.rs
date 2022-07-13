@@ -18,7 +18,8 @@ pub trait Field:
     + Debug
     + Sized
 {
-    type Integer;
+    type Integer: Debug + Into<u128>;
+
     const PRIME: Self::Integer;
     /// Additive identity element
     const ZERO: Self;
