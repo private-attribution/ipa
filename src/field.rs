@@ -20,6 +20,18 @@ pub trait Field:
 {
     type Integer;
     const PRIME: Self::Integer;
+    /// Additive identity element
+    const ZERO: Self;
+    /// Multiplicative identity element
+    const ONE: Self;
+
+    /// computes the multiplicative inverse of `self`. It is UB if `self` is 0.
+    #[must_use]
+    fn invert(&self) -> Self;
+
+    /// Computes modular exponentiation, self^exp (mod PRIME)
+    #[must_use]
+    fn pow(&self, exp: Self::Integer) -> Self;
 }
 
 // TODO(mt) - this code defining fields can be turned into a macro if we ever
@@ -31,6 +43,24 @@ pub struct Fp31(<Self as Field>::Integer);
 impl Field for Fp31 {
     type Integer = u8;
     const PRIME: Self::Integer = 31;
+    const ZERO: Self = Fp31(0);
+    const ONE: Self = Fp31(1);
+
+    fn invert(&self) -> Self {
+        self.pow(Self::PRIME - 2)
+    }
+
+    fn pow(&self, exp: Self::Integer) -> Self {
+        let mut t = Self::ONE;
+        for i in (0..Self::Integer::BITS - exp.leading_zeros()).rev() {
+            t *= t;
+            if (exp >> i) & 1 != 0 {
+                t *= *self;
+            }
+        }
+
+        t
+    }
 }
 
 impl Add for Fp31 {
@@ -114,6 +144,7 @@ impl Debug for Fp31 {
 #[cfg(test)]
 mod test {
     use crate::field::Field;
+    use std::ops::Mul;
 
     use super::Fp31;
 
@@ -142,5 +173,32 @@ mod test {
         assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
         assert_eq!(Fp31(<Fp31 as Field>::PRIME - 1), Fp31(0) - Fp31(1));
         assert_eq!(Fp31(0), Fp31(0) * Fp31(1));
+    }
+
+    #[test]
+    fn pow() {
+        let zero = Fp31::ZERO;
+        let one = Fp31::ONE;
+
+        assert_eq!(Fp31(2), Fp31(2).pow(1));
+        assert_eq!(one, Fp31(2).pow(0));
+        assert_eq!(one, one.pow(0));
+        assert_eq!(one, one.pow(2));
+        assert_eq!(zero, zero.pow(2));
+
+        assert_eq!(Fp31(Fp31::PRIME - 1), Fp31(Fp31::PRIME - 1).pow(1));
+        assert_eq!(one, Fp31(2).pow(Fp31::PRIME - 1));
+    }
+
+    #[test]
+    fn invert() {
+        for i in 1..Fp31::PRIME {
+            let field_element = Fp31(i);
+            assert_eq!(
+                Fp31::ONE,
+                field_element.invert().mul(field_element),
+                "{field_element:?}*1/{field_element:?} != 1"
+            );
+        }
     }
 }
