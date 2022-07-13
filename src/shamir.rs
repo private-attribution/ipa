@@ -1,13 +1,10 @@
 //!
 //! This module contains the implementation of [`Shamir secret sharing`] using finite fields.
-//! It uses FF implementations provided by [`ff`] crate and is mostly useful when working with
-//! prime fields as they support arithmetic addition and multiplication of shares that is used
-//! to implement secure multiplication protocol.
 //!
 //! [`Shamir secret sharing`](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
-//! [`ff`](https://crates.io/crates/ff)
 //!
-use ff::{Field, PrimeField};
+use crate::field::{Field, Fp31};
+use rand::Rng;
 use rand_core::RngCore;
 use std::iter::repeat_with;
 use std::num::NonZeroU8;
@@ -15,11 +12,12 @@ use std::ops::Add;
 use thiserror::Error;
 
 /// Interpolating polynomial used to reconstruct secrets encoded with Shamir secret scheme.
+#[derive(Debug)]
 pub struct LagrangePolynomial<F> {
     coefficients: Vec<F>,
 }
 
-impl<F: PrimeField> LagrangePolynomial<F> {
+impl<F: Field> LagrangePolynomial<F> {
     /// Constructs new polynomial of a given degree.
     ///
     /// ## Errors
@@ -28,25 +26,19 @@ impl<F: PrimeField> LagrangePolynomial<F> {
         let mut coefficients = Vec::with_capacity(degree.get() as usize);
         let n = degree.get();
         for i in 1..=n {
-            let mut x = F::one();
-            let mut denom = F::one();
+            let mut x = F::ONE;
+            let mut denom = F::ONE;
 
+            let x_i = F::from(u128::from(i));
             for j in 1..=n {
                 if i != j {
-                    let x_i = F::from(u64::from(i));
-                    let x_j = F::from(u64::from(j));
+                    let x_j = F::from(u128::from(j));
                     x *= x_j;
                     denom *= x_j - x_i;
                 }
             }
 
-            let maybe_denom = denom.invert();
-            if maybe_denom.is_none().into() {
-                return Err(Error::InvertError {
-                    v: Box::from(denom.to_repr().as_ref()),
-                });
-            }
-            coefficients.push(x * maybe_denom.unwrap());
+            coefficients.push(x * denom.invert());
         }
 
         Ok(Self { coefficients })
@@ -65,7 +57,7 @@ impl<F: PrimeField> LagrangePolynomial<F> {
             .iter()
             .zip(self.coefficients.iter())
             .map(|(y, &x)| y.clone().into() * x)
-            .fold(F::zero(), |lhs, rhs| lhs + rhs)
+            .fold(F::ZERO, |lhs, rhs| lhs + rhs)
     }
 }
 
@@ -99,6 +91,12 @@ pub struct Share<F> {
     y: F,
 }
 
+impl From<Share<Fp31>> for Fp31 {
+    fn from(share: Share<Fp31>) -> Self {
+        share.y
+    }
+}
+
 impl SecretSharing {
     /// Constructs a new instance, returning `ShamirError` if input values do not allow
     /// to construct a valid Shamir secret sharing scheme.
@@ -129,7 +127,7 @@ impl SecretSharing {
 
     /// Consumes and splits a given secret into `n` shares. only `k` <= `n` shares is required
     /// to reconstruct it later
-    pub fn split<R: RngCore, F: PrimeField>(&self, secret: F, rng: R) -> Vec<Share<F>> {
+    pub fn split<R: RngCore, F: Field>(&self, secret: F, rng: R) -> Vec<Share<F>> {
         // generate polynomial of k-1 degree
         let coefficients = Self::gen_polynomial::<R, F>(rng)
             .take(usize::from(self.k - 1))
@@ -139,8 +137,8 @@ impl SecretSharing {
 
         // sample n points by evaluating the polynomial
         for i in 1..=self.n {
-            let mut y = F::zero();
-            let x = F::from(u64::from(i));
+            let mut y = F::ZERO;
+            let x = F::from(u128::from(i));
             for c in coefficients.iter().rev() {
                 y += *c;
                 y *= x;
@@ -161,7 +159,7 @@ impl SecretSharing {
     /// if an error occurred while evaluating the polynomial
     pub fn reconstruct<F>(shares: &[Share<F>], lagrange: &LagrangePolynomial<F>) -> Result<F, Error>
     where
-        F: PrimeField + From<Share<F>>,
+        F: Field + From<Share<F>>,
     {
         // this check is actually stricter than we need: shares.len() >= lagrange.len() is enough
         // to reconstruct (ignore extra shares). The reason why it is here is specific to IPA protocol -
@@ -182,7 +180,7 @@ impl SecretSharing {
 
     /// Generate coefficients (sampled at random) for an arbitrary polynomial of infinite degree.
     fn gen_polynomial<R: RngCore, F: Field>(mut rng: R) -> impl Iterator<Item = F> {
-        repeat_with(move || F::random(&mut rng))
+        repeat_with(move || F::from(rng.gen::<u128>()))
     }
 }
 
@@ -195,11 +193,8 @@ impl<F: Field> Add for &Share<F> {
 }
 
 #[cfg(test)]
-// PrimeField macro panics if this attribute is added to `Fp` struct.
-#[allow(clippy::expl_impl_clone_on_copy)]
 mod tests {
     use crate::shamir::{Error, LagrangePolynomial, SecretSharing, Share};
-    use ff::PrimeField;
     use proptest::prelude::*;
     use rand::rngs::StdRng;
     use rand::thread_rng;
@@ -207,42 +202,26 @@ mod tests {
     use std::cmp::max;
     use std::num::NonZeroU8;
 
+    use crate::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
-
-    // Mersenne prime 2^61-1
-    const PRIME: u64 = 2_305_843_009_213_693_951;
-
-    #[derive(PrimeField)]
-    #[PrimeFieldModulus = "2305843009213693951"]
-    #[PrimeFieldGenerator = "7"]
-    #[PrimeFieldReprEndianness = "little"]
-    struct Fp([u64; 1]);
-
-    impl Fp {
-        pub const fn modulus() -> u64 {
-            PRIME
-        }
-    }
-
-    impl From<Share<Fp>> for Fp {
-        fn from(share: Share<Fp>) -> Self {
-            share.y
-        }
-    }
 
     #[test]
     fn can_share_8_byte_int() {
         let mut rng = StepRng::new(1, 1);
-        for k in [2_u8, 5, 10, 254] {
-            for n in k..=k.checked_add(5).unwrap_or(u8::MAX) {
+        for k in 2..Fp31::PRIME {
+            for n in k..=(k+5).max(Fp31::PRIME - 1) {
                 let k = NonZeroU8::new(k).unwrap();
                 let n = NonZeroU8::new(n).unwrap();
-                let lc = LagrangePolynomial::<Fp>::new(n).unwrap();
+                let lc = LagrangePolynomial::new(n).unwrap();
                 let shamir = SecretSharing::new(k, n).unwrap();
-                let secret = Fp::from(213);
+                let secret = Fp31::from(2_u128);
                 let shares = shamir.split(secret, &mut rng);
 
-                assert_eq!(secret, SecretSharing::reconstruct(&shares, &lc).unwrap());
+                assert_eq!(
+                    secret,
+                    SecretSharing::reconstruct(&shares, &lc).unwrap(),
+                    "Failed to reconstruct the secret using Shamir(k={k}, n={n})"
+                )
             }
         }
     }
@@ -251,14 +230,14 @@ mod tests {
     fn can_add_shares() {
         fn check_addition(
             shamir: &SecretSharing,
-            lc: &LagrangePolynomial<Fp>,
-            lhs_secret: u64,
-            rhs_secret: u64,
+            lc: &LagrangePolynomial<Fp31>,
+            lhs_secret: u8,
+            rhs_secret: u8,
         ) {
             let mut rng = StepRng::new(1, 1);
 
-            let lhs_secret = Fp::from(lhs_secret);
-            let rhs_secret = Fp::from(rhs_secret);
+            let lhs_secret = Fp31::from(lhs_secret);
+            let rhs_secret = Fp31::from(rhs_secret);
             let expected = lhs_secret + rhs_secret;
 
             let lhs_shares = shamir.split(lhs_secret, &mut rng);
@@ -276,12 +255,12 @@ mod tests {
         let k = NonZeroU8::new(2).unwrap();
         let n = NonZeroU8::new(3).unwrap();
         let shamir = SecretSharing::new(k, n).unwrap();
-        let lc = LagrangePolynomial::<Fp>::new(n).unwrap();
+        let lc = LagrangePolynomial::<Fp31>::new(n).unwrap();
 
         check_addition(&shamir, &lc, 42, 24);
         check_addition(&shamir, &lc, 0, 0);
-        check_addition(&shamir, &lc, Fp::modulus(), 2);
-        check_addition(&shamir, &lc, 0, Fp::modulus());
+        check_addition(&shamir, &lc, Fp31::PRIME, 2);
+        check_addition(&shamir, &lc, 0, Fp31::PRIME);
     }
 
     #[test]
@@ -289,7 +268,7 @@ mod tests {
         let n = NonZeroU8::new(3).unwrap();
         let shamir = SecretSharing::new(NonZeroU8::new(2).unwrap(), n).unwrap();
 
-        let shares = shamir.split(Fp::from(42), thread_rng());
+        let shares = shamir.split(Fp31::from(42_u128), thread_rng());
         assert!(matches!(
             SecretSharing::reconstruct(&shares[0..1], &LagrangePolynomial::new(n).unwrap()),
             Err(Error::BadPolynomial {
@@ -305,7 +284,7 @@ mod tests {
         let n = NonZeroU8::new(3).unwrap();
         let shamir = SecretSharing::new(k, n).unwrap();
 
-        let shares = shamir.split(Fp::from(42), thread_rng());
+        let shares = shamir.split(Fp31::from(42_u128), thread_rng());
         assert!(matches!(
             SecretSharing::reconstruct(&shares, &LagrangePolynomial::new(k).unwrap()),
             Err(Error::BadPolynomial {
@@ -329,7 +308,7 @@ mod tests {
     fn fails_to_reconstruct_secret_with_duplicated_shares() {
         let (k, n) = (NonZeroU8::new(2).unwrap(), NonZeroU8::new(3).unwrap());
         let rng = StepRng::new(1, 1);
-        let secret = Fp::from(5);
+        let secret = Fp31::from(5_u128);
 
         let sharing = SecretSharing::new(k, n).unwrap();
 
@@ -346,7 +325,7 @@ mod tests {
     fn fails_to_reconstruct_secret_with_forged_shares() {
         let (k, n) = (NonZeroU8::new(2).unwrap(), NonZeroU8::new(3).unwrap());
         let rng = StepRng::new(1, 1);
-        let secret = Fp::from(5);
+        let secret = Fp31::from(5_u128);
 
         let sharing = SecretSharing::new(k, n).unwrap();
 
@@ -372,10 +351,10 @@ mod tests {
 
     impl ShareReconstructInput {
         fn gen() -> impl Strategy<Value = Self> {
-            (2u8..250)
+            (2u8..Fp31::PRIME)
                 .prop_flat_map(|v| {
                     let k = Just(v);
-                    let n = v..=255;
+                    let n = v..Fp31::PRIME;
                     let rng_seed = any::<u64>();
 
                     (rng_seed, k, n)
@@ -388,7 +367,7 @@ mod tests {
     fn sharing_is_reversible() {
         fn can_share_and_reconstruct(
             input: &ShareReconstructInput,
-            secret: u64,
+            secret: u8,
         ) -> Result<(), TestCaseError> {
             let ShareReconstructInput { k, n, rng_seed } = *input;
 
@@ -398,23 +377,16 @@ mod tests {
 
             let shamir = SecretSharing::new(k, n).unwrap();
             let lc = LagrangePolynomial::new(n).unwrap();
-            let shares = shamir.split(Fp::from(secret), r);
+            let shares = shamir.split(Fp31::from(secret), r);
 
             let reconstructed_secret = SecretSharing::reconstruct(&shares, &lc)
                 .map_err(|e| TestCaseError::fail(e.to_string()))?;
 
-            prop_assert_eq!(Fp::from(secret), reconstructed_secret);
+            prop_assert_eq!(Fp31::from(secret), reconstructed_secret);
             Ok(())
         }
 
-        let test_config = if cfg!(feature = "test-harness") {
-            ProptestConfig::default()
-        } else {
-            // to allow fast test execution while running tests locally
-            ProptestConfig::with_cases(10)
-        };
-
-        proptest!(test_config, |(input in ShareReconstructInput::gen(), v in 0..PRIME)| {
+        proptest!(|(input in ShareReconstructInput::gen(), v in 0..Fp31::PRIME)| {
             can_share_and_reconstruct(&input, v)?;
         });
     }

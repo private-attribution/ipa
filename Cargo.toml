@@ -11,7 +11,6 @@ debug = ["hex"]
 enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
 web-app = ["tokio", "axum", "axum-server", "hyper", "hyper-tls", "tower-http"]
 self-signed-certs = ["hyper-tls"]
-test-harness = []
 
 [dependencies]
 aes = "0.8"
@@ -21,7 +20,6 @@ byteorder = "1"
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
 digest = "0.9"
 
-ff = { version = "0.12.0", features = ["derive"] } # Prime finite field implementation
 hex = { version = "0.4", optional = true }
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, so pin this
 hkdf = "0.11"
