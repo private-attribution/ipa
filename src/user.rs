@@ -3,7 +3,6 @@ use crate::error::{Error, Res};
 use crate::report::{EncryptedMatchkeys, EventReport};
 use crate::threshold::{Ciphertext, EncryptionKey as ThresholdEncryptionKey, RistrettoPoint};
 use hkdf::Hkdf;
-use log::trace;
 use rand::{thread_rng, RngCore};
 #[cfg(feature = "enable-serde")]
 use serde::{Deserialize, Serialize};
@@ -13,6 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 #[cfg(feature = "enable-serde")]
 use std::path::{Path, PathBuf};
+use tracing::trace;
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct User {

@@ -1,7 +1,7 @@
-use log::{error, info, warn};
 use std::fmt::{Debug, Formatter};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
+use tracing::{error, info, warn};
 
 use crate::error::Res;
 
