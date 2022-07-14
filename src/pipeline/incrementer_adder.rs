@@ -1,8 +1,6 @@
 use futures::{ready, Stream};
 use pin_project::pin_project;
-
-use std::ops::Add;
-
+use std::ops::{Add, AddAssign};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -42,15 +40,14 @@ impl<St: Stream> IncrementerAdder<St> {
 /// of a custom transform is that it can be stateful, as seen here with an incrementer.
 impl<St: Stream> Stream for IncrementerAdder<St>
 where
-    St::Item: From<u8> + for<'a> Add<&'a St::Item, Output = St::Item>,
+    St::Item: From<u8> + for<'a> Add<&'a St::Item, Output = St::Item> + AddAssign<St::Item>,
 {
     type Item = St::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         let res = ready!(this.stream.as_mut().poll_next(cx));
-        let one: St::Item = 1u8.into();
-        *this.inc = one + this.inc;
+        *this.inc += 1u8.into();
         Poll::Ready(res.map(|i| i + this.inc))
     }
 
