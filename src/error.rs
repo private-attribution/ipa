@@ -5,6 +5,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("already exists")]
     AlreadyExists,
+    #[error("already setup")]
+    AlreadySetup,
     #[error("internal")]
     Internal,
     #[error("invalid id")]

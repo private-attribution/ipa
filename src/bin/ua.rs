@@ -1,4 +1,3 @@
-use log::{debug, error, info, trace, warn};
 use raw_ipa::cli::{HelperArgs, StringN, Verbosity};
 use raw_ipa::{helpers::Helpers, user::User};
 use std::fs;
@@ -6,6 +5,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "ua", about = "Functions for IPA User Agents")]
