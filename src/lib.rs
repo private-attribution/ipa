@@ -8,5 +8,6 @@ pub mod helpers;
 pub mod net;
 pub mod prss;
 pub mod report;
+pub mod shamir;
 pub mod threshold;
 pub mod user;
