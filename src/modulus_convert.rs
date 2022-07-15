@@ -1,548 +1,641 @@
-pub mod modulus_conversion {
+use std::{
+    fmt::Debug,
+    ops::{Add, Neg, Sub},
+};
 
-    use rand::Rng;
-    use rand::RngCore;
+use crate::field::{Fp2, Fp31};
+use crate::prss::Participant;
 
-    pub struct ReplicatedBinarySecretSharing {
-        pub sh1: u8,
-        pub sh2: u8,
+pub enum HelperIdentity {
+    H1,
+    H2,
+    H3,
+}
+
+pub struct RandomShareGenerationHelper {
+    rng: Participant,
+    identity: HelperIdentity,
+}
+
+pub trait ReplicatedSecretSharing:
+    Add<Output = Self>
+    + Neg<Output = Self>
+    + Sub<Output = Self>
+    + Copy
+    + Clone
+    + PartialEq
+    + Debug
+    + Sized
+{
+    type Ring;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReplicatedBinarySecretSharing(
+    <Self as ReplicatedSecretSharing>::Ring,
+    <Self as ReplicatedSecretSharing>::Ring,
+);
+
+impl ReplicatedSecretSharing for ReplicatedBinarySecretSharing {
+    type Ring = Fp2;
+}
+
+impl ReplicatedBinarySecretSharing {
+    #[must_use]
+    pub fn construct(a: Fp2, b: Fp2) -> ReplicatedBinarySecretSharing {
+        ReplicatedBinarySecretSharing(a, b)
     }
+}
 
-    pub struct ReplicatedSecretSharing {
-        pub sh1: u64,
-        pub sh2: u64,
-    }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReplicatedFp31SecretSharing(
+    <Self as ReplicatedSecretSharing>::Ring,
+    <Self as ReplicatedSecretSharing>::Ring,
+);
 
-    pub fn gen_r_binary_sharings<R: RngCore>(
-        mut rng_1: R,
-        mut rng_2: R,
-        batch_size: usize,
-    ) -> Vec<ReplicatedBinarySecretSharing> {
-        let mut output_shares = Vec::with_capacity(batch_size);
-        for _i in 0..(batch_size - 1) {
-            output_shares.push(ReplicatedBinarySecretSharing {
-                sh1: rng_1.gen_range(0..2),
-                sh2: rng_2.gen_range(0..2),
-            });
-        }
-        output_shares
-    }
+impl ReplicatedSecretSharing for ReplicatedFp31SecretSharing {
+    type Ring = Fp31;
+}
 
-    pub fn mult_r1_r2_helper1<R: RngCore>(
-        mut rng_3_1: R,
-        r_binary_shares: &[ReplicatedBinarySecretSharing],
-        p: u64,
-        batch_size: usize,
-    ) -> (Vec<ReplicatedSecretSharing>, Vec<u64>) {
-        let mut output_shares = Vec::with_capacity(batch_size);
-        let mut values_to_share = Vec::with_capacity(batch_size);
-        for shares in r_binary_shares {
-            let r1 = shares.sh1;
-            let r2 = shares.sh2;
-            let s_3_1: u64 = rng_3_1.gen_range(0..p);
-            // (r1 * r2 - s_3_1) mod p
-            let d: u64 = sub_mod_p(u64::from(r1 * r2), s_3_1, p);
-            output_shares.push(ReplicatedSecretSharing { sh1: s_3_1, sh2: d });
-            values_to_share.push(d);
-        }
-        (output_shares, values_to_share)
+impl ReplicatedFp31SecretSharing {
+    #[must_use]
+    pub fn construct(a: Fp31, b: Fp31) -> Self {
+        Self(a, b)
     }
 
     #[must_use]
-    pub fn mult_r1_r2_helper2(d_values: &[u64]) -> Vec<ReplicatedSecretSharing> {
-        d_values
-            .iter()
-            .map(|&d| ReplicatedSecretSharing { sh1: d, sh2: 0 })
-            .collect()
+    pub fn times(&self, c: &Fp31) -> Self {
+        Self(*c * self.0, *c * self.1)
     }
 
-    pub fn mult_r1_r2_helper3<R: RngCore>(
-        mut rng_3_1: R,
-        p: u64,
-        batch_size: usize,
-    ) -> Vec<ReplicatedSecretSharing> {
-        let mut output_shares = Vec::with_capacity(batch_size);
-        for _i in 0..(batch_size - 1) {
-            let s_3_1 = rng_3_1.gen_range(0..p);
-            output_shares.push(ReplicatedSecretSharing { sh1: 0, sh2: s_3_1 });
-        }
-        output_shares
+    #[must_use]
+    pub fn mult_step1(
+        &self,
+        rhs: &ReplicatedFp31SecretSharing,
+        rng: &Participant,
+        index: u128,
+    ) -> (ReplicatedFp31SecretSharing, Fp31) {
+        let (s0, s1) = rng.generate_fields(index);
+        let d: Fp31 = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
+        (
+            ReplicatedFp31SecretSharing::construct(self.0 * rhs.0 + s0, self.1 * rhs.1 + d + s1),
+            d,
+        )
     }
 
-    pub fn xor_r1_r2_r3_helper1<R: RngCore>(
-        mut rng_1_2: R,
-        r_binary_shares: &[ReplicatedBinarySecretSharing],
-        shares_of_r1r2: &[ReplicatedSecretSharing],
-        received_values: &[u64],
-        p: u64,
-        batch_size: usize,
-    ) -> Vec<ReplicatedSecretSharing> {
-        let mut output_shares = Vec::with_capacity(batch_size);
-        for i in 0..(batch_size - 1) {
-            let alpha_1 = sub_mod_p(
-                u64::from(r_binary_shares[i].sh1),
-                mult_mod_p(2, shares_of_r1r2[i].sh1, p),
-                p,
-            );
-            let alpha_2 = sub_mod_p(
-                u64::from(r_binary_shares[i].sh2),
-                mult_mod_p(2, shares_of_r1r2[i].sh2, p),
-                p,
-            );
-            let s_1_2: u64 = rng_1_2.gen_range(0..p);
-
-            output_shares.push(ReplicatedSecretSharing {
-                sh1: sub_mod_p(alpha_1, mult_mod_p(2, received_values[i], p), p),
-                sh2: sub_mod_p(alpha_2, mult_mod_p(2, s_1_2, p), p),
-            });
-        }
-        output_shares
+    #[must_use]
+    pub fn mult_step2(
+        incomplete_shares: &ReplicatedFp31SecretSharing,
+        d_value_received: &Fp31,
+    ) -> ReplicatedFp31SecretSharing {
+        ReplicatedFp31SecretSharing::construct(
+            incomplete_shares.0 + *d_value_received,
+            incomplete_shares.1,
+        )
     }
 
-    pub fn xor_r1_r2_r3_helper2<R: RngCore>(
-        mut rng_1_2: R,
-        mut rng_2_3: R,
-        r_binary_shares: &[ReplicatedBinarySecretSharing],
-        shares_of_r1r2: &[ReplicatedSecretSharing],
-        p: u64,
-        batch_size: usize,
-    ) -> (Vec<ReplicatedSecretSharing>, Vec<u64>) {
-        // To send to helper 3
-        let mut values_to_share = Vec::with_capacity(batch_size);
-        let mut output_shares = Vec::with_capacity(batch_size);
-        for i in 0..(batch_size - 1) {
-            let alpha_2: u64 = sub_mod_p(
-                u64::from(r_binary_shares[i].sh1),
-                mult_mod_p(2, shares_of_r1r2[i].sh1, p),
-                p,
-            );
-            let s_1_2: u64 = rng_1_2.gen_range(0..p);
-            let s_2_3: u64 = rng_2_3.gen_range(0..p);
-            let d_2: u64 = sub_mod_p(alpha_2 * u64::from(r_binary_shares[i].sh2), s_1_2, p);
-            output_shares.push(ReplicatedSecretSharing {
-                sh1: sub_mod_p(alpha_2, mult_mod_p(2, s_1_2, p), p),
-                sh2: sub_mod_p(
-                    u64::from(r_binary_shares[i].sh2),
-                    mult_mod_p(2, add_mod_p(d_2, s_2_3, p), p),
-                    p,
+    #[must_use]
+    pub fn xor_step1(
+        &self,
+        rhs: &ReplicatedFp31SecretSharing,
+        rng: &Participant,
+        index: u128,
+    ) -> (ReplicatedFp31SecretSharing, Fp31) {
+        self.mult_step1(rhs, rng, index)
+    }
+
+    #[must_use]
+    pub fn xor_step2(
+        &self,
+        rhs: &ReplicatedFp31SecretSharing,
+        incomplete_share: &ReplicatedFp31SecretSharing,
+        d_value_received: &Fp31,
+    ) -> ReplicatedFp31SecretSharing {
+        *self + *rhs
+            - ReplicatedFp31SecretSharing::mult_step2(incomplete_share, d_value_received)
+                .times(&Fp31::from(2_u8))
+    }
+}
+
+impl Add for ReplicatedFp31SecretSharing {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl Neg for ReplicatedFp31SecretSharing {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0, -self.1)
+    }
+}
+
+impl Sub for ReplicatedFp31SecretSharing {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl Add for ReplicatedBinarySecretSharing {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl Neg for ReplicatedBinarySecretSharing {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0, -self.1)
+    }
+}
+
+impl Sub for ReplicatedBinarySecretSharing {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl RandomShareGenerationHelper {
+    #[must_use]
+    pub fn init(rng: Participant, identity: HelperIdentity) -> Self {
+        Self { rng, identity }
+    }
+
+    #[must_use]
+    pub fn gen_random_binary(&mut self) -> ReplicatedBinarySecretSharing {
+        let (left, right) = self.rng.next_bits();
+        ReplicatedBinarySecretSharing::construct(Fp2::from(left), Fp2::from(right))
+    }
+
+    #[must_use]
+    pub fn split_binary(
+        &self,
+        random_binary: ReplicatedBinarySecretSharing,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        match self.identity {
+            HelperIdentity::H1 => (
+                ReplicatedFp31SecretSharing::construct(
+                    Fp31::from(random_binary.0.val()),
+                    Fp31::from(0_u8),
                 ),
-            });
-            values_to_share.push(d_2);
+                ReplicatedFp31SecretSharing::construct(
+                    Fp31::from(0_u8),
+                    Fp31::from(random_binary.1.val()),
+                ),
+                ReplicatedFp31SecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8)),
+            ),
+            HelperIdentity::H2 => (
+                ReplicatedFp31SecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8)),
+                ReplicatedFp31SecretSharing::construct(
+                    Fp31::from(random_binary.0.val()),
+                    Fp31::from(0_u8),
+                ),
+                ReplicatedFp31SecretSharing::construct(
+                    Fp31::from(0_u8),
+                    Fp31::from(random_binary.1.val()),
+                ),
+            ),
+            HelperIdentity::H3 => (
+                ReplicatedFp31SecretSharing::construct(
+                    Fp31::from(0_u8),
+                    Fp31::from(random_binary.1.val()),
+                ),
+                ReplicatedFp31SecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8)),
+                ReplicatedFp31SecretSharing::construct(
+                    Fp31::from(random_binary.0.val()),
+                    Fp31::from(0_u8),
+                ),
+            ),
         }
-        (output_shares, values_to_share)
-    }
-
-    pub fn xor_r1_r2_r3_helper3<R: RngCore>(
-        mut rng_2_3: R,
-        r_binary_shares: &[ReplicatedBinarySecretSharing],
-        shares_of_r1r2: &[ReplicatedSecretSharing],
-        d2_values: &[u64],
-        p: u64,
-        batch_size: usize,
-    ) -> (Vec<ReplicatedSecretSharing>, Vec<u64>) {
-        // To send to helper 1
-        let mut d3_values = Vec::with_capacity(batch_size);
-        let mut output_shares = Vec::with_capacity(batch_size);
-        for i in 0..(batch_size - 1) {
-            let alpha_1 = sub_mod_p(
-                u64::from(r_binary_shares[i].sh2),
-                mult_mod_p(2, shares_of_r1r2[i].sh2, p),
-                p,
-            );
-            let s_2_3: u64 = rng_2_3.gen_range(0..p);
-            let r3: u64 = u64::from(r_binary_shares[i].sh1);
-            let d_3 = sub_mod_p(alpha_1 * r3, s_2_3, p);
-            d3_values.push(d_3);
-            output_shares.push(ReplicatedSecretSharing {
-                sh1: sub_mod_p(r3, mult_mod_p(2, add_mod_p(d2_values[i], s_2_3, p), p), p),
-                sh2: sub_mod_p(alpha_1, mult_mod_p(2, d_3, p), p),
-            });
-        }
-        (output_shares, d3_values)
-    }
-
-    // a and b should both be less than p
-    #[must_use]
-    pub fn add_mod_p(a: u64, b: u64, p: u64) -> u64 {
-        let offset: u64 = u64::MAX - p + 1;
-
-        let (sum, overlow) = a.overflowing_add(b);
-        if overlow {
-            return sum + offset;
-        } else if sum >= p {
-            return sum - p;
-        }
-        sum
-    }
-
-    // a and b should both be less than p
-    #[must_use]
-    pub fn sub_mod_p(a: u64, b: u64, p: u64) -> u64 {
-        let offset: u64 = u64::MAX - p + 1;
-
-        let (difference, overlow) = a.overflowing_sub(b);
-        if overlow {
-            return difference - offset;
-        }
-        difference
-    }
-
-    // a and b should both be less than p
-    #[must_use]
-    pub fn mult_mod_p(a: u64, b: u64, p: u64) -> u64 {
-        let (a, b, p) = (u128::from(a), u128::from(b), u128::from(p));
-
-        // There will not be any trunction, because "mod p" returns
-        // a value less than p, and p is less than u64
-        #[allow(clippy::cast_possible_truncation)]
-        (((a * b) % p) as u64)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
+    use crate::modulus_convert::{
+        HelperIdentity, RandomShareGenerationHelper, ReplicatedFp31SecretSharing,
+    };
 
-    use crate::modulus_convert::modulus_conversion::add_mod_p;
-    use crate::modulus_convert::modulus_conversion::gen_r_binary_sharings;
-    use crate::modulus_convert::modulus_conversion::mult_mod_p;
+    use crate::field::Fp31;
+    use crate::prss::{Participant, ParticipantSetup};
+    use rand::thread_rng;
 
-    use crate::modulus_convert::modulus_conversion::mult_r1_r2_helper1;
-    use crate::modulus_convert::modulus_conversion::mult_r1_r2_helper2;
-    use crate::modulus_convert::modulus_conversion::mult_r1_r2_helper3;
+    fn make_three() -> (
+        RandomShareGenerationHelper,
+        RandomShareGenerationHelper,
+        RandomShareGenerationHelper,
+    ) {
+        let mut r = thread_rng();
+        let setup1 = ParticipantSetup::new(&mut r);
+        let setup2 = ParticipantSetup::new(&mut r);
+        let setup3 = ParticipantSetup::new(&mut r);
+        let (pk1_l, pk1_r) = setup1.public_keys();
+        let (pk2_l, pk2_r) = setup2.public_keys();
+        let (pk3_l, pk3_r) = setup3.public_keys();
 
-    use crate::modulus_convert::modulus_conversion::xor_r1_r2_r3_helper1;
-    use crate::modulus_convert::modulus_conversion::xor_r1_r2_r3_helper2;
-    use crate::modulus_convert::modulus_conversion::xor_r1_r2_r3_helper3;
+        let p1 = setup1.setup(&pk3_r, &pk2_l);
+        let p2 = setup2.setup(&pk1_r, &pk3_l);
+        let p3 = setup3.setup(&pk2_r, &pk1_l);
 
-    use crate::modulus_convert::modulus_conversion::sub_mod_p;
+        // Helper 1
+        let h1 = RandomShareGenerationHelper::init(p1, HelperIdentity::H1);
 
-    #[test]
-    fn test_add_mod_p() {
-        assert_eq!(add_mod_p(1u64, 1u64, 31u64), 2u64);
+        // Helper 2
+        let h2 = RandomShareGenerationHelper::init(p2, HelperIdentity::H2);
 
-        assert_eq!(add_mod_p(0u64, 0u64, 31u64), 0u64);
+        // Helper 3
+        let h3 = RandomShareGenerationHelper::init(p3, HelperIdentity::H3);
 
-        assert_eq!(add_mod_p(6u64, 24u64, 31u64), 30u64);
+        (h1, h2, h3)
+    }
 
-        assert_eq!(add_mod_p(7u64, 24u64, 31u64), 0u64);
+    fn secret_share(
+        a: u8,
+        b: u8,
+        c: u8,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        (
+            ReplicatedFp31SecretSharing::construct(Fp31::from(a), Fp31::from(b)),
+            ReplicatedFp31SecretSharing::construct(Fp31::from(b), Fp31::from(c)),
+            ReplicatedFp31SecretSharing::construct(Fp31::from(c), Fp31::from(a)),
+        )
+    }
 
-        assert_eq!(add_mod_p(8u64, 24u64, 31u64), 1u64);
+    // Yeah, yeah... too many arguments... but it's just a test
+    #[allow(clippy::too_many_arguments)]
+    fn multiply_secret_shares(
+        h1: &RandomShareGenerationHelper,
+        h2: &RandomShareGenerationHelper,
+        h3: &RandomShareGenerationHelper,
+        a1: ReplicatedFp31SecretSharing,
+        a2: ReplicatedFp31SecretSharing,
+        a3: ReplicatedFp31SecretSharing,
+        b1: ReplicatedFp31SecretSharing,
+        b2: ReplicatedFp31SecretSharing,
+        b3: ReplicatedFp31SecretSharing,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        let (h1_res, d1) = a1.mult_step1(&b1, &h1.rng, 1);
+        let (h2_res, d2) = a2.mult_step1(&b2, &h2.rng, 1);
+        let (h3_res, d3) = a3.mult_step1(&b3, &h3.rng, 1);
 
-        assert_eq!(add_mod_p(30u64, 30u64, 31u64), 29u64);
+        (
+            ReplicatedFp31SecretSharing::mult_step2(&h1_res, &d3),
+            ReplicatedFp31SecretSharing::mult_step2(&h2_res, &d1),
+            ReplicatedFp31SecretSharing::mult_step2(&h3_res, &d2),
+        )
+    }
 
-        assert_eq!(add_mod_p(0u64, 0u64, 18_446_744_073_709_551_557_u64), 0u64);
+    // Yeah, yeah... too many arguments... but it's just a test
+    #[allow(clippy::too_many_arguments)]
+    fn xor_secret_shares(
+        h1: &RandomShareGenerationHelper,
+        h2: &RandomShareGenerationHelper,
+        h3: &RandomShareGenerationHelper,
+        a1: ReplicatedFp31SecretSharing,
+        a2: ReplicatedFp31SecretSharing,
+        a3: ReplicatedFp31SecretSharing,
+        b1: ReplicatedFp31SecretSharing,
+        b2: ReplicatedFp31SecretSharing,
+        b3: ReplicatedFp31SecretSharing,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        let (h1_res, d1) = a1.xor_step1(&b1, &h1.rng, 1);
+        let (h2_res, d2) = a2.xor_step1(&b2, &h2.rng, 1);
+        let (h3_res, d3) = a3.xor_step1(&b3, &h3.rng, 1);
 
-        assert_eq!(add_mod_p(1u64, 1u64, 18_446_744_073_709_551_557_u64), 2u64);
+        (
+            a1.xor_step2(&b1, &h1_res, &d3),
+            a2.xor_step2(&b2, &h2_res, &d1),
+            a3.xor_step2(&b3, &h3_res, &d2),
+        )
+    }
 
-        assert_eq!(
-            add_mod_p(200u64, 700u64, 18_446_744_073_709_551_557_u64),
-            900u64
-        );
+    fn assert_valid_secret_sharing(
+        res1: ReplicatedFp31SecretSharing,
+        res2: ReplicatedFp31SecretSharing,
+        res3: ReplicatedFp31SecretSharing,
+    ) {
+        assert_eq!(res1.1, res2.0);
+        assert_eq!(res2.1, res3.0);
+        assert_eq!(res3.1, res1.0);
+    }
 
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                0u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            18_446_744_073_709_551_556_u64,
-        );
+    fn assert_secret_shared_value(
+        a1: ReplicatedFp31SecretSharing,
+        a2: ReplicatedFp31SecretSharing,
+        a3: ReplicatedFp31SecretSharing,
+        expected_value: u128,
+    ) {
+        assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));
+        assert_eq!(a1.1 + a2.1 + a3.1, Fp31::from(expected_value));
+    }
 
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                1u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            0u64,
-        );
+    fn mult_test_case(
+        h1: &RandomShareGenerationHelper,
+        h2: &RandomShareGenerationHelper,
+        h3: &RandomShareGenerationHelper,
+        a: (u8, u8, u8),
+        b: (u8, u8, u8),
+        expected_output: u8,
+    ) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+        let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
 
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                6u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            5u64,
-        );
+        // Compute r1 * r2
+        let (res1, res2, res3) = self::multiply_secret_shares(h1, h2, h3, a1, a2, a3, b1, b2, b3);
 
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                1_000_001_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            1_000_000_u64,
-        );
+        assert_eq!(res1.0 + res2.0 + res3.0, Fp31::from(expected_output));
+        assert_eq!(res1.1 + res2.1 + res3.1, Fp31::from(expected_output));
 
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                18_446_744_073_709_551_556_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            18_446_744_073_709_551_555_u64,
-        );
-
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                59u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            58u64,
-        );
-
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                60u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            59u64,
-        );
-
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                61u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            60u64,
-        );
-
-        assert_eq!(
-            add_mod_p(
-                18_446_744_073_709_551_556_u64,
-                59u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            58u64,
-        );
+        assert_valid_secret_sharing(res1, res2, res3);
     }
 
     #[test]
-    fn test_sub_mod_p() {
-        assert_eq!(sub_mod_p(0u64, 0u64, 31u64), 0u64);
-        assert_eq!(sub_mod_p(1u64, 1u64, 31u64), 0u64);
-        assert_eq!(sub_mod_p(30u64, 1u64, 31u64), 29u64);
+    fn test_simple_multiplication() {
+        let (h1, h2, h3) = self::make_three();
 
-        assert_eq!(sub_mod_p(0u64, 1u64, 31u64), 30u64);
-        assert_eq!(sub_mod_p(0u64, 11u64, 31u64), 20u64);
-        assert_eq!(sub_mod_p(10u64, 11u64, 31u64), 30u64);
-        assert_eq!(sub_mod_p(5u64, 28u64, 31u64), 8u64);
+        mult_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 1, 0), 1);
 
-        assert_eq!(sub_mod_p(10u64, 1u64, 18_446_744_073_709_551_557_u64), 9u64,);
+        mult_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 0, 1), 1);
 
-        assert_eq!(
-            sub_mod_p(0u64, 1u64, 18_446_744_073_709_551_557_u64),
-            18_446_744_073_709_551_556_u64,
-        );
+        mult_test_case(&h1, &h2, &h3, (0, 1, 0), (0, 0, 1), 1);
 
-        assert_eq!(
-            sub_mod_p(0u64, 59u64, 18_446_744_073_709_551_557_u64),
-            18_446_744_073_709_551_498_u64,
-        );
+        mult_test_case(&h1, &h2, &h3, (0, 0, 0), (0, 0, 1), 0);
 
-        assert_eq!(
-            sub_mod_p(0u64, 60u64, 18_446_744_073_709_551_557_u64),
-            18_446_744_073_709_551_497_u64,
-        );
+        mult_test_case(&h1, &h2, &h3, (1, 30, 0), (0, 0, 1), 0);
 
-        assert_eq!(
-            sub_mod_p(0u64, 61u64, 18_446_744_073_709_551_557_u64),
-            18_446_744_073_709_551_496_u64,
-        );
+        mult_test_case(&h1, &h2, &h3, (1, 30, 1), (0, 0, 1), 1);
+
+        mult_test_case(&h1, &h2, &h3, (1, 0, 30), (0, 30, 1), 0);
+    }
+
+    fn xor_test_case(
+        h1: &RandomShareGenerationHelper,
+        h2: &RandomShareGenerationHelper,
+        h3: &RandomShareGenerationHelper,
+        a: (u8, u8, u8),
+        b: (u8, u8, u8),
+        expected_output: u8,
+    ) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+        let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
+
+        // Compute r1 ^ r2
+        let (res1, res2, res3) = self::xor_secret_shares(h1, h2, h3, a1, a2, a3, b1, b2, b3);
+
+        assert_eq!(res1.0 + res2.0 + res3.0, Fp31::from(expected_output));
+        assert_eq!(res1.1 + res2.1 + res3.1, Fp31::from(expected_output));
+
+        assert_valid_secret_sharing(res1, res2, res3);
     }
 
     #[test]
-    fn test_mult_mod_p() {
-        assert_eq!(mult_mod_p(0u64, 0u64, 31u64), 0u64);
-        assert_eq!(mult_mod_p(1u64, 1u64, 31u64), 1u64);
-        assert_eq!(mult_mod_p(3u64, 7u64, 31u64), 21u64);
-        assert_eq!(mult_mod_p(5u64, 7u64, 31u64), 4u64);
-        assert_eq!(mult_mod_p(30u64, 7u64, 31u64), 24u64);
-        assert_eq!(mult_mod_p(30u64, 30u64, 31u64), 1u64);
+    fn test_simple_xor() {
+        let (h1, h2, h3) = self::make_three();
 
-        assert_eq!(mult_mod_p(0u64, 0u64, 18_446_744_073_709_551_557_u64), 0u64,);
-        assert_eq!(mult_mod_p(0u64, 1u64, 18_446_744_073_709_551_557_u64), 0u64,);
-        assert_eq!(mult_mod_p(1u64, 1u64, 18_446_744_073_709_551_557_u64), 1u64,);
-        assert_eq!(
-            mult_mod_p(53u64, 9u64, 18_446_744_073_709_551_557_u64),
-            477u64,
-        );
+        xor_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 0, 1), 0);
+        xor_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 1, 0), 0);
+        xor_test_case(&h1, &h2, &h3, (0, 1, 0), (0, 0, 1), 0);
 
-        assert_eq!(
-            mult_mod_p(
-                4_294_967_295_u64,
-                4_294_967_296_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            18_446_744_069_414_584_320_u64,
-        );
-        assert_eq!(
-            mult_mod_p(
-                4_294_967_296_u64,
-                4_294_967_296_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            59u64,
-        );
-        assert_eq!(
-            mult_mod_p(
-                2u64,
-                9_223_372_036_854_775_804_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            51u64,
-        );
-        assert_eq!(
-            mult_mod_p(
-                10_000_000_000_000_000_000_u64,
-                10_000_000_000_000_000_000_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            6_932_391_181_562_104_841_u64,
-        );
-        assert_eq!(
-            mult_mod_p(
-                14_140_769_320_479_119_572_u64,
-                16_523_972_853_534_698_712_u64,
-                18_446_744_073_709_551_557_u64
-            ),
-            1_263_076_288_923_396_945_u64,
-        );
+        xor_test_case(&h1, &h2, &h3, (1, 0, 0), (1, 0, 0), 0);
+        xor_test_case(&h1, &h2, &h3, (0, 1, 0), (0, 1, 0), 0);
+        xor_test_case(&h1, &h2, &h3, (0, 0, 1), (0, 0, 1), 0);
+
+        xor_test_case(&h1, &h2, &h3, (0, 0, 0), (1, 0, 0), 1);
+        xor_test_case(&h1, &h2, &h3, (0, 0, 0), (0, 1, 0), 1);
+        xor_test_case(&h1, &h2, &h3, (0, 0, 0), (0, 0, 1), 1);
+
+        xor_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 0, 0), 1);
+        xor_test_case(&h1, &h2, &h3, (0, 1, 0), (0, 0, 0), 1);
+        xor_test_case(&h1, &h2, &h3, (0, 0, 1), (0, 0, 0), 1);
+
+        xor_test_case(&h1, &h2, &h3, (1, 30, 0), (0, 0, 1), 1);
+        xor_test_case(&h1, &h2, &h3, (1, 30, 1), (0, 0, 1), 0);
+        xor_test_case(&h1, &h2, &h3, (1, 0, 30), (0, 30, 1), 0);
+    }
+
+    fn addition_test_case(a: (u8, u8, u8), b: (u8, u8, u8), expected_output: u128) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+        let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
+
+        // Compute r1 + r2
+        let res1 = a1 + b1;
+        let res2 = a2 + b2;
+        let res3 = a3 + b3;
+
+        assert_valid_secret_sharing(res1, res2, res3);
+        assert_secret_shared_value(res1, res2, res3, expected_output);
+    }
+
+    #[test]
+    fn test_simple_addition() {
+        addition_test_case((1, 0, 0), (1, 0, 0), 2);
+        addition_test_case((1, 0, 0), (0, 1, 0), 2);
+        addition_test_case((1, 0, 0), (0, 0, 1), 2);
+
+        addition_test_case((0, 1, 0), (1, 0, 0), 2);
+        addition_test_case((0, 1, 0), (0, 1, 0), 2);
+        addition_test_case((0, 1, 0), (0, 0, 1), 2);
+
+        addition_test_case((0, 0, 1), (1, 0, 0), 2);
+        addition_test_case((0, 0, 1), (0, 1, 0), 2);
+        addition_test_case((0, 0, 1), (0, 0, 1), 2);
+
+        addition_test_case((0, 0, 0), (1, 0, 0), 1);
+        addition_test_case((0, 0, 0), (0, 1, 0), 1);
+        addition_test_case((0, 0, 0), (0, 0, 1), 1);
+
+        addition_test_case((1, 0, 0), (0, 0, 0), 1);
+        addition_test_case((0, 1, 0), (0, 0, 0), 1);
+        addition_test_case((0, 0, 1), (0, 0, 0), 1);
+
+        addition_test_case((0, 0, 0), (0, 0, 0), 0);
+
+        addition_test_case((1, 3, 5), (10, 0, 2), 21);
+    }
+
+    fn subtraction_test_case(a: (u8, u8, u8), b: (u8, u8, u8), expected_output: u128) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+        let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
+
+        // Compute r1 - r2
+        let res1 = a1 - b1;
+        let res2 = a2 - b2;
+        let res3 = a3 - b3;
+
+        assert_valid_secret_sharing(res1, res2, res3);
+        assert_secret_shared_value(res1, res2, res3, expected_output);
+    }
+
+    #[test]
+    fn test_simple_subtraction() {
+        subtraction_test_case((1, 0, 0), (1, 0, 0), 0);
+        subtraction_test_case((1, 0, 0), (0, 1, 0), 0);
+        subtraction_test_case((1, 0, 0), (0, 0, 1), 0);
+
+        subtraction_test_case((0, 1, 0), (1, 0, 0), 0);
+        subtraction_test_case((0, 1, 0), (0, 1, 0), 0);
+        subtraction_test_case((0, 1, 0), (0, 0, 1), 0);
+
+        subtraction_test_case((0, 0, 1), (1, 0, 0), 0);
+        subtraction_test_case((0, 0, 1), (0, 1, 0), 0);
+        subtraction_test_case((0, 0, 1), (0, 0, 1), 0);
+
+        subtraction_test_case((0, 0, 0), (1, 0, 0), 30);
+        subtraction_test_case((0, 0, 0), (0, 1, 0), 30);
+        subtraction_test_case((0, 0, 0), (0, 0, 1), 30);
+
+        subtraction_test_case((1, 0, 0), (0, 0, 0), 1);
+        subtraction_test_case((0, 1, 0), (0, 0, 0), 1);
+        subtraction_test_case((0, 0, 1), (0, 0, 0), 1);
+
+        subtraction_test_case((0, 0, 0), (0, 0, 0), 0);
+
+        subtraction_test_case((1, 3, 5), (10, 0, 2), 28);
+    }
+
+    fn mult_by_constant_test_case(a: (u8, u8, u8), c: u8, expected_output: u128) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+
+        let res1 = a1.times(&Fp31::from(c));
+        let res2 = a2.times(&Fp31::from(c));
+        let res3 = a3.times(&Fp31::from(c));
+
+        assert_valid_secret_sharing(res1, res2, res3);
+        assert_secret_shared_value(res1, res2, res3, expected_output);
+    }
+
+    #[test]
+    fn test_mult_by_constant() {
+        mult_by_constant_test_case((1, 0, 0), 2, 2);
+        mult_by_constant_test_case((0, 1, 0), 2, 2);
+        mult_by_constant_test_case((0, 0, 1), 2, 2);
+        mult_by_constant_test_case((0, 0, 0), 2, 0);
+    }
+
+    fn xor(
+        a: (
+            &ReplicatedFp31SecretSharing,
+            &ReplicatedFp31SecretSharing,
+            &ReplicatedFp31SecretSharing,
+        ),
+        b: (
+            &ReplicatedFp31SecretSharing,
+            &ReplicatedFp31SecretSharing,
+            &ReplicatedFp31SecretSharing,
+        ),
+        rng1: &Participant,
+        rng2: &Participant,
+        rng3: &Participant,
+        idx: u128,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        let (c1, d1) = a.0.xor_step1(b.0, rng1, idx);
+        let (c2, d2) = a.1.xor_step1(b.1, rng2, idx);
+        let (c3, d3) = a.2.xor_step1(b.2, rng3, idx);
+
+        (
+            a.0.xor_step2(b.0, &c1, &d3),
+            a.1.xor_step2(b.1, &c2, &d1),
+            a.2.xor_step2(b.2, &c3, &d2),
+        )
     }
 
     #[test]
     fn test_three_helpers() {
-        // let p = 2147483647; // 2^31 - 1
-        // let p = 2305843009213693951; // 2^61 - 1
-        let p = 18_446_744_073_709_551_557; // 2^64 - 59
-        let batch_size = 100;
+        let (mut h1, mut h2, mut h3) = self::make_three();
 
-        // Helper 1 and 3 will share this seed
-        let seed_1: [u8; 32] = [1; 32];
+        let mut index: u128 = 0;
 
-        // Helper 2 and 1 will share this seed
-        let seed_2: [u8; 32] = [2; 32];
-
-        // Helper 3 and 2 will share this seed
-        let seed_3: [u8; 32] = [3; 32];
-
-        // Helper 1
-        let mut helper1_rng_1 = StdRng::from_seed(seed_1);
-        let mut helper1_rng_2 = StdRng::from_seed(seed_2);
-        let h1_binary_shares =
-            gen_r_binary_sharings(&mut helper1_rng_1, &mut helper1_rng_2, batch_size);
-
-        // Helper 2
-        let mut helper2_rng_2 = StdRng::from_seed(seed_2);
-        let mut helper2_rng_3 = StdRng::from_seed(seed_3);
-        let h2_binary_shares =
-            gen_r_binary_sharings(&mut helper2_rng_2, &mut helper2_rng_3, batch_size);
-
-        // Helper 3
-        let mut helper3_rng_3 = StdRng::from_seed(seed_3);
-        let mut helper3_rng_1 = StdRng::from_seed(seed_1);
-        let h3_binary_shares =
-            gen_r_binary_sharings(&mut helper3_rng_3, &mut helper3_rng_1, batch_size);
-
-        for i in 0..batch_size - 1 {
-            assert_eq!(h1_binary_shares[i].sh1, h3_binary_shares[i].sh2);
-            assert_eq!(h2_binary_shares[i].sh1, h1_binary_shares[i].sh2);
-            assert_eq!(h3_binary_shares[i].sh1, h2_binary_shares[i].sh2);
-        }
-
-        // Multiply r1 * r2
-        // Helper 1 generates random values (s) and uses them to mask r1*r2 in the values (d)
-        let (h1_shares_of_r1r2, h1_d_values) =
-            mult_r1_r2_helper1(&mut helper1_rng_1, &h1_binary_shares, p, batch_size);
-
-        // Helper 3 generates the same random values (s) from their shared randomness
-        let h3_shares_of_r1r2 = mult_r1_r2_helper3(&mut helper3_rng_1, p, batch_size);
-
-        // Helper 1 sends the d_values to Helper 2
-        let h2_shares_of_r1r2 = mult_r1_r2_helper2(&h1_d_values);
-
-        for i in 0..batch_size - 1 {
-            // Check that this is a valid replicated secret sharing
-            assert_eq!(h1_shares_of_r1r2[i].sh1, h3_shares_of_r1r2[i].sh2);
-            assert_eq!(h2_shares_of_r1r2[i].sh1, h1_shares_of_r1r2[i].sh2);
-            assert_eq!(h3_shares_of_r1r2[i].sh1, h2_shares_of_r1r2[i].sh2);
-
-            // Check that this is indeed a secret sharing of r1*r2
-            let r1_r2 = h1_binary_shares[i].sh1 * h1_binary_shares[i].sh2;
-
-            let sanity_check_1 = add_mod_p(
-                add_mod_p(h1_shares_of_r1r2[i].sh1, h2_shares_of_r1r2[i].sh1, p),
-                h3_shares_of_r1r2[i].sh1,
-                p,
+        for _i in 0..100 {
+            let r_binary = (
+                h1.gen_random_binary(),
+                h2.gen_random_binary(),
+                h3.gen_random_binary(),
             );
-            let sanity_check_2 = add_mod_p(
-                add_mod_p(h1_shares_of_r1r2[i].sh2, h2_shares_of_r1r2[i].sh2, p),
-                h3_shares_of_r1r2[i].sh2,
-                p,
+            let h1_split = h1.split_binary(r_binary.0);
+            let h2_split = h2.split_binary(r_binary.1);
+            let h3_split = h3.split_binary(r_binary.2);
+
+            // validate r1
+            assert_valid_secret_sharing(h1_split.0, h2_split.0, h3_split.0);
+            assert_secret_shared_value(h1_split.0, h2_split.0, h3_split.0, r_binary.0 .0.val());
+
+            // validate r2
+            assert_valid_secret_sharing(h1_split.1, h2_split.1, h3_split.1);
+            assert_secret_shared_value(h1_split.1, h2_split.1, h3_split.1, r_binary.1 .0.val());
+
+            // validate r3
+            assert_valid_secret_sharing(h1_split.2, h2_split.2, h3_split.2);
+            assert_secret_shared_value(h1_split.2, h2_split.2, h3_split.2, r_binary.2 .0.val());
+
+            // Compute r1 ^ r2
+            let r1_xor_r2 = xor(
+                (&h1_split.0, &h2_split.0, &h3_split.0),
+                (&h1_split.1, &h2_split.1, &h3_split.1),
+                &h1.rng,
+                &h2.rng,
+                &h3.rng,
+                index,
             );
-            assert_eq!(u64::from(r1_r2), sanity_check_1);
-            assert_eq!(u64::from(r1_r2), sanity_check_2);
-        }
+            index += 1;
 
-        // Locally compute (r1 ^ r2)
-        // Compute (r1 ^ r2) * r3
-        // Then locally compute (r1 ^ r2) ^ r3
-
-        // Helper 2 generates "d2" values and local shares of (r1 ^ r2) ^ r3
-        let (h2_shares, d2_values) = xor_r1_r2_r3_helper2(
-            helper2_rng_2,
-            helper2_rng_3,
-            &h2_binary_shares,
-            &h2_shares_of_r1r2,
-            p,
-            batch_size,
-        );
-
-        // Helper 2 sends the "d2" values to Helper 3
-
-        // Helper 3 generates "d3" values and local shares of (r1 ^ r2) ^ r3
-        let (h3_shares, d3_values) = xor_r1_r2_r3_helper3(
-            helper3_rng_3,
-            &h3_binary_shares,
-            &h3_shares_of_r1r2,
-            &d2_values,
-            p,
-            batch_size,
-        );
-
-        // Helper 3 sends the "d3" values to Helper 1
-
-        // Helper 1 generates local shares of (r1 ^ r2) ^ r3
-        let h1_shares = xor_r1_r2_r3_helper1(
-            helper1_rng_2,
-            &h1_binary_shares,
-            &h1_shares_of_r1r2,
-            &d3_values,
-            p,
-            batch_size,
-        );
-
-        for i in 0..batch_size - 1 {
-            // Check that we have a replicated secret sharing
-            assert_eq!(h1_shares[i].sh1, h3_shares[i].sh2);
-            assert_eq!(h2_shares[i].sh1, h1_shares[i].sh2);
-            assert_eq!(h3_shares[i].sh1, h2_shares[i].sh2);
-
-            // Check that this is a secret sharing of (r1 ^ r2) ^ r3
-            let res = add_mod_p(
-                add_mod_p(h1_shares[i].sh1, h2_shares[i].sh1, p),
-                h3_shares[i].sh1,
-                p,
+            // validate r1 ^ r2
+            assert_valid_secret_sharing(r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2);
+            assert_secret_shared_value(
+                r1_xor_r2.0,
+                r1_xor_r2.1,
+                r1_xor_r2.2,
+                (r_binary.0 .0 + r_binary.1 .0).val(),
             );
-            let correct =
-                (h1_binary_shares[i].sh1 + h2_binary_shares[i].sh1 + h3_binary_shares[i].sh1) % 2;
-            assert_eq!(res, u64::from(correct));
+
+            // Compute (r1 ^ r2) ^ r3
+            let r1_xor_r2_xor_r3 = xor(
+                (&r1_xor_r2.0, &r1_xor_r2.1, &r1_xor_r2.2),
+                (&h1_split.2, &h2_split.2, &h3_split.2),
+                &h1.rng,
+                &h2.rng,
+                &h3.rng,
+                index,
+            );
+            index += 1;
+
+            // validate (r1 ^ r2) ^ r3
+            assert_valid_secret_sharing(r1_xor_r2_xor_r3.0, r1_xor_r2_xor_r3.1, r1_xor_r2_xor_r3.2);
+            assert_secret_shared_value(
+                r1_xor_r2_xor_r3.0,
+                r1_xor_r2_xor_r3.1,
+                r1_xor_r2_xor_r3.2,
+                (r_binary.0 .0 + r_binary.1 .0 + r_binary.2 .0).val(),
+            );
         }
     }
 }
