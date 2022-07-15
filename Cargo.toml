@@ -37,7 +37,6 @@ serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, so pin this
 sha2 = "0.9"
-stderrlog = { version = "0.5", optional = true }
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0"
 tokio = { version = "1.19.2", optional = true, features = ["rt", "rt-multi-thread", "macros"] }
@@ -46,7 +45,6 @@ tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "1"
 rand_distr = "0.4.3"
-chrono = "0.4.19"
 
 [dev-dependencies]
 hex = "0.4"
