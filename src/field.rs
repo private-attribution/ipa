@@ -26,6 +26,92 @@ pub trait Field:
 // need lots of fields with different primes.
 
 #[derive(Clone, Copy, PartialEq)]
+pub struct Fp2(<Self as Field>::Integer);
+
+impl Field for Fp2 {
+    type Integer = bool;
+    const PRIME: Self::Integer = false; // This is a hack, because 2 does not have type "bool"
+}
+
+impl Add for Fp2 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        // Yes, Clippy... that is exactly what I want to do
+        #[allow(clippy::suspicious_arithmetic_impl)]
+        Self(self.0 ^ rhs.0)
+    }
+}
+
+impl AddAssign for Fp2 {
+    #[allow(clippy::assign_op_pattern)]
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl Neg for Fp2 {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(!self.0)
+    }
+}
+
+impl Sub for Fp2 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        // Yes, Clippy... that is exactly what I want to do
+        #[allow(clippy::suspicious_arithmetic_impl)]
+        Self(self.0 ^ rhs.0)
+    }
+}
+
+impl SubAssign for Fp2 {
+    #[allow(clippy::assign_op_pattern)]
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
+}
+
+impl Mul for Fp2 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        // Yes, Clippy... that is exactly what I want to do
+        #[allow(clippy::suspicious_arithmetic_impl)]
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl MulAssign for Fp2 {
+    #[allow(clippy::assign_op_pattern)]
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = *self * rhs;
+    }
+}
+
+impl<T: Into<u128>> From<T> for Fp2 {
+    fn from(v: T) -> Self {
+        Self((v.into() % 2_u128) == 1_u128)
+    }
+}
+
+impl Debug for Fp2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}_mod{}", self.0, 2)
+    }
+}
+
+impl Fp2 {
+    #[must_use]
+    pub fn val(&self) -> u128 {
+        u128::from(self.0)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
 pub struct Fp31(<Self as Field>::Integer);
 
 impl Field for Fp31 {
@@ -111,6 +197,13 @@ impl Debug for Fp31 {
     }
 }
 
+impl Fp31 {
+    #[must_use]
+    pub fn val(&self) -> u128 {
+        u128::from(self.0)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::field::Field;
@@ -139,7 +232,8 @@ mod test {
             "from takes a modulus"
         );
         assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
-        assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
+        assert_eq!(Fp31(0), Fp31(0) - Fp31(0));
+        assert_eq!(Fp31(1), Fp31(1) - Fp31(0));
         assert_eq!(Fp31(<Fp31 as Field>::PRIME - 1), Fp31(0) - Fp31(1));
         assert_eq!(Fp31(0), Fp31(0) * Fp31(1));
     }

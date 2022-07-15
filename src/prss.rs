@@ -62,6 +62,11 @@ impl Participant {
         l.wrapping_add(r)
     }
 
+    #[must_use]
+    pub fn next_bits(&mut self) -> (bool, bool) {
+        (self.left_bits.next_bit(), self.right_bits.next_bit())
+    }
+
     /// Generate the next share in `ZZ_2`
     #[must_use]
     pub fn next_zero_bit_share(&mut self) -> bool {
