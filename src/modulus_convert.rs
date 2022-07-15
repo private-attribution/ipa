@@ -64,40 +64,37 @@ impl ReplicatedFp31SecretSharing {
     }
 
     #[must_use]
-    pub fn times(&self, c: &Fp31) -> Self {
-        Self(*c * self.0, *c * self.1)
+    pub fn times(&self, c: Fp31) -> Self {
+        Self(c * self.0, c * self.1)
     }
 
     #[must_use]
     pub fn mult_step1(
         &self,
-        rhs: &ReplicatedFp31SecretSharing,
+        rhs: ReplicatedFp31SecretSharing,
         rng: &Participant,
         index: u128,
     ) -> (ReplicatedFp31SecretSharing, Fp31) {
         let (s0, s1) = rng.generate_fields(index);
         let d: Fp31 = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
         (
-            ReplicatedFp31SecretSharing::construct(self.0 * rhs.0 + s0, self.1 * rhs.1 + d + s1),
+            Self::construct(self.0 * rhs.0 + s0, self.1 * rhs.1 + d + s1),
             d,
         )
     }
 
     #[must_use]
     pub fn mult_step2(
-        incomplete_shares: &ReplicatedFp31SecretSharing,
-        d_value_received: &Fp31,
+        incomplete_shares: ReplicatedFp31SecretSharing,
+        d_value_received: Fp31,
     ) -> ReplicatedFp31SecretSharing {
-        ReplicatedFp31SecretSharing::construct(
-            incomplete_shares.0 + *d_value_received,
-            incomplete_shares.1,
-        )
+        Self::construct(incomplete_shares.0 + d_value_received, incomplete_shares.1)
     }
 
     #[must_use]
     pub fn xor_step1(
         &self,
-        rhs: &ReplicatedFp31SecretSharing,
+        rhs: ReplicatedFp31SecretSharing,
         rng: &Participant,
         index: u128,
     ) -> (ReplicatedFp31SecretSharing, Fp31) {
@@ -107,13 +104,11 @@ impl ReplicatedFp31SecretSharing {
     #[must_use]
     pub fn xor_step2(
         &self,
-        rhs: &ReplicatedFp31SecretSharing,
-        incomplete_share: &ReplicatedFp31SecretSharing,
-        d_value_received: &Fp31,
+        rhs: ReplicatedFp31SecretSharing,
+        incomplete_share: ReplicatedFp31SecretSharing,
+        d_value_received: Fp31,
     ) -> ReplicatedFp31SecretSharing {
-        *self + *rhs
-            - ReplicatedFp31SecretSharing::mult_step2(incomplete_share, d_value_received)
-                .times(&Fp31::from(2_u8))
+        *self + rhs - Self::mult_step2(incomplete_share, d_value_received).times(Fp31::from(2_u8))
     }
 }
 
@@ -296,14 +291,14 @@ mod tests {
         ReplicatedFp31SecretSharing,
         ReplicatedFp31SecretSharing,
     ) {
-        let (h1_res, d1) = a1.mult_step1(&b1, &h1.rng, 1);
-        let (h2_res, d2) = a2.mult_step1(&b2, &h2.rng, 1);
-        let (h3_res, d3) = a3.mult_step1(&b3, &h3.rng, 1);
+        let (h1_res, d1) = a1.mult_step1(b1, &h1.rng, 1);
+        let (h2_res, d2) = a2.mult_step1(b2, &h2.rng, 1);
+        let (h3_res, d3) = a3.mult_step1(b3, &h3.rng, 1);
 
         (
-            ReplicatedFp31SecretSharing::mult_step2(&h1_res, &d3),
-            ReplicatedFp31SecretSharing::mult_step2(&h2_res, &d1),
-            ReplicatedFp31SecretSharing::mult_step2(&h3_res, &d2),
+            ReplicatedFp31SecretSharing::mult_step2(h1_res, d3),
+            ReplicatedFp31SecretSharing::mult_step2(h2_res, d1),
+            ReplicatedFp31SecretSharing::mult_step2(h3_res, d2),
         )
     }
 
@@ -324,14 +319,14 @@ mod tests {
         ReplicatedFp31SecretSharing,
         ReplicatedFp31SecretSharing,
     ) {
-        let (h1_res, d1) = a1.xor_step1(&b1, &h1.rng, 1);
-        let (h2_res, d2) = a2.xor_step1(&b2, &h2.rng, 1);
-        let (h3_res, d3) = a3.xor_step1(&b3, &h3.rng, 1);
+        let (h1_res, d1) = a1.xor_step1(b1, &h1.rng, 1);
+        let (h2_res, d2) = a2.xor_step1(b2, &h2.rng, 1);
+        let (h3_res, d3) = a3.xor_step1(b3, &h3.rng, 1);
 
         (
-            a1.xor_step2(&b1, &h1_res, &d3),
-            a2.xor_step2(&b2, &h2_res, &d1),
-            a3.xor_step2(&b3, &h3_res, &d2),
+            a1.xor_step2(b1, h1_res, d3),
+            a2.xor_step2(b2, h2_res, d1),
+            a3.xor_step2(b3, h3_res, d2),
         )
     }
 
@@ -522,9 +517,9 @@ mod tests {
     fn mult_by_constant_test_case(a: (u8, u8, u8), c: u8, expected_output: u128) {
         let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
 
-        let res1 = a1.times(&Fp31::from(c));
-        let res2 = a2.times(&Fp31::from(c));
-        let res3 = a3.times(&Fp31::from(c));
+        let res1 = a1.times(Fp31::from(c));
+        let res2 = a2.times(Fp31::from(c));
+        let res3 = a3.times(Fp31::from(c));
 
         assert_valid_secret_sharing(res1, res2, res3);
         assert_secret_shared_value(res1, res2, res3, expected_output);
@@ -540,14 +535,14 @@ mod tests {
 
     fn xor(
         a: (
-            &ReplicatedFp31SecretSharing,
-            &ReplicatedFp31SecretSharing,
-            &ReplicatedFp31SecretSharing,
+            ReplicatedFp31SecretSharing,
+            ReplicatedFp31SecretSharing,
+            ReplicatedFp31SecretSharing,
         ),
         b: (
-            &ReplicatedFp31SecretSharing,
-            &ReplicatedFp31SecretSharing,
-            &ReplicatedFp31SecretSharing,
+            ReplicatedFp31SecretSharing,
+            ReplicatedFp31SecretSharing,
+            ReplicatedFp31SecretSharing,
         ),
         rng1: &Participant,
         rng2: &Participant,
@@ -563,9 +558,9 @@ mod tests {
         let (c3, d3) = a.2.xor_step1(b.2, rng3, idx);
 
         (
-            a.0.xor_step2(b.0, &c1, &d3),
-            a.1.xor_step2(b.1, &c2, &d1),
-            a.2.xor_step2(b.2, &c3, &d2),
+            a.0.xor_step2(b.0, c1, d3),
+            a.1.xor_step2(b.1, c2, d1),
+            a.2.xor_step2(b.2, c3, d2),
         )
     }
 
@@ -599,8 +594,8 @@ mod tests {
 
             // Compute r1 ^ r2
             let r1_xor_r2 = xor(
-                (&h1_split.0, &h2_split.0, &h3_split.0),
-                (&h1_split.1, &h2_split.1, &h3_split.1),
+                (h1_split.0, h2_split.0, h3_split.0),
+                (h1_split.1, h2_split.1, h3_split.1),
                 &h1.rng,
                 &h2.rng,
                 &h3.rng,
@@ -619,8 +614,8 @@ mod tests {
 
             // Compute (r1 ^ r2) ^ r3
             let r1_xor_r2_xor_r3 = xor(
-                (&r1_xor_r2.0, &r1_xor_r2.1, &r1_xor_r2.2),
-                (&h1_split.2, &h2_split.2, &h3_split.2),
+                (r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2),
+                (h1_split.2, h2_split.2, h3_split.2),
                 &h1.rng,
                 &h2.rng,
                 &h3.rng,
