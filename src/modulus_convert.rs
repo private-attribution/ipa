@@ -22,13 +22,28 @@ impl<T: Field> ReplicatedSecretSharing<T> {
     }
 
     #[must_use]
-    pub fn mult_step1(&self, rhs: Self, rng: &Participant, index: u128) -> (Self, T) {
+    pub fn mult_step1(
+        &self,
+        rhs: Self,
+        rng: &Participant,
+        index: u128,
+        send_d: bool,
+        right_sent_d: bool,
+    ) -> (Self, T) {
         let (s0, s1) = rng.generate_fields(index);
-        let d: T = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
-        (
-            Self::construct(self.0 * rhs.0 + s0, self.1 * rhs.1 + d + s1),
-            d,
-        )
+
+        let mut d = T::ZERO;
+        let mut left_share = self.0 * rhs.0;
+        let mut right_share = self.1 * rhs.1;
+        if send_d {
+            d = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
+            left_share += s0;
+            right_share += d;
+        }
+        if right_sent_d {
+            right_share += s1;
+        }
+        (Self::construct(left_share, right_share), d)
     }
 
     #[must_use]
@@ -37,8 +52,13 @@ impl<T: Field> ReplicatedSecretSharing<T> {
     }
 
     #[must_use]
-    pub fn xor_step1(&self, rhs: Self, rng: &Participant, index: u128) -> (Self, T) {
-        self.mult_step1(rhs, rng, index)
+    pub fn xor_step1(
+        &self,
+        rhs: Self,
+        rng: &Participant,
+        index: u128,
+    ) -> (Self, T) {
+        self.mult_step1(rhs, rng, index, true, true)
     }
 
     #[must_use]
@@ -199,9 +219,9 @@ mod tests {
         ReplicatedSecretSharing<Fp31>,
         ReplicatedSecretSharing<Fp31>,
     ) {
-        let (h1_res, d1) = a1.mult_step1(b1, &h1.rng, 1);
-        let (h2_res, d2) = a2.mult_step1(b2, &h2.rng, 1);
-        let (h3_res, d3) = a3.mult_step1(b3, &h3.rng, 1);
+        let (h1_res, d1) = a1.mult_step1(b1, &h1.rng, 1, true, true);
+        let (h2_res, d2) = a2.mult_step1(b2, &h2.rng, 1, true, true);
+        let (h3_res, d3) = a3.mult_step1(b3, &h3.rng, 1, true, true);
 
         (
             ReplicatedSecretSharing::mult_step2(h1_res, d3),
@@ -472,6 +492,68 @@ mod tests {
         )
     }
 
+    fn xor_step1_optimized(
+        a: (
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+        ),
+        b: (
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+        ),
+        rng1: &Participant,
+        rng2: &Participant,
+        rng3: &Participant,
+        idx: u128,
+    ) -> (
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+    ) {
+        let (c1, d1) = a.0.mult_step1(b.0, rng1, idx, true, false);
+        let (c2, _) = a.1.mult_step1(b.1, rng2, idx, false, false);
+        let (c3, _) = a.2.mult_step1(b.2, rng3, idx, false, true);
+
+        (
+            a.0.xor_step2(b.0, c1, Fp31::from(0_u8)),
+            a.1.xor_step2(b.1, c2, d1),
+            a.2.xor_step2(b.2, c3, Fp31::from(0_u8)),
+        )
+    }
+
+    fn xor_step2_optimized(
+        a: (
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+        ),
+        b: (
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+        ),
+        rng1: &Participant,
+        rng2: &Participant,
+        rng3: &Participant,
+        idx: u128,
+    ) -> (
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+    ) {
+        let (c1, _) = a.0.mult_step1(b.0, rng1, idx, false, true);
+        let (c2, d2) = a.1.mult_step1(b.1, rng2, idx, true, true);
+        let (c3, d3) = a.2.mult_step1(b.2, rng3, idx, true, false);
+
+        (
+            a.0.xor_step2(b.0, c1, d3),
+            a.1.xor_step2(b.1, c2, Fp31::from(0_u8)),
+            a.2.xor_step2(b.2, c3, d2),
+        )
+    }
+
     #[test]
     fn test_three_helpers() {
         let (mut h1, mut h2, mut h3) = self::make_three();
@@ -513,6 +595,73 @@ mod tests {
 
             // Compute (r1 ^ r2) ^ r3
             let r1_xor_r2_xor_r3 = xor(
+                (r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2),
+                (h1_split.2, h2_split.2, h3_split.2),
+                &h1.rng,
+                &h2.rng,
+                &h3.rng,
+                index + 1,
+            );
+
+            // validate (r1 ^ r2) ^ r3
+            assert_valid_secret_sharing(r1_xor_r2_xor_r3.0, r1_xor_r2_xor_r3.1, r1_xor_r2_xor_r3.2);
+            assert_secret_shared_value(
+                r1_xor_r2_xor_r3.0,
+                r1_xor_r2_xor_r3.1,
+                r1_xor_r2_xor_r3.2,
+                u128::from(r1 ^ r2 ^ r3),
+            );
+        }
+    }
+
+    #[test]
+    fn test_three_helpers_optimized() {
+        let (mut h1, mut h2, mut h3) = self::make_three();
+
+        let mut index: u128 = 0;
+
+        for index in 0..100 {
+            let (r1, _r2) = h1.gen_random_binary();
+            let (r2, _r3) = h2.gen_random_binary();
+            let (r3, _r1) = h3.gen_random_binary();
+
+            let h1_split = h1.split_binary(r1, r2);
+            let h2_split = h2.split_binary(r2, r3);
+            let h3_split = h3.split_binary(r3, r1);
+
+            // validate r1
+            assert_valid_secret_sharing(h1_split.0, h2_split.0, h3_split.0);
+            assert_secret_shared_value(h1_split.0, h2_split.0, h3_split.0, u128::from(r1));
+
+            // validate r2
+            assert_valid_secret_sharing(h1_split.1, h2_split.1, h3_split.1);
+            assert_secret_shared_value(h1_split.1, h2_split.1, h3_split.1, u128::from(r2));
+
+            // validate r3
+            assert_valid_secret_sharing(h1_split.2, h2_split.2, h3_split.2);
+            assert_secret_shared_value(h1_split.2, h2_split.2, h3_split.2, u128::from(r3));
+
+            // Compute r1 ^ r2
+            let r1_xor_r2 = xor_step1_optimized(
+                (h1_split.0, h2_split.0, h3_split.0),
+                (h1_split.1, h2_split.1, h3_split.1),
+                &h1.rng,
+                &h2.rng,
+                &h3.rng,
+                index,
+            );
+
+            // validate r1 ^ r2
+            assert_valid_secret_sharing(r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2);
+            assert_secret_shared_value(
+                r1_xor_r2.0,
+                r1_xor_r2.1,
+                r1_xor_r2.2,
+                u128::from(r1 ^ r2),
+            );
+
+            // Compute (r1 ^ r2) ^ r3
+            let r1_xor_r2_xor_r3 = xor_step2_optimized(
                 (r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2),
                 (h1_split.2, h2_split.2, h3_split.2),
                 &h1.rng,
