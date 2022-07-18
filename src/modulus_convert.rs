@@ -5,6 +5,7 @@ use std::{
 
 use crate::field::{Fp2, Fp31};
 use crate::prss::Participant;
+use bit_vec::BitVec;
 
 pub enum HelperIdentity {
     H1,
@@ -15,6 +16,23 @@ pub enum HelperIdentity {
 pub struct RandomShareGenerationHelper {
     rng: Participant,
     identity: HelperIdentity,
+}
+
+pub struct IntermediateState1 {
+    r_binary: ReplicatedBinarySecretSharing,
+    r_shares: (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ),
+    r1_x_r2: ReplicatedFp31SecretSharing,
+}
+
+pub struct IntermediateState2 {
+    r_binary: ReplicatedBinarySecretSharing,
+    r1_xor_r2: ReplicatedFp31SecretSharing,
+    r3: ReplicatedFp31SecretSharing,
+    r1_xor_r2_x_r3: ReplicatedFp31SecretSharing,
 }
 
 pub trait ReplicatedSecretSharing:
@@ -227,6 +245,153 @@ impl RandomShareGenerationHelper {
             ),
         }
     }
+
+    fn get_share_of_one(&self) -> ReplicatedFp31SecretSharing {
+        match self.identity {
+            HelperIdentity::H1 => {
+                ReplicatedFp31SecretSharing::construct(Fp31::from(1_u8), Fp31::from(0_u8))
+            }
+            HelperIdentity::H2 => {
+                ReplicatedFp31SecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8))
+            }
+            HelperIdentity::H3 => {
+                ReplicatedFp31SecretSharing::construct(Fp31::from(0_u8), Fp31::from(1_u8))
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn convert_shares_step_1(
+        input: u64,
+        r_shares: &[(ReplicatedBinarySecretSharing, ReplicatedFp31SecretSharing)],
+    ) -> (Vec<ReplicatedFp31SecretSharing>, BitVec) {
+        let mut bit_vec = BitVec::from_bytes(&input.to_be_bytes());
+        for i in 0..64 {
+            let r_binary_shares = r_shares[i].0;
+            bit_vec.set(i, bit_vec[i] ^ (r_binary_shares.0 == Fp2::from(true)));
+        }
+        (r_shares.iter().map(|x| x.1).collect(), bit_vec)
+    }
+
+    #[must_use]
+    pub fn convert_shares_step_2(
+        &self,
+        input_xor_r: &BitVec,
+        r_shares: &[ReplicatedFp31SecretSharing],
+    ) -> Vec<ReplicatedFp31SecretSharing> {
+        let mut output = Vec::with_capacity(input_xor_r.len());
+        for i in 0..input_xor_r.len() {
+            let share = if input_xor_r[i] {
+                self.get_share_of_one() - r_shares[i]
+            } else {
+                r_shares[i]
+            };
+            output.push(share);
+        }
+        output
+    }
+
+    pub fn gen_batch_of_r_step_1(&mut self, idx: u128) -> (Vec<IntermediateState1>, Vec<Fp31>) {
+        let mut idx = idx;
+
+        let mut intermediate_state = Vec::with_capacity(64);
+        let mut d_values = Vec::with_capacity(64);
+
+        for _i in 0..64 {
+            let r_binary = self.gen_random_binary();
+            let r_shares = self.split_binary(r_binary);
+
+            let (r1_x_r2, d) = match self.identity {
+                HelperIdentity::H1 => r_shares
+                    .0
+                    .mult_step1(r_shares.1, &self.rng, idx, true, false),
+                HelperIdentity::H2 => r_shares
+                    .0
+                    .mult_step1(r_shares.1, &self.rng, idx, false, false),
+                HelperIdentity::H3 => r_shares
+                    .0
+                    .mult_step1(r_shares.1, &self.rng, idx, false, true),
+            };
+
+            intermediate_state.push(IntermediateState1 {
+                r_binary,
+                r_shares,
+                r1_x_r2,
+            });
+            d_values.push(d);
+
+            idx += 1;
+        }
+        (intermediate_state, d_values)
+    }
+
+    #[must_use]
+    pub fn gen_batch_of_r_step_2(
+        &self,
+        intermediate_state: &[IntermediateState1],
+        d_values: &[Fp31],
+        idx: u128,
+    ) -> (Vec<IntermediateState2>, Vec<Fp31>) {
+        let mut idx = idx;
+
+        let mut next_intermediate_state = Vec::with_capacity(intermediate_state.len());
+        let mut next_d_values = Vec::with_capacity(intermediate_state.len());
+
+        for i in 0..intermediate_state.len() {
+            let (r1, r2, r3) = intermediate_state[i].r_shares;
+            let partial_r1_x_r2 = intermediate_state[i].r1_x_r2;
+
+            let r1_xor_r2 = match self.identity {
+                HelperIdentity::H1 | HelperIdentity::H3 => {
+                    r1.xor_step2(r2, partial_r1_x_r2, Fp31::from(0_u8))
+                }
+                HelperIdentity::H2 => r1.xor_step2(r2, partial_r1_x_r2, d_values[i]),
+            };
+
+            let (r1_xor_r2_x_r3, d) = match self.identity {
+                HelperIdentity::H1 => (r1_xor_r2.mult_step1(r3, &self.rng, idx, false, true)),
+                HelperIdentity::H2 => (r1_xor_r2.mult_step1(r3, &self.rng, idx, true, true)),
+                HelperIdentity::H3 => (r1_xor_r2.mult_step1(r3, &self.rng, idx, true, false)),
+            };
+
+            next_intermediate_state.push(IntermediateState2 {
+                r_binary: intermediate_state[i].r_binary,
+                r1_xor_r2,
+                r3,
+                r1_xor_r2_x_r3,
+            });
+            next_d_values.push(d);
+
+            idx += 1;
+        }
+        (next_intermediate_state, next_d_values)
+    }
+
+    #[must_use]
+    pub fn gen_batch_of_r_step_3(
+        &self,
+        intermediate_state: &[IntermediateState2],
+        d_values: &[Fp31],
+    ) -> Vec<(ReplicatedBinarySecretSharing, ReplicatedFp31SecretSharing)> {
+        let mut r_pairs = Vec::with_capacity(intermediate_state.len());
+
+        for i in 0..intermediate_state.len() {
+            let r1_xor_r2 = intermediate_state[i].r1_xor_r2;
+            let r3 = intermediate_state[i].r3;
+            let r1_xor_r2_x_r3 = intermediate_state[i].r1_xor_r2_x_r3;
+
+            let r1_xor_r2_xor_r3 = match self.identity {
+                HelperIdentity::H1 | HelperIdentity::H3 => {
+                    r1_xor_r2.xor_step2(r3, r1_xor_r2_x_r3, d_values[i])
+                }
+                HelperIdentity::H2 => r1_xor_r2.xor_step2(r3, r1_xor_r2_x_r3, Fp31::from(0_u8)),
+            };
+
+            r_pairs.push((intermediate_state[i].r_binary, r1_xor_r2_xor_r3));
+        }
+
+        r_pairs
+    }
 }
 
 #[cfg(test)]
@@ -237,7 +402,9 @@ mod tests {
 
     use crate::field::Fp31;
     use crate::prss::{Participant, ParticipantSetup};
+    use bit_vec::BitVec;
     use rand::thread_rng;
+    use rand::Rng;
 
     fn make_three() -> (
         RandomShareGenerationHelper,
@@ -772,6 +939,79 @@ mod tests {
                 r1_xor_r2_xor_r3.1,
                 r1_xor_r2_xor_r3.2,
                 (r_binary.0 .0 + r_binary.1 .0 + r_binary.2 .0).val(),
+            );
+        }
+    }
+
+    #[test]
+    fn test_batch_generation_and_share_conversion() {
+        let (mut h1, mut h2, mut h3) = self::make_three();
+
+        let mut index: u128 = 1000;
+
+        let (h1_local_state, d1) = h1.gen_batch_of_r_step_1(index);
+        #[allow(clippy::similar_names)]
+        let (h2_local_state, _) = h2.gen_batch_of_r_step_1(index);
+        #[allow(clippy::similar_names)]
+        let (h3_local_state, _) = h3.gen_batch_of_r_step_1(index);
+
+        index += 64; // batch size is hard-coded to 64
+
+        #[allow(clippy::similar_names)]
+        let (h1_local_state, _) = h1.gen_batch_of_r_step_2(&h1_local_state, &[], index);
+        #[allow(clippy::similar_names)]
+        let (h2_local_state, d2) = h2.gen_batch_of_r_step_2(&h2_local_state, &d1, index);
+        #[allow(clippy::similar_names)]
+        let (h3_local_state, d3) = h3.gen_batch_of_r_step_2(&h3_local_state, &[], index);
+
+        let pairs1 = h1.gen_batch_of_r_step_3(&h1_local_state, &d3);
+        #[allow(clippy::similar_names)]
+        let pairs2 = h2.gen_batch_of_r_step_3(&h2_local_state, &[]);
+        #[allow(clippy::similar_names)]
+        let pairs3 = h3.gen_batch_of_r_step_3(&h3_local_state, &d2);
+
+        for i in 0..pairs1.len() {
+            assert_valid_secret_sharing(pairs1[i].1, pairs2[i].1, pairs3[i].1);
+            assert_secret_shared_value(
+                pairs1[i].1,
+                pairs2[i].1,
+                pairs3[i].1,
+                (pairs1[i].0 .0 + pairs2[i].0 .0 + pairs3[i].0 .0).val(),
+            );
+        }
+
+        let secret_value: u64 = thread_rng().gen_range(0..u64::MAX);
+
+        // Personally, I prefer to think about binary numbers in big-endian fashion
+        let bits_of_secret = BitVec::from_bytes(&secret_value.to_be_bytes());
+
+        let share_1 = thread_rng().gen_range(0..u64::MAX);
+        let share_2 = thread_rng().gen_range(0..u64::MAX);
+        let share_3 = (secret_value ^ share_1) ^ share_2;
+
+        let (is1, m1) = RandomShareGenerationHelper::convert_shares_step_1(share_1, &pairs1);
+        let (is2, m2) = RandomShareGenerationHelper::convert_shares_step_1(share_2, &pairs2);
+        let (is3, m3) = RandomShareGenerationHelper::convert_shares_step_1(share_3, &pairs3);
+
+        // All helpers send their values to Helper 1, who XORs them all together
+        // to reveal the bitwise input XOR r
+        // Helper 1 can reveal this value to the other helpers
+        let mut input_xor_r: BitVec = m1;
+        for i in 0..input_xor_r.len() {
+            input_xor_r.set(i, input_xor_r[i] ^ m2[i] ^ m3[i]);
+        }
+
+        let bitwise_shares1 = h1.convert_shares_step_2(&input_xor_r, &is1);
+        let bitwise_shares2 = h2.convert_shares_step_2(&input_xor_r, &is2);
+        let bitwise_shares3 = h3.convert_shares_step_2(&input_xor_r, &is3);
+
+        for i in 0..bitwise_shares1.len() {
+            assert_valid_secret_sharing(bitwise_shares1[i], bitwise_shares2[i], bitwise_shares3[i]);
+            assert_secret_shared_value(
+                bitwise_shares1[i],
+                bitwise_shares2[i],
+                bitwise_shares3[i],
+                u128::from(bits_of_secret[i]),
             );
         }
     }
