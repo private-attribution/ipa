@@ -17,32 +17,24 @@ impl<T: Field> ReplicatedSecretSharing<T> {
 }
 
 impl<T: Field> Add for ReplicatedSecretSharing<T> {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: Self) -> Self {
         Self(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
 impl<T: Field> Neg for ReplicatedSecretSharing<T> {
-    type Output = Self;
-
-    fn neg(self) -> Self::Output {
+    fn neg(self) -> Self {
         Self(-self.0, -self.1)
     }
 }
 
 impl<T: Field> Sub for ReplicatedSecretSharing<T> {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self {
         Self(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
 impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
-    type Output = Self;
-
     fn mul(self, rhs: T) -> Self {
         Self(rhs * self.0, rhs * self.1)
     }
