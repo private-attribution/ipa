@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Neg, Sub},
 };
 
-use crate::field::{Fp2, Fp31};
+use crate::field::{Field, Fp2, Fp31};
 use crate::prss::Participant;
 
 pub enum HelperIdentity {
@@ -28,28 +28,23 @@ impl ReplicatedBinarySecretSharing {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ReplicatedSecretSharing(Fp31, Fp31);
+pub struct ReplicatedSecretSharing<T>(T, T);
 
-impl ReplicatedSecretSharing {
+impl<T: Field> ReplicatedSecretSharing<T> {
     #[must_use]
-    pub fn construct(a: Fp31, b: Fp31) -> Self {
+    pub fn construct(a: T, b: T) -> Self {
         Self(a, b)
     }
 
     #[must_use]
-    pub fn times(&self, c: Fp31) -> Self {
+    pub fn times(&self, c: T) -> Self {
         Self(c * self.0, c * self.1)
     }
 
     #[must_use]
-    pub fn mult_step1(
-        &self,
-        rhs: ReplicatedSecretSharing,
-        rng: &Participant,
-        index: u128,
-    ) -> (ReplicatedSecretSharing, Fp31) {
+    pub fn mult_step1(&self, rhs: Self, rng: &Participant, index: u128) -> (Self, T) {
         let (s0, s1) = rng.generate_fields(index);
-        let d: Fp31 = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
+        let d: T = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
         (
             Self::construct(self.0 * rhs.0 + s0, self.1 * rhs.1 + d + s1),
             d,
@@ -57,35 +52,22 @@ impl ReplicatedSecretSharing {
     }
 
     #[must_use]
-    pub fn mult_step2(
-        incomplete_shares: ReplicatedSecretSharing,
-        d_value_received: Fp31,
-    ) -> ReplicatedSecretSharing {
+    pub fn mult_step2(incomplete_shares: Self, d_value_received: T) -> Self {
         Self::construct(incomplete_shares.0 + d_value_received, incomplete_shares.1)
     }
 
     #[must_use]
-    pub fn xor_step1(
-        &self,
-        rhs: ReplicatedSecretSharing,
-        rng: &Participant,
-        index: u128,
-    ) -> (ReplicatedSecretSharing, Fp31) {
+    pub fn xor_step1(&self, rhs: Self, rng: &Participant, index: u128) -> (Self, T) {
         self.mult_step1(rhs, rng, index)
     }
 
     #[must_use]
-    pub fn xor_step2(
-        &self,
-        rhs: ReplicatedSecretSharing,
-        incomplete_share: ReplicatedSecretSharing,
-        d_value_received: Fp31,
-    ) -> ReplicatedSecretSharing {
-        *self + rhs - Self::mult_step2(incomplete_share, d_value_received).times(Fp31::from(2_u8))
+    pub fn xor_step2(&self, rhs: Self, incomplete_share: Self, d_value_received: T) -> Self {
+        *self + rhs - Self::mult_step2(incomplete_share, d_value_received).times(T::from(2))
     }
 }
 
-impl Add for ReplicatedSecretSharing {
+impl<T: Field> Add for ReplicatedSecretSharing<T> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -93,7 +75,7 @@ impl Add for ReplicatedSecretSharing {
     }
 }
 
-impl Neg for ReplicatedSecretSharing {
+impl<T: Field> Neg for ReplicatedSecretSharing<T> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
@@ -101,31 +83,7 @@ impl Neg for ReplicatedSecretSharing {
     }
 }
 
-impl Sub for ReplicatedSecretSharing {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0, self.1 - rhs.1)
-    }
-}
-
-impl Add for ReplicatedBinarySecretSharing {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0, self.1 + rhs.1)
-    }
-}
-
-impl Neg for ReplicatedBinarySecretSharing {
-    type Output = Self;
-
-    fn neg(self) -> Self::Output {
-        Self(-self.0, -self.1)
-    }
-}
-
-impl Sub for ReplicatedBinarySecretSharing {
+impl<T: Field> Sub for ReplicatedSecretSharing<T> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -150,9 +108,9 @@ impl RandomShareGenerationHelper {
         &self,
         random_binary: ReplicatedBinarySecretSharing,
     ) -> (
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
     ) {
         match self.identity {
             HelperIdentity::H1 => (
@@ -236,9 +194,9 @@ mod tests {
         b: u8,
         c: u8,
     ) -> (
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
     ) {
         (
             ReplicatedSecretSharing::construct(Fp31::from(a), Fp31::from(b)),
@@ -253,16 +211,16 @@ mod tests {
         h1: &RandomShareGenerationHelper,
         h2: &RandomShareGenerationHelper,
         h3: &RandomShareGenerationHelper,
-        a1: ReplicatedSecretSharing,
-        a2: ReplicatedSecretSharing,
-        a3: ReplicatedSecretSharing,
-        b1: ReplicatedSecretSharing,
-        b2: ReplicatedSecretSharing,
-        b3: ReplicatedSecretSharing,
+        a1: ReplicatedSecretSharing<Fp31>,
+        a2: ReplicatedSecretSharing<Fp31>,
+        a3: ReplicatedSecretSharing<Fp31>,
+        b1: ReplicatedSecretSharing<Fp31>,
+        b2: ReplicatedSecretSharing<Fp31>,
+        b3: ReplicatedSecretSharing<Fp31>,
     ) -> (
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
     ) {
         let (h1_res, d1) = a1.mult_step1(b1, &h1.rng, 1);
         let (h2_res, d2) = a2.mult_step1(b2, &h2.rng, 1);
@@ -281,16 +239,16 @@ mod tests {
         h1: &RandomShareGenerationHelper,
         h2: &RandomShareGenerationHelper,
         h3: &RandomShareGenerationHelper,
-        a1: ReplicatedSecretSharing,
-        a2: ReplicatedSecretSharing,
-        a3: ReplicatedSecretSharing,
-        b1: ReplicatedSecretSharing,
-        b2: ReplicatedSecretSharing,
-        b3: ReplicatedSecretSharing,
+        a1: ReplicatedSecretSharing<Fp31>,
+        a2: ReplicatedSecretSharing<Fp31>,
+        a3: ReplicatedSecretSharing<Fp31>,
+        b1: ReplicatedSecretSharing<Fp31>,
+        b2: ReplicatedSecretSharing<Fp31>,
+        b3: ReplicatedSecretSharing<Fp31>,
     ) -> (
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
     ) {
         let (h1_res, d1) = a1.xor_step1(b1, &h1.rng, 1);
         let (h2_res, d2) = a2.xor_step1(b2, &h2.rng, 1);
@@ -304,9 +262,9 @@ mod tests {
     }
 
     fn assert_valid_secret_sharing(
-        res1: ReplicatedSecretSharing,
-        res2: ReplicatedSecretSharing,
-        res3: ReplicatedSecretSharing,
+        res1: ReplicatedSecretSharing<Fp31>,
+        res2: ReplicatedSecretSharing<Fp31>,
+        res3: ReplicatedSecretSharing<Fp31>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -314,9 +272,9 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: ReplicatedSecretSharing,
-        a2: ReplicatedSecretSharing,
-        a3: ReplicatedSecretSharing,
+        a1: ReplicatedSecretSharing<Fp31>,
+        a2: ReplicatedSecretSharing<Fp31>,
+        a3: ReplicatedSecretSharing<Fp31>,
         expected_value: u128,
     ) {
         assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));
@@ -508,23 +466,23 @@ mod tests {
 
     fn xor(
         a: (
-            ReplicatedSecretSharing,
-            ReplicatedSecretSharing,
-            ReplicatedSecretSharing,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
         ),
         b: (
-            ReplicatedSecretSharing,
-            ReplicatedSecretSharing,
-            ReplicatedSecretSharing,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
+            ReplicatedSecretSharing<Fp31>,
         ),
         rng1: &Participant,
         rng2: &Participant,
         rng3: &Participant,
         idx: u128,
     ) -> (
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
-        ReplicatedSecretSharing,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<Fp31>,
     ) {
         let (c1, d1) = a.0.xor_step1(b.0, rng1, idx);
         let (c2, d2) = a.1.xor_step1(b.1, rng2, idx);
