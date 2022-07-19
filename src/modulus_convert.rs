@@ -476,9 +476,7 @@ mod tests {
     fn test_three_helpers() {
         let (mut h1, mut h2, mut h3) = self::make_three();
 
-        let mut index: u128 = 0;
-
-        for _i in 0..100 {
+        for index in 0..100 {
             let (r1, _r2) = h1.gen_random_binary();
             let (r2, _r3) = h2.gen_random_binary();
             let (r3, _r1) = h3.gen_random_binary();
@@ -508,7 +506,6 @@ mod tests {
                 &h3.rng,
                 index,
             );
-            index += 1;
 
             // validate r1 ^ r2
             assert_valid_secret_sharing(r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2);
@@ -521,9 +518,8 @@ mod tests {
                 &h1.rng,
                 &h2.rng,
                 &h3.rng,
-                index,
+                index + 1,
             );
-            index += 1;
 
             // validate (r1 ^ r2) ^ r3
             assert_valid_secret_sharing(r1_xor_r2_xor_r3.0, r1_xor_r2_xor_r3.1, r1_xor_r2_xor_r3.2);
