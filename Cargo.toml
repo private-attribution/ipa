@@ -44,6 +44,7 @@ tower-http = { version = "0.3.4", optional = true, features = ["trace"] }
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "1"
+rand_distr = "0.4.3"
 
 [dev-dependencies]
 hex = "0.4"
@@ -60,4 +61,9 @@ required-features = ["cli"]
 
 [[bin]]
 name = "helper"
+required-features = ["cli"]
+
+[[bin]]
+name = "ipa_bench"
+path = "src/bin/ipa_bench/ipa_bench.rs"
 required-features = ["cli"]
