@@ -44,6 +44,26 @@ pub struct Fp2(<Self as Field>::Integer);
 impl Field for Fp2 {
     type Integer = bool;
     const PRIME: Self::Integer = false; // This is a hack, because 2 does not have type "bool"
+    const ZERO: Self = Fp2(false);
+    const ONE: Self = Fp2(true);
+
+    fn invert(&self) -> Self {
+        debug_assert!(
+            self != &Self::ZERO,
+            "Multiplicative inverse is not defined for Fp31(0)"
+        );
+        *self
+    }
+
+    fn pow(&self, exp: Self::Integer) -> Self {
+        if !self.0 {
+            return *self;
+        }
+        if exp {
+            return Self::ZERO;
+        }
+        Self::ONE
+    }
 }
 
 impl Add for Fp2 {

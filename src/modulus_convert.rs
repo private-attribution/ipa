@@ -17,28 +17,8 @@ pub struct RandomShareGenerationHelper {
     identity: HelperIdentity,
 }
 
-pub trait ReplicatedSecretSharing:
-    Add<Output = Self>
-    + Neg<Output = Self>
-    + Sub<Output = Self>
-    + Copy
-    + Clone
-    + PartialEq
-    + Debug
-    + Sized
-{
-    type Ring;
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ReplicatedBinarySecretSharing(
-    <Self as ReplicatedSecretSharing>::Ring,
-    <Self as ReplicatedSecretSharing>::Ring,
-);
-
-impl ReplicatedSecretSharing for ReplicatedBinarySecretSharing {
-    type Ring = Fp2;
-}
+pub struct ReplicatedBinarySecretSharing(Fp2, Fp2);
 
 impl ReplicatedBinarySecretSharing {
     #[must_use]
@@ -48,14 +28,7 @@ impl ReplicatedBinarySecretSharing {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ReplicatedFp31SecretSharing(
-    <Self as ReplicatedSecretSharing>::Ring,
-    <Self as ReplicatedSecretSharing>::Ring,
-);
-
-impl ReplicatedSecretSharing for ReplicatedFp31SecretSharing {
-    type Ring = Fp31;
-}
+pub struct ReplicatedFp31SecretSharing(Fp31, Fp31);
 
 impl ReplicatedFp31SecretSharing {
     #[must_use]
