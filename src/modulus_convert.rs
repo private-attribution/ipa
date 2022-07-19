@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    ops::{Add, Neg, Sub},
+    ops::{Add, Mul, Neg, Sub},
 };
 
 use crate::field::{Field, Fp2};
@@ -32,11 +32,6 @@ impl<T: Field> ReplicatedSecretSharing<T> {
     }
 
     #[must_use]
-    pub fn times(&self, c: T) -> Self {
-        Self(c * self.0, c * self.1)
-    }
-
-    #[must_use]
     pub fn mult_step1(&self, rhs: Self, rng: &Participant, index: u128) -> (Self, T) {
         let (s0, s1) = rng.generate_fields(index);
         let d: T = (self.0 * rhs.1) + (self.1 * rhs.0) - s0;
@@ -58,7 +53,7 @@ impl<T: Field> ReplicatedSecretSharing<T> {
 
     #[must_use]
     pub fn xor_step2(&self, rhs: Self, incomplete_share: Self, d_value_received: T) -> Self {
-        *self + rhs - Self::mult_step2(incomplete_share, d_value_received).times(T::from(2))
+        *self + rhs - Self::mult_step2(incomplete_share, d_value_received) * T::from(2)
     }
 }
 
@@ -83,6 +78,14 @@ impl<T: Field> Sub for ReplicatedSecretSharing<T> {
 
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
+    type Output = Self;
+
+    fn mul(self, rhs: T) -> Self {
+        Self(rhs * self.0, rhs * self.1)
     }
 }
 
@@ -430,9 +433,9 @@ mod tests {
     fn mult_by_constant_test_case(a: (u8, u8, u8), c: u8, expected_output: u128) {
         let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
 
-        let res1 = a1.times(Fp31::from(c));
-        let res2 = a2.times(Fp31::from(c));
-        let res3 = a3.times(Fp31::from(c));
+        let res1 = a1 * Fp31::from(c);
+        let res2 = a2 * Fp31::from(c);
+        let res3 = a3 * Fp31::from(c);
 
         assert_valid_secret_sharing(res1, res2, res3);
         assert_secret_shared_value(res1, res2, res3, expected_output);
