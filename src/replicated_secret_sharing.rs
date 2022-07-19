@@ -11,7 +11,7 @@ pub struct ReplicatedSecretSharing<T>(T, T);
 
 impl<T: Field> ReplicatedSecretSharing<T> {
     #[must_use]
-    pub fn construct(a: T, b: T) -> Self {
+    pub fn new(a: T, b: T) -> Self {
         Self(a, b)
     }
 }
@@ -56,9 +56,9 @@ mod tests {
         ReplicatedSecretSharing<Fp31>,
     ) {
         (
-            ReplicatedSecretSharing::construct(Fp31::from(a), Fp31::from(b)),
-            ReplicatedSecretSharing::construct(Fp31::from(b), Fp31::from(c)),
-            ReplicatedSecretSharing::construct(Fp31::from(c), Fp31::from(a)),
+            ReplicatedSecretSharing::new(Fp31::from(a), Fp31::from(b)),
+            ReplicatedSecretSharing::new(Fp31::from(b), Fp31::from(c)),
+            ReplicatedSecretSharing::new(Fp31::from(c), Fp31::from(a)),
         )
     }
 
