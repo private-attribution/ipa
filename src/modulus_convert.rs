@@ -3,18 +3,13 @@ use std::{
     ops::{Add, Neg, Sub},
 };
 
-use crate::field::{Field, Fp2, Fp31};
+use crate::field::{Field, Fp2};
 use crate::prss::Participant;
 
 pub enum HelperIdentity {
     H1,
     H2,
     H3,
-}
-
-pub struct RandomShareGenerationHelper {
-    rng: Participant,
-    identity: HelperIdentity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -91,6 +86,11 @@ impl<T: Field> Sub for ReplicatedSecretSharing<T> {
     }
 }
 
+pub struct RandomShareGenerationHelper {
+    rng: Participant,
+    identity: HelperIdentity,
+}
+
 impl RandomShareGenerationHelper {
     #[must_use]
     pub fn init(rng: Participant, identity: HelperIdentity) -> Self {
@@ -104,47 +104,29 @@ impl RandomShareGenerationHelper {
     }
 
     #[must_use]
-    pub fn split_binary(
+    pub fn split_binary<T: Field>(
         &self,
         random_binary: ReplicatedBinarySecretSharing,
     ) -> (
-        ReplicatedSecretSharing<Fp31>,
-        ReplicatedSecretSharing<Fp31>,
-        ReplicatedSecretSharing<Fp31>,
+        ReplicatedSecretSharing<T>,
+        ReplicatedSecretSharing<T>,
+        ReplicatedSecretSharing<T>,
     ) {
         match self.identity {
             HelperIdentity::H1 => (
-                ReplicatedSecretSharing::construct(
-                    Fp31::from(random_binary.0.val()),
-                    Fp31::from(0_u8),
-                ),
-                ReplicatedSecretSharing::construct(
-                    Fp31::from(0_u8),
-                    Fp31::from(random_binary.1.val()),
-                ),
-                ReplicatedSecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8)),
+                ReplicatedSecretSharing::construct(T::from(random_binary.0.val()), T::ZERO),
+                ReplicatedSecretSharing::construct(T::ZERO, T::from(random_binary.1.val())),
+                ReplicatedSecretSharing::construct(T::ZERO, T::ZERO),
             ),
             HelperIdentity::H2 => (
-                ReplicatedSecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8)),
-                ReplicatedSecretSharing::construct(
-                    Fp31::from(random_binary.0.val()),
-                    Fp31::from(0_u8),
-                ),
-                ReplicatedSecretSharing::construct(
-                    Fp31::from(0_u8),
-                    Fp31::from(random_binary.1.val()),
-                ),
+                ReplicatedSecretSharing::construct(T::ZERO, T::ZERO),
+                ReplicatedSecretSharing::construct(T::from(random_binary.0.val()), T::ZERO),
+                ReplicatedSecretSharing::construct(T::ZERO, T::from(random_binary.1.val())),
             ),
             HelperIdentity::H3 => (
-                ReplicatedSecretSharing::construct(
-                    Fp31::from(0_u8),
-                    Fp31::from(random_binary.1.val()),
-                ),
-                ReplicatedSecretSharing::construct(Fp31::from(0_u8), Fp31::from(0_u8)),
-                ReplicatedSecretSharing::construct(
-                    Fp31::from(random_binary.0.val()),
-                    Fp31::from(0_u8),
-                ),
+                ReplicatedSecretSharing::construct(T::ZERO, T::from(random_binary.1.val())),
+                ReplicatedSecretSharing::construct(T::ZERO, T::ZERO),
+                ReplicatedSecretSharing::construct(T::from(random_binary.0.val()), T::ZERO),
             ),
         }
     }
