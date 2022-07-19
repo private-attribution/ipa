@@ -3,23 +3,13 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
 };
 
-use crate::field::{Field, Fp2};
+use crate::field::Field;
 use crate::prss::Participant;
 
 pub enum HelperIdentity {
     H1,
     H2,
     H3,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ReplicatedBinarySecretSharing(Fp2, Fp2);
-
-impl ReplicatedBinarySecretSharing {
-    #[must_use]
-    pub fn construct(a: Fp2, b: Fp2) -> ReplicatedBinarySecretSharing {
-        ReplicatedBinarySecretSharing(a, b)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -101,35 +91,37 @@ impl RandomShareGenerationHelper {
     }
 
     #[must_use]
-    pub fn gen_random_binary(&mut self) -> ReplicatedBinarySecretSharing {
-        let (left, right) = self.rng.next_bits();
-        ReplicatedBinarySecretSharing::construct(Fp2::from(left), Fp2::from(right))
+    pub fn gen_random_binary(&mut self) -> (bool, bool) {
+        self.rng.next_bits()
     }
 
     #[must_use]
     pub fn split_binary<T: Field>(
         &self,
-        random_binary: ReplicatedBinarySecretSharing,
+        left: bool,
+        right: bool,
     ) -> (
         ReplicatedSecretSharing<T>,
         ReplicatedSecretSharing<T>,
         ReplicatedSecretSharing<T>,
     ) {
+        let left = u128::from(left);
+        let right = u128::from(right);
         match self.identity {
             HelperIdentity::H1 => (
-                ReplicatedSecretSharing::construct(T::from(random_binary.0.val()), T::ZERO),
-                ReplicatedSecretSharing::construct(T::ZERO, T::from(random_binary.1.val())),
+                ReplicatedSecretSharing::construct(T::from(left), T::ZERO),
+                ReplicatedSecretSharing::construct(T::ZERO, T::from(right)),
                 ReplicatedSecretSharing::construct(T::ZERO, T::ZERO),
             ),
             HelperIdentity::H2 => (
                 ReplicatedSecretSharing::construct(T::ZERO, T::ZERO),
-                ReplicatedSecretSharing::construct(T::from(random_binary.0.val()), T::ZERO),
-                ReplicatedSecretSharing::construct(T::ZERO, T::from(random_binary.1.val())),
+                ReplicatedSecretSharing::construct(T::from(left), T::ZERO),
+                ReplicatedSecretSharing::construct(T::ZERO, T::from(right)),
             ),
             HelperIdentity::H3 => (
-                ReplicatedSecretSharing::construct(T::ZERO, T::from(random_binary.1.val())),
+                ReplicatedSecretSharing::construct(T::ZERO, T::from(right)),
                 ReplicatedSecretSharing::construct(T::ZERO, T::ZERO),
-                ReplicatedSecretSharing::construct(T::from(random_binary.0.val()), T::ZERO),
+                ReplicatedSecretSharing::construct(T::from(left), T::ZERO),
             ),
         }
     }
@@ -487,26 +479,25 @@ mod tests {
         let mut index: u128 = 0;
 
         for _i in 0..100 {
-            let r_binary = (
-                h1.gen_random_binary(),
-                h2.gen_random_binary(),
-                h3.gen_random_binary(),
-            );
-            let h1_split = h1.split_binary(r_binary.0);
-            let h2_split = h2.split_binary(r_binary.1);
-            let h3_split = h3.split_binary(r_binary.2);
+            let (r1, _r2) = h1.gen_random_binary();
+            let (r2, _r3) = h2.gen_random_binary();
+            let (r3, _r1) = h3.gen_random_binary();
+
+            let h1_split = h1.split_binary(r1, r2);
+            let h2_split = h2.split_binary(r2, r3);
+            let h3_split = h3.split_binary(r3, r1);
 
             // validate r1
             assert_valid_secret_sharing(h1_split.0, h2_split.0, h3_split.0);
-            assert_secret_shared_value(h1_split.0, h2_split.0, h3_split.0, r_binary.0 .0.val());
+            assert_secret_shared_value(h1_split.0, h2_split.0, h3_split.0, u128::from(r1));
 
             // validate r2
             assert_valid_secret_sharing(h1_split.1, h2_split.1, h3_split.1);
-            assert_secret_shared_value(h1_split.1, h2_split.1, h3_split.1, r_binary.1 .0.val());
+            assert_secret_shared_value(h1_split.1, h2_split.1, h3_split.1, u128::from(r2));
 
             // validate r3
             assert_valid_secret_sharing(h1_split.2, h2_split.2, h3_split.2);
-            assert_secret_shared_value(h1_split.2, h2_split.2, h3_split.2, r_binary.2 .0.val());
+            assert_secret_shared_value(h1_split.2, h2_split.2, h3_split.2, u128::from(r3));
 
             // Compute r1 ^ r2
             let r1_xor_r2 = xor(
@@ -521,12 +512,7 @@ mod tests {
 
             // validate r1 ^ r2
             assert_valid_secret_sharing(r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2);
-            assert_secret_shared_value(
-                r1_xor_r2.0,
-                r1_xor_r2.1,
-                r1_xor_r2.2,
-                (r_binary.0 .0 + r_binary.1 .0).val(),
-            );
+            assert_secret_shared_value(r1_xor_r2.0, r1_xor_r2.1, r1_xor_r2.2, u128::from(r1 ^ r2));
 
             // Compute (r1 ^ r2) ^ r3
             let r1_xor_r2_xor_r3 = xor(
@@ -545,7 +531,7 @@ mod tests {
                 r1_xor_r2_xor_r3.0,
                 r1_xor_r2_xor_r3.1,
                 r1_xor_r2_xor_r3.2,
-                (r_binary.0 .0 + r_binary.1 .0 + r_binary.2 .0).val(),
+                u128::from(r1 ^ r2 ^ r3),
             );
         }
     }
