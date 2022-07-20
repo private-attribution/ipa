@@ -14,7 +14,7 @@ pub enum HelperIdentity {
 }
 
 pub struct RandomShareGenerationHelper {
-    rng: Participant,
+    pub rng: Participant,
     identity: HelperIdentity,
 }
 
@@ -246,7 +246,8 @@ impl RandomShareGenerationHelper {
         }
     }
 
-    fn get_share_of_one(&self) -> ReplicatedFp31SecretSharing {
+    #[must_use]
+    pub fn get_share_of_one(&self) -> ReplicatedFp31SecretSharing {
         match self.identity {
             HelperIdentity::H1 => {
                 ReplicatedFp31SecretSharing::construct(Fp31::from(1_u8), Fp31::from(0_u8))
@@ -396,15 +397,59 @@ impl RandomShareGenerationHelper {
 
 #[cfg(test)]
 mod tests {
-    use crate::modulus_convert::{
-        HelperIdentity, RandomShareGenerationHelper, ReplicatedFp31SecretSharing,
-    };
+    use crate::modulus_convert::{RandomShareGenerationHelper, ReplicatedFp31SecretSharing};
 
     use crate::field::Fp31;
     use crate::prss::{Participant, ParticipantSetup};
     use bit_vec::BitVec;
     use rand::thread_rng;
     use rand::Rng;
+
+    use super::HelperIdentity;
+
+    fn secret_share(
+        a: u8,
+        b: u8,
+        c: u8,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        (
+            ReplicatedFp31SecretSharing::construct(Fp31::from(a), Fp31::from(b)),
+            ReplicatedFp31SecretSharing::construct(Fp31::from(b), Fp31::from(c)),
+            ReplicatedFp31SecretSharing::construct(Fp31::from(c), Fp31::from(a)),
+        )
+    }
+
+    // Yeah, yeah... too many arguments... but it's just a test
+    #[allow(clippy::too_many_arguments)]
+    pub fn multiply_secret_shares(
+        h1: &RandomShareGenerationHelper,
+        h2: &RandomShareGenerationHelper,
+        h3: &RandomShareGenerationHelper,
+        a1: ReplicatedFp31SecretSharing,
+        a2: ReplicatedFp31SecretSharing,
+        a3: ReplicatedFp31SecretSharing,
+        b1: ReplicatedFp31SecretSharing,
+        b2: ReplicatedFp31SecretSharing,
+        b3: ReplicatedFp31SecretSharing,
+    ) -> (
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+        ReplicatedFp31SecretSharing,
+    ) {
+        let (h1_res, d1) = a1.mult_step1(b1, &h1.rng, 1, true, true);
+        let (h2_res, d2) = a2.mult_step1(b2, &h2.rng, 1, true, true);
+        let (h3_res, d3) = a3.mult_step1(b3, &h3.rng, 1, true, true);
+
+        (
+            ReplicatedFp31SecretSharing::mult_step2(h1_res, d3),
+            ReplicatedFp31SecretSharing::mult_step2(h2_res, d1),
+            ReplicatedFp31SecretSharing::mult_step2(h3_res, d2),
+        )
+    }
 
     fn make_three() -> (
         RandomShareGenerationHelper,
@@ -433,50 +478,6 @@ mod tests {
         let h3 = RandomShareGenerationHelper::init(p3, HelperIdentity::H3);
 
         (h1, h2, h3)
-    }
-
-    fn secret_share(
-        a: u8,
-        b: u8,
-        c: u8,
-    ) -> (
-        ReplicatedFp31SecretSharing,
-        ReplicatedFp31SecretSharing,
-        ReplicatedFp31SecretSharing,
-    ) {
-        (
-            ReplicatedFp31SecretSharing::construct(Fp31::from(a), Fp31::from(b)),
-            ReplicatedFp31SecretSharing::construct(Fp31::from(b), Fp31::from(c)),
-            ReplicatedFp31SecretSharing::construct(Fp31::from(c), Fp31::from(a)),
-        )
-    }
-
-    // Yeah, yeah... too many arguments... but it's just a test
-    #[allow(clippy::too_many_arguments)]
-    fn multiply_secret_shares(
-        h1: &RandomShareGenerationHelper,
-        h2: &RandomShareGenerationHelper,
-        h3: &RandomShareGenerationHelper,
-        a1: ReplicatedFp31SecretSharing,
-        a2: ReplicatedFp31SecretSharing,
-        a3: ReplicatedFp31SecretSharing,
-        b1: ReplicatedFp31SecretSharing,
-        b2: ReplicatedFp31SecretSharing,
-        b3: ReplicatedFp31SecretSharing,
-    ) -> (
-        ReplicatedFp31SecretSharing,
-        ReplicatedFp31SecretSharing,
-        ReplicatedFp31SecretSharing,
-    ) {
-        let (h1_res, d1) = a1.mult_step1(b1, &h1.rng, 1, true, true);
-        let (h2_res, d2) = a2.mult_step1(b2, &h2.rng, 1, true, true);
-        let (h3_res, d3) = a3.mult_step1(b3, &h3.rng, 1, true, true);
-
-        (
-            ReplicatedFp31SecretSharing::mult_step2(h1_res, d3),
-            ReplicatedFp31SecretSharing::mult_step2(h2_res, d1),
-            ReplicatedFp31SecretSharing::mult_step2(h3_res, d2),
-        )
     }
 
     // Yeah, yeah... too many arguments... but it's just a test
@@ -539,7 +540,7 @@ mod tests {
         let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
 
         // Compute r1 * r2
-        let (res1, res2, res3) = self::multiply_secret_shares(h1, h2, h3, a1, a2, a3, b1, b2, b3);
+        let (res1, res2, res3) = multiply_secret_shares(h1, h2, h3, a1, a2, a3, b1, b2, b3);
 
         assert_eq!(res1.0 + res2.0 + res3.0, Fp31::from(expected_output));
         assert_eq!(res1.1 + res2.1 + res3.1, Fp31::from(expected_output));
@@ -588,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_simple_xor() {
-        let (h1, h2, h3) = self::make_three();
+        let (h1, h2, h3) = make_three();
 
         xor_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 0, 1), 0);
         xor_test_case(&h1, &h2, &h3, (1, 0, 0), (0, 1, 0), 0);
