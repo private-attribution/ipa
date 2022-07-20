@@ -47,7 +47,7 @@ impl CounterDetails {
                 .entry(label_key)
                 .or_insert_with(HashMap::new);
 
-            *dimension_values.entry(label_val).or_insert_with(|| 0) += val;
+            *dimension_values.entry(label_val).or_insert(0) += val;
         }
 
         self.total_value += val;
@@ -97,8 +97,6 @@ impl Metrics {
         metrics_table.set_header(vec!["metric", "description", "value", "dimensions"]);
 
         for (key_name, counter_stats) in &self.counters {
-            let key_name = key_name;
-
             let mut dim_cell_content = String::new();
             for (dim, values) in counter_stats.iter() {
                 dim_cell_content += format!("{dim}\n").as_str();

@@ -37,11 +37,7 @@ impl Verbosity {
             .init();
 
         let handle = LoggingHandle {
-            metrics_handle: if self.quiet {
-                None
-            } else {
-                Some(install_collector())
-            },
+            metrics_handle: (!self.quiet).then(install_collector),
         };
 
         info!("Logging setup at level {}", filter_layer);
