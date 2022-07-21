@@ -9,5 +9,6 @@ pub mod modulus_convert;
 pub mod net;
 pub mod prss;
 pub mod report;
+pub mod shamir;
 pub mod threshold;
 pub mod user;
