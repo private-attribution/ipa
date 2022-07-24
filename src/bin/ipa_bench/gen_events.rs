@@ -1,5 +1,4 @@
 use super::sample::Sample;
-use byteorder::WriteBytesExt;
 use log::{debug, info, trace};
 use rand::{CryptoRng, Rng, RngCore};
 use rand_distr::num_traits::ToPrimitive;
@@ -12,11 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
 
-// 0x1E. https://datatracker.ietf.org/doc/html/rfc7464
-const RECORD_SEPARATOR: u8 = 30;
-
 const DAYS_IN_EPOCH: u64 = 7;
-type MatchKey = Vec<u64>;
+pub type MatchKey = Vec<u64>;
 type Epoch = u8;
 
 #[derive(Clone)]
@@ -28,6 +24,7 @@ pub struct EventBase {
     pub timestamp: u32,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct SourceEvent {
     pub event: EventBase,
@@ -36,6 +33,7 @@ pub struct SourceEvent {
     pub breakdown_key: String,
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct TriggerEvent {
     pub event: EventBase,
@@ -137,9 +135,10 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
             total_conversions += conversions.to_u32().unwrap();
 
             for e in events {
-                out.write_u8(RECORD_SEPARATOR).unwrap();
+                // note: removed "record separator" at the beginning of each reacord due to serde failing to recognize it
                 out.write_all(serde_json::to_string(&e).unwrap().as_bytes())
                     .unwrap();
+                writeln!(out).unwrap();
 
                 event_count += 1;
                 if event_count % 10000 == 0 {

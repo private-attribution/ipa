@@ -1,5 +1,6 @@
 use crate::sample::Sample;
 
+use super::attribute::generate_report;
 use super::gen_events::generate_events;
 
 use log::{debug, error, info};
@@ -101,6 +102,33 @@ pub enum Command {
         )]
         config_file: PathBuf,
     },
+
+    #[structopt(about = "Execute a specified attribution logic.")]
+    Attribute {
+        #[structopt(
+            short,
+            long,
+            help = "File containing source and trigger events. If not set, stdin will be used.",
+            parse(from_os_str)
+        )]
+        input_file: Option<PathBuf>,
+
+        #[structopt(
+            short,
+            long,
+            default_value = "7",
+            help = "Attribution window in days. Trigger events within the window are attributed to the preceeding source event."
+        )]
+        attribution_window: u32,
+
+        #[structopt(
+            short,
+            long,
+            possible_values = &["LastTouch"],
+            default_value = "LastTouch",
+        )]
+        model: String,
+    },
 }
 
 impl Command {
@@ -124,6 +152,12 @@ impl Command {
                     config_file,
                 );
             }
+
+            Self::Attribute {
+                input_file,
+                attribution_window,
+                model,
+            } => Command::attribute(common, input_file, *attribution_window, model),
         }
     }
 
@@ -176,6 +210,30 @@ impl Command {
             "trigger/source ratio: {}",
             f64::from(t_count) / f64::from(s_count)
         );
+    }
+
+    fn attribute(
+        common: &CommonArgs,
+        input_file: &Option<PathBuf>,
+        attribution_window: u32,
+        model: &str,
+    ) {
+        let mut input = Command::get_input(input_file).unwrap_or_else(|e| {
+            error!("Failed to open the input file. {}", e);
+            process::exit(1);
+        });
+
+        let mut out = common.get_output().unwrap_or_else(|e| {
+            error!("Failed to open the output file. {}", e);
+            process::exit(1);
+        });
+
+        info!(
+            "attribution_window: {}, model: {}",
+            attribution_window, model
+        );
+
+        generate_report(&mut input, attribution_window, model, &mut out);
     }
 
     fn get_input(path: &Option<PathBuf>) -> Result<Box<dyn io::Read>, io::Error> {

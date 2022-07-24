@@ -1,3 +1,4 @@
+mod attribute;
 mod cmd;
 mod config;
 mod gen_events;
