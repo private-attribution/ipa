@@ -37,11 +37,17 @@ Then, to compile, run:
 make clean -B -j 8 replicated-ring-party.x
 ```
 
-Finally, there is a small bug with running this from another directory (see [this issue]()). To patch this, cd into the `raw-ipa/research-prototype` directory and create a symbolic link the generated `libSPDZ.so`:
+There is a small bug with running this from another directory (see [this issue]()). To patch this, cd into the `raw-ipa/research-prototype` directory and create a symbolic link the generated `libSPDZ.so`:
 
 ```
 cd ../raw-ipa/research-prototype
 ln -s ../../MP-SPDZ/libSPDZ.so libSPDZ.so
+```
+
+Finally, you'll need to setup SSL for the parties. From the `raw-ipa/research-prototype` directory, run:
+
+```
+../../MP-SPDZ/Scripts/setup-ssl.sh 3
 ```
 
 ## Running the Prototype
@@ -66,22 +72,21 @@ To run the compiler:
 ../../MP-SPDZ/compile.py -C -R 32 ipae2e
 ```
 
+There are two options (specific to the IPA prototype) that you can provide as environmental variables: `IPA_VERBOSE` and `IPA_NUMROWS_POWER`. (The MP-SPDZ compile script consumes command line args, hence the need for environmental variables.) An example of providing these for a single compile step:
+
+```
+IPA_VERBOSE=True IPA_NUMROWS_POWER=5 ../../MP-SPDZ/compile.py -C -R 32 ipae2e
+```
+
+Note that you should also generate random data accordingly.
+
+
 (If you run into an error for `input sorting`, see [this issue](https://github.com/data61/MP-SPDZ/pull/629). You may need to make two small changes to `MP-SPDZ/Compiler/types.py`.)
 
 ### Running the MPC locally
-
-If it's your first time running the MPC locally, you'll need to setup SSL for the parties with:
-
-```
-../../MP-SPDZ/Scripts/setup-ssl.sh 3
-```
 
 To simulate the MPC locally, run:
 
 ```
 ../../MP-SPDZ/Scripts/ring.sh -R 32 ipae2e
 ```
-
-The `ipae2e.mpc` file in this repo runs for 2^10 input rows. If you would like to test with larger, update the first line to N to run for 2^N input rows. After updating this, you'll have to recompile. Unfortunately we are currently unable to find a way to provide this as a variable (but aim to fix this.)
-
-You'll also have to generate more input data (see above.)
