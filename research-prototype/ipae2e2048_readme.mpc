@@ -1,0 +1,322 @@
+print_ln('********************  IPA E2E 2048 **********************')
+#program.set_bit_length(16);
+#program.use_split(3);
+
+numrows = 2048
+
+list = Matrix(numrows,4,sint)
+
+@for_range_opt(numrows)
+def _(i):
+    list[i][0] = sint.get_input_from(0);  # matchkey 
+    list[i][1] = sint.get_input_from(0);  # istrigger
+    list[i][2] = sint.get_input_from(0);  # value
+    list[i][3] = sint.get_input_from(0);  # breakdown
+
+# Radix sort 
+list.sort((0,),n_bits=32)
+
+helperbit = Array(numrows,sint)
+#@for_range_opt(numrows-1)
+#def _(i):
+#    helperbit[i] = (list[i][0] == list[i+1][0]).if_else(1,0)
+
+helperbit[ 0 ] = (list[ 0 ][0] == list[ 1 ][0]).if_else(1,0)
+helperbit[ 1 ] = (list[ 1 ][0] == list[ 2 ][0]).if_else(1,0)
+helperbit[ 2 ] = (list[ 2 ][0] == list[ 3 ][0]).if_else(1,0)
+helperbit[ 3 ] = (list[ 3 ][0] == list[ 4 ][0]).if_else(1,0)
+helperbit[ 4 ] = (list[ 4 ][0] == list[ 5 ][0]).if_else(1,0)
+helperbit[ 5 ] = (list[ 5 ][0] == list[ 6 ][0]).if_else(1,0)
+helperbit[ 6 ] = (list[ 6 ][0] == list[ 7 ][0]).if_else(1,0)
+helperbit[ 7 ] = (list[ 7 ][0] == list[ 8 ][0]).if_else(1,0)
+helperbit[ 8 ] = (list[ 8 ][0] == list[ 9 ][0]).if_else(1,0)
+helperbit[ 9 ] = (list[ 9 ][0] == list[ 10 ][0]).if_else(1,0)
+helperbit[ 10 ] = (list[ 10 ][0] == list[ 11 ][0]).if_else(1,0)
+......
+
+
+# Many rows removed here for readability 
+
+......
+
+helperbit[ 2043 ] = (list[ 2043 ][0] == list[ 2044 ][0]).if_else(1,0)
+helperbit[ 2044 ] = (list[ 2044 ][0] == list[ 2045 ][0]).if_else(1,0)
+helperbit[ 2045 ] = (list[ 2045 ][0] == list[ 2046 ][0]).if_else(1,0)
+helperbit[ 2046 ] = (list[ 2046 ][0] == list[ 2047 ][0]).if_else(1,0)
+
+helperbit_and_istrigger = Array(numrows, sint)
+helperbit_xor_istrigger = Array(numrows, sint)
+
+for i in range(numrows-1):
+    helperbit_and_istrigger[i] = helperbit[i] * list[i][1]
+    helperbit_xor_istrigger[i] = (helperbit[i] + list[i][1]) % 2
+
+
+stopbit1 = Array(numrows, sint)
+stopbit2 = Array(numrows, sint)
+stopbit3 = Array(numrows, sint)
+stopbit4 = Array(numrows, sint)
+stopbit5 = Array(numrows, sint)
+stopbit6 = Array(numrows, sint)
+stopbit7 = Array(numrows, sint)
+stopbit8 = Array(numrows, sint)
+stopbit9 = Array(numrows, sint)
+stopbit10 = Array(numrows, sint)
+
+credit1 = Array(numrows,sint)
+credit2 = Array(numrows,sint)
+credit3 = Array(numrows,sint)
+credit4 = Array(numrows,sint)
+credit5 = Array(numrows,sint)
+credit6 = Array(numrows,sint)
+credit7 = Array(numrows,sint)
+credit8 = Array(numrows,sint)
+credit9 = Array(numrows,sint)
+credit10 = Array(numrows,sint)
+credit11 = Array(numrows,sint)
+
+@for_range_opt(numrows)
+def _(i):
+    stopbit1[i] = 1
+    stopbit2[i]  = 1
+    stopbit3[i] = 1
+    stopbit4[i] = 1
+    stopbit5[i] = 1
+    stopbit6[i] = 1
+    stopbit7[i] = 1
+    stopbit8[i] = 1
+    stopbit9[i] = 1
+    stopbit10[i] = 1
+
+# Compute last touch oblivous attribution 
+
+#####  ITERATION 1
+stepsize = 1
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = helperbit_and_istrigger[successor]  # can remove stopbit1[current] since will always be 1   #another optimization could be to multiply one time all the helperbit * istrigger bits since these are fixed.
+    credit1[current] = list[current][2] + flag * list[successor][2]  #credit is initialized to value, list[i][2] = value[i]
+    stopbit1[current] = flag # * stopbit[successor]  stopbit[successor] here would always be 1 so can drop
+
+####  ITERATION 2
+stepsize = 2
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit1[current] * helperbit_and_istrigger[successor]
+    credit2[current] = credit1[current] + flag * credit1[successor]
+    stopbit2[current] = flag * stopbit1[successor]
+
+####  ITERATION 3
+stepsize = 4
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit2[current] * helperbit_and_istrigger[successor]
+    credit3[current] = credit2[current] + flag * credit2[successor]
+    stopbit3[current] = flag * stopbit2[successor]
+
+####  ITERATION 4
+stepsize = 8
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit3[current] * helperbit_and_istrigger[successor]
+    credit4[current] = credit3[current] + flag * credit3[successor]
+    stopbit4[current] = flag * stopbit3[successor]
+
+####  ITERATION 5
+stepsize = 16
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit4[current] * helperbit_and_istrigger[successor]
+    credit5[current] = credit4[current] + flag * credit4[successor]
+    stopbit5[current] = flag * stopbit4[successor]
+
+####  ITERATION 6
+stepsize = 32
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit5[current] * helperbit_and_istrigger[successor]
+    credit6[current] = credit5[current] + flag * credit5[successor]
+    stopbit6[current] = flag * stopbit5[successor]
+
+####  ITERATION 7
+stepsize = 64
+
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit6[current] * helperbit_and_istrigger[successor]
+    credit7[current] = credit6[current] + flag * credit6[successor]
+    stopbit7[current] = flag * stopbit6[successor]
+
+####  ITERATION 8
+stepsize = 128
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit7[current] * helperbit_and_istrigger[successor]
+    credit8[current] = credit7[current] + flag * credit7[successor]
+    stopbit8[current] = flag * stopbit7[successor]
+
+####  ITERATION 9
+stepsize = 256
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit8[current] * helperbit_and_istrigger[successor]
+    credit9[current] = credit8[current] + flag * credit8[successor]
+    stopbit9[current] = flag * stopbit8[successor]
+
+####  ITERATION 10
+stepsize = 512
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit9[current] * helperbit_and_istrigger[successor]
+    credit10[current] = credit9[current] + flag * credit9[successor]
+    stopbit10[current] = flag * stopbit9[successor]
+
+####  ITERATION 11
+stepsize = 1024
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit10[current] * helperbit_and_istrigger[successor]
+    credit11[current] = credit10[current] + flag * credit10[successor]
+
+print_ln("credit11, %s, %s, %s, %s, %s,%s, %s, %s, %s", credit11[0].reveal(),credit11[1].reveal(),credit11[2].reveal(),\
+    credit11[3].reveal(),credit11[4].reveal(),credit11[5].reveal(),credit11[6].reveal(),credit11[7].reveal(),credit11[8].reveal())
+
+
+# I can't sum all of credit, I need to sum only those that correspond to last touches
+# helperbit_xor_istrigger * credit11 will give this.
+
+creditfinal = Array(numrows,sint)
+
+for i in range(numrows):
+    creditfinal[i] = helperbit_xor_istrigger[i] * credit11[i]
+
+
+print_ln("creditfinal, %s, %s, %s, %s, %s,%s, %s, %s, %s", creditfinal[0].reveal(),creditfinal[1].reveal(),creditfinal[2].reveal(),\
+    creditfinal[3].reveal(),creditfinal[4].reveal(),creditfinal[5].reveal(),creditfinal[6].reveal(),creditfinal[7].reveal(),creditfinal[8].reveal())
+
+
+# SUM BREAKDOWNS
+
+bk1sum1 = Array(1024,sint)
+bk1sum2 = Array(512,sint)
+bk1sum3 = Array(256,sint)
+bk1sum4 = Array(128,sint)
+bk1sum5 = Array(64,sint)
+bk1sum6 = Array(32,sint)
+bk1sum7 = Array(16,sint)
+bk1sum8 = Array(8,sint)
+bk1sum9 = Array(4,sint)
+bk1sum10 = Array(2,sint)
+bk1finalsum = sint(0)
+
+bk2sum1 = Array(1024,sint)
+bk2sum2 = Array(512,sint)
+bk2sum3 = Array(256,sint)
+bk2sum4 = Array(128,sint)
+bk2sum5 = Array(64,sint)
+bk2sum6 = Array(32,sint)
+bk2sum7 = Array(16,sint)
+bk2sum8 = Array(8,sint)
+bk2sum9 = Array(4,sint)
+bk2sum10 = Array(2,sint)
+bk2finalsum = sint(0)
+
+bk3sum1 = Array(1024,sint)
+bk3sum2 = Array(512,sint)
+bk3sum3 = Array(256,sint)
+bk3sum4 = Array(128,sint)
+bk3sum5 = Array(64,sint)
+bk3sum6 = Array(32,sint)
+bk3sum7 = Array(16,sint)
+bk3sum8 = Array(8,sint)
+bk3sum9 = Array(4,sint)
+bk3sum10 = Array(2,sint)
+bk3finalsum = sint(0)
+
+bk4sum1 = Array(1024,sint)
+bk4sum2 = Array(512,sint)
+bk4sum3 = Array(256,sint)
+bk4sum4 = Array(128,sint)
+bk4sum5 = Array(64,sint)
+bk4sum6 = Array(32,sint)
+bk4sum7 = Array(16,sint)
+bk4sum8 = Array(8,sint)
+bk4sum9 = Array(4,sint)
+bk4sum10 = Array(2,sint)
+bk4finalsum = sint(0)
+
+for i in range(numrows//2): # we could assume that breakdowns come as a 0,1 encoding.  breakdown[i] = list[i][3]
+    bk1sum1[i] = bk1sum1[i] + (list[2*i][3] == 1).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 1).if_else( creditfinal[2*i+1], 0) #key =1
+    bk2sum1[i] = bk2sum1[i] + (list[2*i][3] == 2).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 2).if_else( creditfinal[2*i+1], 0) #key =2
+    bk3sum1[i] = bk3sum1[i] + (list[2*i][3] == 3).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 3).if_else( creditfinal[2*i+1], 0) #key =3
+    bk4sum1[i] = bk4sum1[i] + (list[2*i][3] == 4).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 4).if_else( creditfinal[2*i+1], 0) #key =4
+
+for i in range(numrows//4):
+    j = 2*i
+    bk1sum2[i] = bk1sum1[j] + bk1sum1[j+1]
+    bk2sum2[i] = bk2sum1[j] + bk2sum1[j+1]
+    bk3sum2[i] = bk3sum1[j] + bk3sum1[j+1]
+    bk4sum2[i] = bk4sum1[j] + bk4sum1[j+1]
+
+for i in range(numrows//8):
+    j = 2*i
+    bk1sum3[i] = bk1sum2[j] + bk1sum2[j+1]
+    bk2sum3[i] = bk2sum2[j] + bk2sum2[j+1]
+    bk3sum3[i] = bk3sum2[j] + bk3sum2[j+1]
+    bk4sum3[i] = bk4sum2[j] + bk4sum2[j+1]
+
+for i in range(numrows//16):
+    j = 2*i
+    bk1sum4[i] = bk1sum3[j] + bk1sum3[j+1]
+    bk2sum4[i] = bk2sum3[j] + bk2sum3[j+1]
+    bk3sum4[i] = bk3sum3[j] + bk3sum3[j+1]
+    bk4sum4[i] = bk4sum3[j] + bk4sum3[j+1]
+
+for i in range(numrows//32):
+    j = 2*i
+    bk1sum5[i] = bk1sum4[j] + bk1sum4[j+1]
+    bk2sum5[i] = bk2sum4[j] + bk2sum4[j+1]
+    bk3sum5[i] = bk3sum4[j] + bk3sum4[j+1]
+    bk4sum5[i] = bk4sum4[j] + bk4sum4[j+1]
+
+for i in range(numrows//64):
+    j = 2*i
+    bk1sum6[i] = bk1sum5[j] + bk1sum5[j+1]
+    bk2sum6[i] = bk2sum5[j] + bk2sum5[j+1]
+    bk3sum6[i] = bk3sum5[j] + bk3sum5[j+1]
+    bk4sum6[i] = bk4sum5[j] + bk4sum5[j+1]
+
+for i in range(numrows//128):
+    j = 2*i
+    bk1sum7[i] = bk1sum6[j] + bk1sum6[j+1]
+    bk2sum7[i] = bk2sum6[j] + bk2sum6[j+1]
+    bk3sum7[i] = bk3sum6[j] + bk3sum6[j+1]
+    bk4sum7[i] = bk4sum6[j] + bk4sum6[j+1]
+
+for i in range(numrows//256):
+    j = 2*i
+    bk1sum8[i] = bk1sum7[j] + bk1sum7[j+1]
+    bk2sum8[i] = bk2sum7[j] + bk2sum7[j+1]
+    bk3sum8[i] = bk3sum7[j] + bk3sum7[j+1]
+    bk4sum8[i] = bk4sum7[j] + bk4sum7[j+1]
+
+for i in range(numrows//512):
+    j = 2*i
+    bk1sum9[i] = bk1sum8[j] + bk1sum8[j+1]
+    bk2sum9[i] = bk2sum8[j] + bk2sum8[j+1]
+    bk3sum9[i] = bk3sum8[j] + bk3sum8[j+1]
+    bk4sum9[i] = bk4sum8[j] + bk4sum8[j+1]
+
+for i in range(numrows//1024):
+    j = 2*i
+    bk1sum10[i] = bk1sum9[j] + bk1sum9[j+1]
+    bk2sum10[i] = bk2sum9[j] + bk2sum9[j+1]
+    bk3sum10[i] = bk3sum9[j] + bk3sum9[j+1]
+    bk4sum10[i] = bk4sum9[j] + bk4sum9[j+1]
+
+bk1finalsum = bk1sum10[0] + bk1sum10[1]
+bk2finalsum = bk2sum10[0] + bk2sum10[1]
+bk3finalsum = bk3sum10[0] + bk3sum10[1]
+bk4finalsum = bk4sum10[0] + bk4sum10[1]
+
+print_ln("breakdowns = %s, %s, %s, %s",bk1finalsum.reveal(),bk2finalsum.reveal(),bk3finalsum.reveal(),bk4finalsum.reveal())

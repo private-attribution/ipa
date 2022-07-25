@@ -1,0 +1,819 @@
+print_ln('********************  IPA E2E 512 **********************')
+#program.set_bit_length(16);
+#program.use_split(3);
+
+numrows = 512
+
+list = Matrix(numrows,4,sint)
+
+@for_range_opt(numrows)
+def _(i):
+    list[i][0] = sint.get_input_from(0);  # matchkey 
+    list[i][1] = sint.get_input_from(0);  # istrigger
+    list[i][2] = sint.get_input_from(0);  # value
+    list[i][3] = sint.get_input_from(0);  # breakdown
+
+# Radix sort 
+list.sort((0,),n_bits=32)
+
+helperbit = Array(numrows,sint)
+#@for_range_opt(numrows-1)
+#def _(i):
+#    helperbit[i] = (list[i][0] == list[i+1][0]).if_else(1,0)
+
+helperbit[ 0 ] = (list[ 0 ][0] == list[ 1 ][0]).if_else(1,0)
+helperbit[ 1 ] = (list[ 1 ][0] == list[ 2 ][0]).if_else(1,0)
+helperbit[ 2 ] = (list[ 2 ][0] == list[ 3 ][0]).if_else(1,0)
+helperbit[ 3 ] = (list[ 3 ][0] == list[ 4 ][0]).if_else(1,0)
+helperbit[ 4 ] = (list[ 4 ][0] == list[ 5 ][0]).if_else(1,0)
+helperbit[ 5 ] = (list[ 5 ][0] == list[ 6 ][0]).if_else(1,0)
+helperbit[ 6 ] = (list[ 6 ][0] == list[ 7 ][0]).if_else(1,0)
+helperbit[ 7 ] = (list[ 7 ][0] == list[ 8 ][0]).if_else(1,0)
+helperbit[ 8 ] = (list[ 8 ][0] == list[ 9 ][0]).if_else(1,0)
+helperbit[ 9 ] = (list[ 9 ][0] == list[ 10 ][0]).if_else(1,0)
+helperbit[ 10 ] = (list[ 10 ][0] == list[ 11 ][0]).if_else(1,0)
+helperbit[ 11 ] = (list[ 11 ][0] == list[ 12 ][0]).if_else(1,0)
+helperbit[ 12 ] = (list[ 12 ][0] == list[ 13 ][0]).if_else(1,0)
+helperbit[ 13 ] = (list[ 13 ][0] == list[ 14 ][0]).if_else(1,0)
+helperbit[ 14 ] = (list[ 14 ][0] == list[ 15 ][0]).if_else(1,0)
+helperbit[ 15 ] = (list[ 15 ][0] == list[ 16 ][0]).if_else(1,0)
+helperbit[ 16 ] = (list[ 16 ][0] == list[ 17 ][0]).if_else(1,0)
+helperbit[ 17 ] = (list[ 17 ][0] == list[ 18 ][0]).if_else(1,0)
+helperbit[ 18 ] = (list[ 18 ][0] == list[ 19 ][0]).if_else(1,0)
+helperbit[ 19 ] = (list[ 19 ][0] == list[ 20 ][0]).if_else(1,0)
+helperbit[ 20 ] = (list[ 20 ][0] == list[ 21 ][0]).if_else(1,0)
+helperbit[ 21 ] = (list[ 21 ][0] == list[ 22 ][0]).if_else(1,0)
+helperbit[ 22 ] = (list[ 22 ][0] == list[ 23 ][0]).if_else(1,0)
+helperbit[ 23 ] = (list[ 23 ][0] == list[ 24 ][0]).if_else(1,0)
+helperbit[ 24 ] = (list[ 24 ][0] == list[ 25 ][0]).if_else(1,0)
+helperbit[ 25 ] = (list[ 25 ][0] == list[ 26 ][0]).if_else(1,0)
+helperbit[ 26 ] = (list[ 26 ][0] == list[ 27 ][0]).if_else(1,0)
+helperbit[ 27 ] = (list[ 27 ][0] == list[ 28 ][0]).if_else(1,0)
+helperbit[ 28 ] = (list[ 28 ][0] == list[ 29 ][0]).if_else(1,0)
+helperbit[ 29 ] = (list[ 29 ][0] == list[ 30 ][0]).if_else(1,0)
+helperbit[ 30 ] = (list[ 30 ][0] == list[ 31 ][0]).if_else(1,0)
+helperbit[ 31 ] = (list[ 31 ][0] == list[ 32 ][0]).if_else(1,0)
+helperbit[ 32 ] = (list[ 32 ][0] == list[ 33 ][0]).if_else(1,0)
+helperbit[ 33 ] = (list[ 33 ][0] == list[ 34 ][0]).if_else(1,0)
+helperbit[ 34 ] = (list[ 34 ][0] == list[ 35 ][0]).if_else(1,0)
+helperbit[ 35 ] = (list[ 35 ][0] == list[ 36 ][0]).if_else(1,0)
+helperbit[ 36 ] = (list[ 36 ][0] == list[ 37 ][0]).if_else(1,0)
+helperbit[ 37 ] = (list[ 37 ][0] == list[ 38 ][0]).if_else(1,0)
+helperbit[ 38 ] = (list[ 38 ][0] == list[ 39 ][0]).if_else(1,0)
+helperbit[ 39 ] = (list[ 39 ][0] == list[ 40 ][0]).if_else(1,0)
+helperbit[ 40 ] = (list[ 40 ][0] == list[ 41 ][0]).if_else(1,0)
+helperbit[ 41 ] = (list[ 41 ][0] == list[ 42 ][0]).if_else(1,0)
+helperbit[ 42 ] = (list[ 42 ][0] == list[ 43 ][0]).if_else(1,0)
+helperbit[ 43 ] = (list[ 43 ][0] == list[ 44 ][0]).if_else(1,0)
+helperbit[ 44 ] = (list[ 44 ][0] == list[ 45 ][0]).if_else(1,0)
+helperbit[ 45 ] = (list[ 45 ][0] == list[ 46 ][0]).if_else(1,0)
+helperbit[ 46 ] = (list[ 46 ][0] == list[ 47 ][0]).if_else(1,0)
+helperbit[ 47 ] = (list[ 47 ][0] == list[ 48 ][0]).if_else(1,0)
+helperbit[ 48 ] = (list[ 48 ][0] == list[ 49 ][0]).if_else(1,0)
+helperbit[ 49 ] = (list[ 49 ][0] == list[ 50 ][0]).if_else(1,0)
+helperbit[ 50 ] = (list[ 50 ][0] == list[ 51 ][0]).if_else(1,0)
+helperbit[ 51 ] = (list[ 51 ][0] == list[ 52 ][0]).if_else(1,0)
+helperbit[ 52 ] = (list[ 52 ][0] == list[ 53 ][0]).if_else(1,0)
+helperbit[ 53 ] = (list[ 53 ][0] == list[ 54 ][0]).if_else(1,0)
+helperbit[ 54 ] = (list[ 54 ][0] == list[ 55 ][0]).if_else(1,0)
+helperbit[ 55 ] = (list[ 55 ][0] == list[ 56 ][0]).if_else(1,0)
+helperbit[ 56 ] = (list[ 56 ][0] == list[ 57 ][0]).if_else(1,0)
+helperbit[ 57 ] = (list[ 57 ][0] == list[ 58 ][0]).if_else(1,0)
+helperbit[ 58 ] = (list[ 58 ][0] == list[ 59 ][0]).if_else(1,0)
+helperbit[ 59 ] = (list[ 59 ][0] == list[ 60 ][0]).if_else(1,0)
+helperbit[ 60 ] = (list[ 60 ][0] == list[ 61 ][0]).if_else(1,0)
+helperbit[ 61 ] = (list[ 61 ][0] == list[ 62 ][0]).if_else(1,0)
+helperbit[ 62 ] = (list[ 62 ][0] == list[ 63 ][0]).if_else(1,0)
+helperbit[ 63 ] = (list[ 63 ][0] == list[ 64 ][0]).if_else(1,0)
+helperbit[ 64 ] = (list[ 64 ][0] == list[ 65 ][0]).if_else(1,0)
+helperbit[ 65 ] = (list[ 65 ][0] == list[ 66 ][0]).if_else(1,0)
+helperbit[ 66 ] = (list[ 66 ][0] == list[ 67 ][0]).if_else(1,0)
+helperbit[ 67 ] = (list[ 67 ][0] == list[ 68 ][0]).if_else(1,0)
+helperbit[ 68 ] = (list[ 68 ][0] == list[ 69 ][0]).if_else(1,0)
+helperbit[ 69 ] = (list[ 69 ][0] == list[ 70 ][0]).if_else(1,0)
+helperbit[ 70 ] = (list[ 70 ][0] == list[ 71 ][0]).if_else(1,0)
+helperbit[ 71 ] = (list[ 71 ][0] == list[ 72 ][0]).if_else(1,0)
+helperbit[ 72 ] = (list[ 72 ][0] == list[ 73 ][0]).if_else(1,0)
+helperbit[ 73 ] = (list[ 73 ][0] == list[ 74 ][0]).if_else(1,0)
+helperbit[ 74 ] = (list[ 74 ][0] == list[ 75 ][0]).if_else(1,0)
+helperbit[ 75 ] = (list[ 75 ][0] == list[ 76 ][0]).if_else(1,0)
+helperbit[ 76 ] = (list[ 76 ][0] == list[ 77 ][0]).if_else(1,0)
+helperbit[ 77 ] = (list[ 77 ][0] == list[ 78 ][0]).if_else(1,0)
+helperbit[ 78 ] = (list[ 78 ][0] == list[ 79 ][0]).if_else(1,0)
+helperbit[ 79 ] = (list[ 79 ][0] == list[ 80 ][0]).if_else(1,0)
+helperbit[ 80 ] = (list[ 80 ][0] == list[ 81 ][0]).if_else(1,0)
+helperbit[ 81 ] = (list[ 81 ][0] == list[ 82 ][0]).if_else(1,0)
+helperbit[ 82 ] = (list[ 82 ][0] == list[ 83 ][0]).if_else(1,0)
+helperbit[ 83 ] = (list[ 83 ][0] == list[ 84 ][0]).if_else(1,0)
+helperbit[ 84 ] = (list[ 84 ][0] == list[ 85 ][0]).if_else(1,0)
+helperbit[ 85 ] = (list[ 85 ][0] == list[ 86 ][0]).if_else(1,0)
+helperbit[ 86 ] = (list[ 86 ][0] == list[ 87 ][0]).if_else(1,0)
+helperbit[ 87 ] = (list[ 87 ][0] == list[ 88 ][0]).if_else(1,0)
+helperbit[ 88 ] = (list[ 88 ][0] == list[ 89 ][0]).if_else(1,0)
+helperbit[ 89 ] = (list[ 89 ][0] == list[ 90 ][0]).if_else(1,0)
+helperbit[ 90 ] = (list[ 90 ][0] == list[ 91 ][0]).if_else(1,0)
+helperbit[ 91 ] = (list[ 91 ][0] == list[ 92 ][0]).if_else(1,0)
+helperbit[ 92 ] = (list[ 92 ][0] == list[ 93 ][0]).if_else(1,0)
+helperbit[ 93 ] = (list[ 93 ][0] == list[ 94 ][0]).if_else(1,0)
+helperbit[ 94 ] = (list[ 94 ][0] == list[ 95 ][0]).if_else(1,0)
+helperbit[ 95 ] = (list[ 95 ][0] == list[ 96 ][0]).if_else(1,0)
+helperbit[ 96 ] = (list[ 96 ][0] == list[ 97 ][0]).if_else(1,0)
+helperbit[ 97 ] = (list[ 97 ][0] == list[ 98 ][0]).if_else(1,0)
+helperbit[ 98 ] = (list[ 98 ][0] == list[ 99 ][0]).if_else(1,0)
+helperbit[ 99 ] = (list[ 99 ][0] == list[ 100 ][0]).if_else(1,0)
+helperbit[ 100 ] = (list[ 100 ][0] == list[ 101 ][0]).if_else(1,0)
+helperbit[ 101 ] = (list[ 101 ][0] == list[ 102 ][0]).if_else(1,0)
+helperbit[ 102 ] = (list[ 102 ][0] == list[ 103 ][0]).if_else(1,0)
+helperbit[ 103 ] = (list[ 103 ][0] == list[ 104 ][0]).if_else(1,0)
+helperbit[ 104 ] = (list[ 104 ][0] == list[ 105 ][0]).if_else(1,0)
+helperbit[ 105 ] = (list[ 105 ][0] == list[ 106 ][0]).if_else(1,0)
+helperbit[ 106 ] = (list[ 106 ][0] == list[ 107 ][0]).if_else(1,0)
+helperbit[ 107 ] = (list[ 107 ][0] == list[ 108 ][0]).if_else(1,0)
+helperbit[ 108 ] = (list[ 108 ][0] == list[ 109 ][0]).if_else(1,0)
+helperbit[ 109 ] = (list[ 109 ][0] == list[ 110 ][0]).if_else(1,0)
+helperbit[ 110 ] = (list[ 110 ][0] == list[ 111 ][0]).if_else(1,0)
+helperbit[ 111 ] = (list[ 111 ][0] == list[ 112 ][0]).if_else(1,0)
+helperbit[ 112 ] = (list[ 112 ][0] == list[ 113 ][0]).if_else(1,0)
+helperbit[ 113 ] = (list[ 113 ][0] == list[ 114 ][0]).if_else(1,0)
+helperbit[ 114 ] = (list[ 114 ][0] == list[ 115 ][0]).if_else(1,0)
+helperbit[ 115 ] = (list[ 115 ][0] == list[ 116 ][0]).if_else(1,0)
+helperbit[ 116 ] = (list[ 116 ][0] == list[ 117 ][0]).if_else(1,0)
+helperbit[ 117 ] = (list[ 117 ][0] == list[ 118 ][0]).if_else(1,0)
+helperbit[ 118 ] = (list[ 118 ][0] == list[ 119 ][0]).if_else(1,0)
+helperbit[ 119 ] = (list[ 119 ][0] == list[ 120 ][0]).if_else(1,0)
+helperbit[ 120 ] = (list[ 120 ][0] == list[ 121 ][0]).if_else(1,0)
+helperbit[ 121 ] = (list[ 121 ][0] == list[ 122 ][0]).if_else(1,0)
+helperbit[ 122 ] = (list[ 122 ][0] == list[ 123 ][0]).if_else(1,0)
+helperbit[ 123 ] = (list[ 123 ][0] == list[ 124 ][0]).if_else(1,0)
+helperbit[ 124 ] = (list[ 124 ][0] == list[ 125 ][0]).if_else(1,0)
+helperbit[ 125 ] = (list[ 125 ][0] == list[ 126 ][0]).if_else(1,0)
+helperbit[ 126 ] = (list[ 126 ][0] == list[ 127 ][0]).if_else(1,0)
+helperbit[ 127 ] = (list[ 127 ][0] == list[ 128 ][0]).if_else(1,0)
+helperbit[ 128 ] = (list[ 128 ][0] == list[ 129 ][0]).if_else(1,0)
+helperbit[ 129 ] = (list[ 129 ][0] == list[ 130 ][0]).if_else(1,0)
+helperbit[ 130 ] = (list[ 130 ][0] == list[ 131 ][0]).if_else(1,0)
+helperbit[ 131 ] = (list[ 131 ][0] == list[ 132 ][0]).if_else(1,0)
+helperbit[ 132 ] = (list[ 132 ][0] == list[ 133 ][0]).if_else(1,0)
+helperbit[ 133 ] = (list[ 133 ][0] == list[ 134 ][0]).if_else(1,0)
+helperbit[ 134 ] = (list[ 134 ][0] == list[ 135 ][0]).if_else(1,0)
+helperbit[ 135 ] = (list[ 135 ][0] == list[ 136 ][0]).if_else(1,0)
+helperbit[ 136 ] = (list[ 136 ][0] == list[ 137 ][0]).if_else(1,0)
+helperbit[ 137 ] = (list[ 137 ][0] == list[ 138 ][0]).if_else(1,0)
+helperbit[ 138 ] = (list[ 138 ][0] == list[ 139 ][0]).if_else(1,0)
+helperbit[ 139 ] = (list[ 139 ][0] == list[ 140 ][0]).if_else(1,0)
+helperbit[ 140 ] = (list[ 140 ][0] == list[ 141 ][0]).if_else(1,0)
+helperbit[ 141 ] = (list[ 141 ][0] == list[ 142 ][0]).if_else(1,0)
+helperbit[ 142 ] = (list[ 142 ][0] == list[ 143 ][0]).if_else(1,0)
+helperbit[ 143 ] = (list[ 143 ][0] == list[ 144 ][0]).if_else(1,0)
+helperbit[ 144 ] = (list[ 144 ][0] == list[ 145 ][0]).if_else(1,0)
+helperbit[ 145 ] = (list[ 145 ][0] == list[ 146 ][0]).if_else(1,0)
+helperbit[ 146 ] = (list[ 146 ][0] == list[ 147 ][0]).if_else(1,0)
+helperbit[ 147 ] = (list[ 147 ][0] == list[ 148 ][0]).if_else(1,0)
+helperbit[ 148 ] = (list[ 148 ][0] == list[ 149 ][0]).if_else(1,0)
+helperbit[ 149 ] = (list[ 149 ][0] == list[ 150 ][0]).if_else(1,0)
+helperbit[ 150 ] = (list[ 150 ][0] == list[ 151 ][0]).if_else(1,0)
+helperbit[ 151 ] = (list[ 151 ][0] == list[ 152 ][0]).if_else(1,0)
+helperbit[ 152 ] = (list[ 152 ][0] == list[ 153 ][0]).if_else(1,0)
+helperbit[ 153 ] = (list[ 153 ][0] == list[ 154 ][0]).if_else(1,0)
+helperbit[ 154 ] = (list[ 154 ][0] == list[ 155 ][0]).if_else(1,0)
+helperbit[ 155 ] = (list[ 155 ][0] == list[ 156 ][0]).if_else(1,0)
+helperbit[ 156 ] = (list[ 156 ][0] == list[ 157 ][0]).if_else(1,0)
+helperbit[ 157 ] = (list[ 157 ][0] == list[ 158 ][0]).if_else(1,0)
+helperbit[ 158 ] = (list[ 158 ][0] == list[ 159 ][0]).if_else(1,0)
+helperbit[ 159 ] = (list[ 159 ][0] == list[ 160 ][0]).if_else(1,0)
+helperbit[ 160 ] = (list[ 160 ][0] == list[ 161 ][0]).if_else(1,0)
+helperbit[ 161 ] = (list[ 161 ][0] == list[ 162 ][0]).if_else(1,0)
+helperbit[ 162 ] = (list[ 162 ][0] == list[ 163 ][0]).if_else(1,0)
+helperbit[ 163 ] = (list[ 163 ][0] == list[ 164 ][0]).if_else(1,0)
+helperbit[ 164 ] = (list[ 164 ][0] == list[ 165 ][0]).if_else(1,0)
+helperbit[ 165 ] = (list[ 165 ][0] == list[ 166 ][0]).if_else(1,0)
+helperbit[ 166 ] = (list[ 166 ][0] == list[ 167 ][0]).if_else(1,0)
+helperbit[ 167 ] = (list[ 167 ][0] == list[ 168 ][0]).if_else(1,0)
+helperbit[ 168 ] = (list[ 168 ][0] == list[ 169 ][0]).if_else(1,0)
+helperbit[ 169 ] = (list[ 169 ][0] == list[ 170 ][0]).if_else(1,0)
+helperbit[ 170 ] = (list[ 170 ][0] == list[ 171 ][0]).if_else(1,0)
+helperbit[ 171 ] = (list[ 171 ][0] == list[ 172 ][0]).if_else(1,0)
+helperbit[ 172 ] = (list[ 172 ][0] == list[ 173 ][0]).if_else(1,0)
+helperbit[ 173 ] = (list[ 173 ][0] == list[ 174 ][0]).if_else(1,0)
+helperbit[ 174 ] = (list[ 174 ][0] == list[ 175 ][0]).if_else(1,0)
+helperbit[ 175 ] = (list[ 175 ][0] == list[ 176 ][0]).if_else(1,0)
+helperbit[ 176 ] = (list[ 176 ][0] == list[ 177 ][0]).if_else(1,0)
+helperbit[ 177 ] = (list[ 177 ][0] == list[ 178 ][0]).if_else(1,0)
+helperbit[ 178 ] = (list[ 178 ][0] == list[ 179 ][0]).if_else(1,0)
+helperbit[ 179 ] = (list[ 179 ][0] == list[ 180 ][0]).if_else(1,0)
+helperbit[ 180 ] = (list[ 180 ][0] == list[ 181 ][0]).if_else(1,0)
+helperbit[ 181 ] = (list[ 181 ][0] == list[ 182 ][0]).if_else(1,0)
+helperbit[ 182 ] = (list[ 182 ][0] == list[ 183 ][0]).if_else(1,0)
+helperbit[ 183 ] = (list[ 183 ][0] == list[ 184 ][0]).if_else(1,0)
+helperbit[ 184 ] = (list[ 184 ][0] == list[ 185 ][0]).if_else(1,0)
+helperbit[ 185 ] = (list[ 185 ][0] == list[ 186 ][0]).if_else(1,0)
+helperbit[ 186 ] = (list[ 186 ][0] == list[ 187 ][0]).if_else(1,0)
+helperbit[ 187 ] = (list[ 187 ][0] == list[ 188 ][0]).if_else(1,0)
+helperbit[ 188 ] = (list[ 188 ][0] == list[ 189 ][0]).if_else(1,0)
+helperbit[ 189 ] = (list[ 189 ][0] == list[ 190 ][0]).if_else(1,0)
+helperbit[ 190 ] = (list[ 190 ][0] == list[ 191 ][0]).if_else(1,0)
+helperbit[ 191 ] = (list[ 191 ][0] == list[ 192 ][0]).if_else(1,0)
+helperbit[ 192 ] = (list[ 192 ][0] == list[ 193 ][0]).if_else(1,0)
+helperbit[ 193 ] = (list[ 193 ][0] == list[ 194 ][0]).if_else(1,0)
+helperbit[ 194 ] = (list[ 194 ][0] == list[ 195 ][0]).if_else(1,0)
+helperbit[ 195 ] = (list[ 195 ][0] == list[ 196 ][0]).if_else(1,0)
+helperbit[ 196 ] = (list[ 196 ][0] == list[ 197 ][0]).if_else(1,0)
+helperbit[ 197 ] = (list[ 197 ][0] == list[ 198 ][0]).if_else(1,0)
+helperbit[ 198 ] = (list[ 198 ][0] == list[ 199 ][0]).if_else(1,0)
+helperbit[ 199 ] = (list[ 199 ][0] == list[ 200 ][0]).if_else(1,0)
+helperbit[ 200 ] = (list[ 200 ][0] == list[ 201 ][0]).if_else(1,0)
+helperbit[ 201 ] = (list[ 201 ][0] == list[ 202 ][0]).if_else(1,0)
+helperbit[ 202 ] = (list[ 202 ][0] == list[ 203 ][0]).if_else(1,0)
+helperbit[ 203 ] = (list[ 203 ][0] == list[ 204 ][0]).if_else(1,0)
+helperbit[ 204 ] = (list[ 204 ][0] == list[ 205 ][0]).if_else(1,0)
+helperbit[ 205 ] = (list[ 205 ][0] == list[ 206 ][0]).if_else(1,0)
+helperbit[ 206 ] = (list[ 206 ][0] == list[ 207 ][0]).if_else(1,0)
+helperbit[ 207 ] = (list[ 207 ][0] == list[ 208 ][0]).if_else(1,0)
+helperbit[ 208 ] = (list[ 208 ][0] == list[ 209 ][0]).if_else(1,0)
+helperbit[ 209 ] = (list[ 209 ][0] == list[ 210 ][0]).if_else(1,0)
+helperbit[ 210 ] = (list[ 210 ][0] == list[ 211 ][0]).if_else(1,0)
+helperbit[ 211 ] = (list[ 211 ][0] == list[ 212 ][0]).if_else(1,0)
+helperbit[ 212 ] = (list[ 212 ][0] == list[ 213 ][0]).if_else(1,0)
+helperbit[ 213 ] = (list[ 213 ][0] == list[ 214 ][0]).if_else(1,0)
+helperbit[ 214 ] = (list[ 214 ][0] == list[ 215 ][0]).if_else(1,0)
+helperbit[ 215 ] = (list[ 215 ][0] == list[ 216 ][0]).if_else(1,0)
+helperbit[ 216 ] = (list[ 216 ][0] == list[ 217 ][0]).if_else(1,0)
+helperbit[ 217 ] = (list[ 217 ][0] == list[ 218 ][0]).if_else(1,0)
+helperbit[ 218 ] = (list[ 218 ][0] == list[ 219 ][0]).if_else(1,0)
+helperbit[ 219 ] = (list[ 219 ][0] == list[ 220 ][0]).if_else(1,0)
+helperbit[ 220 ] = (list[ 220 ][0] == list[ 221 ][0]).if_else(1,0)
+helperbit[ 221 ] = (list[ 221 ][0] == list[ 222 ][0]).if_else(1,0)
+helperbit[ 222 ] = (list[ 222 ][0] == list[ 223 ][0]).if_else(1,0)
+helperbit[ 223 ] = (list[ 223 ][0] == list[ 224 ][0]).if_else(1,0)
+helperbit[ 224 ] = (list[ 224 ][0] == list[ 225 ][0]).if_else(1,0)
+helperbit[ 225 ] = (list[ 225 ][0] == list[ 226 ][0]).if_else(1,0)
+helperbit[ 226 ] = (list[ 226 ][0] == list[ 227 ][0]).if_else(1,0)
+helperbit[ 227 ] = (list[ 227 ][0] == list[ 228 ][0]).if_else(1,0)
+helperbit[ 228 ] = (list[ 228 ][0] == list[ 229 ][0]).if_else(1,0)
+helperbit[ 229 ] = (list[ 229 ][0] == list[ 230 ][0]).if_else(1,0)
+helperbit[ 230 ] = (list[ 230 ][0] == list[ 231 ][0]).if_else(1,0)
+helperbit[ 231 ] = (list[ 231 ][0] == list[ 232 ][0]).if_else(1,0)
+helperbit[ 232 ] = (list[ 232 ][0] == list[ 233 ][0]).if_else(1,0)
+helperbit[ 233 ] = (list[ 233 ][0] == list[ 234 ][0]).if_else(1,0)
+helperbit[ 234 ] = (list[ 234 ][0] == list[ 235 ][0]).if_else(1,0)
+helperbit[ 235 ] = (list[ 235 ][0] == list[ 236 ][0]).if_else(1,0)
+helperbit[ 236 ] = (list[ 236 ][0] == list[ 237 ][0]).if_else(1,0)
+helperbit[ 237 ] = (list[ 237 ][0] == list[ 238 ][0]).if_else(1,0)
+helperbit[ 238 ] = (list[ 238 ][0] == list[ 239 ][0]).if_else(1,0)
+helperbit[ 239 ] = (list[ 239 ][0] == list[ 240 ][0]).if_else(1,0)
+helperbit[ 240 ] = (list[ 240 ][0] == list[ 241 ][0]).if_else(1,0)
+helperbit[ 241 ] = (list[ 241 ][0] == list[ 242 ][0]).if_else(1,0)
+helperbit[ 242 ] = (list[ 242 ][0] == list[ 243 ][0]).if_else(1,0)
+helperbit[ 243 ] = (list[ 243 ][0] == list[ 244 ][0]).if_else(1,0)
+helperbit[ 244 ] = (list[ 244 ][0] == list[ 245 ][0]).if_else(1,0)
+helperbit[ 245 ] = (list[ 245 ][0] == list[ 246 ][0]).if_else(1,0)
+helperbit[ 246 ] = (list[ 246 ][0] == list[ 247 ][0]).if_else(1,0)
+helperbit[ 247 ] = (list[ 247 ][0] == list[ 248 ][0]).if_else(1,0)
+helperbit[ 248 ] = (list[ 248 ][0] == list[ 249 ][0]).if_else(1,0)
+helperbit[ 249 ] = (list[ 249 ][0] == list[ 250 ][0]).if_else(1,0)
+helperbit[ 250 ] = (list[ 250 ][0] == list[ 251 ][0]).if_else(1,0)
+helperbit[ 251 ] = (list[ 251 ][0] == list[ 252 ][0]).if_else(1,0)
+helperbit[ 252 ] = (list[ 252 ][0] == list[ 253 ][0]).if_else(1,0)
+helperbit[ 253 ] = (list[ 253 ][0] == list[ 254 ][0]).if_else(1,0)
+helperbit[ 254 ] = (list[ 254 ][0] == list[ 255 ][0]).if_else(1,0)
+helperbit[ 255 ] = (list[ 255 ][0] == list[ 256 ][0]).if_else(1,0)
+helperbit[ 256 ] = (list[ 256 ][0] == list[ 257 ][0]).if_else(1,0)
+helperbit[ 257 ] = (list[ 257 ][0] == list[ 258 ][0]).if_else(1,0)
+helperbit[ 258 ] = (list[ 258 ][0] == list[ 259 ][0]).if_else(1,0)
+helperbit[ 259 ] = (list[ 259 ][0] == list[ 260 ][0]).if_else(1,0)
+helperbit[ 260 ] = (list[ 260 ][0] == list[ 261 ][0]).if_else(1,0)
+helperbit[ 261 ] = (list[ 261 ][0] == list[ 262 ][0]).if_else(1,0)
+helperbit[ 262 ] = (list[ 262 ][0] == list[ 263 ][0]).if_else(1,0)
+helperbit[ 263 ] = (list[ 263 ][0] == list[ 264 ][0]).if_else(1,0)
+helperbit[ 264 ] = (list[ 264 ][0] == list[ 265 ][0]).if_else(1,0)
+helperbit[ 265 ] = (list[ 265 ][0] == list[ 266 ][0]).if_else(1,0)
+helperbit[ 266 ] = (list[ 266 ][0] == list[ 267 ][0]).if_else(1,0)
+helperbit[ 267 ] = (list[ 267 ][0] == list[ 268 ][0]).if_else(1,0)
+helperbit[ 268 ] = (list[ 268 ][0] == list[ 269 ][0]).if_else(1,0)
+helperbit[ 269 ] = (list[ 269 ][0] == list[ 270 ][0]).if_else(1,0)
+helperbit[ 270 ] = (list[ 270 ][0] == list[ 271 ][0]).if_else(1,0)
+helperbit[ 271 ] = (list[ 271 ][0] == list[ 272 ][0]).if_else(1,0)
+helperbit[ 272 ] = (list[ 272 ][0] == list[ 273 ][0]).if_else(1,0)
+helperbit[ 273 ] = (list[ 273 ][0] == list[ 274 ][0]).if_else(1,0)
+helperbit[ 274 ] = (list[ 274 ][0] == list[ 275 ][0]).if_else(1,0)
+helperbit[ 275 ] = (list[ 275 ][0] == list[ 276 ][0]).if_else(1,0)
+helperbit[ 276 ] = (list[ 276 ][0] == list[ 277 ][0]).if_else(1,0)
+helperbit[ 277 ] = (list[ 277 ][0] == list[ 278 ][0]).if_else(1,0)
+helperbit[ 278 ] = (list[ 278 ][0] == list[ 279 ][0]).if_else(1,0)
+helperbit[ 279 ] = (list[ 279 ][0] == list[ 280 ][0]).if_else(1,0)
+helperbit[ 280 ] = (list[ 280 ][0] == list[ 281 ][0]).if_else(1,0)
+helperbit[ 281 ] = (list[ 281 ][0] == list[ 282 ][0]).if_else(1,0)
+helperbit[ 282 ] = (list[ 282 ][0] == list[ 283 ][0]).if_else(1,0)
+helperbit[ 283 ] = (list[ 283 ][0] == list[ 284 ][0]).if_else(1,0)
+helperbit[ 284 ] = (list[ 284 ][0] == list[ 285 ][0]).if_else(1,0)
+helperbit[ 285 ] = (list[ 285 ][0] == list[ 286 ][0]).if_else(1,0)
+helperbit[ 286 ] = (list[ 286 ][0] == list[ 287 ][0]).if_else(1,0)
+helperbit[ 287 ] = (list[ 287 ][0] == list[ 288 ][0]).if_else(1,0)
+helperbit[ 288 ] = (list[ 288 ][0] == list[ 289 ][0]).if_else(1,0)
+helperbit[ 289 ] = (list[ 289 ][0] == list[ 290 ][0]).if_else(1,0)
+helperbit[ 290 ] = (list[ 290 ][0] == list[ 291 ][0]).if_else(1,0)
+helperbit[ 291 ] = (list[ 291 ][0] == list[ 292 ][0]).if_else(1,0)
+helperbit[ 292 ] = (list[ 292 ][0] == list[ 293 ][0]).if_else(1,0)
+helperbit[ 293 ] = (list[ 293 ][0] == list[ 294 ][0]).if_else(1,0)
+helperbit[ 294 ] = (list[ 294 ][0] == list[ 295 ][0]).if_else(1,0)
+helperbit[ 295 ] = (list[ 295 ][0] == list[ 296 ][0]).if_else(1,0)
+helperbit[ 296 ] = (list[ 296 ][0] == list[ 297 ][0]).if_else(1,0)
+helperbit[ 297 ] = (list[ 297 ][0] == list[ 298 ][0]).if_else(1,0)
+helperbit[ 298 ] = (list[ 298 ][0] == list[ 299 ][0]).if_else(1,0)
+helperbit[ 299 ] = (list[ 299 ][0] == list[ 300 ][0]).if_else(1,0)
+helperbit[ 300 ] = (list[ 300 ][0] == list[ 301 ][0]).if_else(1,0)
+helperbit[ 301 ] = (list[ 301 ][0] == list[ 302 ][0]).if_else(1,0)
+helperbit[ 302 ] = (list[ 302 ][0] == list[ 303 ][0]).if_else(1,0)
+helperbit[ 303 ] = (list[ 303 ][0] == list[ 304 ][0]).if_else(1,0)
+helperbit[ 304 ] = (list[ 304 ][0] == list[ 305 ][0]).if_else(1,0)
+helperbit[ 305 ] = (list[ 305 ][0] == list[ 306 ][0]).if_else(1,0)
+helperbit[ 306 ] = (list[ 306 ][0] == list[ 307 ][0]).if_else(1,0)
+helperbit[ 307 ] = (list[ 307 ][0] == list[ 308 ][0]).if_else(1,0)
+helperbit[ 308 ] = (list[ 308 ][0] == list[ 309 ][0]).if_else(1,0)
+helperbit[ 309 ] = (list[ 309 ][0] == list[ 310 ][0]).if_else(1,0)
+helperbit[ 310 ] = (list[ 310 ][0] == list[ 311 ][0]).if_else(1,0)
+helperbit[ 311 ] = (list[ 311 ][0] == list[ 312 ][0]).if_else(1,0)
+helperbit[ 312 ] = (list[ 312 ][0] == list[ 313 ][0]).if_else(1,0)
+helperbit[ 313 ] = (list[ 313 ][0] == list[ 314 ][0]).if_else(1,0)
+helperbit[ 314 ] = (list[ 314 ][0] == list[ 315 ][0]).if_else(1,0)
+helperbit[ 315 ] = (list[ 315 ][0] == list[ 316 ][0]).if_else(1,0)
+helperbit[ 316 ] = (list[ 316 ][0] == list[ 317 ][0]).if_else(1,0)
+helperbit[ 317 ] = (list[ 317 ][0] == list[ 318 ][0]).if_else(1,0)
+helperbit[ 318 ] = (list[ 318 ][0] == list[ 319 ][0]).if_else(1,0)
+helperbit[ 319 ] = (list[ 319 ][0] == list[ 320 ][0]).if_else(1,0)
+helperbit[ 320 ] = (list[ 320 ][0] == list[ 321 ][0]).if_else(1,0)
+helperbit[ 321 ] = (list[ 321 ][0] == list[ 322 ][0]).if_else(1,0)
+helperbit[ 322 ] = (list[ 322 ][0] == list[ 323 ][0]).if_else(1,0)
+helperbit[ 323 ] = (list[ 323 ][0] == list[ 324 ][0]).if_else(1,0)
+helperbit[ 324 ] = (list[ 324 ][0] == list[ 325 ][0]).if_else(1,0)
+helperbit[ 325 ] = (list[ 325 ][0] == list[ 326 ][0]).if_else(1,0)
+helperbit[ 326 ] = (list[ 326 ][0] == list[ 327 ][0]).if_else(1,0)
+helperbit[ 327 ] = (list[ 327 ][0] == list[ 328 ][0]).if_else(1,0)
+helperbit[ 328 ] = (list[ 328 ][0] == list[ 329 ][0]).if_else(1,0)
+helperbit[ 329 ] = (list[ 329 ][0] == list[ 330 ][0]).if_else(1,0)
+helperbit[ 330 ] = (list[ 330 ][0] == list[ 331 ][0]).if_else(1,0)
+helperbit[ 331 ] = (list[ 331 ][0] == list[ 332 ][0]).if_else(1,0)
+helperbit[ 332 ] = (list[ 332 ][0] == list[ 333 ][0]).if_else(1,0)
+helperbit[ 333 ] = (list[ 333 ][0] == list[ 334 ][0]).if_else(1,0)
+helperbit[ 334 ] = (list[ 334 ][0] == list[ 335 ][0]).if_else(1,0)
+helperbit[ 335 ] = (list[ 335 ][0] == list[ 336 ][0]).if_else(1,0)
+helperbit[ 336 ] = (list[ 336 ][0] == list[ 337 ][0]).if_else(1,0)
+helperbit[ 337 ] = (list[ 337 ][0] == list[ 338 ][0]).if_else(1,0)
+helperbit[ 338 ] = (list[ 338 ][0] == list[ 339 ][0]).if_else(1,0)
+helperbit[ 339 ] = (list[ 339 ][0] == list[ 340 ][0]).if_else(1,0)
+helperbit[ 340 ] = (list[ 340 ][0] == list[ 341 ][0]).if_else(1,0)
+helperbit[ 341 ] = (list[ 341 ][0] == list[ 342 ][0]).if_else(1,0)
+helperbit[ 342 ] = (list[ 342 ][0] == list[ 343 ][0]).if_else(1,0)
+helperbit[ 343 ] = (list[ 343 ][0] == list[ 344 ][0]).if_else(1,0)
+helperbit[ 344 ] = (list[ 344 ][0] == list[ 345 ][0]).if_else(1,0)
+helperbit[ 345 ] = (list[ 345 ][0] == list[ 346 ][0]).if_else(1,0)
+helperbit[ 346 ] = (list[ 346 ][0] == list[ 347 ][0]).if_else(1,0)
+helperbit[ 347 ] = (list[ 347 ][0] == list[ 348 ][0]).if_else(1,0)
+helperbit[ 348 ] = (list[ 348 ][0] == list[ 349 ][0]).if_else(1,0)
+helperbit[ 349 ] = (list[ 349 ][0] == list[ 350 ][0]).if_else(1,0)
+helperbit[ 350 ] = (list[ 350 ][0] == list[ 351 ][0]).if_else(1,0)
+helperbit[ 351 ] = (list[ 351 ][0] == list[ 352 ][0]).if_else(1,0)
+helperbit[ 352 ] = (list[ 352 ][0] == list[ 353 ][0]).if_else(1,0)
+helperbit[ 353 ] = (list[ 353 ][0] == list[ 354 ][0]).if_else(1,0)
+helperbit[ 354 ] = (list[ 354 ][0] == list[ 355 ][0]).if_else(1,0)
+helperbit[ 355 ] = (list[ 355 ][0] == list[ 356 ][0]).if_else(1,0)
+helperbit[ 356 ] = (list[ 356 ][0] == list[ 357 ][0]).if_else(1,0)
+helperbit[ 357 ] = (list[ 357 ][0] == list[ 358 ][0]).if_else(1,0)
+helperbit[ 358 ] = (list[ 358 ][0] == list[ 359 ][0]).if_else(1,0)
+helperbit[ 359 ] = (list[ 359 ][0] == list[ 360 ][0]).if_else(1,0)
+helperbit[ 360 ] = (list[ 360 ][0] == list[ 361 ][0]).if_else(1,0)
+helperbit[ 361 ] = (list[ 361 ][0] == list[ 362 ][0]).if_else(1,0)
+helperbit[ 362 ] = (list[ 362 ][0] == list[ 363 ][0]).if_else(1,0)
+helperbit[ 363 ] = (list[ 363 ][0] == list[ 364 ][0]).if_else(1,0)
+helperbit[ 364 ] = (list[ 364 ][0] == list[ 365 ][0]).if_else(1,0)
+helperbit[ 365 ] = (list[ 365 ][0] == list[ 366 ][0]).if_else(1,0)
+helperbit[ 366 ] = (list[ 366 ][0] == list[ 367 ][0]).if_else(1,0)
+helperbit[ 367 ] = (list[ 367 ][0] == list[ 368 ][0]).if_else(1,0)
+helperbit[ 368 ] = (list[ 368 ][0] == list[ 369 ][0]).if_else(1,0)
+helperbit[ 369 ] = (list[ 369 ][0] == list[ 370 ][0]).if_else(1,0)
+helperbit[ 370 ] = (list[ 370 ][0] == list[ 371 ][0]).if_else(1,0)
+helperbit[ 371 ] = (list[ 371 ][0] == list[ 372 ][0]).if_else(1,0)
+helperbit[ 372 ] = (list[ 372 ][0] == list[ 373 ][0]).if_else(1,0)
+helperbit[ 373 ] = (list[ 373 ][0] == list[ 374 ][0]).if_else(1,0)
+helperbit[ 374 ] = (list[ 374 ][0] == list[ 375 ][0]).if_else(1,0)
+helperbit[ 375 ] = (list[ 375 ][0] == list[ 376 ][0]).if_else(1,0)
+helperbit[ 376 ] = (list[ 376 ][0] == list[ 377 ][0]).if_else(1,0)
+helperbit[ 377 ] = (list[ 377 ][0] == list[ 378 ][0]).if_else(1,0)
+helperbit[ 378 ] = (list[ 378 ][0] == list[ 379 ][0]).if_else(1,0)
+helperbit[ 379 ] = (list[ 379 ][0] == list[ 380 ][0]).if_else(1,0)
+helperbit[ 380 ] = (list[ 380 ][0] == list[ 381 ][0]).if_else(1,0)
+helperbit[ 381 ] = (list[ 381 ][0] == list[ 382 ][0]).if_else(1,0)
+helperbit[ 382 ] = (list[ 382 ][0] == list[ 383 ][0]).if_else(1,0)
+helperbit[ 383 ] = (list[ 383 ][0] == list[ 384 ][0]).if_else(1,0)
+helperbit[ 384 ] = (list[ 384 ][0] == list[ 385 ][0]).if_else(1,0)
+helperbit[ 385 ] = (list[ 385 ][0] == list[ 386 ][0]).if_else(1,0)
+helperbit[ 386 ] = (list[ 386 ][0] == list[ 387 ][0]).if_else(1,0)
+helperbit[ 387 ] = (list[ 387 ][0] == list[ 388 ][0]).if_else(1,0)
+helperbit[ 388 ] = (list[ 388 ][0] == list[ 389 ][0]).if_else(1,0)
+helperbit[ 389 ] = (list[ 389 ][0] == list[ 390 ][0]).if_else(1,0)
+helperbit[ 390 ] = (list[ 390 ][0] == list[ 391 ][0]).if_else(1,0)
+helperbit[ 391 ] = (list[ 391 ][0] == list[ 392 ][0]).if_else(1,0)
+helperbit[ 392 ] = (list[ 392 ][0] == list[ 393 ][0]).if_else(1,0)
+helperbit[ 393 ] = (list[ 393 ][0] == list[ 394 ][0]).if_else(1,0)
+helperbit[ 394 ] = (list[ 394 ][0] == list[ 395 ][0]).if_else(1,0)
+helperbit[ 395 ] = (list[ 395 ][0] == list[ 396 ][0]).if_else(1,0)
+helperbit[ 396 ] = (list[ 396 ][0] == list[ 397 ][0]).if_else(1,0)
+helperbit[ 397 ] = (list[ 397 ][0] == list[ 398 ][0]).if_else(1,0)
+helperbit[ 398 ] = (list[ 398 ][0] == list[ 399 ][0]).if_else(1,0)
+helperbit[ 399 ] = (list[ 399 ][0] == list[ 400 ][0]).if_else(1,0)
+helperbit[ 400 ] = (list[ 400 ][0] == list[ 401 ][0]).if_else(1,0)
+helperbit[ 401 ] = (list[ 401 ][0] == list[ 402 ][0]).if_else(1,0)
+helperbit[ 402 ] = (list[ 402 ][0] == list[ 403 ][0]).if_else(1,0)
+helperbit[ 403 ] = (list[ 403 ][0] == list[ 404 ][0]).if_else(1,0)
+helperbit[ 404 ] = (list[ 404 ][0] == list[ 405 ][0]).if_else(1,0)
+helperbit[ 405 ] = (list[ 405 ][0] == list[ 406 ][0]).if_else(1,0)
+helperbit[ 406 ] = (list[ 406 ][0] == list[ 407 ][0]).if_else(1,0)
+helperbit[ 407 ] = (list[ 407 ][0] == list[ 408 ][0]).if_else(1,0)
+helperbit[ 408 ] = (list[ 408 ][0] == list[ 409 ][0]).if_else(1,0)
+helperbit[ 409 ] = (list[ 409 ][0] == list[ 410 ][0]).if_else(1,0)
+helperbit[ 410 ] = (list[ 410 ][0] == list[ 411 ][0]).if_else(1,0)
+helperbit[ 411 ] = (list[ 411 ][0] == list[ 412 ][0]).if_else(1,0)
+helperbit[ 412 ] = (list[ 412 ][0] == list[ 413 ][0]).if_else(1,0)
+helperbit[ 413 ] = (list[ 413 ][0] == list[ 414 ][0]).if_else(1,0)
+helperbit[ 414 ] = (list[ 414 ][0] == list[ 415 ][0]).if_else(1,0)
+helperbit[ 415 ] = (list[ 415 ][0] == list[ 416 ][0]).if_else(1,0)
+helperbit[ 416 ] = (list[ 416 ][0] == list[ 417 ][0]).if_else(1,0)
+helperbit[ 417 ] = (list[ 417 ][0] == list[ 418 ][0]).if_else(1,0)
+helperbit[ 418 ] = (list[ 418 ][0] == list[ 419 ][0]).if_else(1,0)
+helperbit[ 419 ] = (list[ 419 ][0] == list[ 420 ][0]).if_else(1,0)
+helperbit[ 420 ] = (list[ 420 ][0] == list[ 421 ][0]).if_else(1,0)
+helperbit[ 421 ] = (list[ 421 ][0] == list[ 422 ][0]).if_else(1,0)
+helperbit[ 422 ] = (list[ 422 ][0] == list[ 423 ][0]).if_else(1,0)
+helperbit[ 423 ] = (list[ 423 ][0] == list[ 424 ][0]).if_else(1,0)
+helperbit[ 424 ] = (list[ 424 ][0] == list[ 425 ][0]).if_else(1,0)
+helperbit[ 425 ] = (list[ 425 ][0] == list[ 426 ][0]).if_else(1,0)
+helperbit[ 426 ] = (list[ 426 ][0] == list[ 427 ][0]).if_else(1,0)
+helperbit[ 427 ] = (list[ 427 ][0] == list[ 428 ][0]).if_else(1,0)
+helperbit[ 428 ] = (list[ 428 ][0] == list[ 429 ][0]).if_else(1,0)
+helperbit[ 429 ] = (list[ 429 ][0] == list[ 430 ][0]).if_else(1,0)
+helperbit[ 430 ] = (list[ 430 ][0] == list[ 431 ][0]).if_else(1,0)
+helperbit[ 431 ] = (list[ 431 ][0] == list[ 432 ][0]).if_else(1,0)
+helperbit[ 432 ] = (list[ 432 ][0] == list[ 433 ][0]).if_else(1,0)
+helperbit[ 433 ] = (list[ 433 ][0] == list[ 434 ][0]).if_else(1,0)
+helperbit[ 434 ] = (list[ 434 ][0] == list[ 435 ][0]).if_else(1,0)
+helperbit[ 435 ] = (list[ 435 ][0] == list[ 436 ][0]).if_else(1,0)
+helperbit[ 436 ] = (list[ 436 ][0] == list[ 437 ][0]).if_else(1,0)
+helperbit[ 437 ] = (list[ 437 ][0] == list[ 438 ][0]).if_else(1,0)
+helperbit[ 438 ] = (list[ 438 ][0] == list[ 439 ][0]).if_else(1,0)
+helperbit[ 439 ] = (list[ 439 ][0] == list[ 440 ][0]).if_else(1,0)
+helperbit[ 440 ] = (list[ 440 ][0] == list[ 441 ][0]).if_else(1,0)
+helperbit[ 441 ] = (list[ 441 ][0] == list[ 442 ][0]).if_else(1,0)
+helperbit[ 442 ] = (list[ 442 ][0] == list[ 443 ][0]).if_else(1,0)
+helperbit[ 443 ] = (list[ 443 ][0] == list[ 444 ][0]).if_else(1,0)
+helperbit[ 444 ] = (list[ 444 ][0] == list[ 445 ][0]).if_else(1,0)
+helperbit[ 445 ] = (list[ 445 ][0] == list[ 446 ][0]).if_else(1,0)
+helperbit[ 446 ] = (list[ 446 ][0] == list[ 447 ][0]).if_else(1,0)
+helperbit[ 447 ] = (list[ 447 ][0] == list[ 448 ][0]).if_else(1,0)
+helperbit[ 448 ] = (list[ 448 ][0] == list[ 449 ][0]).if_else(1,0)
+helperbit[ 449 ] = (list[ 449 ][0] == list[ 450 ][0]).if_else(1,0)
+helperbit[ 450 ] = (list[ 450 ][0] == list[ 451 ][0]).if_else(1,0)
+helperbit[ 451 ] = (list[ 451 ][0] == list[ 452 ][0]).if_else(1,0)
+helperbit[ 452 ] = (list[ 452 ][0] == list[ 453 ][0]).if_else(1,0)
+helperbit[ 453 ] = (list[ 453 ][0] == list[ 454 ][0]).if_else(1,0)
+helperbit[ 454 ] = (list[ 454 ][0] == list[ 455 ][0]).if_else(1,0)
+helperbit[ 455 ] = (list[ 455 ][0] == list[ 456 ][0]).if_else(1,0)
+helperbit[ 456 ] = (list[ 456 ][0] == list[ 457 ][0]).if_else(1,0)
+helperbit[ 457 ] = (list[ 457 ][0] == list[ 458 ][0]).if_else(1,0)
+helperbit[ 458 ] = (list[ 458 ][0] == list[ 459 ][0]).if_else(1,0)
+helperbit[ 459 ] = (list[ 459 ][0] == list[ 460 ][0]).if_else(1,0)
+helperbit[ 460 ] = (list[ 460 ][0] == list[ 461 ][0]).if_else(1,0)
+helperbit[ 461 ] = (list[ 461 ][0] == list[ 462 ][0]).if_else(1,0)
+helperbit[ 462 ] = (list[ 462 ][0] == list[ 463 ][0]).if_else(1,0)
+helperbit[ 463 ] = (list[ 463 ][0] == list[ 464 ][0]).if_else(1,0)
+helperbit[ 464 ] = (list[ 464 ][0] == list[ 465 ][0]).if_else(1,0)
+helperbit[ 465 ] = (list[ 465 ][0] == list[ 466 ][0]).if_else(1,0)
+helperbit[ 466 ] = (list[ 466 ][0] == list[ 467 ][0]).if_else(1,0)
+helperbit[ 467 ] = (list[ 467 ][0] == list[ 468 ][0]).if_else(1,0)
+helperbit[ 468 ] = (list[ 468 ][0] == list[ 469 ][0]).if_else(1,0)
+helperbit[ 469 ] = (list[ 469 ][0] == list[ 470 ][0]).if_else(1,0)
+helperbit[ 470 ] = (list[ 470 ][0] == list[ 471 ][0]).if_else(1,0)
+helperbit[ 471 ] = (list[ 471 ][0] == list[ 472 ][0]).if_else(1,0)
+helperbit[ 472 ] = (list[ 472 ][0] == list[ 473 ][0]).if_else(1,0)
+helperbit[ 473 ] = (list[ 473 ][0] == list[ 474 ][0]).if_else(1,0)
+helperbit[ 474 ] = (list[ 474 ][0] == list[ 475 ][0]).if_else(1,0)
+helperbit[ 475 ] = (list[ 475 ][0] == list[ 476 ][0]).if_else(1,0)
+helperbit[ 476 ] = (list[ 476 ][0] == list[ 477 ][0]).if_else(1,0)
+helperbit[ 477 ] = (list[ 477 ][0] == list[ 478 ][0]).if_else(1,0)
+helperbit[ 478 ] = (list[ 478 ][0] == list[ 479 ][0]).if_else(1,0)
+helperbit[ 479 ] = (list[ 479 ][0] == list[ 480 ][0]).if_else(1,0)
+helperbit[ 480 ] = (list[ 480 ][0] == list[ 481 ][0]).if_else(1,0)
+helperbit[ 481 ] = (list[ 481 ][0] == list[ 482 ][0]).if_else(1,0)
+helperbit[ 482 ] = (list[ 482 ][0] == list[ 483 ][0]).if_else(1,0)
+helperbit[ 483 ] = (list[ 483 ][0] == list[ 484 ][0]).if_else(1,0)
+helperbit[ 484 ] = (list[ 484 ][0] == list[ 485 ][0]).if_else(1,0)
+helperbit[ 485 ] = (list[ 485 ][0] == list[ 486 ][0]).if_else(1,0)
+helperbit[ 486 ] = (list[ 486 ][0] == list[ 487 ][0]).if_else(1,0)
+helperbit[ 487 ] = (list[ 487 ][0] == list[ 488 ][0]).if_else(1,0)
+helperbit[ 488 ] = (list[ 488 ][0] == list[ 489 ][0]).if_else(1,0)
+helperbit[ 489 ] = (list[ 489 ][0] == list[ 490 ][0]).if_else(1,0)
+helperbit[ 490 ] = (list[ 490 ][0] == list[ 491 ][0]).if_else(1,0)
+helperbit[ 491 ] = (list[ 491 ][0] == list[ 492 ][0]).if_else(1,0)
+helperbit[ 492 ] = (list[ 492 ][0] == list[ 493 ][0]).if_else(1,0)
+helperbit[ 493 ] = (list[ 493 ][0] == list[ 494 ][0]).if_else(1,0)
+helperbit[ 494 ] = (list[ 494 ][0] == list[ 495 ][0]).if_else(1,0)
+helperbit[ 495 ] = (list[ 495 ][0] == list[ 496 ][0]).if_else(1,0)
+helperbit[ 496 ] = (list[ 496 ][0] == list[ 497 ][0]).if_else(1,0)
+helperbit[ 497 ] = (list[ 497 ][0] == list[ 498 ][0]).if_else(1,0)
+helperbit[ 498 ] = (list[ 498 ][0] == list[ 499 ][0]).if_else(1,0)
+helperbit[ 499 ] = (list[ 499 ][0] == list[ 500 ][0]).if_else(1,0)
+helperbit[ 500 ] = (list[ 500 ][0] == list[ 501 ][0]).if_else(1,0)
+helperbit[ 501 ] = (list[ 501 ][0] == list[ 502 ][0]).if_else(1,0)
+helperbit[ 502 ] = (list[ 502 ][0] == list[ 503 ][0]).if_else(1,0)
+helperbit[ 503 ] = (list[ 503 ][0] == list[ 504 ][0]).if_else(1,0)
+helperbit[ 504 ] = (list[ 504 ][0] == list[ 505 ][0]).if_else(1,0)
+helperbit[ 505 ] = (list[ 505 ][0] == list[ 506 ][0]).if_else(1,0)
+helperbit[ 506 ] = (list[ 506 ][0] == list[ 507 ][0]).if_else(1,0)
+helperbit[ 507 ] = (list[ 507 ][0] == list[ 508 ][0]).if_else(1,0)
+helperbit[ 508 ] = (list[ 508 ][0] == list[ 509 ][0]).if_else(1,0)
+helperbit[ 509 ] = (list[ 509 ][0] == list[ 510 ][0]).if_else(1,0)
+helperbit[ 510 ] = (list[ 510 ][0] == list[ 511 ][0]).if_else(1,0)
+
+helperbit_and_istrigger = Array(numrows, sint)
+helperbit_xor_istrigger = Array(numrows, sint)
+#breakdown = Array(numrows, sint)
+#value = Array(numrows, sint)
+
+for i in range(numrows-1):
+    helperbit_and_istrigger[i] = helperbit[i] * list[i][1]
+    helperbit_xor_istrigger[i] = (helperbit[i] + list[i][1]) % 2
+
+#@for_range_opt(numrows)
+#def _(i):
+#    helperbit_and_istrigger[i] = sint.get_input_from(0);
+#    helperbit_xor_istrigger[i] = sint.get_input_from(0);
+#    breakdown[i] = sint.get_input_from(0);
+#    value[i] = sint.get_input_from(0);
+
+stopbit1 = Array(numrows, sint)
+stopbit2 = Array(numrows, sint)
+stopbit3 = Array(numrows, sint)
+stopbit4 = Array(numrows, sint)
+stopbit5 = Array(numrows, sint)
+stopbit6 = Array(numrows, sint)
+stopbit7 = Array(numrows, sint)
+stopbit8 = Array(numrows, sint)
+#stopbit9 = Array(numrows, sint)
+#stopbit10 = Array(numrows, sint)
+
+credit1 = Array(numrows,sint)
+credit2 = Array(numrows,sint)
+credit3 = Array(numrows,sint)
+credit4 = Array(numrows,sint)
+credit5 = Array(numrows,sint)
+credit6 = Array(numrows,sint)
+credit7 = Array(numrows,sint)
+credit8 = Array(numrows,sint)
+credit9 = Array(numrows,sint)
+#credit10 = Array(numrows,sint)
+#credit11 = Array(numrows,sint)
+
+@for_range_opt(numrows)
+def _(i):
+    stopbit1[i] = 1
+    stopbit2[i]  = 1
+    stopbit3[i] = 1
+    stopbit4[i] = 1
+    stopbit5[i] = 1
+    stopbit6[i] = 1
+    stopbit7[i] = 1
+    stopbit8[i] = 1
+    #stopbit9[i] = 1
+    #stopbit10[i] = 1
+
+
+
+#####  ITERATION 1
+stepsize = 1
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = helperbit_and_istrigger[successor]  # can remove stopbit1[current] since will always be 1   #another optimization could be to multiply one time all the helperbit * istrigger bits since these are fixed.
+    credit1[current] = list[current][2] + flag * list[successor][2]  #credit is initialized to value, list[i][2] = value[i]
+    stopbit1[current] = flag # * stopbit[successor]  stopbit[successor] here would always be 1 so can drop
+
+####  ITERATION 2
+stepsize = 2
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit1[current] * helperbit_and_istrigger[successor]
+    credit2[current] = credit1[current] + flag * credit1[successor]
+    stopbit2[current] = flag * stopbit1[successor]
+
+####  ITERATION 3
+stepsize = 4
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit2[current] * helperbit_and_istrigger[successor]
+    credit3[current] = credit2[current] + flag * credit2[successor]
+    stopbit3[current] = flag * stopbit2[successor]
+
+####  ITERATION 4
+stepsize = 8
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit3[current] * helperbit_and_istrigger[successor]
+    credit4[current] = credit3[current] + flag * credit3[successor]
+    stopbit4[current] = flag * stopbit3[successor]
+
+####  ITERATION 5
+stepsize = 16
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit4[current] * helperbit_and_istrigger[successor]
+    credit5[current] = credit4[current] + flag * credit4[successor]
+    stopbit5[current] = flag * stopbit4[successor]
+
+####  ITERATION 6
+stepsize = 32
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit5[current] * helperbit_and_istrigger[successor]
+    credit6[current] = credit5[current] + flag * credit5[successor]
+    stopbit6[current] = flag * stopbit5[successor]
+
+####  ITERATION 7
+stepsize = 64
+
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit6[current] * helperbit_and_istrigger[successor]
+    credit7[current] = credit6[current] + flag * credit6[successor]
+    stopbit7[current] = flag * stopbit6[successor]
+
+####  ITERATION 8
+stepsize = 128
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit7[current] * helperbit_and_istrigger[successor]
+    credit8[current] = credit7[current] + flag * credit7[successor]
+    stopbit8[current] = flag * stopbit7[successor]
+
+####  ITERATION 9
+stepsize = 256
+for current in range(numrows - stepsize):
+    successor = current + stepsize
+    flag = stopbit8[current] * helperbit_and_istrigger[successor]
+    credit9[current] = credit8[current] + flag * credit8[successor]
+    #stopbit9[current] = flag * stopbit8[successor]
+
+####  ITERATION 10
+#stepsize = 512
+#for current in range(numrows - stepsize):
+#    successor = current + stepsize
+#    flag = stopbit9[current] * helperbit_and_istrigger[successor]
+#    credit10[current] = credit9[current] + flag * credit9[successor]
+    #stopbit10[current] = flag * stopbit9[successor]
+
+####  ITERATION 11
+#stepsize = 1024
+#for current in range(numrows - stepsize):
+#    successor = current + stepsize
+#    flag = stopbit10[current] * helperbit_and_istrigger[successor]
+#    credit11[current] = credit10[current] + flag * credit10[successor]
+
+#print_ln("credit11, %s, %s, %s, %s, %s,%s, %s, %s, %s", credit10[0].reveal(),credit10[1].reveal(),credit10[2].reveal(),\
+#    credit10[3].reveal(),credit10[4].reveal(),credit10[5].reveal(),credit10[6].reveal(),credit10[7].reveal(),credit10[8].reveal())
+
+
+# I can't sum all of credit, I need to sum only those that correspond to last touches
+# helperbit_xor_istrigger * credit9 will give this.
+
+creditfinal = Array(numrows,sint)
+
+for i in range(numrows):
+    creditfinal[i] = helperbit_xor_istrigger[i] * credit9[i]
+
+
+print_ln("creditfinal, %s, %s, %s, %s, %s,%s, %s, %s, %s", creditfinal[0].reveal(),creditfinal[1].reveal(),creditfinal[2].reveal(),\
+    creditfinal[3].reveal(),creditfinal[4].reveal(),creditfinal[5].reveal(),creditfinal[6].reveal(),creditfinal[7].reveal(),creditfinal[8].reveal())
+
+
+# SUM BREAKDOWNS
+
+bk1sum1 = Array(256,sint)
+bk1sum2 = Array(128,sint)
+bk1sum3 = Array(64,sint)
+bk1sum4 = Array(32,sint)
+bk1sum5 = Array(16,sint)
+bk1sum6 = Array(8,sint)
+bk1sum7 = Array(4,sint)
+bk1sum8 = Array(2,sint)
+#bk1sum9 = Array(2,sint)
+#bk1sum10 = Array(2,sint)
+bk1finalsum = sint(0)
+
+bk2sum1 = Array(256,sint)
+bk2sum2 = Array(128,sint)
+bk2sum3 = Array(64,sint)
+bk2sum4 = Array(32,sint)
+bk2sum5 = Array(16,sint)
+bk2sum6 = Array(8,sint)
+bk2sum7 = Array(4,sint)
+bk2sum8 = Array(2,sint)
+#bk2sum9 = Array(2,sint)
+#bk2sum10 = Array(2,sint)
+bk2finalsum = sint(0)
+
+bk3sum1 = Array(256,sint)
+bk3sum2 = Array(128,sint)
+bk3sum3 = Array(64,sint)
+bk3sum4 = Array(32,sint)
+bk3sum5 = Array(16,sint)
+bk3sum6 = Array(8,sint)
+bk3sum7 = Array(4,sint)
+bk3sum8 = Array(2,sint)
+#bk3sum9 = Array(2,sint)
+#bk3sum10 = Array(2,sint)
+bk3finalsum = sint(0)
+
+bk4sum1 = Array(256,sint)
+bk4sum2 = Array(128,sint)
+bk4sum3 = Array(64,sint)
+bk4sum4 = Array(32,sint)
+bk4sum5 = Array(16,sint)
+bk4sum6 = Array(8,sint)
+bk4sum7 = Array(4,sint)
+bk4sum8 = Array(2,sint)
+#bk4sum9 = Array(2,sint)
+#bk4sum10 = Array(2,sint)
+bk4finalsum = sint(0)
+
+for i in range(numrows//2): # we could assume that breakdowns come as a 0,1 encoding.  breakdown[i] = list[i][3]
+    bk1sum1[i] = bk1sum1[i] + (list[2*i][3] == 1).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 1).if_else( creditfinal[2*i+1], 0) #key =1
+    bk2sum1[i] = bk2sum1[i] + (list[2*i][3] == 2).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 2).if_else( creditfinal[2*i+1], 0) #key =2
+    bk3sum1[i] = bk3sum1[i] + (list[2*i][3] == 3).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 3).if_else( creditfinal[2*i+1], 0) #key =3
+    bk4sum1[i] = bk4sum1[i] + (list[2*i][3] == 4).if_else( creditfinal[2*i], 0) + (list[2*i+1][3] == 4).if_else( creditfinal[2*i+1], 0) #key =4
+
+for i in range(numrows//4):
+    j = 2*i
+    bk1sum2[i] = bk1sum1[j] + bk1sum1[j+1]
+    bk2sum2[i] = bk2sum1[j] + bk2sum1[j+1]
+    bk3sum2[i] = bk3sum1[j] + bk3sum1[j+1]
+    bk4sum2[i] = bk4sum1[j] + bk4sum1[j+1]
+
+for i in range(numrows//8):
+    j = 2*i
+    bk1sum3[i] = bk1sum2[j] + bk1sum2[j+1]
+    bk2sum3[i] = bk2sum2[j] + bk2sum2[j+1]
+    bk3sum3[i] = bk3sum2[j] + bk3sum2[j+1]
+    bk4sum3[i] = bk4sum2[j] + bk4sum2[j+1]
+
+for i in range(numrows//16):
+    j = 2*i
+    bk1sum4[i] = bk1sum3[j] + bk1sum3[j+1]
+    bk2sum4[i] = bk2sum3[j] + bk2sum3[j+1]
+    bk3sum4[i] = bk3sum3[j] + bk3sum3[j+1]
+    bk4sum4[i] = bk4sum3[j] + bk4sum3[j+1]
+
+for i in range(numrows//32):
+    j = 2*i
+    bk1sum5[i] = bk1sum4[j] + bk1sum4[j+1]
+    bk2sum5[i] = bk2sum4[j] + bk2sum4[j+1]
+    bk3sum5[i] = bk3sum4[j] + bk3sum4[j+1]
+    bk4sum5[i] = bk4sum4[j] + bk4sum4[j+1]
+
+for i in range(numrows//64):
+    j = 2*i
+    bk1sum6[i] = bk1sum5[j] + bk1sum5[j+1]
+    bk2sum6[i] = bk2sum5[j] + bk2sum5[j+1]
+    bk3sum6[i] = bk3sum5[j] + bk3sum5[j+1]
+    bk4sum6[i] = bk4sum5[j] + bk4sum5[j+1]
+
+for i in range(numrows//128):
+    j = 2*i
+    bk1sum7[i] = bk1sum6[j] + bk1sum6[j+1]
+    bk2sum7[i] = bk2sum6[j] + bk2sum6[j+1]
+    bk3sum7[i] = bk3sum6[j] + bk3sum6[j+1]
+    bk4sum7[i] = bk4sum6[j] + bk4sum6[j+1]
+
+for i in range(numrows//256):
+    j = 2*i
+    bk1sum8[i] = bk1sum7[j] + bk1sum7[j+1]
+    bk2sum8[i] = bk2sum7[j] + bk2sum7[j+1]
+    bk3sum8[i] = bk3sum7[j] + bk3sum7[j+1]
+    bk4sum8[i] = bk4sum7[j] + bk4sum7[j+1]
+
+#for i in range(numrows//512):
+#    j = 2*i
+#    bk1sum9[i] = bk1sum8[j] + bk1sum8[j+1]
+#    bk2sum9[i] = bk2sum8[j] + bk2sum8[j+1]
+#    bk3sum9[i] = bk3sum8[j] + bk3sum8[j+1]
+#    bk4sum9[i] = bk4sum8[j] + bk4sum8[j+1]
+
+#for i in range(numrows//1024):
+#    j = 2*i
+#    bk1sum10[i] = bk1sum9[j] + bk1sum9[j+1]
+#    bk2sum10[i] = bk2sum9[j] + bk2sum9[j+1]
+#    bk3sum10[i] = bk3sum9[j] + bk3sum9[j+1]
+#    bk4sum10[i] = bk4sum9[j] + bk4sum9[j+1]
+
+bk1finalsum = bk4sum8[0] + bk4sum8[1]
+bk2finalsum = bk4sum8[0] + bk4sum8[1]
+bk3finalsum = bk4sum8[0] + bk4sum8[1]
+bk4finalsum = bk4sum8[0] + bk4sum8[1]
+
+print_ln("breakdowns = %s, %s, %s, %s",bk1finalsum.reveal(),bk2finalsum.reveal(),bk3finalsum.reveal(),bk4finalsum.reveal())
