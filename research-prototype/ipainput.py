@@ -15,12 +15,6 @@ mkmod = 2**31
 datamod = 2**8
 breakdown_keys = 4
 
-public_input = Path("Programs/Public-Input")
-public_input.mkdir(parents=True, exist_ok=True)
-
-with open(public_input / "ipae2e", "w") as f:
-    f.write(f"{args.numrows_power}\n")
-
 player_data = Path("Player-Data")
 player_data.mkdir(parents=True, exist_ok=True)
 
