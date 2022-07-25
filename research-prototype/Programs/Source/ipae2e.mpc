@@ -22,45 +22,45 @@ print_ln('********************  IPA E2E %s **********************', numrows)
 
 _list = Matrix(numrows, 4, sint)
 
+local_params = {
+    '_list': _list,
+    'sint': sint,
+    'print_ln': print_ln,
+}
 
-@for_range(numrows)
-def _(i):
-    _list[i][0] = sint.get_input_from(0)  # matchkey
-    _list[i][1] = sint.get_input_from(0)  # istrigger
-    _list[i][2] = sint.get_input_from(0)  # value
-    _list[i][3] = sint.get_input_from(0)  # breakdown
-
+for i in range(numrows):
+    for j in range(3):
+        cmd = f"_list[{i}][{j}] = sint.get_input_from(0)"
+        exec(cmd, {}, local_params)
 
 # Radix sort
 _list.sort((0,), n_bits=32)
 
 if verbose:
     for i in range(numrows):
-        print_ln(
-            '%s, %s, %s, %s',
-            _list[i][0].reveal(),
-            _list[i][1].reveal(),
-            _list[i][2].reveal(),
-            _list[i][3].reveal(),
-        )
+        cmd = (f"print_ln('%s, %s, %s, %s', "
+               f"_list[{i}][0].reveal(), _list[{i}][1].reveal(),"
+               f"_list[{i}][2].reveal(), _list[{i}][3].reveal(),)")
+        exec(cmd, {}, local_params)
 
 helperbit = Array(numrows, sint)
+local_params['helperbit'] = helperbit
 
-
-@for_range(numrows-1)
-def _(i):
-    helperbit[i] = (_list[i][0] == _list[i+1][0]).if_else(1, 0)
+for i in range(numrows-1):
+    cmd = f"helperbit[{i}] = (_list[{i}][0] == _list[{i}+1][0]).if_else(1, 0)"
+    exec(cmd, {}, local_params)
 
 
 helperbit_and_istrigger = Array(numrows, sint)
+local_params['helperbit_and_istrigger'] = helperbit_and_istrigger
 helperbit_xor_istrigger = Array(numrows, sint)
+local_params['helperbit_xor_istrigger'] = helperbit_xor_istrigger
 
-
-@for_range(numrows-1)
-def _(i):
-    helperbit_and_istrigger[i] = helperbit[i] * _list[i][1]
-    helperbit_xor_istrigger[i] = (helperbit[i] + _list[i][1]) % 2
-
+for i in range(numrows-1):
+    cmd = f"helperbit_and_istrigger[{i}] = helperbit[{i}] * _list[{i}][1]"
+    exec(cmd, {}, local_params)
+    cmd = f"helperbit_xor_istrigger[{i}] = (helperbit[{i}] + _list[{i}][1]) % 2"
+    exec(cmd, {}, local_params)
 
 if verbose:
     print_ln('%s', helperbit.reveal())
@@ -71,29 +71,33 @@ if verbose:
 stopbits = [Array(numrows, sint) for _ in range(numrows_power+1)]
 
 for stopbit in stopbits:
-    @for_range(numrows)
-    def __(i):
-        stopbit[i] = 1
+    local_params['stopbit'] = stopbit
+    for i in range(numrows):
+        cmd = f"stopbit[{i}] = 1"
+        exec(cmd, {}, local_params)
 
 credits = [Array(numrows, sint) for _ in range(numrows_power+1)]
-
+local_params['credits'] = credits
 
 for i, (stopbit, credit) in enumerate(zip(stopbits, credits)):
     stepsize = 2 ** i
+    local_params['stopbit'] = stopbit
+    local_params['credit'] = credit
+    local_params['stepsize'] = stepsize
 
-    @for_range(numrows - stepsize)
-    def set_flags(current):
+    for current in range(numrows - stepsize):
         successor = current + stepsize
         # can remove stopbit1[current] since will always be 1
         # another optimization could be to multiply one time all the
         # helperbit * istrigger bits since these are fixed.
-        flag = helperbit_and_istrigger[successor]
 
+        cmd = f"flag = helperbit_and_istrigger[{successor}];"
         # credit is initialized to value, _list[i][2] = value[i]
-        credit[current] = _list[current][2] + flag * _list[successor][2]
+        cmd += f"credit[{current}] = _list[{current}][2] + flag * _list[{successor}][2];"
 
         # * stopbit[successor]  stopbit[successor] here would always be 1 so can drop
-        stopbit[current] = flag
+        cmd += f"stopbit[{current}] = flag"
+        exec(cmd, {}, local_params)
 
     if verbose:
         print_ln('iteration: %s', i)
@@ -109,12 +113,11 @@ if verbose:
 # I can't sum all of credit, I need to sum only those that correspond to last touches
 # helperbit_xor_istrigger * credits[-1] will give this.
 creditfinal = Array(numrows, sint)
+local_params['creditfinal'] = creditfinal
 
-
-@for_range(numrows)
-def _(i):
-    creditfinal[i] = helperbit_xor_istrigger[i] * credits[-1][i]
-
+for i in range(numrows):
+    cmd = f"creditfinal[{i}] = helperbit_xor_istrigger[{i}] * credits[-1][{i}]"
+    exec(cmd, {}, local_params)
 
 if verbose:
     print_ln("creditfinal:")
@@ -128,27 +131,32 @@ bksums = [
     [Array(2 ** i, sint) for i in range(numrows_power, 0, -1)]
     for _ in range(breakdowns)
 ]
+local_params['bksums'] = bksums
 
 bkfinalsums = [sint(0) for _ in range(breakdowns)]
-
+local_params['bkfinalsums'] = bkfinalsums
 
 for bksum in bksums:
-    @for_range(numrows//2)
-    def _(i):
+    local_params['bksum'] = bksum
+    for i in range(numrows//2):
         # key =1
-        bksum[0][i] = bksum[0][i] + \
-            (_list[2*i][3] == 1).if_else(creditfinal[2*i], 0) + \
-            (_list[2*i+1][3] == 1).if_else(creditfinal[2*i+1], 0)
+        cmd = (
+            f"bksum[0][{i}] = bksum[0][{i}] + "
+            f"(_list[{2*i}][3] == 1).if_else(creditfinal[{2*i}], 0) + "
+            f"(_list[{2*i+1}][3] == 1).if_else(creditfinal[{2*i+1}], 0)"
+        )
+        exec(cmd, {}, local_params)
 
     for j, _bksum in enumerate(bksum[1:]):
-        @for_range(numrows//2**(j+2))
-        def _(i):
+        local_params['_bksum'] = _bksum
+        for i in range(numrows//2**(j+2)):
             k = 2*i
-            _bksum[i] = _bksum[k] + _bksum[k+1]
-
+            cmd = f"_bksum[{i}] = _bksum[{k}] + _bksum[{k+1}]"
+            exec(cmd, {}, local_params)
 
 for i, bkfinalsum in enumerate(bkfinalsums):
-    bkfinalsum = bksums[i][-1][0] + bksums[i][-1][1]
+    cmd = f"bkfinalsum = bksums[{i}][-1][0] + bksums[{i}][-1][1]"
+    exec(cmd, {}, local_params)
 
 print_ln(
     "breakdowns = %s, %s, %s, %s",
