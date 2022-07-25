@@ -46,6 +46,7 @@ tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "1"
 rand_distr = "0.4.3"
+futures = "0.3.21"
 
 [dev-dependencies]
 hex = "0.4"
@@ -72,3 +73,6 @@ required-features = ["cli"]
 [[bin]]
 name = "test_mpc"
 required-features = ["cli"]
+
+[target.build.dependencies]
+paste = "1.0.7"
