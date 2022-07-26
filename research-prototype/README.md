@@ -24,8 +24,6 @@ make -j 8 tldr
 
 On a Mac, this requires brew to be installed, and on Linux it requires other certain packages to be installed. See the [MP-SPDZ README](https://github.com/data61/MP-SPDZ#tldr-source-distribution) for more details.
 
-On a Mac, if your homebrew is installed in a non-traditional location, see [this issue.](https://github.com/data61/MP-SPDZ/pull/628).
-
 This prototype uses the `replicated-ring-party.x` MP-SPDZ virtual machine. To compile, make sure you're still in the `MP-SPDZ` directory. First, we need to compile a 32 bit ring, so we need to add one more config to `CONFIG.mine` by running:
 
 ```
@@ -35,13 +33,6 @@ echo "MOD = -DRING_SIZE=32" >> CONFIG.mine
 Then, to compile, run:
 ```
 make clean -B -j 8 replicated-ring-party.x
-```
-
-There is a small bug with running this from another directory (see [this issue]()). To patch this, cd into the `raw-ipa/research-prototype` directory and create a symbolic link the generated `libSPDZ.so`:
-
-```
-cd ../raw-ipa/research-prototype
-ln -s ../../MP-SPDZ/libSPDZ.so libSPDZ.so
 ```
 
 Finally, you'll need to setup SSL for the parties. From the `raw-ipa/research-prototype` directory, run:
@@ -78,10 +69,7 @@ There are two options (specific to the IPA prototype) that you can provide as en
 IPA_VERBOSE=True IPA_NUMROWS_POWER=5 ../../MP-SPDZ/compile.py -C -R 32 ipae2e
 ```
 
-Note that you should also generate random data accordingly.
-
-
-(If you run into an error for `input sorting`, see [this issue](https://github.com/data61/MP-SPDZ/pull/629). You may need to make two small changes to `MP-SPDZ/Compiler/types.py`.)
+Note that you should also generate random data accordingly. Also, to avoid dumping way to much data into your terminal, you cannot use the verbose mode for more than 2^5 rows.
 
 ### Running the MPC locally
 
