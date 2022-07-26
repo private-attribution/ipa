@@ -56,7 +56,7 @@ for row in rows:
         exec(cmd, {}, local_params)
 
 # Radix sort
-reports.sort((0,), n_bits=32)
+reports.sort((Columns.MATCHKEY,), n_bits=32)
 
 if verbose:
     for row in rows:
@@ -189,7 +189,8 @@ for breakdown_key in breakdown_keys:
     for row in rows:
         cmd = (
             f"breakdown_key_sums[{breakdown_key}] = breakdown_key_sums[{breakdown_key}] + "
-            f"(reports[{row}][3] == {breakdown_key}).if_else(final_credits[{row}], 0)"
+            f"(reports[{row}][Columns.BREAKDOWN_KEY] =="
+            f"{breakdown_key}).if_else(final_credits[{row}], 0)"
         )
         exec(cmd, {}, local_params)
 
