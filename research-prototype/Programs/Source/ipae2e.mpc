@@ -1,0 +1,197 @@
+import os
+from enum import IntEnum
+
+from Compiler.library import print_ln
+from Compiler.types import sint, Matrix, Array
+
+
+numrows_power = int(os.getenv('IPA_NUMROWS_POWER', 10))
+numrows = 2 ** numrows_power
+rows = range(numrows)
+
+verbose = os.getenv('IPA_VERBOSE', None)
+if verbose is not None:
+    if verbose == 'True':
+        verbose = True
+    elif verbose == 'False':
+        verbose = False
+    else:
+        raise Exception(f"Unknown verbose value: {verbose}")
+else:
+    verbose = False
+
+if verbose and numrows_power > 5:
+    raise Exception(
+        f"You cannot compiling with VERBOSE on for {numrows} rows. "
+        f"This will result in quite a bit of output in your terminal."
+    )
+
+print_ln('********************  IPA E2E %s **********************', numrows)
+
+reports = Matrix(numrows, 4, sint)
+
+
+class Columns(IntEnum):
+    """
+    These are the Columns in the above Matrix
+    """
+    MATCHKEY = 0
+    IS_TRIGGER = 1
+    VALUE = 2
+    BREAKDOWN_KEY = 3
+
+
+local_params = {
+    'reports': reports,
+    'sint': sint,
+    'print_ln': print_ln,
+    'Columns': Columns,
+}
+
+
+# Load data
+for row in rows:
+    for column in Columns:
+        cmd = f"reports[{row}][{column}] = sint.get_input_from(0)"
+        exec(cmd, {}, local_params)
+
+# Radix sort
+reports.sort((Columns.MATCHKEY,), n_bits=32)
+
+if verbose:
+    for row in rows:
+        cmd = (
+            f"print_ln('%s, %s, %s, %s', "
+            f"reports[{row}][Columns.MATCHKEY].reveal(), "
+            f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
+            f"reports[{row}][Columns.VALUE].reveal(), "
+            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),)"
+        )
+        exec(cmd, {}, local_params)
+
+helperbits = Array(numrows, sint)
+local_params['helperbits'] = helperbits
+
+for row in rows[:-1]:
+    cmd = (
+        f"helperbits[{row}] = "
+        f"(reports[{row}][Columns.MATCHKEY] == "
+        f"reports[{row+1}][Columns.MATCHKEY]).if_else(1, 0)"
+    )
+    exec(cmd, {}, local_params)
+
+
+helperbit_and_istrigger_flags = Array(numrows, sint)
+local_params['helperbit_and_istrigger_flags'] = helperbit_and_istrigger_flags
+helperbit_xor_istrigger_flags = Array(numrows, sint)
+local_params['helperbit_xor_istrigger_flags'] = helperbit_xor_istrigger_flags
+
+for row in rows[:-1]:
+    cmd = (
+        f"helperbit_and_istrigger_flags[{row}] = "
+        f"helperbits[{row}] * reports[{row}][Columns.IS_TRIGGER]"
+    )
+    exec(cmd, {}, local_params)
+    cmd = (
+        f"helperbit_xor_istrigger_flags[{row}] "
+        f"= (helperbits[{row}] + reports[{row}][Columns.IS_TRIGGER]) % 2"
+    )
+    exec(cmd, {}, local_params)
+
+if verbose:
+    print_ln('%s', helperbits.reveal())
+    print_ln('%s', helperbit_and_istrigger_flags.reveal())
+    print_ln('%s', helperbit_xor_istrigger_flags.reveal())
+
+
+stopbits = [Array(numrows, sint) for _ in range(numrows_power)]
+local_params['stopbits'] = stopbits
+
+for stopbit in stopbits:
+    local_params['stopbit'] = stopbit
+    for row in rows:
+        cmd = f"stopbit[{row}] = 1"
+        exec(cmd, {}, local_params)
+
+credit_arrays = [Array(numrows, sint) for _ in range(numrows_power)]
+local_params['credit_arrays'] = credit_arrays
+
+for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
+    stepsize = 2 ** exponent
+    local_params['stopbit'] = stopbit
+    local_params['credit'] = credit
+    local_params['stepsize'] = stepsize
+
+    for current in rows[:-stepsize]:
+        successor = current + stepsize
+        # another optimization could be to multiply one time all the
+        # helperbit * istrigger bits since these are fixed.
+        if exponent == 0:
+            # credit is initialized to value because stopbit[successor] is always 1
+            # and reports[current][Columns.VALUE] = value[current] * stopbit[successor]
+            cmd = (
+                f"flag = helperbit_and_istrigger_flags[{successor}];"
+                f"credit[{current}] = "
+                f"reports[{current}][Columns.VALUE] +"
+                f"flag * reports[{successor}][Columns.VALUE];"
+                f"stopbit[{current}] = flag"
+            )
+        else:
+            cmd = (
+                f"flag = stopbits[{exponent-1}][{current}] "
+                f"* helperbit_and_istrigger_flags[{successor}];"
+                f"credit[{current}] = "
+                f"credit_arrays[{exponent-1}][{current}] + "
+                f"flag * credit_arrays[{exponent-1}][{successor}];"
+                f"stopbit[{current}] = flag * stopbits[{exponent-1}][{successor}]"
+            )
+        exec(cmd, {}, local_params)
+
+    if verbose:
+        print_ln('iteration: %s', exponent)
+        print_ln('credit %s', credit.reveal())
+        print_ln('stopbit %s', stopbit.reveal())
+
+# I can't sum all of credit, I need to sum only those that correspond to last touches
+# helperbit_xor_istrigger * credit_arrays[-1] will give this.
+final_credits = Array(numrows, sint)
+local_params['final_credits'] = final_credits
+
+for row in rows:
+    cmd = (
+        f"final_credits[{row}] = "
+        f"helperbit_xor_istrigger_flags[{row}] * credit_arrays[-1][{row}]"
+    )
+    exec(cmd, {}, local_params)
+
+if verbose:
+    for row in rows:
+        cmd = (
+            f"print_ln('%s, %s, %s, %s, %s', "
+            f"reports[{row}][Columns.MATCHKEY].reveal(), "
+            f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
+            f"reports[{row}][Columns.VALUE].reveal(), "
+            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),)"
+            f"final_credits[{row}].reveal())"
+        )
+        exec(cmd, {}, local_params)
+
+# SUM BREAKDOWNS
+# for now we have hard coded 4 breakdown keys
+breakdown_keys = list(range(4))
+
+breakdown_key_sums = Array(4, sint)
+local_params['breakdown_key_sums'] = breakdown_key_sums
+
+for breakdown_key in breakdown_keys:
+    cmd = f"breakdown_key_sums[{breakdown_key}] = sint(0)"
+    exec(cmd, {}, local_params)
+    for row in rows:
+        cmd = (
+            f"breakdown_key_sums[{breakdown_key}] = breakdown_key_sums[{breakdown_key}] + "
+            f"(reports[{row}][Columns.BREAKDOWN_KEY] =="
+            f"{breakdown_key}).if_else(final_credits[{row}], 0)"
+        )
+        exec(cmd, {}, local_params)
+
+print_ln("breakdowns: %s", breakdown_key_sums.reveal())
