@@ -1,4 +1,5 @@
 import os
+from enum import IntEnum
 
 from Compiler.library import print_ln
 from Compiler.types import sint, Matrix, Array
@@ -6,6 +7,7 @@ from Compiler.types import sint, Matrix, Array
 
 numrows_power = int(os.getenv('IPA_NUMROWS_POWER', 10))
 numrows = 2 ** numrows_power
+rows = range(numrows)
 
 verbose = os.getenv('IPA_VERBOSE', None)
 if verbose is not None:
@@ -28,50 +30,78 @@ print_ln('********************  IPA E2E %s **********************', numrows)
 
 reports = Matrix(numrows, 4, sint)
 
+
+class Columns(IntEnum):
+    """
+    These are the Columns in the above Matrix
+    """
+    MATCHKEY = 0
+    IS_TRIGGER = 1
+    VALUE = 2
+    BREAKDOWN_KEY = 3
+
+
 local_params = {
     'reports': reports,
     'sint': sint,
     'print_ln': print_ln,
+    'Columns': Columns,
 }
 
-for i in range(numrows):
-    for j in range(4):
-        cmd = f"reports[{i}][{j}] = sint.get_input_from(0)"
+
+# Load data
+for row in rows:
+    for column in Columns:
+        cmd = f"reports[{row}][{column}] = sint.get_input_from(0)"
         exec(cmd, {}, local_params)
 
 # Radix sort
 reports.sort((0,), n_bits=32)
 
 if verbose:
-    for i in range(numrows):
-        cmd = (f"print_ln('%s, %s, %s, %s', "
-               f"reports[{i}][0].reveal(), reports[{i}][1].reveal(),"
-               f"reports[{i}][2].reveal(), reports[{i}][3].reveal(),)")
+    for row in rows:
+        cmd = (
+            f"print_ln('%s, %s, %s, %s', "
+            f"reports[{row}][Columns.MATCHKEY].reveal(), "
+            f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
+            f"reports[{row}][Columns.VALUE].reveal(), "
+            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),)"
+        )
         exec(cmd, {}, local_params)
 
-helperbit = Array(numrows, sint)
-local_params['helperbit'] = helperbit
+helperbits = Array(numrows, sint)
+local_params['helperbits'] = helperbits
 
-for i in range(numrows-1):
-    cmd = f"helperbit[{i}] = (reports[{i}][0] == reports[{i}+1][0]).if_else(1, 0)"
+for row in rows[:-1]:
+    cmd = (
+        f"helperbits[{row}] = "
+        f"(reports[{row}][Columns.MATCHKEY] == "
+        f"reports[{row+1}][Columns.MATCHKEY]).if_else(1, 0)"
+    )
     exec(cmd, {}, local_params)
 
 
-helperbit_and_istrigger = Array(numrows, sint)
-local_params['helperbit_and_istrigger'] = helperbit_and_istrigger
-helperbit_xor_istrigger = Array(numrows, sint)
-local_params['helperbit_xor_istrigger'] = helperbit_xor_istrigger
+helperbit_and_istrigger_flags = Array(numrows, sint)
+local_params['helperbit_and_istrigger_flags'] = helperbit_and_istrigger_flags
+helperbit_xor_istrigger_flags = Array(numrows, sint)
+local_params['helperbit_xor_istrigger_flags'] = helperbit_xor_istrigger_flags
 
-for i in range(numrows-1):
-    cmd = f"helperbit_and_istrigger[{i}] = helperbit[{i}] * reports[{i}][1]"
+for row in rows[:-1]:
+    cmd = (
+        f"helperbit_and_istrigger_flags[{row}] = "
+        f"helperbits[{row}] * reports[{row}][Columns.IS_TRIGGER]"
+    )
     exec(cmd, {}, local_params)
-    cmd = f"helperbit_xor_istrigger[{i}] = (helperbit[{i}] + reports[{i}][1]) % 2"
+    cmd = (
+        f"helperbit_xor_istrigger_flags[{row}] "
+        f"= (helperbits[{row}] + reports[{row}][Columns.IS_TRIGGER]) % 2"
+    )
     exec(cmd, {}, local_params)
 
 if verbose:
-    print_ln('%s', helperbit.reveal())
-    print_ln('%s', helperbit_and_istrigger.reveal())
-    print_ln('%s', helperbit_xor_istrigger.reveal())
+    print_ln('%s', helperbits.reveal())
+    print_ln('%s', helperbit_and_istrigger_flags.reveal())
+    print_ln('%s', helperbit_xor_istrigger_flags.reveal())
 
 
 stopbits = [Array(numrows, sint) for _ in range(numrows_power)]
@@ -79,76 +109,88 @@ local_params['stopbits'] = stopbits
 
 for stopbit in stopbits:
     local_params['stopbit'] = stopbit
-    for i in range(numrows):
-        cmd = f"stopbit[{i}] = 1"
+    for row in rows:
+        cmd = f"stopbit[{row}] = 1"
         exec(cmd, {}, local_params)
 
-credits = [Array(numrows, sint) for _ in range(numrows_power)]
-local_params['credits'] = credits
+credit_arrays = [Array(numrows, sint) for _ in range(numrows_power)]
+local_params['credit_arrays'] = credit_arrays
 
-for i, (stopbit, credit) in enumerate(zip(stopbits, credits)):
-    stepsize = 2 ** i
+for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
+    stepsize = 2 ** exponent
     local_params['stopbit'] = stopbit
     local_params['credit'] = credit
     local_params['stepsize'] = stepsize
 
-    for current in range(numrows - stepsize):
+    for current in rows[:-stepsize]:
         successor = current + stepsize
         # another optimization could be to multiply one time all the
         # helperbit * istrigger bits since these are fixed.
-        if i == 0:
-            cmd = f"flag = helperbit_and_istrigger[{successor}];"
-            # credit is initialized to value, reports[i][2] = value[i]
-            cmd += f"credit[{current}] = reports[{current}][2] + flag * reports[{successor}][2];"
-            # * stopbit[successor]  stopbit[successor] here would always be 1 so can drop
-            cmd += f"stopbit[{current}] = flag"
+        if exponent == 0:
+            # credit is initialized to value because stopbit[successor] is always 1
+            # and reports[current][Columns.VALUE] = value[current] * stopbit[successor]
+            cmd = (
+                f"flag = helperbit_and_istrigger_flags[{successor}];"
+                f"credit[{current}] = "
+                f"reports[{current}][Columns.VALUE] +"
+                f"flag * reports[{successor}][Columns.VALUE];"
+                f"stopbit[{current}] = flag"
+            )
         else:
-            cmd = f"flag = stopbits[{i-1}][{current}] * helperbit_and_istrigger[{successor}];"
-            cmd += f"credit[{current}] = "
-            cmd += f"credits[{i-1}][{current}] + flag * credits[{i-1}][{successor}];"
-            cmd += f"stopbit[{current}] = flag * stopbits[{i-1}][{successor}]"
-
+            cmd = (
+                f"flag = stopbits[{exponent-1}][{current}] "
+                f"* helperbit_and_istrigger_flags[{successor}];"
+                f"credit[{current}] = "
+                f"credit_arrays[{exponent-1}][{current}] + "
+                f"flag * credit_arrays[{exponent-1}][{successor}];"
+                f"stopbit[{current}] = flag * stopbits[{exponent-1}][{successor}]"
+            )
         exec(cmd, {}, local_params)
 
     if verbose:
-        print_ln('iteration: %s', i)
+        print_ln('iteration: %s', exponent)
         print_ln('credit %s', credit.reveal())
         print_ln('stopbit %s', stopbit.reveal())
 
 # I can't sum all of credit, I need to sum only those that correspond to last touches
-# helperbit_xor_istrigger * credits[-1] will give this.
-creditfinal = Array(numrows, sint)
-local_params['creditfinal'] = creditfinal
+# helperbit_xor_istrigger * credit_arrays[-1] will give this.
+final_credits = Array(numrows, sint)
+local_params['final_credits'] = final_credits
 
-for i in range(numrows):
-    cmd = f"creditfinal[{i}] = helperbit_xor_istrigger[{i}] * credits[-1][{i}]"
+for row in rows:
+    cmd = (
+        f"final_credits[{row}] = "
+        f"helperbit_xor_istrigger_flags[{row}] * credit_arrays[-1][{row}]"
+    )
     exec(cmd, {}, local_params)
+
+if verbose:
+    for row in rows:
+        cmd = (
+            f"print_ln('%s, %s, %s, %s, %s', "
+            f"reports[{row}][Columns.MATCHKEY].reveal(), "
+            f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
+            f"reports[{row}][Columns.VALUE].reveal(), "
+            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),)"
+            f"final_credits[{row}].reveal())"
+        )
+        exec(cmd, {}, local_params)
 
 # SUM BREAKDOWNS
 # for now we have hard coded 4 breakdown keys
-breakdowns = 4
+breakdown_keys = list(range(4))
 
-bksums = Array(4, sint)
-local_params['bksums'] = bksums
+breakdown_key_sums = Array(4, sint)
+local_params['breakdown_key_sums'] = breakdown_key_sums
 
-for bk in range(len(bksums)):
-    cmd = f"bksums[{bk}] = sint(0)"
+for breakdown_key in breakdown_keys:
+    cmd = f"breakdown_key_sums[{breakdown_key}] = sint(0)"
     exec(cmd, {}, local_params)
-    for i in range(numrows):
+    for row in rows:
         cmd = (
-            f"bksums[{bk}] = bksums[{bk}] + "
-            f"(reports[{i}][3] == {bk}).if_else(creditfinal[{i}], 0)"
+            f"breakdown_key_sums[{breakdown_key}] = breakdown_key_sums[{breakdown_key}] + "
+            f"(reports[{row}][3] == {breakdown_key}).if_else(final_credits[{row}], 0)"
         )
         exec(cmd, {}, local_params)
 
-if verbose:
-    for i in range(numrows):
-        cmd = (
-            f"print_ln('%s, %s, %s, %s, %s', "
-            f"reports[{i}][0].reveal(), reports[{i}][1].reveal(),"
-            f"reports[{i}][2].reveal(), reports[{i}][3].reveal(), "
-            f"creditfinal[{i}].reveal())"
-        )
-        exec(cmd, {}, local_params)
-
-print_ln("breakdowns: %s", bksums.reveal())
+print_ln("breakdowns: %s", breakdown_key_sums.reveal())
