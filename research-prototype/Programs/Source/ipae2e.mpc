@@ -26,34 +26,34 @@ if verbose and numrows_power > 5:
 
 print_ln('********************  IPA E2E %s **********************', numrows)
 
-_list = Matrix(numrows, 4, sint)
+reports = Matrix(numrows, 4, sint)
 
 local_params = {
-    '_list': _list,
+    'reports': reports,
     'sint': sint,
     'print_ln': print_ln,
 }
 
 for i in range(numrows):
     for j in range(4):
-        cmd = f"_list[{i}][{j}] = sint.get_input_from(0)"
+        cmd = f"reports[{i}][{j}] = sint.get_input_from(0)"
         exec(cmd, {}, local_params)
 
 # Radix sort
-_list.sort((0,), n_bits=32)
+reports.sort((0,), n_bits=32)
 
 if verbose:
     for i in range(numrows):
         cmd = (f"print_ln('%s, %s, %s, %s', "
-               f"_list[{i}][0].reveal(), _list[{i}][1].reveal(),"
-               f"_list[{i}][2].reveal(), _list[{i}][3].reveal(),)")
+               f"reports[{i}][0].reveal(), reports[{i}][1].reveal(),"
+               f"reports[{i}][2].reveal(), reports[{i}][3].reveal(),)")
         exec(cmd, {}, local_params)
 
 helperbit = Array(numrows, sint)
 local_params['helperbit'] = helperbit
 
 for i in range(numrows-1):
-    cmd = f"helperbit[{i}] = (_list[{i}][0] == _list[{i}+1][0]).if_else(1, 0)"
+    cmd = f"helperbit[{i}] = (reports[{i}][0] == reports[{i}+1][0]).if_else(1, 0)"
     exec(cmd, {}, local_params)
 
 
@@ -63,9 +63,9 @@ helperbit_xor_istrigger = Array(numrows, sint)
 local_params['helperbit_xor_istrigger'] = helperbit_xor_istrigger
 
 for i in range(numrows-1):
-    cmd = f"helperbit_and_istrigger[{i}] = helperbit[{i}] * _list[{i}][1]"
+    cmd = f"helperbit_and_istrigger[{i}] = helperbit[{i}] * reports[{i}][1]"
     exec(cmd, {}, local_params)
-    cmd = f"helperbit_xor_istrigger[{i}] = (helperbit[{i}] + _list[{i}][1]) % 2"
+    cmd = f"helperbit_xor_istrigger[{i}] = (helperbit[{i}] + reports[{i}][1]) % 2"
     exec(cmd, {}, local_params)
 
 if verbose:
@@ -98,8 +98,8 @@ for i, (stopbit, credit) in enumerate(zip(stopbits, credits)):
         # helperbit * istrigger bits since these are fixed.
         if i == 0:
             cmd = f"flag = helperbit_and_istrigger[{successor}];"
-            # credit is initialized to value, _list[i][2] = value[i]
-            cmd += f"credit[{current}] = _list[{current}][2] + flag * _list[{successor}][2];"
+            # credit is initialized to value, reports[i][2] = value[i]
+            cmd += f"credit[{current}] = reports[{current}][2] + flag * reports[{successor}][2];"
             # * stopbit[successor]  stopbit[successor] here would always be 1 so can drop
             cmd += f"stopbit[{current}] = flag"
         else:
@@ -137,7 +137,7 @@ for bk in range(len(bksums)):
     for i in range(numrows):
         cmd = (
             f"bksums[{bk}] = bksums[{bk}] + "
-            f"(_list[{i}][3] == {bk}).if_else(creditfinal[{i}], 0)"
+            f"(reports[{i}][3] == {bk}).if_else(creditfinal[{i}], 0)"
         )
         exec(cmd, {}, local_params)
 
@@ -145,8 +145,8 @@ if verbose:
     for i in range(numrows):
         cmd = (
             f"print_ln('%s, %s, %s, %s, %s', "
-            f"_list[{i}][0].reveal(), _list[{i}][1].reveal(),"
-            f"_list[{i}][2].reveal(), _list[{i}][3].reveal(), "
+            f"reports[{i}][0].reveal(), reports[{i}][1].reveal(),"
+            f"reports[{i}][2].reveal(), reports[{i}][3].reveal(), "
             f"creditfinal[{i}].reveal())"
         )
         exec(cmd, {}, local_params)
