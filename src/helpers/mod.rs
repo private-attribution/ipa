@@ -1,7 +1,9 @@
 pub mod aggregation;
+pub mod error;
 pub mod event;
 pub mod models;
 pub mod privacy_budget;
+pub mod ring;
 
 pub use aggregation::{
     Helper as AggregationHelper, PublicHelper as PublicAggregationHelper,

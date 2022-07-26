@@ -1,20 +1,20 @@
+use std::fmt::Formatter;
 use std::{
     fmt::Debug,
     ops::{Add, Mul, Neg, Sub},
 };
-use std::fmt::Formatter;
 
 use crate::field::Field;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct ReplicatedSecretSharing<T>(T, T);
 
-impl <T: Debug> Debug for ReplicatedSecretSharing<T> {
+impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "(")?;
-        let lhs = self.0.fmt(f)?;
+        self.0.fmt(f)?;
         write!(f, ",")?;
-        let lhs = self.1.fmt(f)?;
+        self.1.fmt(f)?;
         write!(f, ")")
     }
 }

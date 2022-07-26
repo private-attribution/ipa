@@ -1,49 +1,14 @@
-use std::collections::VecDeque;
+use crate::error::BoxError;
 use crate::field::Field;
+use crate::helpers::ring::{HelperAddr, Ring};
 use crate::prss::Participant;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-use async_trait::async_trait;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::future::Future;
-use std::mem;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use digest::Output;
-use futures::{poll, ready, Stream, StreamExt};
-use futures_util::TryFutureExt;
-use tower_http::BoxError;
+use thiserror::Error;
 
-pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
-
-impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue {
-    index: u128,
-    d: u128,
-}
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub enum HelperAddr {
-    Left,
-    Right,
-}
-
-#[async_trait]
-pub trait Ring {
-    async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), BoxError>;
-    async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, BoxError>;
-}
-
-#[derive(Debug)]
-pub struct ProtocolContext<'a, R> {
-    pub name: &'static str,
-    pub participant: &'a Participant,
-    pub helper_ring: &'a R,
-}
-
+/// Secure multiplication protocol using replicated secret sharing over some field `F`.
+/// * [paper](https://eprint.iacr.org/2018/387.pdf)
 #[derive(Debug)]
 pub struct SecureMul<F> {
     index: u128,
@@ -51,18 +16,34 @@ pub struct SecureMul<F> {
     b_share: ReplicatedSecretSharing<F>,
 }
 
+/// A message sent by each helper when they've multiplied their own shares
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct DValue {
+    index: u128,
+    d: u128,
+}
+
+/// Context used by each helper to perform computation. Currently they need access to shared
+/// randomness generator (PRSS) and communication trait to send messages to each other.
+/// Eventually when we have more than one protocol, this should be lifted to its own module
+#[derive(Debug)]
+pub struct ProtocolContext<'a, R> {
+    pub participant: &'a Participant,
+    pub helper_ring: &'a R,
+}
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(
+        "Shares calculated by peer used different index {their_index} than expected {my_index}"
+    )]
+    IndexMismatch { my_index: u128, their_index: u128 },
+}
+
 impl<F: Field> SecureMul<F> {
-
-    pub async fn execute_or_throw<R: Ring + Debug>(self, ctx: &ProtocolContext<'_, R>) -> ReplicatedSecretSharing<F> {
-        self.execute(ctx).await.unwrap()
-    }
-
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
     /// their part, eventually producing 2/3 shares of the product and that is what this function
     /// returns.
-    ///
-    /// ## Panics
-    /// Well, we shouldn't panic given that the output is `Result`, so I pinky promise I'll fix that
     ///
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
@@ -73,7 +54,6 @@ impl<F: Field> SecureMul<F> {
     ) -> Result<ReplicatedSecretSharing<F>, BoxError> {
         // generate shared randomness.
         let (s0, s1) = ctx.participant.generate_fields(self.index);
-        println!("{} secure mul started: {self:?}", ctx.name);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = self.a_share.as_tuple();
@@ -103,97 +83,174 @@ impl<F: Field> SecureMul<F> {
         } = ctx.helper_ring.receive(HelperAddr::Left).await?;
 
         // sanity check to make sure they've computed it using the same seed
-        assert_eq!(left_index, self.index);
+        if left_index == self.index {
+            // now we are ready to construct the result - 2/3 secret shares of a * b.
+            let lhs = a0 * b0 + F::from(left_d) + s0;
+            let rhs = a1 * b1 + s1 + F::from(right_d);
 
-        // now we are ready to construct the result - 2/3 secret shares of a * b.
-        let lhs = a0 * b0 + F::from(left_d) + s0;
-        let rhs = a1 * b1 + s1 + F::from(right_d);
-
-        println!("{} secure mul done: ({:?}, {:?})", ctx.name, lhs, rhs);
-        Ok(ReplicatedSecretSharing::new(lhs, rhs))
-    }
-}
-
-use pin_project::pin_project;
-
-#[pin_project]
-pub struct BufMap<St: Stream, F, Fut> {
-    #[pin]
-    stream: St,
-    buf: Vec<St::Item>,
-    f: F,
-    #[pin]
-    future: Option<Fut>,
-}
-
-
-impl<St: Stream, F: FnMut(Vec<St::Item>) -> Fut, Fut: Future<Output=St::Item>> Stream for BufMap<St, F, Fut>
-    where St::Item: Clone {
-    type Item = St::Item;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.as_mut().project();
-
-        loop {
-            if let Some(fut) = this.future.as_mut().as_pin_mut() {
-                let item = ready!(fut.poll(cx));
-                this.future.set(None);
-                this.buf.push(item.clone());
-
-                return Poll::Ready(Some(item));
-            } else if let Some(item) = ready!(this.stream.as_mut().poll_next(cx)) {
-                this.buf.push(item);
-                if this.buf.len() == 2 {
-                    let items = mem::replace(this.buf, Vec::with_capacity(2));
-                    this.future.set(Some((this.f)(items)))
-                }
-            } else {
-                return Poll::Ready(None);
-            }
+            Ok(ReplicatedSecretSharing::new(lhs, rhs))
+        } else {
+            Err(Box::new(Error::IndexMismatch {
+                my_index: self.index,
+                their_index: left_index,
+            }))
         }
     }
 }
 
-impl<St: Stream, F: FnMut(Vec<St::Item>) -> Fut, Fut: Future<Output=St::Item>> BufMap<St, F, Fut> {
-    pub fn new(stream: St, f: F) -> Self {
-        Self { stream, buf: Vec::with_capacity(2), f, future: None }
+/// Module to support streaming interface for secure multiplication
+pub mod stream {
+    use crate::error::BoxError;
+    use crate::field::Field;
+    use crate::helpers::ring::Ring;
+    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+    use crate::securemul::{ProtocolContext, SecureMul};
+    use futures::{ready, Stream};
+    use pin_project::pin_project;
+    use std::future::Future;
+    use std::mem;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tracing::error;
+
+    /// A variant of stream transform that combines semantic of `StreamExt::chunks` and `StreamExt::scan`.
+    /// Consumes the input stream and keeps accumulating items in the internal buffer until it reaches
+    /// `capacity` elements. Then the elements are moved to the `f` function that must produce a future
+    /// resolvable to the same type as element type of the input stream.
+    ///
+    /// When elements are given to the `f` function, no other elements will be taken off the input stream
+    /// until the future returned by it is resolved. It is important to note that the resulting item
+    /// returned by this function is kept in the buffer, so next time stream is polled, only (`capacity`-1)
+    /// elements will be polled off before calling `f` again.
+    ///
+    /// If input stream yields `None` while buf does not have at least `capacity` elements, `f` will
+    /// be called on partial buf
+    #[pin_project]
+    pub struct ChunkScan<St: Stream, F, Fut> {
+        /// Input stream
+        #[pin]
+        stream: St,
+
+        /// how many elements to keep in the buffer before calling `f`
+        capacity: usize,
+
+        /// Buffer for items taken off the input stream
+        buf: Vec<St::Item>,
+
+        /// Transforms Vec<Item> -> Future<Output=Result<Item, Error>>
+        f: F,
+
+        /// future in progress
+        #[pin]
+        future: Option<Fut>,
     }
-}
 
-struct MultiplyStep<'a, R> {
-    index: u128,
-    ctx: ProtocolContext<'a, R>,
-}
+    impl<St, F, Fut> Stream for ChunkScan<St, F, Fut>
+    where
+        St: Stream,
+        St::Item: Clone,
+        F: FnMut(Vec<St::Item>) -> Fut,
+        Fut: Future<Output = Result<St::Item, BoxError>>,
+    {
+        type Item = St::Item;
 
-impl<'a, R: Ring + Debug> MultiplyStep<'a, R> {
-    pub fn apply<F: Field + 'static, S: Stream<Item = ReplicatedSecretSharing<F>> + 'a + Unpin>(&'a mut self, st: S)
-        -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a + Unpin {
-        let ctx: &'a ProtocolContext<R> = &self.ctx;
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let mut this = self.as_mut().project();
 
-        // TODO is there a way to deal with async without pinning stream to the heap?
-        Box::pin(BufMap::new(st, |mut items: Vec<ReplicatedSecretSharing<F>>| {
-            debug_assert!(items.len() == 2);
+            loop {
+                // if future is set we poll it first before taking anything off the input stream
+                if let Some(fut) = this.future.as_mut().as_pin_mut() {
+                    let item = ready!(fut.poll(cx));
+                    this.future.set(None);
 
-            let b = items.pop().unwrap();
-            let a = items.pop().unwrap();
-            self.index += 1;
+                    if let Err(e) = item {
+                        // TODO (alex): we should propagate errors back to caller
+                        error!({ e }, "An error occurred computing next stream element");
+                        return Poll::Ready(None);
+                    }
+                    let item = item.unwrap();
+                    this.buf.push(item.clone());
 
-            let mut secure_mul = SecureMul { index: self.index, a_share: a, b_share: b };
-            secure_mul.execute_or_throw(ctx)
-        }))
+                    return Poll::Ready(Some(item));
+                } else if let Some(item) = ready!(this.stream.as_mut().poll_next(cx)) {
+                    // otherwise we poll the input stream
+                    this.buf.push(item);
+                    if this.buf.len() == *this.capacity {
+                        let items = mem::replace(this.buf, Vec::with_capacity(2));
+                        this.future.set(Some((this.f)(items)));
+                    }
+                } else if !this.buf.is_empty() {
+                    // Input stream is closed, but we still have some items to process
+                    let items = mem::take(this.buf);
+                    this.future.set(Some((this.f)(items)));
+                } else {
+                    return Poll::Ready(None);
+                }
+            }
+        }
+    }
+
+    impl<St, F, Fut> ChunkScan<St, F, Fut>
+    where
+        St: Stream,
+        F: FnMut(Vec<St::Item>) -> Fut,
+        Fut: Future<Output = Result<St::Item, BoxError>>,
+    {
+        pub fn new(stream: St, capacity: usize, f: F) -> Self {
+            Self {
+                stream,
+                capacity,
+                buf: Vec::with_capacity(capacity),
+                f,
+                future: None,
+            }
+        }
+    }
+
+    /// Consumes the input stream of replicated secret shares and produces a new stream with elements
+    /// being the product of items in the input stream. For example, if (a, b, c) are elements of the
+    /// input stream, output will contain two elements: (a*b, a*b*c)
+    ///
+    /// ## Panics
+    /// Panics if one of the internal invariants does not hold.
+    pub fn secure_multiply<'a, F, R, S>(
+        input_stream: S,
+        ctx: &'a ProtocolContext<'a, R>,
+        index: u128,
+    ) -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a
+    where
+        S: Stream<Item = ReplicatedSecretSharing<F>> + 'a,
+        F: Field + 'static,
+        R: Ring,
+    {
+        let mut index = index;
+
+        // TODO (alex): is there a way to deal with async without pinning stream to the heap?
+        Box::pin(ChunkScan::new(
+            input_stream,
+            2, // buffer two elements
+            move |mut items: Vec<ReplicatedSecretSharing<F>>| {
+                debug_assert!(items.len() == 2);
+
+                let b_share = items.pop().unwrap();
+                let a_share = items.pop().unwrap();
+                index += 1;
+
+                let secure_mul = SecureMul {
+                    index,
+                    a_share,
+                    b_share,
+                };
+                secure_mul.execute(ctx)
+            },
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::any::TypeId;
-    use std::collections::hash_map::Entry;
-    use std::collections::HashMap;
-    use std::fmt::Debug;
 
-    use async_trait::async_trait;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
 
     use crate::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
@@ -201,130 +258,21 @@ mod tests {
     use rand_core::RngCore;
 
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-    use crate::securemul::{BufMap, HelperAddr, MultiplyStep, ProtocolContext, Ring, SecureMul};
-    use axum::BoxError;
-    use serde::de::DeserializeOwned;
-    use serde::Serialize;
-    use std::sync::Mutex;
-    use std::thread;
+
     use futures::{stream, StreamExt};
-    use rand::distributions::Uniform;
-    use rand::prelude::StdRng;
-    use redis::Commands;
-    use tokio::sync::mpsc;
+    use futures_util::future::join_all;
+
     use crate::prss::Participant;
 
-    type MessageBuf = HashMap<(HelperAddr, TypeId), Box<[u8]>>;
-
-    #[derive(Debug)]
-    struct MessageEnvelope {
-        source: HelperAddr,
-        type_id: TypeId,
-        payload: Box<[u8]>,
-    }
-
-    #[derive(Debug)]
-    struct TestRing {
-        input_sender: mpsc::Sender<MessageEnvelope>,
-        left: Option<mpsc::Sender<MessageEnvelope>>,
-        right: Option<mpsc::Sender<MessageEnvelope>>,
-        buf: Arc<Mutex<MessageBuf>>,
-    }
-
-    impl TestRing {
-        pub fn new() -> Self {
-            let (tx, mut rx) = mpsc::channel::<MessageEnvelope>(10);
-            let buf = Arc::new(Mutex::new(HashMap::new()));
-
-            tokio::spawn({
-                let buf = Arc::clone(&buf);
-                async move {
-                    while let Some(item) = rx.recv().await {
-                        let buf = &mut *buf.lock().unwrap();
-                        match buf.entry((item.source, item.type_id)) {
-                            Entry::Occupied(_entry) => {
-                                panic!("Message {item:?} spot has been taken already")
-                            }
-                            Entry::Vacant(entry) => entry.insert(item.payload),
-                        };
-                    }
-                }
-            });
-
-            Self {
-                input_sender: tx,
-                left: None,
-                right: None,
-                buf,
-            }
-        }
-
-        pub fn set_left(&mut self, left: mpsc::Sender<MessageEnvelope>) {
-            self.left = Some(left);
-        }
-
-        pub fn set_right(&mut self, right: mpsc::Sender<MessageEnvelope>) {
-            self.right = Some(right);
-        }
-    }
-
-    #[async_trait]
-    impl Ring for TestRing {
-        async fn send<T: Serialize + Send + 'static>(
-            &self,
-            dest: HelperAddr,
-            msg: T,
-        ) -> Result<(), BoxError> {
-            assert!(self.left.is_some());
-            assert!(self.right.is_some());
-
-            let (target, source) = match dest {
-                HelperAddr::Left => (self.left.as_ref().unwrap(), HelperAddr::Right),
-                HelperAddr::Right => (self.right.as_ref().unwrap(), HelperAddr::Left),
-            };
-
-            let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
-            let envelope = MessageEnvelope {
-                type_id: TypeId::of::<T>(),
-                source,
-                payload: bytes,
-            };
-
-            target.send(envelope).await.expect("boom");
-            Ok(())
-        }
-
-        async fn receive<T: Debug + Send + DeserializeOwned + 'static>(
-            &self,
-            source: HelperAddr,
-        ) -> Result<T, BoxError> {
-            let buf = Arc::clone(&self.buf);
-
-            let res = tokio::spawn(async move {
-                loop {
-                    {
-                        let buf = &mut *buf.lock().unwrap();
-                        let key = (source, TypeId::of::<T>());
-                        if let Entry::Occupied(entry) = buf.entry(key) {
-                            let payload = entry.remove();
-                            let obj: T = serde_json::from_slice(&payload).unwrap();
-
-                            return obj;
-                        }
-                    }
-
-                    tokio::task::yield_now().await;
-                }
-            })
-                .await
-                .map_err(|e| Box::new(e) as _);
-            res
-        }
-    }
+    use crate::error::BoxError;
+    use crate::helpers;
+    use crate::helpers::ring::mock::TestHelper;
+    use crate::securemul::stream::secure_multiply;
+    use crate::securemul::{ProtocolContext, SecureMul};
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        let ring = make_helper_ring();
+        let ring = helpers::ring::mock::make_three();
         let participants = crate::prss::test::make_three();
         let context = make_context(&ring, &participants);
         let mut rand = StepRng::new(1, 1);
@@ -340,89 +288,60 @@ mod tests {
         Ok(())
     }
 
+    /// Secure multiplication may be used with Stream API where shares are provided as elements
+    /// of a `Stream`.
     #[tokio::test]
-    async fn works_with_stream() {
+    async fn supports_stream_of_secret_shares() {
         // we compute a*b*c in this test. 4*3*2 = 24
         let mut rand = StepRng::new(1, 1);
-        let start_index = 1024_u128;
         let a = share(Fp31::from(4_u128), &mut rand);
         let b = share(Fp31::from(3_u128), &mut rand);
         let c = share(Fp31::from(2_u128), &mut rand);
-        println!("a share:{a:?}\nb share:{b:?}\nc share:{c:?}");
-        let [ring_0, ring_1, ring_2] = make_helper_ring();
-        let participants = crate::prss::test::make_three();
+        let start_index = 1024_u128;
 
-        let (input1, input2, input3) = (
+        // setup helpers
+        let ring = helpers::ring::mock::make_three();
+        let participants = crate::prss::test::make_three();
+        let participants = [participants.0, participants.1, participants.2];
+
+        // dedicated streams for each helper
+        let input = [
             stream::iter(vec![a[0], b[0], c[0]]),
             stream::iter(vec![a[1], b[1], c[1]]),
             stream::iter(vec![a[2], b[2], c[2]]),
+        ];
+
+        // create 3 tasks (1 per helper) that will execute secure multiplication
+        let handles = input.into_iter().zip(participants).zip(ring).map(
+            |((input, participant), helper_ring)| {
+                tokio::spawn(async move {
+                    let ctx = ProtocolContext {
+                        participant: &participant,
+                        helper_ring: &helper_ring,
+                    };
+                    let mut stream = secure_multiply(input, &ctx, start_index);
+
+                    // compute a*b
+                    let _ = stream.next().await.expect("Failed to compute a*b");
+
+                    // compute (a*b)*c and return it
+                    stream.next().await.expect("Failed to compute a*b*c")
+                })
+            },
         );
 
+        let result_shares: [ReplicatedSecretSharing<Fp31>; 3] =
+            join_all(handles.map(|handle| async { handle.await.unwrap() }))
+                .await
+                .try_into()
+                .unwrap();
+        let result_shares = (result_shares[0], result_shares[1], result_shares[2]);
 
-        let handle1 = tokio::spawn(async move {
-            let mut multiply_step = MultiplyStep { index: start_index, ctx: ProtocolContext {
-                name: "helper 1",
-                participant: &participants.0,
-                helper_ring: &ring_0
-            } };
-            let mut stream = multiply_step.apply(input1);
-            let _ = stream.next().await;
-
-            stream.next().await.expect("Stream produces multiplication result")
-        });
-        let handle2 = tokio::spawn(async move {
-            let mut multiply_step = MultiplyStep { index: start_index, ctx: ProtocolContext {
-                name: "helper 2",
-                participant: &participants.1,
-                helper_ring: &ring_1
-            } };
-            let mut stream = multiply_step.apply(input2);
-            let _ = stream.next().await;
-
-            stream.next().await.expect("Stream produces multiplication result")
-        });
-        let handle3 = tokio::spawn(async move {
-            let mut multiply_step = MultiplyStep { index: start_index, ctx: ProtocolContext {
-                name: "helper 3",
-                participant: &participants.2,
-                helper_ring: &ring_2
-            } };
-            let mut stream = multiply_step.apply(input3);
-            let _ = stream.next().await;
-
-            stream.next().await.expect("Stream produces multiplication result")
-        });
-
-        let (share1, share2, share3) = (handle1.await.unwrap(), handle2.await.unwrap(), handle3.await.unwrap());
-        assert_eq!(Fp31::from(24_u128), validate_and_reconstruct((share1, share2, share3)));
-
-        //
-        //
-        // let handle1 = tokio::spawn(async move {
-        //     let mut helper1_stream = SecureMulStep::new(input1, start_index, &participants.0, &ring_0);
-        //     let a_b_share1 = helper1_stream.next().await;
-        // });
-        // let handle2 = tokio::spawn(async move {
-        //     let mut helper2_stream = SecureMulStep::new(input2, start_index, &participants.1, &ring_1);
-        //     let a_b_share1 = helper2_stream.next().await;
-        // });
-        // let handle3 = tokio::spawn(async move {
-        //     let mut helper3_stream = SecureMulStep::new(input3, start_index, &participants.2, &ring_2);
-        //     let a_b_share1 = helper3_stream.next().await;
-        // });
-        //
-        // handle1.await.unwrap()
-        //
-        // // helper1_stream.next().await
-        // // helper1_stream.next().await
-        // // helper1_stream.next().await
-        //
-        //
-        // // let input = stream::iter(vec![])
+        assert_eq!(Fp31::from(24_u128), validate_and_reconstruct(result_shares));
     }
 
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestRing>; 3],
+        context: &[ProtocolContext<'_, TestHelper>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
@@ -466,12 +385,13 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a>(ring: &'a [TestRing; 3], participants: &'a (Participant, Participant, Participant)) -> [ProtocolContext<'a, TestRing>; 3] {
+    fn make_context<'a>(
+        ring: &'a [TestHelper; 3],
+        participants: &'a (Participant, Participant, Participant),
+    ) -> [ProtocolContext<'a, TestHelper>; 3] {
         ring.iter()
             .zip([&participants.0, &participants.1, &participants.2])
-            .enumerate()
-            .map(|(i, (helper_ring, participant))| ProtocolContext {
-                name: Box::leak(format!("helper: {i}").into_boxed_str()),
+            .map(|(helper_ring, participant)| ProtocolContext {
                 participant,
                 helper_ring,
             })
@@ -480,24 +400,11 @@ mod tests {
             .unwrap()
     }
 
-    fn make_helper_ring() -> [TestRing; 3] {
-        let mut helpers = [TestRing::new(), TestRing::new(), TestRing::new()];
-
-        helpers[0].set_left(helpers[2].input_sender.clone());
-        helpers[1].set_left(helpers[0].input_sender.clone());
-        helpers[2].set_left(helpers[1].input_sender.clone());
-
-        helpers[0].set_right(helpers[1].input_sender.clone());
-        helpers[1].set_right(helpers[2].input_sender.clone());
-        helpers[2].set_right(helpers[0].input_sender.clone());
-
-        helpers
-    }
-
-    fn share<R: RngCore>(a: Fp31, rng: &mut R) -> [ReplicatedSecretSharing<Fp31>; 3] {
+    /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
+    fn share<R: RngCore>(input: Fp31, rng: &mut R) -> [ReplicatedSecretSharing<Fp31>; 3] {
         let x1 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
         let x2 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
-        let x3 = a - (x1 + x2);
+        let x3 = input - (x1 + x2);
 
         [
             ReplicatedSecretSharing::new(x1, x2),
