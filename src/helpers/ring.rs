@@ -134,6 +134,10 @@ pub mod mock {
             assert!(self.left.is_some());
             assert!(self.right.is_some());
 
+            // inside the envelope we store the sender of the message (i.e. source)
+            // but this method accepts the destination. To obtain source from destination
+            // we invert it - message send to the left helper is originated from helper on the
+            // right side.
             let (target, source) = match dest {
                 HelperAddr::Left => (self.left.as_ref().unwrap(), HelperAddr::Right),
                 HelperAddr::Right => (self.right.as_ref().unwrap(), HelperAddr::Left),
