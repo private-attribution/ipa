@@ -67,8 +67,8 @@ impl ReplicatedBinarySecretSharing {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReplicatedFp31SecretSharing(
-    <Self as ReplicatedSecretSharing>::Ring,
-    <Self as ReplicatedSecretSharing>::Ring,
+    pub <Self as ReplicatedSecretSharing>::Ring,
+    pub <Self as ReplicatedSecretSharing>::Ring,
 );
 
 impl ReplicatedSecretSharing for ReplicatedFp31SecretSharing {
