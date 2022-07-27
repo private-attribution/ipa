@@ -97,6 +97,9 @@ pub mod mock {
                 let buf = Arc::clone(&buf);
                 async move {
                     while let Some(item) = rx.recv().await {
+                        // obtain an exclusive lock on the shared buffer
+                        // and store the received message there. If there is already a message
+                        // with the same type and destination, we simply panic and abort this task
                         let buf = &mut *buf.lock().unwrap();
                         match buf.entry((item.source, item.type_id)) {
                             Entry::Occupied(_entry) => {

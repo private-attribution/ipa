@@ -1,5 +1,6 @@
 #![deny(clippy::clone_on_ref_ptr)]
 
+mod chunkscan;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod error;

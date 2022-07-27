@@ -11,11 +11,7 @@ pub struct ReplicatedSecretSharing<T>(T, T);
 
 impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(")?;
-        self.0.fmt(f)?;
-        write!(f, ",")?;
-        self.1.fmt(f)?;
-        write!(f, ")")
+        write!(f, "({:?}, {:?}", self.0, self.1)
     }
 }
 
