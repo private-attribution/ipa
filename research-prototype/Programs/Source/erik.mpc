@@ -3,8 +3,8 @@ Rewriting Erik's mpc files using vectors
 """
 import argparse
 
-VALUE = 2
 MATCHKEY = 0
+VALUE = 1
 IS_TRIGGER = 2
 BREAKDOWN_KEY = 3
 
