@@ -1,0 +1,114 @@
+"""
+Rewriting Erik's mpc files in a more sane way.
+"""
+import argparse
+
+VALUE = 2
+MATCHKEY = 0
+IS_TRIGGER = 2
+BREAKDOWN_KEY = 3
+
+def get_args() -> argparse.Namespace:
+
+    # It turns out that you *can* get arguments from the compile.py
+    # command.  The arguments are everything after the name
+    # of the file to be compiled.
+
+    arg_parser = argparse.ArgumentParser("Attribution Benchmark")
+    arg_parser.add_argument("numrows_power", type=int, default = 10,
+                            nargs = '?',
+                            help="Power of 2 for number of Rows")
+    arg_parser.add_argument("verbose", type = bool, default = False,
+                            nargs = '?',
+                            help="verbose?")
+    pargs = program.args[1: ]
+    return arg_parser.parse_args(pargs)
+
+def main() -> None:
+
+    args = get_args()
+    print(f"args = {args}")
+    if args.verbose and args.numrows_power > 5:
+        raise ValueError("Cannot handle verbose with numrows = 2**{numrows_power}")
+
+    numrows = 2 ** args.numrows_power
+
+    reports = Matrix(numrows ,4, sint)
+    # load the data
+
+    reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
+
+    match_keys = reports.get_column(MATCHKEY)
+    helperbits = Array(numrows, sint)
+    helperbits.assign_vector(match_keys.get_vector(size = numrows - 1)
+                             == match_keys.get_vector(base = 1, size = numrows - 1), base = 1)
+    helperbits[0] = 0
+    # helperbits[idx] = True if there's a transition to a new match key
+
+    is_trigger = reports.get_column(IS_TRIGGER)
+    # is_trigger[idx] = True means this is a trigger even
+    # we want to match all non-trigger events (i.e. source events)
+    # with trigger events with the same matchkey
+
+    helperbits_and_istrigger = helperbits * is_trigger
+    helperbits_xor_istrigger = helperbits + is_trigger - helperbits_and_istrigger
+    
+    # I think that the exponent refers to the depth in a binary tree.
+
+    # It looks like this is just a binary tree sum
+
+    stepsize = 1
+
+    # I guess that this is supposed to be last touch attribution
+    #
+    # Prepare
+    # Problem: stopbit is the wrong size.
+    stopbit = Array(numrows, sint)
+    stopbit.assign_vector(helperbits_and_istrigger.get_vector(base = 1, size = numrows - 1))
+    stopbit[numrows - 1] = 0
+    repval = reports.get_column(VALUE)
+    credit = Array(numrows, sint)
+    credit[numrows - 1] = repval[numrows - 1]
+    credit.assign_vector(repval.get_vector(size = numrows -1)
+                         + stopbit.get_vector(size = numrows - 1)
+                         * repval.get_vector(base = 1,
+                                             size = numrows -1))
+    
+    for exponent in range(1, args.numrows_power):
+
+        # inc(size, base, step, repeat)
+        # produces a regint vector like range(base, size // step, step)
+        # get method takes an array of regints and produces the
+        # vector indexed by them,
+
+        # flag = helperbits_and_istrigger{stepsize:]
+        # credit = reports[: -stepsize][VALUE] + flag * reports[stepsize: ][VALUE]
+        stepsize *= 2
+
+        new_size = numrows - stepsize
+
+        flag = (stopbit.get_vector(size = new_size)
+                * helperbits_and_istrigger.get_vector(base = stepsize,
+                                                     size = new_size))
+        new_credit = (credit.get_vector(size = new_size)
+                      + flag
+                      * credit.get_vector(base = stepsize,
+                                          size = new_size))
+        stopbit.assign_vector(flag
+                              * stopbit.get_vector(base = stepsize,
+                                                   size = new_size))
+        # Now 0 out the last stepsize stopbit's
+        zeros = Array(stepsize, sint)
+        zeros.assign_all(0)
+        stopbit.assign_vector(zeros, base = new_size)
+            
+        credit.assign_vector(new_credit)
+        
+        
+    
+main()
+
+    
+
+    
+       
