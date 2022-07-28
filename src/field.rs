@@ -1,7 +1,28 @@
+use std::ops::{BitAnd, Shr};
 use std::{
     fmt::Debug,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
+
+// Trait for primitive integer types used to represent the underlying type for field values
+pub trait Int:
+    Sized
+    + Copy
+    + Debug
+    + Ord
+    + Sub<Output = Self>
+    + Into<u128>
+    + From<u8>
+    + Shr<u32, Output = Self>
+    + BitAnd<Self, Output = Self>
+    + PartialEq
+{
+    const BITS: u32;
+}
+
+impl Int for u8 {
+    const BITS: u32 = u8::BITS;
+}
 
 pub trait Field:
     Add<Output = Self>
@@ -12,13 +33,14 @@ pub trait Field:
     + Mul<Output = Self>
     + MulAssign
     + From<u128>
+    + Into<Self::Integer>
     + Clone
     + Copy
     + PartialEq
     + Debug
     + Sized
 {
-    type Integer: Debug + Into<u128>;
+    type Integer: Int;
 
     const PRIME: Self::Integer;
     /// Additive identity element
@@ -28,11 +50,33 @@ pub trait Field:
 
     /// computes the multiplicative inverse of `self`. It is UB if `self` is 0.
     #[must_use]
-    fn invert(&self) -> Self;
+    fn invert(&self) -> Self {
+        debug_assert!(
+            self != &Self::ZERO,
+            "Multiplicative inverse is not defined for 0"
+        );
+
+        self.pow(Self::PRIME - Self::ONE.into() - Self::ONE.into())
+    }
 
     /// Computes modular exponentiation, self^exp (mod PRIME)
     #[must_use]
-    fn pow(&self, exp: Self::Integer) -> Self;
+    fn pow(&self, exp: Self::Integer) -> Self {
+        let mut term = Self::ONE;
+        // compute: x^exp
+        // binary representation of exp: a_k*2^k + a_k-1*2^k-1 + ... + a_0*2^0
+        // x^exp = x^a_0 + (x^2)^a_1 + ... + (x^(2^k))^a_k
+        // * start at 0 and each time square the term.
+        // * term contributes to the result iff a_k bit is 1 (as (x^a)^0 == 1)
+        for i in (0..Self::Integer::BITS).rev() {
+            term *= term;
+            if (exp >> i) & Self::Integer::from(1) != Self::Integer::from(0) {
+                term *= *self;
+            }
+        }
+
+        term
+    }
 }
 
 // TODO(mt) - this code defining fields can be turned into a macro if we ever
@@ -41,31 +85,17 @@ pub trait Field:
 #[derive(Clone, Copy, PartialEq)]
 pub struct Fp31(<Self as Field>::Integer);
 
+impl From<Fp31> for u8 {
+    fn from(v: Fp31) -> Self {
+        v.0
+    }
+}
+
 impl Field for Fp31 {
     type Integer = u8;
     const PRIME: Self::Integer = 31;
     const ZERO: Self = Fp31(0);
     const ONE: Self = Fp31(1);
-
-    fn invert(&self) -> Self {
-        debug_assert!(
-            self != &Self::ZERO,
-            "Multiplicative inverse is not defined for Fp31(0)"
-        );
-        self.pow(Self::PRIME - 2)
-    }
-
-    fn pow(&self, exp: Self::Integer) -> Self {
-        let mut t = Self::ONE;
-        for i in (0..Self::Integer::BITS - exp.leading_zeros()).rev() {
-            t *= t;
-            if (exp >> i) & 1 != 0 {
-                t *= *self;
-            }
-        }
-
-        t
-    }
 }
 
 impl Add for Fp31 {
@@ -193,6 +223,11 @@ mod test {
 
         assert_eq!(Fp31(Fp31::PRIME - 1), Fp31(Fp31::PRIME - 1).pow(1));
         assert_eq!(one, Fp31(2).pow(Fp31::PRIME - 1));
+
+        assert_eq!(Fp31(8), Fp31(2).pow(3));
+        assert_eq!(Fp31(5), Fp31(6).pow(2));
+        assert_eq!(Fp31(16), Fp31(4).pow(2));
+        assert_eq!(Fp31(27), Fp31(3).pow(3));
     }
 
     #[test]
@@ -208,6 +243,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic]
     fn invert_panics_if_called_on_zero() {
         // assertion does not matter here, test should panic when `invert` is called.
