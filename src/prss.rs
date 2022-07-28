@@ -10,6 +10,7 @@ use sha2::Sha256;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 /// A participant in a 2-of-3 replicated secret sharing.
+#[derive(Debug)] // TODO custom debug implementation
 pub struct Participant {
     left: Generator,
     left_bits: BitGenerator,
@@ -172,6 +173,7 @@ impl GeneratorFactory {
 }
 
 /// The basic generator.  This generates values based on an arbitrary index.
+#[derive(Debug)]
 pub struct Generator {
     cipher: Aes256,
 }
@@ -189,6 +191,7 @@ impl Generator {
 }
 
 /// A generator for a single bit.  Unlike the base generator, this is a stateful object.
+#[derive(Debug)]
 pub struct BitGenerator {
     /// The underlying generator.
     g: Generator,
@@ -265,7 +268,7 @@ mod rng {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use aes::{cipher::KeyInit, Aes256};
     use digest::generic_array::GenericArray;
     use rand::thread_rng;
@@ -369,7 +372,7 @@ mod test {
     /// Generate three participants.
     /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
     #[must_use]
-    fn make_three() -> (Participant, Participant, Participant) {
+    pub fn make_three() -> (Participant, Participant, Participant) {
         let mut r = thread_rng();
         let setup1 = ParticipantSetup::new(&mut r);
         let setup2 = ParticipantSetup::new(&mut r);
