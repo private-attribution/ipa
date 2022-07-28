@@ -1,5 +1,5 @@
 """
-Rewriting Erik's mpc files in a more sane way.
+Rewriting Erik's mpc files using vectors
 """
 import argparse
 
