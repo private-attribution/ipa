@@ -33,12 +33,18 @@ def main() -> None:
 
     numrows = 2 ** args.numrows_power
 
-    reports = Matrix(numrows ,4, sint)
+    reports = Matrix(numrows, 4, sint)
     # load the data
 
     reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
 
     match_keys = reports.get_column(MATCHKEY)
+
+    # Edge cases: imagine that the match-keys are extended at either
+    # end with keys that are different than any of the real keys
+    # That means that helperbits[0] = 0
+    # and that stopbits at the end are zeroed out
+    
     helperbits = Array(numrows, sint)
     helperbits.assign_vector(match_keys.get_vector(size = numrows - 1)
                              == match_keys.get_vector(base = 1, size = numrows - 1), base = 1)
@@ -121,14 +127,13 @@ def main() -> None:
 
     for breakdown_key in breakdown_keys:
 
+        # max[idx] = 1 if breakdown[idx] == breakdown_key, 0 otherwise
         mask = breakdown == breakdown_key
+        # Sum up the final_credits for this breakdown
         breakdown_key_sums = tree_reduce(lambda x,y: x + y,
                                          mask * final_credits)
 
     print_ln("breakdowns: %s", breakdown_key_sums.reveal())
-
-        
-        
     
 main()
 
