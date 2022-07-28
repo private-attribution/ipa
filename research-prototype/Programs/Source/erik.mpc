@@ -63,17 +63,23 @@ def main() -> None:
     #
     # Prepare
     # Problem: stopbit is the wrong size.
-    stopbit = Array(numrows, sint)
-    stopbit.assign_vector(helperbits_and_istrigger.get_vector(base = 1, size = numrows - 1))
-    stopbit[numrows - 1] = 0
+
+    # Initialize for results after the first pass
     repval = reports.get_column(VALUE)
+    stopbit = Array(numrows, sint)
     credit = Array(numrows, sint)
+
+    stopbit.assign_vector(helperbits_and_istrigger.get_vector(base = 1,
+                                                              size = numrows - 1))
+    stopbit[numrows - 1] = 0
     credit[numrows - 1] = repval[numrows - 1]
     credit.assign_vector(repval.get_vector(size = numrows -1)
                          + stopbit.get_vector(size = numrows - 1)
                          * repval.get_vector(base = 1,
                                              size = numrows -1))
     
+    zeros = Array(numrows // 2, sint)
+    zeros.assign_all(0)
     for exponent in range(1, args.numrows_power):
 
         # inc(size, base, step, repeat)
@@ -98,11 +104,29 @@ def main() -> None:
                               * stopbit.get_vector(base = stepsize,
                                                    size = new_size))
         # Now 0 out the last stepsize stopbit's
-        zeros = Array(stepsize, sint)
-        zeros.assign_all(0)
-        stopbit.assign_vector(zeros, base = new_size)
+        # stopbit.get_vector(base = new_size, size = stepsize).assign_all(0)
+        stopbit.assign_vector(zeros.get_vector(size = stepsize),
+                              base = new_size)
             
         credit.assign_vector(new_credit)
+
+    # Calculate final_credits
+
+    final_credits = helperbits_xor_istrigger * credit
+
+    breakdown_keys = list(range(4))
+
+    breakdown = reports.get_column(BREAKDOWN_KEY)
+    breakdown_key_sums = Array(4, sint)
+
+    for breakdown_key in breakdown_keys:
+
+        mask = breakdown == breakdown_key
+        breakdown_key_sums = tree_reduce(lambda x,y: x + y,
+                                         mask * final_credits)
+
+    print_ln("breakdowns: %s", breakdown_key_sums.reveal())
+
         
         
     
