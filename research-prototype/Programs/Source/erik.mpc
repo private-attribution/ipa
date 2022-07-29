@@ -135,6 +135,7 @@ def main() -> None:
             # max[idx] = 1 if breakdown[idx] == breakdown_key, 0 otherwise
             mask = breakdown == breakdown_key
             # Sum up the final_credits for this breakdown
+            # We can do this with sum, but tree_reduce is more efficient.
             breakdown_key_sums[breakdown_key] = tree_reduce(lambda x,y: x + y,
                                                             mask * final_credits)
 
