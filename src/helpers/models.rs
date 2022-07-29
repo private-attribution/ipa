@@ -8,6 +8,7 @@ use std::ops::Range;
 // Underlying types are temporalily assigned for PoC.
 pub type CipherText = Vec<u8>;
 type PlainText = String;
+type Number = u32;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -126,7 +127,7 @@ pub struct SourceEvent {
     pub event: Event,
 
     /// A key to group sets of the events.
-    pub breakdown_key: PlainText,
+    pub breakdown_key: Number,
 }
 
 #[cfg(feature = "debug")]
@@ -149,7 +150,7 @@ pub struct TriggerEvent {
 
     /// Zero knowledge proof that the trigger value lies within a specific range
     /// of values. The range is specified in [TriggerFanoutQuery].
-    pub zkp: PlainText,
+    pub zkp: Number,
 }
 
 #[cfg(feature = "debug")]
