@@ -2,15 +2,17 @@
 Rewriting Erik's mpc files using vectors
 """
 import argparse
+from typing import Optional
 
 MATCHKEY = 0
 VALUE = 1
 IS_TRIGGER = 2
 BREAKDOWN_KEY = 3
 
-BREAKDOWN_VALUES = 4
-
 def get_args(args) -> argparse.Namespace:
+    """
+    Get the arguments from the remainder of compile.py command line.
+    """
 
     # It turns out that you *can* get arguments from the compile.py
     # command.  The arguments are everything after the name
@@ -28,19 +30,14 @@ def get_args(args) -> argparse.Namespace:
                             help="verbose?")
     return arg_parser.parse_args(args)
 
-def main() -> None:
+def oblivious_attribution(reports: Matrix,
+                          numrows_power: int,
+                          breakdown_values: int) -> Optional[Array]:
+    """
+    Perform the oblivious attribution.
+    """
 
-    args = get_args(program.args[1: ])
-    print(f"args = {args}")
-    if args.verbose and args.numrows_power > 5:
-        raise ValueError("Cannot handle verbose with numrows = 2**{numrows_power}")
-
-    numrows = 2 ** args.numrows_power
-
-    reports = Matrix(numrows, 4, sint)
-    # load the data
-
-    reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
+    numrows = 2 ** numrows_power
 
     match_keys = reports.get_column(MATCHKEY)
 
@@ -51,7 +48,9 @@ def main() -> None:
     
     helperbits = Array(numrows, sint)
     helperbits.assign_vector(match_keys.get_vector(size = numrows - 1)
-                             == match_keys.get_vector(base = 1, size = numrows - 1), base = 1)
+                             == match_keys.get_vector(base = 1,
+                                                      size = numrows - 1),
+                             base = 1)
     helperbits[0] = 0
     # helperbits[idx] = True if there's a transition to a new match key
 
@@ -90,7 +89,7 @@ def main() -> None:
     
     zeros = Array(numrows // 2, sint)
     zeros.assign_all(0)
-    for exponent in range(1, args.numrows_power):
+    for exponent in range(1, numrows_power):
 
         # inc(size, base, step, repeat)
         # produces a regint vector like range(base, size // step, step)
@@ -121,14 +120,14 @@ def main() -> None:
         credit.assign_vector(new_credit)
 
     # Calculate final_credits
-    if args.breakdown_values:
+    if breakdown_values:
 
         final_credits = helperbits_xor_istrigger * credit
         
-        breakdown_keys = list(range(args.breakdown_values))
+        breakdown_keys = list(range(breakdown_values))
 
         breakdown = reports.get_column(BREAKDOWN_KEY)
-        breakdown_key_sums = Array(args.breakdown_values, sint)
+        breakdown_key_sums = Array(breakdown_values, sint)
 
         for breakdown_key in breakdown_keys:
 
@@ -138,7 +137,32 @@ def main() -> None:
             # We can do this with sum, but tree_reduce is more efficient.
             breakdown_key_sums[breakdown_key] = tree_reduce(lambda x,y: x + y,
                                                             mask * final_credits)
+            return breakdown_key_sums
 
+        return None
+
+def main():
+    """
+    Do the main processing.
+    """
+
+    args = get_args(program.args[1: ])
+    print(f"args = {args}")
+    if args.verbose and args.numrows_power > 5:
+        raise ValueError("Cannot handle verbose with numrows = 2**{numrows_power}")
+
+    numrows = 2 ** args.numrows_power
+
+    reports = Matrix(numrows, 4, sint)
+    # load the data
+
+    reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
+    breakdown_key_sums = oblivious_attribution(reports,
+                                               args.numrows_power,
+                                               args.breakdown_values)
+
+    if breakdown_key_sums is not None:
         print_ln("breakdowns: %s", breakdown_key_sums.reveal())
     
 main()
+
