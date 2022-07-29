@@ -2,12 +2,36 @@
 Rewriting Erik's mpc files using vectors
 """
 import argparse
+import os
+import sys
 from typing import Optional
+from pathlib import Path
+from Compiler import types, library, instructions, sorting
 
-MATCHKEY = 0
-VALUE = 1
-IS_TRIGGER = 2
-BREAKDOWN_KEY = 3
+VALUE = 0
+IS_TRIGGER = 1
+BREAKDOWN_KEY = 2
+
+def set_directory() -> None:
+
+    source_dir = os.getcwd() + '/Programs/Source'
+    sys.path = [source_dir] + sys.path
+
+def reconstruct(bit_array: Matrix) -> Array:
+    """
+    bit_array is an N by B array of bits
+    compute the integer representation.
+    This should only involve scalar multiplies and adds.
+    """
+
+    num, n_bits = bit_array.sizes
+    result = Array(sint, num)
+    result.assign_vector(bit_array.get_column(0))
+    # mult = 1
+    for ind in range(1, n_bits):
+        # mult *= 2
+        result = result + (bit_array.get_column(ind) << ind)
+    return result
 
 def get_args(args) -> argparse.Namespace:
     """
@@ -19,33 +43,39 @@ def get_args(args) -> argparse.Namespace:
     # of the file to be compiled.
 
     arg_parser = argparse.ArgumentParser("Attribution Benchmark")
-    arg_parser.add_argument("numrows_power", type=int, default = 10,
+    arg_parser.add_argument("numrows_power", type=int, default = 12,
                             nargs = '?',
                             help="Power of 2 for number of Rows")
     arg_parser.add_argument("breakdown_values", type = int, default = 4,
                             nargs = '?',
                             help="Calculate Breakdown?")
-    arg_parser.add_argument("verbose", type = int, default = 0,
+    arg_parser.add_argument("n_bits", type = int, default = 32,
                             nargs = '?',
-                            help="verbose?")
+                            help="n_bits?")
+    arg_parser.add_argument("have_bits", type = int, default = 0,
+                            nargs = '?',
+                            help="Match keys are a bit array")
+    arg_parser.add_argument("do_sort", type = int, default = 1,
+                            nargs = '?',
+                            help="Sort the match keys")
     return arg_parser.parse_args(args)
 
-def oblivious_attribution(reports: Matrix,
-                          numrows_power: int,
+# Do this where the columns are separate
+# This will allow us to use match_keys as a bit array
+def oblivious_attribution(match_keys: Array,
+                          reports: Matrix,
                           breakdown_values: int) -> Optional[Array]:
     """
     Perform the oblivious attribution.
     """
 
-    numrows = 2 ** numrows_power
-
-    match_keys = reports.get_column(MATCHKEY)
+    assert len(match_keys) == len(reports)
+    numrows, _  = reports.sizes
 
     # Edge cases: imagine that the match-keys are extended at either
     # end with keys that are different than any of the real keys
     # That means that helperbits[0] = 0
     # and that stopbits at the end are zeroed out
-    
     helperbits = Array(numrows, sint)
     helperbits.assign_vector(match_keys.get_vector(size = numrows - 1)
                              == match_keys.get_vector(base = 1,
@@ -54,18 +84,17 @@ def oblivious_attribution(reports: Matrix,
     helperbits[0] = 0
     # helperbits[idx] = True if there's a transition to a new match key
 
-    is_trigger = reports.get_column(IS_TRIGGER)
     # is_trigger[idx] = True means this is a trigger even
     # we want to match all non-trigger events (i.e. source events)
     # with trigger events with the same matchkey
 
-    helperbits_and_istrigger = helperbits * is_trigger
+    is_trigger = reports.get_column(IS_TRIGGER)
+    helperbits_and_istrigger = helperbits * is_trigger.get_vector()
     
     # I think that the exponent refers to the depth in a binary tree.
 
     # It looks like this is just a binary tree sum
 
-    stepsize = 1
 
     # I guess that this is supposed to be last touch attribution
     #
@@ -73,22 +102,26 @@ def oblivious_attribution(reports: Matrix,
     # Problem: stopbit is the wrong size.
 
     # Initialize for results after the first pass
-    repval = reports.get_column(VALUE)
     stopbit = Array(numrows, sint)
     credit = Array(numrows, sint)
+    repval = reports.get_column(VALUE)
 
     stopbit.assign_vector(helperbits_and_istrigger.get_vector(base = 1,
                                                               size = numrows - 1))
     stopbit[numrows - 1] = 0
     credit[numrows - 1] = repval[numrows - 1]
-    credit.assign_vector(repval.get_vector(size = numrows -1)
+
+    credit.assign_vector(repval.get_vector(size = numrows - 1)
                          + stopbit.get_vector(size = numrows - 1)
                          * repval.get_vector(base = 1,
-                                             size = numrows -1))
+                                             size = numrows - 1))
     
     zeros = Array(numrows // 2, sint)
     zeros.assign_all(0)
-    for exponent in range(1, numrows_power):
+
+    stepsize = 1
+
+    while stepsize < numrows // 2:
 
         # inc(size, base, step, repeat)
         # produces a regint vector like range(base, size // step, step)
@@ -121,16 +154,18 @@ def oblivious_attribution(reports: Matrix,
     # Calculate final_credits
     if breakdown_values:
 
+        breakdown = reports.get_value(BREAKDOWN_KEY)
+
         # Once we have AND, XOR is just addition and subtraction
 
         helperbits_xor_istrigger = (helperbits
-                                    + is_trigger
+                                    + is_trigger.get_vector()
                                     - helperbits_and_istrigger)
+
         final_credits = helperbits_xor_istrigger * credit
         
         breakdown_keys = list(range(breakdown_values))
 
-        breakdown = reports.get_column(BREAKDOWN_KEY)
         breakdown_key_sums = Array(breakdown_values, sint)
 
         for breakdown_key in breakdown_keys:
@@ -152,16 +187,36 @@ def main():
 
     args = get_args(program.args[1: ])
     print(f"args = {args}")
-    if args.verbose and args.numrows_power > 5:
-        raise ValueError("Cannot handle verbose with numrows = 2**{numrows_power}")
 
     numrows = 2 ** args.numrows_power
 
-    reports = Matrix(numrows, 4, sint)
     # load the data
+    if args.have_bits:
+        match_bits = Matrix(numrows, args.n_bits, sbitint)
+        match_bits.assign_vector(
+            sbitint.get_input_from(0, size = numrows * n_bits))
+        match_keys = reconstruct(match_bits)
+    else:
+        match_keys = Array(numrows, sint)
+        match_keys.get_input_from(0, size = numrows)
 
-    reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
-    breakdown_key_sums = oblivious_attribution(reports,
+    reports = Matrix(numrows, 3, sint)
+    reports.assign_vector(sint.get_input_from(0, size = numrows * 3))
+
+    # Now do the sort
+    # Radix sort
+    if args.do_sort:
+
+        if args.have_bits:
+            set_directory()
+            from bsort import bit_radix_sort
+            new_radix_sort(match_bits, reports)
+        else:
+        
+            sorting.radix_sort(match_keys, reports,
+                               n_bits = args.n_bits)
+
+    breakdown_key_sums = oblivious_attribution(match_keys, reports,
                                                args.numrows_power,
                                                args.breakdown_values)
 
