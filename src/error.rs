@@ -34,4 +34,7 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
 }
 
+#[allow(clippy::module_name_repetitions)]
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 pub type Res<T> = Result<T, Error>;
