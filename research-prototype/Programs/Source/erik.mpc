@@ -60,7 +60,6 @@ def oblivious_attribution(reports: Matrix,
     # with trigger events with the same matchkey
 
     helperbits_and_istrigger = helperbits * is_trigger
-    helperbits_xor_istrigger = helperbits + is_trigger - helperbits_and_istrigger
     
     # I think that the exponent refers to the depth in a binary tree.
 
@@ -122,6 +121,11 @@ def oblivious_attribution(reports: Matrix,
     # Calculate final_credits
     if breakdown_values:
 
+        # Once we have AND, XOR is just addition and subtraction
+
+        helperbits_xor_istrigger = (helperbits
+                                    + is_trigger
+                                    - helperbits_and_istrigger)
         final_credits = helperbits_xor_istrigger * credit
         
         breakdown_keys = list(range(breakdown_values))
