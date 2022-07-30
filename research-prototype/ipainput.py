@@ -24,7 +24,7 @@ with open(player_data / "Input-P0-0", "w") as f:
         is_trigger = random.randint(0, 1)
 
         if(is_trigger):
-            value, bk = random.randint(0, datamod-1), 0
+            value, bk = random.randint(0, datamod-1), -1
         else:
             value, bk = 0, random.randint(0, breakdown_keys-1)
         f.write(f"{mk}\n{is_trigger}\n{value}\n{bk}\n")  # data = value

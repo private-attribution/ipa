@@ -171,7 +171,7 @@ if verbose:
             f"reports[{row}][Columns.MATCHKEY].reveal(), "
             f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
             f"reports[{row}][Columns.VALUE].reveal(), "
-            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),)"
+            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),"
             f"final_credits[{row}].reveal())"
         )
         exec(cmd, {}, local_params)
