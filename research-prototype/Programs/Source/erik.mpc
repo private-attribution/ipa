@@ -12,6 +12,10 @@ VALUE = 0
 IS_TRIGGER = 1
 BREAKDOWN_KEY = 2
 
+RADIX_SORT = 0
+BIT_RADIX_SORT = 1
+BATCHER_SORT = 2
+
 def set_directory() -> None:
 
     source_dir = os.getcwd() + '/Programs/Source'
@@ -50,9 +54,9 @@ def get_args(args) -> argparse.Namespace:
     arg_parser.add_argument("n_bits", type = int, default = 32,
                             nargs = '?',
                             help="n_bits?")
-    arg_parser.add_argument("have_bits", type = int, default = 0,
+    arg_parser.add_argument("sort_type", type = int, default = 0,
                             nargs = '?',
-                            help="Match keys are a bit array")
+                            help="sort_type: 0 - radix, 1 - bit radix, 2 - batcher")
     arg_parser.add_argument("do_sort", type = int, default = 1,
                             nargs = '?',
                             help="Sort the match keys")
@@ -191,16 +195,16 @@ def main():
     numrows = 2 ** args.numrows_power
 
     # load the data
-    print(f"Using {'bits' if args.have_bits else 'sint'}")
+
     match_keys = Array(numrows, sint)
     
     match_bits = Matrix(numrows, args.n_bits, sint)
-    if args.have_bits:
+    if args.sort_type == BIT_RADIX_SORT:
         match_bits.assign_vector(
             sint.get_input_from(0, size = numrows * args.n_bits))
         match_keys.assign_vector(reconstruct(match_bits))
     else:
-        print('*** No bits ***')
+
         match_keys.assign_vector(sint.get_input_from(0, size = numrows))
 
     reports = Matrix(numrows, 3, sint)
@@ -208,15 +212,21 @@ def main():
 
     # Now do the sort
     # Radix sort
-    print(f"***** # match_keys = {len(match_keys)}")
+
     if args.do_sort:
 
-        if args.have_bits:
+        if args.sort_type == BIT_RADIX_SORT:
             bit_radix_sort(match_bits, reports)
         else:
+            if args.sort_type == RADIX_SORT:
         
-            new_radix_sort(match_keys, reports,
+                new_radix_sort(match_keys, reports,
                                n_bits = args.n_bits)
+        else:
+            if args.sort_type == BATCHER_SORT:
+                pass
+        else:
+            print(f"Illegal sort type {args.sort_type}")
 
     breakdown_key_sums = oblivious_attribution(match_keys, reports,
                                                args.breakdown_values)
