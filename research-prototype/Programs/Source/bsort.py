@@ -50,15 +50,16 @@ def reveal_sort(k, D, reverse=False):
     library.break_point()
     instructions.delshuffle(shuffle)
 
-def bit_radix_sort(bs, D):
+def bit_radix_sort(bst, D):
     """
     bs: a N by B bit array
     D: a N long array to be permuted.
     """
-    num, n_bits = bs.sizes
+    num, n_bits = bst.sizes
     assert num == len(D)
     B = types.sint.Matrix(num, 2)
     h = types.Array.create_from(types.sint(types.regint.inc(num)))
+    bs = bst.transpose()
     @library.for_range(num)
     def _(i):
         b = bs[i]
@@ -77,4 +78,4 @@ def new_radix_sort(k, D, n_bits=None, signed=True):
     bs = types.Matrix.create_from(k.get_vector().bit_decompose(n_bits))
     if signed and len(bs) > 1:
         bs[-1][:] = bs[-1][:].bit_not()
-    bit_radix_sort(bs, D)
+    bit_radix_sort(bs.transpose(), D)

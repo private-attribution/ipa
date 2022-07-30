@@ -25,12 +25,10 @@ def reconstruct(bit_array: Matrix) -> Array:
     """
 
     num, n_bits = bit_array.sizes
-    result = Array(sint, num)
-    result.assign_vector(bit_array.get_column(0))
-    # mult = 1
-    for ind in range(1, n_bits):
-        # mult *= 2
-        result = result + (bit_array.get_column(ind) << ind)
+    result = Array(num, sint)
+    result.assign_vector(bit_array.get_column(n_bits - 1))
+    for ind in range(n_bits - 2, -1, -1):
+        result = result + result + bit_array.get_column(ind)
     return result
 
 def get_args(args) -> argparse.Namespace:
@@ -185,19 +183,24 @@ def main():
     Do the main processing.
     """
 
+    set_directory()
+    from bsort import bit_radix_sort, new_radix_sort
     args = get_args(program.args[1: ])
     print(f"args = {args}")
 
     numrows = 2 ** args.numrows_power
 
     # load the data
+    print(f"Using {'bits' if args.have_bits else 'sint'}")
+    match_keys = Array(numrows, sint)
+    
+    match_bits = Matrix(numrows, args.n_bits, sint)
     if args.have_bits:
-        match_bits = Matrix(numrows, args.n_bits, sbitint)
         match_bits.assign_vector(
-            sbitint.get_input_from(0, size = numrows * n_bits))
-        match_keys = reconstruct(match_bits)
+            sint.get_input_from(0, size = numrows * args.n_bits))
+        match_keys.assign_vector(reconstruct(match_bits))
     else:
-        match_keys = Array(numrows, sint)
+        print('*** No bits ***')
         match_keys.assign_vector(sint.get_input_from(0, size = numrows))
 
     reports = Matrix(numrows, 3, sint)
@@ -205,15 +208,14 @@ def main():
 
     # Now do the sort
     # Radix sort
+    print(f"***** # match_keys = {len(match_keys)}")
     if args.do_sort:
 
         if args.have_bits:
-            set_directory()
-            from bsort import bit_radix_sort
-            new_radix_sort(match_bits, reports)
+            bit_radix_sort(match_bits, reports)
         else:
         
-            sorting.radix_sort(match_keys, reports,
+            new_radix_sort(match_keys, reports,
                                n_bits = args.n_bits)
 
     breakdown_key_sums = oblivious_attribution(match_keys, reports,
