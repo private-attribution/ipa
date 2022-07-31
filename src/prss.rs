@@ -10,6 +10,7 @@ use sha2::Sha256;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 /// A participant in a 2-of-3 replicated secret sharing.
+#[derive(Debug)] // TODO custom debug implementation
 pub struct Participant {
     left: Generator,
     left_bits: BitGenerator,
@@ -132,9 +133,8 @@ pub struct KeyExchange {
 
 impl KeyExchange {
     pub fn new<R: RngCore + CryptoRng>(r: &mut R) -> Self {
-        let mut r = rng::Adapter::from(r);
         Self {
-            sk: EphemeralSecret::new(&mut r),
+            sk: EphemeralSecret::new(r),
         }
     }
 
@@ -172,6 +172,7 @@ impl GeneratorFactory {
 }
 
 /// The basic generator.  This generates values based on an arbitrary index.
+#[derive(Debug)]
 pub struct Generator {
     cipher: Aes256,
 }
@@ -189,6 +190,7 @@ impl Generator {
 }
 
 /// A generator for a single bit.  Unlike the base generator, this is a stateful object.
+#[derive(Debug)]
 pub struct BitGenerator {
     /// The underlying generator.
     g: Generator,
@@ -231,41 +233,8 @@ impl From<Generator> for BitGenerator {
     }
 }
 
-// x25519-dalek uses an old version of the rand_core crate.
-// This is incompatible with the rand crate that the rest of the project uses,
-// but it is basically the same.  This adapter manages that.
-mod rng {
-    use old_rand_core::{CryptoRng as OldCryptoRng, Error as OldError, RngCore as OldRngCore};
-    use rand_core::{CryptoRng, RngCore};
-
-    pub struct Adapter<'a, R>(&'a mut R);
-
-    impl<'a, R: RngCore + CryptoRng> From<&'a mut R> for Adapter<'a, R> {
-        fn from(r: &'a mut R) -> Self {
-            Self(r)
-        }
-    }
-
-    impl<R: RngCore> OldRngCore for Adapter<'_, R> {
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
-            self.0.fill_bytes(dest);
-        }
-        fn next_u32(&mut self) -> u32 {
-            self.0.next_u32()
-        }
-        fn next_u64(&mut self) -> u64 {
-            self.0.next_u64()
-        }
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), OldError> {
-            self.0.try_fill_bytes(dest).map_err(OldError::new)
-        }
-    }
-
-    impl<R: CryptoRng> OldCryptoRng for Adapter<'_, R> {}
-}
-
 #[cfg(test)]
-mod test {
+pub mod test {
     use aes::{cipher::KeyInit, Aes256};
     use digest::generic_array::GenericArray;
     use rand::thread_rng;
@@ -369,7 +338,7 @@ mod test {
     /// Generate three participants.
     /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
     #[must_use]
-    fn make_three() -> (Participant, Participant, Participant) {
+    pub fn make_three() -> (Participant, Participant, Participant) {
         let mut r = thread_rng();
         let setup1 = ParticipantSetup::new(&mut r);
         let setup2 = ParticipantSetup::new(&mut r);

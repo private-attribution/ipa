@@ -1,0 +1,11 @@
+[tool.black]
+include = '\w+\.(py|mpc)$'
+exclude = 'redis*'
+
+[tool.flake8]
+filename = ["*.py", "*.mpc"]
+exclude = ["redis*", ]
+
+[tool.isort]
+profile = "black"
+skip_glob = ["redis*", ]

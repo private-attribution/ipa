@@ -47,3 +47,15 @@ error() {
 cargo clippy --tests -- -D warnings --D clippy::pedantic || error "Clippy errors"
 
 cargo test || error "Test failures"
+
+which flake518 || error "flake518 not found. Install with \`python3 -m pip install flake518\` in the desired python environment."
+
+flake518 . || error "Python flake8 formatting errors."
+
+which black || error error "black not found. Install with \`python3 -m pip install black\` in the desired python environment."
+
+black --check --diff . || error "Python Black formatting errors. Run \`black .\` to fix."
+
+which isort || error error "isort not found. Install with \`python3 -m pip install isort\` in the desired python environment."
+
+isort --check --diff . || error "Python isort import ordering errors. Run \`isort .\` to fix."

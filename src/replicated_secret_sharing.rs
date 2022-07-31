@@ -1,40 +1,58 @@
+use std::fmt::Formatter;
 use std::{
     fmt::Debug,
     ops::{Add, Mul, Neg, Sub},
 };
 
 use crate::field::Field;
-use crate::prss::Participant;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ReplicatedSecretSharing<T>(T, T);
+
+impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({:?}, {:?}", self.0, self.1)
+    }
+}
 
 impl<T: Field> ReplicatedSecretSharing<T> {
     #[must_use]
     pub fn new(a: T, b: T) -> Self {
         Self(a, b)
     }
+
+    pub fn as_tuple(&self) -> (T, T) {
+        (self.0, self.1)
+    }
 }
 
 impl<T: Field> Add for ReplicatedSecretSharing<T> {
+    type Output = Self;
+
     fn add(self, rhs: Self) -> Self {
         Self(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
 impl<T: Field> Neg for ReplicatedSecretSharing<T> {
+    type Output = Self;
+
     fn neg(self) -> Self {
         Self(-self.0, -self.1)
     }
 }
 
 impl<T: Field> Sub for ReplicatedSecretSharing<T> {
+    type Output = Self;
+
     fn sub(self, rhs: Self) -> Self {
         Self(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
 impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
+    type Output = Self;
+
     fn mul(self, rhs: T) -> Self {
         Self(rhs * self.0, rhs * self.1)
     }
