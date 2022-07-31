@@ -9,3 +9,4 @@ exclude = ["redis*", ]
 [tool.isort]
 profile = "black"
 skip_glob = ["redis*", ]
+supported_extensions = ["mpc", ]
