@@ -53,10 +53,10 @@ jobs:
         with:
           python-version: "3.9"
 
-      - uses: psf/black@stable
-        name: Black Python formatting
-        with:
-           options: "--check --diff"
+      - name: Black Python formatting
+        run: |
+          pip install black
+          black --check --diff .
 
       - name: Check format with flake8
         run: |
