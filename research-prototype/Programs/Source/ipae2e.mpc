@@ -23,14 +23,14 @@ parser.add_argument(
         "Note that it's the next arg, not a flag, "
         "so numrows_power must be included "
         "(due to compatibility issues with compile.py"
-    )
+    ),
 )
 
 # program is known to compile.py, but cannot be imported
 args = parser.parse_args(program.args[1:])  # noqa: F821
 
 numrows_power = args.numrows_power
-numrows = 2 ** numrows_power
+numrows = 2**numrows_power
 rows = range(numrows)
 
 if args.ipa_verbose:
@@ -52,7 +52,7 @@ if (verbose and numrows_power > 5) and not force_verbose:
         f"Use 'ipa_force_verbose' if you really want this."
     )
 
-print_ln('********************  IPA E2E %s **********************', numrows)
+print_ln("********************  IPA E2E %s **********************", numrows)
 
 reports = Matrix(numrows, 4, sint)
 
@@ -61,6 +61,7 @@ class Columns(IntEnum):
     """
     These are the Columns in the above Matrix
     """
+
     MATCHKEY = 0
     IS_TRIGGER = 1
     VALUE = 2
@@ -68,10 +69,10 @@ class Columns(IntEnum):
 
 
 local_params = {
-    'reports': reports,
-    'sint': sint,
-    'print_ln': print_ln,
-    'Columns': Columns,
+    "reports": reports,
+    "sint": sint,
+    "print_ln": print_ln,
+    "Columns": Columns,
 }
 
 
@@ -96,7 +97,7 @@ if verbose:
         exec(cmd, {}, local_params)
 
 helperbits = Array(numrows, sint)
-local_params['helperbits'] = helperbits
+local_params["helperbits"] = helperbits
 
 for row in rows[:-1]:
     cmd = (
@@ -108,9 +109,9 @@ for row in rows[:-1]:
 
 
 helperbit_and_istrigger_flags = Array(numrows, sint)
-local_params['helperbit_and_istrigger_flags'] = helperbit_and_istrigger_flags
+local_params["helperbit_and_istrigger_flags"] = helperbit_and_istrigger_flags
 helperbit_xor_istrigger_flags = Array(numrows, sint)
-local_params['helperbit_xor_istrigger_flags'] = helperbit_xor_istrigger_flags
+local_params["helperbit_xor_istrigger_flags"] = helperbit_xor_istrigger_flags
 
 for row in rows[:-1]:
     cmd = (
@@ -125,36 +126,38 @@ for row in rows[:-1]:
     exec(cmd, {}, local_params)
 
 if verbose:
-    print_ln('%s', helperbits.reveal())
-    print_ln('%s', helperbit_and_istrigger_flags.reveal())
-    print_ln('%s', helperbit_xor_istrigger_flags.reveal())
+    print_ln("%s", helperbits.reveal())
+    print_ln("%s", helperbit_and_istrigger_flags.reveal())
+    print_ln("%s", helperbit_xor_istrigger_flags.reveal())
 
 
 stopbits = [Array(numrows, sint) for _ in range(numrows_power)]
-local_params['stopbits'] = stopbits
+local_params["stopbits"] = stopbits
 
 for stopbit in stopbits:
-    local_params['stopbit'] = stopbit
+    local_params["stopbit"] = stopbit
     for row in rows:
         cmd = f"stopbit[{row}] = 1"
         exec(cmd, {}, local_params)
 
 credit_arrays = [Array(numrows, sint) for _ in range(numrows_power)]
-local_params['credit_arrays'] = credit_arrays
+local_params["credit_arrays"] = credit_arrays
 
 for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
-    stepsize = 2 ** exponent
-    local_params['stopbit'] = stopbit
-    local_params['credit'] = credit
-    local_params['stepsize'] = stepsize
+    stepsize = 2**exponent
+    local_params["stopbit"] = stopbit
+    local_params["credit"] = credit
+    local_params["stepsize"] = stepsize
 
     for current in rows[:-stepsize]:
         successor = current + stepsize
         # another optimization could be to multiply one time all the
         # helperbit * istrigger bits since these are fixed.
         if exponent == 0:
-            # credit is initialized to value because stopbit[successor] is always 1
-            # and reports[current][Columns.VALUE] = value[current] * stopbit[successor]
+            # credit is initialized to value
+            # because stopbit[successor] is always 1
+            # and reports[current][Columns.VALUE] =
+            # value[current] * stopbit[successor]
             cmd = (
                 f"flag = helperbit_and_istrigger_flags[{successor}];"
                 f"credit[{current}] = "
@@ -169,19 +172,20 @@ for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
                 f"credit[{current}] = "
                 f"credit_arrays[{exponent-1}][{current}] + "
                 f"flag * credit_arrays[{exponent-1}][{successor}];"
-                f"stopbit[{current}] = flag * stopbits[{exponent-1}][{successor}]"
+                f"stopbit[{current}] = flag * "
+                f"stopbits[{exponent-1}][{successor}]"
             )
         exec(cmd, {}, local_params)
 
     if verbose:
-        print_ln('iteration: %s', exponent)
-        print_ln('credit %s', credit.reveal())
-        print_ln('stopbit %s', stopbit.reveal())
+        print_ln("iteration: %s", exponent)
+        print_ln("credit %s", credit.reveal())
+        print_ln("stopbit %s", stopbit.reveal())
 
-# I can't sum all of credit, I need to sum only those that correspond to last touches
-# helperbit_xor_istrigger * credit_arrays[-1] will give this.
+# I can't sum all of credit, I need to sum only those that correspond to last
+# touches helperbit_xor_istrigger * credit_arrays[-1] will give this.
 final_credits = Array(numrows, sint)
-local_params['final_credits'] = final_credits
+local_params["final_credits"] = final_credits
 
 for row in rows:
     cmd = (
@@ -207,14 +211,15 @@ if verbose:
 breakdown_keys = list(range(4))
 
 breakdown_key_sums = Array(4, sint)
-local_params['breakdown_key_sums'] = breakdown_key_sums
+local_params["breakdown_key_sums"] = breakdown_key_sums
 
 for breakdown_key in breakdown_keys:
     cmd = f"breakdown_key_sums[{breakdown_key}] = sint(0)"
     exec(cmd, {}, local_params)
     for row in rows:
         cmd = (
-            f"breakdown_key_sums[{breakdown_key}] = breakdown_key_sums[{breakdown_key}] + "
+            f"breakdown_key_sums[{breakdown_key}] = "
+            f"breakdown_key_sums[{breakdown_key}] + "
             f"(reports[{row}][Columns.BREAKDOWN_KEY] =="
             f"{breakdown_key}).if_else(final_credits[{row}], 0)"
         )
