@@ -8,4 +8,4 @@ exclude = ["redis*", ]
 
 [tool.isort]
 profile = "black"
-skip = ["redis*", ]
+skip_glob = ["redis*", ]
