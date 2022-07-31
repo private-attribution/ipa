@@ -1,0 +1,8 @@
+[tool.black]
+include = '\w+\.(py|mpc)$'
+
+[tool.flake8]
+filename = ["*.py", "*.mpc"]
+
+[tool.isort]
+profile = "black"
