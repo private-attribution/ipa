@@ -1,7 +1,7 @@
 import argparse
 from enum import IntEnum
 
-from Compiler.library import print_ln
+from Compiler.library import print_ln, tree_reduce
 from Compiler.types import Array, Matrix, sint
 
 parser = argparse.ArgumentParser(description="Run MP-SPDZ prototype of IPA")
@@ -53,12 +53,10 @@ if (verbose and numrows_power > 5) and not force_verbose:
 
 print_ln("********************  IPA E2E %s **********************", numrows)
 
-reports = Matrix(numrows, 4, sint)
-
 
 class Columns(IntEnum):
     """
-    These are the Columns in the above Matrix
+    These are the Columns in the reports Matrix
     """
 
     MATCHKEY = 0
@@ -67,19 +65,11 @@ class Columns(IntEnum):
     BREAKDOWN_KEY = 3
 
 
-local_params = {
-    "reports": reports,
-    "sint": sint,
-    "print_ln": print_ln,
-    "Columns": Columns,
-}
-
+numcolumns = len(Columns)
+reports = Matrix(numrows, numcolumns, sint)
 
 # Load data
-for row in rows:
-    for column in Columns:
-        cmd = f"reports[{row}][{column}] = sint.get_input_from(0)"
-        exec(cmd, {}, local_params)
+reports.assign_vector(sint.get_input_from(0, size=numrows * numcolumns))
 
 # Radix sort
 reports.sort((Columns.MATCHKEY,), n_bits=32)
@@ -89,108 +79,96 @@ if verbose:
         print_ln(f"report[{row}]: %s", reports[row].reveal())
 
 helperbits = Array(numrows, sint)
-local_params["helperbits"] = helperbits
-
-for row in rows[:-1]:
-    cmd = (
-        f"helperbits[{row}] = "
-        f"(reports[{row}][Columns.MATCHKEY] == "
-        f"reports[{row+1}][Columns.MATCHKEY]).if_else(1, 0)"
-    )
-    exec(cmd, {}, local_params)
+helperbits[0] = sint(0)
+helperbits.assign_vector(
+    reports.get_column(Columns.MATCHKEY).get_vector(size=numrows - 1)
+    == reports.get_column(Columns.MATCHKEY).get_vector(base=1, size=numrows - 1),
+    base=1,
+)
 
 
 helperbit_and_istrigger_flags = Array(numrows, sint)
-local_params["helperbit_and_istrigger_flags"] = helperbit_and_istrigger_flags
-helperbit_xor_istrigger_flags = Array(numrows, sint)
-local_params["helperbit_xor_istrigger_flags"] = helperbit_xor_istrigger_flags
+helperbit_and_istrigger_flags.assign_vector(
+    helperbits.get_vector(size=numrows - 1)
+    * reports.get_column(Columns.IS_TRIGGER).get_vector(size=numrows - 1),
+)
+helperbit_and_istrigger_flags[-1] = sint(0)
 
-for row in rows[:-1]:
-    cmd = (
-        f"helperbit_and_istrigger_flags[{row}] = "
-        f"helperbits[{row}] * reports[{row}][Columns.IS_TRIGGER]"
+helperbit_xor_istrigger_flags = Array(numrows, sint)
+helperbit_xor_istrigger_flags.assign_vector(
+    (
+        helperbits.get_vector(size=numrows)
+        + reports.get_column(Columns.IS_TRIGGER).get_vector(size=numrows)
     )
-    exec(cmd, {}, local_params)
-    cmd = (
-        f"helperbit_xor_istrigger_flags[{row}] "
-        f"= (helperbits[{row}] + reports[{row}][Columns.IS_TRIGGER]) % 2"
-    )
-    exec(cmd, {}, local_params)
+    % 2,
+)
+helperbit_xor_istrigger_flags[-1] = sint(0)
 
 if verbose:
-    print_ln("%s", helperbits.reveal())
-    print_ln("%s", helperbit_and_istrigger_flags.reveal())
-    print_ln("%s", helperbit_xor_istrigger_flags.reveal())
+    print_ln("helperbits: %s", helperbits.reveal())
+    print_ln(
+        "helperbit_and_istrigger_flags: %s", helperbit_and_istrigger_flags.reveal()
+    )
+    print_ln(
+        "helperbit_xor_istrigger_flags: %s", helperbit_xor_istrigger_flags.reveal()
+    )
 
 
 stopbits = [Array(numrows, sint) for _ in range(numrows_power)]
-local_params["stopbits"] = stopbits
-
 for stopbit in stopbits:
-    local_params["stopbit"] = stopbit
-    for row in rows:
-        cmd = f"stopbit[{row}] = 1"
-        exec(cmd, {}, local_params)
+    stopbit.assign_all(0)
 
 credit_arrays = [Array(numrows, sint) for _ in range(numrows_power)]
-local_params["credit_arrays"] = credit_arrays
-
 for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
     stepsize = 2**exponent
-    local_params["stopbit"] = stopbit
-    local_params["credit"] = credit
-    local_params["stepsize"] = stepsize
+    flag = Array(numrows, sint)
 
-    for current in rows[:-stepsize]:
-        successor = current + stepsize
-        # another optimization could be to multiply one time all the
-        # helperbit * istrigger bits since these are fixed.
-        if exponent == 0:
-            # credit is initialized to value
-            # because stopbit[successor] is always 1
-            # and reports[current][Columns.VALUE] =
-            # value[current] * stopbit[successor]
-            cmd = (
-                f"flag = helperbit_and_istrigger_flags[{successor}];"
-                f"credit[{current}] = "
-                f"reports[{current}][Columns.VALUE] +"
-                f"flag * reports[{successor}][Columns.VALUE];"
-                f"stopbit[{current}] = flag"
+    if exponent == 0:
+        stopbit.assign_vector(
+            helperbit_and_istrigger_flags.get_vector(base=1, size=numrows - 1)
+        )
+
+        credit.assign_vector(
+            reports.get_column(Columns.VALUE)
+            + stopbit.get_vector()
+            * reports.get_column(Columns.VALUE).get_vector(base=1)
+        )
+    else:
+        flag.assign_vector(
+            stopbits[exponent - 1].get_vector(size=numrows - stepsize)
+            * helperbit_and_istrigger_flags.get_vector(base=stepsize)
+        )
+        stopbit.assign_vector(
+            flag.get_vector(size=numrows - stepsize)
+            * stopbits[exponent - 1].get_vector(base=stepsize)
+        )
+        credit.assign_vector(
+            credit_arrays[exponent - 1].get_vector(size=numrows - stepsize)
+            + flag.get_vector(size=numrows - stepsize)
+            * credit_arrays[exponent - 1].get_vector(
+                base=stepsize, size=numrows - stepsize
             )
-        else:
-            cmd = (
-                f"flag = stopbits[{exponent-1}][{current}] "
-                f"* helperbit_and_istrigger_flags[{successor}];"
-                f"credit[{current}] = "
-                f"credit_arrays[{exponent-1}][{current}] + "
-                f"flag * credit_arrays[{exponent-1}][{successor}];"
-                f"stopbit[{current}] = flag * "
-                f"stopbits[{exponent-1}][{successor}]"
-            )
-        exec(cmd, {}, local_params)
+        )
 
     if verbose:
         print_ln("iteration: %s", exponent)
+        print_ln("flag: %s", flag.reveal())
         print_ln("credit %s", credit.reveal())
         print_ln("stopbit %s", stopbit.reveal())
 
 # I can't sum all of credit, I need to sum only those that correspond to last
 # touches helperbit_xor_istrigger * credit_arrays[-1] will give this.
 final_credits = Array(numrows, sint)
-local_params["final_credits"] = final_credits
-
-for row in rows:
-    cmd = (
-        f"final_credits[{row}] = "
-        f"helperbit_xor_istrigger_flags[{row}] * credit_arrays[-1][{row}]"
-    )
-    exec(cmd, {}, local_params)
+final_credits.assign_vector(
+    helperbit_xor_istrigger_flags.get_vector() * credit_arrays[-1].get_vector()
+)
 
 if verbose:
+    print_ln("%s", ", ".join(str(c) for c in Columns))
     for row in rows:
         # OK to do in loop, should avoid use verbose for large numrows values
         print_ln(
-            f"(report[{row}], final_credits[{row}]: (%s, %s)",
+            f"report[{row}]: %s, final_credits[{row}]: %s",
             reports[row].reveal(),
             final_credits[row].reveal(),
         )
@@ -198,20 +176,15 @@ if verbose:
 # SUM BREAKDOWNS
 # for now we have hard coded 4 breakdown keys
 breakdown_keys = list(range(4))
-
 breakdown_key_sums = Array(4, sint)
-local_params["breakdown_key_sums"] = breakdown_key_sums
 
 for breakdown_key in breakdown_keys:
-    cmd = f"breakdown_key_sums[{breakdown_key}] = sint(0)"
-    exec(cmd, {}, local_params)
-    for row in rows:
-        cmd = (
-            f"breakdown_key_sums[{breakdown_key}] = "
-            f"breakdown_key_sums[{breakdown_key}] + "
-            f"(reports[{row}][Columns.BREAKDOWN_KEY] =="
-            f"{breakdown_key}).if_else(final_credits[{row}], 0)"
-        )
-        exec(cmd, {}, local_params)
+    mask = Array(numrows, sint)
+    mask.assign_vector(reports.get_column(Columns.BREAKDOWN_KEY) == breakdown_key)
+
+    breakdown_key_sums[breakdown_key] = tree_reduce(
+        lambda x, y: x + y,
+        mask * final_credits,
+    )
 
 print_ln("breakdowns: %s", breakdown_key_sums.reveal())
