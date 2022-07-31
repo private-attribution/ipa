@@ -86,14 +86,7 @@ reports.sort((Columns.MATCHKEY,), n_bits=32)
 
 if verbose:
     for row in rows:
-        cmd = (
-            f"print_ln('%s, %s, %s, %s', "
-            f"reports[{row}][Columns.MATCHKEY].reveal(), "
-            f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
-            f"reports[{row}][Columns.VALUE].reveal(), "
-            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),)"
-        )
-        exec(cmd, {}, local_params)
+        print_ln(f"report[{row}]: %s", reports[row].reveal())
 
 helperbits = Array(numrows, sint)
 local_params["helperbits"] = helperbits
@@ -195,15 +188,12 @@ for row in rows:
 
 if verbose:
     for row in rows:
-        cmd = (
-            f"print_ln('%s, %s, %s, %s, %s', "
-            f"reports[{row}][Columns.MATCHKEY].reveal(), "
-            f"reports[{row}][Columns.IS_TRIGGER].reveal(),"
-            f"reports[{row}][Columns.VALUE].reveal(), "
-            f"reports[{row}][Columns.BREAKDOWN_KEY].reveal(),"
-            f"final_credits[{row}].reveal())"
+        # OK to do in loop, should avoid use verbose for large numrows values
+        print_ln(
+            f"(report[{row}], final_credits[{row}]: (%s, %s)",
+            reports[row].reveal(),
+            final_credits[row].reveal(),
         )
-        exec(cmd, {}, local_params)
 
 # SUM BREAKDOWNS
 # for now we have hard coded 4 breakdown keys
