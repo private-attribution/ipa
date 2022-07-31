@@ -1,9 +1,8 @@
-from enum import IntEnum
 import argparse
+from enum import IntEnum
 
 from Compiler.library import print_ln
-from Compiler.types import sint, Matrix, Array
-
+from Compiler.types import Array, Matrix, sint
 
 parser = argparse.ArgumentParser(description="Run MP-SPDZ prototype of IPA")
 parser.add_argument(
