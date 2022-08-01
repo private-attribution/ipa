@@ -1,54 +1,27 @@
-import argparse
+import os
 from enum import IntEnum
 
 from Compiler.library import print_ln, tree_reduce
 from Compiler.types import Array, Matrix, sint
 
-parser = argparse.ArgumentParser(description="Run MP-SPDZ prototype of IPA")
-parser.add_argument(
-    "numrows_power",
-    type=int,
-    default=10,
-    help="Run with 2^{numrows_power} rows",
-)
-parser.add_argument(
-    "ipa_verbose",
-    type=str,
-    default="",
-    nargs="?",
-    help=(
-        "Verbose printing of variables. "
-        "Not available for more than 2^5 (32) rows."
-        "Note that it's the next arg, not a flag, "
-        "so numrows_power must be included "
-        "(due to compatibility issues with compile.py"
-    ),
-)
+numrows_power = int(os.getenv("IPA_NUMROWS_POWER", 10))
 
-# program is known to compile.py, but cannot be imported
-args = parser.parse_args(program.args[1:])  # noqa: F821
-
-numrows_power = args.numrows_power
 numrows = 2**numrows_power
 rows = range(numrows)
 
-if args.ipa_verbose:
-    if args.ipa_verbose == "ipa_verbose":
+verbose = os.getenv("IPA_VERBOSE", False)
+if verbose:
+    if verbose == "True":
         verbose = True
-        force_verbose = False
-    elif args.ipa_verbose == "ipa_force_verbose":
-        verbose = True
-        force_verbose = True
+    elif verbose == "False":
+        verbose = False
     else:
-        raise Exception(f"Unrecognized argument {args.ipa_verbose}")
-else:
-    verbose = False
+        raise Exception(f"Unrecognized verbose value: {verbose}")
 
-if (verbose and numrows_power > 5) and not force_verbose:
+if verbose and numrows_power > 5:
     raise Exception(
-        f"You cannot compiling with ipa_verbose on for {numrows} rows. "
+        f"You cannot compile with IPA_VERBOSE for {numrows} rows. "
         f"This will result in quite a bit of output in your terminal."
-        f"Use 'ipa_force_verbose' if you really want this."
     )
 
 print_ln("********************  IPA E2E %s **********************", numrows)

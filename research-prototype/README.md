@@ -63,10 +63,10 @@ To run the compiler:
 ../../MP-SPDZ/compile.py -C -R 32 ipae2e
 ```
 
-There are two options (specific to the IPA prototype) that you can provide as environmental variables: `numrows_power` and `ipa_verbose`. (the MP-SPDZ compile script consumes command line args as well, so we have to be a bit hacky and not used flags. An example of providing these for a single compile step:
+There are two options (specific to the IPA prototype) that you can provide as environmental variables: `IPA_VERBOSE` and `IPA_NUMROWS_POWER`. (The MP-SPDZ compile script consumes command line args, hence the need for environmental variables.) An example of providing these for a single compile step:
 
 ```
-../../MP-SPDZ/compile.py -C -R 32 ipae2e 5 ipa_compile
+IPA_VERBOSE=True IPA_NUMROWS_POWER=5 ../../MP-SPDZ/compile.py -C -R 32 ipae2e
 ```
 
 Note that you should also generate random data accordingly. Also, to avoid dumping way to much data into your terminal, you cannot use the verbose mode for more than 2^5 rows.
