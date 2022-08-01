@@ -1,0 +1,163 @@
+import os
+from enum import IntEnum
+
+from Compiler.library import print_ln, tree_reduce
+from Compiler.types import Array, Matrix, sint
+
+numrows_power = int(os.getenv("IPA_NUMROWS_POWER", 10))
+
+numrows = 2**numrows_power
+rows = range(numrows)
+
+verbose = os.getenv("IPA_VERBOSE", False)
+if verbose:
+    if verbose == "True":
+        verbose = True
+    elif verbose == "False":
+        verbose = False
+    else:
+        raise Exception(f"Unrecognized verbose value: {verbose}")
+
+if verbose and numrows_power > 5:
+    raise Exception(
+        f"You cannot compile with IPA_VERBOSE for {numrows} rows. "
+        f"This will result in quite a bit of output in your terminal."
+    )
+
+print_ln("********************  IPA E2E %s **********************", numrows)
+
+
+class Columns(IntEnum):
+    """
+    These are the Columns in the reports Matrix
+    """
+
+    MATCHKEY = 0
+    IS_TRIGGER = 1
+    VALUE = 2
+    BREAKDOWN_KEY = 3
+
+
+numcolumns = len(Columns)
+reports = Matrix(numrows, numcolumns, sint)
+
+# Load data
+reports.assign_vector(sint.get_input_from(0, size=numrows * numcolumns))
+
+# Radix sort
+reports.sort((Columns.MATCHKEY,), n_bits=32)
+
+if verbose:
+    for row in rows:
+        print_ln(f"report[{row}]: %s", reports[row].reveal())
+
+helperbits = Array(numrows, sint)
+helperbits[0] = sint(0)
+helperbits.assign_vector(
+    reports.get_column(Columns.MATCHKEY).get_vector(size=numrows - 1)
+    == reports.get_column(Columns.MATCHKEY).get_vector(base=1, size=numrows - 1),
+    base=1,
+)
+
+
+helperbit_and_istrigger_flags = Array(numrows, sint)
+helperbit_and_istrigger_flags.assign_vector(
+    helperbits.get_vector(size=numrows - 1)
+    * reports.get_column(Columns.IS_TRIGGER).get_vector(size=numrows - 1),
+)
+helperbit_and_istrigger_flags[-1] = sint(0)
+
+helperbit_xor_istrigger_flags = Array(numrows, sint)
+helperbit_xor_istrigger_flags.assign_vector(
+    (
+        helperbits.get_vector(size=numrows)
+        + reports.get_column(Columns.IS_TRIGGER).get_vector(size=numrows)
+    )
+    % 2,
+)
+helperbit_xor_istrigger_flags[-1] = sint(0)
+
+if verbose:
+    print_ln("helperbits: %s", helperbits.reveal())
+    print_ln(
+        "helperbit_and_istrigger_flags: %s", helperbit_and_istrigger_flags.reveal()
+    )
+    print_ln(
+        "helperbit_xor_istrigger_flags: %s", helperbit_xor_istrigger_flags.reveal()
+    )
+
+
+stopbits = [Array(numrows, sint) for _ in range(numrows_power)]
+for stopbit in stopbits:
+    stopbit.assign_all(0)
+
+credit_arrays = [Array(numrows, sint) for _ in range(numrows_power)]
+for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
+    stepsize = 2**exponent
+    flag = Array(numrows, sint)
+
+    if exponent == 0:
+        stopbit.assign_vector(
+            helperbit_and_istrigger_flags.get_vector(base=1, size=numrows - 1)
+        )
+
+        credit.assign_vector(
+            reports.get_column(Columns.VALUE)
+            + stopbit.get_vector()
+            * reports.get_column(Columns.VALUE).get_vector(base=1)
+        )
+    else:
+        flag.assign_vector(
+            stopbits[exponent - 1].get_vector(size=numrows - stepsize)
+            * helperbit_and_istrigger_flags.get_vector(base=stepsize)
+        )
+        stopbit.assign_vector(
+            flag.get_vector(size=numrows - stepsize)
+            * stopbits[exponent - 1].get_vector(base=stepsize)
+        )
+        credit.assign_vector(
+            credit_arrays[exponent - 1].get_vector(size=numrows - stepsize)
+            + flag.get_vector(size=numrows - stepsize)
+            * credit_arrays[exponent - 1].get_vector(
+                base=stepsize, size=numrows - stepsize
+            )
+        )
+
+    if verbose:
+        print_ln("iteration: %s", exponent)
+        print_ln("flag: %s", flag.reveal())
+        print_ln("credit %s", credit.reveal())
+        print_ln("stopbit %s", stopbit.reveal())
+
+# I can't sum all of credit, I need to sum only those that correspond to last
+# touches helperbit_xor_istrigger * credit_arrays[-1] will give this.
+final_credits = Array(numrows, sint)
+final_credits.assign_vector(
+    helperbit_xor_istrigger_flags.get_vector() * credit_arrays[-1].get_vector()
+)
+
+if verbose:
+    print_ln("%s", ", ".join(str(c) for c in Columns))
+    for row in rows:
+        # OK to do in loop, should avoid use verbose for large numrows values
+        print_ln(
+            f"report[{row}]: %s, final_credits[{row}]: %s",
+            reports[row].reveal(),
+            final_credits[row].reveal(),
+        )
+
+# SUM BREAKDOWNS
+# for now we have hard coded 4 breakdown keys
+breakdown_keys = list(range(4))
+breakdown_key_sums = Array(4, sint)
+
+for breakdown_key in breakdown_keys:
+    mask = Array(numrows, sint)
+    mask.assign_vector(reports.get_column(Columns.BREAKDOWN_KEY) == breakdown_key)
+
+    breakdown_key_sums[breakdown_key] = tree_reduce(
+        lambda x, y: x + y,
+        mask * final_credits,
+    )
+
+print_ln("breakdowns: %s", breakdown_key_sums.reveal())

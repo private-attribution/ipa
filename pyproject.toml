@@ -1,0 +1,14 @@
+[tool.black]
+include = '\w+\.(py|mpc)$'
+exclude = 'redis*'
+
+[tool.flake8]
+filename = ["*.py", "*.mpc"]
+exclude = ["redis*", ]
+max-line-length = 88
+extend-ignore = "E203"
+
+[tool.isort]
+profile = "black"
+skip_glob = ["redis*", ]
+supported_extensions = ["mpc", ]
