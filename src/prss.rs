@@ -466,15 +466,21 @@ pub mod test {
         let r1: Fp31 = p1.random(IDX1);
         let r2 = p2.random(IDX1);
         let r3 = p3.random(IDX1);
-
         let v1 = r1 + r2 + r3;
-        assert_ne!(Fp31::from(0_u8), v1);
 
-        let r1: Fp31 = p1.random(IDX2);
-        let r2 = p2.random(IDX2);
-        let r3 = p3.random(IDX2);
+        // There isn't enough entropy in this field to be sure that the test will pass.
+        // So run a few rounds looking for a mismatch.
+        let mut v2 = Fp31::from(0_u8);
+        for _ in 0..12 {
+            let r1: Fp31 = p1.random(IDX2);
+            let r2 = p2.random(IDX2);
+            let r3 = p3.random(IDX2);
 
-        let v2 = r1 + r2 + r3;
+            v2 = r1 + r2 + r3;
+            if v1 != v2 {
+                break;
+            }
+        }
         assert_ne!(v1, v2);
     }
 
