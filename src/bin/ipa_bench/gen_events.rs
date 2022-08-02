@@ -109,7 +109,7 @@ pub enum Event {
 }
 
 struct GenEventParams {
-    devices: u8,
+    matchkeys: u8,
     impressions: u8,
     conversions: u8,
     epoch: Epoch,
@@ -153,10 +153,10 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
         debug!("CVR: {}", cvr);
 
         for _ in 0..reach {
-            // # of devices == # of matchkeys
-            // Hard code this number to 1 as we only have a solution for one match key.
-            let devices = 1;
-            trace!("devices per user: {}", devices);
+            // # of matchkeys
+            // Hard code this number to 1 as, at the moment, we only have a solution for one match key.
+            let matchkeys = 1;
+            trace!("match keys per user: {}", matchkeys);
 
             let impressions = sample.impression_per_user(rng);
             trace!("impressions per user: {}", impressions);
@@ -171,7 +171,7 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
 
             let events = gen_events(
                 &GenEventParams {
-                    devices,
+                    matchkeys,
                     impressions,
                     conversions,
                     epoch,
@@ -212,7 +212,7 @@ fn gen_events<R: RngCore + CryptoRng>(
 ) -> Vec<Event> {
     let mut events: Vec<Event> = Vec::new();
 
-    let matchkeys = gen_matchkeys(params.devices, rng);
+    let matchkeys = gen_matchkeys(params.matchkeys, rng);
     let mut ss_mks: Vec<SecretShare> = Vec::new();
 
     if secret_share {
