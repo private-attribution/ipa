@@ -147,10 +147,6 @@ pub struct TriggerEvent {
 
     /// Conversion value.
     pub value: SecretShare,
-
-    /// Zero knowledge proof that the trigger value lies within a specific range
-    /// of values. The range is specified in [TriggerFanoutQuery].
-    pub zkp: Number,
 }
 
 #[cfg(feature = "debug")]

@@ -34,7 +34,7 @@ pub struct EventBase {
     pub timestamp: Number,
 
     /// 0 (false) if this is a source event. 1 (true) otherwise.
-    pub flag: bool,
+    pub is_trigger: bool,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -46,7 +46,6 @@ pub struct SourceEvent {
 
     /// Fields from TriggerEvent for padding
     value: Number,
-    zkp: Number,
 }
 
 impl SourceEvent {
@@ -62,11 +61,10 @@ impl SourceEvent {
                 matchkeys,
                 epoch,
                 timestamp,
-                flag: false,
+                is_trigger: false,
             },
             breakdown_key,
             value: 0,
-            zkp: 0,
         }
     }
 }
@@ -78,32 +76,22 @@ pub struct TriggerEvent {
     /// Conversion value
     pub value: Number,
 
-    /// Zero-knowledge proof value
-    pub zkp: Number,
-
     /// Fields from SourceEvent for padding
     breakdown_key: Number,
 }
 
 impl TriggerEvent {
     #[must_use]
-    pub fn new(
-        matchkeys: Vec<MatchKey>,
-        epoch: Epoch,
-        timestamp: Number,
-        value: Number,
-        zkp: Number,
-    ) -> Self {
+    pub fn new(matchkeys: Vec<MatchKey>, epoch: Epoch, timestamp: Number, value: Number) -> Self {
         Self {
             event: EventBase {
                 matchkeys,
                 epoch,
                 timestamp,
-                flag: false,
+                is_trigger: false,
             },
             breakdown_key: 0,
             value,
-            zkp,
         }
     }
 }
@@ -166,7 +154,8 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
 
         for _ in 0..reach {
             // # of devices == # of matchkeys
-            let devices = sample.devices_per_user(rng);
+            // Hard code this number to 1 as we only have a solution for one match key.
+            let devices = 1;
             trace!("devices per user: {}", devices);
 
             let impressions = sample.impression_per_user(rng);
@@ -282,7 +271,6 @@ fn gen_events<R: RngCore + CryptoRng>(
                     timestamp: u32::try_from(t.as_secs()).unwrap().xor_split(ss_rng),
                 },
                 value: conversion_value.xor_split(ss_rng),
-                zkp: 0,
             }));
         } else {
             events.push(Event::Trigger(TriggerEvent::new(
@@ -291,7 +279,6 @@ fn gen_events<R: RngCore + CryptoRng>(
                 params.epoch,
                 u32::try_from(t.as_secs()).unwrap(),
                 conversion_value,
-                0,
             )));
         }
 
@@ -491,7 +478,6 @@ mod tests {
                         let value = u32::combine(&et.value).unwrap();
                         assert!(t.event.timestamp == timestamp);
                         assert!(t.value == value);
-                        assert!(t.zkp == et.zkp);
                         assert!(t.event.epoch == et.event.epoch);
                     } else {
                         unreachable!();
