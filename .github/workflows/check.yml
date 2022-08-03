@@ -7,7 +7,6 @@ jobs:
       CARGO_TERM_COLOR: always
       REDIS_VERSION: '6.2.4'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
 
@@ -23,7 +22,6 @@ jobs:
 
       - name: Install redis and start redis server
         run: |
-          sudo apt-get update
           wget https://github.com/redis/redis/archive/${{ env.REDIS_VERSION }}.tar.gz;
           tar -xzvf ${{ env.REDIS_VERSION }}.tar.gz;
           pushd redis-${{ env.REDIS_VERSION }} && BUILD_TLS=yes make && sudo mv src/redis-server src/redis-cli /usr/bin/ && popd;
@@ -50,9 +48,7 @@ jobs:
     
   python-check:
     name: Python Checks
-
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
 
