@@ -42,6 +42,18 @@ pub enum Error {
 }
 
 impl<F: Field> SecureMul<F> {
+    pub fn new(
+        a_share: ReplicatedSecretSharing<F>,
+        b_share: ReplicatedSecretSharing<F>,
+        index: u128,
+    ) -> SecureMul<F> {
+        SecureMul {
+            index,
+            a_share,
+            b_share,
+        }
+    }
+
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
     /// their part, eventually producing 2/3 shares of the product and that is what this function
     /// returns.
@@ -151,7 +163,7 @@ pub mod stream {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
 
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -288,7 +300,12 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a>(
+    /// Creates a test context - only suitable for use in tests
+    ///
+    /// ## Panics
+    /// I'm not sure what can go wrong here.
+    #[must_use]
+    pub fn make_context<'a>(
         ring: &'a [TestHelper; 3],
         participants: &'a (Participant, Participant, Participant),
     ) -> [ProtocolContext<'a, TestHelper>; 3] {

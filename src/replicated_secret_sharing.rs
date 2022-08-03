@@ -11,7 +11,7 @@ pub struct ReplicatedSecretSharing<T>(T, T);
 
 impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({:?}, {:?}", self.0, self.1)
+        write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
@@ -59,7 +59,7 @@ impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 
     use crate::field::Fp31;
@@ -80,7 +80,7 @@ mod tests {
         )
     }
 
-    fn assert_valid_secret_sharing(
+    pub fn assert_valid_secret_sharing(
         res1: ReplicatedSecretSharing<Fp31>,
         res2: ReplicatedSecretSharing<Fp31>,
         res3: ReplicatedSecretSharing<Fp31>,
@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(res3.1, res1.0);
     }
 
-    fn assert_secret_shared_value(
+    pub fn assert_secret_shared_value(
         a1: ReplicatedSecretSharing<Fp31>,
         a2: ReplicatedSecretSharing<Fp31>,
         a3: ReplicatedSecretSharing<Fp31>,
