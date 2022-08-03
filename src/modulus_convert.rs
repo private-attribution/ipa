@@ -54,45 +54,6 @@ impl<'a> RandomShareGenerationHelper<'a> {
         }
     }
 
-    fn get_share_of_one<T: Field>(&self) -> ReplicatedSecretSharing<T> {
-        match self.identity {
-            HelperIdentity::H1 => ReplicatedSecretSharing::new(T::ONE, T::ZERO),
-            HelperIdentity::H2 => ReplicatedSecretSharing::new(T::ZERO, T::ZERO),
-            HelperIdentity::H3 => ReplicatedSecretSharing::new(T::ZERO, T::ONE),
-        }
-    }
-
-    #[must_use]
-    pub fn convert_shares_step_1<T: Field>(
-        input: u64,
-        r_shares: &[(bool, ReplicatedSecretSharing<T>)],
-    ) -> (Vec<ReplicatedSecretSharing<T>>, BitVec) {
-        let mut bit_vec = BitVec::from_bytes(&input.to_be_bytes());
-        for i in 0..64 {
-            let r_binary_share = r_shares[i].0;
-            bit_vec.set(i, bit_vec[i] ^ r_binary_share);
-        }
-        (r_shares.iter().map(|x| x.1).collect(), bit_vec)
-    }
-
-    #[must_use]
-    pub fn convert_shares_step_2<T: Field>(
-        &self,
-        input_xor_r: &BitVec,
-        r_shares: &[ReplicatedSecretSharing<T>],
-    ) -> Vec<ReplicatedSecretSharing<T>> {
-        let mut output = Vec::with_capacity(input_xor_r.len());
-        for i in 0..input_xor_r.len() {
-            let share = if input_xor_r[i] {
-                self.get_share_of_one() - r_shares[i]
-            } else {
-                r_shares[i]
-            };
-            output.push(share);
-        }
-        output
-    }
-
     /// Runs the protocol to generate a pair of secret sharings of a random value "r" in [0, 1]
     /// None of the three helpers will know what the value of "r" is
     ///
@@ -147,7 +108,7 @@ mod tests {
     use crate::helpers::ring::mock::TestHelper;
 
     #[tokio::test]
-    async fn one_pair() -> Result<(), BoxError> {
+    async fn gen_pairs() -> Result<(), BoxError> {
         let ring = helpers::ring::mock::make_three();
         let participants = crate::prss::test::make_three();
         let context = crate::securemul::tests::make_context(&ring, &participants);
