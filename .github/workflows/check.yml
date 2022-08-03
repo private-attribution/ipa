@@ -1,15 +1,14 @@
 name: CI
 on: [push, pull_request]
-env:
-  CARGO_TERM_COLOR: always
-  REDIS_VERSION: '6.2.4'
 jobs:
-  check:
-    name: All Checks
+  rust-check:
+    name: Rust Checks
+    env:
+      CARGO_TERM_COLOR: always
+      REDIS_VERSION: '6.2.4'
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -23,7 +22,6 @@ jobs:
 
       - name: Install redis and start redis server
         run: |
-          sudo apt-get update
           wget https://github.com/redis/redis/archive/${{ env.REDIS_VERSION }}.tar.gz;
           tar -xzvf ${{ env.REDIS_VERSION }}.tar.gz;
           pushd redis-${{ env.REDIS_VERSION }} && BUILD_TLS=yes make && sudo mv src/redis-server src/redis-cli /usr/bin/ && popd;
@@ -47,23 +45,31 @@ jobs:
         with:
           command: clippy
           args: --tests -- -D warnings -D clippy::pedantic
+    
+  python-check:
+    name: Python Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
 
       - uses: actions/setup-python@v4
-        name: Set up Python evnironment
+        name: Set up Python environment
         with:
           python-version: "3.9"
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black flake518 isort
 
       - name: Black Python formatting
         run: |
-          pip install black
           black --check --diff .
 
       - name: Check format with flake8
         run: |
-          pip install flake518
           flake518 .
 
       - name: Check format with isort
         run: |
-          pip install isort
           isort --check-only --diff .
