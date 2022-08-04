@@ -45,7 +45,7 @@ pub mod mock {
     use std::collections::hash_map::Entry;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
-    use tokio::sync::mpsc::{channel, Sender};
+    use tokio::sync::mpsc::{channel, Receiver, Sender};
 
     /// Internally we represent all messages to be a sequence of bytes and store them inside
     /// a hashmap where each element is addressable by message type id and destination (i.e. who
@@ -68,29 +68,74 @@ pub mod mock {
     /// receive it.
     #[derive(Debug)]
     pub struct TestHelper {
-        // A handle to send message to this helper
-        input_queue: Sender<MessageEnvelope>,
-
         // Reference to helper channel on the left side
-        left: Option<Sender<MessageEnvelope>>,
+        left: Sender<MessageEnvelope>,
 
         // Reference to helper channel on the right side
-        right: Option<Sender<MessageEnvelope>>,
+        right: Sender<MessageEnvelope>,
 
         // buffer for messages sent to this helper
         buf: Arc<Mutex<MessageBuf>>,
     }
 
-    impl TestHelper {
-        /// Constructs a new instance of test helper using the specified `buf_capacity` buffer
-        /// capacity for the internally used channel.
+    #[derive(Debug)]
+    pub struct TestHelperSetup {
+        input: Sender<MessageEnvelope>,
+        rx: Receiver<MessageEnvelope>,
+        left: Option<Sender<MessageEnvelope>>,
+        right: Option<Sender<MessageEnvelope>>,
+    }
+
+    impl TestHelperSetup {
+        /// Constructs a new instance of test helper builder using the specified `buf_capacity`
+        /// buffer capacity for the internally used channel.
+        ///
+        /// Every test helper instance to set up correctly requires both right and left side channels
+        /// to be provided via this builder by calling `set_left` and `set_right` methods. `setup`
+        /// method will consume this builder and produce a new instance of `TestHelper`.
         ///
         /// ## Panics
         /// Panics if Mutex used internally for synchronization is poisoned or if there are more
         /// than one message with the same type id and destination address arriving via `send` call.
         #[must_use]
         pub fn new(buf_capacity: usize) -> Self {
-            let (tx, mut rx) = channel::<MessageEnvelope>(buf_capacity);
+            let (tx, rx) = channel(buf_capacity);
+            Self {
+                input: tx,
+                rx,
+                left: None,
+                right: None,
+            }
+        }
+
+        fn set_left(&mut self, left: Sender<MessageEnvelope>) {
+            self.left = Some(left);
+        }
+
+        fn set_right(&mut self, right: Sender<MessageEnvelope>) {
+            self.right = Some(right);
+        }
+
+        fn get_input(&self) -> Sender<MessageEnvelope> {
+            self.input.clone()
+        }
+
+        #[must_use]
+        pub fn setup(self) -> TestHelper {
+            TestHelper::new(
+                self.rx,
+                self.left.expect("left helper must be set"),
+                self.right.expect("right helper must be set"),
+            )
+        }
+    }
+
+    impl TestHelper {
+        fn new(
+            mut rx: Receiver<MessageEnvelope>,
+            left: Sender<MessageEnvelope>,
+            right: Sender<MessageEnvelope>,
+        ) -> Self {
             let buf = Arc::new(Mutex::new(HashMap::new()));
 
             tokio::spawn({
@@ -111,36 +156,20 @@ pub mod mock {
                 }
             });
 
-            Self {
-                input_queue: tx,
-                left: None,
-                right: None,
-                buf,
-            }
-        }
-
-        fn set_left(&mut self, left: Sender<MessageEnvelope>) {
-            self.left = Some(left);
-        }
-
-        fn set_right(&mut self, right: Sender<MessageEnvelope>) {
-            self.right = Some(right);
+            Self { left, right, buf }
         }
     }
 
     #[async_trait]
     impl Ring for TestHelper {
         async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), Error> {
-            assert!(self.left.is_some());
-            assert!(self.right.is_some());
-
             // inside the envelope we store the sender of the message (i.e. source)
             // but this method accepts the destination. To obtain source from destination
             // we invert it - message send to the left helper is originated from helper on the
             // right side.
             let (target, source) = match dest {
-                HelperAddr::Left => (self.left.as_ref().unwrap(), HelperAddr::Right),
-                HelperAddr::Right => (self.right.as_ref().unwrap(), HelperAddr::Left),
+                HelperAddr::Left => (&self.left, HelperAddr::Right),
+                HelperAddr::Right => (&self.right, HelperAddr::Left),
             };
 
             let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
@@ -189,19 +218,19 @@ pub mod mock {
     pub fn make_three() -> [TestHelper; 3] {
         let buf_capacity = 10;
         let mut helpers = [
-            TestHelper::new(buf_capacity),
-            TestHelper::new(buf_capacity),
-            TestHelper::new(buf_capacity),
+            TestHelperSetup::new(buf_capacity),
+            TestHelperSetup::new(buf_capacity),
+            TestHelperSetup::new(buf_capacity),
         ];
 
-        helpers[0].set_left(helpers[2].input_queue.clone());
-        helpers[1].set_left(helpers[0].input_queue.clone());
-        helpers[2].set_left(helpers[1].input_queue.clone());
+        helpers[0].set_left(helpers[2].get_input());
+        helpers[1].set_left(helpers[0].get_input());
+        helpers[2].set_left(helpers[1].get_input());
 
-        helpers[0].set_right(helpers[1].input_queue.clone());
-        helpers[1].set_right(helpers[2].input_queue.clone());
-        helpers[2].set_right(helpers[0].input_queue.clone());
+        helpers[0].set_right(helpers[1].get_input());
+        helpers[1].set_right(helpers[2].get_input());
+        helpers[2].set_right(helpers[0].get_input());
 
-        helpers
+        helpers.map(TestHelperSetup::setup)
     }
 }
