@@ -15,6 +15,9 @@ pub struct SecureMul<F> {
     index: u128,
     a_share: ReplicatedSecretSharing<F>,
     b_share: ReplicatedSecretSharing<F>,
+    send_d: bool,
+    receive_d: bool,
+    right_sent_d: bool,
 }
 
 /// A message sent by each helper when they've multiplied their own shares
@@ -46,11 +49,17 @@ impl<F: Field> SecureMul<F> {
         a_share: ReplicatedSecretSharing<F>,
         b_share: ReplicatedSecretSharing<F>,
         index: u128,
+        send_d: bool,
+        receive_d: bool,
+        right_sent_d: bool,
     ) -> SecureMul<F> {
         SecureMul {
             index,
             a_share,
             b_share,
+            send_d,
+            receive_d,
+            right_sent_d,
         }
     }
 
@@ -71,42 +80,58 @@ impl<F: Field> SecureMul<F> {
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = self.a_share.as_tuple();
         let (b0, b1) = self.b_share.as_tuple();
-        let right_d: F = a0 * b1 + a1 * b0 - s0;
 
-        // this ugliness is needed just to convert Field to u128. There are better ways to do it
-        // and there is a PR open to make it easier
-        let right_d: <F as Field>::Integer = right_d.into();
-        let right_d: u128 = right_d.into();
+        let mut lhs = a0 * b0;
+        let mut rhs = a1 * b1;
 
-        // notify helper on the right that we've computed our value
-        ctx.helper_ring
-            .send(
-                HelperAddr::Right,
-                DValue {
-                    d: right_d,
-                    index: self.index,
-                },
-            )
-            .await?;
+        if self.send_d {
+            let right_d: F = a0 * b1 + a1 * b0 - s0;
 
-        // Sleep until helper on the left sends us their (d_i-1) value
-        let DValue {
-            d: left_d,
-            index: left_index,
-        } = ctx.helper_ring.receive(HelperAddr::Left).await?;
+            rhs += right_d;
+            lhs += s0;
 
-        // sanity check to make sure they've computed it using the same seed
-        if left_index == self.index {
-            // now we are ready to construct the result - 2/3 secret shares of a * b.
-            let lhs = a0 * b0 + F::from(left_d) + s0;
-            let rhs = a1 * b1 + F::from(right_d) + s1;
+            // this ugliness is needed just to convert Field to u128. There are better ways to do it
+            // and there is a PR open to make it easier
+            let right_d: <F as Field>::Integer = right_d.into();
+            let right_d: u128 = right_d.into();
 
-            Ok(ReplicatedSecretSharing::new(lhs, rhs))
+            // notify helper on the right that we've computed our value
+            ctx.helper_ring
+                .send(
+                    HelperAddr::Right,
+                    DValue {
+                        d: right_d,
+                        index: self.index,
+                    },
+                )
+                .await?;
+        }
+
+        if self.right_sent_d {
+            rhs += s1;
+        }
+
+        if self.receive_d {
+            // Sleep until helper on the left sends us their (d_i-1) value
+            let DValue {
+                d: left_d,
+                index: left_index,
+            } = ctx.helper_ring.receive(HelperAddr::Left).await?;
+
+            // sanity check to make sure they've computed it using the same seed
+            if left_index == self.index {
+                // now we are ready to construct the result - 2/3 secret shares of a * b.
+                lhs += F::from(left_d);
+
+                Ok(ReplicatedSecretSharing::new(lhs, rhs))
+            } else {
+                Err(Box::new(Error::IndexMismatch {
+                    my_index: self.index,
+                    their_index: left_index,
+                }))
+            }
         } else {
-            Err(Box::new(Error::IndexMismatch {
-                my_index: self.index,
-                their_index: left_index,
-            }))
+            Ok(ReplicatedSecretSharing::new(lhs, rhs))
         }
     }
 }
@@ -155,6 +180,9 @@ pub mod stream {
                     index,
                     a_share,
                     b_share,
+                    send_d: true,
+                    receive_d: true,
+                    right_sent_d: true,
                 };
                 secure_mul.execute(ctx)
             },
@@ -280,19 +308,28 @@ pub mod tests {
             SecureMul {
                 a_share: a[0],
                 b_share: b[0],
-                index
+                index,
+                send_d: true,
+                receive_d: true,
+                right_sent_d: true,
             }
             .execute(&context[0]),
             SecureMul {
                 a_share: a[1],
                 b_share: b[1],
-                index
+                index,
+                send_d: true,
+                receive_d: true,
+                right_sent_d: true,
             }
             .execute(&context[1]),
             SecureMul {
                 a_share: a[2],
                 b_share: b[2],
-                index
+                index,
+                send_d: true,
+                receive_d: true,
+                right_sent_d: true,
             }
             .execute(&context[2]),
         )?;

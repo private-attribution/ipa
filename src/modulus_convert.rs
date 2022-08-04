@@ -5,7 +5,9 @@ use crate::prss::Participant;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use crate::securemul::{ProtocolContext, SecureMul};
 use bit_vec::BitVec;
+use futures::future::try_join_all;
 
+#[derive(Debug)]
 pub enum HelperIdentity {
     H1,
     H2,
@@ -66,28 +68,71 @@ impl<'a> RandomShareGenerationHelper<'a> {
         ctx: &ProtocolContext<'_, R>,
     ) -> Result<Vec<(bool, ReplicatedSecretSharing<T>)>, BoxError> {
         let mut idx = idx;
-
         let (left, right) = self.rng.generate_values(idx);
-        let mut output = Vec::with_capacity(128);
+        let size: usize = u128::BITS.try_into().unwrap();
+        let mut output = Vec::with_capacity(size);
         let left_bits = BitVec::from_bytes(&left.to_be_bytes());
         let right_bits = BitVec::from_bytes(&right.to_be_bytes());
-        for i in 0..128 {
+        let mut mult_1_futures = Vec::with_capacity(size);
+        for i in 0..size {
             let left_bit = left_bits[i];
             let right_bit = right_bits[i];
             let r_shares = self.split_binary(left_bit, right_bit);
 
-            let r1_x_r2 = SecureMul::new(r_shares.0, r_shares.1, idx)
-                .execute(ctx)
-                .await?;
+            let future = match self.identity {
+                HelperIdentity::H1 => {
+                    SecureMul::new(r_shares.0, r_shares.1, idx, true, false, false)
+                }
+                HelperIdentity::H2 => {
+                    SecureMul::new(r_shares.0, r_shares.1, idx, false, true, false)
+                }
+                HelperIdentity::H3 => {
+                    SecureMul::new(r_shares.0, r_shares.1, idx, false, false, true)
+                }
+            }
+            .execute(ctx);
+            mult_1_futures.push(future);
 
             idx += 1;
+        }
+
+        let r1_x_r2_shares = try_join_all(mult_1_futures).await.unwrap();
+
+        let mut mult_2_futures = Vec::with_capacity(size);
+        let mut r1_xor_r2_shares = Vec::with_capacity(size);
+
+        for i in 0..size {
+            let left_bit = left_bits[i];
+            let right_bit = right_bits[i];
+            let r_shares = self.split_binary(left_bit, right_bit);
+
+            let r1_x_r2 = r1_x_r2_shares[i];
 
             let r1_xor_r2 = r_shares.0 + r_shares.1 - (r1_x_r2 * T::from(2));
+            r1_xor_r2_shares.push(r1_xor_r2);
 
-            let r1_xor_r2_x_r3 = SecureMul::new(r1_xor_r2, r_shares.2, idx)
-                .execute(ctx)
-                .await?;
+            let future = match self.identity {
+                HelperIdentity::H1 => SecureMul::new(r1_xor_r2, r_shares.2, idx, false, true, true),
+                HelperIdentity::H2 => SecureMul::new(r1_xor_r2, r_shares.2, idx, true, false, true),
+                HelperIdentity::H3 => {
+                    SecureMul::new(r1_xor_r2, r_shares.2, idx, true, false, false)
+                }
+            }
+            .execute(ctx);
+            mult_2_futures.push(future);
+
             idx += 1;
+        }
+
+        let r1_xor_r2_x_r3_shares = try_join_all(mult_2_futures).await.unwrap();
+
+        for i in 0..size {
+            let left_bit = left_bits[i];
+            let right_bit = right_bits[i];
+            let r_shares = self.split_binary(left_bit, right_bit);
+
+            let r1_xor_r2_x_r3 = r1_xor_r2_x_r3_shares[i];
+            let r1_xor_r2 = r1_xor_r2_shares[i];
 
             let r1_xor_r2_xor_r3 = r1_xor_r2 + r_shares.2 - (r1_xor_r2_x_r3 * T::from(2));
 
@@ -104,14 +149,18 @@ mod tests {
     use crate::modulus_convert::{HelperIdentity, RandomShareGenerationHelper};
 
     use crate::field::Fp31;
-    use crate::helpers;
+    use crate::helpers::ring::mock::make_three as make_ring_of_three;
     use crate::helpers::ring::mock::TestHelper;
+    use crate::prss::test::make_three as make_three_participants;
+    use crate::replicated_secret_sharing::tests::assert_secret_shared_value;
+    use crate::replicated_secret_sharing::tests::assert_valid_secret_sharing;
+    use crate::securemul::tests::make_context;
 
     #[tokio::test]
     async fn gen_pairs() -> Result<(), BoxError> {
-        let ring = helpers::ring::mock::make_three();
-        let participants = crate::prss::test::make_three();
-        let context = crate::securemul::tests::make_context(&ring, &participants);
+        let ring = make_ring_of_three();
+        let participants = make_three_participants();
+        let context = make_context(&ring, &participants);
 
         let h1 = RandomShareGenerationHelper::new(&participants.0, HelperIdentity::H1);
         let h2 = RandomShareGenerationHelper::new(&participants.1, HelperIdentity::H2);
@@ -132,15 +181,8 @@ mod tests {
 
             let expected_value: u128 = u128::from(h1_share.0 ^ h2_share.0 ^ h3_share.0);
 
-            crate::replicated_secret_sharing::tests::assert_valid_secret_sharing(
-                h1_share.1, h2_share.1, h3_share.1,
-            );
-            crate::replicated_secret_sharing::tests::assert_secret_shared_value(
-                h1_share.1,
-                h2_share.1,
-                h3_share.1,
-                expected_value,
-            );
+            assert_valid_secret_sharing(h1_share.1, h2_share.1, h3_share.1);
+            assert_secret_shared_value(h1_share.1, h2_share.1, h3_share.1, expected_value);
         }
 
         Ok(())
