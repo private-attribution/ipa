@@ -4,7 +4,7 @@ from enum import IntEnum
 from Compiler.library import print_ln, tree_reduce
 from Compiler.types import Array, Matrix, sint
 
-numrows_power = int(os.getenv("IPA_NUMROWS_POWER", 12))
+numrows_power = int(os.getenv("IPA_NUMROWS_POWER", 10))
 
 numrows = 2**numrows_power
 rows = range(numrows)
@@ -48,7 +48,6 @@ reports.assign_vector(sint.get_input_from(0, size=numrows * numcolumns))
 reports.sort((Columns.MATCHKEY,), n_bits=32)
 
 if verbose:
-    print_ln(f"Hi*************")
     for row in rows:
         print_ln(f"report[{row}]: %s", reports[row].reveal())
 
@@ -108,11 +107,11 @@ for exponent, (stopbit, credit) in enumerate(zip(stopbits, credit_arrays)):
             + flag.get_vector(size=numrows - stepsize)
             * credit_arrays[exponent - 1].get_vector(
                 base=stepsize, size=numrows - stepsize
-            ))
+            )
+        )
 
         credit.assign_vector(credit_arrays[exponent - 1].get_vector(base=numrows - stepsize, size=stepsize), 
                 base=numrows - stepsize)   
-        
 
     if verbose:
         print_ln("iteration: %s", exponent)
