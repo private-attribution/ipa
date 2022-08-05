@@ -1,0 +1,242 @@
+"""
+Rewriting Erik's mpc files using vectors
+"""
+import argparse
+import os
+import sys
+from typing import Optional, Tuple
+import operator
+from pathlib import Path
+from Compiler import types, library, instructions, sorting
+
+MATCH_KEYS = 0
+VALUE = 2
+IS_TRIGGER = 1
+BREAKDOWN_KEY = 3
+
+RADIX_SORT = 0
+BIT_RADIX_SORT = 1
+BATCHER_SORT = 2
+LIBRARY_SORT = 3
+
+def print_property(fun, vec, msg):
+
+    print_ln("%s: %s", msg, tree_reduce(operator.add,fun(vec)).reveal())
+
+def set_directory() -> None:
+
+    source_dir = os.getcwd() + '/Programs/Source'
+    sys.path = [source_dir] + sys.path
+
+def reconstruct(bit_array: Matrix) -> Array:
+    """
+    bit_array is an N by B array of bits
+    compute the integer representation.
+    This should only involve scalar multiplies and adds.
+    """
+
+    num, n_bits = bit_array.sizes
+    result = Array(num, sint)
+    result.assign_vector(bit_array.get_column(n_bits - 1))
+    for ind in range(n_bits - 2, -1, -1):
+        result = result + result + bit_array.get_column(ind)
+    return result
+
+def validate_bits(arr: Array) -> Tuple[sint, sint]:
+    """
+    Test a purported bit vector.
+    """
+
+    small = arr.get_vector() < 0
+    big = arr.get_vector() > 1
+
+    return (tree_reduce(operator.add, small),
+            tree_reduce(operator.add, big))
+
+def get_args(args) -> argparse.Namespace:
+    """
+    Get the arguments from the remainder of compile.py command line.
+    """
+
+    # It turns out that you *can* get arguments from the compile.py
+    # command.  The arguments are everything after the name
+    # of the file to be compiled.
+
+    arg_parser = argparse.ArgumentParser("Attribution Benchmark")
+    arg_parser.add_argument("numrows_power", type=int, default = 4,
+                            nargs = '?',
+                            help="Power of 2 for number of Rows")
+    arg_parser.add_argument("breakdown_values", type = int, default = 4,
+                            nargs = '?',
+                            help="Calculate Breakdown?")
+    arg_parser.add_argument("n_bits", type = int, default = 32,
+                            nargs = '?',
+                            help="n_bits?")
+    arg_parser.add_argument("sort_type", type = int,
+                            default = LIBRARY_SORT,
+                            nargs = '?',
+                            help="sort_type")
+    arg_parser.add_argument("do_sort", type = int, default = 1,
+                            nargs = '?',
+                            help="Sort the match keys")
+    return arg_parser.parse_args(args)
+
+def oblivious_attribution(reports: Matrix,
+                          breakdown_values: int) -> Array:
+    """
+    Perform the oblivious attribution.
+    """
+
+    numrows, _  = reports.sizes
+
+    # Edge cases: imagine that the match-keys are extended at either
+    # end with keys that are different than any of the real keys
+    # That means that helperbits[0] = 0
+    # and that stopbits at the end are zeroed out
+    helperbits = Array(numrows, sintbit)
+    match_keys = reports.get_column(MATCH_KEYS)
+
+    helperbits.assign_vector(match_keys.get_vector(size = numrows - 1)
+                             == match_keys.get_vector(base = 1,
+                                                      size = numrows - 1),
+                             base = 1)
+    helperbits[0] = 0
+    # helperbits[idx] = True if there's a transition to a new match key
+
+    # is_trigger[idx] = True means this is a trigger even
+    # we want to match all non-trigger events (i.e. source events)
+    # with trigger events with the same matchkey
+    is_trigger = Array(numrows, sintbit)
+    is_trigger.assign_vector(reports.get_column(IS_TRIGGER))
+    helperbits_and_istrigger = helperbits.get_vector() & is_trigger.get_vector()
+    
+    # I think that the exponent refers to the depth in a binary tree.
+
+    # It looks like this is just a binary tree sum
+
+
+    # I guess that this is supposed to be last touch attribution
+    #
+    # Prepare
+    # Problem: stopbit is the wrong size.
+
+    # Initialize for results after the first pass
+    stopbit = Array(numrows, sintbit)
+    credit = Array(numrows, sint)
+    repval = reports.get_column(VALUE)
+
+
+    stopbit.assign_vector(helperbits_and_istrigger.get_vector(base = 1,
+                                                              size = numrows - 1))
+    stopbit[numrows - 1] = 0
+    credit[numrows - 1] = repval[numrows - 1]
+
+    credit.assign_vector(repval.get_vector(size = numrows - 1)
+                         + stopbit.get_vector(size = numrows - 1)
+                         * repval.get_vector(base = 1,
+                                             size = numrows - 1))
+    
+    zeros = Array(numrows // 2, sintbit)
+    zeros.assign_all(0)
+
+    stepsize = 1
+
+    while stepsize < numrows // 2:
+
+        # inc(size, base, step, repeat)
+        # produces a regint vector like range(base, size // step, step)
+        # get method takes an array of regints and produces the
+        # vector indexed by them,
+
+        # flag = helperbits_and_istrigger{stepsize:]
+        # credit = reports[: -stepsize][VALUE] + flag * reports[stepsize: ][VALUE]
+        stepsize *= 2
+
+        new_size = numrows - stepsize
+
+        flag = (stopbit.get_vector(size = new_size)
+                & helperbits_and_istrigger.get_vector(base = stepsize,
+                                                     size = new_size))
+        new_credit = (credit.get_vector(size = new_size)
+                      + flag
+                      * credit.get_vector(base = stepsize,
+                                          size = new_size))
+        stopbit.assign_vector(flag
+                              & stopbit.get_vector(base = stepsize,
+                                                   size = new_size))
+        # Now 0 out the last stepsize stopbit's
+        # stopbit.get_vector(base = new_size, size = stepsize).assign_all(0)
+        stopbit.assign_vector(zeros.get_vector(size = stepsize),
+                              base = new_size)
+
+        # Replace the first new_size elements, leaving the others alone
+        credit.assign_vector(new_credit)
+
+    # Calculate final_credits
+    breakdown = reports.get_column(BREAKDOWN_KEY)
+
+    # Once we have AND, XOR is just addition and subtraction
+
+    # helperbits_xor_istrigger = (helperbits + is_trigger
+    #                             - 2 * helperbits_and_istrigger)
+
+    # It would be better to use the formula
+    # x XOR y = x + y - 2 * x * y since we alaready know x*y
+    #helperbits_xor_istrigger = (helperbits.get_vector()
+     #                           ^ is_trigger.get_vector())
+
+    NOT_is_trigger = (is_trigger.get_vector()  + 1)  % 2
+
+    final_credits = NOT_is_trigger * credit
+
+    breakdown_keys = list(range(breakdown_values))
+
+    # One can use sum, but tree_reduce appears to be more efficient
+    return (
+        Array(breakdown_values, sint).create_from([
+            tree_reduce(operator.add,
+                        (breakdown == breakdown_key)
+                        * credit)
+            for breakdown_key in breakdown_keys])
+    )
+
+def main():
+    """
+    Do the main processing.
+    """
+
+    set_directory()
+    from asort import bit_radix_sort, radix_sort
+    args = get_args(program.args[1: ])
+    print(f"args = {args}")
+
+    numrows = 2 ** args.numrows_power
+
+    # load the data
+
+    reports = Matrix(numrows, 4, sint)
+    reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
+
+    match_keys = reports.get_column(MATCH_KEYS)
+    # Now do the sort
+    # Radix sort
+    sorter = {LIBRARY_SORT: lambda mkeys, reps:
+              sorting.radix_sort(mkeys, reports, n_bits = args.n_bits),
+              RADIX_SORT: lambda mkeys, reps:
+              radix_sort(mkeys, reps, n_bits = args.n_bits),
+              BATCHER_SORT: lambda mkeys, reps:
+              print("Batcher not implemented")}
+
+    if args.do_sort:
+
+        sort_fn = sorter.get(args.sort_type,
+                             lambda mkeys, reps:
+                             print(f"Illegal sort type {args.sort_type}"))
+        sort_fn(match_keys, reports)
+
+    breakdown_key_sums = oblivious_attribution(reports,
+                                               args.breakdown_values)
+    print_ln("breakdowns: %s", breakdown_key_sums.reveal())
+    
+main()
+
