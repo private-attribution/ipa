@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::ring::{HelperAddr, Ring};
+use crate::helpers::ring::{HelperAddr, Message, Ring};
 use crate::prss::PrssSpace;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,12 @@ pub struct DValue<F> {
     d: F,
 }
 
+impl Message for DValue {
+    fn protocol_id(&self) -> crate::helpers::ring::ProtocolId {
+        self.index.into()
+    }
+}
+
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (PRSS) and communication trait to send messages to each other.
 /// Eventually when we have more than one protocol, this should be lifted to its own module
@@ -36,7 +42,7 @@ pub struct ProtocolContext<'a, R> {
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(
-        "Shares calculated by peer used different index {their_index} than expected {my_index}"
+    "Shares calculated by peer used different index {their_index} than expected {my_index}"
     )]
     IndexMismatch { my_index: u128, their_index: u128 },
 }
@@ -96,7 +102,6 @@ impl<F: Field> SecureMul<F> {
 
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
-
     use crate::field::Field;
     use crate::helpers::ring::Ring;
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
@@ -115,11 +120,11 @@ pub mod stream {
         input_stream: S,
         ctx: &'a ProtocolContext<'a, R>,
         index: u128,
-    ) -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a
-    where
-        S: Stream<Item = ReplicatedSecretSharing<F>> + 'a,
-        F: Field + 'static,
-        R: Ring,
+    ) -> impl Stream<Item=ReplicatedSecretSharing<F>> + 'a
+        where
+            S: Stream<Item=ReplicatedSecretSharing<F>> + 'a,
+            F: Field + 'static,
+            R: Ring,
     {
         let mut index = index;
 
@@ -147,7 +152,6 @@ pub mod stream {
 
 #[cfg(test)]
 mod tests {
-
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::field::{Field, Fp31};
@@ -158,7 +162,8 @@ mod tests {
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 
     use futures::{stream, StreamExt};
-    use futures_util::future::join_all;
+    use futures_util::future::{join_all, try_join_all};
+    use tokio::try_join;
 
     use crate::prss::{test::SingleSpace, Participant};
 
@@ -239,6 +244,45 @@ mod tests {
         let result_shares = (result_shares[0], result_shares[1], result_shares[2]);
 
         assert_eq!(Fp31::from(24_u128), validate_and_reconstruct(result_shares));
+    }
+
+
+    /// This test ensures that many secure multiplications can run concurrently as long as
+    /// they all have unique id associated with it. Basically it validates
+    /// `TestHelper`'s ability to distinguish messages of the same type sent towards helpers
+    /// executing multiple same type protocols
+    #[tokio::test]
+    pub async fn concurrent_mul() {
+        let ring = helpers::ring::mock::make_three();
+        let participants = crate::prss::test::make_three();
+        let context = make_context(&ring, &participants);
+        let mut rand = StepRng::new(1, 1);
+        let a = share(Fp31::from(4_u128), &mut rand);
+        let b = share(Fp31::from(3_u128), &mut rand);
+
+        let mut multiplications = Vec::new();
+        for i in 1_u128..10 {
+            // there is something weird going on the compiler's side. I don't see why we need
+            // to use async move as `i` is Copy + Clone, but compiler complains about it not living
+            // long enough
+            let ctx0 = &context[0];
+            let ctx1 = &context[1];
+            let ctx2 = &context[2];
+            let f = async move {
+                let h1_future = SecureMul { index: i, a_share: a[0], b_share: b[0] }.execute(&ctx0);
+                let h2_future = SecureMul { index: i, a_share: a[1], b_share: b[1] }.execute(&ctx1);
+                let h3_future = SecureMul { index: i, a_share: a[2], b_share: b[2] }.execute(&ctx2);
+
+
+                try_join!(h1_future, h2_future, h3_future).unwrap()
+            };
+            multiplications.push(f);
+        }
+
+        let results = join_all(multiplications).await;
+        for shares in results {
+            assert_eq!(Fp31::from(12_u128), validate_and_reconstruct(shares));
+        }
     }
 
     async fn multiply_sync<R: RngCore>(

@@ -13,10 +13,21 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
 
-/// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
-impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
+#[derive(Copy, Clone, Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
+pub struct ProtocolId(u128);
+
+impl From<u128> for ProtocolId {
+    fn from(v: u128) -> Self {
+        ProtocolId(v)
+    }
+}
+
+/// Trait for messages sent between helpers
+pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {
+    fn protocol_id(&self) -> ProtocolId;
+}
+
 
 /// Destination. Currently we only support Left and Right, but we could support the exact address
 /// too
@@ -39,7 +50,7 @@ pub trait Ring {
 #[cfg(test)]
 pub mod mock {
     use crate::helpers::error::Error;
-    use crate::helpers::ring::{HelperAddr, Message, Ring};
+    use crate::helpers::ring::{HelperAddr, Message, ProtocolId, Ring};
     use async_trait::async_trait;
     use std::any::TypeId;
     use std::collections::hash_map::Entry;
@@ -49,13 +60,14 @@ pub mod mock {
 
     /// Internally we represent all messages to be a sequence of bytes and store them inside
     /// a hashmap where each element is addressable by message type id and destination (i.e. who
-    /// is the intended receiver of this message).
+    /// is the intended receiver of this message) + protocol id.
     type MessageBuf = HashMap<(HelperAddr, TypeId), Box<[u8]>>;
 
     /// Each message is packed inside an envelope with some meta information about it.
     #[derive(Debug)]
     struct MessageEnvelope {
         source: HelperAddr,
+        protocol_id: ProtocolId,
         type_id: TypeId,
         payload: Box<[u8]>,
     }
@@ -174,6 +186,7 @@ pub mod mock {
 
             let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
             let envelope = MessageEnvelope {
+                protocol_id: msg.protocol_id(),
                 type_id: TypeId::of::<T>(),
                 source,
                 payload: bytes,
