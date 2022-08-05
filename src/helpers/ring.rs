@@ -8,26 +8,16 @@
 //! enables MPC helper service to do.
 //!
 use crate::helpers::error::Error;
+use crate::protocols::ProtocolId;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
 
-
-#[derive(Copy, Clone, Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ProtocolId(u128);
-
-impl From<u128> for ProtocolId {
-    fn from(v: u128) -> Self {
-        ProtocolId(v)
-    }
-}
-
 /// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {
-    fn protocol_id(&self) -> ProtocolId;
-}
+pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
+impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
 /// Destination. Currently we only support Left and Right, but we could support the exact address
 /// too
@@ -37,213 +27,270 @@ pub enum HelperAddr {
     Right,
 }
 
+/// Entry point to the system that enables MPC helpers to talk to each other. Every component
+/// that need message exchange to drive itself to completion calls methods on this trait with id
+/// argument that uniquely identifies its round of communication. Every helper executing the same
+/// protocol must use the same id.
+///
+/// `Ring` trait can be used to send and receive messages and that is what methods on this trait
+/// return. All messages will have the same protocol id
+pub trait CommunicationGateway {
+    type ChannelType: Ring;
+
+    /// Creates new communication channel for the given protocol id. All helpers are orchestrated
+    /// into a ring.
+    fn ring_channel(&self, id: ProtocolId) -> Self::ChannelType;
+}
+
 /// Trait for MPC helpers to communicate with each other. Helpers can send messages and
 /// receive messages from a specific helper.
 #[async_trait]
 pub trait Ring {
     /// Send message to the destination. Implementations are free to choose whether it is required
     /// to wait until `dest` acknowledges message or simply put it to a outgoing queue
-    async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), Error>;
-    async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error>;
+    async fn send<T: Message>(&mut self, dest: HelperAddr, msg: T) -> Result<(), Error>;
+
+    /// Receive a given message from the `source`
+    async fn receive<T: Message>(&mut self, source: HelperAddr) -> Result<T, Error>;
 }
 
 #[cfg(test)]
 pub mod mock {
     use crate::helpers::error::Error;
-    use crate::helpers::ring::{HelperAddr, Message, ProtocolId, Ring};
+    use crate::helpers::error::Error::{ReceiveError, SendError};
+    use crate::helpers::ring::{CommunicationGateway, HelperAddr, Message, ProtocolId, Ring};
     use async_trait::async_trait;
-    use std::any::TypeId;
     use std::collections::hash_map::Entry;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-    /// Internally we represent all messages to be a sequence of bytes and store them inside
-    /// a hashmap where each element is addressable by message type id and destination (i.e. who
-    /// is the intended receiver of this message) + protocol id.
-    type MessageBuf = HashMap<(HelperAddr, TypeId), Box<[u8]>>;
+    /// Entry point for all communications for a given helper. Keeps track of all protocols
+    /// started by it and routes messages based on protocol identifiers they carry on with them.
+    #[derive(Debug)]
+    pub struct TestHelper {
+        left: Sender<MessageEnvelope>,
+        right: Sender<MessageEnvelope>,
+        routing_table: Arc<Mutex<RoutingTable>>,
+    }
 
-    /// Each message is packed inside an envelope with some meta information about it.
+    /// Communication channel for test helpers. Holds references to channel senders to send messages
+    /// to the outside and owns the receivers (one per peer) to accept messages sent to it.
+    /// Owner control the lifetime of protocol communication links:
+    /// when this instance is dropped, link is removed.
+    #[derive(Debug)]
+    pub struct TestChannel {
+        protocol_id: ProtocolId,
+        table: Arc<Mutex<RoutingTable>>,
+        senders: HashMap<HelperAddr, Sender<MessageEnvelope>>,
+        receivers: HashMap<HelperAddr, Receiver<MessageEnvelope>>,
+    }
+
     #[derive(Debug)]
     struct MessageEnvelope {
         source: HelperAddr,
         protocol_id: ProtocolId,
-        type_id: TypeId,
         payload: Box<[u8]>,
     }
 
-    /// A mock implementation of `Ring` trait to be used in unit tests where all helpers are running
-    /// inside the same process. Provides simple and inefficient implementation by buffering all messages
-    /// on `send` and polling the buffer on `receive`. Message is determined to be the same if it has
-    /// the same `TypeId` and helper address matches the destination. For example, message `Foo` sent
-    /// to Helper 2 will be received and removed from the local buffer only when Helper 2 attempts to
-    /// receive it.
+    /// Communication infrastructure required for a given protocol. Senders represent outbound
+    /// links provided to helpers to send messages, receivers allow helpers to receive messages.
     #[derive(Debug)]
-    pub struct TestHelper {
-        // Reference to helper channel on the left side
-        left: Sender<MessageEnvelope>,
+    struct Route {
+        outbound: HashMap<HelperAddr, Sender<MessageEnvelope>>,
 
-        // Reference to helper channel on the right side
-        right: Sender<MessageEnvelope>,
-
-        // buffer for messages sent to this helper
-        buf: Arc<Mutex<MessageBuf>>,
+        /// Receivers for messages sent to this helper within the same protocol id. Helper takes
+        /// ownership of these receivers when connected and replaces the value with `None`.
+        /// is set to `None` once test helper is connected to this instance
+        inbound: Option<HashMap<HelperAddr, Receiver<MessageEnvelope>>>,
     }
 
-    #[derive(Debug)]
-    pub struct TestHelperSetup {
-        input: Sender<MessageEnvelope>,
-        rx: Receiver<MessageEnvelope>,
-        left: Option<Sender<MessageEnvelope>>,
-        right: Option<Sender<MessageEnvelope>>,
+    /// Keeps track of active protocols
+    #[derive(Debug, Default)]
+    struct RoutingTable {
+        active_routes: HashMap<ProtocolId, Route>,
     }
 
-    impl TestHelperSetup {
-        /// Constructs a new instance of test helper builder using the specified `buf_capacity`
-        /// buffer capacity for the internally used channel.
-        ///
-        /// Every test helper instance to set up correctly requires both right and left side channels
-        /// to be provided via this builder by calling `set_left` and `set_right` methods. `setup`
-        /// method will consume this builder and produce a new instance of `TestHelper`.
-        ///
-        /// ## Panics
-        /// Panics if Mutex used internally for synchronization is poisoned or if there are more
-        /// than one message with the same type id and destination address arriving via `send` call.
-        #[must_use]
-        pub fn new(buf_capacity: usize) -> Self {
-            let (tx, rx) = channel(buf_capacity);
-            Self {
-                input: tx,
-                rx,
-                left: None,
-                right: None,
+    impl CommunicationGateway for TestHelper {
+        type ChannelType = TestChannel;
+
+        fn ring_channel(&self, protocol_id: ProtocolId) -> Self::ChannelType {
+            let table = &mut *self.routing_table.lock().unwrap();
+
+            // Take ownership of the receivers - if they've been created already, move them out
+            // otherwise create them.
+            let rx = match table.active_routes.entry(protocol_id) {
+                Entry::Occupied(mut entry) => entry.get_mut().inbound.take().unwrap(),
+                Entry::Vacant(entry) => entry.insert(Route::new()).inbound.take().unwrap(),
+            };
+
+            TestChannel {
+                protocol_id,
+                table: Arc::clone(&self.routing_table),
+                senders: HashMap::from([
+                    (HelperAddr::Left, self.left.clone()),
+                    (HelperAddr::Right, self.right.clone()),
+                ]),
+                receivers: rx,
             }
         }
+    }
 
-        fn set_left(&mut self, left: Sender<MessageEnvelope>) {
-            self.left = Some(left);
+    #[async_trait]
+    impl Ring for TestChannel {
+        async fn send<T: Message>(&mut self, dest: HelperAddr, msg: T) -> Result<(), Error> {
+            // inside the envelope we store the sender of the message (i.e. source)
+            // but this method accepts the destination. To obtain source from destination
+            // we invert it - message send to the left helper is originated from helper on the
+            // right side.
+            let source = match dest {
+                HelperAddr::Left => HelperAddr::Right,
+                HelperAddr::Right => HelperAddr::Left,
+            };
+
+            let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
+            let envelope = MessageEnvelope {
+                source,
+                protocol_id: self.protocol_id,
+                payload: bytes,
+            };
+
+            let sender = self.senders.get(&dest).ok_or(SendError {
+                dest,
+                inner: "No sender for this destination".into(),
+            })?;
+
+            sender.send(envelope).await.map_err(|e| Error::SendError {
+                dest,
+                inner: Box::new(e) as _,
+            })
         }
 
-        fn set_right(&mut self, right: Sender<MessageEnvelope>) {
-            self.right = Some(right);
-        }
+        async fn receive<T: Message>(&mut self, source: HelperAddr) -> Result<T, Error> {
+            let rx = self
+                .receivers
+                .get_mut(&source)
+                .expect("No receiver for {source}");
 
-        fn get_input(&self) -> Sender<MessageEnvelope> {
-            self.input.clone()
-        }
+            loop {
+                if let Some(msg_envelope) = rx.recv().await {
+                    assert_eq!(msg_envelope.protocol_id, self.protocol_id);
 
-        #[must_use]
-        pub fn setup(self) -> TestHelper {
-            TestHelper::new(
-                self.rx,
-                self.left.expect("left helper must be set"),
-                self.right.expect("right helper must be set"),
-            )
+                    let obj: T = serde_json::from_slice(&msg_envelope.payload).map_err(|e| {
+                        ReceiveError {
+                            source,
+                            inner: Box::new(e),
+                        }
+                    })?;
+
+                    return Ok(obj);
+                }
+            }
+        }
+    }
+
+    impl Drop for TestChannel {
+        fn drop(&mut self) {
+            let table = &mut *self.table.lock().unwrap();
+            table.active_routes.remove(&self.protocol_id);
+        }
+    }
+
+    impl Route {
+        /// Creates a new instance with new set of senders and receivers created (one pair per peer)
+        fn new() -> Self {
+            let (left_tx, left_rx) = channel(1);
+            let (right_tx, right_rx) = channel(1);
+
+            Self {
+                outbound: HashMap::from([
+                    (HelperAddr::Left, left_tx),
+                    (HelperAddr::Right, right_tx),
+                ]),
+                inbound: Some(HashMap::from([
+                    (HelperAddr::Left, left_rx),
+                    (HelperAddr::Right, right_rx),
+                ])),
+            }
         }
     }
 
     impl TestHelper {
         fn new(
-            mut rx: Receiver<MessageEnvelope>,
+            mut this_rx: Receiver<MessageEnvelope>,
             left: Sender<MessageEnvelope>,
             right: Sender<MessageEnvelope>,
         ) -> Self {
-            let buf = Arc::new(Mutex::new(HashMap::new()));
+            let table = Arc::new(Mutex::new(RoutingTable::default()));
 
+            // Spawn a task that polls the receiver and routes messages to the appropriate sender
+            // based on the protocol id. If there is no channel created,
             tokio::spawn({
-                let buf = Arc::clone(&buf);
+                let table = Arc::clone(&table);
                 async move {
-                    while let Some(item) = rx.recv().await {
-                        // obtain an exclusive lock on the shared buffer
-                        // and store the received message there. If there is already a message
-                        // with the same type and destination, we simply panic and abort this task
-                        let buf = &mut *buf.lock().unwrap();
-                        match buf.entry((item.source, item.type_id)) {
-                            Entry::Occupied(_entry) => {
-                                panic!("Duplicated message {item:?}")
+                    while let Some(msg_envelope) = this_rx.recv().await {
+                        let sender = {
+                            let table = &mut *table.lock().unwrap();
+
+                            match table.active_routes.entry(msg_envelope.protocol_id) {
+                                Entry::Occupied(entry) => entry
+                                    .get()
+                                    .outbound
+                                    .get(&msg_envelope.source)
+                                    .unwrap()
+                                    .clone(),
+                                // if entry does not exist yet, create it
+                                // it could be that other helper sent us message before
+                                // this helper had a chance to call
+                                Entry::Vacant(entry) => entry
+                                    .insert(Route::new())
+                                    .outbound
+                                    .get(&msg_envelope.source)
+                                    .unwrap()
+                                    .clone(),
                             }
-                            Entry::Vacant(entry) => entry.insert(item.payload),
                         };
+
+                        sender.send(msg_envelope).await.expect("Failed to receive");
                     }
                 }
             });
 
-            Self { left, right, buf }
-        }
-    }
-
-    #[async_trait]
-    impl Ring for TestHelper {
-        async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), Error> {
-            // inside the envelope we store the sender of the message (i.e. source)
-            // but this method accepts the destination. To obtain source from destination
-            // we invert it - message send to the left helper is originated from helper on the
-            // right side.
-            let (target, source) = match dest {
-                HelperAddr::Left => (&self.left, HelperAddr::Right),
-                HelperAddr::Right => (&self.right, HelperAddr::Left),
-            };
-
-            let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
-            let envelope = MessageEnvelope {
-                protocol_id: msg.protocol_id(),
-                type_id: TypeId::of::<T>(),
-                source,
-                payload: bytes,
-            };
-
-            target.send(envelope).await.map_err(|e| Error::SendError {
-                dest,
-                inner: Box::new(e) as _,
-            })?;
-            Ok(())
-        }
-
-        async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error> {
-            let buf = Arc::clone(&self.buf);
-
-            tokio::spawn(async move {
-                loop {
-                    {
-                        let buf = &mut *buf.lock().unwrap();
-                        let key = (source, TypeId::of::<T>());
-                        if let Entry::Occupied(entry) = buf.entry(key) {
-                            let payload = entry.remove();
-                            let obj: T = serde_json::from_slice(&payload).unwrap();
-
-                            return obj;
-                        }
-                    }
-
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .map_err(|e| Error::ReceiveError {
-                source,
-                inner: Box::new(e) as _,
-            })
+            Self {
+                left,
+                right,
+                routing_table: table,
+            }
         }
     }
 
     /// Creates 3 test helper instances and orchestrates them into a ring.
     #[must_use]
     pub fn make_three() -> [TestHelper; 3] {
-        let buf_capacity = 10;
-        let mut helpers = [
-            TestHelperSetup::new(buf_capacity),
-            TestHelperSetup::new(buf_capacity),
-            TestHelperSetup::new(buf_capacity),
-        ];
+        let (tx1, rx1) = channel(1);
+        let (tx2, rx2) = channel(1);
+        let (tx3, rx3) = channel(1);
 
-        helpers[0].set_left(helpers[2].get_input());
-        helpers[1].set_left(helpers[0].get_input());
-        helpers[2].set_left(helpers[1].get_input());
+        [
+            TestHelper::new(rx1, tx3.clone(), tx2.clone()),
+            TestHelper::new(rx2, tx1.clone(), tx3),
+            TestHelper::new(rx3, tx2, tx1),
+        ]
+    }
 
-        helpers[0].set_right(helpers[1].get_input());
-        helpers[1].set_right(helpers[2].get_input());
-        helpers[2].set_right(helpers[0].get_input());
+    #[tokio::test]
+    async fn protocol_drop_cleans_up_resources() {
+        let (tx, rx) = channel(1);
+        let tr = TestHelper::new(rx, tx.clone(), tx);
 
-        helpers.map(TestHelperSetup::setup)
+        {
+            let _r = tr.ring_channel(1_u128.into());
+            {
+                let _r = tr.ring_channel(2_u128.into());
+                assert_eq!(tr.routing_table.lock().unwrap().active_routes.len(), 2);
+            }
+            assert_eq!(tr.routing_table.lock().unwrap().active_routes.len(), 1);
+        }
+        assert_eq!(tr.routing_table.lock().unwrap().active_routes.len(), 0);
     }
 }

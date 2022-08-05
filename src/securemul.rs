@@ -1,6 +1,7 @@
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::ring::{HelperAddr, Message, Ring};
+use crate::helpers::ring::{CommunicationGateway, HelperAddr, Ring};
+use crate::protocols::ProtocolId;
 use crate::prss::PrssSpace;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
@@ -24,12 +25,6 @@ pub struct DValue<F> {
     d: F,
 }
 
-impl Message for DValue {
-    fn protocol_id(&self) -> crate::helpers::ring::ProtocolId {
-        self.index.into()
-    }
-}
-
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (PRSS) and communication trait to send messages to each other.
 /// Eventually when we have more than one protocol, this should be lifted to its own module
@@ -42,7 +37,7 @@ pub struct ProtocolContext<'a, R> {
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(
-    "Shares calculated by peer used different index {their_index} than expected {my_index}"
+        "Shares calculated by peer used different index {their_index} than expected {my_index}"
     )]
     IndexMismatch { my_index: u128, their_index: u128 },
 }
@@ -55,10 +50,11 @@ impl<F: Field> SecureMul<F> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<R: Ring>(
+    pub async fn execute<R: CommunicationGateway>(
         self,
         ctx: &ProtocolContext<'_, R>,
     ) -> Result<ReplicatedSecretSharing<F>, BoxError> {
+        let mut helper_ring = ctx.helper_ring.ring_channel(ProtocolId::from(self.index));
         // generate shared randomness.
         let (s0, s1) = ctx.prss.generate_fields(self.index);
 
@@ -68,7 +64,7 @@ impl<F: Field> SecureMul<F> {
         let right_d = a0 * b1 + a1 * b0 - s0;
 
         // notify helper on the right that we've computed our value
-        ctx.helper_ring
+        helper_ring
             .send(
                 HelperAddr::Right,
                 DValue {
@@ -82,7 +78,7 @@ impl<F: Field> SecureMul<F> {
         let DValue {
             d: left_d,
             index: left_index,
-        } = ctx.helper_ring.receive(HelperAddr::Left).await?;
+        } = helper_ring.receive(HelperAddr::Left).await?;
 
         // sanity check to make sure they've computed it using the same seed
         if left_index == self.index {
@@ -103,7 +99,7 @@ impl<F: Field> SecureMul<F> {
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
     use crate::field::Field;
-    use crate::helpers::ring::Ring;
+    use crate::helpers::ring::CommunicationGateway;
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
     use crate::securemul::{ProtocolContext, SecureMul};
     use futures::Stream;
@@ -120,11 +116,11 @@ pub mod stream {
         input_stream: S,
         ctx: &'a ProtocolContext<'a, R>,
         index: u128,
-    ) -> impl Stream<Item=ReplicatedSecretSharing<F>> + 'a
-        where
-            S: Stream<Item=ReplicatedSecretSharing<F>> + 'a,
-            F: Field + 'static,
-            R: Ring,
+    ) -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a
+    where
+        S: Stream<Item = ReplicatedSecretSharing<F>> + 'a,
+        F: Field + 'static,
+        R: CommunicationGateway,
     {
         let mut index = index;
 
@@ -152,26 +148,21 @@ pub mod stream {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
+    use crate::error::BoxError;
     use crate::field::{Field, Fp31};
+    use crate::helpers;
+    use crate::helpers::ring::mock::TestHelper;
+    use crate::prss::Participant;
+    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+    use crate::securemul::stream::secure_multiply;
+    use crate::securemul::{ProtocolContext, SecureMul};
+    use futures::{stream, StreamExt};
+    use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
     use rand::Rng;
     use rand_core::RngCore;
-
-    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-
-    use futures::{stream, StreamExt};
-    use futures_util::future::{join_all, try_join_all};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use tokio::try_join;
-
-    use crate::prss::{test::SingleSpace, Participant};
-
-    use crate::error::BoxError;
-    use crate::helpers;
-    use crate::helpers::ring::mock::TestHelper;
-    use crate::securemul::stream::secure_multiply;
-    use crate::securemul::{ProtocolContext, SecureMul};
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -246,7 +237,6 @@ mod tests {
         assert_eq!(Fp31::from(24_u128), validate_and_reconstruct(result_shares));
     }
 
-
     /// This test ensures that many secure multiplications can run concurrently as long as
     /// they all have unique id associated with it. Basically it validates
     /// `TestHelper`'s ability to distinguish messages of the same type sent towards helpers
@@ -265,14 +255,26 @@ mod tests {
             // there is something weird going on the compiler's side. I don't see why we need
             // to use async move as `i` is Copy + Clone, but compiler complains about it not living
             // long enough
-            let ctx0 = &context[0];
-            let ctx1 = &context[1];
-            let ctx2 = &context[2];
+            let ctx = &context;
             let f = async move {
-                let h1_future = SecureMul { index: i, a_share: a[0], b_share: b[0] }.execute(&ctx0);
-                let h2_future = SecureMul { index: i, a_share: a[1], b_share: b[1] }.execute(&ctx1);
-                let h3_future = SecureMul { index: i, a_share: a[2], b_share: b[2] }.execute(&ctx2);
-
+                let h1_future = SecureMul {
+                    index: i,
+                    a_share: a[0],
+                    b_share: b[0],
+                }
+                .execute(&ctx[0]);
+                let h2_future = SecureMul {
+                    index: i,
+                    a_share: a[1],
+                    b_share: b[1],
+                }
+                .execute(&ctx[1]);
+                let h3_future = SecureMul {
+                    index: i,
+                    a_share: a[2],
+                    b_share: b[2],
+                }
+                .execute(&ctx[2]);
 
                 try_join!(h1_future, h2_future, h3_future).unwrap()
             };
