@@ -185,7 +185,7 @@ def oblivious_attribution(reports: Matrix,
     #helperbits_xor_istrigger = (helperbits.get_vector()
      #                           ^ is_trigger.get_vector())
 
-    NOT_is_trigger = (is_trigger.get_vector()  + 1)  % 2
+    NOT_is_trigger = 1 - is_trigger.get_vector() 
 
     final_credits = NOT_is_trigger * credit
 
