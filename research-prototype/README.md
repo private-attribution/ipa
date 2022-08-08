@@ -99,7 +99,7 @@ rsync -e "ssh -i <ssh cert>" -Pav Player-Data $USER@$HOST:$MP_SPDZ_DIR
 Pick one host to be the coordinator (and player 0 by convention used by MP_SPDZ).
 
 ```bash
-export $COORDINATOR=<host IP or DNS>
+COORDINATOR=<host IP or DNS>
 ```
 
 Run this command on the coordinator host
