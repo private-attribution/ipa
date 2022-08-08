@@ -78,3 +78,44 @@ To simulate the MPC locally, run:
 ```bash
 ../../MP-SPDZ/Scripts/ring.sh -R 32 ipae2e
 ```
+
+### Running the MPC on multiple hosts
+
+Make sure you are in this directory, `raw-ipa/research-prototype`.
+
+All hosts must use the same set of certificates for encrypted connections. Copy `Player-data/*.pem` to the `MP-SPDZ`
+folder on every host that will participate in MPC. 
+
+If you need private key to connect to a host (often the case for AWS cloud), here is a convenience command that does 
+the copying (execute it from the host was used to generate SSL certificates by running the command: `Scripts/setup-ssl.sh`)
+
+* assume `HOST` is set to the destination host IP address or DNS name
+* `MP_SDPZ_DIR` must be set to the directory where IPA is installed, for example `/home/raw-ipa/research-prototype`.
+
+```bash
+rsync -e "ssh -i <ssh cert>" -Pav Player-Data $USER@$HOST:$MP_SPDZ_DIR
+```
+
+Pick one host to be the coordinator (and player 0 by convention used by MP_SPDZ).
+
+```bash
+export $COORDINATOR=<host IP or DNS>
+```
+
+Run this command on the coordinator host
+
+```bash
+../../MP-SPDZ/Scripts/../replicated-ring-party.x --player 0 ipae2e --hostname $COORDINATOR
+```
+
+Start two other MPC parties:
+
+host 1:
+```bash
+../../MP-SPDZ/Scripts/../replicated-ring-party.x --player 1 ipae2e --hostname $COORDINATOR
+```
+
+host 2:
+```bash
+../../MP-SPDZ/Scripts/../replicated-ring-party.x --player 1 ipae2e --hostname $COORDINATOR
+```
