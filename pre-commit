@@ -49,13 +49,17 @@ cargo clippy --tests -- -D warnings --D clippy::pedantic || error "Clippy errors
 cargo test || error "Test failures"
 
 VENV="$root/.venv/bin"
-if ! [[ -d "$VENV" ]]; then
-    python3 -m venv .venv
-    "$VENV/pip3" install -r "$root/requirements.txt"
-fi
+pyrun() {
+    x="$1"
+    shift
+    if ! [[ -x "$VENV/$x" ]]; then
+        "$VENV/pip" install -r "$root/requirements.txt"
+    fi
+    "$x" "$@"
+}
 
-"$VENV/flake518" . || error "Python flake8 formatting errors."
+pyrun flake518 . || error "Python flake8 formatting errors."
 
-"$VENV/black" --check --diff . || error "Python Black formatting errors. Run \`black .\` to fix."
+pyrun black --check --diff . || error "Python Black formatting errors. Run \`black .\` to fix."
 
-"$VENV/isort" --check --diff . || error "Python isort import ordering errors. Run \`isort .\` to fix."
+pyrun isort --check --diff . || error "Python isort import ordering errors. Run \`isort .\` to fix."
