@@ -1,6 +1,6 @@
 [tool.black]
-include = '\w+\.(py|mpc)$'
-exclude = 'redis*'
+include = '\.(py|mpc)$'
+extend-exclude = '(^/\.venv/|^/redis*)'
 
 [tool.flake8]
 filename = ["*.py", "*.mpc"]
