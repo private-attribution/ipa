@@ -1,7 +1,7 @@
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::ring::{HelperAddr, Ring};
-use crate::prss::Participant;
+use crate::prss::PrssSpace;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -29,7 +29,7 @@ pub struct DValue {
 /// Eventually when we have more than one protocol, this should be lifted to its own module
 #[derive(Debug)]
 pub struct ProtocolContext<'a, R> {
-    pub participant: &'a Participant,
+    pub prss: &'a PrssSpace,
     pub helper_ring: &'a R,
 }
 
@@ -54,7 +54,7 @@ impl<F: Field> SecureMul<F> {
         ctx: &ProtocolContext<'_, R>,
     ) -> Result<ReplicatedSecretSharing<F>, BoxError> {
         // generate shared randomness.
-        let (s0, s1) = ctx.participant.generate_fields(self.index);
+        let (s0, s1) = ctx.prss.generate_fields(self.index);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = self.a_share.as_tuple();
@@ -165,7 +165,7 @@ mod tests {
     use futures::{stream, StreamExt};
     use futures_util::future::join_all;
 
-    use crate::prss::Participant;
+    use crate::prss::{test::SingleSpace, Participant};
 
     use crate::error::BoxError;
     use crate::helpers;
@@ -215,23 +215,26 @@ mod tests {
         ];
 
         // create 3 tasks (1 per helper) that will execute secure multiplication
-        let handles = input.into_iter().zip(participants).zip(ring).map(
-            |((input, participant), helper_ring)| {
-                tokio::spawn(async move {
-                    let ctx = ProtocolContext {
-                        participant: &participant,
-                        helper_ring: &helper_ring,
-                    };
-                    let mut stream = secure_multiply(input, &ctx, start_index);
+        let handles =
+            input
+                .into_iter()
+                .zip(participants)
+                .zip(ring)
+                .map(|((input, prss), helper_ring)| {
+                    tokio::spawn(async move {
+                        let ctx = ProtocolContext {
+                            prss: &*prss,
+                            helper_ring: &helper_ring,
+                        };
+                        let mut stream = secure_multiply(input, &ctx, start_index);
 
-                    // compute a*b
-                    let _ = stream.next().await.expect("Failed to compute a*b");
+                        // compute a*b
+                        let _ = stream.next().await.expect("Failed to compute a*b");
 
-                    // compute (a*b)*c and return it
-                    stream.next().await.expect("Failed to compute a*b*c")
-                })
-            },
-        );
+                        // compute (a*b)*c and return it
+                        stream.next().await.expect("Failed to compute a*b*c")
+                    })
+                });
 
         let result_shares: [ReplicatedSecretSharing<Fp31>; 3] =
             join_all(handles.map(|handle| async { handle.await.unwrap() }))
@@ -290,14 +293,15 @@ mod tests {
 
     fn make_context<'a>(
         ring: &'a [TestHelper; 3],
-        participants: &'a (Participant, Participant, Participant),
+        participants: &'a (
+            Participant<SingleSpace>,
+            Participant<SingleSpace>,
+            Participant<SingleSpace>,
+        ),
     ) -> [ProtocolContext<'a, TestHelper>; 3] {
         ring.iter()
             .zip([&participants.0, &participants.1, &participants.2])
-            .map(|(helper_ring, participant)| ProtocolContext {
-                participant,
-                helper_ring,
-            })
+            .map(|(helper_ring, prss)| ProtocolContext { prss, helper_ring })
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
