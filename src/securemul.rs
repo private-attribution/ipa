@@ -54,7 +54,10 @@ impl<F: Field> SecureMul<F> {
         self,
         ctx: &ProtocolContext<'_, R>,
     ) -> Result<ReplicatedSecretSharing<F>, BoxError> {
-        let mut helper_ring = ctx.helper_ring.ring_channel(ProtocolId::from(self.index));
+        #[allow(clippy::cast_possible_truncation)] // we will move away from using index soon (#68)
+        let mut helper_ring = ctx
+            .helper_ring
+            .ring_channel(ProtocolId::from(self.index as u32));
         // generate shared randomness.
         let (s0, s1) = ctx.prss.generate_fields(self.index);
 

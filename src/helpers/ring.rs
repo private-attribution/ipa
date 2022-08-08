@@ -284,9 +284,9 @@ pub mod mock {
         let tr = TestHelper::new(rx, tx.clone(), tx);
 
         {
-            let _r = tr.ring_channel(1_u128.into());
+            let _r = tr.ring_channel(1.into());
             {
-                let _r = tr.ring_channel(2_u128.into());
+                let _r = tr.ring_channel(2.into());
                 assert_eq!(tr.routing_table.lock().unwrap().active_routes.len(), 2);
             }
             assert_eq!(tr.routing_table.lock().unwrap().active_routes.len(), 1);

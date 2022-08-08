@@ -3,8 +3,8 @@
 #[derive(Copy, Clone, Debug, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ProtocolId(u32);
 
-impl From<u128> for ProtocolId {
-    fn from(v: u128) -> Self {
+impl From<u32> for ProtocolId {
+    fn from(v: u32) -> Self {
         ProtocolId(v)
     }
 }
