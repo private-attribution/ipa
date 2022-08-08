@@ -60,6 +60,7 @@ pyrun() {
     elif [[ "$root/requirements.txt" -nt "$VENV/$x" ]]; then
         "$VENV/pip" install --upgrade -r "$root/requirements.txt"
     fi
+    echo "Run: $x $@"
     "$x" "$@"
 }
 
