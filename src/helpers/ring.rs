@@ -56,8 +56,7 @@ pub trait Ring {
 
 #[cfg(test)]
 pub mod mock {
-    use crate::helpers::error::Error;
-    use crate::helpers::error::Error::{ReceiveError, SendError};
+    use crate::helpers::error::Error::{self, ReceiveError, SendError};
     use crate::helpers::ring::{CommunicationGateway, HelperAddr, Message, ProtocolId, Ring};
     use async_trait::async_trait;
     use std::collections::hash_map::Entry;
@@ -161,12 +160,15 @@ pub mod mock {
                 payload: bytes,
             };
 
-            let sender = self.senders.get(&dest).ok_or(SendError {
+            let sender = self.senders.get(&dest).ok_or_else(|| SendError {
                 dest,
-                inner: "No sender for this destination".into(),
+                inner: format!(
+                    "Can't send message to {dest:?} as I don't have a sender instance for it."
+                )
+                .into(),
             })?;
 
-            sender.send(envelope).await.map_err(|e| Error::SendError {
+            sender.send(envelope).await.map_err(|e| SendError {
                 dest,
                 inner: Box::new(e) as _,
             })
