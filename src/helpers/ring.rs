@@ -136,17 +136,23 @@ pub mod mock {
         }
     }
 
+    impl HelperAddr {
+        /// To obtain source from destination we invert it - message send to the left helper
+        /// is originated from helper on the right side.
+        fn source(self) -> HelperAddr {
+            match self {
+                HelperAddr::Left => HelperAddr::Right,
+                HelperAddr::Right => HelperAddr::Left,
+            }
+        }
+    }
+
     #[async_trait]
     impl Ring for TestChannel {
         async fn send<T: Message>(&mut self, dest: HelperAddr, msg: T) -> Result<(), Error> {
             // inside the envelope we store the sender of the message (i.e. source)
-            // but this method accepts the destination. To obtain source from destination
-            // we invert it - message send to the left helper is originated from helper on the
-            // right side.
-            let source = match dest {
-                HelperAddr::Left => HelperAddr::Right,
-                HelperAddr::Right => HelperAddr::Left,
-            };
+            // but this method accepts the destination.
+            let source = dest.source();
 
             let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
             let envelope = MessageEnvelope {
