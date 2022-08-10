@@ -79,10 +79,19 @@ def get_args(args) -> argparse.Namespace:
     arg_parser.add_argument("do_sort", type = int, default = 1,
                             nargs = '?',
                             help="Sort the match keys")
+    arg_parser.add_argument("do_attribution", type = int, default = 1,
+                            nargs = '?',
+                            help="run oblivious attribution")
+    arg_parser.add_argument("do_capping", type = int, default = 1,
+                            nargs = '?',
+                            help="Do DP capping or not")
+    arg_parser.add_argument("do_aggregation", type = int, default = 1,
+                            nargs = '?',
+                            help="Do aggregation by breakdown key or not")  
     return arg_parser.parse_args(args)
 
 def oblivious_attribution(reports: Matrix,
-                          breakdown_values: int) -> Array:
+                          breakdown_values: int, do_capping: int, do_aggregation: int) -> Array:
     """
     Perform the oblivious attribution.
     """
@@ -179,40 +188,42 @@ def oblivious_attribution(reports: Matrix,
     final_credits.assign_vector( (1 - is_trigger.get_vector())  * credit.get_vector())
 
     ############  CAPPING ############
-    current_contribution = Array(numrows,sint)
-    current_contribution.assign_vector(0)
-    cap = 10
-    rows = range(numrows)
-    for row in rows:
+    if do_capping:
+        current_contribution = Array(numrows,sint)
+        current_contribution.assign_vector(0)
+        cap = 10
+        rows = range(numrows)
+        for row in rows:
 
-        current_contribution[row] = (
-                                        current_contribution[row] 
-                                        * helperbits[row]
-                                    )
+            current_contribution[row] = (
+                                            current_contribution[row] 
+                                            * helperbits[row]
+                                        )
 
-        min = ( 
-            (final_credits[row] < cap - current_contribution[row]).if_else(
-                final_credits[row], 
-                cap - current_contribution[row])
+            min = ( 
+                (final_credits[row] < cap - current_contribution[row]).if_else(
+                    final_credits[row], 
+                    cap - current_contribution[row])
+            )
+
+            final_credits[row] = (current_contribution[row] <= cap) * min 
+            
+            current_contribution[row] = current_contribution[row] + final_credits[row]
+
+    ############# AGGREGATION #############  
+    if do_aggregation:  
+        breakdown = reports.get_column(BREAKDOWN_KEY)
+
+        breakdown_keys = list(range(breakdown_values))
+
+        # One can use sum, but tree_reduce appears to be more efficient
+        return (
+            Array(breakdown_values, sint).create_from([
+                tree_reduce(operator.add,
+                            (breakdown == breakdown_key)
+                            * final_credits)
+                for breakdown_key in breakdown_keys])
         )
-
-        final_credits[row] = (current_contribution[row] <= cap) * min 
-        
-        current_contribution[row] = current_contribution[row] + final_credits[row]
-
-    ############# AGGREGATION #############    
-    breakdown = reports.get_column(BREAKDOWN_KEY)
-
-    breakdown_keys = list(range(breakdown_values))
-
-    # One can use sum, but tree_reduce appears to be more efficient
-    return (
-        Array(breakdown_values, sint).create_from([
-            tree_reduce(operator.add,
-                        (breakdown == breakdown_key)
-                        * final_credits)
-            for breakdown_key in breakdown_keys])
-    )
 
 def main():
     """
@@ -248,9 +259,11 @@ def main():
                              print(f"Illegal sort type {args.sort_type}"))
         sort_fn(match_keys, reports)
 
-    breakdown_key_sums = oblivious_attribution(reports,
-                                               args.breakdown_values)
-    print_ln("breakdowns: %s", breakdown_key_sums.reveal())
+    if args.do_attribution:
+        breakdown_key_sums = oblivious_attribution(reports,
+                                               args.breakdown_values, args.do_capping,args.do_aggregation)
+    if args.do_aggregation & args.do_attribution:
+        print_ln("breakdowns: %s", breakdown_key_sums.reveal())
     
 main()
 
