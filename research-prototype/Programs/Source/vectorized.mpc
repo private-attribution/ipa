@@ -173,21 +173,35 @@ def oblivious_attribution(reports: Matrix,
         credit.assign_vector(new_credit)
 
     # Calculate final_credits
+
+
+    final_credits = Array(numrows,sint)
+    final_credits.assign_vector( (1 - is_trigger.get_vector())  * credit.get_vector())
+
+    ############  CAPPING ############
+    current_contribution = Array(numrows,sint)
+    current_contribution.assign_vector(0)
+    cap = 10
+    rows = range(numrows)
+    for row in rows:
+
+        current_contribution[row] = (
+                                        current_contribution[row] 
+                                        * helperbits[row]
+                                    )
+
+        min = ( 
+            (final_credits[row] < cap - current_contribution[row]).if_else(
+                final_credits[row], 
+                cap - current_contribution[row])
+        )
+
+        final_credits[row] = (current_contribution[row] <= cap) * min 
+        
+        current_contribution[row] = current_contribution[row] + final_credits[row]
+
+    ############# AGGREGATION #############    
     breakdown = reports.get_column(BREAKDOWN_KEY)
-
-    # Once we have AND, XOR is just addition and subtraction
-
-    # helperbits_xor_istrigger = (helperbits + is_trigger
-    #                             - 2 * helperbits_and_istrigger)
-
-    # It would be better to use the formula
-    # x XOR y = x + y - 2 * x * y since we alaready know x*y
-    #helperbits_xor_istrigger = (helperbits.get_vector()
-     #                           ^ is_trigger.get_vector())
-
-    NOT_is_trigger = 1 - is_trigger.get_vector() 
-
-    final_credits = NOT_is_trigger * credit
 
     breakdown_keys = list(range(breakdown_values))
 
@@ -196,7 +210,7 @@ def oblivious_attribution(reports: Matrix,
         Array(breakdown_values, sint).create_from([
             tree_reduce(operator.add,
                         (breakdown == breakdown_key)
-                        * credit)
+                        * final_credits)
             for breakdown_key in breakdown_keys])
     )
 
