@@ -238,11 +238,7 @@ pub mod test {
 
     /// In testing, having a single space is easiest to use.
     /// This provides an implementation of `PrssSpace`.
-    pub struct SingleSpace(());
-
-    impl SingleSpace {
-        pub const ONE: Self = Self(());
-    }
+    pub struct SingleSpace;
 
     impl SpaceIndex for SingleSpace {
         const MAX: usize = 1;
@@ -255,7 +251,7 @@ pub mod test {
     impl std::ops::Deref for Participant<SingleSpace> {
         type Target = PrssSpace;
         fn deref(&self) -> &Self::Target {
-            &self[SingleSpace::ONE]
+            &self[SingleSpace]
         }
     }
 

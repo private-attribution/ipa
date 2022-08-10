@@ -223,7 +223,7 @@ mod tests {
                 .map(|((input, prss), helper_ring)| {
                     tokio::spawn(async move {
                         let ctx = ProtocolContext {
-                            prss: &*prss,
+                            prss: &prss,
                             helper_ring: &helper_ring,
                         };
                         let mut stream = secure_multiply(input, &ctx, start_index);
