@@ -133,9 +133,8 @@ pub struct KeyExchange {
 
 impl KeyExchange {
     pub fn new<R: RngCore + CryptoRng>(r: &mut R) -> Self {
-        let mut r = rng::Adapter::from(r);
         Self {
-            sk: EphemeralSecret::new(&mut r),
+            sk: EphemeralSecret::new(r),
         }
     }
 
@@ -232,39 +231,6 @@ impl From<Generator> for BitGenerator {
     fn from(g: Generator) -> Self {
         Self { g, i: 0, v: 0 }
     }
-}
-
-// x25519-dalek uses an old version of the rand_core crate.
-// This is incompatible with the rand crate that the rest of the project uses,
-// but it is basically the same.  This adapter manages that.
-mod rng {
-    use old_rand_core::{CryptoRng as OldCryptoRng, Error as OldError, RngCore as OldRngCore};
-    use rand_core::{CryptoRng, RngCore};
-
-    pub struct Adapter<'a, R>(&'a mut R);
-
-    impl<'a, R: RngCore + CryptoRng> From<&'a mut R> for Adapter<'a, R> {
-        fn from(r: &'a mut R) -> Self {
-            Self(r)
-        }
-    }
-
-    impl<R: RngCore> OldRngCore for Adapter<'_, R> {
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
-            self.0.fill_bytes(dest);
-        }
-        fn next_u32(&mut self) -> u32 {
-            self.0.next_u32()
-        }
-        fn next_u64(&mut self) -> u64 {
-            self.0.next_u64()
-        }
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), OldError> {
-            self.0.try_fill_bytes(dest).map_err(OldError::new)
-        }
-    }
-
-    impl<R: CryptoRng> OldCryptoRng for Adapter<'_, R> {}
 }
 
 #[cfg(test)]
@@ -493,22 +459,28 @@ pub mod test {
 
     #[test]
     fn three_party_random() {
-        const IDX1: u128 = 87;
-        const IDX2: u128 = 12;
+        const IDX1: u128 = 74;
+        const IDX2: u128 = 12634;
         let (p1, p2, p3) = make_three();
 
         let r1: Fp31 = p1.random(IDX1);
         let r2 = p2.random(IDX1);
         let r3 = p3.random(IDX1);
-
         let v1 = r1 + r2 + r3;
-        assert_ne!(Fp31::from(0_u8), v1);
 
-        let r1: Fp31 = p1.random(IDX2);
-        let r2 = p2.random(IDX2);
-        let r3 = p3.random(IDX2);
+        // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
+        // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
+        let mut v2 = Fp31::from(0_u8);
+        for i in IDX2..(IDX2 + 21) {
+            let r1: Fp31 = p1.random(i);
+            let r2 = p2.random(i);
+            let r3 = p3.random(i);
 
-        let v2 = r1 + r2 + r3;
+            v2 = r1 + r2 + r3;
+            if v1 != v2 {
+                break;
+            }
+        }
         assert_ne!(v1, v2);
     }
 

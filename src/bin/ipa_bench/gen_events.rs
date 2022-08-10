@@ -16,16 +16,25 @@ use std::time::Duration;
 const RECORD_SEPARATOR: u8 = 30;
 
 const DAYS_IN_EPOCH: u64 = 7;
-type MatchKey = Vec<u64>;
+type MatchKey = u64;
 type Epoch = u8;
+type Number = u32;
 
 #[derive(Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct EventBase {
-    // For this tool, we'll fix the length of a matchkey to u64
-    pub matchkeys: MatchKey,
+    /// Secret shared and then encrypted match keys.
+    pub matchkeys: Vec<MatchKey>,
+
+    /// The epoch which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
+    /// This field is in the clear.
     pub epoch: Epoch,
-    pub timestamp: u32,
+
+    /// An offset in seconds into a given epoch. The clear is u32 (< 2^20 seconds), then encrypted and secret shared.
+    pub timestamp: Number,
+
+    /// 0 (false) if this is a source event. 1 (true) otherwise.
+    pub is_trigger: bool,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -33,7 +42,31 @@ pub struct SourceEvent {
     pub event: EventBase,
 
     /// Ad breakdown key value
-    pub breakdown_key: String,
+    pub breakdown_key: Number,
+
+    /// Fields from TriggerEvent for padding
+    value: Number,
+}
+
+impl SourceEvent {
+    #[must_use]
+    pub fn new(
+        matchkeys: Vec<MatchKey>,
+        epoch: Epoch,
+        timestamp: Number,
+        breakdown_key: Number,
+    ) -> Self {
+        Self {
+            event: EventBase {
+                matchkeys,
+                epoch,
+                timestamp,
+                is_trigger: false,
+            },
+            breakdown_key,
+            value: 0,
+        }
+    }
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -41,10 +74,26 @@ pub struct TriggerEvent {
     pub event: EventBase,
 
     /// Conversion value
-    pub value: u32,
+    pub value: Number,
 
-    /// Zero-knowledge proof value
-    pub zkp: String,
+    /// Fields from SourceEvent for padding
+    breakdown_key: Number,
+}
+
+impl TriggerEvent {
+    #[must_use]
+    pub fn new(matchkeys: Vec<MatchKey>, epoch: Epoch, timestamp: Number, value: Number) -> Self {
+        Self {
+            event: EventBase {
+                matchkeys,
+                epoch,
+                timestamp,
+                is_trigger: false,
+            },
+            breakdown_key: 0,
+            value,
+        }
+    }
 }
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -60,11 +109,11 @@ pub enum Event {
 }
 
 struct GenEventParams {
-    devices: u8,
+    matchkeys: u8,
     impressions: u8,
     conversions: u8,
     epoch: Epoch,
-    breakdown_key: String,
+    breakdown_key: Number,
 }
 
 // TODO: Currently, users are mutually exclusive in each ad loop (i.e. User A in ad X will never appear in other ads).
@@ -104,9 +153,10 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
         debug!("CVR: {}", cvr);
 
         for _ in 0..reach {
-            // # of devices == # of matchkeys
-            let devices = sample.devices_per_user(rng);
-            trace!("devices per user: {}", devices);
+            // # of matchkeys
+            // Hard code this number to 1 as, at the moment, we only have a solution for one match key.
+            let matchkeys = 1;
+            trace!("match keys per user: {}", matchkeys);
 
             let impressions = sample.impression_per_user(rng);
             trace!("impressions per user: {}", impressions);
@@ -121,11 +171,11 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
 
             let events = gen_events(
                 &GenEventParams {
-                    devices,
+                    matchkeys,
                     impressions,
                     conversions,
                     epoch,
-                    breakdown_key: ad_id.to_string(),
+                    breakdown_key: ad_id,
                 },
                 secret_share,
                 sample,
@@ -162,7 +212,7 @@ fn gen_events<R: RngCore + CryptoRng>(
 ) -> Vec<Event> {
     let mut events: Vec<Event> = Vec::new();
 
-    let matchkeys = gen_matchkeys(params.devices, rng);
+    let matchkeys = gen_matchkeys(params.matchkeys, rng);
     let mut ss_mks: Vec<SecretShare> = Vec::new();
 
     if secret_share {
@@ -189,18 +239,16 @@ fn gen_events<R: RngCore + CryptoRng>(
                     epoch: params.epoch,
                     timestamp: u32::try_from(t.as_secs()).unwrap().xor_split(ss_rng),
                 },
-                breakdown_key: params.breakdown_key.clone(),
+                breakdown_key: params.breakdown_key,
             }));
         } else {
-            events.push(Event::Source(SourceEvent {
-                event: EventBase {
-                    matchkeys: matchkeys.clone(),
-                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
-                    epoch: params.epoch,
-                    timestamp: u32::try_from(t.as_secs()).unwrap(),
-                },
-                breakdown_key: params.breakdown_key.clone(),
-            }));
+            events.push(Event::Source(SourceEvent::new(
+                matchkeys.clone(),
+                //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
+                params.epoch,
+                u32::try_from(t.as_secs()).unwrap(),
+                params.breakdown_key,
+            )));
         }
 
         last_impression = t;
@@ -223,19 +271,15 @@ fn gen_events<R: RngCore + CryptoRng>(
                     timestamp: u32::try_from(t.as_secs()).unwrap().xor_split(ss_rng),
                 },
                 value: conversion_value.xor_split(ss_rng),
-                zkp: String::from("zkp"),
             }));
         } else {
-            events.push(Event::Trigger(TriggerEvent {
-                event: EventBase {
-                    matchkeys: matchkeys.clone(),
-                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
-                    epoch: params.epoch,
-                    timestamp: u32::try_from(t.as_secs()).unwrap(),
-                },
-                value: conversion_value,
-                zkp: String::from("zkp"),
-            }));
+            events.push(Event::Trigger(TriggerEvent::new(
+                matchkeys.clone(),
+                //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
+                params.epoch,
+                u32::try_from(t.as_secs()).unwrap(),
+                conversion_value,
+            )));
         }
 
         last_conversion = t;
@@ -244,7 +288,7 @@ fn gen_events<R: RngCore + CryptoRng>(
     events
 }
 
-fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> MatchKey {
+fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<MatchKey> {
     let mut mks = Vec::new();
 
     for _ in 0..count {
@@ -434,7 +478,6 @@ mod tests {
                         let value = u32::combine(&et.value).unwrap();
                         assert!(t.event.timestamp == timestamp);
                         assert!(t.value == value);
-                        assert!(t.zkp == et.zkp);
                         assert!(t.event.epoch == et.event.epoch);
                     } else {
                         unreachable!();

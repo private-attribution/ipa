@@ -1,0 +1,14 @@
+[tool.black]
+include = '\.(py|mpc)$'
+extend-exclude = '(^/\.venv/|^/redis*)'
+
+[tool.flake8]
+filename = ["*.py", "*.mpc"]
+exclude = ["redis*", ".venv"]
+max-line-length = 88
+extend-ignore = "E203"
+
+[tool.isort]
+profile = "black"
+skip_glob = ["redis*", ".venv"]
+supported_extensions = ["mpc", ]

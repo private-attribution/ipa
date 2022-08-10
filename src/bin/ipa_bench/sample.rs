@@ -14,9 +14,6 @@ pub struct Sample<'a> {
     ad_impression_per_user_distr: WeightedIndex<f64>,
     ad_conversion_per_user_distr: WeightedIndex<f64>,
 
-    // Match key
-    devices_per_user_distr: WeightedIndex<f64>,
-
     // Time
     conversions_duration_distr: WeightedIndex<f64>,
     frequency_cap_distr: WeightedIndex<f64>,
@@ -43,11 +40,6 @@ impl<'a> Sample<'a> {
             .unwrap(),
             ad_conversion_per_user_distr: WeightedIndex::new(
                 config.conversion_per_user.iter().map(|i| i.weight),
-            )
-            .unwrap(),
-
-            devices_per_user_distr: WeightedIndex::new(
-                config.devices_per_user.iter().map(|i| i.weight),
             )
             .unwrap(),
 
@@ -80,10 +72,6 @@ impl<'a> Sample<'a> {
             .index
             .clone();
         rng.gen_range(r)
-    }
-
-    pub fn devices_per_user<R: RngCore + CryptoRng>(&self, rng: &mut R) -> u8 {
-        self.config.devices_per_user[self.devices_per_user_distr.sample(rng)].index
     }
 
     pub fn cvr_per_ad_account<R: RngCore + CryptoRng>(&self, rng: &mut R) -> f64 {
