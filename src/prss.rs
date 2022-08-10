@@ -419,8 +419,8 @@ pub mod test {
 
     #[test]
     fn three_party_random() {
-        const IDX1: u128 = 87;
-        const IDX2: u128 = 12;
+        const IDX1: u128 = 74;
+        const IDX2: u128 = 12634;
         let (p1, p2, p3) = make_three();
 
         let r1: Fp31 = p1.random(IDX1);
@@ -428,13 +428,13 @@ pub mod test {
         let r3 = p3.random(IDX1);
         let v1 = r1 + r2 + r3;
 
-        // There isn't enough entropy in this field to be sure that the test will pass.
-        // So run a few rounds looking for a mismatch.
+        // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
+        // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
         let mut v2 = Fp31::from(0_u8);
-        for _ in 0..21 {
-            let r1: Fp31 = p1.random(IDX2);
-            let r2 = p2.random(IDX2);
-            let r3 = p3.random(IDX2);
+        for i in IDX2..(IDX2 + 21) {
+            let r1: Fp31 = p1.random(i);
+            let r2 = p2.random(i);
+            let r3 = p3.random(i);
 
             v2 = r1 + r2 + r3;
             if v1 != v2 {

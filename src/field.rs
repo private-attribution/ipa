@@ -77,6 +77,13 @@ pub trait Field:
 
         term
     }
+
+    /// Blanket implementation to represent the instance of this trait as 16 byte integer.
+    /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
+    fn as_u128(&self) -> u128 {
+        let int: Self::Integer = (*self).into();
+        int.into()
+    }
 }
 
 // TODO(mt) - this code defining fields can be turned into a macro if we ever
