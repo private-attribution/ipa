@@ -59,12 +59,7 @@ impl<F: Field> SecureMul<F> {
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = self.a_share.as_tuple();
         let (b0, b1) = self.b_share.as_tuple();
-        let right_d: F = a0 * b1 + a1 * b0 - s0;
-
-        // this ugliness is needed just to convert Field to u128. There are better ways to do it
-        // and there is a PR open to make it easier
-        let right_d: <F as Field>::Integer = right_d.into();
-        let right_d: u128 = right_d.into();
+        let right_d = (a0 * b1 + a1 * b0 - s0).as_u128();
 
         // notify helper on the right that we've computed our value
         ctx.helper_ring
