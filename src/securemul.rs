@@ -19,9 +19,9 @@ pub struct SecureMul<F> {
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue {
+pub struct DValue<F> {
     index: u128,
-    d: u128,
+    d: F,
 }
 
 /// Context used by each helper to perform computation. Currently they need access to shared
@@ -59,7 +59,7 @@ impl<F: Field> SecureMul<F> {
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = self.a_share.as_tuple();
         let (b0, b1) = self.b_share.as_tuple();
-        let right_d = (a0 * b1 + a1 * b0 - s0).as_u128();
+        let right_d = a0 * b1 + a1 * b0 - s0;
 
         // notify helper on the right that we've computed our value
         ctx.helper_ring
@@ -81,8 +81,8 @@ impl<F: Field> SecureMul<F> {
         // sanity check to make sure they've computed it using the same seed
         if left_index == self.index {
             // now we are ready to construct the result - 2/3 secret shares of a * b.
-            let lhs = a0 * b0 + F::from(left_d) + s0;
-            let rhs = a1 * b1 + F::from(right_d) + s1;
+            let lhs = a0 * b0 + left_d + s0;
+            let rhs = a1 * b1 + right_d + s1;
 
             Ok(ReplicatedSecretSharing::new(lhs, rhs))
         } else {

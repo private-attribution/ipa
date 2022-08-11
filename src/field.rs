@@ -4,6 +4,9 @@ use std::{
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int:
     Sized
@@ -38,7 +41,11 @@ pub trait Field:
     + Copy
     + PartialEq
     + Debug
+    + Send
     + Sized
+    + Serialize
+    + DeserializeOwned
+    + 'static
 {
     type Integer: Int;
 
@@ -90,6 +97,7 @@ pub trait Field:
 // need lots of fields with different primes.
 
 #[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Fp31(<Self as Field>::Integer);
 
 impl From<Fp31> for u8 {
