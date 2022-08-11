@@ -59,12 +59,12 @@ impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 
     use crate::field::Fp31;
 
-    fn secret_share(
+    pub(crate) fn secret_share(
         a: u8,
         b: u8,
         c: u8,

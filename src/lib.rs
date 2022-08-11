@@ -5,6 +5,7 @@ mod chunkscan;
 pub mod cli;
 pub mod error;
 pub mod field;
+mod find_sort_location;
 pub mod helpers;
 pub mod net;
 pub mod prss;

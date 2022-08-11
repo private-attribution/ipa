@@ -12,9 +12,9 @@ use thiserror::Error;
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<F> {
-    index: u128,
-    a_share: ReplicatedSecretSharing<F>,
-    b_share: ReplicatedSecretSharing<F>,
+    pub index: u128,
+    pub a_share: ReplicatedSecretSharing<F>,
+    pub b_share: ReplicatedSecretSharing<F>,
 }
 
 /// A message sent by each helper when they've multiplied their own shares
@@ -146,7 +146,7 @@ pub mod stream {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
 
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -283,7 +283,7 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a>(
+    pub(crate) fn make_context<'a>(
         ring: &'a [TestHelper; 3],
         participants: &'a (Participant, Participant, Participant),
     ) -> [ProtocolContext<'a, TestHelper>; 3] {
