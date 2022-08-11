@@ -105,17 +105,17 @@ COORDINATOR=<host IP or DNS>
 Run this command on the coordinator host
 
 ```bash
-../../MP-SPDZ/Scripts/../replicated-ring-party.x --player 0 ipae2e --hostname $COORDINATOR
+../../MP-SPDZ/replicated-ring-party.x --player 0 ipae2e --hostname $COORDINATOR
 ```
 
 Start two other MPC parties:
 
 host 1:
 ```bash
-../../MP-SPDZ/Scripts/../replicated-ring-party.x --player 1 ipae2e --hostname $COORDINATOR
+../../MP-SPDZ/replicated-ring-party.x --player 1 ipae2e --hostname $COORDINATOR
 ```
 
 host 2:
 ```bash
-../../MP-SPDZ/Scripts/../replicated-ring-party.x --player 1 ipae2e --hostname $COORDINATOR
+../../MP-SPDZ/replicated-ring-party.x --player 1 ipae2e --hostname $COORDINATOR
 ```
