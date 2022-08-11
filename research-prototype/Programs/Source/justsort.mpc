@@ -1,0 +1,73 @@
+"""
+Just soring, with Libary Radix sort
+"""
+import argparse
+import os
+import sys
+from typing import Optional, Tuple
+import operator
+from pathlib import Path
+from Compiler import types, library, instructions, sorting
+
+numrows = 2 ** 15
+
+# load the data
+
+reports = Matrix(numrows, 4, sint)
+reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
+reports.sort((0,),n_bits=32)
+
+def set_directory() -> None:
+
+    source_dir = os.getcwd() + '/Programs/Source'
+    sys.path = [source_dir] + sys.path
+
+def get_args(args) -> argparse.Namespace:
+    """
+    Get the arguments from the remainder of compile.py command line.
+    """
+
+    # It turns out that you *can* get arguments from the compile.py
+    # command.  The arguments are everything after the name
+    # of the file to be compiled.
+
+    arg_parser = argparse.ArgumentParser("Attribution Benchmark")
+    arg_parser.add_argument("numrows_power", type=int, default = 4,
+                            nargs = '?',
+                            help="Power of 2 for number of Rows")
+    arg_parser.add_argument("n_bits", type = int, default = 32,
+                            nargs = '?',
+                            help="n_bits?")  
+    return arg_parser.parse_args(args)
+
+
+def main():
+    """
+    Do the main processing.
+    """
+
+    set_directory()
+    args = get_args(program.args[1: ])
+    print(f"args = {args}")
+
+    numrows = 2 ** args.numrows_power
+
+    # load the data
+
+    reports = Matrix(numrows, 4, sint)
+
+    # Now do the sort
+    # Libary Radix sort
+
+    reports.sort((0,),n_bits=args.n_bits)
+
+    for i in range(numrows-10,numrows):
+        print_ln("%s ",reports[i].reveal())
+
+
+    
+main()
+
+
+
+
