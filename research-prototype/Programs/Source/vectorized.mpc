@@ -1,5 +1,5 @@
 """
-Rewriting Erik's mpc files using vectors
+IPA End-to-end MPC in MP-SPDZ
 """
 import argparse
 import os
@@ -10,14 +10,15 @@ from pathlib import Path
 from Compiler import types, library, instructions, sorting
 
 MATCH_KEYS = 0
-VALUE = 2
 IS_TRIGGER = 1
+VALUE = 2
 BREAKDOWN_KEY = 3
 
 RADIX_SORT = 0
 BIT_RADIX_SORT = 1
 BATCHER_SORT = 2
-LIBRARY_SORT = 3
+LIBRARY_SORT = 3  # we used this for PATCG benchmarks 
+TWO_BIT_RADIX_SORT = 4 # this is @algebravic's optimized version
 
 def print_property(fun, vec, msg):
 
@@ -61,6 +62,9 @@ def get_args(args) -> argparse.Namespace:
     # It turns out that you *can* get arguments from the compile.py
     # command.  The arguments are everything after the name
     # of the file to be compiled.
+    # Note that these arguements get added to the of the compiled file, 
+    # e.g.:  ../../MP-SPDZ/compile.py -C -R 32 vectorized 8 4 32 
+    # outputs the file: vectorized-8-4-32
 
     arg_parser = argparse.ArgumentParser("Attribution Benchmark")
     arg_parser.add_argument("numrows_power", type=int, default = 4,
@@ -84,7 +88,7 @@ def get_args(args) -> argparse.Namespace:
                             help="run oblivious attribution")
     arg_parser.add_argument("do_capping", type = int, default = 2,
                             nargs = '?',
-                            help="Do DP capping or not")
+                            help="Do DP capping or not, default = 2 is for parallel algorithm")
     arg_parser.add_argument("do_aggregation", type = int, default = 1,
                             nargs = '?',
                             help="Do aggregation by breakdown key or not")  
@@ -93,7 +97,7 @@ def get_args(args) -> argparse.Namespace:
 def oblivious_attribution(reports: Matrix,
                           breakdown_values: int, do_capping: int, do_aggregation: int) -> Array:
     """
-    Perform the oblivious attribution.
+    Perform the oblivious attribution, capping and aggregation 
     """
 
     numrows, _  = reports.sizes
@@ -110,9 +114,9 @@ def oblivious_attribution(reports: Matrix,
                                                       size = numrows - 1),
                              base = 1)
     helperbits[0] = 0
-    # helperbits[idx] = True if there's a transition to a new match key
+    # helperbits[idx] = 1 if there's a transition to a new match key
 
-    # is_trigger[idx] = True means this is a trigger even
+    # is_trigger[idx] = 1  means this is a trigger event
     # we want to match all non-trigger events (i.e. source events)
     # with trigger events with the same matchkey
 
@@ -142,6 +146,7 @@ def oblivious_attribution(reports: Matrix,
 
     stepsize = 1
 
+    # compute the oblivious "tree" attribution algorithm
     while stepsize < numrows // 2:
         stepsize *= 2
 
@@ -157,22 +162,20 @@ def oblivious_attribution(reports: Matrix,
         stopbit.assign_vector(flag
                               & stopbit.get_vector(base = stepsize,
                                                    size = new_size))
-        # Now 0 out the last stepsize stopbit's
-        # stopbit.get_vector(base = new_size, size = stepsize).assign_all(0)
+
         stopbit.assign_vector(zeros.get_vector(size = stepsize),
                               base = new_size)
 
         # Replace the first new_size elements, leaving the others alone
         credit.assign_vector(new_credit)
 
-    # Calculate final_credits
-
-
+    # Calculate final_credits of source events by zering out the values of trigger rows. 
     final_credits = Array(numrows,sint)
     final_credits.assign_vector( (1 - is_trigger.get_vector())  * credit.get_vector())
 
     ############  CAPPING ############
     ##### (SEQUENTIAL CAPPING ALGORITHM #######
+    # there is a known bug in this version of capping; we used the parallel version for PATCG benchmarks
     if (do_capping == 1):
         print_ln("sequential capping")
         current_contribution = Array(numrows,sint)
@@ -231,7 +234,7 @@ def oblivious_attribution(reports: Matrix,
                 )
        
         
-        d = (cap - 
+        intermediary = (cap - 
             helperbits.get_vector(base=1,size = numrows -1 ) 
             * ( 
                 cap 
@@ -242,10 +245,10 @@ def oblivious_attribution(reports: Matrix,
                )
         )
 
-        final_credits.assign_vector( d.get_vector() 
+        final_credits.assign_vector( intermediary.get_vector() 
                             + compare_bit.get_vector(base = 1, size = numrows-1) 
                             * (
-                                final_credits.get_vector(base = 1, size = numrows - 1) - d.get_vector()
+                                final_credits.get_vector(base = 1, size = numrows - 1) - intermediary.get_vector()
                               ) 
                         , base = 1)
 
@@ -285,13 +288,16 @@ def main():
 
     match_keys = reports.get_column(MATCH_KEYS)
     # Now do the sort
-    # Radix sort
     sorter = {LIBRARY_SORT: lambda mkeys, reps:
               sorting.radix_sort(mkeys, reports, n_bits = args.n_bits),
               RADIX_SORT: lambda mkeys, reps:
               radix_sort(mkeys, reps, n_bits = args.n_bits),
+              TWO_BIT_RADIX_SORT: lambda mkeys, reps:
+              radix_sort(mkeys, reps, n_bits = args.n_bits, two_bit = True),
               BATCHER_SORT: lambda mkeys, reps:
               print("Batcher not implemented")}
+
+
 
     if args.do_sort:
 
@@ -300,9 +306,13 @@ def main():
                              print(f"Illegal sort type {args.sort_type}"))
         sort_fn(match_keys, reports)
 
+    #for i in range(numrows):
+    #    print_ln("%s ",reports[i].reveal())
+
     if args.do_attribution:
         breakdown_key_sums = oblivious_attribution(reports,
                                                args.breakdown_values, args.do_capping,args.do_aggregation)
+    
     if args.do_aggregation & args.do_attribution:
         print_ln("breakdowns: %s", breakdown_key_sums.reveal())
     
