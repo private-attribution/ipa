@@ -1,5 +1,5 @@
 """
-Just soring, with Libary Radix sort
+Just sorting, with Library Radix sort
 """
 import argparse
 import os
