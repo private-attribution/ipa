@@ -1,5 +1,5 @@
 """
-Just sorting, with Library Radix sort
+Just sorting, with Libary Radix sort
 """
 import argparse
 import os
@@ -9,13 +9,7 @@ import operator
 from pathlib import Path
 from Compiler import types, library, instructions, sorting
 
-numrows = 2 ** 15
 
-# load the data
-
-reports = Matrix(numrows, 4, sint)
-reports.assign_vector(sint.get_input_from(0, size = numrows * 4))
-reports.sort((0,),n_bits=32)
 
 def set_directory() -> None:
 
