@@ -160,7 +160,7 @@ pub mod mock {
         async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error> {
             let buf = Arc::clone(&self.buf);
 
-            let res = tokio::spawn(async move {
+            tokio::spawn(async move {
                 loop {
                     {
                         let buf = &mut *buf.lock().unwrap();
@@ -180,8 +180,7 @@ pub mod mock {
             .map_err(|e| Error::ReceiveError {
                 source,
                 inner: Box::new(e) as _,
-            });
-            res
+            })
         }
     }
 
