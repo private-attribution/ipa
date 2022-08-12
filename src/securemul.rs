@@ -155,6 +155,7 @@ mod tests {
     use crate::field::{Field, Fp31};
     use crate::helpers;
     use crate::helpers::ring::mock::TestHelper;
+    use crate::prss::test::SingleSpace;
     use crate::prss::Participant;
     use crate::replicated_secret_sharing::ReplicatedSecretSharing;
     use crate::securemul::stream::secure_multiply;
