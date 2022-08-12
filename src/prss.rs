@@ -7,18 +7,35 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
+use std::ops::Index;
+use std::{marker::PhantomData, mem::size_of};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-/// A participant in a 2-of-3 replicated secret sharing.
-#[derive(Debug)] // TODO custom debug implementation
-pub struct Participant {
-    left: Generator,
-    left_bits: BitGenerator,
-    right: Generator,
-    right_bits: BitGenerator,
+pub trait SpaceIndex {
+    const MAX: usize;
+
+    #[must_use]
+    fn as_usize(&self) -> usize;
+
+    #[must_use]
+    fn to_bytes(&self) -> [u8; 8] {
+        let mut buf = [0; 8];
+        for (i, &v) in self.as_usize().to_le_bytes().iter().enumerate() {
+            buf[i] = v;
+        }
+        buf
+    }
 }
 
-impl Participant {
+/// A participant in a 2-of-N replicated secret sharing.
+#[derive(Debug)] // TODO custom debug implementation
+#[allow(clippy::module_name_repetitions)]
+pub struct PrssSpace {
+    left: Generator,
+    right: Generator,
+}
+
+impl PrssSpace {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
@@ -63,12 +80,6 @@ impl Participant {
         l.wrapping_add(r)
     }
 
-    /// Generate the next share in `ZZ_2`
-    #[must_use]
-    pub fn next_zero_bit_share(&mut self) -> bool {
-        self.left_bits.next_bit() ^ self.right_bits.next_bit()
-    }
-
     /// Generate additive shares of zero in a field.
     #[must_use]
     pub fn zero<F: Field>(&self, index: u128) -> F {
@@ -84,6 +95,22 @@ impl Participant {
     }
 }
 
+/// A single participant in the protocol.
+/// This holds multiple streams of correlated (pseudo)randomness, indexed by `I`.
+pub struct Participant<I: SpaceIndex> {
+    // This would be `[PrssSpace; I::MAX]` with `feature(generic_const_exprs)`,
+    // but that is still in Nightly.
+    streams: Vec<PrssSpace>,
+    _marker: PhantomData<I>,
+}
+
+impl<I: SpaceIndex> Index<I> for Participant<I> {
+    type Output = PrssSpace;
+    fn index(&self, idx: I) -> &Self::Output {
+        &self.streams[idx.as_usize()]
+    }
+}
+
 /// Use this to setup a three-party PRSS configuration.
 pub struct ParticipantSetup {
     left: KeyExchange,
@@ -91,8 +118,7 @@ pub struct ParticipantSetup {
 }
 
 impl ParticipantSetup {
-    const CONTEXT_VALUES: &'static [u8] = b"IPA PRSS values";
-    const CONTEXT_BITS: &'static [u8] = b"IPA PRSS bits";
+    const CONTEXT_BASE: &'static [u8] = b"IPA PRSS ";
 
     /// Construct a new, unconfigured participant.  This can be configured by
     /// providing public keys for the left and right participants to `setup()`.
@@ -113,15 +139,28 @@ impl ParticipantSetup {
 
     /// Provide the left and right public keys to construct a functioning
     /// participant instance.
+    /// This is generic over `SpaceIndex` so that it can construct the
+    /// appropriate number of spaces for use by a protocol participant.
     #[must_use]
-    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant {
+    pub fn setup<I: SpaceIndex>(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant<I> {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
+        let mut context = Vec::with_capacity(Self::CONTEXT_BASE.len() + size_of::<usize>());
+        context.extend_from_slice(Self::CONTEXT_BASE);
+        let streams = (0..I::MAX)
+            .map(|i| {
+                context.truncate(Self::CONTEXT_BASE.len());
+                context.extend_from_slice(&i.to_le_bytes());
+                PrssSpace {
+                    left: fl.generator(&context),
+                    right: fr.generator(&context),
+                }
+            })
+            .collect();
+
         Participant {
-            left: fl.generator(Self::CONTEXT_VALUES),
-            left_bits: BitGenerator::from(fl.generator(Self::CONTEXT_BITS)),
-            right: fr.generator(Self::CONTEXT_VALUES),
-            right_bits: BitGenerator::from(fr.generator(Self::CONTEXT_BITS)),
+            streams,
+            _marker: PhantomData::default(),
         }
     }
 }
@@ -189,59 +228,32 @@ impl Generator {
     }
 }
 
-/// A generator for a single bit.  Unlike the base generator, this is a stateful object.
-#[derive(Debug)]
-pub struct BitGenerator {
-    /// The underlying generator.
-    g: Generator,
-    /// The current index, shifted left by 7 bits, plus 7 bits that are used
-    /// to index into the bits of the u128 the underlying generator creates.
-    /// That is, 121 bits of index that are passed to `g` and 7 bits that are
-    /// used to select which bit from the output of `g` to return.
-    i: u128,
-    /// The value we got from the current index (this is outdated if `i & 0x7f == 0`).
-    v: u128,
-}
-
-impl BitGenerator {
-    /// Create a new sequential bit generator starting at the given index.
-    /// # Panics
-    /// If the index is more than 2^121.  This type shifts the index left and
-    /// uses the low bits of that value for a bit index into the `u128` provided
-    /// by the underlying `Generator`.
-    #[must_use]
-    pub fn new(g: Generator, index: u128) -> Self {
-        assert!(index.leading_zeros() >= 7, "indices >= 2^121 not supported");
-        let i = index << 7;
-        Self { g, i, v: 0 }
-    }
-
-    #[must_use]
-    pub fn next_bit(&mut self) -> bool {
-        if self.i.trailing_zeros() >= 7 {
-            self.v = self.g.generate(self.i >> 7);
-        }
-        let v = ((self.v >> (self.i & 0x7f)) & 1) == 1;
-        self.i += 1;
-        v
-    }
-}
-
-impl From<Generator> for BitGenerator {
-    fn from(g: Generator) -> Self {
-        Self { g, i: 0, v: 0 }
-    }
-}
-
 #[cfg(test)]
 pub mod test {
-    use aes::{cipher::KeyInit, Aes256};
-    use digest::generic_array::GenericArray;
     use rand::thread_rng;
 
     use crate::field::Fp31;
 
-    use super::{BitGenerator, Generator, KeyExchange, Participant, ParticipantSetup};
+    use super::{Generator, KeyExchange, Participant, ParticipantSetup, PrssSpace, SpaceIndex};
+
+    /// In testing, having a single space is easiest to use.
+    /// This provides an implementation of `PrssSpace`.
+    pub struct SingleSpace;
+
+    impl SpaceIndex for SingleSpace {
+        const MAX: usize = 1;
+        fn as_usize(&self) -> usize {
+            0
+        }
+    }
+
+    // This makes it easier to use the single space.
+    impl std::ops::Deref for Participant<SingleSpace> {
+        type Target = PrssSpace;
+        fn deref(&self) -> &Self::Target {
+            &self[SingleSpace]
+        }
+    }
 
     fn make() -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
@@ -280,49 +292,6 @@ pub mod test {
         assert_ne!(0, g1.generate(0));
     }
 
-    #[test]
-    fn bit_generator() {
-        let (g1, g2) = make();
-        let (mut b1, mut b2) = (BitGenerator::from(g1), BitGenerator::from(g2));
-
-        // Get a few values out and test all the bits.
-        for _ in 0..257 {
-            assert_eq!(b1.next_bit(), b2.next_bit());
-        }
-    }
-
-    /// The bits produced by a `BitGenerator` aren't all 0 or 1.
-    #[test]
-    fn bit_non_uniform() {
-        let (g1, _g2) = make();
-        let mut b1 = BitGenerator::from(g1);
-        let (mut all_f, mut all_t) = (true, true);
-        for _ in 0..100 {
-            let v = b1.next_bit();
-            all_f &= !v;
-            all_t &= v;
-        }
-        assert!(!all_f);
-        assert!(!all_t);
-    }
-
-    /// A bit generator starting at 0 has 128 bit values before it
-    /// starts to agree with a generator starting at 1.
-    #[test]
-    fn offset_bit_generator() {
-        let (g1, g2) = make();
-        let mut b1 = BitGenerator::from(g1);
-        // Consume the first block of bits.
-        for _ in 0..128 {
-            let _ = b1.next_bit();
-        }
-
-        let mut b2 = BitGenerator::new(g2, 1);
-        for _ in 0..129 {
-            assert_eq!(b1.next_bit(), b2.next_bit());
-        }
-    }
-
     /// Creating generators with different contexts means different output.
     #[test]
     fn mismatched_context() {
@@ -338,7 +307,11 @@ pub mod test {
     /// Generate three participants.
     /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
     #[must_use]
-    pub fn make_three() -> (Participant, Participant, Participant) {
+    pub fn make_three() -> (
+        Participant<SingleSpace>,
+        Participant<SingleSpace>,
+        Participant<SingleSpace>,
+    ) {
         let mut r = thread_rng();
         let setup1 = ParticipantSetup::new(&mut r);
         let setup2 = ParticipantSetup::new(&mut r);
@@ -417,19 +390,6 @@ pub mod test {
     }
 
     #[test]
-    fn three_party_zero_bit() {
-        let (mut p1, mut p2, mut p3) = make_three();
-
-        for _ in 0..129 {
-            let z1 = p1.next_zero_bit_share();
-            let z2 = p2.next_zero_bit_share();
-            let z3 = p3.next_zero_bit_share();
-
-            assert!(!(z1 ^ z2 ^ z3));
-        }
-    }
-
-    #[test]
     fn three_party_fields() {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_three();
@@ -482,14 +442,5 @@ pub mod test {
             }
         }
         assert_ne!(v1, v2);
-    }
-
-    #[test]
-    #[should_panic]
-    fn bad_bit_generator() {
-        let g = Generator {
-            cipher: Aes256::new(&GenericArray::default()),
-        };
-        let _ = BitGenerator::new(g, u128::MAX);
     }
 }
