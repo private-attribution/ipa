@@ -12,10 +12,7 @@ class Columns(IntEnum):
     """
     These are the Columns in the reports Matrix
     """
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
     MATCHKEY = 0
     IS_TRIGGER = 1
     VALUE = 2
@@ -63,12 +60,8 @@ def load_data(numrows):
 
 
 def oblivious_attribution(
-<<<<<<< Updated upstream
-    reports: Matrix, breakdown_values: int,
-=======
     reports: Matrix,
     breakdown_values: int,
->>>>>>> Stashed changes
 ) -> Array:
     """
     Perform the oblivious attribution, capping and aggregation
@@ -192,13 +185,7 @@ def parallel_capping(numrows, final_credits, helperbits):
         new_current_contribution = current_contribution.get_vector(
             size=new_size
         ) + flag * current_contribution.get_vector(base=stepsize, size=new_size)
-<<<<<<< Updated upstream
-        stopbit.assign_vector(
-            flag * stopbit.get_vector(base=stepsize, size=new_size)
-        )
-=======
         stopbit.assign_vector(flag * stopbit.get_vector(base=stepsize, size=new_size))
->>>>>>> Stashed changes
 
         # Replace the first new_size elements, leaving the others alone
         current_contribution.assign_vector(new_current_contribution)

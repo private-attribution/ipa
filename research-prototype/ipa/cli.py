@@ -86,22 +86,6 @@ def validate_args(args):
         "CAPPING_TYPE",
         default="PARALLEL_CAPPING",
     )
-
-<<<<<<< Updated upstream
-    schema = Schema({
-        "SORT_FUNCTION_NAME": Or(*sort_functions.keys()),
-        "CAPPING_TYPE": Or(*capping_types),
-        "NUMROWS_POWER": Use(int),
-        "BREAKDOWN_VALUES": Use(int),
-        "N_BITS": Use(int),
-        "COMPILE": Use(bool),
-        "VERBOSE_COMPILE_FILENAME": Use(bool),
-        "SKIP_SORT": Use(bool),
-        "SKIP_ATTRIBUTION": Use(bool),
-        "SKIP_CAPPING": Use(bool),
-        "SKIP_AGGREGATION": Use(bool),
-    })
-=======
     schema = Schema(
         {
             "SORT_FUNCTION_NAME": Or(*sort_functions.keys()),
@@ -117,7 +101,6 @@ def validate_args(args):
             "SKIP_AGGREGATION": Use(bool),
         }
     )
->>>>>>> Stashed changes
     args = schema.validate(args)
     return args
 
@@ -136,11 +119,7 @@ def compiled_filename(args):
 
 
 def _compile(args):
-<<<<<<< Updated upstream
-    numrows = 2**args["NUMROWS_POWER"]
-=======
     numrows = 2 ** args["NUMROWS_POWER"]
->>>>>>> Stashed changes
     sort_function = sort_functions[args["SORT_FUNCTION_NAME"]]
     capping_functions = {
         "SEQUENTIAL_CAPPING": sequential_capping,
