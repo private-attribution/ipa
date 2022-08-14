@@ -43,14 +43,7 @@ def parse_mutually_exclusive_options(args, options, new_arg_name, default=None):
     Converts a dict <args> containing the keys in <options> and updates
     <args[new_arg_name]> to the exclusively true value in <options>.
     """
-<<<<<<< Updated upstream
-    selected_options = [
-        k for k, v in args.items()
-        if k in options and v
-    ]
-=======
     selected_options = [k for k, v in args.items() if k in options and v]
->>>>>>> Stashed changes
     if not selected_options and default is None:
         raise Exception(f"One the following must be selected: {options}")
     elif len(selected_options) > 1:
