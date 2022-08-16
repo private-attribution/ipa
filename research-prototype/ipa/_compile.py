@@ -70,7 +70,7 @@ def _compile(args):
             final_credits = capping_function(numrows, final_credits, helperbits)
 
         if not skip_aggregation:
-            breakdown_key_sums = aggregate(reports, breakdown_values, final_credits)
-            print_ln("breakdowns: %s", breakdown_key_sums.reveal())
+            aggregate_results = aggregate(reports, breakdown_values, final_credits)
+            print_ln("{\"breakdown_keys\": %s}", aggregate_results.reveal())
 
     compiler.compile_func()
