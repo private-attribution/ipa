@@ -45,31 +45,52 @@ Finally, you'll need to setup SSL for the parties. From the `raw-ipa/research-pr
 
 Make sure you are now back in this directory, `raw-ipa/research-prototype`.
 
+### Installation
+
+You'll need to create a python virtual environment, and install the requirements.
+
+```bash
+python3 virtualenv ../.venv
+source ../.venv/bin/activate
+pip install -r ../requirements.txt
+```
+
+Note that this will also install a version of the MP-SPDZ compiler. You can also install that directly with your local copy with
+
+```
+pip install -e ../../MP-SPDZ
+```
+
+### Running IPA scripts
+
+From this `raw-ipa/research-prototype` repository, you can now run the IPA scripts with:
+
+```bash
+python ipa
+```
+
+This will provide you with the available commands, currently `compile` and `generate_input`.
 
 ### Generate random input data
 
-To generate 2^10 random input data points, run:
+To generate random input data points, run:
 
 ```bash
-python3 ipainput.py 10
+python ipa generate_input
 ```
 
-If you'd like to generate more, replace 10 with N to generate 2^N data points.
+There are a few other options you can specify, including the size of the data, expected distribution of match keys, and even two specific test cases with expected output. Using the `-h` flag will provide all the command line options.
 
 ### Compiling the IPA MPC
-To run the compiler:
+The IPA protocol is primarily implemented in `raw-ipa/research-prototype/ipa/ipae2e.py`, and that implementation needs to be compiled by MP-SPDZ, to then be run with one of the various MPC backends. To run the compile step:
 
 ```bash
-../../MP-SPDZ/compile.py -C -R 32 ipae2e
+python ipa compile
 ```
 
-There are two options (specific to the IPA prototype) that you can provide as environmental variables: `IPA_VERBOSE` and `IPA_NUMROWS_POWER`. (The MP-SPDZ compile script consumes command line args, hence the need for environmental variables.) An example of providing these for a single compile step:
+Just like with `generate_input`, there are a number of arguments which can be passed in, which can all be seen with the `-h` flag. This includes skipping certain portions of the protocol to understand performance.
 
-```bash
-IPA_VERBOSE=True IPA_NUMROWS_POWER=5 ../../MP-SPDZ/compile.py -C -R 32 ipae2e
-```
-
-Note that you should also generate random data accordingly. Also, to avoid dumping way to much data into your terminal, you cannot use the verbose mode for more than 2^5 rows.
+You can use the same arguments with both `compile` and `generate_input` (though not all are relevant.)
 
 ### Running the MPC locally
 
@@ -83,11 +104,9 @@ To simulate the MPC locally, run:
 
 Make sure you are in this directory, `raw-ipa/research-prototype`.
 
-All hosts must use the same set of certificates for encrypted connections. Copy `Player-data/*.pem` to the `MP-SPDZ`
-folder on every host that will participate in MPC. 
+All hosts must use the same set of certificates for encrypted connections. Copy `Player-data/*.pem` to the `MP-SPDZ` folder on every host that will participate in MPC.
 
-If you need private key to connect to a host (often the case for AWS cloud), here is a convenience command that does 
-the copying (execute it from the host was used to generate SSL certificates by running the command: `Scripts/setup-ssl.sh`)
+If you need private key to connect to a host (often the case for AWS cloud), here is a convenience command that does the copying (execute it from the host was used to generate gSSL certificates by running the command: `Scripts/setup-ssl.sh`)
 
 * assume `HOST` is set to the destination host IP address or DNS name
 * `MP_SDPZ_DIR` must be set to the directory where IPA is installed, for example `/home/raw-ipa/research-prototype`.
