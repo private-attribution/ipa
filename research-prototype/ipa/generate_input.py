@@ -57,22 +57,22 @@ def gen_random_test_reports(numrows, approx_rows_per_mk, valuemod, breakdown_val
             match_key=match_key,
             is_trigger=is_trigger,
             value=value,
-            breakdown_key=breakdown_key
+            breakdown_key=breakdown_key,
         )
 
 
 def generate_input(
-        numrows_power,
-        approx_rows_per_mk,
-        valuemod,
-        breakdown_values,
-        n_bits,
-        test_case_index=None
+    numrows_power,
+    approx_rows_per_mk,
+    valuemod,
+    breakdown_values,
+    n_bits,
+    test_case_index=None,
 ):
-    numrows = 2 ** numrows_power
+    numrows = 2**numrows_power
     max_matchkey_values = numrows // approx_rows_per_mk
 
-    if max_matchkey_values > 2 ** n_bits:
+    if max_matchkey_values > 2**n_bits:
         raise Exception(
             f"Cannot generate {max_matchkey_values} distinct "
             "matchkeys with {n_bits} bits."
@@ -92,12 +92,14 @@ def generate_input(
     with open(player_data / "Input-P0-0", "w") as f:
         player_data_writer = csv.writer(f, delimiter=" ")
         for test_report in islice(test_reports, numrows):
-            player_data_writer.writerow((
-                test_report.match_key,
-                test_report.is_trigger,
-                test_report.value,
-                test_report.breakdown_key,
-            ))
+            player_data_writer.writerow(
+                (
+                    test_report.match_key,
+                    test_report.is_trigger,
+                    test_report.value,
+                    test_report.breakdown_key,
+                )
+            )
 
     print(f"wrote {numrows} rows")
     if test_case_index:

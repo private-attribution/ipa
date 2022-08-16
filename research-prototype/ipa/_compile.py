@@ -5,6 +5,7 @@ from ipae2e import (
     parallel_capping,
     aggregate,
 )
+from asort import sort_functions
 
 from Compiler.compilerLib import Compiler
 from Compiler.library import print_ln

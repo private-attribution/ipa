@@ -26,6 +26,7 @@ def dest_comp(B):
     @for_range(len(St_flat) - 1)
     def _(i):
         St_flat[i + 1] = St_flat[i + 1] + St_flat[i]
+
     cumval = St_flat.get_vector(size=num)
     cumshift = St_flat.get_vector(base=num, size=num) - cumval
     dest = cumval + Bt_flat.get_vector(base=num, size=num) * cumshift - 1
@@ -78,16 +79,16 @@ def double_dest(bs):
         cum[i + 1] = cum[i + 1] + cum[i]
 
     one_contrib = cum.get_vector(size=num)
-    col0_contrib = (cum.get_vector(base=2 * num, size=num)
-                    - one_contrib)
-    col1_contrib = (cum.get_vector(base=num, size=num)
-                    - one_contrib)
-    prod_contrib = (one_contrib
-                    + cum.get_vector(base=3*num, size=num))
-    return (one_contrib
-            + col0 * col0_contrib
-            + col1 * col1_contrib
-            + prod * prod_contrib-1)
+    col0_contrib = cum.get_vector(base=2 * num, size=num) - one_contrib
+    col1_contrib = cum.get_vector(base=num, size=num) - one_contrib
+    prod_contrib = one_contrib + cum.get_vector(base=3 * num, size=num)
+    return (
+        one_contrib
+        + col0 * col0_contrib
+        + col1 * col1_contrib
+        + prod * prod_contrib
+        - 1
+    )
 
 
 def double_bit_radix_sort(bs, D):
@@ -101,12 +102,12 @@ def double_bit_radix_sort(bs, D):
     # Test if n_bits is odd
     @for_range(n_bits // 2)
     def _(i):
-        perm = double_dest(bs[2 * i: 2 * i + 2])
+        perm = double_dest(bs[2 * i : 2 * i + 2])
         reveal_sort(perm, h, reverse=False)
 
         @if_e(2 * i + 3 < n_bits)
         def _():  # sort the next 2 bits
-            reveal_sort(h, bs[2 * i + 2: 2 * i + 4], reverse=True)
+            reveal_sort(h, bs[2 * i + 2 : 2 * i + 4], reverse=True)
 
         @else_
         def _():
@@ -115,6 +116,7 @@ def double_bit_radix_sort(bs, D):
                 reveal_sort(h, bs[-1], reverse=True)
                 c = Array.create_from(dest_comp(bs[-1]))
                 reveal_sort(c, h, reverse=False)
+
     # Now take care of the odd case
     reveal_sort(h, D, reverse=True)
 
@@ -159,8 +161,8 @@ def batcher_sort(k, D, n_bits):
 
 
 sort_functions = {
-    'LIBRARY_SORT': mp_spdz_radix_sort,
-    'RADIX_SORT': radix_sort,
-    'TWO_BIT_RADIX_SORT': two_bit_radix_sort,
-    'BATCHER_SORT': batcher_sort,
+    "LIBRARY_SORT": mp_spdz_radix_sort,
+    "RADIX_SORT": radix_sort,
+    "TWO_BIT_RADIX_SORT": two_bit_radix_sort,
+    "BATCHER_SORT": batcher_sort,
 }

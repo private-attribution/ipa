@@ -2,19 +2,20 @@
 Just sorting, with Libary Radix sort
 """
 import argparse
+import operator
 import os
 import sys
-from typing import Optional, Tuple
-import operator
 from pathlib import Path
-from Compiler import types, library, instructions, sorting
+from typing import Optional, Tuple
 
+from Compiler import instructions, library, sorting, types
 
 
 def set_directory() -> None:
 
-    source_dir = os.getcwd() + '/Programs/Source'
+    source_dir = os.getcwd() + "/Programs/Source"
     sys.path = [source_dir] + sys.path
+
 
 def get_args(args) -> argparse.Namespace:
     """
@@ -26,12 +27,14 @@ def get_args(args) -> argparse.Namespace:
     # of the file to be compiled.
 
     arg_parser = argparse.ArgumentParser("Attribution Benchmark")
-    arg_parser.add_argument("numrows_power", type=int, default = 4,
-                            nargs = '?',
-                            help="Power of 2 for number of Rows")
-    arg_parser.add_argument("n_bits", type = int, default = 32,
-                            nargs = '?',
-                            help="n_bits?")  
+    arg_parser.add_argument(
+        "numrows_power",
+        type=int,
+        default=4,
+        nargs="?",
+        help="Power of 2 for number of Rows",
+    )
+    arg_parser.add_argument("n_bits", type=int, default=32, nargs="?", help="n_bits?")
     return arg_parser.parse_args(args)
 
 
@@ -41,10 +44,10 @@ def main():
     """
 
     set_directory()
-    args = get_args(program.args[1: ])
+    args = get_args(program.args[1:])
     print(f"args = {args}")
 
-    numrows = 2 ** args.numrows_power
+    numrows = 2**args.numrows_power
 
     # load the data
 
@@ -53,15 +56,10 @@ def main():
     # Now do the sort
     # Libary Radix sort
 
-    reports.sort((0,),n_bits=args.n_bits)
+    reports.sort((0,), n_bits=args.n_bits)
 
-    for i in range(numrows-10,numrows):
-        print_ln("%s ",reports[i].reveal())
+    for i in range(numrows - 10, numrows):
+        print_ln("%s ", reports[i].reveal())
 
 
-    
 main()
-
-
-
-

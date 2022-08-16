@@ -86,8 +86,7 @@ def validate_args(args):
             "GENERATE_INPUT": Use(bool),
             "APPROX_ROWS_PER_MK": Use(int),
             "VALUEMOD": Use(int),
-            "TEST_CASE_INDEX": Or(None, And(Use(int), lambda n: 0 <= n < 2))
-
+            "TEST_CASE_INDEX": Or(None, And(Use(int), lambda n: 0 <= n < 2)),
         }
     )
     args = schema.validate(args)
