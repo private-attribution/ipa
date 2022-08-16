@@ -5,9 +5,10 @@ Usage:
               [--radix_sort | --two_bit_radix_sort | --batcher_sort]
               [--sequential_capping] [--verbose_compile_filename]
               [--skip_sort] [--skip_attribution] [--skip_capping] [--skip_aggregation]
+  ipa generate_input [--numrows_power=<n>] [--breakdown_values=<b>] [--n_bits=<n_bits>]
+                     [--approx_rows_per_mk=<rmk>] [--valuemod=<vm>]
+                     [--test_case_index=<tci>]
 
-
-Options:
   --numrows_power=<n>         Run for 2^n input rows. [default: 4]
   --breakdown_values=<b>      Number of Breakdown keys. [default: 4]
   --n_bits=<n_bits>           Number of bits used for matchkeys. [default: 32]
@@ -20,22 +21,13 @@ Options:
   --skip_attribution          Skip attribution (for performance measurement.)
   --skip_capping              Skip capping (for performance measurement.)
   --skip_aggregation          Skip aggregation (for performance measurement.)
+  --approx_rows_per_mk=<rmk>  Approximate rows per matchkey. [default: 10]
+  --valuemod=<vm>             Modulo used for values. [default: 256]
+  --test_case_index=<tci>     Use a known test case. Otherwise random.
 """
 from docopt import docopt
-from schema import Schema, Use, Or
-
-from ipae2e import (
-    load_data,
-    oblivious_attribution,
-    sequential_capping,
-    parallel_capping,
-    aggregate,
-)
+from schema import Schema, Use, Or, And
 from asort import sort_functions
-
-from Compiler.compilerLib import Compiler
-from Compiler.library import print_ln
-from Compiler.types import Array, sint, sintbit
 
 
 def parse_mutually_exclusive_options(args, options, new_arg_name, default=None):
@@ -64,7 +56,6 @@ def clean_args(args):
 
 
 def validate_args(args):
-    args = clean_args(args)
     args = parse_mutually_exclusive_options(
         args,
         sort_functions.keys(),
@@ -92,83 +83,19 @@ def validate_args(args):
             "SKIP_ATTRIBUTION": Use(bool),
             "SKIP_CAPPING": Use(bool),
             "SKIP_AGGREGATION": Use(bool),
+            "GENERATE_INPUT": Use(bool),
+            "APPROX_ROWS_PER_MK": Use(int),
+            "VALUEMOD": Use(int),
+            "TEST_CASE_INDEX": Or(None, And(Use(int), lambda n: 0 <= n < 2))
+
         }
     )
     args = schema.validate(args)
     return args
 
 
-def compiled_filename(args):
-    filename = "ipae2e"
-    keys_to_ignore = {"VERBOSE_COMPILE_FILENAME", "COMPILE"}
-    if args["VERBOSE_COMPILE_FILENAME"]:
-        for k, v in sorted(args.items()):
-            if k not in keys_to_ignore:
-                if type(v) == bool:
-                    filename += f"___{k}"
-                else:
-                    filename += f"___{k}__{v}"
-    return filename
-
-
-def _compile(args):
-    numrows = 2 ** args["NUMROWS_POWER"]
-    sort_function = sort_functions[args["SORT_FUNCTION_NAME"]]
-    capping_functions = {
-        "SEQUENTIAL_CAPPING": sequential_capping,
-        "PARALLEL_CAPPING": parallel_capping,
-    }
-    capping_function = capping_functions[args["CAPPING_TYPE"]]
-    breakdown_values = args["BREAKDOWN_VALUES"]
-    skip_sort = args["SKIP_SORT"]
-    skip_attribution = args["SKIP_ATTRIBUTION"]
-    skip_capping = args["SKIP_CAPPING"]
-    skip_aggregation = args["SKIP_AGGREGATION"]
-
-    compiler = Compiler(custom_args=["compile.py", "-C", "-R", "32"])
-
-    filename = compiled_filename(args)
-    print(f"Compiling {filename}")
-
-    @compiler.register_function(filename)
-    def ipae2e():
-        # load the data
-        reports, match_keys = load_data(numrows)
-
-        if not skip_sort:
-            # BUG: function calls like ths shouldn't have a side effect.
-            # it should ether return back a new reports object, or be a
-            # method on the reports object
-            sort_function(match_keys, reports)
-
-        if not skip_attribution:
-            helperbits, final_credits = oblivious_attribution(
-                reports,
-                breakdown_values,
-            )
-        else:
-            helperbits = Array(numrows, sintbit)
-            helperbits.assign_all(0)
-            final_credits = Array(numrows, sint)
-            helperbits.assign_all(0)
-
-        if not skip_capping:
-            final_credits = capping_function(numrows, final_credits, helperbits)
-
-        if not skip_aggregation:
-            breakdown_key_sums = aggregate(reports, breakdown_values, final_credits)
-            print_ln("breakdowns: %s", breakdown_key_sums.reveal())
-
-    compiler.compile_func()
-
-
-def main():
+def get_args():
     args = docopt(__doc__)
+    args = clean_args(args)
     args = validate_args(args)
-
-    if args["COMPILE"]:
-        _compile(args)
-
-
-if __name__ == "__main__":
-    main()
+    return args
