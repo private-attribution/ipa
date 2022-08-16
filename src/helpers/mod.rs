@@ -17,7 +17,7 @@ pub use event::{
 use crate::error::{Error, Res};
 use crate::threshold::EncryptionKey as ThresholdEncryptionKey;
 #[cfg(feature = "enable-serde")]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Error as FmtError, Formatter};
 #[cfg(feature = "enable-serde")]
 use std::fs;
@@ -26,6 +26,15 @@ use std::ops::Index;
 #[cfg(feature = "enable-serde")]
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+/// Represents a unique identity of each helper running MPC computation.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+pub enum Identity {
+    H1,
+    H2,
+    H3,
+}
 
 #[derive(Debug)]
 pub struct HelperRoleUnknown(String);
