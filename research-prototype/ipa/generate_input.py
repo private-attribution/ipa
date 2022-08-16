@@ -3,7 +3,6 @@ from pathlib import Path
 from collections import namedtuple
 from itertools import islice
 import csv
-from schema import Schema, Use, Or, And
 
 
 TestReport = namedtuple(
