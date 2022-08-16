@@ -1,0 +1,5 @@
+README.md
+mp_spdz_compiler.egg-info/PKG-INFO
+mp_spdz_compiler.egg-info/SOURCES.txt
+mp_spdz_compiler.egg-info/dependency_links.txt
+mp_spdz_compiler.egg-info/top_level.txt
