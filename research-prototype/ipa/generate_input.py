@@ -102,7 +102,7 @@ def generate_input(
             )
 
     print(f"wrote {numrows} rows")
-    if test_case_index:
+    if test_case_index is not False:
         print(f"expected results: {test_cases_expected_results[test_case_index]}")
 
 
