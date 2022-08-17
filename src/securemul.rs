@@ -1,3 +1,4 @@
+use crate::circuit::ProtocolStep;
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::ring::{HelperAddr, Ring};
@@ -12,6 +13,7 @@ use thiserror::Error;
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<F> {
+    step: ProtocolStep,
     index: u128,
     a_share: ReplicatedSecretSharing<F>,
     b_share: ReplicatedSecretSharing<F>,
@@ -65,6 +67,7 @@ impl<F: Field> SecureMul<F> {
         ctx.helper_ring
             .send(
                 HelperAddr::Right,
+                self.step,
                 DValue {
                     d: right_d,
                     index: self.index,
@@ -76,7 +79,7 @@ impl<F: Field> SecureMul<F> {
         let DValue {
             d: left_d,
             index: left_index,
-        } = ctx.helper_ring.receive(HelperAddr::Left).await?;
+        } = ctx.helper_ring.receive(HelperAddr::Left, self.step).await?;
 
         // sanity check to make sure they've computed it using the same seed
         if left_index == self.index {
@@ -104,6 +107,7 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
+    use crate::circuit::{ProtocolStep, ShareConversionStep};
 
     /// Consumes the input stream of replicated secret shares and produces a new stream with elements
     /// being the product of items in the input stream. For example, if (a, b, c) are elements of the
@@ -134,7 +138,10 @@ pub mod stream {
                 let a_share = items.pop().unwrap();
                 index += 1;
 
+                // TODO - remove stream example as it is no longer relevant
+                #[allow(clippy::cast_possible_truncation)]
                 let secure_mul = SecureMul {
+                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
                     index,
                     a_share,
                     b_share,
@@ -159,9 +166,11 @@ mod tests {
 
     use futures::{stream, StreamExt};
     use futures_util::future::join_all;
+    use tokio::try_join;
 
     use crate::prss::{test::SingleSpace, Participant};
 
+    use crate::circuit::{ProtocolStep, ShareConversionStep};
     use crate::error::BoxError;
     use crate::helpers;
     use crate::helpers::ring::mock::TestHelper;
@@ -241,6 +250,61 @@ mod tests {
         assert_eq!(Fp31::from(24_u128), validate_and_reconstruct(result_shares));
     }
 
+    /// This test ensures that many secure multiplications can run concurrently as long as
+    /// they all have unique id associated with it. Basically it validates
+    /// `TestHelper`'s ability to distinguish messages of the same type sent towards helpers
+    /// executing multiple same type protocols
+    #[tokio::test]
+    #[allow(clippy::cast_possible_truncation)]
+    pub async fn concurrent_mul() {
+        let ring = helpers::ring::mock::make_three();
+        let participants = crate::prss::test::make_three();
+        let context = make_context(&ring, &participants);
+        let mut rand = StepRng::new(1, 1);
+        let a = share(Fp31::from(4_u128), &mut rand);
+        let b = share(Fp31::from(3_u128), &mut rand);
+
+        let mut multiplications = Vec::new();
+        for i in 1..10_u128 {
+            // there is something weird going on the compiler's side. I don't see why we need
+            // to use async move as `i` is Copy + Clone, but compiler complains about it not living
+            // long enough
+            let ctx = &context;
+            let f = async move {
+                let h1_future = SecureMul {
+                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(i as u8)),
+                    index: i,
+                    a_share: a[0],
+                    b_share: b[0],
+                }
+                .execute(&ctx[0]);
+                let h2_future = SecureMul {
+                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(i as u8)),
+                    index: i,
+                    a_share: a[1],
+                    b_share: b[1],
+                }
+                .execute(&ctx[1]);
+                let h3_future = SecureMul {
+                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(i as u8)),
+                    index: i,
+                    a_share: a[2],
+                    b_share: b[2],
+                }
+                .execute(&ctx[2]);
+
+                try_join!(h1_future, h2_future, h3_future).unwrap()
+            };
+            multiplications.push(f);
+        }
+
+        let results = join_all(multiplications).await;
+        for shares in results {
+            assert_eq!(Fp31::from(12_u128), validate_and_reconstruct(shares));
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
     async fn multiply_sync<R: RngCore>(
         context: &[ProtocolContext<'_, TestHelper>; 3],
         a: u8,
@@ -264,18 +328,21 @@ mod tests {
 
         let result_shares = tokio::try_join!(
             SecureMul {
+                step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
                 a_share: a[0],
                 b_share: b[0],
                 index
             }
             .execute(&context[0]),
             SecureMul {
+                step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
                 a_share: a[1],
                 b_share: b[1],
                 index
             }
             .execute(&context[1]),
             SecureMul {
+                step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
                 a_share: a[2],
                 b_share: b[2],
                 index
