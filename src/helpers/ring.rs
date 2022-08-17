@@ -7,6 +7,7 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC helper service to do.
 //!
+use crate::circuit::ProtocolStep;
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
 use async_trait::async_trait;
@@ -33,8 +34,14 @@ pub enum HelperAddr {
 pub trait Ring {
     /// Send message to the destination. Implementations are free to choose whether it is required
     /// to wait until `dest` acknowledges message or simply put it to a outgoing queue
-    async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), Error>;
-    async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error>;
+    async fn send<T: Message>(
+        &self,
+        dest: HelperAddr,
+        step: ProtocolStep,
+        msg: T,
+    ) -> Result<(), Error>;
+    async fn receive<T: Message>(&self, source: HelperAddr, step: ProtocolStep)
+        -> Result<T, Error>;
 
     /// Returns the unique identity of this helper.
     fn identity(&self) -> Identity;
@@ -42,6 +49,7 @@ pub trait Ring {
 
 #[cfg(test)]
 pub mod mock {
+    use crate::circuit::ProtocolStep;
     use crate::helpers::error::Error;
     use crate::helpers::ring::{HelperAddr, Message, Ring};
     use crate::helpers::Identity;
@@ -55,12 +63,13 @@ pub mod mock {
     /// Internally we represent all messages to be a sequence of bytes and store them inside
     /// a hashmap where each element is addressable by message type id and destination (i.e. who
     /// is the intended receiver of this message).
-    type MessageBuf = HashMap<(HelperAddr, TypeId), Box<[u8]>>;
+    type MessageBuf = HashMap<(HelperAddr, ProtocolStep, TypeId), Box<[u8]>>;
 
     /// Each message is packed inside an envelope with some meta information about it.
     #[derive(Debug)]
     struct MessageEnvelope {
         source: HelperAddr,
+        step: ProtocolStep,
         type_id: TypeId,
         payload: Box<[u8]>,
     }
@@ -108,7 +117,7 @@ pub mod mock {
                         // and store the received message there. If there is already a message
                         // with the same type and destination, we simply panic and abort this task
                         let buf = &mut *buf.lock().unwrap();
-                        match buf.entry((item.source, item.type_id)) {
+                        match buf.entry((item.source, item.step, item.type_id)) {
                             Entry::Occupied(_entry) => {
                                 panic!("Duplicated message {item:?}")
                             }
@@ -138,7 +147,12 @@ pub mod mock {
 
     #[async_trait]
     impl Ring for TestHelper {
-        async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), Error> {
+        async fn send<T: Message>(
+            &self,
+            dest: HelperAddr,
+            step: ProtocolStep,
+            msg: T,
+        ) -> Result<(), Error> {
             assert!(self.left.is_some());
             assert!(self.right.is_some());
 
@@ -154,6 +168,7 @@ pub mod mock {
             let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
             let envelope = MessageEnvelope {
                 type_id: TypeId::of::<T>(),
+                step,
                 source,
                 payload: bytes,
             };
@@ -165,14 +180,18 @@ pub mod mock {
             Ok(())
         }
 
-        async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error> {
+        async fn receive<T: Message>(
+            &self,
+            source: HelperAddr,
+            step: ProtocolStep,
+        ) -> Result<T, Error> {
             let buf = Arc::clone(&self.buf);
 
             tokio::spawn(async move {
                 loop {
                     {
                         let buf = &mut *buf.lock().unwrap();
-                        let key = (source, TypeId::of::<T>());
+                        let key = (source, step, TypeId::of::<T>());
                         if let Entry::Occupied(entry) = buf.entry(key) {
                             let payload = entry.remove();
                             let obj: T = serde_json::from_slice(&payload).unwrap();
