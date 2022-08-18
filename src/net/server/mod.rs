@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use axum::{
     extract::rejection::QueryRejection,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -18,12 +18,16 @@ mod handlers;
 pub enum MpcServerError {
     #[error(transparent)]
     BadQueryString(#[from] QueryRejection),
+    #[error("invalid path")]
+    BadPathString(),
 }
 
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
-            MpcServerError::BadQueryString(_) => StatusCode::BAD_REQUEST,
+            MpcServerError::BadQueryString(_) | MpcServerError::BadPathString() => {
+                StatusCode::BAD_REQUEST
+            }
         };
 
         (status_code, self.to_string()).into_response()
@@ -33,7 +37,12 @@ impl IntoResponse for MpcServerError {
 /// Axum router definition for MPC helper endpoint
 #[must_use]
 pub fn router() -> Router {
-    Router::new().route("/echo", get(handlers::echo_handler))
+    Router::new()
+        .route("/echo", get(handlers::echo_handler))
+        .route(
+            "/mul/query_id/:query_id/step/*step",
+            post(handlers::mul_handler),
+        )
 }
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
