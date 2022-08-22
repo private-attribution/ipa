@@ -7,9 +7,9 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC helper service to do.
 //!
-use crate::circuit::ProtocolStep;
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
+use crate::protocol::ProtocolStep;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -49,10 +49,10 @@ pub trait Ring {
 
 #[cfg(test)]
 pub mod mock {
-    use crate::circuit::ProtocolStep;
     use crate::helpers::error::Error;
     use crate::helpers::ring::{HelperAddr, Message, Ring};
     use crate::helpers::Identity;
+    use crate::protocol::ProtocolStep;
     use async_trait::async_trait;
     use std::any::TypeId;
     use std::collections::hash_map::Entry;

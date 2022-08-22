@@ -1,7 +1,7 @@
-use crate::circuit::ProtocolStep;
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::ring::{HelperAddr, Ring};
+use crate::protocol::ProtocolStep;
 use crate::prss::PrssSpace;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,7 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::circuit::{ProtocolStep, ShareConversionStep};
+    use crate::protocol::{ProtocolStep, ShareConversionStep};
 
     /// Consumes the input stream of replicated secret shares and produces a new stream with elements
     /// being the product of items in the input stream. For example, if (a, b, c) are elements of the
@@ -170,10 +170,10 @@ mod tests {
 
     use crate::prss::{test::SingleSpace, Participant};
 
-    use crate::circuit::{ProtocolStep, ShareConversionStep};
     use crate::error::BoxError;
     use crate::helpers;
     use crate::helpers::ring::mock::TestHelper;
+    use crate::protocol::{ProtocolStep, ShareConversionStep};
     use crate::securemul::stream::secure_multiply;
     use crate::securemul::{ProtocolContext, SecureMul};
 
