@@ -9,7 +9,7 @@
 //!
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
-use crate::protocol::ProtocolStep;
+use crate::protocol::Step;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -31,17 +31,11 @@ pub enum HelperAddr {
 /// Trait for MPC helpers to communicate with each other. Helpers can send messages and
 /// receive messages from a specific helper.
 #[async_trait]
-pub trait Ring {
+pub trait Ring<S: Step> {
     /// Send message to the destination. Implementations are free to choose whether it is required
     /// to wait until `dest` acknowledges message or simply put it to a outgoing queue
-    async fn send<T: Message>(
-        &self,
-        dest: HelperAddr,
-        step: ProtocolStep,
-        msg: T,
-    ) -> Result<(), Error>;
-    async fn receive<T: Message>(&self, source: HelperAddr, step: ProtocolStep)
-        -> Result<T, Error>;
+    async fn send<T: Message>(&self, dest: HelperAddr, step: S, msg: T) -> Result<(), Error>;
+    async fn receive<T: Message>(&self, source: HelperAddr, step: S) -> Result<T, Error>;
 
     /// Returns the unique identity of this helper.
     fn identity(&self) -> Identity;
@@ -52,7 +46,7 @@ pub mod mock {
     use crate::helpers::error::Error;
     use crate::helpers::ring::{HelperAddr, Message, Ring};
     use crate::helpers::Identity;
-    use crate::protocol::ProtocolStep;
+    use crate::protocol::Step;
     use async_trait::async_trait;
     use std::any::TypeId;
     use std::collections::hash_map::Entry;
@@ -63,13 +57,13 @@ pub mod mock {
     /// Internally we represent all messages to be a sequence of bytes and store them inside
     /// a hashmap where each element is addressable by message type id and destination (i.e. who
     /// is the intended receiver of this message).
-    type MessageBuf = HashMap<(HelperAddr, ProtocolStep, TypeId), Box<[u8]>>;
+    type MessageBuf<S> = HashMap<(HelperAddr, S, TypeId), Box<[u8]>>;
 
     /// Each message is packed inside an envelope with some meta information about it.
     #[derive(Debug)]
-    struct MessageEnvelope {
+    struct MessageEnvelope<S> {
         source: HelperAddr,
-        step: ProtocolStep,
+        step: S,
         type_id: TypeId,
         payload: Box<[u8]>,
     }
@@ -81,23 +75,23 @@ pub mod mock {
     /// to Helper 2 will be received and removed from the local buffer only when Helper 2 attempts to
     /// receive it.
     #[derive(Debug)]
-    pub struct TestHelper {
+    pub struct TestHelper<S> {
         identity: Identity,
 
         // A handle to send message to this helper
-        input_queue: Sender<MessageEnvelope>,
+        input_queue: Sender<MessageEnvelope<S>>,
 
         // Reference to helper channel on the left side
-        left: Option<Sender<MessageEnvelope>>,
+        left: Option<Sender<MessageEnvelope<S>>>,
 
         // Reference to helper channel on the right side
-        right: Option<Sender<MessageEnvelope>>,
+        right: Option<Sender<MessageEnvelope<S>>>,
 
         // buffer for messages sent to this helper
-        buf: Arc<Mutex<MessageBuf>>,
+        buf: Arc<Mutex<MessageBuf<S>>>,
     }
 
-    impl TestHelper {
+    impl<S: Step> TestHelper<S> {
         /// Constructs a new instance of test helper using the specified `buf_capacity` buffer
         /// capacity for the internally used channel.
         ///
@@ -106,7 +100,7 @@ pub mod mock {
         /// than one message with the same type id and destination address arriving via `send` call.
         #[must_use]
         pub fn new(id: Identity, buf_capacity: usize) -> Self {
-            let (tx, mut rx) = channel::<MessageEnvelope>(buf_capacity);
+            let (tx, mut rx) = channel::<MessageEnvelope<S>>(buf_capacity);
             let buf = Arc::new(Mutex::new(HashMap::new()));
 
             tokio::spawn({
@@ -136,23 +130,18 @@ pub mod mock {
             }
         }
 
-        fn set_left(&mut self, left: Sender<MessageEnvelope>) {
+        fn set_left(&mut self, left: Sender<MessageEnvelope<S>>) {
             self.left = Some(left);
         }
 
-        fn set_right(&mut self, right: Sender<MessageEnvelope>) {
+        fn set_right(&mut self, right: Sender<MessageEnvelope<S>>) {
             self.right = Some(right);
         }
     }
 
     #[async_trait]
-    impl Ring for TestHelper {
-        async fn send<T: Message>(
-            &self,
-            dest: HelperAddr,
-            step: ProtocolStep,
-            msg: T,
-        ) -> Result<(), Error> {
+    impl<S: Step> Ring<S> for TestHelper<S> {
+        async fn send<T: Message>(&self, dest: HelperAddr, step: S, msg: T) -> Result<(), Error> {
             assert!(self.left.is_some());
             assert!(self.right.is_some());
 
@@ -175,16 +164,12 @@ pub mod mock {
 
             target.send(envelope).await.map_err(|e| Error::SendError {
                 dest,
-                inner: Box::new(e) as _,
+                inner: format!("Failed to send {:?}", e.0).into(),
             })?;
             Ok(())
         }
 
-        async fn receive<T: Message>(
-            &self,
-            source: HelperAddr,
-            step: ProtocolStep,
-        ) -> Result<T, Error> {
+        async fn receive<T: Message>(&self, source: HelperAddr, step: S) -> Result<T, Error> {
             let buf = Arc::clone(&self.buf);
 
             tokio::spawn(async move {
@@ -217,7 +202,7 @@ pub mod mock {
 
     /// Creates 3 test helper instances and orchestrates them into a ring.
     #[must_use]
-    pub fn make_three() -> [TestHelper; 3] {
+    pub fn make_three<S: Step>() -> [TestHelper<S>; 3] {
         let buf_capacity = 10;
         let mut helpers = [
             TestHelper::new(Identity::H1, buf_capacity),

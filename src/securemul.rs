@@ -1,7 +1,7 @@
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::ring::{HelperAddr, Ring};
-use crate::protocol::ProtocolStep;
+use crate::protocol::Step;
 use crate::prss::PrssSpace;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
@@ -12,8 +12,8 @@ use thiserror::Error;
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<F> {
-    step: ProtocolStep,
+pub struct SecureMul<F, S> {
+    step: S,
     index: u128,
     a_share: ReplicatedSecretSharing<F>,
     b_share: ReplicatedSecretSharing<F>,
@@ -43,7 +43,7 @@ pub enum Error {
     IndexMismatch { my_index: u128, their_index: u128 },
 }
 
-impl<F: Field> SecureMul<F> {
+impl<F: Field, S: Step> SecureMul<F, S> {
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
     /// their part, eventually producing 2/3 shares of the product and that is what this function
     /// returns.
@@ -51,7 +51,7 @@ impl<F: Field> SecureMul<F> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<R: Ring>(
+    pub async fn execute<R: Ring<S>>(
         self,
         ctx: &ProtocolContext<'_, R>,
     ) -> Result<ReplicatedSecretSharing<F>, BoxError> {
@@ -107,7 +107,12 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::protocol::{ProtocolStep, ShareConversionStep};
+    use crate::protocol::Step;
+
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+    pub struct StreamingStep(u128);
+
+    impl Step for StreamingStep {}
 
     /// Consumes the input stream of replicated secret shares and produces a new stream with elements
     /// being the product of items in the input stream. For example, if (a, b, c) are elements of the
@@ -123,7 +128,7 @@ pub mod stream {
     where
         S: Stream<Item = ReplicatedSecretSharing<F>> + 'a,
         F: Field + 'static,
-        R: Ring,
+        R: Ring<StreamingStep>,
     {
         let mut index = index;
 
@@ -138,10 +143,8 @@ pub mod stream {
                 let a_share = items.pop().unwrap();
                 index += 1;
 
-                // TODO - remove stream example as it is no longer relevant
-                #[allow(clippy::cast_possible_truncation)]
                 let secure_mul = SecureMul {
-                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
+                    step: StreamingStep(index),
                     index,
                     a_share,
                     b_share,
@@ -173,9 +176,16 @@ mod tests {
     use crate::error::BoxError;
     use crate::helpers;
     use crate::helpers::ring::mock::TestHelper;
-    use crate::protocol::{ProtocolStep, ShareConversionStep};
+    use crate::protocol::Step;
     use crate::securemul::stream::secure_multiply;
     use crate::securemul::{ProtocolContext, SecureMul};
+
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+    enum TestStep {
+        Mul1(u8),
+    }
+
+    impl Step for TestStep {}
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -272,21 +282,21 @@ mod tests {
             let ctx = &context;
             let f = async move {
                 let h1_future = SecureMul {
-                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(i as u8)),
+                    step: TestStep::Mul1(i as u8),
                     index: i,
                     a_share: a[0],
                     b_share: b[0],
                 }
                 .execute(&ctx[0]);
                 let h2_future = SecureMul {
-                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(i as u8)),
+                    step: TestStep::Mul1(i as u8),
                     index: i,
                     a_share: a[1],
                     b_share: b[1],
                 }
                 .execute(&ctx[1]);
                 let h3_future = SecureMul {
-                    step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(i as u8)),
+                    step: TestStep::Mul1(i as u8),
                     index: i,
                     a_share: a[2],
                     b_share: b[2],
@@ -306,7 +316,7 @@ mod tests {
 
     #[allow(clippy::cast_possible_truncation)]
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelper>; 3],
+        context: &[ProtocolContext<'_, TestHelper<TestStep>>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
@@ -328,21 +338,21 @@ mod tests {
 
         let result_shares = tokio::try_join!(
             SecureMul {
-                step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
+                step: TestStep::Mul1(index as u8),
                 a_share: a[0],
                 b_share: b[0],
                 index
             }
             .execute(&context[0]),
             SecureMul {
-                step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
+                step: TestStep::Mul1(index as u8),
                 a_share: a[1],
                 b_share: b[1],
                 index
             }
             .execute(&context[1]),
             SecureMul {
-                step: ProtocolStep::ConvertShares(ShareConversionStep::X1X2(index as u8)),
+                step: TestStep::Mul1(index as u8),
                 a_share: a[2],
                 b_share: b[2],
                 index
@@ -353,14 +363,14 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a>(
-        ring: &'a [TestHelper; 3],
+    fn make_context<'a, S: Step>(
+        ring: &'a [TestHelper<S>; 3],
         participants: &'a (
             Participant<SingleSpace>,
             Participant<SingleSpace>,
             Participant<SingleSpace>,
         ),
-    ) -> [ProtocolContext<'a, TestHelper>; 3] {
+    ) -> [ProtocolContext<'a, TestHelper<S>>; 3] {
         ring.iter()
             .zip([&participants.0, &participants.1, &participants.2])
             .map(|(helper_ring, prss)| ProtocolContext { prss, helper_ring })
