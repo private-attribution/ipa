@@ -57,10 +57,6 @@ name = "raw_ipa"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ua"
-required-features = ["cli"]
-
-[[bin]]
 name = "helper"
 required-features = ["cli"]
 
