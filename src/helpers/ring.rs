@@ -8,6 +8,7 @@
 //! enables MPC helper service to do.
 //!
 use crate::helpers::error::Error;
+use crate::helpers::Identity;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -34,12 +35,16 @@ pub trait Ring {
     /// to wait until `dest` acknowledges message or simply put it to a outgoing queue
     async fn send<T: Message>(&self, dest: HelperAddr, msg: T) -> Result<(), Error>;
     async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error>;
+
+    /// Returns the unique identity of this helper.
+    fn identity(&self) -> Identity;
 }
 
 #[cfg(test)]
 pub mod mock {
     use crate::helpers::error::Error;
     use crate::helpers::ring::{HelperAddr, Message, Ring};
+    use crate::helpers::Identity;
     use async_trait::async_trait;
     use std::any::TypeId;
     use std::collections::hash_map::Entry;
@@ -68,6 +73,8 @@ pub mod mock {
     /// receive it.
     #[derive(Debug)]
     pub struct TestHelper {
+        identity: Identity,
+
         // A handle to send message to this helper
         input_queue: Sender<MessageEnvelope>,
 
@@ -89,7 +96,7 @@ pub mod mock {
         /// Panics if Mutex used internally for synchronization is poisoned or if there are more
         /// than one message with the same type id and destination address arriving via `send` call.
         #[must_use]
-        pub fn new(buf_capacity: usize) -> Self {
+        pub fn new(id: Identity, buf_capacity: usize) -> Self {
             let (tx, mut rx) = channel::<MessageEnvelope>(buf_capacity);
             let buf = Arc::new(Mutex::new(HashMap::new()));
 
@@ -112,6 +119,7 @@ pub mod mock {
             });
 
             Self {
+                identity: id,
                 input_queue: tx,
                 left: None,
                 right: None,
@@ -160,7 +168,7 @@ pub mod mock {
         async fn receive<T: Message>(&self, source: HelperAddr) -> Result<T, Error> {
             let buf = Arc::clone(&self.buf);
 
-            let res = tokio::spawn(async move {
+            tokio::spawn(async move {
                 loop {
                     {
                         let buf = &mut *buf.lock().unwrap();
@@ -180,8 +188,11 @@ pub mod mock {
             .map_err(|e| Error::ReceiveError {
                 source,
                 inner: Box::new(e) as _,
-            });
-            res
+            })
+        }
+
+        fn identity(&self) -> Identity {
+            self.identity
         }
     }
 
@@ -190,9 +201,9 @@ pub mod mock {
     pub fn make_three() -> [TestHelper; 3] {
         let buf_capacity = 10;
         let mut helpers = [
-            TestHelper::new(buf_capacity),
-            TestHelper::new(buf_capacity),
-            TestHelper::new(buf_capacity),
+            TestHelper::new(Identity::H1, buf_capacity),
+            TestHelper::new(Identity::H2, buf_capacity),
+            TestHelper::new(Identity::H3, buf_capacity),
         ];
 
         helpers[0].set_left(helpers[2].input_queue.clone());

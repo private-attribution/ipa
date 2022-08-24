@@ -6,7 +6,7 @@ use std::{
 
 use crate::field::Field;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ReplicatedSecretSharing<T>(T, T);
 
 impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
