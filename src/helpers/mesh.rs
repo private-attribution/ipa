@@ -51,6 +51,7 @@ pub trait Gateway<M: Mesh, S: Step> {
     fn get_channel(&self, step: S) -> M;
 }
 
+#[cfg(test)]
 pub mod mock {
 
     use std::collections::HashMap;
@@ -64,17 +65,28 @@ pub mod mock {
     use std::sync::{Arc, Mutex};
     use tokio::sync::mpsc::{channel, Receiver, Sender};
 
+    /// Test environment for protocols to run tests that require communication between helpers.
+    /// For now the messages sent through it never leave the test infra memory perimeter, so
+    /// there is no need to associate each of them with `QueryId`, but this API makes it possible
+    /// to do if we need it.
     #[derive(Debug)]
     pub struct TestWorld<S> {
         pub query_id: QueryId,
         pub gateways: [TestHelperGateway<S>; 3],
     }
 
+    /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
+    /// `Controller`'s dependencies
     #[derive(Debug)]
     pub struct TestHelperGateway<S> {
         controller: Controller<S>,
     }
 
+    /// This is the communication end exposed to protocols to send messages between helpers.
+    /// It locks in the step, so all information sent through it is implicitly associated with
+    /// the step used to create this instance. Along with `QueryId` that is used to create the
+    /// test world, it is used to uniquely identify the "stream" of records flowing between
+    /// helper instances
     #[derive(Debug)]
     pub struct TestMesh<S> {
         step: S,
@@ -84,7 +96,9 @@ pub mod mock {
     /// Represents control messages sent between helpers to handle infrastructure requests.
     #[derive(Debug)]
     enum ControlMessage<S> {
+        /// Connection for step S is requested by the peer
         ConnectionRequest(Identity, S, Receiver<MessageEnvelope>),
+        /// The previous connection request for step S is acknowledged by the peer
         ConnectionEstablished(Identity, S),
     }
 
@@ -166,7 +180,10 @@ pub mod mock {
             source: Identity,
             record: RecordId,
         ) -> Result<T, Error> {
-            Ok(self.controller.receive(source, self.step, record).await)
+            let envelope = self.controller.receive(source, self.step, record).await;
+            let obj: T = serde_json::from_slice(&envelope.payload).unwrap();
+
+            Ok(obj)
         }
 
         fn identity(&self) -> Identity {
@@ -311,7 +328,7 @@ pub mod mock {
             }
         }
 
-        async fn receive<T: Message>(&self, peer: Identity, step: S, record_id: RecordId) -> T {
+        async fn receive(&self, peer: Identity, step: S, record_id: RecordId) -> MessageEnvelope {
             // spin and wait until message with the same record id appears in the buffer
             // when it happens, pop it out, try to reinterpret its bytes as `T` and return
             loop {
@@ -322,10 +339,7 @@ pub mod mock {
                         for i in 0..l {
                             if msgs[i].record_id == record_id {
                                 msgs.swap(i, l - 1);
-                                let envelope = msgs.pop().unwrap();
-                                let obj: T = serde_json::from_slice(&envelope.payload).unwrap();
-
-                                return obj;
+                                return msgs.pop().unwrap();
                             }
                         }
                     }
@@ -351,15 +365,17 @@ pub mod mock {
         let (mut senders, mut receivers) = (HashMap::new(), HashMap::new());
         for identity in Identity::all_variants() {
             let (tx, rx) = channel(1);
-            senders.insert(identity, tx);
-            receivers.insert(identity, rx);
+            senders.insert(*identity, tx);
+            receivers.insert(*identity, rx);
         }
 
+        // Every controller gets its own receiver end for control messages
+        // and for N party setting gets N-1 senders to communicate these messages to peers
         Identity::all_variants().map(|identity| {
             let peer_senders = senders
                 .iter()
-                .filter(|(k, _)| ***k != identity)
-                .map(|(k, v)| (**k, v.clone()))
+                .filter(|(&k, _)| k != identity)
+                .map(|(&k, v)| (k, v.clone()))
                 .collect::<HashMap<_, _>>();
             let rx = receivers.remove(&identity).unwrap();
 
