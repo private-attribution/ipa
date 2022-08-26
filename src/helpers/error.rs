@@ -1,7 +1,6 @@
 use crate::error::BoxError;
-use crate::helpers::ring::HelperAddr;
-use thiserror::Error;
 use crate::helpers::Identity;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {

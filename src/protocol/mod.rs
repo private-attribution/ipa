@@ -41,7 +41,6 @@ pub enum SortStep {}
 
 impl Step for IPAProtocolStep {}
 
-
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO: Generating this unique id may be tricky as it may involve communication between helpers and
 /// them collaborating on constructing this unique id. These details haven't been flushed out yet,
@@ -50,6 +49,19 @@ impl Step for IPAProtocolStep {}
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct QueryId;
 
-
+/// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
+/// of the assumption that the maximum input is 1B records per query.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordId(u32);
+
+impl From<u32> for RecordId {
+    fn from(v: u32) -> Self {
+        RecordId(v)
+    }
+}
+
+impl From<RecordId> for u128 {
+    fn from(r: RecordId) -> Self {
+        r.0.into()
+    }
+}
