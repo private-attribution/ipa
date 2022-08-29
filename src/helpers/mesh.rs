@@ -98,8 +98,6 @@ pub mod mock {
     enum ControlMessage<S> {
         /// Connection for step S is requested by the peer
         ConnectionRequest(Identity, S, Receiver<MessageEnvelope>),
-        /// The previous connection request for step S is acknowledged by the peer
-        ConnectionEstablished(Identity, S),
     }
 
     #[derive(Debug)]
@@ -108,18 +106,17 @@ pub mod mock {
         payload: Box<[u8]>,
     }
 
-    /// Represents the connection state between two helpers. Note that connection is not
+    /// Represents the connection state between two helpers. Note that connections are not
     /// bi-directional. In order for helpers A and B to establish the bi-directional communication channel,
     /// they both need to initiate connection requests to each other.
     ///
     /// In future we may need to handle closing connections, but for now there is no need for that.
     #[derive(Debug, Clone)]
     enum ConnectionState {
+        /// No active connection
         Listen,
-        /// Request to connect has been sent and pending response from peer
-        Pending(Sender<MessageEnvelope>),
-        /// Connection is established and the other party is actively listening for incoming
-        /// messages sent through this connection
+        /// Connection is active and there is a sender end of the active channel that can be used
+        /// to communicate messages to the other end.
         Established(Sender<MessageEnvelope>),
     }
 
@@ -221,8 +218,6 @@ pub mod mock {
         }
 
         fn start(&self, mut rx: Receiver<ControlMessage<S>>) {
-            let identity = self.identity;
-
             tokio::spawn({
                 let controller = self.clone();
                 async move {
@@ -230,29 +225,6 @@ pub mod mock {
                         match msg {
                             ControlMessage::ConnectionRequest(peer, step, peer_connection) => {
                                 controller.connect(peer, step, peer_connection);
-
-                                // Ack this request back to the sender
-                                let sender = controller
-                                    .peers
-                                    .get(&peer)
-                                    .unwrap_or_else(|| panic!("No peer with id {peer:?}"))
-                                    .clone();
-
-                                // it is important not to block the control loop so every async call
-                                // must be handled in a separate tokio task
-                                tokio::spawn({
-                                    async move {
-                                        sender
-                                            .send(ControlMessage::ConnectionEstablished(
-                                                identity, step,
-                                            ))
-                                            .await
-                                            .unwrap();
-                                    }
-                                });
-                            }
-                            ControlMessage::ConnectionEstablished(peer, step) => {
-                                controller.connection_acknowledged(peer, step);
                             }
                         }
                     }
@@ -275,20 +247,6 @@ pub mod mock {
             });
         }
 
-        fn connection_acknowledged(&self, peer: Identity, step: S) {
-            let mut connections = self.connections.lock().unwrap();
-            let conn_state = connections.get_mut(&(peer, step))
-                .unwrap_or_else(|| panic!("Received an acknowledgment from {peer:?} for a connection that never been requested: step: {step:?}"));
-
-            if let ConnectionState::Pending(sender) = conn_state {
-                *conn_state = ConnectionState::Established(sender.clone());
-            } else {
-                panic!(
-                    "Bad connection state for peer: {peer:?} and step: {step:?}: {conn_state:?}"
-                );
-            }
-        }
-
         async fn get_connection(&self, peer: Identity, step: S) -> Sender<MessageEnvelope> {
             assert_ne!(self.identity, peer);
 
@@ -305,11 +263,10 @@ pub mod mock {
                     match conn_state {
                         ConnectionState::Listen => {
                             let (tx, rx) = channel(1);
-                            *conn_state = ConnectionState::Pending(tx);
+                            *conn_state = ConnectionState::Established(tx);
 
                             Some(ControlMessage::ConnectionRequest(self.identity, step, rx))
                         }
-                        ConnectionState::Pending(_) => None,
                         ConnectionState::Established(sender) => {
                             return sender.clone();
                         }
