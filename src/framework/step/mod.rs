@@ -1,11 +1,12 @@
+#[cfg(feature = "enable-serde")]
+mod path_format;
+
 use crate::framework::Error;
 #[cfg(feature = "enable-serde")]
-use serde::{
-    de::{Error as SerdeError, Visitor},
-    Deserialize, Deserializer, Serialize, Serializer,
-};
+use serde::{de::Error as DeError, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
 
+#[cfg(feature = "enable-serde")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     Example(ExampleCircuit),
@@ -17,7 +18,7 @@ impl Step {
     pub fn to_path(&self) -> String {
         match self {
             Self::Example(circuit) => format!("example/{}", circuit.to_path()),
-            Self::ModulusConversion(details) => format!("modulus_conversion/{}", details.to_path()),
+            Self::ModulusConversion(details) => format!("modulus-conversion/{}", details.to_path()),
         }
     }
 
@@ -26,7 +27,7 @@ impl Step {
         let (step, next) = path_str.split_once('/').ok_or(Error::StepParseError)?;
         match step {
             "example" => Ok(Self::Example(ExampleCircuit::from_path(next)?)),
-            "modulus_conversion" => Ok(Self::ModulusConversion(
+            "modulus-conversion" => Ok(Self::ModulusConversion(
                 ModulusConversionDetails::from_path(next)?,
             )),
             _ => Err(Error::StepParseError),
@@ -112,21 +113,48 @@ impl<'de> Deserialize<'de> for Step {
                 formatter.write_str("a \"/\" separated list of steps")
             }
 
-            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
-            where
-                E: SerdeError,
-            {
-                println!("visited!");
-                Step::from_path(&v).map_err(E::custom)
-            }
-
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
-                E: SerdeError,
+                E: DeError,
             {
                 Step::from_path(v).map_err(E::custom)
             }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                Step::from_path(&v).map_err(E::custom)
+            }
         }
         deserializer.deserialize_string(StringVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_serde(expected: &'static str, found: Step) {
+        let found_path = found.to_path();
+        assert_eq!(expected, &found_path);
+        let found_parsed = Step::from_path(&found_path).expect("from_path should succeed");
+        assert_eq!(found, found_parsed)
+    }
+    #[test]
+    fn test_all() {
+        let example_circuit_mul1 = Step::Example(ExampleCircuit::Mul1());
+        test_serde("example/mul1", example_circuit_mul1);
+
+        let example_circuit_mul2 = Step::Example(ExampleCircuit::Mul2());
+        test_serde("example/mul2", example_circuit_mul2);
+
+        let example_modcon_mul1 =
+            Step::ModulusConversion(ModulusConversionDetails::Mul1 { bit_num: 4 });
+        test_serde("modulus-conversion/mul1:4", example_modcon_mul1);
+
+        let example_modcon_mul2 =
+            Step::ModulusConversion(ModulusConversionDetails::Mul2 { bit_num: 4 });
+        test_serde("modulus-conversion/mul2:4", example_modcon_mul2);
     }
 }

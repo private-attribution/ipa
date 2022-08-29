@@ -1,11 +1,12 @@
 use crate::net::MpcServerError;
 use axum::response::{IntoResponse, Response};
 use thiserror::Error;
+
 pub mod step;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("invalid step")]
+    #[error("could not parse step")]
     StepParseError,
 }
 
