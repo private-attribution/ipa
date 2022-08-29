@@ -3,11 +3,10 @@ use crate::field::Field;
 use crate::helpers::mesh::{Gateway, Mesh};
 use crate::helpers::Direction;
 use crate::protocol::{RecordId, Step};
-use crate::prss::PrssSpace;
+use crate::prss::{Participant, PrssSpace, SpaceIndex};
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use thiserror::Error;
 
 /// A message sent by each helper when they've multiplied their own shares
@@ -17,30 +16,26 @@ pub struct DValue<F> {
 }
 
 /// Context used by each helper to perform computation. Currently they need access to shared
-/// randomness generator (PRSS) and communication trait to send messages to each other.
+/// randomness generator (see `Participant`) and communication trait to send messages to each other.
 /// Eventually when we have more than one protocol, this should be lifted to its own module
-///
-/// Context is created per query and fixes field type and circuit used in query
 #[derive(Debug)]
-pub struct ProtocolContext<'a, G, F, S> {
-    pub prss: &'a PrssSpace,
-    pub gateway: &'a G,
-
-    _field_marker: PhantomData<F>,
-    _step_marker: PhantomData<S>,
+pub struct ProtocolContext<'a, G, S: SpaceIndex> {
+    participant: &'a Participant<S>,
+    gateway: &'a G,
 }
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, G, F, S> {
-    ctx: &'a ProtocolContext<'a, G, F, S>,
+pub struct SecureMul<'a, G, S> {
+    prss: &'a PrssSpace,
+    gateway: &'a G,
     step: S,
     record_id: RecordId,
 }
 
-impl<'a, G, F: Field, S: Step> SecureMul<'a, G, F, S> {
+impl<'a, G, S: Step> SecureMul<'a, G, S> {
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
     /// their part, eventually producing 2/3 shares of the product and that is what this function
     /// returns.
@@ -48,7 +43,7 @@ impl<'a, G, F: Field, S: Step> SecureMul<'a, G, F, S> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<M>(
+    pub async fn execute<M, F>(
         self,
         a: ReplicatedSecretSharing<F>,
         b: ReplicatedSecretSharing<F>,
@@ -56,11 +51,12 @@ impl<'a, G, F: Field, S: Step> SecureMul<'a, G, F, S> {
     where
         M: Mesh,
         G: Gateway<M, S>,
+        F: Field,
     {
-        let mut channel = self.ctx.gateway.get_channel(self.step);
+        let mut channel = self.gateway.get_channel(self.step);
 
         // generate shared randomness.
-        let (s0, s1) = self.ctx.prss.generate_fields(self.record_id.into());
+        let (s0, s1) = self.prss.generate_fields(self.record_id.into());
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = a.as_tuple();
@@ -89,22 +85,22 @@ impl<'a, G, F: Field, S: Step> SecureMul<'a, G, F, S> {
     }
 }
 
-impl<'a, G, F: Field, S: Step> ProtocolContext<'a, G, F, S> {
-    pub fn new(prss: &'a PrssSpace, gateway: &'a G) -> Self {
+impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
+    pub fn new(participant: &'a Participant<S>, gateway: &'a G) -> Self {
         Self {
-            prss,
+            participant,
             gateway,
-            _field_marker: PhantomData::default(),
-            _step_marker: PhantomData::default(),
         }
     }
+
     /// Request multiplication for a given record. This function is intentionally made async
     /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
-    async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, F, S> {
+    async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
         SecureMul {
-            ctx: self,
+            prss: &self.participant[step],
+            gateway: self.gateway,
             step,
             record_id,
         }
@@ -124,11 +120,19 @@ pub mod stream {
     use crate::chunkscan::ChunkScan;
     use crate::helpers::mesh::{Gateway, Mesh};
     use crate::protocol::{RecordId, Step};
+    use crate::prss::SpaceIndex;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
 
     impl Step for StreamingStep {}
+    impl SpaceIndex for StreamingStep {
+        const MAX: usize = 1;
+
+        fn as_usize(&self) -> usize {
+            0
+        }
+    }
 
     /// Consumes the input stream of replicated secret shares and produces a new stream with elements
     /// being the product of items in the input stream. For example, if (a, b, c) are elements of the
@@ -138,7 +142,7 @@ pub mod stream {
     /// Panics if one of the internal invariants does not hold.
     pub fn secure_multiply<'a, F, M, G, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, G, F, StreamingStep>,
+        ctx: &'a ProtocolContext<'a, G, StreamingStep>,
         _index: u128,
     ) -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a
     where
@@ -248,7 +252,7 @@ mod tests {
     use futures_util::future::join_all;
     use tokio::try_join;
 
-    use crate::prss::{test::SingleSpace, Participant};
+    use crate::prss::{Participant, SpaceIndex};
 
     use crate::error::BoxError;
     use crate::helpers;
@@ -264,6 +268,17 @@ mod tests {
     }
 
     impl Step for TestStep {}
+
+    impl SpaceIndex for TestStep {
+        const MAX: usize = 2;
+
+        fn as_usize(&self) -> usize {
+            match self {
+                TestStep::Mul1(_) => 0,
+                TestStep::Mul2 => 1,
+            }
+        }
+    }
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -331,7 +346,7 @@ mod tests {
 
     // #[allow(clippy::cast_possible_truncation)]
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelperGateway<TestStep>, Fp31, TestStep>; 3],
+        context: &[ProtocolContext<'_, TestHelperGateway<TestStep>, TestStep>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
@@ -369,19 +384,19 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a, F: Field, S: Step>(
+    fn make_context<'a, S: Step + SpaceIndex>(
         test_world: &'a TestWorld<S>,
         participants: &'a (
-            Participant<SingleSpace>,
-            Participant<SingleSpace>,
-            Participant<SingleSpace>,
+            Participant<S>,
+            Participant<S>,
+            Participant<S>,
         ),
-    ) -> [ProtocolContext<'a, TestHelperGateway<S>, F, S>; 3] {
+    ) -> [ProtocolContext<'a, TestHelperGateway<S>, S>; 3] {
         test_world
             .gateways
             .iter()
             .zip([&participants.0, &participants.1, &participants.2])
-            .map(|(gateway, prss)| ProtocolContext::new(prss, gateway))
+            .map(|(gateway, participant)| ProtocolContext::new(participant, gateway))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()

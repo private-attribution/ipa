@@ -18,10 +18,6 @@ use std::hash::Hash;
 /// See `IPAProtocolStep` for a canonical implementation of this trait. Every time we switch to
 /// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
 /// it should converge to a single implementation.
-///
-/// Notes:
-/// Hash supertrait will likely be removed when
-/// [this issue](https://github.com/martinthomson/raw-ipa/issues/62) is fixed
 pub trait Step: Copy + Clone + Debug + Eq + Hash + Send + 'static {}
 
 /// Set of steps that define the IPA protocol.
