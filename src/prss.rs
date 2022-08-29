@@ -7,9 +7,9 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
+use std::fmt::{Debug, Formatter};
 use std::ops::Index;
 use std::{marker::PhantomData, mem::size_of};
-use std::fmt::{Debug, Formatter};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 pub trait SpaceIndex {
@@ -105,7 +105,7 @@ pub struct Participant<I: SpaceIndex> {
     _marker: PhantomData<I>,
 }
 
-impl <I: SpaceIndex> Debug for Participant<I> {
+impl<I: SpaceIndex> Debug for Participant<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Participant[0..{0}]", I::MAX)
     }
@@ -315,11 +315,7 @@ pub mod test {
     /// Generate three participants.
     /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
     #[must_use]
-    pub fn make_three<I: SpaceIndex>() -> (
-        Participant<I>,
-        Participant<I>,
-        Participant<I>,
-    ) {
+    pub fn make_three<I: SpaceIndex>() -> (Participant<I>, Participant<I>, Participant<I>) {
         let mut r = thread_rng();
         let setup1 = ParticipantSetup::new(&mut r);
         let setup2 = ParticipantSetup::new(&mut r);

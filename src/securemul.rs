@@ -199,7 +199,7 @@ pub mod stream {
             let start_index = 1024_u128;
 
             // setup helpers
-            let world = helpers::mesh::mock::make_world(QueryId);
+            let world = helpers::mock::make_world(QueryId);
             let participants = crate::prss::test::make_three();
             let participants = [participants.0, participants.1, participants.2];
 
@@ -257,7 +257,7 @@ mod tests {
     use crate::error::BoxError;
     use crate::helpers;
 
-    use crate::helpers::mesh::mock::{TestHelperGateway, TestWorld};
+    use crate::helpers::mock::{TestHelperGateway, TestWorld};
     use crate::protocol::{QueryId, RecordId, Step};
     use crate::securemul::ProtocolContext;
 
@@ -282,7 +282,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        let world = helpers::mesh::mock::make_world(QueryId);
+        let world = helpers::mock::make_world(QueryId);
         let participants = crate::prss::test::make_three();
         let context = make_context(&world, &participants);
         let mut rand = StepRng::new(1, 1);
@@ -305,7 +305,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
-        let world = helpers::mesh::mock::make_world(QueryId);
+        let world = helpers::mock::make_world(QueryId);
         let participants = crate::prss::test::make_three();
         let context = make_context(&world, &participants);
         let mut rand = StepRng::new(1, 1);
@@ -386,11 +386,7 @@ mod tests {
 
     fn make_context<'a, S: Step + SpaceIndex>(
         test_world: &'a TestWorld<S>,
-        participants: &'a (
-            Participant<S>,
-            Participant<S>,
-            Participant<S>,
-        ),
+        participants: &'a (Participant<S>, Participant<S>, Participant<S>),
     ) -> [ProtocolContext<'a, TestHelperGateway<S>, S>; 3] {
         test_world
             .gateways

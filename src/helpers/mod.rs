@@ -1,5 +1,7 @@
 pub mod error;
 pub mod mesh;
+#[cfg(test)]
+pub mod mock;
 pub mod models;
 
 /// Represents a unique identity of each helper running MPC computation.
