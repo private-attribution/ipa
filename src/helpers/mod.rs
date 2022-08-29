@@ -1,3 +1,4 @@
+
 pub mod error;
 pub mod mesh;
 pub mod models;
@@ -25,24 +26,15 @@ impl Identity {
 
     /// Returns the identity of a peer that is located at the specified direction
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    #[allow(clippy::missing_panics_doc)] // Panic should be impossible.
     pub fn peer(&self, direction: &Direction) -> Identity {
-        let len = Identity::all_variants().len() as i32;
-        let my_idx = Identity::all_variants()
-            .iter()
-            .position(|lhs| lhs == self)
-            .unwrap() as i32;
+        use Direction::{Left, Right};
+        use Identity::{H1, H2, H3};
 
-        let peer_idx = my_idx
-            + match direction {
-                Direction::Left => -1,
-                Direction::Right => 1,
-            };
-        let peer_idx = (peer_idx % len + len) % len; // peer_idx is always positive
-
-        #[allow(clippy::cast_sign_loss)]
-        Identity::all_variants()[peer_idx as usize]
+        match (self, direction) {
+            (H1, Left)|(H2, Right) => H3,
+            (H1, Right)|(H3, Left) => H2,
+            (H3, Right)|(H2, Left) => H1,
+        }
     }
 }
 
