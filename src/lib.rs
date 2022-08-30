@@ -1,7 +1,5 @@
 #![deny(clippy::clone_on_ref_ptr)]
 
-extern crate core;
-
 mod chunkscan;
 #[cfg(feature = "cli")]
 pub mod cli;

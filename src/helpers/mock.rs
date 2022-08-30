@@ -196,21 +196,20 @@ impl<S: Step> Controller<S> {
         assert_ne!(self.identity, peer);
 
         loop {
-            // Depending on connection status, request a new connection, spin and wait for
-            // connection acknowledgment from peer or return the sender end of connection
-            // if it is ready
+            // Depending on connection status, request a new connection or return the sender end of
+            // the connection if it is ready
             let control_message = {
                 let mut connections = self.connections.lock().unwrap();
                 let conn_state = connections
                     .entry((peer, step))
-                    .or_insert_with(|| ConnectionState::Listen);
+                    .or_insert(ConnectionState::Listen);
 
                 match conn_state {
                     ConnectionState::Listen => {
                         let (tx, rx) = channel(1);
                         *conn_state = ConnectionState::Established(tx);
 
-                        Some(ControlMessage::ConnectionRequest(self.identity, step, rx))
+                        ControlMessage::ConnectionRequest(self.identity, step, rx)
                     }
                     ConnectionState::Established(sender) => {
                         return sender.clone();
@@ -218,14 +217,13 @@ impl<S: Step> Controller<S> {
                 }
             };
 
-            if let Some(msg) = control_message {
-                self.peers
-                    .get(&peer)
-                    .unwrap_or_else(|| panic!("No peer with id {peer:?}"))
-                    .send(msg)
-                    .await
-                    .unwrap();
-            }
+            self.peers
+                .get(&peer)
+                .unwrap_or_else(|| panic!("No peer with id {peer:?}"))
+                .send(control_message)
+                .await
+                .unwrap();
+
             tokio::task::yield_now().await;
         }
     }
