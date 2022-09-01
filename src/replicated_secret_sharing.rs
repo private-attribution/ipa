@@ -1,3 +1,4 @@
+use axum::body::Bytes;
 use std::fmt::Formatter;
 use std::{
     fmt::Debug,
@@ -7,6 +8,7 @@ use std::{
 use crate::field::Field;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct ReplicatedSecretSharing<T>(T, T);
 
 impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
@@ -23,6 +25,14 @@ impl<T: Field> ReplicatedSecretSharing<T> {
 
     pub fn as_tuple(&self) -> (T, T) {
         (self.0, self.1)
+    }
+}
+
+impl<T: Field> From<ReplicatedSecretSharing<T>> for Bytes {
+    fn from(ss: ReplicatedSecretSharing<T>) -> Self {
+        serde_json::to_vec(&ss)
+            .expect("serialize should work")
+            .into()
     }
 }
 

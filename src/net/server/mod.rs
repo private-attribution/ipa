@@ -1,5 +1,10 @@
 use std::net::SocketAddr;
 
+use crate::field::Field;
+use crate::helpers;
+use crate::helpers::http::Controller;
+use crate::protocol::Step;
+use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use axum::{
     extract::rejection::QueryRejection,
     response::{IntoResponse, Response},
@@ -7,6 +12,7 @@ use axum::{
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
+use futures::Stream;
 use hyper::StatusCode;
 use thiserror::Error;
 use tokio::task::JoinHandle;
@@ -24,24 +30,25 @@ pub enum MpcServerError {
 
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
-        let status_code = match &self {
+        match &self {
             MpcServerError::BadQueryString(_) | MpcServerError::BadPathString() => {
-                StatusCode::BAD_REQUEST
+                (StatusCode::BAD_REQUEST, self.to_string()).into_response()
             }
-        };
-
-        (status_code, self.to_string()).into_response()
+        }
     }
 }
 
 /// Axum router definition for MPC helper endpoint
 #[must_use]
-pub fn router() -> Router {
+pub fn router<S: Step, F: Field, St: Stream<Item = helpers::Result<ReplicatedSecretSharing<F>>>>(
+    controller: Controller<S, St>,
+) -> Router {
+    let mul_handler = handlers::MulHandler::new(controller);
     Router::new()
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query_id/:query_id/step/*step",
-            post(handlers::mul_handler),
+            post(|p, q, b| mul_handler.handler(p, q, b)),
         )
 }
 
@@ -54,8 +61,15 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
-pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router()
+pub async fn bind<
+    S: Step,
+    F: Field,
+    St: Stream<Item = helpers::Result<ReplicatedSecretSharing<F>>>,
+>(
+    target: BindTarget,
+    controller: Controller<S, St>,
+) -> (SocketAddr, JoinHandle<()>) {
+    let svc = router(controller)
         .layer(TraceLayer::new_for_http())
         .into_make_service();
     let handle = Handle::new();
@@ -154,8 +168,10 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
     RustlsConfig::from_pem(cert.as_bytes().to_vec(), key.as_bytes().to_vec()).await
 }
 
+/*
 #[cfg(test)]
 mod e2e_tests {
+    use crate::helpers::http::Controller;
     use crate::net::server::handlers::EchoData;
     use crate::net::server::{bind, BindTarget};
     use hyper::{
@@ -255,3 +271,4 @@ mod e2e_tests {
         assert_eq!(expected, EchoData::from_response(&mut response).await);
     }
 }
+*/

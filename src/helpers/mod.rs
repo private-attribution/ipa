@@ -1,15 +1,33 @@
+use std::fmt::Formatter;
+
 pub mod error;
+pub mod http;
 pub mod mesh;
 #[cfg(test)]
 pub mod mock;
 pub mod models;
 
+pub use error::Error;
+pub use error::Result;
+
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "kebab-case")
+)]
 pub enum Identity {
     H1,
     H2,
     H3,
+}
+
+impl std::fmt::Display for Identity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let str = serde_json::to_string(self).unwrap();
+        f.write_str(&str)
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

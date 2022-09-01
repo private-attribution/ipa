@@ -119,13 +119,28 @@ pub mod stream {
 
     use crate::chunkscan::ChunkScan;
     use crate::helpers::mesh::{Gateway, Mesh};
-    use crate::protocol::{RecordId, Step};
+    use crate::protocol::{Error, RecordId, Step};
     use crate::prss::SpaceIndex;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
 
-    impl Step for StreamingStep {}
+    impl StreamingStep {
+        const streaming_prefix_str: &'static str = "streaming:";
+    }
+
+    impl Step for StreamingStep {
+        fn to_path(&self) -> String {
+            format!("{}{}", Self::streaming_prefix_str, self.0.to_string())
+        }
+
+        fn from_path(path_str: &'static str) -> Result<Self, Error> {
+            path_str
+                .strip_prefix(Self::streaming_prefix_str)
+                .ok_or_else(|| Error::PathParse(path_str))
+                .and_then(|rem| Ok(StreamingStep(rem.parse()?)))
+        }
+    }
     impl SpaceIndex for StreamingStep {
         const MAX: usize = 1;
 
