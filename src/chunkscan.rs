@@ -1,5 +1,7 @@
 use crate::error::BoxError;
 use futures::{ready, Stream};
+#[cfg(test)]
+use futures_util::StreamExt;
 use pin_project::pin_project;
 use std::future::Future;
 use std::mem;
@@ -99,4 +101,9 @@ where
             future: None,
         }
     }
+}
+
+#[cfg(test)] // only used inside `mock` module
+pub fn prepend<T: Copy + Clone, S: Stream>(id: T, stream: S) -> impl Stream<Item = (T, S::Item)> {
+    stream.map(move |item| (id, item))
 }
