@@ -63,25 +63,23 @@ def double_dest(bs):
     bs is an n by 2 bit array.
     """
     num, _ = bs.sizes
-    # BUG this is never used
     bits = sint.Array(num * 4)
     col0 = bs.get_column(0)
     col1 = bs.get_column(1)
     prod = col0 * col1
-    # BUG this is never assigned
-    cum.assign_vector(prod - col0 - col1 + 1)  # 00
-    cum.assign_vector(col1 - prod, base=num)  # 01
-    cum.assign_vector(col0 - prod, base=2 * num)  # 10
-    cum.assign_vector(prod, base=3 * num)  # 11
+    bits.assign_vector(prod - col0 - col1 + 1)  # 00
+    bits.assign_vector(col1 - prod, base=num)  # 01
+    bits.assign_vector(col0 - prod, base=2 * num)  # 10
+    bits.assign_vector(prod, base=3 * num)  # 11
 
-    @for_range(len(B) - 1)
+    @for_range(num - 1)
     def _(i):
-        cum[i + 1] = cum[i + 1] + cum[i]
+        bits[i + 1] = bits[i + 1] + bits[i]
 
-    one_contrib = cum.get_vector(size=num)
-    col0_contrib = cum.get_vector(base=2 * num, size=num) - one_contrib
-    col1_contrib = cum.get_vector(base=num, size=num) - one_contrib
-    prod_contrib = one_contrib + cum.get_vector(base=3 * num, size=num)
+    one_contrib = bits.get_vector(size=num)
+    col0_contrib = bits.get_vector(base=2 * num, size=num) - one_contrib
+    col1_contrib = bits.get_vector(base=num, size=num) - one_contrib
+    prod_contrib = one_contrib + bits.get_vector(base=3 * num, size=num)
     return (
         one_contrib
         + col0 * col0_contrib
@@ -143,16 +141,18 @@ def bit_radix_sort(bs, D):
             reveal_sort(h, D, reverse=True)
 
 
-def radix_sort(k, D, n_bits=None, signed=True):
+def radix_sort(k, D, n_bits=None, signed=True, two_bit=False):
     assert len(k) == len(D)
     bs = Matrix.create_from(k.get_vector().bit_decompose(n_bits))
     if signed and len(bs) > 1:
         bs[-1][:] = bs[-1][:].bit_not()
-    bit_radix_sort(bs, D)
+    if two_bit:
+        double_bit_radix_sort(bs, D)
+    else:
+        bit_radix_sort(bs, D)
 
 
 def two_bit_radix_sort(k, D, n_bits):
-    # BUG: radix sort doesn't accept two_bit...
     return radix_sort(k, D, n_bits, two_bit=True)
 
 

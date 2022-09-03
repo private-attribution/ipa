@@ -5,7 +5,7 @@ from ipae2e import (
     parallel_capping,
     aggregate,
 )
-from asort import sort_functions
+from sort import sort_functions
 
 from Compiler.compilerLib import Compiler
 from Compiler.library import print_ln
@@ -71,6 +71,6 @@ def _compile(args):
 
         if not skip_aggregation:
             aggregate_results = aggregate(reports, breakdown_values, final_credits)
-            print_ln("{\"breakdown_keys\": %s}", aggregate_results.reveal())
+            print_ln('{"breakdown_keys": %s}', aggregate_results.reveal())
 
     compiler.compile_func()

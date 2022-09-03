@@ -27,7 +27,7 @@ Usage:
 """
 from docopt import docopt
 from schema import Schema, Use, Or, And
-from asort import sort_functions
+from sort import sort_functions
 
 
 def parse_mutually_exclusive_options(args, options, new_arg_name, default=None):
