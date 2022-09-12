@@ -296,7 +296,7 @@ impl<S: Step> Controller<S> {
         if let Some(rx) = rx {
             self.peers
                 .get(&peer)
-                .unwrap_or_else(|| panic!("No peer with id {peer:?}"))
+                .expect("peer with id {peer:?} should exist")
                 .send(ControlMessage::ConnectionRequest(self.identity, step, rx))
                 .await
                 .unwrap();
