@@ -2,3 +2,6 @@ Player-Data/
 Programs/Public-Input/
 Programs/Bytecode/
 Programs/Schedules/
+__pycache__/
+dist/
+mp_spdz_compiler.egg-info/
