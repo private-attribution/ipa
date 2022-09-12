@@ -150,7 +150,7 @@ impl<S: Step> ReceiveRequest<S> {
         }
     }
 
-    pub fn channel(&self) -> ChannelId<S> {
+    pub fn channel_id(&self) -> ChannelId<S> {
         (self.from, self.step)
     }
 }
@@ -282,7 +282,7 @@ impl<S: Step> Controller<S> {
     async fn get_connection(&self, peer: Identity, step: S) -> mpsc::Sender<MessageEnvelope> {
         assert_ne!(self.identity, peer);
 
-        let (result, rx) = {
+        let (sender, rx) = {
             let mut connections = self.connections.lock().unwrap();
             match connections.entry((peer, step)) {
                 Entry::Occupied(entry) => (entry.get().clone(), None),
@@ -302,7 +302,7 @@ impl<S: Step> Controller<S> {
                 .unwrap();
         }
 
-        result
+        sender
     }
 
     async fn receive(&self, peer: Identity, step: S, record: RecordId) -> Box<[u8]> {
