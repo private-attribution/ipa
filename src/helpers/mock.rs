@@ -262,7 +262,7 @@ impl<S: Step> Controller<S> {
                         }
                     }
                     Some(receive_request) = receive_rx.recv() => {
-                        buf.entry(receive_request.channel())
+                        buf.entry(receive_request.channel_id())
                            .or_default()
                            .receive_request(receive_request.record_id, receive_request.sender);
                     }
