@@ -1,10 +1,10 @@
 ///! Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
-use crate::chunkscan::prepend;
 use crate::helpers::error::Error;
 use crate::helpers::mesh::{Gateway, Mesh, Message};
 use crate::helpers::Identity;
 use crate::protocol::{QueryId, RecordId, Step};
 use async_trait::async_trait;
+use futures::Stream;
 use futures_util::stream::SelectAll;
 use futures_util::StreamExt;
 use std::collections::hash_map::Entry;
@@ -347,4 +347,8 @@ fn make_controllers<S: Step>() -> [Controller<S>; 3] {
 
         Controller::launch(identity, peer_senders, rx)
     })
+}
+
+pub fn prepend<T: Copy + Clone, S: Stream>(id: T, stream: S) -> impl Stream<Item = (T, S::Item)> {
+    stream.map(move |item| (id, item))
 }
