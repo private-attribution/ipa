@@ -97,7 +97,7 @@ impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
     /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
-    async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
+    pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
         SecureMul {
             prss: &self.participant[step],
             gateway: self.gateway,
@@ -398,7 +398,7 @@ pub mod tests {
     }
 
     /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-    pub(super) fn share<R: RngCore>(
+    pub fn share<R: RngCore>(
         input: Fp31,
         rng: &mut R,
     ) -> [ReplicatedSecretSharing<Fp31>; 3] {
@@ -413,7 +413,7 @@ pub mod tests {
         ]
     }
 
-    pub(super) fn validate_and_reconstruct<T: Field>(
+    pub fn validate_and_reconstruct<T: Field>(
         input: (
             ReplicatedSecretSharing<T>,
             ReplicatedSecretSharing<T>,
