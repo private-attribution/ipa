@@ -238,8 +238,7 @@ pub mod stream {
     }
 }
 
-#[cfg(test)]
-mod tests {
+pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
@@ -384,7 +383,7 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a, S: Step + SpaceIndex>(
+    pub fn make_context<'a, S: Step + SpaceIndex>(
         test_world: &'a TestWorld<S>,
         participants: &'a (Participant<S>, Participant<S>, Participant<S>),
     ) -> [ProtocolContext<'a, TestHelperGateway<S>, S>; 3] {

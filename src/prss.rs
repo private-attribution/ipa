@@ -236,7 +236,6 @@ impl Generator {
     }
 }
 
-#[cfg(test)]
 pub mod test {
     use rand::thread_rng;
 
