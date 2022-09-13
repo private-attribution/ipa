@@ -60,7 +60,7 @@ impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+    use super::ReplicatedSecretSharing;
 
     use crate::field::Fp31;
 

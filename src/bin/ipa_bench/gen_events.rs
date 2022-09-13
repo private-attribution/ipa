@@ -1,13 +1,13 @@
+use super::models::{
+    Event as EEvent, SecretSharable, SecretShare, SourceEvent as ESourceEvent,
+    TriggerEvent as ETriggerEvent,
+};
 use super::sample::Sample;
 use byteorder::WriteBytesExt;
 use log::{debug, info, trace};
 use rand::{CryptoRng, Rng, RngCore};
 use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Distribution};
-use raw_ipa::helpers::models::{
-    Event as EEvent, SecretSharable, SecretShare, SourceEvent as ESourceEvent,
-    TriggerEvent as ETriggerEvent,
-};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
@@ -300,10 +300,10 @@ fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<MatchKey
 #[cfg(test)]
 mod tests {
     use super::{generate_events, Event};
+    use crate::models::SecretSharable;
     use crate::sample::Sample;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
-    use raw_ipa::helpers::models::SecretSharable;
     use std::io::prelude::*;
     use std::io::{BufReader, Cursor, Write};
 

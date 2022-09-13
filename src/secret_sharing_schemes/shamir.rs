@@ -208,7 +208,7 @@ impl<F: Field> Add for &Share<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::shamir::{Error, LagrangePolynomial, SecretSharing, Share};
+    use super::{Error, LagrangePolynomial, SecretSharing, Share};
     use proptest::prelude::*;
     use rand::rngs::StdRng;
     use rand::thread_rng;

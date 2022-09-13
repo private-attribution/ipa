@@ -1,10 +1,9 @@
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::mesh::{Gateway, Mesh};
-use crate::helpers::Direction;
+use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
-use crate::prss::{Participant, PrssSpace, SpaceIndex};
-use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
@@ -13,15 +12,6 @@ use thiserror::Error;
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct DValue<F> {
     d: F,
-}
-
-/// Context used by each helper to perform computation. Currently they need access to shared
-/// randomness generator (see `Participant`) and communication trait to send messages to each other.
-/// Eventually when we have more than one protocol, this should be lifted to its own module
-#[derive(Debug)]
-pub struct ProtocolContext<'a, G, S: SpaceIndex> {
-    participant: &'a Participant<S>,
-    gateway: &'a G,
 }
 
 /// IKHC multiplication protocol
@@ -36,6 +26,15 @@ pub struct SecureMul<'a, G, S> {
 }
 
 impl<'a, G, S: Step> SecureMul<'a, G, S> {
+    pub fn new(prss: &'a PrssSpace, gateway: &'a G, step: S, record_id: RecordId) -> Self {
+        Self {
+            prss,
+            gateway,
+            step,
+            record_id,
+        }
+    }
+
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
     /// their part, eventually producing 2/3 shares of the product and that is what this function
     /// returns.
@@ -85,42 +84,20 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
     }
 }
 
-impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
-    pub fn new(participant: &'a Participant<S>, gateway: &'a G) -> Self {
-        Self {
-            participant,
-            gateway,
-        }
-    }
-
-    /// Request multiplication for a given record. This function is intentionally made async
-    /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
-    /// In this case, function returns only when multiplication for this record can actually
-    /// be processed.
-    async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
-        SecureMul {
-            prss: &self.participant[step],
-            gateway: self.gateway,
-            step,
-            record_id,
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum Error {}
 
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
     use crate::field::Field;
-    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-    use crate::securemul::ProtocolContext;
+    use crate::protocol::context::ProtocolContext;
+    use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
     use futures::Stream;
 
-    use crate::chunkscan::ChunkScan;
+    use crate::helpers::chunkscan::ChunkScan;
     use crate::helpers::mesh::{Gateway, Mesh};
+    use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
-    use crate::prss::SpaceIndex;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
@@ -177,11 +154,13 @@ pub mod stream {
     mod tests {
         use crate::field::Fp31;
         use crate::helpers;
+        use crate::protocol::context::ProtocolContext;
+        use crate::protocol::securemul::{
+            stream::secure_multiply,
+            tests::{share, validate_and_reconstruct},
+        };
         use crate::protocol::QueryId;
-        use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-        use crate::securemul::stream::secure_multiply;
-        use crate::securemul::tests::{share, validate_and_reconstruct};
-        use crate::securemul::ProtocolContext;
+        use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
         use futures::StreamExt;
         use futures_util::future::join_all;
         use futures_util::stream;
@@ -200,7 +179,7 @@ pub mod stream {
 
             // setup helpers
             let world = helpers::mock::make_world(QueryId);
-            let participants = crate::prss::test::make_three();
+            let participants = crate::helpers::prss::test::make_three();
             let participants = [participants.0, participants.1, participants.2];
 
             // dedicated streams for each helper
@@ -247,19 +226,19 @@ mod tests {
     use rand::Rng;
     use rand_core::RngCore;
 
-    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+    use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
 
     use futures_util::future::join_all;
     use tokio::try_join;
 
-    use crate::prss::{Participant, SpaceIndex};
+    use crate::helpers::prss::{Participant, SpaceIndex};
 
     use crate::error::BoxError;
     use crate::helpers;
 
     use crate::helpers::mock::{TestHelperGateway, TestWorld};
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::{QueryId, RecordId, Step};
-    use crate::securemul::ProtocolContext;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     enum TestStep {
@@ -283,7 +262,7 @@ mod tests {
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
         let world = helpers::mock::make_world(QueryId);
-        let participants = crate::prss::test::make_three();
+        let participants = crate::helpers::prss::test::make_three();
         let context = make_context(&world, &participants);
         let mut rand = StepRng::new(1, 1);
 
@@ -306,7 +285,7 @@ mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         let world = helpers::mock::make_world(QueryId);
-        let participants = crate::prss::test::make_three();
+        let participants = crate::helpers::prss::test::make_three();
         let context = make_context(&world, &participants);
         let mut rand = StepRng::new(1, 1);
         let a = share(Fp31::from(4_u128), &mut rand);
