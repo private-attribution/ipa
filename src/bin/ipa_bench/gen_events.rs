@@ -4,10 +4,6 @@ use log::{debug, info, trace};
 use rand::{CryptoRng, Rng, RngCore};
 use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Distribution};
-use raw_ipa::helpers::models::{
-    Event as EEvent, SecretSharable, SecretShare, SourceEvent as ESourceEvent,
-    TriggerEvent as ETriggerEvent,
-};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
@@ -16,15 +12,22 @@ use std::time::Duration;
 const RECORD_SEPARATOR: u8 = 30;
 
 const DAYS_IN_EPOCH: u64 = 7;
+const SECONDS_IN_A_WEEK: u64 = 604_800;
 type MatchKey = u64;
 type Epoch = u8;
 type Number = u32;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct EventBase {
-    /// Secret shared and then encrypted match keys.
-    pub matchkeys: Vec<MatchKey>,
+pub struct GenericReport {
+    // An identifier, set in the user agent, which identifies an individual person. This must never be released (beyond
+    /// the match key provider) to any party in unencrypted form. For the purpose of this tool, however, the value is in
+    /// clear and not secret shared.
+    pub matchkey: MatchKey,
+
+    /// An identifier, specified by the report collector, to denote if a given pair of source and trigger events can be
+    /// attributed (beyond having the same match key.) If None, a trigger event will be attributed to all source events.
+    pub attribution_constraint_id: Option<Number>,
 
     /// The epoch which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
     /// This field is in the clear.
@@ -34,99 +37,47 @@ pub struct EventBase {
     pub timestamp: Number,
 
     /// 0 (false) if this is a source event. 1 (true) otherwise.
-    pub is_trigger: bool,
-}
+    pub is_trigger_report: bool,
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct SourceEvent {
-    pub event: EventBase,
-
-    /// Ad breakdown key value
+    /// A key, specified by the report collector, which allows for producing aggregates across many groups (or breakdowns.)
+    /// This field is only valid if is_trigger_report is [false].
     pub breakdown_key: Number,
 
-    /// Fields from TriggerEvent for padding
-    value: Number,
+    /// The value of the trigger report to be aggregated. This field is only valid if is_trigger_report is [true].
+    pub value: Number,
 }
 
-impl SourceEvent {
+impl GenericReport {
     #[must_use]
     pub fn new(
-        matchkeys: Vec<MatchKey>,
+        matchkey: MatchKey,
+        attribution_constraint_id: Option<Number>,
         epoch: Epoch,
         timestamp: Number,
+        is_trigger_report: bool,
         breakdown_key: Number,
+        value: Number,
     ) -> Self {
         Self {
-            event: EventBase {
-                matchkeys,
-                epoch,
-                timestamp,
-                is_trigger: false,
-            },
+            matchkey,
+            attribution_constraint_id,
+            epoch,
+            timestamp,
+            is_trigger_report,
             breakdown_key,
-            value: 0,
-        }
-    }
-}
-
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct TriggerEvent {
-    pub event: EventBase,
-
-    /// Conversion value
-    pub value: Number,
-
-    /// Fields from SourceEvent for padding
-    breakdown_key: Number,
-}
-
-impl TriggerEvent {
-    #[must_use]
-    pub fn new(matchkeys: Vec<MatchKey>, epoch: Epoch, timestamp: Number, value: Number) -> Self {
-        Self {
-            event: EventBase {
-                matchkeys,
-                epoch,
-                timestamp,
-                is_trigger: false,
-            },
-            breakdown_key: 0,
             value,
         }
     }
 }
 
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub enum Event {
-    // Source event in clear
-    Source(SourceEvent),
-    // Trigger event in clear
-    Trigger(TriggerEvent),
-    // Source event in cipher if --secret-share option is enabled
-    EncryptedSource(ESourceEvent),
-    // Trigger event in cipher if --secret-share option is enabled
-    EncryptedTrigger(ETriggerEvent),
-}
-
-struct GenEventParams {
-    matchkeys: u8,
-    impressions: u8,
-    conversions: u8,
-    epoch: Epoch,
-    breakdown_key: Number,
-}
-
 // TODO: Currently, users are mutually exclusive in each ad loop (i.e. User A in ad X will never appear in other ads).
 // We need to generate events from same users across ads (but how often should a user appear in different ads?)
-// "Ads" doesn't mean FB's L3 ads. It could be ads from different businesses.
 
 pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     sample: &Sample,
     total_count: u32,
     epoch: Epoch,
-    secret_share: bool,
     rng: &mut R,
-    ss_rng: &mut R,
     out: &mut W,
 ) -> (u32, u32) {
     let mut ad_count = 0;
@@ -153,11 +104,6 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
         debug!("CVR: {}", cvr);
 
         for _ in 0..reach {
-            // # of matchkeys
-            // Hard code this number to 1 as, at the moment, we only have a solution for one match key.
-            let matchkeys = 1;
-            trace!("match keys per user: {}", matchkeys);
-
             let impressions = sample.impression_per_user(rng);
             trace!("impressions per user: {}", impressions);
 
@@ -169,19 +115,7 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
             };
             trace!("conversions per user: {}", conversions);
 
-            let events = gen_events(
-                &GenEventParams {
-                    matchkeys,
-                    impressions,
-                    conversions,
-                    epoch,
-                    breakdown_key: ad_id,
-                },
-                secret_share,
-                sample,
-                rng,
-                ss_rng,
-            );
+            let events = gen_reports(impressions, conversions, epoch, ad_id, sample, rng);
 
             total_impressions += impressions.to_u32().unwrap();
             total_conversions += conversions.to_u32().unwrap();
@@ -203,53 +137,37 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     }
 }
 
-fn gen_events<R: RngCore + CryptoRng>(
-    params: &GenEventParams,
-    secret_share: bool,
+fn gen_reports<R: RngCore + CryptoRng>(
+    impressions: u8,
+    conversions: u8,
+    epoch: Epoch,
+    breakdown_key: Number,
     sample: &Sample,
     rng: &mut R,
-    ss_rng: &mut R,
-) -> Vec<Event> {
-    let mut events: Vec<Event> = Vec::new();
+) -> Vec<GenericReport> {
+    let mut reports: Vec<GenericReport> = Vec::new();
 
-    let matchkeys = gen_matchkeys(params.matchkeys, rng);
-    let mut ss_mks: Vec<SecretShare> = Vec::new();
+    let matchkey = gen_matchkey(rng);
 
-    if secret_share {
-        for mk in &matchkeys {
-            // Currently, all geneerated match keys are set in all source events from the same user. This is an ideal
-            // scenario where all devices are used equally. In reality, however, that isn't the case. Should we pick
-            // a few match keys out from the events?
-            ss_mks.push(mk.xor_split(ss_rng));
-        }
-    }
-
-    // Randomly choose a datetime of the first impression in [0..DAYS_IN_EPOCH)
-    // TODO: Assume that impressions happen any time within the epoch
+    // Randomly choose a datetime of the first impression within [0..DAYS_IN_EPOCH)
     let mut last_impression = Duration::new(rng.gen_range(0..DAYS_IN_EPOCH * 24 * 60 * 60), 0);
 
-    for _ in 0..params.impressions {
+    for _ in 0..impressions {
         let t = last_impression + sample.impressions_time_diff(rng);
 
-        if secret_share {
-            events.push(Event::EncryptedSource(ESourceEvent {
-                event: EEvent {
-                    matchkeys: ss_mks.clone(),
-                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
-                    epoch: params.epoch,
-                    timestamp: u32::try_from(t.as_secs()).unwrap().xor_split(ss_rng),
-                },
-                breakdown_key: params.breakdown_key,
-            }));
-        } else {
-            events.push(Event::Source(SourceEvent::new(
-                matchkeys.clone(),
-                //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
-                params.epoch,
-                u32::try_from(t.as_secs()).unwrap(),
-                params.breakdown_key,
-            )));
-        }
+        // days_in_epoch + sample.impression_time_diff < 4 years < u8::MAX (assuming 1 epoch = 1 week)
+        #[allow(clippy::cast_possible_truncation)]
+        let new_epoch = epoch + (t.as_secs() / SECONDS_IN_A_WEEK) as u8;
+
+        reports.push(GenericReport::new(
+            matchkey,
+            None,
+            new_epoch,
+            u32::try_from(t.as_secs() - u64::from(new_epoch) * SECONDS_IN_A_WEEK).unwrap(),
+            false,
+            breakdown_key,
+            0,
+        ));
 
         last_impression = t;
     }
@@ -258,54 +176,44 @@ fn gen_events<R: RngCore + CryptoRng>(
 
     let mut last_conversion = last_impression;
 
-    for _ in 0..params.conversions {
+    for _ in 0..conversions {
         let conversion_value = sample.conversion_value_per_ad(rng);
         let t = last_conversion + sample.conversions_time_diff(rng);
 
-        if secret_share {
-            events.push(Event::EncryptedTrigger(ETriggerEvent {
-                event: EEvent {
-                    matchkeys: ss_mks.clone(),
-                    //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
-                    epoch: params.epoch,
-                    timestamp: u32::try_from(t.as_secs()).unwrap().xor_split(ss_rng),
-                },
-                value: conversion_value.xor_split(ss_rng),
-            }));
-        } else {
-            events.push(Event::Trigger(TriggerEvent::new(
-                matchkeys.clone(),
-                //TODO: Carry to next epoch if timestamp > DAYS_IN_EPOCH
-                params.epoch,
-                u32::try_from(t.as_secs()).unwrap(),
-                conversion_value,
-            )));
-        }
+        // days_in_epoch + sample.impression_time_diff < 4 years < u8::MAX (assuming 1 epoch = 1 week)
+        #[allow(clippy::cast_possible_truncation)]
+        let new_epoch = epoch + (t.as_secs() / SECONDS_IN_A_WEEK) as u8;
+
+        reports.push(GenericReport::new(
+            matchkey,
+            None,
+            new_epoch,
+            u32::try_from(t.as_secs() - u64::from(new_epoch) * SECONDS_IN_A_WEEK).unwrap(),
+            true,
+            0,
+            conversion_value,
+        ));
 
         last_conversion = t;
     }
 
-    events
+    reports
 }
 
-fn gen_matchkeys<R: RngCore + CryptoRng>(count: u8, rng: &mut R) -> Vec<MatchKey> {
-    let mut mks = Vec::new();
-
-    for _ in 0..count {
-        mks.push(rng.gen::<u64>());
-    }
-    mks
+fn gen_matchkey<R: RngCore + CryptoRng>(rng: &mut R) -> MatchKey {
+    rng.gen::<MatchKey>()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_events, Event};
+    use super::{gen_reports, generate_events, SECONDS_IN_A_WEEK};
     use crate::sample::Sample;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
-    use raw_ipa::helpers::models::SecretSharable;
-    use std::io::prelude::*;
-    use std::io::{BufReader, Cursor, Write};
+    use std::{
+        cmp::Ordering,
+        io::{Cursor, Write},
+    };
 
     const DATA: &str = r#"
       {
@@ -375,12 +283,10 @@ mod tests {
         let sample = Sample::new(&config);
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out1);
+        generate_events(&sample, 100, 0, &mut rng, &mut out1);
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out2);
+        generate_events(&sample, 100, 0, &mut rng, &mut out2);
 
         drop(out1);
         drop(out2);
@@ -389,103 +295,29 @@ mod tests {
     }
 
     #[test]
-    fn same_seed_generates_same_ss_output() {
-        let mut buf1 = Cursor::new(Vec::<u8>::new());
-        let mut buf2 = Cursor::new(Vec::<u8>::new());
-
-        let mut out1 = Box::new(&mut buf1) as Box<dyn Write>;
-        let mut out2 = Box::new(&mut buf2) as Box<dyn Write>;
-
+    fn epoch_rolls() {
         let seed = Some(0);
 
         let config = serde_json::from_reader(&mut Cursor::new(DATA)).unwrap();
         let sample = Sample::new(&config);
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out1);
 
-        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 100, 0, false, &mut rng, &mut ss_rng, &mut out2);
+        let reports = gen_reports(u8::MAX, u8::MAX, 0, 0, &sample, &mut rng);
 
-        drop(out1);
-        drop(out2);
+        let mut last_t = 0;
+        let mut last_epoch = 0;
+        for r in &reports {
+            assert!(u64::from(r.timestamp) < SECONDS_IN_A_WEEK);
 
-        assert!(buf1.eq(&buf2));
-    }
-
-    #[test]
-    fn same_seed_ss_matchkeys_and_plain_matchkeys_are_same() {
-        let mut buf1 = Cursor::new(Vec::<u8>::new());
-        let mut buf2 = Cursor::new(Vec::<u8>::new());
-
-        let mut out1 = Box::new(&mut buf1) as Box<dyn Write>;
-        let mut out2 = Box::new(&mut buf2) as Box<dyn Write>;
-
-        let seed = Some(0);
-
-        let config = serde_json::from_reader(&mut Cursor::new(DATA)).unwrap();
-        let sample = Sample::new(&config);
-
-        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 10000, 0, false, &mut rng, &mut ss_rng, &mut out1);
-
-        let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 10000, 0, true, &mut rng, &mut ss_rng, &mut out2);
-
-        drop(out1);
-        drop(out2);
-
-        let buf1 = BufReader::new(buf1);
-        let mut buf2 = BufReader::new(buf2);
-
-        for line in buf1.lines() {
-            let l1 = line.unwrap();
-            let mut l2 = String::new();
-            buf2.read_line(&mut l2).unwrap();
-
-            let e1 = serde_json::from_str::<Event>(&l1).unwrap();
-            let e2 = serde_json::from_str::<Event>(&l2).unwrap();
-
-            match e1 {
-                Event::Source(s) => {
-                    if let Event::EncryptedSource(es) = e2 {
-                        for (k, v) in s.event.matchkeys.iter().enumerate() {
-                            let ssm = u64::combine(&es.event.matchkeys[k]).unwrap();
-                            assert!(*v == ssm);
-                        }
-
-                        let timestamp = u32::combine(&es.event.timestamp).unwrap();
-                        assert!(s.event.timestamp == timestamp);
-                        assert!(s.breakdown_key == es.breakdown_key);
-                        assert!(s.event.epoch == es.event.epoch);
-                    } else {
-                        unreachable!();
-                    }
-                }
-
-                Event::Trigger(t) => {
-                    if let Event::EncryptedTrigger(et) = e2 {
-                        for (k, v) in t.event.matchkeys.iter().enumerate() {
-                            let matchkey = u64::combine(&et.event.matchkeys[k]).unwrap();
-                            assert!(*v == matchkey);
-                        }
-
-                        let timestamp = u32::combine(&et.event.timestamp).unwrap();
-                        let value = u32::combine(&et.value).unwrap();
-                        assert!(t.event.timestamp == timestamp);
-                        assert!(t.value == value);
-                        assert!(t.event.epoch == et.event.epoch);
-                    } else {
-                        unreachable!();
-                    }
-                }
-
-                Event::EncryptedSource(_) | Event::EncryptedTrigger(_) => unreachable!(),
+            match r.epoch.cmp(&last_epoch) {
+                Ordering::Equal => assert!(r.timestamp > last_t),
+                Ordering::Greater => assert!(r.timestamp < last_t),
+                Ordering::Less => panic!("incorrect epoch"),
             }
+
+            last_t = r.timestamp;
+            last_epoch = r.epoch;
         }
     }
 }
