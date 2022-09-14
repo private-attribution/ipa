@@ -90,9 +90,6 @@ pub enum Command {
         )]
         epoch: u8,
 
-        #[structopt(long, help = "Output secret shared values")]
-        secret_share: bool,
-
         #[structopt(
             short,
             long,
@@ -112,17 +109,9 @@ impl Command {
                 scale_factor,
                 random_seed,
                 epoch,
-                secret_share,
                 config_file,
             } => {
-                Command::gen_events(
-                    common,
-                    *scale_factor,
-                    random_seed,
-                    *epoch,
-                    *secret_share,
-                    config_file,
-                );
+                Command::gen_events(common, *scale_factor, random_seed, *epoch, config_file);
             }
         }
     }
@@ -132,7 +121,6 @@ impl Command {
         scale_factor: u32,
         random_seed: &Option<u64>,
         epoch: u8,
-        secret_share: bool,
         config_file: &Path,
     ) {
         let mut input = Command::get_input(&Some(config_file.to_path_buf())).unwrap_or_else(|e| {
@@ -158,15 +146,12 @@ impl Command {
         let sample = Sample::new(&config);
 
         let mut rng = random_seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        let mut ss_rng = random_seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
 
         let (s_count, t_count) = generate_events(
             &sample,
             DEFAULT_EVENT_GEN_COUNT * scale_factor,
-            epoch,
-            secret_share,
+            &epoch,
             &mut rng,
-            &mut ss_rng,
             &mut out,
         );
 
