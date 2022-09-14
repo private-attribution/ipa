@@ -200,8 +200,6 @@ pub mod stream {
 
             // setup helpers
             let world = make_world(QueryId);
-            let participants = crate::prss::test::make_three();
-            let participants = [participants.0, participants.1, participants.2];
 
             // dedicated streams for each helper
             let input = [
@@ -211,7 +209,7 @@ pub mod stream {
             ];
 
             // create 3 tasks (1 per helper) that will execute secure multiplication
-            let handles = input.into_iter().zip(participants).zip(world.gateways).map(
+            let handles = input.into_iter().zip(world.participants).zip(world.gateways).map(
                 |((input, prss), gateway)| {
                     tokio::spawn(async move {
                         let ctx = ProtocolContext::new(&prss, &gateway);
@@ -261,13 +259,13 @@ pub mod tests {
     use crate::protocol::{QueryId, RecordId};
     use crate::securemul::ProtocolContext;
     use crate::test_fixture::{
-        make_context, make_world, share, validate_and_reconstruct, TestStep,
+        make_contexts, make_world, share, validate_and_reconstruct, TestStep,
     };
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
         let world = make_world(QueryId);
-        let context = make_context(&world);
+        let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 
         assert_eq!(30, multiply_sync(&context, 6, 5, &mut rand).await?);
@@ -289,7 +287,7 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         let world = make_world(QueryId);
-        let context = make_context(&world);
+        let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
         let a = share(Fp31::from(4_u128), &mut rand);
         let b = share(Fp31::from(3_u128), &mut rand);

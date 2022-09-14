@@ -1,6 +1,7 @@
 use crate::helpers::mock::TestHelperGateway;
 use crate::protocol::{QueryId, Step};
 use crate::prss::{Participant, SpaceIndex};
+use crate::test_fixture::make_participants;
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -16,7 +17,7 @@ pub struct TestWorld<S: SpaceIndex> {
 
 #[must_use]
 pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
-    let participants = crate::prss::test::make_three();
+    let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
     let gateways = TestHelperGateway::make_three();
 

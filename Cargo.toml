@@ -91,3 +91,9 @@ name = "iai_arithmetic"
 path = "benches/iai/arithmetic_circuit.rs"
 harness = false
 required-features = ["test-fixture"]
+
+[[bench]]
+name = "oneshot_arithmetic"
+path = "benches/oneshot/arithmetic_circuit.rs"
+harness = false
+required-features = ["test-fixture"]

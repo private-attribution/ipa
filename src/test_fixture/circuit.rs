@@ -2,7 +2,7 @@ use crate::field::{Field};
 use crate::protocol::{QueryId, RecordId};
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use crate::test_fixture::{
-    make_context, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
+    make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
 };
 use futures_util::future::join_all;
 use rand::thread_rng;
@@ -34,7 +34,7 @@ async fn circuit<F: Field>(
     record_id: RecordId,
     depth: u8,
 ) -> [ReplicatedSecretSharing<F>; 3] {
-    let c = make_context(world);
+    let c = make_contexts(world);
     let mut a = share(F::ONE, &mut thread_rng());
 
     for bit in 0..depth {
