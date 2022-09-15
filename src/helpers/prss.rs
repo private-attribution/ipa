@@ -1,4 +1,4 @@
-use crate::field::Field;
+use crate::common::field::Field;
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -240,7 +240,7 @@ impl Generator {
 pub mod test {
     use rand::thread_rng;
 
-    use crate::field::Fp31;
+    use crate::common::field::Fp31;
 
     use super::{Generator, KeyExchange, Participant, ParticipantSetup, PrssSpace, SpaceIndex};
 

@@ -3,7 +3,7 @@
 //!
 //! [`Shamir secret sharing`](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
 //!
-use crate::field::{Field, Fp31};
+use crate::common::field::{Field, Fp31};
 use rand::Rng;
 use rand_core::RngCore;
 use std::iter::repeat_with;
@@ -26,7 +26,7 @@ impl<F: Field> LagrangePolynomial<F> {
         if u128::from(degree.get()) >= F::PRIME.into() {
             // SAFETY: F::Prime <= u8::MAX here
             #[allow(clippy::cast_possible_truncation)]
-            Err(Error::FieldSizeError {
+            Err(Error::FieldSize {
                 field_size: F::PRIME.into() as u8,
                 polynomial_degree: degree.get(),
             })
@@ -71,7 +71,7 @@ impl<F: Field> LagrangePolynomial<F> {
 }
 
 /// Shamir secret sharing
-pub struct SecretSharing {
+pub struct Shamir {
     /// Threshold
     k: u8,
 
@@ -90,12 +90,12 @@ pub enum Error {
         points_count: u8,
     },
     #[error("The degree of Lagrange polynomial {polynomial_degree} is greater than the field size {field_size}")]
-    FieldSizeError {
+    FieldSize {
         field_size: u8,
         polynomial_degree: u8,
     },
     #[error("Prime field element inversion failed: {v:?}")]
-    InvertError { v: Box<[u8]> },
+    Invert { v: Box<[u8]> },
 }
 
 /// Represents a single share: f(x) point. The index of it inside the share slice is used to represent
@@ -111,7 +111,7 @@ impl From<Share<Fp31>> for Fp31 {
     }
 }
 
-impl SecretSharing {
+impl Shamir {
     /// Constructs a new instance, returning `ShamirError` if input values do not allow
     /// to construct a valid Shamir secret sharing scheme.
     ///
@@ -208,7 +208,7 @@ impl<F: Field> Add for &Share<F> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, LagrangePolynomial, SecretSharing, Share};
+    use super::{Error, LagrangePolynomial, Shamir, Share};
     use proptest::prelude::*;
     use rand::rngs::StdRng;
     use rand::thread_rng;
@@ -216,7 +216,7 @@ mod tests {
     use std::cmp::max;
     use std::num::NonZeroU8;
 
-    use crate::field::{Field, Fp31};
+    use crate::common::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
 
     #[test]
@@ -227,13 +227,13 @@ mod tests {
                 let k = NonZeroU8::new(k).unwrap();
                 let n = NonZeroU8::new(n).unwrap();
                 let lc = LagrangePolynomial::new(n).unwrap();
-                let shamir = SecretSharing::new(k, n).unwrap();
+                let shamir = Shamir::new(k, n).unwrap();
                 let secret = Fp31::from(2_u128);
                 let shares = shamir.split(secret, &mut rng);
 
                 assert_eq!(
                     secret,
-                    SecretSharing::reconstruct(&shares, &lc).unwrap(),
+                    Shamir::reconstruct(&shares, &lc).unwrap(),
                     "Failed to reconstruct the secret using Shamir(k={k}, n={n})"
                 );
             }
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn can_add_shares() {
         fn check_addition(
-            shamir: &SecretSharing,
+            shamir: &Shamir,
             lc: &LagrangePolynomial<Fp31>,
             lhs_secret: u8,
             rhs_secret: u8,
@@ -262,13 +262,13 @@ mod tests {
                 .map(|(lhs, rhs)| lhs + rhs)
                 .collect::<Vec<_>>();
 
-            let sum_secret = SecretSharing::reconstruct(&sum_shares, lc).unwrap();
+            let sum_secret = Shamir::reconstruct(&sum_shares, lc).unwrap();
             assert_eq!(expected, sum_secret);
         }
 
         let k = NonZeroU8::new(2).unwrap();
         let n = NonZeroU8::new(3).unwrap();
-        let shamir = SecretSharing::new(k, n).unwrap();
+        let shamir = Shamir::new(k, n).unwrap();
         let lc = LagrangePolynomial::<Fp31>::new(n).unwrap();
 
         check_addition(&shamir, &lc, 42, 24);
@@ -280,11 +280,11 @@ mod tests {
     #[test]
     fn fails_if_not_enough_shares() {
         let n = NonZeroU8::new(3).unwrap();
-        let shamir = SecretSharing::new(NonZeroU8::new(2).unwrap(), n).unwrap();
+        let shamir = Shamir::new(NonZeroU8::new(2).unwrap(), n).unwrap();
 
         let shares = shamir.split(Fp31::from(42_u128), thread_rng());
         assert!(matches!(
-            SecretSharing::reconstruct(&shares[0..1], &LagrangePolynomial::new(n).unwrap()),
+            Shamir::reconstruct(&shares[0..1], &LagrangePolynomial::new(n).unwrap()),
             Err(Error::BadPolynomial {
                 polynomial_degree: 3,
                 points_count: 1
@@ -296,11 +296,11 @@ mod tests {
     fn fails_if_not_enough_coefficients() {
         let k = NonZeroU8::new(2).unwrap();
         let n = NonZeroU8::new(3).unwrap();
-        let shamir = SecretSharing::new(k, n).unwrap();
+        let shamir = Shamir::new(k, n).unwrap();
 
         let shares = shamir.split(Fp31::from(42_u128), thread_rng());
         assert!(matches!(
-            SecretSharing::reconstruct(&shares, &LagrangePolynomial::new(k).unwrap()),
+            Shamir::reconstruct(&shares, &LagrangePolynomial::new(k).unwrap()),
             Err(Error::BadPolynomial {
                 polynomial_degree: 2,
                 points_count: 3
@@ -313,7 +313,7 @@ mod tests {
         for k in [1_u8, 2, 3] {
             let n = NonZeroU8::new(max(1, k - 1)).unwrap();
             let k = NonZeroU8::new(k).unwrap();
-            let r = SecretSharing::new(k, n);
+            let r = Shamir::new(k, n);
             assert!(matches!(r, Err(Error::BadSharingScheme { .. })));
         }
     }
@@ -324,14 +324,14 @@ mod tests {
         let rng = StepRng::new(1, 1);
         let secret = Fp31::from(5_u128);
 
-        let sharing = SecretSharing::new(k, n).unwrap();
+        let sharing = Shamir::new(k, n).unwrap();
 
         let mut shares = sharing.split(secret, rng);
         shares[2] = shares[1].clone();
 
         assert_ne!(
             secret,
-            SecretSharing::reconstruct(&shares, &LagrangePolynomial::new(n).unwrap()).unwrap()
+            Shamir::reconstruct(&shares, &LagrangePolynomial::new(n).unwrap()).unwrap()
         );
     }
 
@@ -341,14 +341,14 @@ mod tests {
         let rng = StepRng::new(1, 1);
         let secret = Fp31::from(5_u128);
 
-        let sharing = SecretSharing::new(k, n).unwrap();
+        let sharing = Shamir::new(k, n).unwrap();
 
         let mut shares = sharing.split(secret, rng);
         shares[2] = Share { y: shares[1].y };
 
         assert_ne!(
             secret,
-            SecretSharing::reconstruct(&shares, &LagrangePolynomial::new(n).unwrap()).unwrap()
+            Shamir::reconstruct(&shares, &LagrangePolynomial::new(n).unwrap()).unwrap()
         );
     }
 
@@ -357,7 +357,7 @@ mod tests {
         let bad_n = NonZeroU8::new(Fp31::PRIME).unwrap();
         assert!(matches!(
             LagrangePolynomial::<Fp31>::new(bad_n),
-            Err(Error::FieldSizeError {
+            Err(Error::FieldSize {
                 polynomial_degree: _,
                 field_size: _
             })
@@ -401,11 +401,11 @@ mod tests {
             let n = NonZeroU8::new(n).unwrap();
             let r = StdRng::seed_from_u64(rng_seed);
 
-            let shamir = SecretSharing::new(k, n).unwrap();
+            let shamir = Shamir::new(k, n).unwrap();
             let lc = LagrangePolynomial::new(n).unwrap();
             let shares = shamir.split(Fp31::from(secret), r);
 
-            let reconstructed_secret = SecretSharing::reconstruct(&shares, &lc)
+            let reconstructed_secret = Shamir::reconstruct(&shares, &lc)
                 .map_err(|e| TestCaseError::fail(e.to_string()))?;
 
             prop_assert_eq!(Fp31::from(secret), reconstructed_secret);

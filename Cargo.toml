@@ -6,6 +6,7 @@ edition = "2021"
 
 [features]
 default = ["debug", "cli"]
+bin = []
 cli = ["enable-serde", "structopt", "web-app", "tracing-subscriber"]
 debug = ["hex"]
 enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
@@ -58,7 +59,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "helper"
-required-features = ["cli"]
+required-features = ["bin", "cli"]
 
 [[bin]]
 name = "ipa_bench"
@@ -67,4 +68,4 @@ required-features = ["cli"]
 
 [[bin]]
 name = "test_mpc"
-required-features = ["cli"]
+required-features = ["bin", "cli"]

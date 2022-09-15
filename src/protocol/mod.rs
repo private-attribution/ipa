@@ -1,8 +1,10 @@
 pub mod context;
-pub mod securemul;
+mod securemul;
 
 use std::fmt::Debug;
 use std::hash::Hash;
+
+pub use securemul::SecureMul;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
 /// in form of a share or set of shares and produces the secret-shared output.

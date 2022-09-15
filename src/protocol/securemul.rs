@@ -1,9 +1,9 @@
+use crate::common::field::Field;
 use crate::error::BoxError;
-use crate::field::Field;
 use crate::helpers::mesh::{Gateway, Mesh};
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
-use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
+use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
@@ -44,9 +44,9 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
     /// back via the error response
     pub async fn execute<M, F>(
         self,
-        a: ReplicatedSecretSharing<F>,
-        b: ReplicatedSecretSharing<F>,
-    ) -> Result<ReplicatedSecretSharing<F>, BoxError>
+        a: Replicated<F>,
+        b: Replicated<F>,
+    ) -> Result<Replicated<F>, BoxError>
     where
         M: Mesh,
         G: Gateway<M, S>,
@@ -80,7 +80,7 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
         let lhs = a0 * b0 + left_d + s0;
         let rhs = a1 * b1 + right_d + s1;
 
-        Ok(ReplicatedSecretSharing::new(lhs, rhs))
+        Ok(Replicated::new(lhs, rhs))
     }
 }
 
@@ -89,12 +89,12 @@ pub enum Error {}
 
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
-    use crate::field::Field;
+    use crate::common::field::Field;
     use crate::protocol::context::ProtocolContext;
-    use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
+    use crate::secret_sharing::Replicated;
     use futures::Stream;
 
-    use crate::helpers::chunkscan::ChunkScan;
+    use crate::common::chunkscan::ChunkScan;
     use crate::helpers::mesh::{Gateway, Mesh};
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
@@ -117,13 +117,14 @@ pub mod stream {
     ///
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
+    #[allow(dead_code)]
     pub fn secure_multiply<'a, F, M, G, S>(
         input_stream: S,
         ctx: &'a ProtocolContext<'a, G, StreamingStep>,
         _index: u128,
-    ) -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a
+    ) -> impl Stream<Item = Replicated<F>> + 'a
     where
-        S: Stream<Item = ReplicatedSecretSharing<F>> + 'a,
+        S: Stream<Item = Replicated<F>> + 'a,
         F: Field + 'static,
         M: Mesh + 'a,
         G: Gateway<M, StreamingStep>,
@@ -135,7 +136,7 @@ pub mod stream {
         Box::pin(ChunkScan::new(
             input_stream,
             2, // buffer two elements
-            move |mut items: Vec<ReplicatedSecretSharing<F>>| async move {
+            move |mut items: Vec<Replicated<F>>| async move {
                 debug_assert!(items.len() == 2);
 
                 let b_share = items.pop().unwrap();
@@ -152,7 +153,7 @@ pub mod stream {
 
     #[cfg(test)]
     mod tests {
-        use crate::field::Fp31;
+        use crate::common::field::Fp31;
         use crate::helpers;
         use crate::protocol::context::ProtocolContext;
         use crate::protocol::securemul::{
@@ -160,7 +161,7 @@ pub mod stream {
             tests::{share, validate_and_reconstruct},
         };
         use crate::protocol::QueryId;
-        use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
+        use crate::secret_sharing::Replicated;
         use futures::StreamExt;
         use futures_util::future::join_all;
         use futures_util::stream;
@@ -205,7 +206,7 @@ pub mod stream {
                 },
             );
 
-            let result_shares: [ReplicatedSecretSharing<Fp31>; 3] =
+            let result_shares: [Replicated<Fp31>; 3] =
                 join_all(handles.map(|handle| async { handle.await.unwrap() }))
                     .await
                     .try_into()
@@ -221,12 +222,12 @@ pub mod stream {
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use crate::field::{Field, Fp31};
+    use crate::common::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
     use rand::Rng;
     use rand_core::RngCore;
 
-    use crate::secret_sharing_schemes::replicated_secret_sharing::ReplicatedSecretSharing;
+    use crate::secret_sharing::Replicated;
 
     use futures_util::future::join_all;
     use tokio::try_join;
@@ -378,27 +379,20 @@ mod tests {
     }
 
     /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-    pub(super) fn share<R: RngCore>(
-        input: Fp31,
-        rng: &mut R,
-    ) -> [ReplicatedSecretSharing<Fp31>; 3] {
+    pub(super) fn share<R: RngCore>(input: Fp31, rng: &mut R) -> [Replicated<Fp31>; 3] {
         let x1 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
         let x2 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
         let x3 = input - (x1 + x2);
 
         [
-            ReplicatedSecretSharing::new(x1, x2),
-            ReplicatedSecretSharing::new(x2, x3),
-            ReplicatedSecretSharing::new(x3, x1),
+            Replicated::new(x1, x2),
+            Replicated::new(x2, x3),
+            Replicated::new(x3, x1),
         ]
     }
 
     pub(super) fn validate_and_reconstruct<T: Field>(
-        input: (
-            ReplicatedSecretSharing<T>,
-            ReplicatedSecretSharing<T>,
-            ReplicatedSecretSharing<T>,
-        ),
+        input: (Replicated<T>, Replicated<T>, Replicated<T>),
     ) -> T {
         assert_eq!(
             input.0.as_tuple().0 + input.1.as_tuple().0 + input.2.as_tuple().0,

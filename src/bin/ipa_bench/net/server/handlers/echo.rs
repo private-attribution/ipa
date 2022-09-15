@@ -14,6 +14,7 @@ pub struct Payload {
     pub headers: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcServerError> {
     let mut parts = RequestParts::new(req);
 

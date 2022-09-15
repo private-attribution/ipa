@@ -31,6 +31,7 @@ impl IntoResponse for MpcServerError {
 }
 
 /// Axum router definition for MPC helper endpoint
+#[allow(dead_code)]
 #[must_use]
 pub fn router() -> Router {
     Router::new().route("/echo", get(handlers::echo_handler))
@@ -38,6 +39,7 @@ pub fn router() -> Router {
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
+#[allow(dead_code)]
 pub enum BindTarget {
     Http(SocketAddr),
     Https(SocketAddr, RustlsConfig),
@@ -45,6 +47,7 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
+#[allow(dead_code)]
 pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
     let svc = router()
         .layer(TraceLayer::new_for_http())

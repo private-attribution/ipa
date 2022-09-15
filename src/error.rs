@@ -21,8 +21,6 @@ pub enum Error {
     RedisError(#[from] redis::RedisError),
     #[error("too many helpers")]
     TooManyHelpers,
-    #[error("thread died: {0}")]
-    DeadThread(#[from] std::sync::mpsc::SendError<crate::net::Message>),
 
     #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]

@@ -1,4 +1,3 @@
-pub mod chunkscan;
 pub mod error;
 pub mod mesh;
 #[cfg(test)]

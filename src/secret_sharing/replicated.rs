@@ -4,18 +4,18 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
 };
 
-use crate::field::Field;
+use crate::common::field::Field;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ReplicatedSecretSharing<T>(T, T);
+pub struct Replicated<T>(T, T);
 
-impl<T: Debug> Debug for ReplicatedSecretSharing<T> {
+impl<T: Debug> Debug for Replicated<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?}", self.0, self.1)
     }
 }
 
-impl<T: Field> ReplicatedSecretSharing<T> {
+impl<T: Field> Replicated<T> {
     #[must_use]
     pub fn new(a: T, b: T) -> Self {
         Self(a, b)
@@ -26,7 +26,7 @@ impl<T: Field> ReplicatedSecretSharing<T> {
     }
 }
 
-impl<T: Field> Add for ReplicatedSecretSharing<T> {
+impl<T: Field> Add for Replicated<T> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
@@ -34,7 +34,7 @@ impl<T: Field> Add for ReplicatedSecretSharing<T> {
     }
 }
 
-impl<T: Field> Neg for ReplicatedSecretSharing<T> {
+impl<T: Field> Neg for Replicated<T> {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -42,7 +42,7 @@ impl<T: Field> Neg for ReplicatedSecretSharing<T> {
     }
 }
 
-impl<T: Field> Sub for ReplicatedSecretSharing<T> {
+impl<T: Field> Sub for Replicated<T> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
@@ -50,7 +50,7 @@ impl<T: Field> Sub for ReplicatedSecretSharing<T> {
     }
 }
 
-impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
+impl<T: Field> Mul<T> for Replicated<T> {
     type Output = Self;
 
     fn mul(self, rhs: T) -> Self {
@@ -60,30 +60,22 @@ impl<T: Field> Mul<T> for ReplicatedSecretSharing<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::ReplicatedSecretSharing;
+    use super::Replicated;
 
-    use crate::field::Fp31;
+    use crate::common::field::Fp31;
 
-    fn secret_share(
-        a: u8,
-        b: u8,
-        c: u8,
-    ) -> (
-        ReplicatedSecretSharing<Fp31>,
-        ReplicatedSecretSharing<Fp31>,
-        ReplicatedSecretSharing<Fp31>,
-    ) {
+    fn secret_share(a: u8, b: u8, c: u8) -> (Replicated<Fp31>, Replicated<Fp31>, Replicated<Fp31>) {
         (
-            ReplicatedSecretSharing::new(Fp31::from(a), Fp31::from(b)),
-            ReplicatedSecretSharing::new(Fp31::from(b), Fp31::from(c)),
-            ReplicatedSecretSharing::new(Fp31::from(c), Fp31::from(a)),
+            Replicated::new(Fp31::from(a), Fp31::from(b)),
+            Replicated::new(Fp31::from(b), Fp31::from(c)),
+            Replicated::new(Fp31::from(c), Fp31::from(a)),
         )
     }
 
     fn assert_valid_secret_sharing(
-        res1: ReplicatedSecretSharing<Fp31>,
-        res2: ReplicatedSecretSharing<Fp31>,
-        res3: ReplicatedSecretSharing<Fp31>,
+        res1: Replicated<Fp31>,
+        res2: Replicated<Fp31>,
+        res3: Replicated<Fp31>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -91,9 +83,9 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: ReplicatedSecretSharing<Fp31>,
-        a2: ReplicatedSecretSharing<Fp31>,
-        a3: ReplicatedSecretSharing<Fp31>,
+        a1: Replicated<Fp31>,
+        a2: Replicated<Fp31>,
+        a3: Replicated<Fp31>,
         expected_value: u128,
     ) {
         assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));
