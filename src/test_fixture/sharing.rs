@@ -1,4 +1,4 @@
-use crate::field::{Field};
+use crate::field::Field;
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use rand::Rng;
 use rand_core::RngCore;
@@ -7,12 +7,7 @@ use rand_core::RngCore;
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [ReplicatedSecretSharing<F>; 3] {
     let x1 = F::from(rng.gen::<u128>());
     let x2 = F::from(rng.gen::<u128>());
-    // let x1 = F::from(rng.gen_range(0..u128::from(F::PRIME)));
-    // let x2 = F::from(rng.gen_range(0..u128::from(F::PRIME)));
     let x3 = input - (x1 + x2);
-    // let x1 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
-    // let x2 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
-    // let x3 = input - (x1 + x2);
 
     [
         ReplicatedSecretSharing::new(x1, x2),

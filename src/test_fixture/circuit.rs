@@ -1,4 +1,4 @@
-use crate::field::{Field};
+use crate::field::Field;
 use crate::protocol::{QueryId, RecordId};
 use crate::replicated_secret_sharing::ReplicatedSecretSharing;
 use crate::test_fixture::{

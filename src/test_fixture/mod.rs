@@ -2,15 +2,15 @@ pub mod circuit;
 mod sharing;
 mod world;
 
-use rand::thread_rng;
 use crate::helpers::mock::TestHelperGateway;
 use crate::protocol::Step;
 use crate::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::securemul::ProtocolContext;
+use rand::thread_rng;
 
 pub use sharing::{share, validate_and_reconstruct};
-pub use world::{TestStep, TestWorld};
 pub use world::make as make_world;
+pub use world::{TestStep, TestWorld};
 
 /// Creates protocol contexts for 3 helpers
 ///

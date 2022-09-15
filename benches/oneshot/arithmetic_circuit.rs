@@ -1,11 +1,15 @@
-use std::time::Instant;
-use structopt::StructOpt;
 use raw_ipa::field::{Field, Fp31};
 use raw_ipa::test_fixture::circuit;
+use std::time::Instant;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 pub struct CircuitArgs {
-    #[structopt(short, long, help = "width of the circuit, defines how many operations can proceed in parallel")]
+    #[structopt(
+        short,
+        long,
+        help = "width of the circuit, defines how many operations can proceed in parallel"
+    )]
     pub width: u32,
 
     #[structopt(short, long, help = "depth of the circuit")]

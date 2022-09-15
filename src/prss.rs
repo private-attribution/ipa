@@ -313,7 +313,6 @@ pub mod test {
         assert_ne!(g1.generate(1), g2.generate(1));
     }
 
-
     #[test]
     fn three_party_values() {
         const IDX: u128 = 7;

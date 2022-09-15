@@ -176,7 +176,7 @@ pub mod stream {
     #[cfg(test)]
     mod tests {
         use crate::field::Fp31;
-        
+
         use crate::protocol::QueryId;
         use crate::replicated_secret_sharing::ReplicatedSecretSharing;
         use crate::securemul::stream::secure_multiply;
@@ -209,8 +209,11 @@ pub mod stream {
             ];
 
             // create 3 tasks (1 per helper) that will execute secure multiplication
-            let handles = input.into_iter().zip(world.participants).zip(world.gateways).map(
-                |((input, prss), gateway)| {
+            let handles = input
+                .into_iter()
+                .zip(world.participants)
+                .zip(world.gateways)
+                .map(|((input, prss), gateway)| {
                     tokio::spawn(async move {
                         let ctx = ProtocolContext::new(&prss, &gateway);
                         let mut stream = secure_multiply(input, &ctx, start_index);
@@ -221,8 +224,7 @@ pub mod stream {
                         // compute (a*b)*c and return it
                         stream.next().await.expect("Failed to compute a*b*c")
                     })
-                },
-            );
+                });
 
             let result_shares: [ReplicatedSecretSharing<Fp31>; 3] =
                 join_all(handles.map(|handle| async { handle.await.unwrap() }))
@@ -242,18 +244,13 @@ pub mod tests {
 
     use crate::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
-    
-    use rand_core::RngCore;
 
-    
+    use rand_core::RngCore;
 
     use futures_util::future::join_all;
     use tokio::try_join;
 
-    
-
     use crate::error::BoxError;
-    
 
     use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::{QueryId, RecordId};
