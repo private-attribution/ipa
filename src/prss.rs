@@ -241,8 +241,9 @@ pub mod test {
     use rand::thread_rng;
 
     use crate::field::Fp31;
+    use crate::test_fixture::make_participants;
 
-    use super::{Generator, KeyExchange, Participant, ParticipantSetup, PrssSpace, SpaceIndex};
+    use super::{Generator, KeyExchange, Participant, PrssSpace, SpaceIndex};
 
     /// In testing, having a single space is easiest to use.
     /// This provides an implementation of `PrssSpace`.
@@ -312,29 +313,10 @@ pub mod test {
         assert_ne!(g1.generate(1), g2.generate(1));
     }
 
-    /// Generate three participants.
-    /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
-    #[must_use]
-    pub fn make_three<I: SpaceIndex>() -> (Participant<I>, Participant<I>, Participant<I>) {
-        let mut r = thread_rng();
-        let setup1 = ParticipantSetup::new(&mut r);
-        let setup2 = ParticipantSetup::new(&mut r);
-        let setup3 = ParticipantSetup::new(&mut r);
-        let (pk1_l, pk1_r) = setup1.public_keys();
-        let (pk2_l, pk2_r) = setup2.public_keys();
-        let (pk3_l, pk3_r) = setup3.public_keys();
-
-        let p1 = setup1.setup(&pk3_r, &pk2_l);
-        let p2 = setup2.setup(&pk1_r, &pk3_l);
-        let p3 = setup3.setup(&pk2_r, &pk1_l);
-
-        (p1, p2, p3)
-    }
-
     #[test]
     fn three_party_values() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         let (r1_l, r1_r) = p1.generate_values(IDX);
         assert_ne!(r1_l, r1_r);
@@ -351,7 +333,7 @@ pub mod test {
     #[test]
     fn three_party_zero_u128() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         let z1 = p1.zero_u128(IDX);
         let z2 = p2.zero_u128(IDX);
@@ -363,7 +345,7 @@ pub mod test {
     #[test]
     fn three_party_xor_zero() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         let z1 = p1.zero_xor(IDX);
         let z2 = p2.zero_xor(IDX);
@@ -376,7 +358,7 @@ pub mod test {
     fn three_party_random_u128() {
         const IDX1: u128 = 7;
         const IDX2: u128 = 21362;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         let r1 = p1.random_u128(IDX1);
         let r2 = p2.random_u128(IDX1);
@@ -396,7 +378,7 @@ pub mod test {
     #[test]
     fn three_party_fields() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         // These tests do not check that left != right because
         // the field might not be large enough.
@@ -412,7 +394,7 @@ pub mod test {
     #[test]
     fn three_party_zero() {
         const IDX: u128 = 72;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         let z1: Fp31 = p1.zero(IDX);
         let z2 = p2.zero(IDX);
@@ -425,7 +407,7 @@ pub mod test {
     fn three_party_random() {
         const IDX1: u128 = 74;
         const IDX2: u128 = 12634;
-        let (p1, p2, p3) = make_three();
+        let (p1, p2, p3) = make_participants();
 
         let r1: Fp31 = p1.random(IDX1);
         let r2 = p2.random(IDX1);

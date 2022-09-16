@@ -2,7 +2,7 @@
 use crate::helpers::error::Error;
 use crate::helpers::mesh::{Gateway, Mesh, Message};
 use crate::helpers::Identity;
-use crate::protocol::{QueryId, RecordId, Step};
+use crate::protocol::{RecordId, Step};
 use async_trait::async_trait;
 use futures::Stream;
 use futures_util::stream::SelectAll;
@@ -12,16 +12,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
-
-/// Test environment for protocols to run tests that require communication between helpers.
-/// For now the messages sent through it never leave the test infra memory perimeter, so
-/// there is no need to associate each of them with `QueryId`, but this API makes it possible
-/// to do if we need it.
-#[derive(Debug)]
-pub struct TestWorld<S> {
-    pub query_id: QueryId,
-    pub gateways: [TestHelperGateway<S>; 3],
-}
 
 /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
 /// `Controller`'s dependencies
@@ -158,6 +148,10 @@ impl<S: Step> ReceiveRequest<S> {
 impl<S: Step> TestHelperGateway<S> {
     fn new(controller: Controller<S>) -> Self {
         Self { controller }
+    }
+
+    pub fn make_three() -> [TestHelperGateway<S>; 3] {
+        make_controllers().map(Self::new)
     }
 }
 
@@ -313,16 +307,6 @@ impl<S: Step> Controller<S> {
             .unwrap();
 
         rx.await.unwrap()
-    }
-}
-
-#[must_use]
-pub fn make_world<S: Step>(query_id: QueryId) -> TestWorld<S> {
-    let controllers = make_controllers();
-
-    TestWorld {
-        query_id,
-        gateways: controllers.map(TestHelperGateway::new),
     }
 }
 
