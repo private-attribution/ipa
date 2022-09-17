@@ -20,11 +20,6 @@ jobs:
           args: --tests
 
       - uses: actions-rs/cargo@v1
-        name: Run Tests
-        with:
-          command: test
-
-      - uses: actions-rs/cargo@v1
         name: Check formatting
         if: ${{ success() || failure() }}
         with:
@@ -37,7 +32,12 @@ jobs:
         with:
           command: clippy
           args: --tests -- -D warnings -D clippy::pedantic
-    
+
+      - uses: actions-rs/cargo@v1
+        name: Run Tests
+        with:
+          command: test
+
   python-check:
     name: Python Checks
     runs-on: ubuntu-latest
