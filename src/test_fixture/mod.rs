@@ -1,4 +1,5 @@
 pub mod circuit;
+pub mod logging;
 mod sharing;
 mod world;
 

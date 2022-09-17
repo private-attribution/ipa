@@ -2,6 +2,7 @@ use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;
+use std::fmt::{Debug, Formatter};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -28,10 +29,19 @@ pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestStep {
     Mul1(u8),
     Mul2,
+}
+
+impl Debug for TestStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TestStep::Mul1(v) => write!(f, "TestStep/Mul1[{}]", v),
+            TestStep::Mul2 => write!(f, "TestStep/Mul2"),
+        }
+    }
 }
 
 impl Step for TestStep {}

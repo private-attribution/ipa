@@ -1,7 +1,7 @@
 pub mod context;
 mod securemul;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
@@ -24,19 +24,40 @@ use std::hash::Hash;
 pub trait Step: Copy + Clone + Debug + Eq + Hash + Send + 'static {}
 
 /// Set of steps that define the IPA protocol.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IPAProtocolStep {
     /// Convert from XOR shares to Replicated shares
-    ConvertShares(ShareConversionStep),
+    ConvertShares,
     /// Sort shares by the match key
     Sort(SortStep),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ShareConversionStep {}
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SortStep {
+    GenBitPermutations,
+}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SortStep {}
+impl Debug for IPAProtocolStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IPA/")?;
+        match self {
+            IPAProtocolStep::ConvertShares => {
+                write!(f, "ConvertShares")
+            }
+            IPAProtocolStep::Sort(sort_step) => {
+                write!(f, "Sort/{:?}", sort_step)
+            }
+        }
+    }
+}
+
+impl Debug for SortStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SortStep::GenBitPermutations => write!(f, "GenBitPermutations"),
+        }
+    }
+}
 
 impl Step for IPAProtocolStep {}
 
