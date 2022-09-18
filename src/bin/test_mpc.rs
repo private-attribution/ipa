@@ -19,7 +19,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::from_args();
-    args.logging.setup_logging();
+    let _handle = args.logging.setup_logging();
 
     // TODO: Start MPC helpers and discover
     let client = Client::new(args.uri.as_str());

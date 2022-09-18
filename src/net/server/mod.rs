@@ -1,5 +1,7 @@
+use ::metrics::increment_counter;
 use std::net::SocketAddr;
 
+use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use axum::{
     extract::rejection::QueryRejection,
     response::{IntoResponse, Response},
@@ -7,10 +9,11 @@ use axum::{
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
-use hyper::StatusCode;
+use hyper::{Body, Request, StatusCode};
 use thiserror::Error;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
+use tracing::Span;
 
 mod handlers;
 
@@ -47,7 +50,11 @@ pub enum BindTarget {
 /// Returns a socket it is listening to and the join handle of the web server running.
 pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
     let svc = router()
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
+                increment_counter!(REQUESTS_RECEIVED);
+            }),
+        )
         .into_make_service();
     let handle = Handle::new();
 
@@ -149,19 +156,22 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 mod e2e_tests {
     use crate::net::server::handlers::EchoData;
     use crate::net::server::{bind, BindTarget};
+    use hyper::header::HeaderName;
+    use hyper::header::HeaderValue;
     use hyper::{
-        body,
-        client::HttpConnector,
-        header::{HeaderName, HeaderValue},
-        http::uri::Scheme,
-        Body, Request, Response, StatusCode,
+        body, client::HttpConnector, http::uri::Scheme, Body, Request, Response, StatusCode,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
     use std::collections::HashMap;
     use std::str::FromStr;
 
+    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
+
+    use crate::telemetry::metrics::get_counter_value;
+    use crate::telemetry::metrics::REQUESTS_RECEIVED;
+
     impl EchoData {
-        fn to_request(&self, scheme: &Scheme) -> Request<Body> {
+        pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
             let mut request = Request::builder();
 
             let uri = self.headers.get("host").expect("host header is missing");
@@ -184,7 +194,7 @@ mod e2e_tests {
             request.uri(uri).body(Body::empty()).unwrap()
         }
 
-        async fn from_response(response: &mut Response<Body>) -> Self {
+        pub async fn from_response(response: &mut Response<Body>) -> Self {
             let body_bytes = body::to_bytes(response.body_mut()).await.unwrap();
 
             serde_json::from_slice(&body_bytes).unwrap()
@@ -244,5 +254,42 @@ mod e2e_tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(expected, EchoData::from_response(&mut response).await);
+    }
+
+    /// Ensures that server tracks number of requests it received and emits a corresponding metric.
+    /// In order for this test not to be flaky, we rely on tokio::test macro to set up a
+    /// new runtime per test (which it currently does) and set up metric recorders per thread (done
+    /// by this test). It is also tricky to make it work in a multi-threaded environment - I haven't
+    /// tested that, so better to stick with default behavior of tokio:test macro
+    #[tokio::test]
+    async fn requests_received_metric() {
+        // as per metric's crate recommendation, we have to install the per-thread recorder, but
+        // need to ignore errors because there might be other threads installing it as well.
+        DebuggingRecorder::per_thread().install().unwrap_or(());
+
+        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let client = hyper::Client::new();
+        let mut echo_data = EchoData::default();
+        echo_data.headers.insert("host".into(), addr.to_string());
+
+        let snapshot = Snapshotter::current_thread_snapshot();
+        assert!(snapshot.is_none());
+
+        let request_count = 10;
+        for _ in 0..request_count {
+            let response = client
+                .request(echo_data.to_request(&Scheme::HTTP))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        assert_eq!(
+            Some(request_count),
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                REQUESTS_RECEIVED
+            )
+        );
     }
 }
