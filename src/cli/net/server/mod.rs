@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
 
-mod handlers;
+pub mod handlers;
 
 #[derive(Error, Debug)]
 pub enum MpcServerError {
@@ -150,8 +150,8 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 
 #[cfg(test)]
 mod e2e_tests {
-    use crate::net::server::handlers::EchoData;
-    use crate::net::server::{bind, BindTarget};
+    use crate::cli::net::server::handlers::EchoData;
+    use crate::cli::net::server::{bind, BindTarget};
     use hyper::{
         body,
         client::HttpConnector,
@@ -219,7 +219,7 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        let config = crate::net::server::tls_config_from_self_signed_cert()
+        let config = crate::cli::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
         let (addr, _) = bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;

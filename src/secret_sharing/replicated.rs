@@ -4,7 +4,7 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
 };
 
-use crate::common::field::Field;
+use crate::field::Field;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Replicated<T>(T, T);
@@ -62,7 +62,7 @@ impl<T: Field> Mul<T> for Replicated<T> {
 mod tests {
     use super::Replicated;
 
-    use crate::common::field::Fp31;
+    use crate::field::Fp31;
 
     fn secret_share(a: u8, b: u8, c: u8) -> (Replicated<Fp31>, Replicated<Fp31>, Replicated<Fp31>) {
         (

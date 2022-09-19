@@ -1,5 +1,5 @@
-use crate::common::field::Field;
 use crate::error::BoxError;
+use crate::field::Field;
 use crate::helpers::mesh::{Gateway, Mesh};
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
@@ -89,12 +89,12 @@ pub enum Error {}
 
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
-    use crate::common::field::Field;
+    use crate::field::Field;
     use crate::protocol::context::ProtocolContext;
     use crate::secret_sharing::Replicated;
     use futures::Stream;
 
-    use crate::common::chunkscan::ChunkScan;
+    use crate::chunkscan::ChunkScan;
     use crate::helpers::mesh::{Gateway, Mesh};
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
@@ -153,7 +153,7 @@ pub mod stream {
 
     #[cfg(test)]
     mod tests {
-        use crate::common::field::Fp31;
+        use crate::field::Fp31;
         use crate::helpers;
         use crate::protocol::context::ProtocolContext;
         use crate::protocol::securemul::{
@@ -222,7 +222,7 @@ pub mod stream {
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use crate::common::field::{Field, Fp31};
+    use crate::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
     use rand::Rng;
     use rand_core::RngCore;

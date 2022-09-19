@@ -1,4 +1,5 @@
 mod hexarg;
+pub mod net;
 mod stringn;
 mod verbosity;
 
