@@ -1,10 +1,12 @@
 /// Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
 use std::collections::HashMap;
 
+use crate::field::Field;
 use crate::helpers::error::Error;
 use crate::helpers::mesh::{Gateway, Mesh, Message};
 use crate::helpers::Identity;
 use crate::protocol::{QueryId, RecordId, Step};
+use crate::secret_sharing::Replicated;
 
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -130,6 +132,14 @@ impl<S: Step> Mesh for TestMesh<S> {
 
     fn identity(&self) -> Identity {
         self.controller.identity
+    }
+
+    fn share_of_one<F: Field>(&self) -> Replicated<F> {
+        match self.controller.identity {
+            Identity::H1 => Replicated::new(F::ONE, F::ZERO),
+            Identity::H2 => Replicated::new(F::ZERO, F::ZERO),
+            Identity::H3 => Replicated::new(F::ZERO, F::ONE),
+        }
     }
 }
 

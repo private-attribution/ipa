@@ -219,7 +219,7 @@ pub mod stream {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
@@ -364,7 +364,7 @@ mod tests {
         Ok(validate_and_reconstruct(result_shares).into())
     }
 
-    fn make_context<'a, S: Step + SpaceIndex>(
+    pub fn make_context<'a, S: Step + SpaceIndex>(
         test_world: &'a TestWorld<S>,
         participants: &'a (Participant<S>, Participant<S>, Participant<S>),
     ) -> [ProtocolContext<'a, TestHelperGateway<S>, S>; 3] {
@@ -379,7 +379,7 @@ mod tests {
     }
 
     /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-    pub(super) fn share<R: RngCore>(input: Fp31, rng: &mut R) -> [Replicated<Fp31>; 3] {
+    pub fn share<R: RngCore>(input: Fp31, rng: &mut R) -> [Replicated<Fp31>; 3] {
         let x1 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
         let x2 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
         let x3 = input - (x1 + x2);
@@ -391,7 +391,7 @@ mod tests {
         ]
     }
 
-    pub(super) fn validate_and_reconstruct<T: Field>(
+    pub fn validate_and_reconstruct<T: Field>(
         input: (Replicated<T>, Replicated<T>, Replicated<T>),
     ) -> T {
         assert_eq!(

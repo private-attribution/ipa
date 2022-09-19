@@ -6,9 +6,11 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC helper service to do.
 //!
+use crate::field::Field;
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
 use crate::protocol::{RecordId, Step};
+use crate::secret_sharing::Replicated;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -38,6 +40,9 @@ pub trait Mesh {
 
     /// Returns the unique identity of this helper.
     fn identity(&self) -> Identity;
+
+    /// Returns share of value one for this helper.
+    fn share_of_one<F: Field>(&self) -> Replicated<F>;
 }
 
 /// This is the entry point for protocols to request communication when they require it.

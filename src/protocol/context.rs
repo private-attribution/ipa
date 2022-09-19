@@ -9,7 +9,7 @@ use super::{RecordId, SecureMul, Step};
 #[derive(Debug)]
 pub struct ProtocolContext<'a, G, S: SpaceIndex> {
     participant: &'a Participant<S>,
-    gateway: &'a G,
+    pub gateway: &'a G,
 }
 
 impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
