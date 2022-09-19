@@ -1,6 +1,5 @@
 pub mod error;
 pub mod mesh;
-#[cfg(test)]
 pub mod mock;
 pub mod models;
 

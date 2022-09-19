@@ -9,6 +9,10 @@ pub mod helpers;
 pub mod net;
 pub mod protocol;
 pub mod prss;
-mod replicated_secret_sharing;
+pub mod replicated_secret_sharing;
 pub mod securemul;
 pub mod shamir;
+pub mod telemetry;
+
+#[cfg(any(test, feature = "test-fixture"))]
+pub mod test_fixture;

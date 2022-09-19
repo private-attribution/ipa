@@ -1,6 +1,5 @@
 use super::sample::Sample;
 use byteorder::WriteBytesExt;
-use log::{debug, info, trace};
 use rand::{CryptoRng, Rng, RngCore};
 use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Distribution};
@@ -11,6 +10,7 @@ use raw_ipa::helpers::models::{
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use tracing::{debug, info, trace};
 
 // 0x1E. https://datatracker.ietf.org/doc/html/rfc7464
 const RECORD_SEPARATOR: u8 = 30;
