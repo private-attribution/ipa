@@ -3,7 +3,7 @@
 //!
 //! [`Shamir secret sharing`](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
 //!
-use crate::common::field::{Field, Fp31};
+use crate::field::{Field, Fp31};
 use rand::Rng;
 use rand_core::RngCore;
 use std::iter::repeat_with;
@@ -216,7 +216,7 @@ mod tests {
     use std::cmp::max;
     use std::num::NonZeroU8;
 
-    use crate::common::field::{Field, Fp31};
+    use crate::field::{Field, Fp31};
     use rand::rngs::mock::StepRng;
 
     #[test]
