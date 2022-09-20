@@ -1,6 +1,6 @@
 use crate::field::Field;
 use crate::protocol::{QueryId, RecordId};
-use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+use crate::secret_sharing::Replicated;
 use crate::test_fixture::{
     make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
 };
@@ -33,7 +33,7 @@ async fn circuit<F: Field>(
     world: &TestWorld<TestStep>,
     record_id: RecordId,
     depth: u8,
-) -> [ReplicatedSecretSharing<F>; 3] {
+) -> [Replicated<F>; 3] {
     let c = make_contexts(world);
     let mut a = share(F::ONE, &mut thread_rng());
 

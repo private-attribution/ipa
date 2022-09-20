@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
-mod handlers;
+pub mod handlers;
 
 #[derive(Error, Debug)]
 pub enum MpcServerError {
@@ -34,6 +34,7 @@ impl IntoResponse for MpcServerError {
 }
 
 /// Axum router definition for MPC helper endpoint
+#[allow(dead_code)]
 #[must_use]
 pub fn router() -> Router {
     Router::new().route("/echo", get(handlers::echo_handler))
@@ -41,6 +42,7 @@ pub fn router() -> Router {
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
+#[allow(dead_code)]
 pub enum BindTarget {
     Http(SocketAddr),
     Https(SocketAddr, RustlsConfig),
@@ -48,6 +50,7 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
+#[allow(dead_code)]
 pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
     let svc = router()
         .layer(
@@ -154,8 +157,8 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 
 #[cfg(test)]
 mod e2e_tests {
-    use crate::net::server::handlers::EchoData;
-    use crate::net::server::{bind, BindTarget};
+    use crate::cli::net::server::handlers::EchoData;
+    use crate::cli::net::server::{bind, BindTarget};
     use hyper::header::HeaderName;
     use hyper::header::HeaderValue;
     use hyper::{
@@ -226,7 +229,7 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        let config = crate::net::server::tls_config_from_self_signed_cert()
+        let config = crate::cli::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
         let (addr, _) = bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;

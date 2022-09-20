@@ -3,9 +3,9 @@ mod sharing;
 mod world;
 
 use crate::helpers::mock::TestHelperGateway;
+use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
+use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
-use crate::prss::{Participant, ParticipantSetup, SpaceIndex};
-use crate::securemul::ProtocolContext;
 use rand::thread_rng;
 
 pub use sharing::{share, validate_and_reconstruct};

@@ -1,6 +1,7 @@
 mod cmd;
 mod config;
 mod gen_events;
+mod models;
 mod sample;
 
 use structopt::StructOpt;

@@ -193,7 +193,7 @@ impl Debug for Fp31 {
 
 #[cfg(test)]
 mod test {
-    use crate::field::Field;
+    use super::Field;
     use std::ops::Mul;
 
     use super::Fp31;

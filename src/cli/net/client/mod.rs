@@ -6,6 +6,7 @@ use thiserror::Error as ThisError;
 
 use super::Command;
 
+#[allow(dead_code)]
 #[derive(ThisError, Debug)]
 pub enum MpcClientError {
     #[error("invalid host address")]
@@ -34,6 +35,7 @@ impl MpcHandle for MpcHttpConnection {
     }
 }
 
+#[allow(dead_code)]
 impl MpcHttpConnection {
     #[must_use]
     pub fn new(addr: &str) -> Self {

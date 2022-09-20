@@ -1,10 +1,8 @@
 use std::error::Error;
 
 use hyper::http::uri::Scheme;
-
+use raw_ipa::cli::net::{bind_mpc_helper_server, BindTarget};
 use raw_ipa::cli::Verbosity;
-use raw_ipa::net::{bind_mpc_helper_server, BindTarget};
-
 use std::net::SocketAddr;
 use std::panic;
 

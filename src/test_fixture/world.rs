@@ -1,6 +1,6 @@
 use crate::helpers::mock::TestHelperGateway;
+use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
-use crate::prss::{Participant, SpaceIndex};
 use crate::test_fixture::make_participants;
 
 /// Test environment for protocols to run tests that require communication between helpers.

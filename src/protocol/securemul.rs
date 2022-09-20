@@ -1,10 +1,9 @@
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::mesh::{Gateway, Mesh};
-use crate::helpers::Direction;
+use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
-use crate::prss::{Participant, PrssSpace, SpaceIndex};
-use crate::replicated_secret_sharing::ReplicatedSecretSharing;
+use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
@@ -13,15 +12,6 @@ use thiserror::Error;
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct DValue<F> {
     d: F,
-}
-
-/// Context used by each helper to perform computation. Currently they need access to shared
-/// randomness generator (see `Participant`) and communication trait to send messages to each other.
-/// Eventually when we have more than one protocol, this should be lifted to its own module
-#[derive(Debug)]
-pub struct ProtocolContext<'a, G, S: SpaceIndex> {
-    participant: &'a Participant<S>,
-    gateway: &'a G,
 }
 
 /// IKHC multiplication protocol
@@ -36,6 +26,15 @@ pub struct SecureMul<'a, G, S> {
 }
 
 impl<'a, G, S: Step> SecureMul<'a, G, S> {
+    pub fn new(prss: &'a PrssSpace, gateway: &'a G, step: S, record_id: RecordId) -> Self {
+        Self {
+            prss,
+            gateway,
+            step,
+            record_id,
+        }
+    }
+
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
     /// their part, eventually producing 2/3 shares of the product and that is what this function
     /// returns.
@@ -45,9 +44,9 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
     /// back via the error response
     pub async fn execute<M, F>(
         self,
-        a: ReplicatedSecretSharing<F>,
-        b: ReplicatedSecretSharing<F>,
-    ) -> Result<ReplicatedSecretSharing<F>, BoxError>
+        a: Replicated<F>,
+        b: Replicated<F>,
+    ) -> Result<Replicated<F>, BoxError>
     where
         M: Mesh,
         G: Gateway<M, S>,
@@ -81,29 +80,7 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
         let lhs = a0 * b0 + left_d + s0;
         let rhs = a1 * b1 + right_d + s1;
 
-        Ok(ReplicatedSecretSharing::new(lhs, rhs))
-    }
-}
-
-impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
-    pub fn new(participant: &'a Participant<S>, gateway: &'a G) -> Self {
-        Self {
-            participant,
-            gateway,
-        }
-    }
-
-    /// Request multiplication for a given record. This function is intentionally made async
-    /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
-    /// In this case, function returns only when multiplication for this record can actually
-    /// be processed.
-    pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
-        SecureMul {
-            prss: &self.participant[step],
-            gateway: self.gateway,
-            step,
-            record_id,
-        }
+        Ok(Replicated::new(lhs, rhs))
     }
 }
 
@@ -113,14 +90,14 @@ pub enum Error {}
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
     use crate::field::Field;
-    use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-    use crate::securemul::ProtocolContext;
+    use crate::protocol::context::ProtocolContext;
+    use crate::secret_sharing::Replicated;
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
     use crate::helpers::mesh::{Gateway, Mesh};
+    use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
-    use crate::prss::SpaceIndex;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
@@ -140,13 +117,14 @@ pub mod stream {
     ///
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
+    #[allow(dead_code)]
     pub fn secure_multiply<'a, F, M, G, S>(
         input_stream: S,
         ctx: &'a ProtocolContext<'a, G, StreamingStep>,
         _index: u128,
-    ) -> impl Stream<Item = ReplicatedSecretSharing<F>> + 'a
+    ) -> impl Stream<Item = Replicated<F>> + 'a
     where
-        S: Stream<Item = ReplicatedSecretSharing<F>> + 'a,
+        S: Stream<Item = Replicated<F>> + 'a,
         F: Field + 'static,
         M: Mesh + 'a,
         G: Gateway<M, StreamingStep>,
@@ -158,7 +136,7 @@ pub mod stream {
         Box::pin(ChunkScan::new(
             input_stream,
             2, // buffer two elements
-            move |mut items: Vec<ReplicatedSecretSharing<F>>| async move {
+            move |mut items: Vec<Replicated<F>>| async move {
                 debug_assert!(items.len() == 2);
 
                 let b_share = items.pop().unwrap();
@@ -176,11 +154,10 @@ pub mod stream {
     #[cfg(test)]
     mod tests {
         use crate::field::Fp31;
-
+        use crate::protocol::context::ProtocolContext;
+        use crate::protocol::securemul::stream::secure_multiply;
         use crate::protocol::QueryId;
-        use crate::replicated_secret_sharing::ReplicatedSecretSharing;
-        use crate::securemul::stream::secure_multiply;
-        use crate::securemul::ProtocolContext;
+        use crate::secret_sharing::Replicated;
         use crate::test_fixture::{make_world, share, validate_and_reconstruct};
         use futures::StreamExt;
         use futures_util::future::join_all;
@@ -226,7 +203,7 @@ pub mod stream {
                     })
                 });
 
-            let result_shares: [ReplicatedSecretSharing<Fp31>; 3] =
+            let result_shares: [Replicated<Fp31>; 3] =
                 join_all(handles.map(|handle| async { handle.await.unwrap() }))
                     .await
                     .try_into()
@@ -243,6 +220,7 @@ pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
+    use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
 
     use rand_core::RngCore;
@@ -254,7 +232,6 @@ pub mod tests {
 
     use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::{QueryId, RecordId};
-    use crate::securemul::ProtocolContext;
     use crate::test_fixture::{
         make_contexts, make_world, share, validate_and_reconstruct, TestStep,
     };

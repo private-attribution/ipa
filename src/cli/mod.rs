@@ -1,5 +1,6 @@
 mod hexarg;
 mod metric_collector;
+pub mod net;
 mod stats;
 mod stringn;
 mod verbosity;
