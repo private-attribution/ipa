@@ -168,7 +168,7 @@ pub mod stream {
         /// of a `Stream`.
         #[tokio::test]
         async fn supports_stream_of_secret_shares() {
-            // https://github.com/rust-lang/rfcs/issues/1664
+            // beforeEach is not a thing in Rust yet: https://github.com/rust-lang/rfcs/issues/1664
             logging::setup();
 
             // we compute a*b*c in this test. 4*3*2 = 24
