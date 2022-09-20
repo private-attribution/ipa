@@ -8,3 +8,7 @@ pub mod field;
 pub mod helpers;
 pub mod protocol;
 pub mod secret_sharing;
+pub mod telemetry;
+
+#[cfg(any(test, feature = "test-fixture"))]
+pub mod test_fixture;

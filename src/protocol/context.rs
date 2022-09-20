@@ -1,6 +1,6 @@
 use crate::helpers::prss::{Participant, SpaceIndex};
 
-use super::{RecordId, SecureMul, Step};
+use super::{securemul::SecureMul, RecordId, Step};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.

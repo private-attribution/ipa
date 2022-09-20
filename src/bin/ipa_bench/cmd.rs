@@ -2,7 +2,6 @@ use crate::sample::Sample;
 
 use super::gen_events::generate_events;
 
-use log::{debug, error, info};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use raw_ipa::cli::Verbosity;
@@ -10,6 +9,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::{io, process};
 use structopt::StructOpt;
+use tracing::{debug, error, info};
 
 const DEFAULT_EVENT_GEN_COUNT: u32 = 100_000;
 

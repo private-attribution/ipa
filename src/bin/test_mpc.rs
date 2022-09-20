@@ -1,5 +1,7 @@
-use raw_ipa::bin::ipa_bench::net::{Client, Command, MpcHandle};
-use raw_ipa::cli::Verbosity;
+use raw_ipa::cli::{
+    net::{Client, Command, MpcHandle},
+    Verbosity,
+};
 use std::error::Error;
 use structopt::StructOpt;
 
@@ -19,7 +21,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::from_args();
-    args.logging.setup_logging();
+    let _handle = args.logging.setup_logging();
 
     // TODO: Start MPC helpers and discover
     let client = Client::new(args.uri.as_str());

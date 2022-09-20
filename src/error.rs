@@ -17,8 +17,6 @@ pub enum Error {
     NotEnoughHelpers,
     #[error("not found")]
     NotFound,
-    #[error("problem during redis operation: {0}")]
-    RedisError(#[from] redis::RedisError),
     #[error("too many helpers")]
     TooManyHelpers,
 

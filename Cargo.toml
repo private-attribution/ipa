@@ -6,12 +6,12 @@ edition = "2021"
 
 [features]
 default = ["debug", "cli"]
-bin = []
-cli = ["enable-serde", "structopt", "web-app", "tracing-subscriber"]
+cli = ["comfy-table", "enable-serde", "metrics-tracing-context", "metrics-util", "structopt", "tracing-subscriber", "web-app"]
 debug = ["hex"]
 enable-serde = ["serde", "serde_json", "rust-elgamal/enable-serde"]
-web-app = ["tokio", "axum", "axum-server", "hyper", "hyper-tls", "tower-http"]
+web-app = ["tokio", "tokio-stream", "axum", "axum-server", "hyper", "hyper-tls", "tower", "tower-http"]
 self-signed-certs = ["hyper-tls"]
+test-fixture = []
 
 [dependencies]
 aes = "0.8"
@@ -19,6 +19,7 @@ async-trait = "0.1.56"
 axum = { version = "0.5.7", optional = true, features = ["http2"] }
 axum-server = { version = "0.4.0", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
 byteorder = "1"
+comfy-table = { version = "6.0.0", optional = true }
 # rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, not 0.10
 digest = "0.9"
 futures = "0.3.21"
@@ -29,12 +30,13 @@ hex = { version = "0.4", optional = true }
 hkdf = "0.11"
 hyper = { version = "0.14.19", optional = true, features = ["client", "h2"] }
 hyper-tls = { version = "0.5.0", optional = true }
-log = "0.4"
+metrics = "0.19.0"
+metrics-tracing-context = { version = "0.11.0", optional = true }
+metrics-util = { version = "0.13.0", optional = true }
 pin-project = "1.0.11"
 rand = "0.8"
 rand_core = "0.6"
 rand_distr = "0.4.3"
-redis = "0.21.5"
 rust-elgamal = "0.4"
 serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
@@ -43,29 +45,58 @@ sha2 = "0.9"
 structopt = { version = "0.3", optional = true }
 thiserror = "1.0"
 tokio = { version = "1.19.2", optional = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio-stream = { version = "0.1.9", optional = true }
+tower = { version = "0.4.13", optional = true }
 tower-http = { version = "0.3.4", optional = true, features = ["trace"] }
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", optional = true }
 x25519-dalek = "2.0.0-pre.1"
 
 [dev-dependencies]
+criterion = { version = "0.4.0", default-features = false, features = ["async_tokio", "plotters", "html_reports"] }
 hex = "0.4"
+iai = "0.1.1"
 lazy_static = "1.4.0"
 proptest = "1.0.0"
 
 [lib]
 name = "raw_ipa"
 path = "src/lib.rs"
+bench = false
 
 [[bin]]
 name = "helper"
-required-features = ["bin", "cli"]
+required-features = ["cli"]
+bench = false
 
 [[bin]]
 name = "ipa_bench"
 path = "src/bin/ipa_bench/ipa_bench.rs"
 required-features = ["cli"]
+bench = false
 
 [[bin]]
 name = "test_mpc"
-required-features = ["bin", "cli"]
+required-features = ["cli"]
+bench = false
+
+[profile.bench]
+debug = true
+
+[[bench]]
+name = "criterion_arithmetic"
+path = "benches/ct/arithmetic_circuit.rs"
+harness = false
+required-features = ["test-fixture"]
+
+[[bench]]
+name = "iai_arithmetic"
+path = "benches/iai/arithmetic_circuit.rs"
+harness = false
+required-features = ["test-fixture"]
+
+[[bench]]
+name = "oneshot_arithmetic"
+path = "benches/oneshot/arithmetic_circuit.rs"
+harness = false
+required-features = ["test-fixture"]

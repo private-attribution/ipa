@@ -1,24 +1,17 @@
-/// Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
-use std::collections::HashMap;
-
+///! Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
 use crate::helpers::error::Error;
 use crate::helpers::mesh::{Gateway, Mesh, Message};
 use crate::helpers::Identity;
-use crate::protocol::{QueryId, RecordId, Step};
-
+use crate::protocol::{RecordId, Step};
 use async_trait::async_trait;
+use futures::Stream;
+use futures_util::stream::SelectAll;
+use futures_util::StreamExt;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-
-/// Test environment for protocols to run tests that require communication between helpers.
-/// For now the messages sent through it never leave the test infra memory perimeter, so
-/// there is no need to associate each of them with `QueryId`, but this API makes it possible
-/// to do if we need it.
-#[derive(Debug)]
-pub struct TestWorld<S> {
-    pub query_id: QueryId,
-    pub gateways: [TestHelperGateway<S>; 3],
-}
+use tokio::sync::{mpsc, oneshot};
+use tokio_stream::wrappers::ReceiverStream;
 
 /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
 /// `Controller`'s dependencies
@@ -42,7 +35,7 @@ pub struct TestMesh<S> {
 #[derive(Debug)]
 enum ControlMessage<S> {
     /// Connection for step S is requested by the peer
-    ConnectionRequest(Identity, S, Receiver<MessageEnvelope>),
+    ConnectionRequest(Identity, S, mpsc::Receiver<MessageEnvelope>),
 }
 
 #[derive(Debug)]
@@ -51,21 +44,35 @@ struct MessageEnvelope {
     payload: Box<[u8]>,
 }
 
-/// Represents the connection state between two helpers. Note that connections are not
-/// bi-directional. In order for helpers A and B to establish the bi-directional communication channel,
-/// they both need to initiate connection requests to each other.
-///
-/// In future we may need to handle closing connections, but for now there is no need for that.
-#[derive(Debug, Clone)]
-enum ConnectionState {
-    /// No active connection
-    Listen,
-    /// Connection is active and there is a sender end of the active channel that can be used
-    /// to communicate messages to the other end.
-    Established(Sender<MessageEnvelope>),
+/// Combination of helper identity and step that uniquely identifies a single channel of communication
+/// between two helpers.
+type ChannelId<S> = (Identity, S);
+
+/// Local buffer for messages that are either awaiting requests to receive them or requests
+/// that are pending message reception.
+/// Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
+/// when protection against collisions is not required, so either use a vector indexed by
+/// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
+#[derive(Debug, Default)]
+struct MessageBuffer {
+    buf: HashMap<RecordId, BufItem>,
 }
 
-type ConnectionKey<S> = (Identity, S);
+#[derive(Debug)]
+enum BufItem {
+    /// There is an outstanding request to receive the message but this helper hasn't seen it yet
+    Requested(oneshot::Sender<Box<[u8]>>),
+    /// Message has been received but nobody requested it yet
+    Received(Box<[u8]>),
+}
+
+#[derive(Debug)]
+struct ReceiveRequest<S> {
+    from: Identity,
+    step: S,
+    record_id: RecordId,
+    sender: oneshot::Sender<Box<[u8]>>,
+}
 
 /// Controller that is created per test helper. Handles control messages and establishes
 /// connections between this helper and others. Also keeps the queues of incoming messages
@@ -73,14 +80,78 @@ type ConnectionKey<S> = (Identity, S);
 #[derive(Debug)]
 struct Controller<S> {
     identity: Identity,
-    peers: HashMap<Identity, Sender<ControlMessage<S>>>,
-    connections: Arc<Mutex<HashMap<ConnectionKey<S>, ConnectionState>>>,
-    buf: Arc<Mutex<HashMap<ConnectionKey<S>, Vec<MessageEnvelope>>>>,
+    peers: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
+    connections: Arc<Mutex<HashMap<ChannelId<S>, mpsc::Sender<MessageEnvelope>>>>,
+    receive_request_sender: mpsc::Sender<ReceiveRequest<S>>,
+}
+
+impl MessageBuffer {
+    /// Process request to receive a message with the given `RecordId`.
+    fn receive_request(&mut self, record_id: RecordId, s: oneshot::Sender<Box<[u8]>>) {
+        match self.buf.entry(record_id) {
+            Entry::Occupied(entry) => match entry.remove() {
+                BufItem::Requested(_) => {
+                    panic!("More than one request to receive a message for {record_id:?}");
+                }
+                BufItem::Received(payload) => {
+                    s.send(payload).unwrap_or_else(|_| {
+                        tracing::warn!("No listener for message {record_id:?}");
+                    });
+                }
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(BufItem::Requested(s));
+            }
+        }
+    }
+
+    /// Process message that has been received
+    fn receive_message(&mut self, msg: MessageEnvelope) {
+        match self.buf.entry(msg.record_id) {
+            Entry::Occupied(entry) => match entry.remove() {
+                BufItem::Requested(s) => {
+                    s.send(msg.payload).unwrap_or_else(|_| {
+                        tracing::warn!("No listener for message {:?}", msg.record_id);
+                    });
+                }
+                BufItem::Received(_) => {
+                    panic!("Duplicate message for the same record {:?}", msg.record_id);
+                }
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(BufItem::Received(msg.payload));
+            }
+        }
+    }
+}
+
+impl<S: Step> ReceiveRequest<S> {
+    pub fn new(
+        from: Identity,
+        step: S,
+        record_id: RecordId,
+        sender: oneshot::Sender<Box<[u8]>>,
+    ) -> Self {
+        Self {
+            from,
+            step,
+            record_id,
+            sender,
+        }
+    }
+
+    pub fn channel_id(&self) -> ChannelId<S> {
+        (self.from, self.step)
+    }
 }
 
 impl<S: Step> TestHelperGateway<S> {
     fn new(controller: Controller<S>) -> Self {
         Self { controller }
+    }
+
+    pub fn make_three() -> [TestHelperGateway<S>; 3] {
+        make_controllers().map(Self::new)
     }
 }
 
@@ -122,8 +193,8 @@ impl<S: Step> Mesh for TestMesh<S> {
         source: Identity,
         record: RecordId,
     ) -> Result<T, Error> {
-        let envelope = self.controller.receive(source, self.step, record).await;
-        let obj: T = serde_json::from_slice(&envelope.payload).unwrap();
+        let payload = self.controller.receive(source, self.step, record).await;
+        let obj: T = serde_json::from_slice(&payload).unwrap();
 
         Ok(obj)
     }
@@ -136,10 +207,10 @@ impl<S: Step> Mesh for TestMesh<S> {
 impl<S> Clone for Controller<S> {
     fn clone(&self) -> Self {
         Self {
+            receive_request_sender: self.receive_request_sender.clone(),
             identity: self.identity,
             peers: self.peers.clone(),
             connections: Arc::clone(&self.connections),
-            buf: Arc::clone(&self.buf),
         }
     }
 }
@@ -147,116 +218,95 @@ impl<S> Clone for Controller<S> {
 impl<S: Step> Controller<S> {
     fn launch(
         identity: Identity,
-        control_tx: HashMap<Identity, Sender<ControlMessage<S>>>,
-        control_rx: Receiver<ControlMessage<S>>,
+        control_tx: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
+        control_rx: mpsc::Receiver<ControlMessage<S>>,
     ) -> Self {
+        let (receive_tx, receive_rx) = mpsc::channel(1);
         let controller = Self {
+            receive_request_sender: receive_tx,
             identity,
             connections: Arc::new(Mutex::new(HashMap::new())),
-            buf: Arc::new(Mutex::new(HashMap::new())),
             peers: control_tx,
         };
 
-        controller.start(control_rx);
+        Controller::start(control_rx, receive_rx);
 
         controller
     }
 
-    fn start(&self, mut rx: Receiver<ControlMessage<S>>) {
-        tokio::spawn({
-            let controller = self.clone();
-            async move {
-                while let Some(msg) = rx.recv().await {
-                    match msg {
-                        ControlMessage::ConnectionRequest(peer, step, peer_connection) => {
-                            controller.connect(peer, step, peer_connection);
+    fn start(
+        mut control_rx: mpsc::Receiver<ControlMessage<S>>,
+        mut receive_rx: mpsc::Receiver<ReceiveRequest<S>>,
+    ) {
+        tokio::spawn(async move {
+            let mut buf = HashMap::<ChannelId<S>, MessageBuffer>::new();
+            let mut channels = SelectAll::new();
+
+            loop {
+                // Make a random choice what to process next:
+                // * Receive and process a control message
+                // * Receive a message from another helper
+                // * Handle the request to receive a message from another helper
+                tokio::select! {
+                    Some(control_message) = control_rx.recv() => {
+                        match control_message {
+                            ControlMessage::ConnectionRequest(peer, step, peer_connection) => {
+                                channels.push(prepend((peer, step), ReceiverStream::new(peer_connection)));
+                            }
                         }
                     }
+                    Some(receive_request) = receive_rx.recv() => {
+                        buf.entry(receive_request.channel_id())
+                           .or_default()
+                           .receive_request(receive_request.record_id, receive_request.sender);
+                    }
+                    Some(((from_peer, step), message_envelope)) = channels.next() => {
+                        buf.entry((from_peer, step))
+                           .or_default()
+                           .receive_message(message_envelope);
+                    }
+                    else => {
+                        break;
+                    }
                 }
             }
         });
     }
 
-    fn connect(&self, peer: Identity, step: S, mut rx: Receiver<MessageEnvelope>) {
+    async fn get_connection(&self, peer: Identity, step: S) -> mpsc::Sender<MessageEnvelope> {
         assert_ne!(self.identity, peer);
 
-        // start listening for incoming messages and move them from channel to the buffer
-        tokio::spawn({
-            let buf = Arc::clone(&self.buf);
-            async move {
-                while let Some(msg) = rx.recv().await {
-                    let mut buf = buf.lock().unwrap();
-                    buf.entry((peer, step)).or_insert_with(Vec::new).push(msg);
+        let (sender, rx) = {
+            let mut connections = self.connections.lock().unwrap();
+            match connections.entry((peer, step)) {
+                Entry::Occupied(entry) => (entry.get().clone(), None),
+                Entry::Vacant(entry) => {
+                    let (tx, rx) = mpsc::channel(1);
+                    (entry.insert(tx).clone(), Some(rx))
                 }
             }
-        });
-    }
+        };
 
-    async fn get_connection(&self, peer: Identity, step: S) -> Sender<MessageEnvelope> {
-        assert_ne!(self.identity, peer);
-
-        loop {
-            // Depending on connection status, request a new connection or return the sender end of
-            // the connection if it is ready
-            let control_message = {
-                let mut connections = self.connections.lock().unwrap();
-                let conn_state = connections
-                    .entry((peer, step))
-                    .or_insert(ConnectionState::Listen);
-
-                match conn_state {
-                    ConnectionState::Listen => {
-                        let (tx, rx) = channel(1);
-                        *conn_state = ConnectionState::Established(tx);
-
-                        ControlMessage::ConnectionRequest(self.identity, step, rx)
-                    }
-                    ConnectionState::Established(sender) => {
-                        return sender.clone();
-                    }
-                }
-            };
-
+        if let Some(rx) = rx {
             self.peers
                 .get(&peer)
-                .unwrap_or_else(|| panic!("No peer with id {peer:?}"))
-                .send(control_message)
+                .expect("peer with id {peer:?} should exist")
+                .send(ControlMessage::ConnectionRequest(self.identity, step, rx))
                 .await
                 .unwrap();
-
-            tokio::task::yield_now().await;
         }
+
+        sender
     }
 
-    async fn receive(&self, peer: Identity, step: S, record_id: RecordId) -> MessageEnvelope {
-        // spin and wait until message with the same record id appears in the buffer
-        // when it happens, pop it out, try to reinterpret its bytes as `T` and return
-        loop {
-            {
-                let mut buf = self.buf.lock().unwrap();
-                if let Some(msgs) = buf.get_mut(&(peer, step)) {
-                    let l = msgs.len();
-                    for i in 0..l {
-                        if msgs[i].record_id == record_id {
-                            msgs.swap(i, l - 1);
-                            return msgs.pop().unwrap();
-                        }
-                    }
-                }
-            }
+    async fn receive(&self, peer: Identity, step: S, record: RecordId) -> Box<[u8]> {
+        let (tx, rx) = oneshot::channel();
+        self.receive_request_sender
+            .send(ReceiveRequest::new(peer, step, record, tx))
+            .await
+            .unwrap();
 
-            tokio::task::yield_now().await;
-        }
-    }
-}
-
-#[must_use]
-pub fn make_world<S: Step>(query_id: QueryId) -> TestWorld<S> {
-    let controllers = make_controllers();
-
-    TestWorld {
-        query_id,
-        gateways: controllers.map(TestHelperGateway::new),
+        rx.await.unwrap()
     }
 }
 
@@ -264,7 +314,7 @@ pub fn make_world<S: Step>(query_id: QueryId) -> TestWorld<S> {
 fn make_controllers<S: Step>() -> [Controller<S>; 3] {
     let (mut senders, mut receivers) = (HashMap::new(), HashMap::new());
     for identity in Identity::all_variants() {
-        let (tx, rx) = channel(1);
+        let (tx, rx) = mpsc::channel(1);
         senders.insert(*identity, tx);
         receivers.insert(*identity, rx);
     }
@@ -281,4 +331,8 @@ fn make_controllers<S: Step>() -> [Controller<S>; 3] {
 
         Controller::launch(identity, peer_senders, rx)
     })
+}
+
+pub fn prepend<T: Copy + Clone, S: Stream>(id: T, stream: S) -> impl Stream<Item = (T, S::Item)> {
+    stream.map(move |item| (id, item))
 }
