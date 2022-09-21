@@ -1,3 +1,4 @@
+use crate::error::BoxError;
 use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
@@ -32,6 +33,32 @@ pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
 pub enum TestStep {
     Mul1(u8),
     Mul2,
+}
+
+impl ToString for TestStep {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Mul1(u) => format!("mul1/{}", u),
+            Self::Mul2 => "mul2".into(),
+        }
+    }
+}
+
+impl TryFrom<String> for TestStep {
+    type Error = BoxError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value == "mul2" {
+            Ok(Self::Mul2)
+        } else {
+            value
+                .split_once('/')
+                .and_then(|(pre, suf)| (pre == "mul1").then_some(suf))
+                .and_then(|suf| suf.parse::<u8>().ok())
+                .map(Self::Mul1)
+                .ok_or_else(|| "invalid step value".into())
+        }
+    }
 }
 
 impl Step for TestStep {}

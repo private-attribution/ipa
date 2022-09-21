@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _handle = args.logging.setup_logging();
 
     // TODO: Start MPC helpers and discover
-    let client = Client::new(args.uri.as_str());
+    let client = Client::with_str_addr(&args.uri)?;
 
     let response = client.execute(Command::Echo("hello".into())).await?;
 

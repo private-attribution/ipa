@@ -5,7 +5,7 @@ use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use axum::{
     extract::rejection::QueryRejection,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -37,7 +37,12 @@ impl IntoResponse for MpcServerError {
 #[allow(dead_code)]
 #[must_use]
 pub fn router() -> Router {
-    Router::new().route("/echo", get(handlers::echo_handler))
+    Router::new()
+        .route("/echo", get(handlers::echo_handler))
+        .route(
+            "/mul/query-id/:query_id/step/:step",
+            post(handlers::mul_handler),
+        )
 }
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,

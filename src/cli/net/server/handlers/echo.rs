@@ -1,3 +1,4 @@
+use crate::cli::net::server::MpcServerError;
 use axum::{
     extract::{FromRequest, Query, RequestParts},
     Json,
@@ -5,8 +6,6 @@ use axum::{
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-use crate::cli::net::server::MpcServerError;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Payload {

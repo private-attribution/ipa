@@ -1,6 +1,7 @@
 pub mod context;
 mod securemul;
 
+use crate::error::Error;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -21,7 +22,10 @@ use std::hash::Hash;
 /// See `IPAProtocolStep` for a canonical implementation of this trait. Every time we switch to
 /// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
 /// it should converge to a single implementation.
-pub trait Step: Copy + Clone + Debug + Eq + Hash + Send + 'static {}
+pub trait Step:
+    Copy + Clone + Debug + Eq + Hash + Send + TryFrom<String> + ToString + 'static
+{
+}
 
 /// Set of steps that define the IPA protocol.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -32,12 +36,34 @@ pub enum IPAProtocolStep {
     Sort(SortStep),
 }
 
+impl IPAProtocolStep {
+    const CONVERT_SHARES_STR: &'static str = "convert-shares";
+    const SORT_STR: &'static str = "sort";
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ShareConversionStep {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SortStep {}
 
+impl ToString for IPAProtocolStep {
+    fn to_string(&self) -> String {
+        match self {
+            Self::ConvertShares(_) => Self::CONVERT_SHARES_STR.into(),
+            Self::Sort(_) => Self::SORT_STR.into(),
+        }
+    }
+}
+
+impl TryFrom<String> for IPAProtocolStep {
+    type Error = Error;
+
+    fn try_from(_value: String) -> Result<Self, Self::Error> {
+        // cannot initialize from empty enum
+        Err(Error::NotFound)
+    }
+}
 impl Step for IPAProtocolStep {}
 
 /// Unique identifier of the MPC query requested by report collectors
@@ -48,9 +74,26 @@ impl Step for IPAProtocolStep {}
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct QueryId;
 
+impl ToString for QueryId {
+    fn to_string(&self) -> String {
+        // dummy value for now
+        "0".into()
+    }
+}
+
+impl TryFrom<String> for QueryId {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        // dummy value for now
+        (value == "0").then_some(QueryId).ok_or(Error::InvalidId)
+    }
+}
+
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
 impl From<u32> for RecordId {

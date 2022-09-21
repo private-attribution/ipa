@@ -89,19 +89,34 @@ pub enum Error {}
 
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
-    use crate::field::Field;
-    use crate::protocol::context::ProtocolContext;
-    use crate::secret_sharing::Replicated;
-    use futures::Stream;
-
     use crate::chunkscan::ChunkScan;
+    use crate::error::BoxError;
+    use crate::field::Field;
     use crate::helpers::mesh::{Gateway, Mesh};
     use crate::helpers::prss::SpaceIndex;
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::{RecordId, Step};
+    use crate::secret_sharing::Replicated;
+    use futures::Stream;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
 
+    impl ToString for StreamingStep {
+        fn to_string(&self) -> String {
+            format!("streaming/{}", self.0)
+        }
+    }
+    impl TryFrom<String> for StreamingStep {
+        type Error = BoxError;
+
+        fn try_from(value: String) -> Result<Self, Self::Error> {
+            let rem = value
+                .strip_prefix("streaming/")
+                .ok_or("no match for step found")?;
+            Ok(StreamingStep(rem.parse()?))
+        }
+    }
     impl Step for StreamingStep {}
     impl SpaceIndex for StreamingStep {
         const MAX: usize = 1;
@@ -217,24 +232,19 @@ pub mod stream {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    use crate::field::{Field, Fp31};
-    use crate::protocol::context::ProtocolContext;
-    use rand::rngs::mock::StepRng;
-
-    use rand_core::RngCore;
-
-    use futures_util::future::join_all;
-    use tokio::try_join;
-
     use crate::error::BoxError;
-
+    use crate::field::{Field, Fp31};
     use crate::helpers::mock::TestHelperGateway;
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
         make_contexts, make_world, share, validate_and_reconstruct, TestStep,
     };
+    use futures_util::future::join_all;
+    use rand::rngs::mock::StepRng;
+    use rand_core::RngCore;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use tokio::try_join;
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {

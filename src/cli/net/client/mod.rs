@@ -1,10 +1,14 @@
+use super::Command;
+use crate::cli::net::MessageEnvelope;
+use crate::helpers::mesh::Message;
+use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
+use axum::http::uri::{self, InvalidUri, PathAndQuery};
+use axum::http::Request;
 use hyper::client::HttpConnector;
 use hyper::{Body, Client, Uri};
 use hyper_tls::HttpsConnector;
 use thiserror::Error as ThisError;
-
-use super::Command;
 
 #[allow(dead_code)]
 #[derive(ThisError, Debug)]
@@ -14,6 +18,12 @@ pub enum MpcClientError {
 
     #[error("network connection error")]
     NetworkConnection(#[from] hyper::Error),
+
+    #[error("failed request: {0}")]
+    FailedRequest(hyper::StatusCode),
+
+    #[error(transparent)]
+    AxumError(#[from] axum::http::Error),
 }
 
 #[async_trait]
@@ -23,7 +33,7 @@ pub trait MpcHandle {
 
 pub struct MpcHttpConnection {
     client: Client<HttpsConnector<HttpConnector>>,
-    addr: Uri,
+    addr_parts: uri::Parts,
 }
 
 #[async_trait]
@@ -38,25 +48,63 @@ impl MpcHandle for MpcHttpConnection {
 #[allow(dead_code)]
 impl MpcHttpConnection {
     #[must_use]
-    pub fn new(addr: &str) -> Self {
+    pub fn new(addr: Uri) -> Self {
         // this works for both http and https
         let https = HttpsConnector::new();
         let client = Client::builder().build::<_, Body>(https);
 
         Self {
             client,
-            addr: addr.parse().expect("Cannot parse the URI"),
+            addr_parts: addr.into_parts(),
         }
     }
 
+    /// same as new, but first parses the addr from a [&str]
+    /// # Errors
+    /// if addr is an invalid [Uri], this will fail
+    pub fn with_str_addr(addr: &str) -> Result<Self, InvalidUri> {
+        addr.parse().map(Self::new)
+    }
+
+    fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcClientError>
+    where
+        PathAndQuery: TryFrom<T>,
+        <PathAndQuery as TryFrom<T>>::Error: Into<axum::http::Error>,
+    {
+        Ok(uri::Builder::new()
+            .scheme(self.addr_parts.scheme.as_ref().unwrap().clone())
+            .authority(self.addr_parts.authority.as_ref().unwrap().clone())
+            .path_and_query(p_and_q)
+            .build()?)
+    }
+
     async fn echo(&self, s: &str) -> Result<Vec<u8>, MpcClientError> {
-        let uri: Uri = format!("{}echo?foo={}", self.addr, s)
-            .parse()
-            .expect("Failed to build an URI for \"echo\" command");
+        let uri = self.build_uri(format!("/echo?foo={}", s))?;
 
         let response = self.client.get(uri).await?;
         let result = hyper::body::to_bytes(response.into_body()).await?;
 
         Ok(result.to_vec())
+    }
+
+    async fn mul<S: Step, M: Message>(
+        &self,
+        query_id: QueryId,
+        step: S,
+        messages: &[MessageEnvelope<M>],
+    ) -> Result<(), MpcClientError> {
+        let uri = self.build_uri(format!(
+            "/mul/query-id/{}/step/{}",
+            query_id.to_string(),
+            step.to_string()
+        ))?;
+        let body = serde_json::to_vec(messages).unwrap();
+        let req = Request::post(uri).body(Body::from(body))?;
+        let response = self.client.request(req).await?;
+        let resp_status = response.status();
+        resp_status
+            .is_success()
+            .then_some(())
+            .ok_or(MpcClientError::FailedRequest(resp_status))
     }
 }
