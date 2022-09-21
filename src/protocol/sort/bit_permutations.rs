@@ -89,13 +89,16 @@ impl<'a, F: Field> BitPermutations<'a, F> {
         let mult_input = self.prepare_mult_inputs(ctx);
         assert_eq!(mult_input.len(), self.input.len() * 2);
 
-        let mult_output = self.secure_multiply(ctx, mult_input).await?;
+        let mut mult_output = self.secure_multiply(ctx, mult_input).await?;
         assert_eq!(mult_output.len(), self.input.len() * 2);
         // Generate permutation location
         let len = mult_output.len() / 2;
-        Ok((0..len)
-            .map(|j| mult_output[j] + mult_output[j + len])
-            .collect::<Vec<_>>())
+        for i in 0..len {
+            mult_output[i] = mult_output[i] + mult_output[i + len];
+        }
+        mult_output.truncate(len);
+
+        Ok(mult_output)
     }
 }
 

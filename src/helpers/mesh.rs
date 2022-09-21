@@ -42,7 +42,13 @@ pub trait Mesh {
     fn identity(&self) -> Identity;
 
     /// Returns share of value one for this helper.
-    fn share_of_one<F: Field>(&self) -> Replicated<F>;
+    fn share_of_one<F: Field>(&self) -> Replicated<F> {
+        match self.identity() {
+            Identity::H1 => Replicated::new(F::ONE, F::ZERO),
+            Identity::H2 => Replicated::new(F::ZERO, F::ZERO),
+            Identity::H3 => Replicated::new(F::ZERO, F::ONE),
+        }
+    }
 }
 
 /// This is the entry point for protocols to request communication when they require it.
