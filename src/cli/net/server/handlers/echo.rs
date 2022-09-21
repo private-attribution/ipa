@@ -6,7 +6,7 @@ use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::net::server::MpcServerError;
+use crate::cli::net::server::MpcServerError;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Payload {
@@ -39,7 +39,7 @@ mod tests {
 
     use hyper::{Body, Request};
 
-    use crate::net::server::handlers::echo::handler;
+    use crate::cli::net::server::handlers::echo::handler;
 
     #[tokio::test]
     async fn happy_case() {

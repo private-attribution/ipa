@@ -106,15 +106,14 @@ mod tests {
 
     use crate::{
         field::Fp31,
-        helpers::{self, mock::TestWorld},
-        protocol::{securemul, sort::bit_permutations::BitPermutations, IPAProtocolStep, QueryId},
+        protocol::{sort::bit_permutations::BitPermutations, IPAProtocolStep, QueryId},
+        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
 
     #[tokio::test]
     pub async fn bit_permutations() {
-        let world: TestWorld<IPAProtocolStep> = helpers::mock::make_world(QueryId);
-        let participants = crate::helpers::prss::test::make_three();
-        let context = securemul::tests::make_context(&world, &participants);
+        let world: TestWorld<IPAProtocolStep> = make_world(QueryId);
+        let context = make_contexts(&world);
         let mut rand = StepRng::new(100, 1);
 
         // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
@@ -128,7 +127,7 @@ mod tests {
             Vec::with_capacity(input_len),
         ];
         for iter in input {
-            let share = securemul::tests::share(Fp31::from(iter), &mut rand);
+            let share = share(Fp31::from(iter), &mut rand);
             for i in 0..3 {
                 shares[i].push(share[i]);
             }
@@ -146,11 +145,7 @@ mod tests {
 
         (0..result.0.len()).for_each(|i| {
             assert_eq!(
-                crate::protocol::securemul::tests::validate_and_reconstruct((
-                    result.0[i],
-                    result.1[i],
-                    result.2[i]
-                )),
+                validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
                 Fp31::from(expected_sort_output[i])
             );
         });

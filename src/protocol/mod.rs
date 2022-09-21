@@ -5,8 +5,6 @@ mod sort;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-pub use securemul::SecureMul;
-
 use crate::helpers::prss::SpaceIndex;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input

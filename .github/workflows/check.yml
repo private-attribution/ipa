@@ -5,7 +5,6 @@ jobs:
     name: Rust Checks
     env:
       CARGO_TERM_COLOR: always
-      REDIS_VERSION: '6.2.4'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -20,18 +19,6 @@ jobs:
           command: build
           args: --tests
 
-      - name: Install redis and start redis server
-        run: |
-          wget https://github.com/redis/redis/archive/${{ env.REDIS_VERSION }}.tar.gz;
-          tar -xzvf ${{ env.REDIS_VERSION }}.tar.gz;
-          pushd redis-${{ env.REDIS_VERSION }} && BUILD_TLS=yes make && sudo mv src/redis-server src/redis-cli /usr/bin/ && popd;
-          redis-server &
-
-      - uses: actions-rs/cargo@v1
-        name: Run Tests
-        with:
-          command: test
-
       - uses: actions-rs/cargo@v1
         name: Check formatting
         if: ${{ success() || failure() }}
@@ -45,7 +32,12 @@ jobs:
         with:
           command: clippy
           args: --tests -- -D warnings -D clippy::pedantic
-    
+
+      - uses: actions-rs/cargo@v1
+        name: Run Tests
+        with:
+          command: test
+
   python-check:
     name: Python Checks
     runs-on: ubuntu-latest

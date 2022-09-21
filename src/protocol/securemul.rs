@@ -154,14 +154,11 @@ pub mod stream {
     #[cfg(test)]
     mod tests {
         use crate::field::Fp31;
-        use crate::helpers;
         use crate::protocol::context::ProtocolContext;
-        use crate::protocol::securemul::{
-            stream::secure_multiply,
-            tests::{share, validate_and_reconstruct},
-        };
+        use crate::protocol::securemul::stream::secure_multiply;
         use crate::protocol::QueryId;
         use crate::secret_sharing::Replicated;
+        use crate::test_fixture::{make_world, share, validate_and_reconstruct};
         use futures::StreamExt;
         use futures_util::future::join_all;
         use futures_util::stream;
@@ -179,9 +176,7 @@ pub mod stream {
             let start_index = 1024_u128;
 
             // setup helpers
-            let world = helpers::mock::make_world(QueryId);
-            let participants = crate::helpers::prss::test::make_three();
-            let participants = [participants.0, participants.1, participants.2];
+            let world = make_world(QueryId);
 
             // dedicated streams for each helper
             let input = [
@@ -191,8 +186,11 @@ pub mod stream {
             ];
 
             // create 3 tasks (1 per helper) that will execute secure multiplication
-            let handles = input.into_iter().zip(participants).zip(world.gateways).map(
-                |((input, prss), gateway)| {
+            let handles = input
+                .into_iter()
+                .zip(world.participants)
+                .zip(world.gateways)
+                .map(|((input, prss), gateway)| {
                     tokio::spawn(async move {
                         let ctx = ProtocolContext::new(&prss, &gateway);
                         let mut stream = secure_multiply(input, &ctx, start_index);
@@ -203,8 +201,7 @@ pub mod stream {
                         // compute (a*b)*c and return it
                         stream.next().await.expect("Failed to compute a*b*c")
                     })
-                },
-            );
+                });
 
             let result_shares: [Replicated<Fp31>; 3] =
                 join_all(handles.map(|handle| async { handle.await.unwrap() }))
@@ -223,48 +220,26 @@ pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
+    use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
-    use rand::Rng;
-    use rand_core::RngCore;
 
-    use crate::secret_sharing::Replicated;
+    use rand_core::RngCore;
 
     use futures_util::future::join_all;
     use tokio::try_join;
 
-    use crate::helpers::prss::{Participant, SpaceIndex};
-
     use crate::error::BoxError;
-    use crate::helpers;
 
-    use crate::helpers::mock::{TestHelperGateway, TestWorld};
-    use crate::protocol::context::ProtocolContext;
-    use crate::protocol::{QueryId, RecordId, Step};
-
-    #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
-    enum TestStep {
-        Mul1(u8),
-        Mul2,
-    }
-
-    impl Step for TestStep {}
-
-    impl SpaceIndex for TestStep {
-        const MAX: usize = 2;
-
-        fn as_usize(&self) -> usize {
-            match self {
-                TestStep::Mul1(_) => 0,
-                TestStep::Mul2 => 1,
-            }
-        }
-    }
+    use crate::helpers::mock::TestHelperGateway;
+    use crate::protocol::{QueryId, RecordId};
+    use crate::test_fixture::{
+        make_contexts, make_world, share, validate_and_reconstruct, TestStep,
+    };
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        let world = helpers::mock::make_world(QueryId);
-        let participants = crate::helpers::prss::test::make_three();
-        let context = make_context(&world, &participants);
+        let world = make_world(QueryId);
+        let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 
         assert_eq!(30, multiply_sync(&context, 6, 5, &mut rand).await?);
@@ -285,9 +260,8 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
-        let world = helpers::mock::make_world(QueryId);
-        let participants = crate::helpers::prss::test::make_three();
-        let context = make_context(&world, &participants);
+        let world = make_world(QueryId);
+        let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
         let a = share(Fp31::from(4_u128), &mut rand);
         let b = share(Fp31::from(3_u128), &mut rand);
@@ -324,7 +298,6 @@ pub mod tests {
         }
     }
 
-    // #[allow(clippy::cast_possible_truncation)]
     async fn multiply_sync<R: RngCore>(
         context: &[ProtocolContext<'_, TestHelperGateway<TestStep>, TestStep>; 3],
         a: u8,
@@ -362,43 +335,5 @@ pub mod tests {
         )?;
 
         Ok(validate_and_reconstruct(result_shares).into())
-    }
-
-    pub fn make_context<'a, S: Step + SpaceIndex>(
-        test_world: &'a TestWorld<S>,
-        participants: &'a (Participant<S>, Participant<S>, Participant<S>),
-    ) -> [ProtocolContext<'a, TestHelperGateway<S>, S>; 3] {
-        test_world
-            .gateways
-            .iter()
-            .zip([&participants.0, &participants.1, &participants.2])
-            .map(|(gateway, participant)| ProtocolContext::new(participant, gateway))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap()
-    }
-
-    /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-    pub fn share<R: RngCore>(input: Fp31, rng: &mut R) -> [Replicated<Fp31>; 3] {
-        let x1 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
-        let x2 = Fp31::from(rng.gen_range(0..Fp31::PRIME));
-        let x3 = input - (x1 + x2);
-
-        [
-            Replicated::new(x1, x2),
-            Replicated::new(x2, x3),
-            Replicated::new(x3, x1),
-        ]
-    }
-
-    pub fn validate_and_reconstruct<T: Field>(
-        input: (Replicated<T>, Replicated<T>, Replicated<T>),
-    ) -> T {
-        assert_eq!(
-            input.0.as_tuple().0 + input.1.as_tuple().0 + input.2.as_tuple().0,
-            input.0.as_tuple().1 + input.1.as_tuple().1 + input.2.as_tuple().1
-        );
-
-        input.0.as_tuple().0 + input.1.as_tuple().0 + input.2.as_tuple().0
     }
 }
