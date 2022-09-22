@@ -76,7 +76,7 @@ impl<F: Field> Reshare<F> {
 
             Ok(Replicated::new(part1 + part2, r1))
         } else if channel.identity() == to_helper.peer(Direction::Right) {
-            //  `to_helper.right` calculates part2 = (input.0 - r0) and sends it to `to_helper.left`
+            // `to_helper.right` calculates part2 = (input.0 - r0) and sends it to `to_helper.left`
             // This is same as (a3 - r3) in the diagram
             let part2 = inputs.0 - r0;
             channel
