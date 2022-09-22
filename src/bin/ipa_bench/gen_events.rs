@@ -56,7 +56,14 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
             };
             trace!("conversions per user: {}", conversions);
 
-            let events = gen_reports(impressions, conversions, epoch, ad_id, sample, rng);
+            let events = gen_reports(
+                impressions,
+                conversions,
+                EventTimestamp::from(*epoch),
+                ad_id,
+                sample,
+                rng,
+            );
 
             total_impressions += impressions.to_u32().unwrap();
             total_conversions += conversions.to_u32().unwrap();
@@ -82,19 +89,18 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
 fn gen_reports<R: RngCore + CryptoRng>(
     impressions: u8,
     conversions: u8,
-    epoch: &<EventTimestamp as EpochDuration>::Epoch,
+    base_timestamp: EventTimestamp,
     breakdown_key: Number,
     sample: &Sample,
     rng: &mut R,
 ) -> Vec<GenericReport> {
     let mut reports: Vec<GenericReport> = Vec::new();
 
-    let matchkey = gen_matchkey(rng);
-    let base_epoch: EventTimestamp = (u64::from(*epoch) * EventTimestamp::SECONDS_IN_EPOCH).into();
+    let matchkey = rng.gen::<MatchKey>();
 
-    // Randomly choose a datetime of the first impression within `base_epoch + [0..SECONDS_IN_EPOCH)`
+    // Randomly choose a datetime (plus the given base timestamp) as the first impression
     let mut last_impression =
-        base_epoch + rng.gen_range(0..EventTimestamp::SECONDS_IN_EPOCH).into();
+        base_timestamp + rng.gen_range(0..EventTimestamp::SECONDS_IN_EPOCH).into();
 
     for _ in 0..impressions {
         last_impression += sample.impressions_time_diff(rng).as_secs().into();
@@ -128,10 +134,6 @@ fn gen_reports<R: RngCore + CryptoRng>(
     }
 
     reports
-}
-
-fn gen_matchkey<R: RngCore + CryptoRng>(rng: &mut R) -> MatchKey {
-    rng.gen::<MatchKey>()
 }
 
 #[cfg(test)]
@@ -233,7 +235,14 @@ mod tests {
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
 
-        let reports = gen_reports(u8::MAX, u8::MAX, &0, 0, &sample, &mut rng);
+        let reports = gen_reports(
+            u8::MAX,
+            u8::MAX,
+            EventTimestamp::from(0_u8),
+            0,
+            &sample,
+            &mut rng,
+        );
 
         let mut last_epoch = 0;
         let mut last_offset = 0;

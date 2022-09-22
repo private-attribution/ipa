@@ -127,7 +127,10 @@ pub trait EpochDuration: Sized + Add<Output = Self> + AddAssign + PartialOrd + F
 pub struct EventTimestamp(u64);
 
 impl EpochDuration for EventTimestamp {
+    /// An epoch in which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
     type Epoch = u8;
+
+    /// An offset in seconds into a given epoch. Using an 32-bit value > 20-bit > 604,800 seconds.
     type Offset = u32;
 
     /// Number of days in an epoch.
@@ -161,6 +164,12 @@ impl EpochDuration for EventTimestamp {
 impl From<u64> for EventTimestamp {
     fn from(v: u64) -> Self {
         EventTimestamp(v)
+    }
+}
+
+impl From<<Self as EpochDuration>::Epoch> for EventTimestamp {
+    fn from(v: <Self as EpochDuration>::Epoch) -> Self {
+        EventTimestamp(u64::from(v) * Self::SECONDS_IN_EPOCH)
     }
 }
 
@@ -213,7 +222,6 @@ pub enum GenericReport {
         event: Event,
 
         /// A key, specified by the report collector, which allows for producing aggregates across many groups (or breakdowns.)
-        /// This field is only valid if is_trigger_report is [false].
         breakdown_key: Number,
     },
 
@@ -221,7 +229,7 @@ pub enum GenericReport {
     Trigger {
         event: Event,
 
-        /// The value of the trigger report to be aggregated. This field is only valid if is_trigger_report is [true].
+        /// The value of the trigger report to be aggregated.
         value: Number,
     },
 }
