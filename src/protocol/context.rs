@@ -1,6 +1,6 @@
 use crate::helpers::prss::{Participant, SpaceIndex};
 
-use super::{securemul::SecureMul, RecordId, Step};
+use super::{securemul::SecureMul, sort::reshare::Reshare, RecordId, Step};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
@@ -18,6 +18,10 @@ impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
             participant,
             gateway,
         }
+    }
+
+    pub fn reshare(&'a self, record_id: RecordId, step: S) -> Reshare<'a, G, S> {
+        Reshare::new(&self.participant[step], self.gateway, record_id, step)
     }
 
     /// Request multiplication for a given record. This function is intentionally made async

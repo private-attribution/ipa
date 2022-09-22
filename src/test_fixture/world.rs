@@ -33,6 +33,7 @@ pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
 pub enum TestStep {
     Mul1(u8),
     Mul2,
+    Reshare(u8),
 }
 
 impl Debug for TestStep {
@@ -47,12 +48,13 @@ impl Debug for TestStep {
 impl Step for TestStep {}
 
 impl SpaceIndex for TestStep {
-    const MAX: usize = 2;
+    const MAX: usize = 3;
 
     fn as_usize(&self) -> usize {
         match self {
             TestStep::Mul1(_) => 0,
             TestStep::Mul2 => 1,
+            TestStep::Reshare(_) => 2,
         }
     }
 }
