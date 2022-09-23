@@ -5,10 +5,16 @@ use crate::helpers::messaging::Gateway;
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
 use crate::secret_sharing::Replicated;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
 
-use super::DValue;
+/// A message sent by each helper when they've multiplied their own shares
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct DValue<F> {
+    d: F,
+}
+
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
