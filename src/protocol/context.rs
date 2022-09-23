@@ -22,10 +22,6 @@ impl<'a, S: Step + SpaceIndex, F: Network<S>> ProtocolContext<'a, S, F> {
         }
     }
 
-    pub fn reshare(&'a self, record_id: RecordId, step: S) -> Reshare<'a, G, S> {
-        Reshare::new(&self.participant[step], self.gateway, record_id, step)
-    }
-
     /// Request multiplication for a given record. This function is intentionally made async
     /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
     /// In this case, function returns only when multiplication for this record can actually

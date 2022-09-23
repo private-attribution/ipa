@@ -5,8 +5,6 @@ pub mod sort;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
-use serde::{Deserialize, Serialize};
-
 use crate::helpers::prss::SpaceIndex;
 
 use self::sort::SortStep;
@@ -89,9 +87,4 @@ impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()
     }
-}
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    pub(crate) d: F,
 }
