@@ -41,6 +41,7 @@ impl Debug for TestStep {
         match self {
             TestStep::Mul1(v) => write!(f, "TestStep/Mul1[{}]", v),
             TestStep::Mul2 => write!(f, "TestStep/Mul2"),
+            TestStep::Reshare(v) => write!(f, "TestStep/Reshare[{}]", v),
         }
     }
 }
