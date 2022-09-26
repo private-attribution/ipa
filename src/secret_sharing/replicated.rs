@@ -1,4 +1,5 @@
 use std::fmt::Formatter;
+use std::ops::AddAssign;
 use std::{
     fmt::Debug,
     ops::{Add, Mul, Neg, Sub},
@@ -31,6 +32,12 @@ impl<T: Field> Add for Replicated<T> {
 
     fn add(self, rhs: Self) -> Self {
         Self(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl<T: Field> AddAssign for Replicated<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.add(rhs);
     }
 }
 
