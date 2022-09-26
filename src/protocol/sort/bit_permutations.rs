@@ -25,10 +25,11 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 1. calculate 1 - x, x and concatenate them
     /// 2. calculate cumulative sum at each vector row
     /// 3. return back tuple of step 1 and step 2 output
+    #[allow(clippy::cast_possible_truncation)]
     fn prepare_mult_inputs<M: Mesh + 'a, G: Gateway<M, IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'a, G, IPAProtocolStep>,
-    ) -> impl Iterator<Item = (u32, (Replicated<F>, Replicated<F>))> + 'a
+    ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a
     where
         F: Field,
     {
@@ -43,7 +44,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             .enumerate()
             .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, (index, n)| {
                 *sum += n;
-                Some((index as u32, (n, *sum)))
+                Some((RecordId::from(index as u32), (n, *sum)))
             })
     }
 
@@ -54,13 +55,13 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     async fn secure_multiply<M: Mesh + 'a, G: Gateway<M, IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'a, G, IPAProtocolStep>,
-        mult_input: (u32, (Replicated<F>, Replicated<F>)),
+        mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
     ) -> Result<Replicated<F>, BoxError>
     where
         F: Field,
     {
         ctx.multiply(
-            RecordId::from(mult_input.0),
+            mult_input.0,
             IPAProtocolStep::Sort(SortStep::BitPermutations),
         )
         .await
