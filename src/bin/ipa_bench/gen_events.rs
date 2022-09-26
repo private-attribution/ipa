@@ -1,4 +1,4 @@
-use crate::models::{EpochDuration, Event, EventTimestamp, GenericReport, MatchKey, Number};
+use crate::models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Number};
 
 use super::sample::Sample;
 use byteorder::WriteBytesExt;
@@ -14,10 +14,11 @@ const RECORD_SEPARATOR: u8 = 30;
 // TODO: Currently, users are mutually exclusive in each ad loop (i.e. User A in ad X will never appear in other ads).
 // We need to generate events from same users across ads (but how often should a user appear in different ads?)
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     sample: &Sample,
     total_count: u32,
-    epoch: &<EventTimestamp as EpochDuration>::Epoch,
+    epoch: Epoch,
     rng: &mut R,
     out: &mut W,
 ) -> (u32, u32) {
@@ -59,7 +60,7 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
             let events = gen_reports(
                 impressions,
                 conversions,
-                EventTimestamp::from(*epoch),
+                EventTimestamp::from(epoch),
                 ad_id,
                 sample,
                 rng,
@@ -103,7 +104,7 @@ fn gen_reports<R: RngCore + CryptoRng>(
         base_timestamp + rng.gen_range(0..EventTimestamp::SECONDS_IN_EPOCH).into();
 
     for _ in 0..impressions {
-        last_impression += sample.impressions_time_diff(rng).as_secs().into();
+        last_impression += sample.impressions_time_diff(rng).into();
 
         reports.push(GenericReport::Source {
             event: Event {
@@ -121,7 +122,7 @@ fn gen_reports<R: RngCore + CryptoRng>(
 
     for _ in 0..conversions {
         let conversion_value = sample.conversion_value_per_ad(rng);
-        last_conversion += sample.conversions_time_diff(rng).as_secs().into();
+        last_conversion += sample.conversions_time_diff(rng).into();
 
         reports.push(GenericReport::Trigger {
             event: Event {
@@ -138,7 +139,7 @@ fn gen_reports<R: RngCore + CryptoRng>(
 
 #[cfg(test)]
 mod tests {
-    use super::{gen_reports, generate_events, EpochDuration, EventTimestamp, GenericReport};
+    use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
     use crate::sample::Sample;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
@@ -215,10 +216,10 @@ mod tests {
         let sample = Sample::new(&config);
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 100, &0, &mut rng, &mut out1);
+        generate_events(&sample, 100, 0, &mut rng, &mut out1);
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
-        generate_events(&sample, 100, &0, &mut rng, &mut out2);
+        generate_events(&sample, 100, 0, &mut rng, &mut out2);
 
         drop(out1);
         drop(out2);
@@ -259,7 +260,7 @@ mod tests {
                 }
             };
 
-            assert!(u64::from(last_offset) < EventTimestamp::SECONDS_IN_EPOCH);
+            assert!(last_offset < EventTimestamp::SECONDS_IN_EPOCH);
 
             match epoch.cmp(&last_epoch) {
                 Ordering::Equal => assert!(offset > last_offset),

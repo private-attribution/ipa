@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::ops::{Add, AddAssign, Range};
+use std::time::Duration;
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
@@ -11,6 +12,12 @@ pub type CipherText = Vec<u8>;
 type PlainText = String;
 pub type MatchKey = u64;
 pub type Number = u32;
+
+/// An epoch in which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
+pub type Epoch = u8;
+
+/// An offset in seconds into a given epoch. Using an 32-bit value > 20-bit > 604,800 seconds.
+pub type Offset = u32;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
@@ -111,36 +118,18 @@ impl SecretSharable for u64 {
     }
 }
 
-pub trait EpochDuration: Sized + Add<Output = Self> + AddAssign + PartialOrd + From<u64> {
-    type Epoch;
-    type Offset;
-
-    const DAYS_IN_EPOCH: Self::Epoch;
-    const SECONDS_IN_EPOCH: u64;
-    const MAX: u64;
-
-    fn epoch(&self) -> Self::Epoch;
-    fn offset(&self) -> Self::Offset;
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventTimestamp(u64);
+pub struct EventTimestamp(u32);
 
-impl EpochDuration for EventTimestamp {
-    /// An epoch in which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
-    type Epoch = u8;
-
-    /// An offset in seconds into a given epoch. Using an 32-bit value > 20-bit > 604,800 seconds.
-    type Offset = u32;
-
+impl EventTimestamp {
     /// Number of days in an epoch.
-    const DAYS_IN_EPOCH: Self::Epoch = 7;
+    pub const DAYS_IN_EPOCH: Epoch = 7;
 
     /// Number of seconds in an eopch.
-    const SECONDS_IN_EPOCH: u64 = Self::DAYS_IN_EPOCH as u64 * 86_400;
+    pub const SECONDS_IN_EPOCH: u32 = Self::DAYS_IN_EPOCH as u32 * 86_400;
 
     /// The largest value that can be represented by this type.
-    const MAX: u64 = Self::Epoch::MAX as u64 * Self::SECONDS_IN_EPOCH + Self::SECONDS_IN_EPOCH - 1;
+    const MAX: u32 = (Epoch::MAX as u32 + 1) * Self::SECONDS_IN_EPOCH - 1;
 
     /// An epoch in which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
     ///
@@ -148,28 +137,42 @@ impl EpochDuration for EventTimestamp {
     /// either send it in the clear, or mix it in MAC. For now, we can assume that this struct is a MPC internal data
     /// model.
     #[allow(clippy::cast_possible_truncation)]
-    fn epoch(&self) -> Self::Epoch {
-        (self.0 / Self::SECONDS_IN_EPOCH) as Self::Epoch
+    pub fn epoch(self) -> Epoch {
+        (self.0 / Self::SECONDS_IN_EPOCH) as Epoch
     }
 
     /// An offset in seconds into a given epoch. Max value is `SECONDS_IN_EPOCH - 1`.
     ///
     /// Use `u32` (`< 2^20 seconds`) to leverage simple arithmetics, but we drop the first 12 bits when serializing.
     /// That'll save us ~1.5G with 1B rows.
-    fn offset(&self) -> Self::Offset {
-        (self.0 % Self::SECONDS_IN_EPOCH) as Self::Offset
+    pub fn offset(self) -> Offset {
+        (self.0 % Self::SECONDS_IN_EPOCH) as Offset
     }
 }
 
 impl From<u64> for EventTimestamp {
     fn from(v: u64) -> Self {
+        debug_assert!(v < u64::from(u32::MAX), "Value truncation detected");
+        #[allow(clippy::cast_possible_truncation)]
+        EventTimestamp(v as u32)
+    }
+}
+
+impl From<u32> for EventTimestamp {
+    fn from(v: u32) -> Self {
         EventTimestamp(v)
     }
 }
 
-impl From<<Self as EpochDuration>::Epoch> for EventTimestamp {
-    fn from(v: <Self as EpochDuration>::Epoch) -> Self {
-        EventTimestamp(u64::from(v) * Self::SECONDS_IN_EPOCH)
+impl From<Duration> for EventTimestamp {
+    fn from(v: Duration) -> Self {
+        EventTimestamp::from(v.as_secs())
+    }
+}
+
+impl From<Epoch> for EventTimestamp {
+    fn from(v: Epoch) -> Self {
+        EventTimestamp(u32::from(v) * Self::SECONDS_IN_EPOCH)
     }
 }
 
@@ -182,7 +185,6 @@ impl Add for EventTimestamp {
 }
 
 impl AddAssign for EventTimestamp {
-    // #[allow(clippy::assign_op_pattern)]
     fn add_assign(&mut self, rhs: Self) {
         *self = *self + rhs;
     }
@@ -190,11 +192,12 @@ impl AddAssign for EventTimestamp {
 
 impl PartialOrd for EventTimestamp {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(u64::from(*self).cmp(&u64::from(*other)))
+        // use `From<EventTimestamp>` which takes care of the modulo operation
+        Some(u32::from(*self).cmp(&u32::from(*other)))
     }
 }
 
-impl From<EventTimestamp> for u64 {
+impl From<EventTimestamp> for u32 {
     fn from(v: EventTimestamp) -> Self {
         v.0 % (EventTimestamp::MAX + 1)
     }
@@ -358,42 +361,42 @@ impl Debug for TriggerFanoutQuery {
 
 #[cfg(test)]
 mod tests {
-    use super::{EpochDuration, EventTimestamp};
+    use super::EventTimestamp;
 
     #[test]
     fn event_timestamp() {
         let t = EventTimestamp(1);
         assert_eq!(0, t.epoch());
         assert_eq!(1, t.offset());
-        assert_eq!(1, u64::from(t));
+        assert_eq!(1, u32::from(t));
 
         let t = EventTimestamp(EventTimestamp::SECONDS_IN_EPOCH - 1);
         assert_eq!(0, t.epoch());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, u64::from(t.offset()));
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, u64::from(t));
+        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, t.offset());
+        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, u32::from(t));
 
         // Epoch carry
         let t = EventTimestamp(EventTimestamp::SECONDS_IN_EPOCH);
         assert_eq!(1, t.epoch());
         assert_eq!(0, t.offset());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH, u64::from(t));
+        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH, u32::from(t));
 
         // Epoch carry with addition
         let t = EventTimestamp(EventTimestamp::SECONDS_IN_EPOCH - 1) + EventTimestamp(1);
         assert_eq!(1, t.epoch());
         assert_eq!(0, t.offset());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH, u64::from(t));
+        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH, u32::from(t));
 
         let mut t = EventTimestamp(EventTimestamp::MAX);
         assert_eq!(u8::MAX, t.epoch());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, u64::from(t.offset()));
-        assert_eq!(EventTimestamp::MAX, u64::from(t));
+        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, t.offset());
+        assert_eq!(EventTimestamp::MAX, u32::from(t));
 
         // Overflow doesn't panic. Just rolls to 0.
         t += EventTimestamp(1);
         assert_eq!(0, t.epoch());
-        assert_eq!(0, u64::from(t.offset()));
-        assert_eq!(0, u64::from(t));
+        assert_eq!(0, t.offset());
+        assert_eq!(0, u32::from(t));
 
         assert_eq!(EventTimestamp(0), EventTimestamp(0));
         assert!(EventTimestamp(0) < EventTimestamp(1));

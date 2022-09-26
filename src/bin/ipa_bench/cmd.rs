@@ -150,7 +150,7 @@ impl Command {
         let (s_count, t_count) = generate_events(
             &sample,
             DEFAULT_EVENT_GEN_COUNT * scale_factor,
-            &epoch,
+            epoch,
             &mut rng,
             &mut out,
         );
