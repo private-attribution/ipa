@@ -158,7 +158,7 @@ pub mod stream {
         use crate::protocol::securemul::stream::secure_multiply;
         use crate::protocol::QueryId;
         use crate::secret_sharing::Replicated;
-        use crate::test_fixture::{make_world, share, validate_and_reconstruct};
+        use crate::test_fixture::{logging, make_world, share, validate_and_reconstruct};
         use futures::StreamExt;
         use futures_util::future::join_all;
         use futures_util::stream;
@@ -168,6 +168,9 @@ pub mod stream {
         /// of a `Stream`.
         #[tokio::test]
         async fn supports_stream_of_secret_shares() {
+            // beforeEach is not a thing in Rust yet: https://github.com/rust-lang/rfcs/issues/1664
+            logging::setup();
+
             // we compute a*b*c in this test. 4*3*2 = 24
             let mut rand = StepRng::new(1, 1);
             let a = share(Fp31::from(4_u128), &mut rand);
@@ -216,7 +219,7 @@ pub mod stream {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
@@ -233,11 +236,12 @@ pub mod tests {
     use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestStep,
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep,
     };
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
+        logging::setup();
         let world = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
@@ -260,6 +264,8 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
+        logging::setup();
+
         let world = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
