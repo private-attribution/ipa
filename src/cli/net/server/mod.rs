@@ -51,7 +51,7 @@ pub fn router<S: Step, M: Message>() -> Router {
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(|req| handlers::mul_handler::<S, M>(req)),
+            post(|query_id_and_step, body| handlers::mul_handler::<S, M>(query_id_and_step, body)),
         )
 }
 
