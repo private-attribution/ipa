@@ -1,6 +1,8 @@
 use ::metrics::increment_counter;
 use std::net::SocketAddr;
 
+use crate::helpers::mesh::Message;
+use crate::protocol::Step;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use axum::{
     extract::rejection::QueryRejection,
@@ -21,27 +23,35 @@ pub mod handlers;
 pub enum MpcServerError {
     #[error(transparent)]
     BadQueryString(#[from] QueryRejection),
+
+    #[error(transparent)]
+    HttpError(#[from] hyper::Error),
+
+    #[error("parse error: {0}")]
+    SerdeError(#[from] serde_json::Error),
 }
 
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
-            MpcServerError::BadQueryString(_) => StatusCode::BAD_REQUEST,
+            Self::BadQueryString(_) | Self::SerdeError(_) => StatusCode::BAD_REQUEST,
+            Self::HttpError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status_code, self.to_string()).into_response()
     }
 }
 
+/// TODO: how to remove <S, M> from router definition? It should not be there
 /// Axum router definition for MPC helper endpoint
 #[allow(dead_code)]
 #[must_use]
-pub fn router() -> Router {
+pub fn router<S: Step, M: Message>() -> Router {
     Router::new()
         .route("/echo", get(handlers::echo_handler))
         .route(
-            "/mul/query-id/:query_id/step/:step",
-            post(handlers::mul_handler),
+            "/mul/query-id/:query_id/step/*step",
+            post(|req| handlers::mul_handler::<S, M>(req)),
         )
 }
 
@@ -55,9 +65,8 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
-#[allow(dead_code)]
-pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router()
+pub async fn bind<S: Step, M: Message>(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+    let svc = router::<S, M>()
         .layer(
             TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
                 increment_counter!(REQUESTS_RECEIVED);
@@ -164,19 +173,18 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 mod e2e_tests {
     use crate::cli::net::server::handlers::EchoData;
     use crate::cli::net::server::{bind, BindTarget};
+    use crate::protocol::IPAProtocolStep;
+    use crate::telemetry::metrics::get_counter_value;
+    use crate::telemetry::metrics::REQUESTS_RECEIVED;
     use hyper::header::HeaderName;
     use hyper::header::HeaderValue;
     use hyper::{
         body, client::HttpConnector, http::uri::Scheme, Body, Request, Response, StatusCode,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
+    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
-
-    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
-
-    use crate::telemetry::metrics::get_counter_value;
-    use crate::telemetry::metrics::REQUESTS_RECEIVED;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -211,7 +219,8 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (addr, _) =
+            bind::<IPAProtocolStep, String>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -237,7 +246,11 @@ mod e2e_tests {
         let config = crate::cli::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) = bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
+        let (addr, _) = bind::<IPAProtocolStep, String>(BindTarget::Https(
+            "127.0.0.1:0".parse().unwrap(),
+            config,
+        ))
+        .await;
 
         let mut expected = EchoData::default();
         // self-signed cert CN is "localhost", therefore request uri must not use the ip address
@@ -275,7 +288,8 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (addr, _) =
+            bind::<IPAProtocolStep, String>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());
