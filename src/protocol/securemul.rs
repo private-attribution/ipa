@@ -1,4 +1,4 @@
-use crate::error::BoxError;&
+use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::mesh::{Gateway, Mesh};
 use crate::helpers::{prss::PrssSpace, Direction};
@@ -223,6 +223,7 @@ pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
+    use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
 
