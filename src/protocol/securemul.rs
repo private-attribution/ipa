@@ -98,15 +98,17 @@ pub mod stream {
     use crate::protocol::{RecordId, Step};
     use crate::secret_sharing::Replicated;
     use futures::Stream;
+    use std::fmt::{Display, Formatter};
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
 
-    impl ToString for StreamingStep {
-        fn to_string(&self) -> String {
-            format!("streaming/{}", self.0)
+    impl Display for StreamingStep {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "streaming/{}", self.0)
         }
     }
+
     impl TryFrom<String> for StreamingStep {
         type Error = BoxError;
 

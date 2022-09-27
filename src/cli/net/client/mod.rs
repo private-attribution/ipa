@@ -33,7 +33,8 @@ pub trait MpcHandle {
 
 pub struct MpcHttpConnection {
     client: Client<HttpsConnector<HttpConnector>>,
-    addr_parts: uri::Parts,
+    scheme: uri::Scheme,
+    authority: uri::Authority,
 }
 
 #[async_trait]
@@ -53,9 +54,12 @@ impl MpcHttpConnection {
         let https = HttpsConnector::new();
         let client = Client::builder().build::<_, Body>(https);
 
+        let parts = addr.into_parts();
+
         Self {
             client,
-            addr_parts: addr.into_parts(),
+            scheme: parts.scheme.unwrap(),
+            authority: parts.authority.unwrap(),
         }
     }
 
@@ -72,8 +76,8 @@ impl MpcHttpConnection {
         <PathAndQuery as TryFrom<T>>::Error: Into<axum::http::Error>,
     {
         Ok(uri::Builder::new()
-            .scheme(self.addr_parts.scheme.as_ref().unwrap().clone())
-            .authority(self.addr_parts.authority.as_ref().unwrap().clone())
+            .scheme(self.scheme.clone())
+            .authority(self.authority.clone())
             .path_and_query(p_and_q)
             .build()?)
     }

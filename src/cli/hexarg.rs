@@ -13,11 +13,11 @@ impl<const N: usize> From<FromHexError> for HexArgError<N> {
         Self::Hex(e)
     }
 }
-impl<const N: usize> ToString for HexArgError<N> {
-    fn to_string(&self) -> String {
+impl<const N: usize> Display for HexArgError<N> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Hex(e) => e.to_string(),
-            Self::Length(l) => format!("hex value is {} bytes, {} is needed", l, N),
+            Self::Hex(e) => write!(f, "{e}"),
+            Self::Length(l) => write!(f, "hex value is {} bytes, {} is needed", l, N),
         }
     }
 }

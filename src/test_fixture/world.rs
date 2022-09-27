@@ -3,6 +3,7 @@ use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;
+use std::fmt::{Display, Formatter, Write};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -35,11 +36,11 @@ pub enum TestStep {
     Mul2,
 }
 
-impl ToString for TestStep {
-    fn to_string(&self) -> String {
+impl Display for TestStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Mul1(u) => format!("mul1/{}", u),
-            Self::Mul2 => "mul2".into(),
+            Self::Mul1(u) => write!(f, "mul1/{}", u),
+            Self::Mul2 => write!(f, "mul2"),
         }
     }
 }

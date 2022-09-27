@@ -2,7 +2,7 @@ pub mod context;
 mod securemul;
 
 use crate::error::Error;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
@@ -23,7 +23,7 @@ use std::hash::Hash;
 /// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
 /// it should converge to a single implementation.
 pub trait Step:
-    Copy + Clone + Debug + Eq + Hash + Send + TryFrom<String> + ToString + 'static
+    Copy + Clone + Debug + Eq + Hash + Send + TryFrom<String> + Display + 'static
 {
 }
 
@@ -47,11 +47,11 @@ pub enum ShareConversionStep {}
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SortStep {}
 
-impl ToString for IPAProtocolStep {
-    fn to_string(&self) -> String {
+impl Display for IPAProtocolStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ConvertShares(_) => Self::CONVERT_SHARES_STR.into(),
-            Self::Sort(_) => Self::SORT_STR.into(),
+            Self::ConvertShares(_) => write!(f, "{}", Self::CONVERT_SHARES_STR),
+            Self::Sort(_) => write!(f, "{}", Self::SORT_STR),
         }
     }
 }
@@ -72,12 +72,17 @@ impl Step for IPAProtocolStep {}
 /// so for now it is just an empty struct. Once we know more about it, we will make necessary
 /// amendments to it
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize),
+    serde(try_from = "String")
+)]
 pub struct QueryId;
 
-impl ToString for QueryId {
-    fn to_string(&self) -> String {
+impl Display for QueryId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         // dummy value for now
-        "0".into()
+        write!(f, "0")
     }
 }
 
