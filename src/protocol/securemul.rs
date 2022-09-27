@@ -219,10 +219,11 @@ pub mod stream {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
+    use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
 
@@ -233,16 +234,16 @@ mod tests {
 
     use crate::error::BoxError;
 
-    use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep,
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
     };
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
         logging::setup();
-        let world = make_world(QueryId);
+
+        let world: TestWorld<TestStep> = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 

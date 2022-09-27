@@ -1,8 +1,11 @@
 pub mod context;
 mod securemul;
+mod sort;
 
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
+
+use crate::helpers::prss::SpaceIndex;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
 /// in form of a share or set of shares and produces the secret-shared output.
@@ -34,7 +37,7 @@ pub enum IPAProtocolStep {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SortStep {
-    GenBitPermutations,
+    BitPermutations,
 }
 
 impl Debug for IPAProtocolStep {
@@ -54,12 +57,33 @@ impl Debug for IPAProtocolStep {
 impl Debug for SortStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SortStep::GenBitPermutations => write!(f, "GenBitPermutations"),
+            SortStep::BitPermutations => write!(f, "BitPermutations"),
         }
     }
 }
 
 impl Step for IPAProtocolStep {}
+
+impl SpaceIndex for IPAProtocolStep {
+    const MAX: usize = 2;
+
+    fn as_usize(&self) -> usize {
+        match self {
+            IPAProtocolStep::ConvertShares => 0,
+            IPAProtocolStep::Sort(_) => 1,
+        }
+    }
+}
+
+impl Step for SortStep {}
+
+impl SpaceIndex for SortStep {
+    const MAX: usize = 1;
+
+    fn as_usize(&self) -> usize {
+        0
+    }
+}
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO: Generating this unique id may be tricky as it may involve communication between helpers and
