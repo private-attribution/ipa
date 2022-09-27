@@ -1,6 +1,6 @@
 use crate::helpers::prss::{Participant, SpaceIndex};
 
-use super::{securemul::SecureMul, RecordId, Step};
+use super::{RecordId, Step, securemul::SecureMul};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
@@ -9,7 +9,7 @@ use super::{securemul::SecureMul, RecordId, Step};
 #[derive(Debug)]
 pub struct ProtocolContext<'a, G, S: SpaceIndex> {
     participant: &'a Participant<S>,
-    gateway: &'a G,
+    pub gateway: &'a G,
 }
 
 impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
