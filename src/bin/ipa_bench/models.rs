@@ -1,10 +1,8 @@
 use rand::{CryptoRng, Rng, RngCore};
-use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::ops::{Add, AddAssign, Range};
-use std::time::Duration;
+use std::ops::Range;
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.
@@ -119,17 +117,37 @@ impl SecretSharable for u64 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+/// A timestamp of a source/trigger report represented by epoch and offset.
+///
+/// Internally, the time is stored in `u32`, but the value is capped at `(Epoch::MAX + 1) * SECONDS_IN_EPOCH - 1`.
+/// The top limit is ensured when this instance is created with `new`. See `new` for more.
+///
+/// For now, we assume `epoch` is `u8` and 1 epoch = 1 week. Therefore, we only need 8 bits for `epoch` and 20 bits for
+/// `offset` (`log2(SECONDS_IN_EPOCH)` < 20) out of `u32`. Since the internal value is capped, we can safely assume that
+/// 4 MSBs are always 0.
 pub struct EventTimestamp(u32);
 
 impl EventTimestamp {
     /// Number of days in an epoch.
     pub const DAYS_IN_EPOCH: Epoch = 7;
 
-    /// Number of seconds in an eopch.
+    /// Number of seconds in an epoch.
     pub const SECONDS_IN_EPOCH: u32 = Self::DAYS_IN_EPOCH as u32 * 86_400;
 
-    /// The largest value that can be represented by this type.
-    const MAX: u32 = (Epoch::MAX as u32 + 1) * Self::SECONDS_IN_EPOCH - 1;
+    /// Creates a new instance of `EventTimestamp` with the given `epoch` and `offset`.
+    ///
+    /// An epoch is a set period of time in days, which is defined as `EventTimestamp::DAYS_IN_EPOCH`.
+    ///
+    /// An offset is the time difference in seconds into a given epoch. Its max value is defined as
+    /// `EventTimestamp::SECONDS_IN_EPOCH`.
+    ///
+    /// The type of `offset` parameter is `u32`, but its upper bound is capped at `EventTimestamp::SECONDS_IN_EPOCH - 1`.
+    /// Any `offset` value larger than `EventTimestamp::SECONDS_IN_EPOCH` will be truncated. In other words, `offset`
+    /// overflow will simply wrap, and has no effect on `epoch` value.
+    pub fn new(epoch: Epoch, offset: Offset) -> Self {
+        Self(u32::from(epoch) * Self::SECONDS_IN_EPOCH + (offset % Self::SECONDS_IN_EPOCH))
+    }
 
     /// An epoch in which this event is generated. Using an 8-bit value = 256 epochs > 4 years (assuming 1 epoch = 1 week).
     ///
@@ -150,60 +168,43 @@ impl EventTimestamp {
     }
 }
 
+/// Converts seconds into `EventTimestamp`. Any value larger than the maximum value of `EventTimestamp` will wrap.
+#[allow(clippy::cast_possible_truncation)]
 impl From<u64> for EventTimestamp {
     fn from(v: u64) -> Self {
-        debug_assert!(v < u64::from(u32::MAX), "Value truncation detected");
-        #[allow(clippy::cast_possible_truncation)]
-        EventTimestamp(v as u32)
+        let seconds_in_epoch = u64::from(EventTimestamp::SECONDS_IN_EPOCH);
+
+        // being explicit here to indicate that overflow will wrap
+        let epoch = (v / seconds_in_epoch % (u64::from(Epoch::MAX) + 1)) as Epoch;
+        let offset = (v % seconds_in_epoch) as u32;
+
+        EventTimestamp::new(epoch, offset)
     }
 }
 
+/// Converts seconds into `EventTimestamp`. Any value larger than the maximum value of `EventTimestamp` will wrap.
 impl From<u32> for EventTimestamp {
     fn from(v: u32) -> Self {
-        EventTimestamp(v)
-    }
-}
-
-impl From<Duration> for EventTimestamp {
-    fn from(v: Duration) -> Self {
-        EventTimestamp::from(v.as_secs())
-    }
-}
-
-impl From<Epoch> for EventTimestamp {
-    fn from(v: Epoch) -> Self {
-        EventTimestamp(u32::from(v) * Self::SECONDS_IN_EPOCH)
-    }
-}
-
-impl Add for EventTimestamp {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        EventTimestamp(self.0 + rhs.0)
-    }
-}
-
-impl AddAssign for EventTimestamp {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
+        EventTimestamp::from(u64::from(v))
     }
 }
 
 impl PartialOrd for EventTimestamp {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // use `From<EventTimestamp>` which takes care of the modulo operation
         Some(u32::from(*self).cmp(&u32::from(*other)))
     }
 }
 
+/// Converts `EventTimestamp` to `u32` in seconds. The return value is guaranteed to be less than
+/// `(Epoch::MAX + 1) * EventTimestamp::SECONDS_IN_EPOCH`.
 impl From<EventTimestamp> for u32 {
     fn from(v: EventTimestamp) -> Self {
-        v.0 % (EventTimestamp::MAX + 1)
+        v.0
     }
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Event {
     // An identifier, set in the user agent, which identifies an individual person. This must never be released (beyond
     /// the match key provider) to any party in unencrypted form. For the purpose of this tool, however, the value is in
@@ -219,6 +220,7 @@ pub struct Event {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub enum GenericReport {
     /// An event produced on websites/apps when a user interacts with an ad (i.e. impression, click).
     Source {
@@ -237,53 +239,7 @@ pub enum GenericReport {
     },
 }
 
-/// Serialize trigger and source reports to the same format. This prevents information leakage by ensuring the helper
-/// parties are unable to differentiate between source and trigger reports throughout the entire protocol.
-impl Serialize for GenericReport {
-    // TODO: In production, fields in GenericReport will be encrypted and secret shared.
-
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            GenericReport::Source {
-                event,
-                breakdown_key,
-            } => {
-                let mut state = serializer.serialize_struct("GenericReport", 7)?;
-                state.serialize_field("matchkey", &event.matchkey)?;
-                state.serialize_field(
-                    "attribution_constraint_id",
-                    &event.attribution_constraint_id,
-                )?;
-                state.serialize_field("epoch", &event.timestamp.epoch())?;
-                state.serialize_field("offset", &event.timestamp.offset())?;
-                state.serialize_field("is_trigger_report", &false)?;
-                state.serialize_field("breakdown_key", &breakdown_key)?;
-                state.serialize_field("value", &0)?;
-                state.end()
-            }
-
-            GenericReport::Trigger { event, value } => {
-                let mut state = serializer.serialize_struct("GenericReport", 7)?;
-                state.serialize_field("matchkey", &event.matchkey)?;
-                state.serialize_field(
-                    "attribution_constraint_id",
-                    &event.attribution_constraint_id,
-                )?;
-                state.serialize_field("epoch", &event.timestamp.epoch())?;
-                state.serialize_field("offset", &event.timestamp.offset())?;
-                state.serialize_field("is_trigger_report", &true)?;
-                state.serialize_field("breakdown_key", &0)?;
-                state.serialize_field("value", &value)?;
-                state.end()
-            }
-        }
-    }
-}
-
-// TODO(taiki): Implement deserializer
+// TODO(taiki): Implement Serialize/Deserialize
 
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 enum QueryType {
@@ -361,45 +317,72 @@ impl Debug for TriggerFanoutQuery {
 
 #[cfg(test)]
 mod tests {
+    use crate::models::Epoch;
+
     use super::EventTimestamp;
 
     #[test]
-    fn event_timestamp() {
-        let t = EventTimestamp(1);
+    fn event_timestamp_new() {
+        let t = EventTimestamp::new(0, 1);
         assert_eq!(0, t.epoch());
         assert_eq!(1, t.offset());
         assert_eq!(1, u32::from(t));
 
-        let t = EventTimestamp(EventTimestamp::SECONDS_IN_EPOCH - 1);
-        assert_eq!(0, t.epoch());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, t.offset());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, u32::from(t));
-
-        // Epoch carry
-        let t = EventTimestamp(EventTimestamp::SECONDS_IN_EPOCH);
+        let t = EventTimestamp::new(1, EventTimestamp::SECONDS_IN_EPOCH - 1);
         assert_eq!(1, t.epoch());
-        assert_eq!(0, t.offset());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH, u32::from(t));
-
-        // Epoch carry with addition
-        let t = EventTimestamp(EventTimestamp::SECONDS_IN_EPOCH - 1) + EventTimestamp(1);
-        assert_eq!(1, t.epoch());
-        assert_eq!(0, t.offset());
-        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH, u32::from(t));
-
-        let mut t = EventTimestamp(EventTimestamp::MAX);
-        assert_eq!(u8::MAX, t.epoch());
         assert_eq!(EventTimestamp::SECONDS_IN_EPOCH - 1, t.offset());
-        assert_eq!(EventTimestamp::MAX, u32::from(t));
+        assert_eq!(EventTimestamp::SECONDS_IN_EPOCH * 2 - 1, u32::from(t));
 
-        // Overflow doesn't panic. Just rolls to 0.
-        t += EventTimestamp(1);
+        let t = EventTimestamp::new(0, EventTimestamp::SECONDS_IN_EPOCH);
         assert_eq!(0, t.epoch());
         assert_eq!(0, t.offset());
         assert_eq!(0, u32::from(t));
 
-        assert_eq!(EventTimestamp(0), EventTimestamp(0));
-        assert!(EventTimestamp(0) < EventTimestamp(1));
-        assert!(EventTimestamp(EventTimestamp::MAX + 1) < EventTimestamp(EventTimestamp::MAX));
+        let t = EventTimestamp::new(0, EventTimestamp::SECONDS_IN_EPOCH + 1);
+        assert_eq!(0, t.epoch());
+        assert_eq!(1, t.offset());
+        assert_eq!(1, u32::from(t));
+    }
+
+    #[test]
+    fn event_timestamp_from() {
+        // 256 epochs - 1 sec
+        let event_timestamp_internal_max =
+            (u32::from(Epoch::MAX) + 1) * EventTimestamp::SECONDS_IN_EPOCH - 1;
+
+        let ts = EventTimestamp::from(0_u32);
+        assert_eq!(ts.epoch(), 0);
+        assert_eq!(ts.offset(), 0);
+
+        let ts = EventTimestamp::from(EventTimestamp::SECONDS_IN_EPOCH);
+        assert_eq!(ts.epoch(), 1);
+        assert_eq!(ts.offset(), 0);
+
+        let ts = EventTimestamp::from(event_timestamp_internal_max);
+        assert_eq!(ts.epoch(), Epoch::MAX);
+        assert_eq!(ts.offset(), EventTimestamp::SECONDS_IN_EPOCH - 1);
+
+        let ts = EventTimestamp::from(event_timestamp_internal_max + 1);
+        assert_eq!(ts.epoch(), 0);
+        assert_eq!(ts.offset(), 0);
+
+        let ts = EventTimestamp::from(u32::MAX);
+        assert_eq!(ts.epoch(), 189);
+        assert_eq!(ts.offset(), 282_495);
+
+        // `u32::MAX + 1` (internal type overflow) doesn't cause `epoch` and `offset` wrap
+        let ts = EventTimestamp::from(u64::from(u32::MAX) + 1);
+        assert_eq!(ts.epoch(), 189);
+        assert_eq!(ts.offset(), 282_496);
+    }
+
+    #[test]
+    fn event_timestamp_cmp() {
+        let zero = EventTimestamp::new(0, 0);
+
+        assert!(zero == zero);
+        assert!(zero < EventTimestamp::new(0, 1));
+        assert!(EventTimestamp::new(1, 0) > EventTimestamp::new(0, 1));
+        assert!(zero == EventTimestamp::new(0, EventTimestamp::SECONDS_IN_EPOCH));
     }
 }

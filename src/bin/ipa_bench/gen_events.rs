@@ -57,14 +57,7 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
             };
             trace!("conversions per user: {}", conversions);
 
-            let events = gen_reports(
-                impressions,
-                conversions,
-                EventTimestamp::from(epoch),
-                ad_id,
-                sample,
-                rng,
-            );
+            let events = gen_reports(impressions, conversions, epoch, ad_id, sample, rng);
 
             total_impressions += impressions.to_u32().unwrap();
             total_conversions += conversions.to_u32().unwrap();
@@ -87,10 +80,11 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn gen_reports<R: RngCore + CryptoRng>(
     impressions: u8,
     conversions: u8,
-    base_timestamp: EventTimestamp,
+    epoch: Epoch,
     breakdown_key: Number,
     sample: &Sample,
     rng: &mut R,
@@ -101,10 +95,11 @@ fn gen_reports<R: RngCore + CryptoRng>(
 
     // Randomly choose a datetime (plus the given base timestamp) as the first impression
     let mut last_impression =
-        base_timestamp + rng.gen_range(0..EventTimestamp::SECONDS_IN_EPOCH).into();
+        EventTimestamp::new(epoch, rng.gen_range(0..EventTimestamp::SECONDS_IN_EPOCH));
 
     for _ in 0..impressions {
-        last_impression += sample.impressions_time_diff(rng).into();
+        let ts = EventTimestamp::from(sample.impressions_time_diff(rng).as_secs());
+        last_impression = add_event_timestamps(last_impression, ts);
 
         reports.push(GenericReport::Source {
             event: Event {
@@ -122,7 +117,8 @@ fn gen_reports<R: RngCore + CryptoRng>(
 
     for _ in 0..conversions {
         let conversion_value = sample.conversion_value_per_ad(rng);
-        last_conversion += sample.conversions_time_diff(rng).into();
+        let ts = EventTimestamp::from(sample.conversions_time_diff(rng).as_secs());
+        last_conversion = add_event_timestamps(last_conversion, ts);
 
         reports.push(GenericReport::Trigger {
             event: Event {
@@ -137,10 +133,45 @@ fn gen_reports<R: RngCore + CryptoRng>(
     reports
 }
 
+/// Adds two `EventTimestamp` instances.
+/// `offset` overflow will carry to `epoch`.
+/// `epoch` overflow will wrap and has no effect on `offset`.
+///
+/// # Exmaples
+///
+/// ```no_run
+/// const OFFSET_MAX: u32 = EventTimestamp::SECONDS_IN_EPOCH - 1;
+///
+/// let ts = add_event_timestamps(EventTimestamp::new(0, 1), EventTimestamp::new(0, OFFSET_MAX));
+/// assert_eq!(ts.epoch(), 1);
+/// assert_eq!(ts.offset(), 0);
+///
+/// let ts = add_event_timestamps(EventTimestamp::new(1, 1), EventTimestamp::new(Epoch::MAX, 0));
+/// assert_eq!(ts.epoch(), 0);
+/// assert_eq!(ts.offset(), 1);
+/// ```
+fn add_event_timestamps(rhs: EventTimestamp, lhs: EventTimestamp) -> EventTimestamp {
+    let c = u32::from;
+
+    // Upcast to `u32` for later addition
+    let mut epoch = c(rhs.epoch()) + c(lhs.epoch());
+
+    let mut offset = rhs.offset() + lhs.offset();
+
+    // `offset()` return value is always < EventTimestamp::SECONDS_IN_EPOCH, hence the carry is <= 1
+    if offset >= EventTimestamp::SECONDS_IN_EPOCH {
+        epoch += 1;
+        offset %= EventTimestamp::SECONDS_IN_EPOCH;
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    EventTimestamp::new((epoch % (c(Epoch::MAX) + 1)) as Epoch, offset)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
-    use crate::sample::Sample;
+    use crate::{gen_events::add_event_timestamps, models::Epoch, sample::Sample};
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use std::{
@@ -236,14 +267,7 @@ mod tests {
 
         let mut rng = seed.map_or(StdRng::from_entropy(), StdRng::seed_from_u64);
 
-        let reports = gen_reports(
-            u8::MAX,
-            u8::MAX,
-            EventTimestamp::from(0_u8),
-            0,
-            &sample,
-            &mut rng,
-        );
+        let reports = gen_reports(u8::MAX, u8::MAX, 0, 0, &sample, &mut rng);
 
         let mut last_epoch = 0;
         let mut last_offset = 0;
@@ -271,5 +295,30 @@ mod tests {
             last_offset = offset;
             last_epoch = epoch;
         }
+    }
+
+    #[test]
+    fn event_timestamp_arithmetics() {
+        const OFFSET_MAX: u32 = EventTimestamp::SECONDS_IN_EPOCH - 1;
+
+        let ts = add_event_timestamps(EventTimestamp::new(0, 0), EventTimestamp::new(1, 1));
+        assert_eq!(ts.epoch(), 1);
+        assert_eq!(ts.offset(), 1);
+
+        // offset(1 + 604799) = 1 epoch
+        let ts = add_event_timestamps(
+            EventTimestamp::new(0, 1),
+            EventTimestamp::new(0, OFFSET_MAX),
+        );
+        assert_eq!(ts.epoch(), 1);
+        assert_eq!(ts.offset(), 0);
+
+        // 256 epoch = 0 epoch
+        let ts = add_event_timestamps(
+            EventTimestamp::new(1, 1),
+            EventTimestamp::new(Epoch::MAX, 0),
+        );
+        assert_eq!(ts.epoch(), 0);
+        assert_eq!(ts.offset(), 1);
     }
 }
