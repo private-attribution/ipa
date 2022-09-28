@@ -9,6 +9,7 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId, Step},
     secret_sharing::Replicated,
 };
+use embed_doc_image::embed_doc_image;
 use serde::{Deserialize, Serialize};
 
 /// A message sent by each helper when they've reshared their own shares
@@ -32,6 +33,7 @@ impl<F: Field> Reshare<F> {
     }
 
     /// Steps
+    #[embed_doc_image("reshare", "images/sort/reshare.png")]
     /// 1. While calculating for helper, we call PRSS to get randoms for helper who needs to receive reshares (say `rand_left`, `rand_right`)
     ///    `to_helper.left` knows `rand_left` (named r1) and `to_helper.right` knows `rand_right` (named r0)
     /// 2. `to_helper.left` calculates part1 = (input.0 + input.1) - r1
