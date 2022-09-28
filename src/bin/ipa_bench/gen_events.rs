@@ -14,7 +14,6 @@ const RECORD_SEPARATOR: u8 = 30;
 // TODO: Currently, users are mutually exclusive in each ad loop (i.e. User A in ad X will never appear in other ads).
 // We need to generate events from same users across ads (but how often should a user appear in different ads?)
 
-#[allow(clippy::needless_pass_by_value)]
 pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     sample: &Sample,
     total_count: u32,
@@ -80,7 +79,6 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn gen_reports<R: RngCore + CryptoRng>(
     impressions: u8,
     conversions: u8,
@@ -139,7 +137,7 @@ fn gen_reports<R: RngCore + CryptoRng>(
 ///
 /// # Exmaples
 ///
-/// ```no_run
+/// ```
 /// const OFFSET_MAX: u32 = EventTimestamp::SECONDS_IN_EPOCH - 1;
 ///
 /// let ts = add_event_timestamps(EventTimestamp::new(0, 1), EventTimestamp::new(0, OFFSET_MAX));
