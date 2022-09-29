@@ -8,31 +8,28 @@ use rand_chacha::ChaCha8Rng;
 pub struct Shuffle {}
 
 impl Shuffle {
-    /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
+    /// The Fisher–Yates shuffle is an algorithm for generating a random permutation of a finite
+    /// sequence—in plain terms, the algorithm shuffles the sequence. The algorithm effectively
+    /// puts all the elements into a hat; it continually determines the next element by randomly
+    /// drawing an element from the hat until no elements remain. The algorithm produces an unbiased
+    /// permutation: every permutation is equally likely. This algorithm takes time proportional to
+    /// the number of items being shuffled and shuffles them in place.
     #[allow(dead_code)]
     fn generate_random_permutation(
         batchsize: usize,
-        direction: Direction,
-        index: u128,
+        random_value: u128,
+        left_permute: bool,
         prss: &PrssSpace,
     ) -> Vec<usize> {
         let mut permutation: Vec<usize> = (0..batchsize).collect();
-        let seed = prss.generate_values(index);
-
-        let seed_bytes = if direction == Direction::Left {
-            seed.0.to_le_bytes()
-        } else {
-            seed.1.to_le_bytes()
-        };
-        // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
-        // We are reusing 128 bit number twice to get a seed for Chacha8Rng.
-        // TODO (richa) Using u128 to seed random number generation is not optimal since we have half the entropy than expected.
-        // Ideally we should be getting u256 from prss
-        let mut seed: [u8; 32] = [0; 32];
-        let (first_half, second_half) = seed.split_at_mut(16);
-        first_half.copy_from_slice(&seed_bytes[..16]);
-        second_half.copy_from_slice(&seed_bytes[..16]);
-        permutation.shuffle(&mut ChaCha8Rng::from_seed(seed));
+        (1..batchsize).rev().for_each(|i| {
+            let location = if left_permute {
+                (prss.generate_values(random_value).0 as usize) % i
+            } else {
+                (prss.generate_values(random_value).1 as usize) % i
+            };
+            permutation.swap(i, location);
+        });
         permutation
     }
 }

@@ -10,8 +10,8 @@ use crate::protocol::Step;
 use rand::thread_rng;
 
 pub use sharing::{share, validate_and_reconstruct};
-pub use world::make as make_world;
 pub use world::{TestStep, TestWorld};
+pub use world::make as make_world;
 
 /// Creates protocol contexts for 3 helpers
 ///
