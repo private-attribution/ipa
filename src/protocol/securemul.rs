@@ -90,7 +90,7 @@ pub enum Error {}
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
     use crate::chunkscan::ChunkScan;
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::field::Field;
     use crate::helpers::mesh::{Gateway, Mesh};
     use crate::helpers::prss::SpaceIndex;
@@ -110,12 +110,10 @@ pub mod stream {
     }
 
     impl TryFrom<String> for StreamingStep {
-        type Error = BoxError;
+        type Error = Error;
 
         fn try_from(value: String) -> Result<Self, Self::Error> {
-            let rem = value
-                .strip_prefix("streaming/")
-                .ok_or("no match for step found")?;
+            let rem = value.strip_prefix("streaming/").ok_or(Error::InvalidId)?;
             Ok(StreamingStep(rem.parse()?))
         }
     }

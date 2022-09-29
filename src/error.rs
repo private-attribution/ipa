@@ -20,6 +20,8 @@ pub enum Error {
     #[error("too many helpers")]
     TooManyHelpers,
 
+    #[error("failed to parse int")]
+    ParseError(#[from] std::num::ParseIntError),
     #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]
     Hex(#[from] hex::FromHexError),

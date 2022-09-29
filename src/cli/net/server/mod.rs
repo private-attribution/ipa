@@ -46,12 +46,12 @@ impl IntoResponse for MpcServerError {
 /// Axum router definition for MPC helper endpoint
 #[allow(dead_code)]
 #[must_use]
-pub fn router<S: Step, M: Message>() -> Router {
+pub fn router<S: Step>() -> Router {
     Router::new()
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(|query_id_and_step, body| handlers::mul_handler::<S, M>(query_id_and_step, body)),
+            post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
         )
 }
 
@@ -65,8 +65,8 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
-pub async fn bind<S: Step, M: Message>(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router::<S, M>()
+pub async fn bind<S: Step>(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+    let svc = router::<S>()
         .layer(
             TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
                 increment_counter!(REQUESTS_RECEIVED);
@@ -220,7 +220,7 @@ mod e2e_tests {
     #[tokio::test]
     async fn can_do_http() {
         let (addr, _) =
-            bind::<IPAProtocolStep, String>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -246,11 +246,9 @@ mod e2e_tests {
         let config = crate::cli::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) = bind::<IPAProtocolStep, String>(BindTarget::Https(
-            "127.0.0.1:0".parse().unwrap(),
-            config,
-        ))
-        .await;
+        let (addr, _) =
+            bind::<IPAProtocolStep>(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
+                .await;
 
         let mut expected = EchoData::default();
         // self-signed cert CN is "localhost", therefore request uri must not use the ip address
@@ -289,7 +287,7 @@ mod e2e_tests {
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
         let (addr, _) =
-            bind::<IPAProtocolStep, String>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());
