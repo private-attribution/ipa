@@ -11,13 +11,15 @@ pub use data::Command;
 pub use server::tls_config_from_self_signed_cert;
 pub use server::{bind as bind_mpc_helper_server, router as mpc_helper_router, BindTarget};
 
-use crate::helpers::mesh::Message;
 use crate::protocol::RecordId;
+use axum::http::header::HeaderName;
+
+pub(crate) const OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
+pub(crate) const DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 
 #[derive(Debug)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct MessageEnvelope<M: Message> {
+pub struct MessageEnvelope {
     record_id: RecordId,
-    #[serde(bound(deserialize = "M: serde::de::DeserializeOwned"))]
-    message: M,
+    message: Box<u8>,
 }

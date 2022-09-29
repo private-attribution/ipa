@@ -1,9 +1,10 @@
 use ::metrics::increment_counter;
 use std::net::SocketAddr;
 
-use crate::helpers::mesh::Message;
+use crate::error::BoxError;
 use crate::protocol::Step;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
+use axum::extract::rejection::PathRejection;
 use axum::{
     extract::rejection::QueryRejection,
     response::{IntoResponse, Response},
@@ -23,19 +24,23 @@ pub mod handlers;
 pub enum MpcServerError {
     #[error(transparent)]
     BadQueryString(#[from] QueryRejection),
-
+    #[error(transparent)]
+    BadPathString(#[from] PathRejection),
     #[error(transparent)]
     HttpError(#[from] hyper::Error),
-
     #[error("parse error: {0}")]
     SerdeError(#[from] serde_json::Error),
+    #[error("could not forward messages: {0}")]
+    SendError(BoxError),
 }
 
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
-            Self::BadQueryString(_) | Self::SerdeError(_) => StatusCode::BAD_REQUEST,
-            Self::HttpError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::BadQueryString(_) | Self::BadPathString(_) | Self::SerdeError(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            Self::HttpError(_) | Self::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status_code, self.to_string()).into_response()
@@ -47,11 +52,13 @@ impl IntoResponse for MpcServerError {
 #[allow(dead_code)]
 #[must_use]
 pub fn router<S: Step>() -> Router {
+    let mul_handler = handlers::MulHandler::<S>::new();
     Router::new()
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
+            post(|query_id_and_step, body| mul_handler.handler(query_id_and_step, body)),
+            // post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
         )
 }
 

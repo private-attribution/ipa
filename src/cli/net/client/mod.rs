@@ -1,9 +1,10 @@
 use super::Command;
-use crate::cli::net::MessageEnvelope;
+use crate::cli::net::{DATA_SIZE_HEADER_NAME, OFFSET_HEADER_NAME};
 use crate::helpers::mesh::Message;
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
-use axum::http::uri::{self, InvalidUri, PathAndQuery};
+use axum::body::Bytes;
+use axum::http::uri::{self, PathAndQuery};
 use axum::http::Request;
 use hyper::client::HttpConnector;
 use hyper::{Body, Client, Uri};
@@ -14,7 +15,7 @@ use thiserror::Error as ThisError;
 #[derive(ThisError, Debug)]
 pub enum MpcClientError {
     #[error("invalid host address")]
-    InvalidHostAddress(String),
+    InvalidHostAddress(#[from] uri::InvalidUri),
 
     #[error("network connection error")]
     NetworkConnection(#[from] hyper::Error),
@@ -66,8 +67,8 @@ impl MpcHttpConnection {
     /// same as new, but first parses the addr from a [&str]
     /// # Errors
     /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, InvalidUri> {
-        addr.parse().map(Self::new)
+    pub fn with_str_addr(addr: &str) -> Result<Self, MpcClientError> {
+        Ok(Self::new(addr.parse()?))
     }
 
     fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcClientError>
@@ -95,15 +96,20 @@ impl MpcHttpConnection {
         &self,
         query_id: QueryId,
         step: S,
-        messages: &[MessageEnvelope<M>],
+        offset: usize,
+        data_size: usize,
+        messages: Bytes,
     ) -> Result<(), MpcClientError> {
         let uri = self.build_uri(format!(
             "/mul/query-id/{}/step/{}",
             query_id.to_string(),
             step.to_string()
         ))?;
-        let body = serde_json::to_vec(messages).unwrap();
-        let req = Request::post(uri).body(Body::from(body))?;
+        let body = Body::from(messages);
+        let req = Request::post(uri)
+            .header(OFFSET_HEADER_NAME, offset)
+            .header(DATA_SIZE_HEADER_NAME, data_size)
+            .body(body)?;
         let response = self.client.request(req).await?;
         let resp_status = response.status();
         resp_status
