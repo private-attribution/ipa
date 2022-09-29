@@ -1,11 +1,10 @@
-use std::error::Error;
-
 use hyper::http::uri::Scheme;
 use raw_ipa::cli::net::{bind_mpc_helper_server, BindTarget};
 use raw_ipa::cli::Verbosity;
+use raw_ipa::protocol::IPAProtocolStep;
+use std::error::Error;
 use std::net::SocketAddr;
 use std::panic;
-
 use structopt::StructOpt;
 use tracing::info;
 
@@ -45,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // start server
-    let (addr, server_handle) = bind_mpc_helper_server(target).await;
+    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target).await;
     info!(
         "listening to {}://{}, press Enter to quit",
         args.scheme, addr

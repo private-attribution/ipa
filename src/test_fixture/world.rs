@@ -1,9 +1,9 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -46,7 +46,7 @@ impl Display for TestStep {
 }
 
 impl TryFrom<String> for TestStep {
-    type Error = BoxError;
+    type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         if value == "mul2" {
@@ -57,7 +57,7 @@ impl TryFrom<String> for TestStep {
                 .and_then(|(pre, suf)| (pre == "mul1").then_some(suf))
                 .and_then(|suf| suf.parse::<u8>().ok())
                 .map(Self::Mul1)
-                .ok_or_else(|| "invalid step value".into())
+                .ok_or_else(|| Error::InvalidId)
         }
     }
 }
