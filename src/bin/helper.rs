@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "http" => BindTarget::Http(addr),
         #[cfg(feature = "self-signed-certs")]
         "https" => {
-            let config = raw_ipa::net::tls_config_from_self_signed_cert().await?;
+            let config = raw_ipa::cli::net::tls_config_from_self_signed_cert().await?;
             BindTarget::Https(addr, config)
         }
         _ => {

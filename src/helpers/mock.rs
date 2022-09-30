@@ -1,17 +1,22 @@
-///! Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
+/// Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
+use std::collections::HashMap;
+
 use crate::helpers::error::Error;
 use crate::helpers::mesh::{Gateway, Mesh, Message};
 use crate::helpers::Identity;
 use crate::protocol::{RecordId, Step};
+
 use async_trait::async_trait;
 use futures::Stream;
 use futures_util::stream::SelectAll;
 use futures_util::StreamExt;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
+
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
+use tracing::Instrument;
 
 /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
 /// `Controller`'s dependencies
@@ -32,7 +37,6 @@ pub struct TestMesh<S> {
 }
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
-#[derive(Debug)]
 enum ControlMessage<S> {
     /// Connection for step S is requested by the peer
     ConnectionRequest(Identity, S, mpsc::Receiver<MessageEnvelope>),
@@ -66,7 +70,6 @@ enum BufItem {
     Received(Box<[u8]>),
 }
 
-#[derive(Debug)]
 struct ReceiveRequest<S> {
     from: Identity,
     step: S,
@@ -166,6 +169,7 @@ impl<S: Step> Gateway<TestMesh<S>, S> for TestHelperGateway<S> {
 
 #[async_trait]
 impl<S: Step> Mesh for TestMesh<S> {
+    #[tracing::instrument(skip(self), level = "trace")]
     async fn send<T: Message>(
         &mut self,
         target: Identity,
@@ -188,13 +192,11 @@ impl<S: Step> Mesh for TestMesh<S> {
         Ok(())
     }
 
-    async fn receive<T: Message>(
-        &mut self,
-        source: Identity,
-        record: RecordId,
-    ) -> Result<T, Error> {
-        let payload = self.controller.receive(source, self.step, record).await;
+    #[tracing::instrument(skip(self), fields(identity=?self.controller.identity, step=?self.step), level="trace")]
+    async fn receive<T: Message>(&mut self, from: Identity, record: RecordId) -> Result<T, Error> {
+        let payload = self.controller.receive(from, self.step, record).await;
         let obj: T = serde_json::from_slice(&payload).unwrap();
+        tracing::trace!("message received: {obj:?}");
 
         Ok(obj)
     }
@@ -229,12 +231,13 @@ impl<S: Step> Controller<S> {
             peers: control_tx,
         };
 
-        Controller::start(control_rx, receive_rx);
+        Controller::start(identity, control_rx, receive_rx);
 
         controller
     }
 
     fn start(
+        identity: Identity,
         mut control_rx: mpsc::Receiver<ControlMessage<S>>,
         mut receive_rx: mpsc::Receiver<ReceiveRequest<S>>,
     ) {
@@ -249,6 +252,7 @@ impl<S: Step> Controller<S> {
                 // * Handle the request to receive a message from another helper
                 tokio::select! {
                     Some(control_message) = control_rx.recv() => {
+                        tracing::debug!("new {control_message:?}");
                         match control_message {
                             ControlMessage::ConnectionRequest(peer, step, peer_connection) => {
                                 channels.push(prepend((peer, step), ReceiverStream::new(peer_connection)));
@@ -256,23 +260,27 @@ impl<S: Step> Controller<S> {
                         }
                     }
                     Some(receive_request) = receive_rx.recv() => {
+                        tracing::trace!("new {:?}", receive_request);
                         buf.entry(receive_request.channel_id())
                            .or_default()
                            .receive_request(receive_request.record_id, receive_request.sender);
                     }
                     Some(((from_peer, step), message_envelope)) = channels.next() => {
+                        tracing::trace!("new MessageArrival(from={from_peer:?}, step={step:?}, record={:?}, size={}B)", message_envelope.record_id, message_envelope.payload.len());
                         buf.entry((from_peer, step))
                            .or_default()
                            .receive_message(message_envelope);
                     }
                     else => {
+                        tracing::debug!("All channels are closed and event loop is terminated");
                         break;
                     }
                 }
             }
-        });
+        }.instrument(tracing::info_span!("helper_event_loop", identity=?identity)));
     }
 
+    #[tracing::instrument(skip(self), level = "trace")]
     async fn get_connection(&self, peer: Identity, step: S) -> mpsc::Sender<MessageEnvelope> {
         assert_ne!(self.identity, peer);
 
@@ -288,6 +296,7 @@ impl<S: Step> Controller<S> {
         };
 
         if let Some(rx) = rx {
+            tracing::trace!("Requesting connection");
             self.peers
                 .get(&peer)
                 .expect("peer with id {peer:?} should exist")
@@ -335,4 +344,24 @@ fn make_controllers<S: Step>() -> [Controller<S>; 3] {
 
 pub fn prepend<T: Copy + Clone, S: Stream>(id: T, stream: S) -> impl Stream<Item = (T, S::Item)> {
     stream.map(move |item| (id, item))
+}
+
+impl<S: Step> Debug for ControlMessage<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ControlMessage::ConnectionRequest(from, step, _) => {
+                write!(f, "ConnectionRequest(from={:?}, step={:?})", from, step)
+            }
+        }
+    }
+}
+
+impl<S: Step> Debug for ReceiveRequest<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ReceiveRequest(from={:?}, step={:?}, record={:?})",
+            self.from, self.step, self.record_id
+        )
+    }
 }

@@ -9,7 +9,7 @@ use super::{securemul::SecureMul, RecordId, Step};
 #[derive(Debug)]
 pub struct ProtocolContext<'a, G, S: SpaceIndex> {
     participant: &'a Participant<S>,
-    gateway: &'a G,
+    pub gateway: &'a G,
 }
 
 impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
@@ -24,7 +24,7 @@ impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
     /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
         SecureMul::new(&self.participant[step], self.gateway, step, record_id)
     }

@@ -1,9 +1,12 @@
 pub mod context;
 mod securemul;
+mod sort;
 
 use crate::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
+
+use crate::helpers::prss::SpaceIndex;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
 /// in form of a share or set of shares and produces the secret-shared output.
@@ -23,15 +26,15 @@ use std::hash::Hash;
 /// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
 /// it should converge to a single implementation.
 pub trait Step:
-    Copy + Clone + Debug + Eq + Hash + Send + Sync + TryFrom<String, Error = Error> + Display + 'static
+    Copy + Clone + Debug + Display + Eq + Hash + Send + Sync + TryFrom<String, Error = Error> + 'static
 {
 }
 
 /// Set of steps that define the IPA protocol.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IPAProtocolStep {
     /// Convert from XOR shares to Replicated shares
-    ConvertShares(ShareConversionStep),
+    ConvertShares,
     /// Sort shares by the match key
     Sort(SortStep),
 }
@@ -41,30 +44,101 @@ impl IPAProtocolStep {
     const SORT_STR: &'static str = "sort";
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ShareConversionStep {}
+impl TryFrom<String> for IPAProtocolStep {
+    type Error = Error;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SortStep {}
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value == *Self::CONVERT_SHARES_STR {
+            Ok(Self::ConvertShares)
+        } else if let Some(rem) = value.strip_prefix(Self::SORT_STR) {
+            Ok(Self::Sort(String::from(rem).try_into()?))
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+}
+
+impl Debug for IPAProtocolStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IPA/")?;
+        match self {
+            IPAProtocolStep::ConvertShares => {
+                write!(f, "ConvertShares")
+            }
+            IPAProtocolStep::Sort(sort_step) => {
+                write!(f, "Sort/{:?}", sort_step)
+            }
+        }
+    }
+}
 
 impl Display for IPAProtocolStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ConvertShares(_) => write!(f, "{}", Self::CONVERT_SHARES_STR),
+            Self::ConvertShares => write!(f, "{}", Self::CONVERT_SHARES_STR),
             Self::Sort(_) => write!(f, "{}", Self::SORT_STR),
         }
     }
 }
 
-impl TryFrom<String> for IPAProtocolStep {
-    type Error = Error;
+impl Step for IPAProtocolStep {}
 
-    fn try_from(_value: String) -> Result<Self, Self::Error> {
-        // cannot initialize from empty enum
-        Err(Error::NotFound)
+impl SpaceIndex for IPAProtocolStep {
+    const MAX: usize = 2;
+
+    fn as_usize(&self) -> usize {
+        match self {
+            IPAProtocolStep::ConvertShares => 0,
+            IPAProtocolStep::Sort(_) => 1,
+        }
     }
 }
-impl Step for IPAProtocolStep {}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SortStep {
+    BitPermutations,
+}
+
+impl SortStep {
+    const BIT_PERMUTATIONS_STR: &'static str = "bit-permutations";
+}
+
+impl Debug for SortStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SortStep::BitPermutations => write!(f, "BitPermutations"),
+        }
+    }
+}
+
+impl Display for SortStep {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BitPermutations => write!(f, "{}", Self::BIT_PERMUTATIONS_STR),
+        }
+    }
+}
+
+impl TryFrom<String> for SortStep {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            Self::BIT_PERMUTATIONS_STR => Ok(Self::BitPermutations),
+            _ => Err(Error::NotFound),
+        }
+    }
+}
+
+impl Step for SortStep {}
+
+impl SpaceIndex for SortStep {
+    const MAX: usize = 1;
+
+    fn as_usize(&self) -> usize {
+        0
+    }
+}
 
 /// Unique identifier of the MPC query requested by report collectors
 /// TODO: Generating this unique id may be tricky as it may involve communication between helpers and
