@@ -21,22 +21,22 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
 
 type BufferedMessages<S> = (QueryId, S, Vec<MessageEnvelope>);
 
-pub struct Handler<S: Step> {
+pub struct Handler {
     // outgoing: Sender<BufferedMessages<S>>,
-    _phantom: std::marker::PhantomData<S>,
+    // _phantom: std::marker::PhantomData<S>,
 }
 
-impl<S: Step> Handler<S> {
+impl Handler {
     // pub fn new(outgoing: Sender<BufferedMessages<S>>) -> Self {
     //     Self { outgoing }
     // }
     pub fn new() -> Self {
         Self {
-            _phantom: std::marker::PhantomData::default(),
+            // _phantom: std::marker::PhantomData::default(),
         }
     }
 
-    pub async fn handler(
+    pub async fn handler<S: Step>(
         &self,
         Path(query_id, step): Path<S>,
         body: Bytes,

@@ -52,12 +52,16 @@ impl IntoResponse for MpcServerError {
 #[allow(dead_code)]
 #[must_use]
 pub fn router<S: Step>() -> Router {
-    let mul_handler = handlers::MulHandler::<S>::new();
     Router::new()
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(|query_id_and_step, body| mul_handler.handler(query_id_and_step, body)),
+            post(|query_id_and_step, body| async {
+                let mul_handler = handlers::MulHandler::new();
+                let r = mul_handler.handler::<S>(query_id_and_step, body);
+
+                r.await
+            }),
             // post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
         )
 }
