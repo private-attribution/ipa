@@ -1,10 +1,10 @@
 use crate::cli::net::server::MpcServerError;
-use crate::cli::net::MessageEnvelope;
+use crate::cli::net::BufferedMessages;
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::extract::{self, FromRequest, RequestParts};
-// use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc;
 
 pub struct Path<S: Step>(QueryId, S);
 #[async_trait]
@@ -19,38 +19,22 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
     }
 }
 
-type BufferedMessages<S> = (QueryId, S, Vec<MessageEnvelope>);
-
-pub struct Handler {
-    // outgoing: Sender<BufferedMessages<S>>,
-    // _phantom: std::marker::PhantomData<S>,
+pub struct Handler<S> {
+    outgoing: mpsc::Sender<BufferedMessages<S>>,
 }
 
-impl Handler {
-    // pub fn new(outgoing: Sender<BufferedMessages<S>>) -> Self {
-    //     Self { outgoing }
-    // }
-    pub fn new() -> Self {
-        Self {
-            // _phantom: std::marker::PhantomData::default(),
-        }
+impl<S: Step> Handler<S> {
+    pub fn new(outgoing: mpsc::Sender<BufferedMessages<S>>) -> Self {
+        Self { outgoing }
     }
 
-    pub async fn handler<S: Step>(
+    pub async fn handler(
         &self,
         Path(query_id, step): Path<S>,
         body: Bytes,
     ) -> Result<(), MpcServerError> {
-        // self.outgoing.send((query_id, step, body)).await?;
         println!("{:?} {:?} {:?}", query_id, step, body);
+        self.outgoing.send((query_id, step, body)).await?;
         Ok(())
     }
-}
-
-pub async fn handler<S: Step>(
-    Path(query_id, step): Path<S>,
-    body: Bytes,
-) -> Result<(), MpcServerError> {
-    println!("{:?} {:?} {:?}", query_id, step, body);
-    Ok(())
 }

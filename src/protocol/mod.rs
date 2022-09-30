@@ -23,7 +23,7 @@ use std::hash::Hash;
 /// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
 /// it should converge to a single implementation.
 pub trait Step:
-    Copy + Clone + Debug + Eq + Hash + Send + TryFrom<String, Error = Error> + Display + 'static
+    Copy + Clone + Debug + Eq + Hash + Send + Sync + TryFrom<String, Error = Error> + Display + 'static
 {
 }
 

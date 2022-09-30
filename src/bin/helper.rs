@@ -6,6 +6,7 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::panic;
 use structopt::StructOpt;
+use tokio::sync::mpsc;
 use tracing::info;
 
 #[derive(Debug, StructOpt)]
@@ -44,7 +45,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // start server
-    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target).await;
+    let (tx, _) = mpsc::channel(1);
+    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target, tx).await;
     info!(
         "listening to {}://{}, press Enter to quit",
         args.scheme, addr

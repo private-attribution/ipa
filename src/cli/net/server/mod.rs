@@ -1,9 +1,8 @@
-use ::metrics::increment_counter;
-use std::net::SocketAddr;
-
+use crate::cli::net::BufferedMessages;
 use crate::error::BoxError;
 use crate::protocol::Step;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
+use ::metrics::increment_counter;
 use axum::extract::rejection::PathRejection;
 use axum::{
     extract::rejection::QueryRejection,
@@ -13,7 +12,10 @@ use axum::{
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
+use std::fmt::Debug;
+use std::net::SocketAddr;
 use thiserror::Error;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
@@ -34,6 +36,12 @@ pub enum MpcServerError {
     SendError(BoxError),
 }
 
+impl<T: Debug + Send + Sync + 'static> From<mpsc::error::SendError<T>> for MpcServerError {
+    fn from(err: mpsc::error::SendError<T>) -> Self {
+        Self::SendError(err.into())
+    }
+}
+
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
@@ -51,14 +59,14 @@ impl IntoResponse for MpcServerError {
 /// Axum router definition for MPC helper endpoint
 #[allow(dead_code)]
 #[must_use]
-pub fn router<S: Step>() -> Router {
+pub fn router<S: Step>(outgoing_chan: mpsc::Sender<BufferedMessages<S>>) -> Router {
     Router::new()
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(|query_id_and_step, body| async {
-                let mul_handler = handlers::MulHandler::new();
-                let r = mul_handler.handler::<S>(query_id_and_step, body);
+            post(|query_id_and_step, body| async move {
+                let mul_handler = handlers::MulHandler::new(outgoing_chan.clone());
+                let r = mul_handler.handler(query_id_and_step, body);
 
                 r.await
             }),
@@ -76,8 +84,11 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
-pub async fn bind<S: Step>(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router::<S>()
+pub async fn bind<S: Step>(
+    target: BindTarget,
+    outgoing_chan: mpsc::Sender<BufferedMessages<S>>,
+) -> (SocketAddr, JoinHandle<()>) {
+    let svc = router::<S>(outgoing_chan)
         .layer(
             TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
                 increment_counter!(REQUESTS_RECEIVED);
@@ -196,6 +207,7 @@ mod e2e_tests {
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
+    use tokio::sync::mpsc;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -230,8 +242,9 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
+        let (tx, _) = mpsc::channel(1);
         let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap()), tx).await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -257,9 +270,12 @@ mod e2e_tests {
         let config = crate::cli::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
-                .await;
+        let (tx, _) = mpsc::channel(1);
+        let (addr, _) = bind::<IPAProtocolStep>(
+            BindTarget::Https("127.0.0.1:0".parse().unwrap(), config),
+            tx,
+        )
+        .await;
 
         let mut expected = EchoData::default();
         // self-signed cert CN is "localhost", therefore request uri must not use the ip address
@@ -297,8 +313,9 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
+        let (tx, _) = mpsc::channel(1);
         let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap()), tx).await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());
