@@ -49,6 +49,9 @@ impl MpcHandle for MpcHttpConnection {
 
 #[allow(dead_code)]
 impl MpcHttpConnection {
+    /// addr must have a valid scheme and authority
+    /// # Panics
+    /// if addr does not have scheme and authority
     #[must_use]
     pub fn new(addr: Uri) -> Self {
         // this works for both http and https
@@ -100,15 +103,11 @@ impl MpcHttpConnection {
         data_size: usize,
         messages: Bytes,
     ) -> Result<(), MpcClientError> {
-        let uri = self.build_uri(format!(
-            "/mul/query-id/{}/step/{}",
-            query_id.to_string(),
-            step.to_string()
-        ))?;
+        let uri = self.build_uri(format!("/mul/query-id/{}/step/{}", query_id, step))?;
         let body = Body::from(messages);
         let req = Request::post(uri)
-            .header(OFFSET_HEADER_NAME, offset)
-            .header(DATA_SIZE_HEADER_NAME, data_size)
+            .header(OFFSET_HEADER_NAME.clone(), offset)
+            .header(DATA_SIZE_HEADER_NAME.clone(), data_size)
             .body(body)?;
         let response = self.client.request(req).await?;
         let resp_status = response.status();

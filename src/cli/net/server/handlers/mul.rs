@@ -19,22 +19,12 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
     }
 }
 
-pub struct Handler<S> {
+pub async fn handler<S: Step>(
     outgoing: mpsc::Sender<BufferedMessages<S>>,
-}
-
-impl<S: Step> Handler<S> {
-    pub fn new(outgoing: mpsc::Sender<BufferedMessages<S>>) -> Self {
-        Self { outgoing }
-    }
-
-    pub async fn handler(
-        &self,
-        Path(query_id, step): Path<S>,
-        body: Bytes,
-    ) -> Result<(), MpcServerError> {
-        println!("{:?} {:?} {:?}", query_id, step, body);
-        self.outgoing.send((query_id, step, body)).await?;
-        Ok(())
-    }
+    Path(query_id, step): Path<S>,
+    body: Bytes,
+) -> Result<(), MpcServerError> {
+    println!("{:?} {:?} {:?}", query_id, step, body);
+    outgoing.send((query_id, step, body)).await?;
+    Ok(())
 }

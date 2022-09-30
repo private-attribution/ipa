@@ -57,7 +57,7 @@ impl TryFrom<String> for TestStep {
                 .and_then(|(pre, suf)| (pre == "mul1").then_some(suf))
                 .and_then(|suf| suf.parse::<u8>().ok())
                 .map(Self::Mul1)
-                .ok_or_else(|| Error::InvalidId)
+                .ok_or(Error::InvalidId)
         }
     }
 }

@@ -15,8 +15,8 @@ use crate::protocol::{QueryId, RecordId};
 use axum::body::Bytes;
 use axum::http::header::HeaderName;
 
-pub(crate) const OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
-pub(crate) const DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
+pub(crate) static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
+pub(crate) static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 
 pub type BufferedMessages<S> = (QueryId, S, Bytes);
 

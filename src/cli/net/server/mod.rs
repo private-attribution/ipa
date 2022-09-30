@@ -64,11 +64,8 @@ pub fn router<S: Step>(outgoing_chan: mpsc::Sender<BufferedMessages<S>>) -> Rout
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(|query_id_and_step, body| async move {
-                let mul_handler = handlers::MulHandler::new(outgoing_chan.clone());
-                let r = mul_handler.handler(query_id_and_step, body);
-
-                r.await
+            post(move |query_id_and_step, body| {
+                handlers::mul_handler::<S>(outgoing_chan, query_id_and_step, body)
             }),
             // post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
         )
