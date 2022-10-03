@@ -1,6 +1,5 @@
 use super::Command;
 use crate::cli::net::RecordHeaders;
-use crate::helpers::mesh::Message;
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
 use axum::body::Bytes;
@@ -95,7 +94,7 @@ impl MpcHttpConnection {
         Ok(result.to_vec())
     }
 
-    async fn mul<S: Step, M: Message>(
+    async fn mul<S: Step>(
         &self,
         query_id: QueryId,
         step: S,
@@ -113,5 +112,56 @@ impl MpcHttpConnection {
             .is_success()
             .then_some(())
             .ok_or(MpcClientError::FailedRequest(resp_status))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::net::{bind_mpc_helper_server, BindTarget, BufferedMessages};
+    use crate::protocol::IPAProtocolStep;
+    use tokio::sync::mpsc;
+
+    async fn start_server_client<S: Step>(
+        host_str: &'static str,
+        outgoing_chan: mpsc::Sender<BufferedMessages<S>>,
+    ) -> MpcHttpConnection {
+        bind_mpc_helper_server(BindTarget::Http(host_str.parse().unwrap()), outgoing_chan).await;
+        MpcHttpConnection::with_str_addr(&format!("http://{host_str}")).unwrap()
+    }
+    #[tokio::test]
+    async fn mul_req() {
+        const DATA_SIZE: usize = 4;
+        let query_id = QueryId;
+        let step = IPAProtocolStep::ConvertShares;
+        let offset = 0;
+        let messages = &[0; DATA_SIZE * 3];
+
+        let host = "127.0.0.1:3000";
+
+        let (tx, mut rx) = mpsc::channel(1);
+        let client = start_server_client(host, tx).await;
+
+        let res = client
+            .mul(
+                query_id,
+                step,
+                offset,
+                DATA_SIZE,
+                Bytes::from_static(messages),
+            )
+            .await;
+        assert!(res.is_ok(), "{}", res.unwrap_err());
+        let server_recvd = rx.try_recv().unwrap(); // should already have been received
+        assert_eq!(
+            server_recvd,
+            BufferedMessages {
+                query_id,
+                step,
+                offset,
+                data_size: DATA_SIZE,
+                body: Bytes::from_static(messages)
+            }
+        );
     }
 }

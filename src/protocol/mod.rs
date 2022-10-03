@@ -48,7 +48,8 @@ impl TryFrom<String> for IPAProtocolStep {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value == *Self::CONVERT_SHARES_STR {
+        let value = value.strip_prefix('/').unwrap_or(&value);
+        if value == Self::CONVERT_SHARES_STR {
             Ok(Self::ConvertShares)
         } else if let Some(rem) = value.strip_prefix(Self::SORT_STR) {
             Ok(Self::Sort(String::from(rem).try_into()?))
@@ -123,7 +124,8 @@ impl TryFrom<String> for SortStep {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+        let value = value.strip_prefix('/').unwrap_or(&value);
+        match value {
             Self::BIT_PERMUTATIONS_STR => Ok(Self::BitPermutations),
             _ => Err(Error::NotFound),
         }

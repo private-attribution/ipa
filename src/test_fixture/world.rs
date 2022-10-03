@@ -58,6 +58,7 @@ impl TryFrom<String> for TestStep {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
+        let value = value.strip_prefix('/').unwrap_or(&value);
         if value == "mul2" {
             Ok(Self::Mul2)
         } else {

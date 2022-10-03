@@ -113,6 +113,7 @@ pub mod stream {
         type Error = Error;
 
         fn try_from(value: String) -> Result<Self, Self::Error> {
+            let value = value.strip_prefix('/').unwrap_or(&value);
             let rem = value.strip_prefix("streaming/").ok_or(Error::InvalidId)?;
             Ok(StreamingStep(rem.parse()?))
         }

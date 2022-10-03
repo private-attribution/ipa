@@ -88,7 +88,6 @@ pub fn router<S: Step>(outgoing_chan: mpsc::Sender<BufferedMessages<S>>) -> Rout
             post(move |path, headers, body| {
                 handlers::mul_handler::<S>(outgoing_chan, path, headers, body)
             }),
-            // post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
         )
 }
 

@@ -60,7 +60,7 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(dead_code)] // to be used in next PR
 pub struct BufferedMessages<S> {
     query_id: QueryId,
