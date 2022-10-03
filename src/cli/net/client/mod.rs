@@ -1,5 +1,5 @@
 use super::Command;
-use crate::cli::net::{DATA_SIZE_HEADER_NAME, OFFSET_HEADER_NAME};
+use crate::cli::net::RecordHeaders;
 use crate::helpers::mesh::Message;
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
@@ -105,10 +105,8 @@ impl MpcHttpConnection {
     ) -> Result<(), MpcClientError> {
         let uri = self.build_uri(format!("/mul/query-id/{}/step/{}", query_id, step))?;
         let body = Body::from(messages);
-        let req = Request::post(uri)
-            .header(OFFSET_HEADER_NAME.clone(), offset)
-            .header(DATA_SIZE_HEADER_NAME.clone(), data_size)
-            .body(body)?;
+        let headers = RecordHeaders { offset, data_size };
+        let req = headers.add_to(Request::post(uri)).body(body)?;
         let response = self.client.request(req).await?;
         let resp_status = response.status();
         resp_status

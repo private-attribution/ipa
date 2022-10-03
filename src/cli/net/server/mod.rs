@@ -26,6 +26,10 @@ pub mod handlers;
 pub enum MpcServerError {
     #[error(transparent)]
     BadQueryString(#[from] QueryRejection),
+    #[error("header not found: {0}")]
+    MissingHeader(String),
+    #[error("invalid header: {0}")]
+    InvalidHeader(BoxError),
     #[error(transparent)]
     BadPathString(#[from] PathRejection),
     #[error(transparent)]
@@ -36,18 +40,35 @@ pub enum MpcServerError {
     SendError(BoxError),
 }
 
+/// [`From`] implementation for [`MpcServerError::SendError`]
 impl<T: Debug + Send + Sync + 'static> From<mpsc::error::SendError<T>> for MpcServerError {
     fn from(err: mpsc::error::SendError<T>) -> Self {
         Self::SendError(err.into())
     }
 }
 
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
+impl From<std::num::ParseIntError> for MpcServerError {
+    fn from(err: std::num::ParseIntError) -> Self {
+        Self::InvalidHeader(err.into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
+impl From<axum::http::header::ToStrError> for MpcServerError {
+    fn from(err: axum::http::header::ToStrError) -> Self {
+        Self::InvalidHeader(err.into())
+    }
+}
+
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
-            Self::BadQueryString(_) | Self::BadPathString(_) | Self::SerdeError(_) => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::BadQueryString(_)
+            | Self::BadPathString(_)
+            | Self::SerdeError(_)
+            | Self::MissingHeader(_)
+            | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
             Self::HttpError(_) | Self::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -64,8 +85,8 @@ pub fn router<S: Step>(outgoing_chan: mpsc::Sender<BufferedMessages<S>>) -> Rout
         .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(move |query_id_and_step, body| {
-                handlers::mul_handler::<S>(outgoing_chan, query_id_and_step, body)
+            post(move |path, headers, body| {
+                handlers::mul_handler::<S>(outgoing_chan, path, headers, body)
             }),
             // post(|query_id_and_step, body| handlers::mul_handler::<S>(query_id_and_step, body)),
         )

@@ -1,5 +1,5 @@
 use crate::cli::net::server::MpcServerError;
-use crate::cli::net::BufferedMessages;
+use crate::cli::net::{BufferedMessages, RecordHeaders};
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
 use axum::body::Bytes;
@@ -22,9 +22,21 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
 pub async fn handler<S: Step>(
     outgoing: mpsc::Sender<BufferedMessages<S>>,
     Path(query_id, step): Path<S>,
+    RecordHeaders { offset, data_size }: RecordHeaders,
     body: Bytes,
 ) -> Result<(), MpcServerError> {
-    println!("{:?} {:?} {:?}", query_id, step, body);
-    outgoing.send((query_id, step, body)).await?;
+    println!(
+        "{:?} {:?} {:?}, {:?}, {:?}",
+        query_id, step, offset, data_size, body
+    );
+    outgoing
+        .send(BufferedMessages {
+            query_id,
+            step,
+            offset,
+            data_size,
+            body,
+        })
+        .await?;
     Ok(())
 }
