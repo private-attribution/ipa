@@ -1,7 +1,8 @@
 use crate::helpers::prss::PrssSpace;
+use rand::rngs::mock::StepRng;
+use rand::seq::SliceRandom;
 
 #[allow(dead_code)]
-
 pub struct Shuffle {}
 
 impl Shuffle {
@@ -11,22 +12,21 @@ impl Shuffle {
     /// drawing an element from the hat until no elements remain. The algorithm produces an unbiased
     /// permutation: every permutation is equally likely. This algorithm takes time proportional to
     /// the number of items being shuffled and shuffles them in place.
-    #[allow(dead_code)]
+    #[allow(clippy::cast_possible_truncation, dead_code)]
     fn generate_random_sequence(
         batchsize: usize,
-        random_value: u128,
+        index: u64,
         left_permute: bool,
         prss: &PrssSpace,
     ) -> Vec<usize> {
         let mut permutation: Vec<usize> = (0..batchsize).collect();
-        (1..batchsize).rev().for_each(|i| {
-            let location = if left_permute {
-                (prss.generate_values(random_value).0 as usize) % i
-            } else {
-                (prss.generate_values(random_value).1 as usize) % i
-            };
-            permutation.swap(i, location);
-        });
+        let rand = prss.generate_values(index.into());
+        let mut rng = if left_permute {
+            StepRng::new(rand.0 as u64, 1)
+        } else {
+            StepRng::new(rand.1 as u64, 1)
+        };
+        permutation.shuffle(&mut rng);
         permutation
     }
 }
@@ -43,7 +43,7 @@ mod tests {
         let mut rand = StepRng::new(1, 1);
         let batchsize = 10;
         let (p1, p2, p3) = make_participants();
-        let random_value = rand.gen::<u128>();
+        let random_value = rand.gen::<u64>();
         let sequence1left = Shuffle::generate_random_sequence(
             batchsize,
             random_value,
