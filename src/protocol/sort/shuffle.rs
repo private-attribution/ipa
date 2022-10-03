@@ -53,40 +53,40 @@ mod tests {
         let index = rand.gen::<u128>();
         let sequence1left = Shuffle::generate_random_permutation(
             batchsize,
-            Direction::Left,
             index,
+            true,
             &p1[TestStep::Shuffle],
         );
         let mut sequence1right = Shuffle::generate_random_permutation(
             batchsize,
-            Direction::Right,
             index,
+            false,
             &p1[TestStep::Shuffle],
         );
 
         let sequence2left = Shuffle::generate_random_permutation(
             batchsize,
-            Direction::Left,
             index,
+            true,
             &p2[TestStep::Shuffle],
         );
         let mut sequence2right = Shuffle::generate_random_permutation(
             batchsize,
-            Direction::Right,
             index,
+            false,
             &p2[TestStep::Shuffle],
         );
 
         let sequence3left = Shuffle::generate_random_permutation(
             batchsize,
-            Direction::Left,
             index,
+            true,
             &p3[TestStep::Shuffle],
         );
         let mut sequence3right = Shuffle::generate_random_permutation(
             batchsize,
-            Direction::Right,
             index,
+            false,
             &p3[TestStep::Shuffle],
         );
 
