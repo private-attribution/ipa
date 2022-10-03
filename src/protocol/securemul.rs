@@ -42,14 +42,13 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<M, F>(
+    pub async fn execute<F>(
         self,
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError>
     where
-        M: Mesh,
-        G: Gateway<M, S>,
+        G: Gateway<S>,
         F: Field,
     {
         let mut channel = self.gateway.get_channel(self.step);
@@ -95,7 +94,7 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::helpers::mesh::{Gateway, Mesh};
+    use crate::helpers::mesh::Gateway;
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
 
@@ -118,7 +117,7 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, M, G, S>(
+    pub fn secure_multiply<'a, F, G, S>(
         input_stream: S,
         ctx: &'a ProtocolContext<'a, G, StreamingStep>,
         _index: u128,
@@ -126,8 +125,7 @@ pub mod stream {
     where
         S: Stream<Item = Replicated<F>> + 'a,
         F: Field + 'static,
-        M: Mesh + 'a,
-        G: Gateway<M, StreamingStep>,
+        G: Gateway<StreamingStep>,
     {
         let record_id = RecordId::from(1);
         let mut stream_element_idx = 0;

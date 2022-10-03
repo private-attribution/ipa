@@ -158,7 +158,9 @@ impl<S: Step> TestHelperGateway<S> {
     }
 }
 
-impl<S: Step> Gateway<TestMesh<S>, S> for TestHelperGateway<S> {
+impl<S: Step> Gateway<S> for TestHelperGateway<S> {
+    type MeshType = TestMesh<S>;
+
     fn get_channel(&self, step: S) -> TestMesh<S> {
         TestMesh {
             step,

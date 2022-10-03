@@ -25,7 +25,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. calculate cumulative sum at each vector row
     /// 3. return back tuple of step 1 and step 2 output
     #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    fn prepare_mult_inputs<G: Gateway<IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'a, G, IPAProtocolStep>,
     ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a
@@ -51,7 +51,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// multiplies the input vector pairs across helpers and returns result
     /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
     #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    async fn secure_multiply<G: Gateway<IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'a, G, IPAProtocolStep>,
         mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
@@ -71,7 +71,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. multiply each row of previous output individually (i.e. x*y) across mpc helpers.
     /// 3. add ith column by i+len to obtain helper's share of sorted location, where len is same as input shares length
     #[allow(dead_code)]
-    pub async fn execute<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    pub async fn execute<G: Gateway<IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'_, G, IPAProtocolStep>,
     ) -> Result<Vec<Replicated<F>>, BoxError>

@@ -52,12 +52,14 @@ pub trait Mesh {
 }
 
 /// This is the entry point for protocols to request communication when they require it.
-pub trait Gateway<M: Mesh, S: Step> {
+pub trait Gateway<S: Step> {
+    type MeshType: Mesh;
+
     /// Create or return an existing channel for a given step. Protocols can send messages to
     /// any helper through this channel (see `Mesh` interface for details).
     ///
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    fn get_channel(&self, step: S) -> M;
+    fn get_channel(&self, step: S) -> Self::MeshType;
 }
