@@ -34,6 +34,51 @@ where
     permutation.apply_inv_slice_in_place(values);
 }
 
+/// Applying inverse using heapsort which applies destination in-place and in a fixed time
+#[allow(clippy::module_name_repetitions, dead_code)]
+pub fn apply_inv_inplace<T: Copy + Default>(destination_indices: &mut [usize], values: &mut [T]) {
+    /// Precondition: all elements below `start` are in heap order, expect `start` itself
+    fn sift_down<T: Copy + Default>(
+        destination_indices: &mut [usize],
+        values: &mut [T],
+        start: usize,
+        end: usize,
+    ) {
+        let mut root = start;
+        loop {
+            let mut child = root * 2 + 1; // Get the left child
+            if child > end {
+                break;
+            }
+            if child < end && destination_indices[child] < destination_indices[child + 1] {
+                // Right child exists and is greater.
+                child += 1;
+            }
+            if destination_indices[root] < destination_indices[child] {
+                // If child is greater than root, swap them
+                destination_indices.swap(root, child);
+                values.swap(root, child);
+                root = child;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Heapify : This procedure would build a valid max-heap.
+    let end = destination_indices.len();
+    for start in (0..end / 2).rev() {
+        // Skip leaf nodes (end / 2).
+        sift_down(destination_indices, values, start, end - 1);
+    }
+    // Sorting part : Iteratively sift down unsorted part (the heap).
+    for end in (1..destination_indices.len()).rev() {
+        destination_indices.swap(destination_indices[end], destination_indices[0]);
+        values.swap(end, 0);
+        sift_down(destination_indices, values, 0, end - 1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{apply, apply_inv};
