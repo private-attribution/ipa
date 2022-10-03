@@ -16,6 +16,12 @@ impl<T: Debug> Debug for Replicated<T> {
     }
 }
 
+impl<T: Field> Default for Replicated<T> {
+    fn default() -> Self {
+        Replicated::new(T::ZERO, T::ZERO)
+    }
+}
+
 impl<T: Field> Replicated<T> {
     #[must_use]
     pub fn new(a: T, b: T) -> Self {

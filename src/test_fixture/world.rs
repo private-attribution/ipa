@@ -1,6 +1,6 @@
 use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
-use crate::protocol::{QueryId, Step};
+use crate::protocol::{sort::ShuffleStep, QueryId, Step};
 use crate::test_fixture::make_participants;
 use std::fmt::{Debug, Formatter};
 
@@ -35,7 +35,7 @@ pub enum TestStep {
     Mul2,
     Reshare(u8),
     Reveal(u8),
-    Shuffle,
+    Shuffle(ShuffleStep),
 }
 
 impl Debug for TestStep {
@@ -45,7 +45,7 @@ impl Debug for TestStep {
             TestStep::Mul2 => write!(f, "TestStep/Mul2"),
             TestStep::Reshare(v) => write!(f, "TestStep/Reshare[{}]", v),
             TestStep::Reveal(v) => write!(f, "TestStep/Reveal[{}]", v),
-            TestStep::Shuffle => write!(f, "TestStep/Shuffle"),
+            TestStep::Shuffle(v) => write!(f, "TestStep/Shuffle[{:?}]", v),
         }
     }
 }
@@ -61,7 +61,7 @@ impl SpaceIndex for TestStep {
             TestStep::Mul2 => 1,
             TestStep::Reshare(_) => 2,
             TestStep::Reveal(_) => 3,
-            TestStep::Shuffle => 4,
+            TestStep::Shuffle(_) => 4,
         }
     }
 }
