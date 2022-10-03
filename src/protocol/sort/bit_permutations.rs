@@ -72,6 +72,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 3. add ith column by i+len to obtain helper's share of sorted location, where len is same as input shares length
     /// ![Bit Permutations steps][bit_permutations]
     #[allow(dead_code)]
+    #[embed_doc_image("reshare", "images/sort/bit_permutations.png")]
     pub async fn execute<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'_, G, IPAProtocolStep>,

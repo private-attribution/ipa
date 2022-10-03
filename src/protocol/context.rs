@@ -19,7 +19,7 @@ impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
             gateway,
         }
     }
-    
+
     /// Request multiplication for a given record. This function is intentionally made async
     /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
     /// In this case, function returns only when multiplication for this record can actually
