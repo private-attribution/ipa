@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
+use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 
 /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
 /// `Controller`'s dependencies
@@ -35,22 +36,6 @@ pub struct TestMesh<S> {
     step: S,
     controller: Controller<S>,
 }
-
-/// Represents control messages sent between helpers to handle infrastructure requests.
-enum ControlMessage<S> {
-    /// Connection for step S is requested by the peer
-    ConnectionRequest(Identity, S, mpsc::Receiver<MessageEnvelope>),
-}
-
-#[derive(Debug)]
-struct MessageEnvelope {
-    record_id: RecordId,
-    payload: Box<[u8]>,
-}
-
-/// Combination of helper identity and step that uniquely identifies a single channel of communication
-/// between two helpers.
-type ChannelId<S> = (Identity, S);
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
 /// that are pending message reception.
@@ -83,7 +68,7 @@ struct ReceiveRequest<S> {
 #[derive(Debug)]
 struct Controller<S> {
     identity: Identity,
-    peers: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
+    // peers: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
     connections: Arc<Mutex<HashMap<ChannelId<S>, mpsc::Sender<MessageEnvelope>>>>,
     receive_request_sender: mpsc::Sender<ReceiveRequest<S>>,
 }
@@ -144,7 +129,7 @@ impl<S: Step> ReceiveRequest<S> {
     }
 
     pub fn channel_id(&self) -> ChannelId<S> {
-        (self.from, self.step)
+        ChannelId::new(self.from, self.step)
     }
 }
 
@@ -210,104 +195,109 @@ impl<S: Step> Mesh for TestMesh<S> {
 
 impl<S> Clone for Controller<S> {
     fn clone(&self) -> Self {
-        Self {
-            receive_request_sender: self.receive_request_sender.clone(),
-            identity: self.identity,
-            peers: self.peers.clone(),
-            connections: Arc::clone(&self.connections),
-        }
+        todo!()
+        // Self {
+        //     receive_request_sender: self.receive_request_sender.clone(),
+        //     identity: self.identity,
+        //     peers: self.peers.clone(),
+        //     connections: Arc::clone(&self.connections),
+        // }
     }
 }
 
 impl<S: Step> Controller<S> {
     fn launch(
         identity: Identity,
-        control_tx: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
-        control_rx: mpsc::Receiver<ControlMessage<S>>,
+        // control_tx: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
+        // control_rx: mpsc::Receiver<ControlMessage<S>>,
     ) -> Self {
-        let (receive_tx, receive_rx) = mpsc::channel(1);
-        let controller = Self {
-            receive_request_sender: receive_tx,
-            identity,
-            connections: Arc::new(Mutex::new(HashMap::new())),
-            peers: control_tx,
-        };
-
-        Controller::start(identity, control_rx, receive_rx);
-
-        controller
+        todo!()
+        // let (receive_tx, receive_rx) = mpsc::channel(1);
+        // let controller = Self {
+        //     receive_request_sender: receive_tx,
+        //     identity,
+        //     connections: Arc::new(Mutex::new(HashMap::new())),
+        //     peers: control_tx,
+        // };
+        //
+        // Controller::start(identity, control_rx, receive_rx);
+        //
+        // controller
     }
 
     fn start(
         identity: Identity,
-        mut control_rx: mpsc::Receiver<ControlMessage<S>>,
-        mut receive_rx: mpsc::Receiver<ReceiveRequest<S>>,
+        // mut control_rx: mpsc::Receiver<ControlMessage<S>>,
+        // mut receive_rx: mpsc::Receiver<ReceiveRequest<S>>,
     ) {
-        tokio::spawn(async move {
-            let mut buf = HashMap::<ChannelId<S>, MessageBuffer>::new();
-            let mut channels = SelectAll::new();
-
-            loop {
-                // Make a random choice what to process next:
-                // * Receive and process a control message
-                // * Receive a message from another helper
-                // * Handle the request to receive a message from another helper
-                tokio::select! {
-                    Some(control_message) = control_rx.recv() => {
-                        tracing::debug!("new {control_message:?}");
-                        match control_message {
-                            ControlMessage::ConnectionRequest(peer, step, peer_connection) => {
-                                channels.push(prepend((peer, step), ReceiverStream::new(peer_connection)));
-                            }
-                        }
-                    }
-                    Some(receive_request) = receive_rx.recv() => {
-                        tracing::trace!("new {:?}", receive_request);
-                        buf.entry(receive_request.channel_id())
-                           .or_default()
-                           .receive_request(receive_request.record_id, receive_request.sender);
-                    }
-                    Some(((from_peer, step), message_envelope)) = channels.next() => {
-                        tracing::trace!("new MessageArrival(from={from_peer:?}, step={step:?}, record={:?}, size={}B)", message_envelope.record_id, message_envelope.payload.len());
-                        buf.entry((from_peer, step))
-                           .or_default()
-                           .receive_message(message_envelope);
-                    }
-                    else => {
-                        tracing::debug!("All channels are closed and event loop is terminated");
-                        break;
-                    }
-                }
-            }
-        }.instrument(tracing::info_span!("helper_event_loop", identity=?identity)));
+        todo!()
+        // tokio::spawn(async move {
+        //     let mut buf = HashMap::<ChannelId<S>, MessageBuffer>::new();
+        //     let mut channels = SelectAll::new();
+        //
+        //     loop {
+        //         // Make a random choice what to process next:
+        //         // * Receive and process a control message
+        //         // * Receive a message from another helper
+        //         // * Handle the request to receive a message from another helper
+        //         tokio::select! {
+        //             Some(control_message) = control_rx.recv() => {
+        //                 tracing::debug!("new {control_message:?}");
+        //                 match control_message {
+        //                     ControlMessage::ConnectionRequest(peer, step, peer_connection) => {
+        //                         channels.push(prepend((peer, step), ReceiverStream::new(peer_connection)));
+        //                     }
+        //                 }
+        //             }
+        //             Some(receive_request) = receive_rx.recv() => {
+        //                 tracing::trace!("new {:?}", receive_request);
+        //                 buf.entry(receive_request.channel_id())
+        //                    .or_default()
+        //                    .receive_request(receive_request.record_id, receive_request.sender);
+        //             }
+        //             Some(((from_peer, step), message_envelope)) = channels.next() => {
+        //                 tracing::trace!("new MessageArrival(from={from_peer:?}, step={step:?}, record={:?}, size={}B)", message_envelope.record_id, message_envelope.payload.len());
+        //                 buf.entry((from_peer, step))
+        //                    .or_default()
+        //                    .receive_message(message_envelope);
+        //             }
+        //             else => {
+        //                 tracing::debug!("All channels are closed and event loop is terminated");
+        //                 break;
+        //             }
+        //         }
+        //     }
+        // }.instrument(tracing::info_span!("helper_event_loop", identity=?identity)));
     }
 
     #[tracing::instrument(skip(self), level = "trace")]
     async fn get_connection(&self, peer: Identity, step: S) -> mpsc::Sender<MessageEnvelope> {
         assert_ne!(self.identity, peer);
 
-        let (sender, rx) = {
-            let mut connections = self.connections.lock().unwrap();
-            match connections.entry((peer, step)) {
-                Entry::Occupied(entry) => (entry.get().clone(), None),
-                Entry::Vacant(entry) => {
-                    let (tx, rx) = mpsc::channel(1);
-                    (entry.insert(tx).clone(), Some(rx))
-                }
-            }
-        };
+        todo!()
 
-        if let Some(rx) = rx {
-            tracing::trace!("Requesting connection");
-            self.peers
-                .get(&peer)
-                .expect("peer with id {peer:?} should exist")
-                .send(ControlMessage::ConnectionRequest(self.identity, step, rx))
-                .await
-                .unwrap();
-        }
-
-        sender
+        // let (sender, rx) = {
+        //     let mut connections = self.connections.lock().unwrap();
+        //     match connections.entry((peer, step)) {
+        //         Entry::Occupied(entry) => (entry.get().clone(), None),
+        //         Entry::Vacant(entry) => {
+        //             let (tx, rx) = mpsc::channel(1);
+        //             (entry.insert(tx).clone(), Some(rx))
+        //         }
+        //     }
+        // };
+        //
+        // if let Some(rx) = rx {
+        //     tracing::trace!("Requesting connection");
+        //     self.peers
+        //         .get(&peer)
+        //         .expect("peer with id {peer:?} should exist")
+        //         .send(ControlMessage::ConnectionRequest(self.identity, step, rx))
+        //         .await
+        //         .unwrap();
+        // }
+        //
+        // sender
     }
 
     async fn receive(&self, peer: Identity, step: S, record: RecordId) -> Box<[u8]> {
@@ -323,39 +313,26 @@ impl<S: Step> Controller<S> {
 
 #[must_use]
 fn make_controllers<S: Step>() -> [Controller<S>; 3] {
-    let (mut senders, mut receivers) = (HashMap::new(), HashMap::new());
-    for identity in Identity::all_variants() {
-        let (tx, rx) = mpsc::channel(1);
-        senders.insert(*identity, tx);
-        receivers.insert(*identity, rx);
-    }
-
-    // Every controller gets its own receiver end for control messages
-    // and for N party setting gets N-1 senders to communicate these messages to peers
-    Identity::all_variants().map(|identity| {
-        let peer_senders = senders
-            .iter()
-            .filter(|(&k, _)| k != identity)
-            .map(|(&k, v)| (k, v.clone()))
-            .collect::<HashMap<_, _>>();
-        let rx = receivers.remove(&identity).unwrap();
-
-        Controller::launch(identity, peer_senders, rx)
-    })
-}
-
-pub fn prepend<T: Copy + Clone, S: Stream>(id: T, stream: S) -> impl Stream<Item = (T, S::Item)> {
-    stream.map(move |item| (id, item))
-}
-
-impl<S: Step> Debug for ControlMessage<S> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ControlMessage::ConnectionRequest(from, step, _) => {
-                write!(f, "ConnectionRequest(from={:?}, step={:?})", from, step)
-            }
-        }
-    }
+    todo!()
+    // let (mut senders, mut receivers) = (HashMap::new(), HashMap::new());
+    // for identity in Identity::all_variants() {
+    //     let (tx, rx) = mpsc::channel(1);
+    //     senders.insert(*identity, tx);
+    //     receivers.insert(*identity, rx);
+    // }
+    //
+    // // Every controller gets its own receiver end for control messages
+    // // and for N party setting gets N-1 senders to communicate these messages to peers
+    // Identity::all_variants().map(|identity| {
+    //     let peer_senders = senders
+    //         .iter()
+    //         .filter(|(&k, _)| k != identity)
+    //         .map(|(&k, v)| (k, v.clone()))
+    //         .collect::<HashMap<_, _>>();
+    //     let rx = receivers.remove(&identity).unwrap();
+    //
+    //     Controller::launch(identity, peer_senders, rx)
+    // })
 }
 
 impl<S: Step> Debug for ReceiveRequest<S> {

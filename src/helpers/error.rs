@@ -18,3 +18,11 @@ pub enum Error {
         inner: BoxError,
     },
 }
+
+impl Error {
+    pub fn send_error<E: std::error::Error + Send + Sync + 'static>(dest: Identity, inner: E) -> Error {
+        Self::SendError { dest, inner: Box::new(inner) }
+    }
+}
+
+pub type Result<T> = std::result::Result<T, Error>;

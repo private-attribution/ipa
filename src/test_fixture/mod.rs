@@ -2,6 +2,7 @@ pub mod circuit;
 pub mod logging;
 mod sharing;
 mod world;
+mod fabric;
 
 use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
