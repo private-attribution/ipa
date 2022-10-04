@@ -25,7 +25,7 @@ where
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
 /// ![Apply inv steps][apply_inv]
-#[allow(clippy::module_name_repetitions, dead_code)]
+#[allow(clippy::module_name_repetitions)]
 pub fn apply_inv<T: Copy + Default, S>(permutation: &mut Permutation, values: &mut S)
 where
     S: AsMut<[T]>,
