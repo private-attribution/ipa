@@ -235,6 +235,7 @@ pub mod tests {
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
         logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
+        fabric::InMemoryEndpoint
     };
 
     #[tokio::test]
@@ -304,7 +305,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelperGateway<TestStep>, TestStep>; 3],
+        context: &[ProtocolContext<'_, TestHelperGateway<TestStep, InMemoryEndpoint<TestStep>>, TestStep>; 3],
         a: u8,
         b: u8,
         rng: &mut R,

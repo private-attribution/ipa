@@ -32,7 +32,7 @@ struct InMemoryMesh<S> {
 
 
 #[derive(Debug)]
-struct InMemoryEndpoint<S> {
+pub struct InMemoryEndpoint<S> {
     id: Identity,
 
     // Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
@@ -114,7 +114,7 @@ impl <S: Step> InMemoryEndpoint<S> {
 
 
 #[async_trait]
-impl <S: Step + EnumArray<Option<InMemoryChannel>> + Sync> Fabric<S> for InMemoryEndpoint<S> {
+impl <S: Step + Sync> Fabric<S> for InMemoryEndpoint<S> {
     type Channel = InMemoryChannel;
     type MessageStream = ReceiverStream<MessageChunks>;
 

@@ -2,7 +2,7 @@ pub mod circuit;
 pub mod logging;
 mod sharing;
 mod world;
-mod fabric;
+pub(crate) mod fabric;
 
 use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
@@ -13,6 +13,7 @@ use rand::thread_rng;
 pub use sharing::{share, validate_and_reconstruct};
 pub use world::make as make_world;
 pub use world::{TestStep, TestWorld};
+use crate::test_fixture::fabric::InMemoryEndpoint;
 
 /// Creates protocol contexts for 3 helpers
 ///
@@ -21,7 +22,7 @@ pub use world::{TestStep, TestWorld};
 #[must_use]
 pub fn make_contexts<S: Step + SpaceIndex>(
     test_world: &TestWorld<S>,
-) -> [ProtocolContext<TestHelperGateway<S>, S>; 3] {
+) -> [ProtocolContext<TestHelperGateway<S, InMemoryEndpoint<S>>, S>; 3] {
     test_world
         .gateways
         .iter()

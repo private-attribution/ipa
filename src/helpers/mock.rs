@@ -17,13 +17,13 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+use crate::helpers::fabric::{ChannelId, Fabric, MessageEnvelope};
 
 /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
 /// `Controller`'s dependencies
 #[derive(Debug)]
-pub struct TestHelperGateway<S> {
-    controller: Controller<S>,
+pub struct TestHelperGateway<S, F> {
+    controller: Controller<S, F>,
 }
 
 /// This is the communication end exposed to protocols to send messages between helpers.
@@ -32,9 +32,9 @@ pub struct TestHelperGateway<S> {
 /// test world, it is used to uniquely identify the "stream" of records flowing between
 /// helper instances
 #[derive(Debug)]
-pub struct TestMesh<S> {
+pub struct TestMesh<S: Step, F> {
     step: S,
-    controller: Controller<S>,
+    controller: Controller<S, F>,
 }
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
@@ -66,52 +66,15 @@ struct ReceiveRequest<S> {
 /// connections between this helper and others. Also keeps the queues of incoming messages
 /// indexed by source + step.
 #[derive(Debug)]
-struct Controller<S> {
+struct Controller<S, F> {
     identity: Identity,
+    fabric: F,
     // peers: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
-    connections: Arc<Mutex<HashMap<ChannelId<S>, mpsc::Sender<MessageEnvelope>>>>,
+    // connections: Arc<Mutex<HashMap<ChannelId<S>, mpsc::Sender<MessageEnvelope>>>>,
     receive_request_sender: mpsc::Sender<ReceiveRequest<S>>,
 }
 
-impl MessageBuffer {
-    /// Process request to receive a message with the given `RecordId`.
-    fn receive_request(&mut self, record_id: RecordId, s: oneshot::Sender<Box<[u8]>>) {
-        match self.buf.entry(record_id) {
-            Entry::Occupied(entry) => match entry.remove() {
-                BufItem::Requested(_) => {
-                    panic!("More than one request to receive a message for {record_id:?}");
-                }
-                BufItem::Received(payload) => {
-                    s.send(payload).unwrap_or_else(|_| {
-                        tracing::warn!("No listener for message {record_id:?}");
-                    });
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(BufItem::Requested(s));
-            }
-        }
-    }
 
-    /// Process message that has been received
-    fn receive_message(&mut self, msg: MessageEnvelope) {
-        match self.buf.entry(msg.record_id) {
-            Entry::Occupied(entry) => match entry.remove() {
-                BufItem::Requested(s) => {
-                    s.send(msg.payload).unwrap_or_else(|_| {
-                        tracing::warn!("No listener for message {:?}", msg.record_id);
-                    });
-                }
-                BufItem::Received(_) => {
-                    panic!("Duplicate message for the same record {:?}", msg.record_id);
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(BufItem::Received(msg.payload));
-            }
-        }
-    }
-}
 
 impl<S: Step> ReceiveRequest<S> {
     pub fn new(
@@ -133,20 +96,20 @@ impl<S: Step> ReceiveRequest<S> {
     }
 }
 
-impl<S: Step> TestHelperGateway<S> {
-    fn new(controller: Controller<S>) -> Self {
+impl<S: Step, F: Fabric<S>> TestHelperGateway<S, F> {
+    fn new(controller: Controller<S, F>) -> Self {
         Self { controller }
     }
 
-    pub fn make_three() -> [TestHelperGateway<S>; 3] {
+    pub fn make_three() -> [TestHelperGateway<S, F>; 3] {
         make_controllers().map(Self::new)
     }
 }
 
-impl<S: Step> Gateway<S> for TestHelperGateway<S> {
-    type MeshType = TestMesh<S>;
+impl<S: Step, F: Fabric<S>> Gateway<S> for TestHelperGateway<S, F> {
+    type MeshType = TestMesh<S, F>;
 
-    fn get_channel(&self, step: S) -> TestMesh<S> {
+    fn get_channel(&self, step: S) -> TestMesh<S, F> {
         TestMesh {
             step,
             controller: self.controller.clone(),
@@ -155,7 +118,7 @@ impl<S: Step> Gateway<S> for TestHelperGateway<S> {
 }
 
 #[async_trait]
-impl<S: Step> Mesh for TestMesh<S> {
+impl<S: Step, F: Fabric<S>> Mesh for TestMesh<S, F> {
     #[tracing::instrument(skip(self), level = "trace")]
     async fn send<T: Message>(
         &mut self,
@@ -193,7 +156,7 @@ impl<S: Step> Mesh for TestMesh<S> {
     }
 }
 
-impl<S> Clone for Controller<S> {
+impl<S: Step, F: Fabric<S>> Clone for Controller<S, F> {
     fn clone(&self) -> Self {
         todo!()
         // Self {
@@ -205,9 +168,10 @@ impl<S> Clone for Controller<S> {
     }
 }
 
-impl<S: Step> Controller<S> {
+impl<S: Step, F: Fabric<S>> Controller<S, F> {
     fn launch(
         identity: Identity,
+        fabric: F
         // control_tx: HashMap<Identity, mpsc::Sender<ControlMessage<S>>>,
         // control_rx: mpsc::Receiver<ControlMessage<S>>,
     ) -> Self {
@@ -312,7 +276,7 @@ impl<S: Step> Controller<S> {
 }
 
 #[must_use]
-fn make_controllers<S: Step>() -> [Controller<S>; 3] {
+fn make_controllers<S: Step, F: Fabric<S>>() -> [Controller<S, F>; 3] {
     todo!()
     // let (mut senders, mut receivers) = (HashMap::new(), HashMap::new());
     // for identity in Identity::all_variants() {
@@ -342,5 +306,79 @@ impl<S: Step> Debug for ReceiveRequest<S> {
             "ReceiveRequest(from={:?}, step={:?}, record={:?})",
             self.from, self.step, self.record_id
         )
+    }
+}
+
+
+// struct SendReceive;
+//
+// impl Mesh for SendReceive {
+//     async fn send<T: Message>(&mut self, dest: Identity, record: RecordId, msg: T) -> Result<(), Error> {
+//         todo!()
+//     }
+//
+//     async fn receive<T: Message>(&mut self, source: Identity, record: RecordId) -> Result<T, Error> {
+//         todo!()
+//     }
+//
+//     fn identity(&self) -> Identity {
+//         todo!()
+//     }
+// }
+//
+// struct MyGateway<S, F> {
+//     identity: Identity,
+//     fabric: F
+// }
+//
+// impl <S: Step, F: Fabric<S>> MyGateway<S, F> {
+//     /// Create or return an existing channel for a given step. Protocols can send messages to
+//     /// any helper through this channel (see `Mesh` interface for details).
+//     ///
+//     /// This method makes no guarantee that the communication channel will actually be established
+//     /// between this helper and every other one. The actual connection may be created only when
+//     /// `Mesh::send` or `Mesh::receive` methods are called.
+//     async fn get_channel(&self, step: S) -> Channel {
+//         let connection = self.fabric.get_connection(ChannelId::new(self.identity, step)).await;
+//     }
+// }
+
+impl MessageBuffer {
+    /// Process request to receive a message with the given `RecordId`.
+    fn receive_request(&mut self, record_id: RecordId, s: oneshot::Sender<Box<[u8]>>) {
+        match self.buf.entry(record_id) {
+            Entry::Occupied(entry) => match entry.remove() {
+                BufItem::Requested(_) => {
+                    panic!("More than one request to receive a message for {record_id:?}");
+                }
+                BufItem::Received(payload) => {
+                    s.send(payload).unwrap_or_else(|_| {
+                        tracing::warn!("No listener for message {record_id:?}");
+                    });
+                }
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(BufItem::Requested(s));
+            }
+        }
+    }
+
+    /// Process message that has been received
+    fn receive_message(&mut self, msg: MessageEnvelope) {
+        match self.buf.entry(msg.record_id) {
+            Entry::Occupied(entry) => match entry.remove() {
+                BufItem::Requested(s) => {
+                    s.send(msg.payload).unwrap_or_else(|_| {
+                        tracing::warn!("No listener for message {:?}", msg.record_id);
+                    });
+                }
+                BufItem::Received(_) => {
+                    panic!("Duplicate message for the same record {:?}", msg.record_id);
+                }
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(BufItem::Received(msg.payload));
+            }
+        }
     }
 }

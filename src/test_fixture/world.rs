@@ -3,6 +3,7 @@ use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;
 use std::fmt::{Debug, Formatter};
+use crate::test_fixture::fabric::InMemoryEndpoint;
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -12,7 +13,7 @@ use std::fmt::{Debug, Formatter};
 #[allow(clippy::module_name_repetitions)]
 pub struct TestWorld<S: SpaceIndex> {
     pub query_id: QueryId,
-    pub gateways: [TestHelperGateway<S>; 3],
+    pub gateways: [TestHelperGateway<S, InMemoryEndpoint<S>>; 3],
     pub participants: [Participant<S>; 3],
 }
 
