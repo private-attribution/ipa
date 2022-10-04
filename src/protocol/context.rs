@@ -8,7 +8,7 @@ use super::{securemul::SecureMul, RecordId, Step};
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub struct ProtocolContext<'a, G, S: SpaceIndex> {
-    participant: &'a Participant<S>,
+    pub participant: &'a Participant<S>,
     pub gateway: &'a G,
 }
 
