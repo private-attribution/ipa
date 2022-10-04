@@ -62,14 +62,12 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
             seed.extend_from_slice(&randoms.0 .0.to_le_bytes());
             seed.extend_from_slice(&randoms.1 .0.to_le_bytes());
         } else {
-            seed.extend_from_slice(&randoms.0 .1.to_le_bytes());
-            seed.extend_from_slice(&randoms.1 .1.to_le_bytes());
+            (
+                prss.generate_values(batchsize as u128).1,
+                prss.generate_values(batchsize as u128 + 1).1,
+            )
         };
-
-        let mut permutation: Vec<usize> = (0..batchsize).collect();
-
-        permutation.shuffle(&mut ChaCha8Rng::from_seed(seed.try_into().unwrap()));
-        Permutation::from_vec(permutation)
+        generate_random_permutation_internal(batchsize, seed)
     }
 
     // We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
