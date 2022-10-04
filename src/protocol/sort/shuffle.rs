@@ -2,8 +2,6 @@ use crate::helpers::prss::PrssSpace;
 use crate::helpers::Direction;
 use rand::rngs::mock::StepRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
 
 #[allow(dead_code)]
 pub struct Shuffle {}
