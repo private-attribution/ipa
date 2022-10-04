@@ -6,14 +6,9 @@ use rand::seq::SliceRandom;
 pub struct Shuffle {}
 
 impl Shuffle {
-    /// The Fisher–Yates shuffle is an algorithm for generating a random permutation of a finite
-    /// sequence—in plain terms, the algorithm shuffles the sequence. The algorithm effectively
-    /// puts all the elements into a hat; it continually determines the next element by randomly
-    /// drawing an element from the hat until no elements remain. The algorithm produces an unbiased
-    /// permutation: every permutation is equally likely. This algorithm takes time proportional to
-    /// the number of items being shuffled and shuffles them in place.
+    /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
     #[allow(clippy::cast_possible_truncation, dead_code)]
-    fn generate_random_sequence(
+    fn generate_random_permutation(
         batchsize: usize,
         index: u64,
         left_permute: bool,
@@ -41,42 +36,42 @@ mod tests {
     #[test]
     fn random_sequence_generated() {
         let mut rand = StepRng::new(1, 1);
-        let batchsize = 10;
+        let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
         let random_value = rand.gen::<u64>();
-        let sequence1left = Shuffle::generate_random_sequence(
+        let sequence1left = Shuffle::generate_random_permutation(
             batchsize,
             random_value,
             true,
             &p1[TestStep::Shuffle],
         );
-        let mut sequence1right = Shuffle::generate_random_sequence(
+        let mut sequence1right = Shuffle::generate_random_permutation(
             batchsize,
             random_value,
             false,
             &p1[TestStep::Shuffle],
         );
 
-        let sequence2left = Shuffle::generate_random_sequence(
+        let sequence2left = Shuffle::generate_random_permutation(
             batchsize,
             random_value,
             true,
             &p2[TestStep::Shuffle],
         );
-        let mut sequence2right = Shuffle::generate_random_sequence(
+        let mut sequence2right = Shuffle::generate_random_permutation(
             batchsize,
             random_value,
             false,
             &p2[TestStep::Shuffle],
         );
 
-        let sequence3left = Shuffle::generate_random_sequence(
+        let sequence3left = Shuffle::generate_random_permutation(
             batchsize,
             random_value,
             true,
             &p3[TestStep::Shuffle],
         );
-        let mut sequence3right = Shuffle::generate_random_sequence(
+        let mut sequence3right = Shuffle::generate_random_permutation(
             batchsize,
             random_value,
             false,
@@ -87,6 +82,12 @@ mod tests {
         assert_eq!(sequence1right, sequence2left);
         assert_eq!(sequence2right, sequence3left);
         assert_eq!(sequence3right, sequence1left);
+
+        // Due to less randomness, the below three asserts can fail. However, the chance of failure is
+        // 1/18Quintillian (a billion billion since u64 is used to generate randomness)! Hopefully we should not hit that
+        assert_ne!(sequence1left, sequence1right);
+        assert_ne!(sequence2left, sequence2right);
+        assert_ne!(sequence3left, sequence3right);
 
         sequence1right.sort_unstable();
         sequence2right.sort_unstable();
