@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use crate::test_fixture::fabric::InMemoryEndpoint;
 pub use sharing::{share, validate_and_reconstruct};
-pub use world::{TestStep, TestWorld};
 pub use world::make as make_world;
+pub use world::{TestStep, TestWorld};
 
 /// Creates protocol contexts for 3 helpers
 ///
