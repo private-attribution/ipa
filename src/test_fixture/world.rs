@@ -1,9 +1,13 @@
-use crate::helpers::mock::TestHelperGateway;
+use crate::helpers::mock::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;
 use std::fmt::{Debug, Formatter};
-use crate::test_fixture::fabric::InMemoryEndpoint;
+use std::sync::Arc;
+use rand::rngs::StdRng;
+use rand::thread_rng;
+use rand_core::SeedableRng;
+use crate::test_fixture::fabric::{InMemoryEndpoint, InMemoryMesh};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -11,22 +15,27 @@ use crate::test_fixture::fabric::InMemoryEndpoint;
 /// to do if we need it.
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
-pub struct TestWorld<S: SpaceIndex> {
+pub struct TestWorld<S: SpaceIndex + 'static> {
     pub query_id: QueryId,
-    pub gateways: [TestHelperGateway<S, InMemoryEndpoint<S>>; 3],
+    pub gateways: [Gateway<'static, S, InMemoryEndpoint<S>>; 3],
     pub participants: [Participant<S>; 3],
+    // todo fix mesh name
+    pub mesh: &'static InMemoryMesh<S>,
 }
 
 #[must_use]
 pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
-    let gateways = TestHelperGateway::make_three();
+    let rng = StdRng::from_entropy();
+    let mesh: &'static InMemoryMesh<S> = Box::leak(Box::new(InMemoryMesh::new(rng)));
+    let gateways = mesh.gateways();
 
     TestWorld {
         query_id,
         gateways,
         participants,
+        mesh
     }
 }
 

@@ -21,45 +21,45 @@ pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
 impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
-/// Trait for MPC helpers to communicate with each other. Helpers can send messages and
-/// receive messages from a specific helper.
-#[async_trait]
-pub trait Mesh {
-    /// Send message to the destination. Implementations are free to choose whether it is required
-    /// to wait until `dest` acknowledges message or simply put it to a outgoing queue
-    async fn send<T: Message>(
-        &mut self,
-        dest: Identity,
-        record: RecordId,
-        msg: T,
-    ) -> Result<(), Error>;
+// /// Trait for MPC helpers to communicate with each other. Helpers can send messages and
+// /// receive messages from a specific helper.
+// #[async_trait]
+// pub trait Mesh {
+//     /// Send message to the destination. Implementations are free to choose whether it is required
+//     /// to wait until `dest` acknowledges message or simply put it to a outgoing queue
+//     async fn send<T: Message>(
+//         &mut self,
+//         dest: Identity,
+//         record: RecordId,
+//         msg: T,
+//     ) -> Result<(), Error>;
+//
+//     /// Receive a message that is associated with the given record id.
+//     async fn receive<T: Message>(&mut self, source: Identity, record: RecordId)
+//         -> Result<T, Error>;
+//
+//     /// Returns the unique identity of this helper.
+//     fn identity(&self) -> Identity;
+//
+//     /// Returns share of value one for this helper.
+//     fn share_of_one<F: Field>(&self) -> Replicated<F> {
+//         match self.identity() {
+//             Identity::H1 => Replicated::new(F::ONE, F::ZERO),
+//             Identity::H2 => Replicated::new(F::ZERO, F::ZERO),
+//             Identity::H3 => Replicated::new(F::ZERO, F::ONE),
+//         }
+//     }
+// }
 
-    /// Receive a message that is associated with the given record id.
-    async fn receive<T: Message>(&mut self, source: Identity, record: RecordId)
-        -> Result<T, Error>;
-
-    /// Returns the unique identity of this helper.
-    fn identity(&self) -> Identity;
-
-    /// Returns share of value one for this helper.
-    fn share_of_one<F: Field>(&self) -> Replicated<F> {
-        match self.identity() {
-            Identity::H1 => Replicated::new(F::ONE, F::ZERO),
-            Identity::H2 => Replicated::new(F::ZERO, F::ZERO),
-            Identity::H3 => Replicated::new(F::ZERO, F::ONE),
-        }
-    }
-}
-
-/// This is the entry point for protocols to request communication when they require it.
-pub trait Gateway<S: Step> {
-    type MeshType: Mesh;
-
-    /// Create or return an existing channel for a given step. Protocols can send messages to
-    /// any helper through this channel (see `Mesh` interface for details).
-    ///
-    /// This method makes no guarantee that the communication channel will actually be established
-    /// between this helper and every other one. The actual connection may be created only when
-    /// `Mesh::send` or `Mesh::receive` methods are called.
-    fn get_channel(&self, step: S) -> Self::MeshType;
-}
+// /// This is the entry point for protocols to request communication when they require it.
+// pub trait Gateway<S: Step> {
+//     type MeshType: Mesh;
+//
+//     /// Create or return an existing channel for a given step. Protocols can send messages to
+//     /// any helper through this channel (see `Mesh` interface for details).
+//     ///
+//     /// This method makes no guarantee that the communication channel will actually be established
+//     /// between this helper and every other one. The actual connection may be created only when
+//     /// `Mesh::send` or `Mesh::receive` methods are called.
+//     fn get_channel(&self, step: S) -> Self::MeshType;
+// }

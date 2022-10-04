@@ -18,6 +18,7 @@ use crate::helpers;
 use crate::helpers::error::Error;
 use futures::StreamExt;
 use rand::Rng;
+use crate::helpers::mock::Gateway;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
 pub(super) enum ControlMessage<S> {
@@ -26,7 +27,7 @@ pub(super) enum ControlMessage<S> {
 }
 
 #[derive(Debug)]
-struct InMemoryMesh<S> {
+pub struct InMemoryMesh<S> {
     endpoints: [InMemoryEndpoint<S>; 3]
 }
 
@@ -39,19 +40,18 @@ pub struct InMemoryEndpoint<S> {
     // For each peer there are multiple channels open, one per query + step.
     channels: Arc<Mutex<Vec<HashMap<S, InMemoryChannel>>>>,
     tx: Sender<ControlMessage<S>>,
-    rx: Arc<Mutex<Option<Receiver<MessageChunks>>>>,
+    rx: Arc<Mutex<Option<Receiver<MessageChunks<S>>>>>,
     world: Weak<InMemoryMesh<S>>,
 }
 
 /// In memory channel is just a standard mpsc channel.
 #[derive(Debug, Clone)]
-struct InMemoryChannel {
+pub struct InMemoryChannel {
     dest: Identity,
     tx: Sender<MessageEnvelope>
 }
 
 impl <S: Step> InMemoryMesh<S> {
-
     pub fn new<R: RngCore + Clone + Send + 'static>(mut r: R) -> Arc<Self> {
         let world = Arc::new_cyclic(|weak_ptr| {
             let endpoints = Identity::all_variants()
@@ -62,6 +62,13 @@ impl <S: Step> InMemoryMesh<S> {
 
         world
     }
+
+    // todo move away
+    pub fn gateways(&self) -> [Gateway<S, InMemoryEndpoint<S>>; 3] {
+        self.endpoints.iter().map(|fabric| {
+            Gateway::new(fabric.id, fabric)
+        }).collect::<Vec<_>>().try_into().unwrap()
+    }
 }
 
 impl <S: Step> InMemoryEndpoint<S> {
@@ -71,7 +78,7 @@ impl <S: Step> InMemoryEndpoint<S> {
 
         tokio::spawn(async move {
             let mut channels = SelectAll::new();
-            let mut buf = HashMap::<ChannelId<S>, MessageChunks>::new();
+            let mut buf = HashMap::<ChannelId<S>, Vec<MessageEnvelope>>::new();
 
             loop {
                 tokio::select! {
@@ -93,7 +100,7 @@ impl <S: Step> InMemoryEndpoint<S> {
                         let key = *buf.keys().skip(random_v).take(1).last().unwrap();
                         let msgs = buf.remove(&key).unwrap();
 
-                        permit.send(msgs);
+                        permit.send((key, msgs));
                     }
                     else => {
                         break;
@@ -114,9 +121,9 @@ impl <S: Step> InMemoryEndpoint<S> {
 
 
 #[async_trait]
-impl <S: Step + Sync> Fabric<S> for InMemoryEndpoint<S> {
+impl <S: Step> Fabric<S> for InMemoryEndpoint<S> {
     type Channel = InMemoryChannel;
-    type MessageStream = ReceiverStream<MessageChunks>;
+    type MessageStream = ReceiverStream<MessageChunks<S>>;
 
     async fn get_connection(&self, addr: ChannelId<S>) -> Self::Channel {
         let mut new_rx = None;

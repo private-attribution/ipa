@@ -4,7 +4,7 @@ mod sharing;
 mod world;
 pub(crate) mod fabric;
 
-use crate::helpers::mock::TestHelperGateway;
+use crate::helpers::mock::Gateway;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
@@ -22,7 +22,7 @@ use crate::test_fixture::fabric::InMemoryEndpoint;
 #[must_use]
 pub fn make_contexts<S: Step + SpaceIndex>(
     test_world: &TestWorld<S>,
-) -> [ProtocolContext<TestHelperGateway<S, InMemoryEndpoint<S>>, S>; 3] {
+) -> [ProtocolContext<S, InMemoryEndpoint<S>>; 3] {
     test_world
         .gateways
         .iter()

@@ -1,5 +1,5 @@
 use futures::Stream;
-use crate::protocol::{RecordId, Step};
+use crate::protocol::{QueryId, RecordId, Step};
 use async_trait::async_trait;
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
@@ -19,12 +19,12 @@ pub struct MessageEnvelope {
     pub payload: Box<[u8]>,
 }
 
-pub type MessageChunks = Vec<MessageEnvelope>;
+pub type MessageChunks<S> = (ChannelId<S>, Vec<MessageEnvelope>);
 
 #[async_trait]
-pub trait Fabric<S> {
+pub trait Fabric<S: Step> : Sync {
     type Channel: CommunicationChannel;
-    type MessageStream: Stream<Item = MessageChunks> + Unpin;
+    type MessageStream: Stream<Item = MessageChunks<S>> + Send + Unpin + 'static;
 
     async fn get_connection(&self, addr: ChannelId<S>) -> Self::Channel;
     fn message_stream(&self) -> Self::MessageStream;

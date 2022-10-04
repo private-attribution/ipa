@@ -1,12 +1,14 @@
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::mesh::{Gateway, Mesh};
+// use crate::helpers::mesh::{Gateway, Mesh};
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
+use crate::helpers::fabric::Fabric;
+use crate::helpers::mock::Gateway;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -18,15 +20,16 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, G, S> {
+pub struct SecureMul<'a, F, S> {
     prss: &'a PrssSpace,
-    gateway: &'a G,
+    gateway: &'a Gateway<'a, S, F>,
     step: S,
     record_id: RecordId,
 }
 
-impl<'a, G, S: Step> SecureMul<'a, G, S> {
-    pub fn new(prss: &'a PrssSpace, gateway: &'a G, step: S, record_id: RecordId) -> Self {
+// todo fix this F, S -> S, F
+impl<'a, FABRIC: Fabric<S>, S: Step> SecureMul<'a, FABRIC, S> {
+    pub fn new(prss: &'a PrssSpace, gateway: &'a Gateway<'a, S, FABRIC>, step: S, record_id: RecordId) -> Self {
         Self {
             prss,
             gateway,
@@ -48,7 +51,6 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError>
     where
-        G: Gateway<S>,
         F: Field,
     {
         let mut channel = self.gateway.get_channel(self.step);
@@ -94,9 +96,9 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::helpers::mesh::Gateway;
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
+    use crate::test_fixture::fabric::InMemoryEndpoint;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
@@ -117,15 +119,14 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, G, S>(
+    pub fn secure_multiply<'a, F, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, G, StreamingStep>,
+        ctx: &'a ProtocolContext<'a, StreamingStep, InMemoryEndpoint<StreamingStep>>,
         _index: u128,
     ) -> impl Stream<Item = Replicated<F>> + 'a
     where
         S: Stream<Item = Replicated<F>> + 'a,
-        F: Field + 'static,
-        G: Gateway<StreamingStep>,
+        F: Field,
     {
         let record_id = RecordId::from(1);
         let mut stream_element_idx = 0;
@@ -221,7 +222,6 @@ pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
-    use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
 
@@ -305,7 +305,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelperGateway<TestStep, InMemoryEndpoint<TestStep>>, TestStep>; 3],
+        context: &[ProtocolContext<'_, TestStep, InMemoryEndpoint<TestStep>>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
