@@ -27,7 +27,6 @@ pub struct Reshare<F> {
 }
 
 impl<F: Field> Reshare<F> {
-    #[allow(dead_code)]
     pub fn new(input: Replicated<F>) -> Self {
         Self { input }
     }
@@ -45,7 +44,6 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
-    #[allow(dead_code)]
     pub async fn execute<M: Mesh, G: Gateway<M, S>, S: Step + SpaceIndex>(
         self,
         ctx: &ProtocolContext<'_, G, S>,
@@ -143,6 +141,10 @@ mod tests {
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
             let output_share = validate_and_reconstruct(f);
             assert_eq!(output_share, input);
+
+            assert_ne!(share[0], f.0);
+            assert_ne!(share[1], f.1);
+            assert_ne!(share[2], f.2);
         }
     }
 }

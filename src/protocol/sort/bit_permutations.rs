@@ -15,7 +15,6 @@ pub struct BitPermutations<'a, F> {
     input: &'a [Replicated<F>],
 }
 
-/// Create an object to generate bit permutations for a given bit column of query. This is GENBITPERM(Algorithm 3) from the paper
 impl<'a, F: Field> BitPermutations<'a, F> {
     #[allow(dead_code)]
     pub fn new(input: &'a [Replicated<F>]) -> BitPermutations<'a, F> {
@@ -80,7 +79,6 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    #[embed_doc_image("reshare", "images/sort/bit_permutations.png")]
     pub async fn execute<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
         &self,
         ctx: &ProtocolContext<'_, G, IPAProtocolStep>,
