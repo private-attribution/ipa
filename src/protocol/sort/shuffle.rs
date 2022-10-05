@@ -13,13 +13,13 @@ impl Shuffle {
     #[allow(clippy::cast_possible_truncation, dead_code)]
     fn generate_random_permutation(
         batchsize: usize,
-        index: u128,
-        left_permute: bool,
+        direction: Direction,
+        index: u64,
         prss: &PrssSpace,
     ) -> Vec<usize> {
         let mut permutation: Vec<usize> = (0..batchsize).collect();
         let rand = prss.generate_values(index.into());
-        let mut rng = if left_permute {
+        let mut rng = if direction == Direction::Left {
             StepRng::new(rand.0 as u64, 1)
         } else {
             StepRng::new(rand.1 as u64, 1)
@@ -44,22 +44,45 @@ mod tests {
         let mut rand = StepRng::new(1, 1);
         let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
+        let index = rand.gen::<u64>();
+        let sequence1left = Shuffle::generate_random_permutation(
+            batchsize,
+            Direction::Left,
+            index,
+            &p1[TestStep::Shuffle],
+        );
+        let mut sequence1right = Shuffle::generate_random_permutation(
+            batchsize,
+            Direction::Right,
+            index,
+            &p1[TestStep::Shuffle],
+        );
 
-        let index = rand.gen::<u128>();
-        let sequence1left =
-            Shuffle::generate_random_permutation(batchsize, index, true, &p1[TestStep::Shuffle]);
-        let mut sequence1right =
-            Shuffle::generate_random_permutation(batchsize, index, false, &p1[TestStep::Shuffle]);
+        let sequence2left = Shuffle::generate_random_permutation(
+            batchsize,
+            Direction::Left,
+            index,
+            &p2[TestStep::Shuffle],
+        );
+        let mut sequence2right = Shuffle::generate_random_permutation(
+            batchsize,
+            Direction::Right,
+            index,
+            &p2[TestStep::Shuffle],
+        );
 
-        let sequence2left =
-            Shuffle::generate_random_permutation(batchsize, index, true, &p2[TestStep::Shuffle]);
-        let mut sequence2right =
-            Shuffle::generate_random_permutation(batchsize, index, false, &p2[TestStep::Shuffle]);
-
-        let sequence3left =
-            Shuffle::generate_random_permutation(batchsize, index, true, &p3[TestStep::Shuffle]);
-        let mut sequence3right =
-            Shuffle::generate_random_permutation(batchsize, index, false, &p3[TestStep::Shuffle]);
+        let sequence3left = Shuffle::generate_random_permutation(
+            batchsize,
+            Direction::Left,
+            index,
+            &p3[TestStep::Shuffle],
+        );
+        let mut sequence3right = Shuffle::generate_random_permutation(
+            batchsize,
+            Direction::Right,
+            index,
+            &p3[TestStep::Shuffle],
+        );
 
         let expected_numbers: Vec<usize> = (0..batchsize).collect();
         assert_eq!(sequence1right, sequence2left);
