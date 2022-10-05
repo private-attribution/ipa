@@ -1,13 +1,13 @@
+use std::fmt::{Debug, Display, Formatter};
 use futures::Stream;
 use crate::protocol::{QueryId, RecordId, Step};
 use async_trait::async_trait;
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
-use crate::test_fixture;
 
 /// Combination of helper identity and step that uniquely identifies a single channel of communication
 /// between two helpers.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId<S> {
     pub identity: Identity,
     pub step: S
@@ -41,6 +41,12 @@ impl <S: Step> ChannelId<S> {
             identity,
             step
         }
+    }
+}
+
+impl <S: Debug> Debug for ChannelId<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "channel[peer={:?},step={:?}]", self.identity, self.step)
     }
 }
 

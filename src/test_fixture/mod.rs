@@ -2,7 +2,7 @@ pub mod circuit;
 pub mod logging;
 mod sharing;
 mod world;
-pub(crate) mod fabric;
+pub mod fabric;
 
 use crate::helpers::mock::Gateway;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
@@ -20,9 +20,9 @@ use crate::test_fixture::fabric::InMemoryEndpoint;
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts<S: Step + SpaceIndex>(
-    test_world: &TestWorld<S>,
-) -> [ProtocolContext<S, InMemoryEndpoint<S>>; 3] {
+pub fn make_contexts<'a, S: Step + SpaceIndex>(
+    test_world: &'a TestWorld<S>,
+) -> [ProtocolContext<'a, S, InMemoryEndpoint<S>>; 3] {
     test_world
         .gateways
         .iter()

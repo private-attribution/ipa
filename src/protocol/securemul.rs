@@ -20,7 +20,7 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, F, S> {
+pub struct SecureMul<'a, S, F> {
     prss: &'a PrssSpace,
     gateway: &'a Gateway<'a, S, F>,
     step: S,
@@ -28,7 +28,7 @@ pub struct SecureMul<'a, F, S> {
 }
 
 // todo fix this F, S -> S, F
-impl<'a, FABRIC: Fabric<S>, S: Step> SecureMul<'a, FABRIC, S> {
+impl<'a, S: Step, FABRIC: Fabric<S>> SecureMul<'a, S, FABRIC> {
     pub fn new(prss: &'a PrssSpace, gateway: &'a Gateway<'a, S, FABRIC>, step: S, record_id: RecordId) -> Self {
         Self {
             prss,
@@ -96,9 +96,9 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
+    use crate::helpers::fabric::Fabric;
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
-    use crate::test_fixture::fabric::InMemoryEndpoint;
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep(u128);
@@ -119,14 +119,15 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, S>(
+    pub fn secure_multiply<'a, F, FABRIC, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, StreamingStep, InMemoryEndpoint<StreamingStep>>,
+        ctx: &'a ProtocolContext<'a, StreamingStep, FABRIC>,
         _index: u128,
     ) -> impl Stream<Item = Replicated<F>> + 'a
     where
         S: Stream<Item = Replicated<F>> + 'a,
         F: Field,
+        FABRIC: Fabric<StreamingStep>,
     {
         let record_id = RecordId::from(1);
         let mut stream_element_idx = 0;

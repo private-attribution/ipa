@@ -23,8 +23,6 @@ use crate::helpers::fabric::{ChannelId, Fabric, MessageEnvelope};
 use crate::helpers::fabric::CommunicationChannel;
 use crate::secret_sharing::Replicated;
 
-// /// Gateway is just the proxy for `Controller` interface to provide stable API and hide
-// /// `Controller`'s dependencies
 // #[derive(Debug)]
 // pub struct TestHelperGateway<S, F> {
 //     controller: Controller<S, F>,
@@ -59,58 +57,42 @@ enum BufItem {
     Received(Box<[u8]>),
 }
 
-#[derive(Debug)]
 struct ReceiveRequest<S> {
-    from: Identity,
-    step: S,
+    channel_id: ChannelId<S>,
     record_id: RecordId,
     sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl<S: Step> ReceiveRequest<S> {
-    pub fn new(
-        from: Identity,
-        step: S,
-        record_id: RecordId,
-        sender: oneshot::Sender<Box<[u8]>>,
-    ) -> Self {
-        Self {
-            from,
-            step,
-            record_id,
-            sender,
-        }
-    }
 
-    pub fn channel_id(&self) -> ChannelId<S> {
-        ChannelId::new(self.from, self.step)
-    }
-}
-
+/// Entry point to the messaging layer managing communication channels for protocols and provides
+/// the ability to send and receive messages from helper peers. Protocols request communication
+/// channels to be open by calling `get_channel`, after that it is possible to send messages
+/// through the channel end and request a given message type from helper peer.
+///
+/// Gateways are generic over `Fabric` meaning they can operate on top of in-memory communication
+/// channels and real network.
+///
+/// ### Implementation details
+/// Gateway, when created, runs an even loop in a dedicated tokio task that pulls the messages
+/// from the networking layer and attempts to fulfil the outstanding requests to receive them.
+/// If `receive` method on the channel has never been called, it puts the message to the local
+/// buffer and keeps it there until such request is made by the protocol.
+/// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
 pub struct Gateway<'a, S, F> {
-    identity: Identity,
+    helper_identity: Identity,
     fabric: &'a F,
+    /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest<S>>,
 }
 
+/// Channel end
 #[derive(Debug)]
 pub struct Mesh<'a, S, F> {
     fabric: &'a F,
-    identity: Identity,
     step: S,
+    helper_identity: Identity,
     gateway_tx: mpsc::Sender<ReceiveRequest<S>>,
-}
-
-impl <'a, S, F> Mesh<'a, S, F> {
-    fn new(fabric: &'a F, channel_id: ChannelId<S>, gateway_tx: mpsc::Sender<ReceiveRequest<S>>) -> Self {
-        Self {
-            fabric,
-            identity: channel_id.identity,
-            step: channel_id.step,
-            gateway_tx
-        }
-    }
 }
 
 impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
@@ -136,19 +118,21 @@ impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
         let (tx, mut rx) = oneshot::channel();
 
         self.gateway_tx
-            .send(ReceiveRequest { from: source, step: self.step, record_id, sender: tx })
+            .send(ReceiveRequest { channel_id: ChannelId::new(source, self.step), record_id, sender: tx })
             .await
             .unwrap();
 
         let payload = rx.await.unwrap();
-        let obj: T = serde_json::from_slice(&payload).unwrap();
+        let obj: T = tokio::task::spawn_blocking(move || {
+            serde_json::from_slice(&payload).unwrap()
+        }).await.unwrap();
 
         Ok(obj)
     }
 
     /// Returns the unique identity of this helper.
     pub fn identity(&self) -> Identity {
-        self.identity
+        self.helper_identity
     }
 }
 
@@ -168,12 +152,12 @@ impl <'a, S: Step, F: Fabric<S>> Gateway<'a, S, F> {
                 tokio::select! {
                     Some(receive_request) = receive_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
-                        buf.entry(receive_request.channel_id())
+                        buf.entry(receive_request.channel_id)
                            .or_default()
                            .receive_request(receive_request.record_id, receive_request.sender);
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
-                        // tracing::trace!("new MessageArrival(from={from_peer:?}, step={step:?}, record={:?}, size={}B)", message_envelope.record_id, message_envelope.payload.len());
+                        tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
                         buf.entry(channel_id)
                            .or_default()
                            .receive_messages(messages);
@@ -184,10 +168,10 @@ impl <'a, S: Step, F: Fabric<S>> Gateway<'a, S, F> {
                     }
                 }
             }
-        }).instrument(tracing::info_span!("gateway_event_loop", identity=?identity));
+        }.instrument(tracing::info_span!("gateway_event_loop", identity=?identity)));
 
         Self {
-            identity,
+            helper_identity: identity,
             fabric,
             tx
         }
@@ -200,7 +184,7 @@ impl <'a, S: Step, F: Fabric<S>> Gateway<'a, S, F> {
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
     pub fn get_channel(&self, step: S) -> Mesh<'_, S, F> {
-        Mesh::new(&self.fabric, ChannelId::new(self.identity, step), self.tx.clone())
+        Mesh { fabric: &self.fabric, helper_identity: self.helper_identity, step, gateway_tx: self.tx.clone() }
     }
 }
 
@@ -247,5 +231,11 @@ impl MessageBuffer {
         msgs.into_iter().for_each(|msg| {
             self.receive_message(msg)
         })
+    }
+}
+
+impl <S: Step> Debug for ReceiveRequest<S> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReceiveRequest({:?}, {:?})", self.channel_id, self.record_id)
     }
 }

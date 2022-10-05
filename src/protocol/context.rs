@@ -15,7 +15,7 @@ pub struct ProtocolContext<'a, S: SpaceIndex, F> {
     pub gateway: &'a Gateway<'a, S, F>,
 }
 
-impl<'a, F: Fabric<S>, S: Step + SpaceIndex> ProtocolContext<'a, S, F> {
+impl<'a, S: Step + SpaceIndex, F: Fabric<S>> ProtocolContext<'a, S, F> {
     pub fn new(participant: &'a Participant<S>, gateway: &'a Gateway<S, F>) -> Self {
         Self {
             participant,
@@ -28,7 +28,7 @@ impl<'a, F: Fabric<S>, S: Step + SpaceIndex> ProtocolContext<'a, S, F> {
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, F, S> {
+    pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, S, F> {
         SecureMul::new(&self.participant[step], self.gateway, step, record_id)
     }
 }

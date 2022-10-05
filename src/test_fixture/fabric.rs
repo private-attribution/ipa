@@ -27,21 +27,21 @@ pub(super) enum ControlMessage<S> {
 }
 
 #[derive(Debug)]
-pub struct InMemoryMesh<S> {
-    endpoints: [InMemoryEndpoint<S>; 3]
+pub struct InMemoryNetwork<S> {
+    pub endpoints: [InMemoryEndpoint<S>; 3]
 }
 
 
 #[derive(Debug)]
 pub struct InMemoryEndpoint<S> {
-    id: Identity,
+    pub id: Identity,
 
     // Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
     // For each peer there are multiple channels open, one per query + step.
     channels: Arc<Mutex<Vec<HashMap<S, InMemoryChannel>>>>,
     tx: Sender<ControlMessage<S>>,
     rx: Arc<Mutex<Option<Receiver<MessageChunks<S>>>>>,
-    world: Weak<InMemoryMesh<S>>,
+    network: Weak<InMemoryNetwork<S>>,
 }
 
 /// In memory channel is just a standard mpsc channel.
@@ -51,7 +51,7 @@ pub struct InMemoryChannel {
     tx: Sender<MessageEnvelope>
 }
 
-impl <S: Step> InMemoryMesh<S> {
+impl <S: Step> InMemoryNetwork<S> {
     pub fn new<R: RngCore + Clone + Send + 'static>(mut r: R) -> Arc<Self> {
         let world = Arc::new_cyclic(|weak_ptr| {
             let endpoints = Identity::all_variants()
@@ -62,17 +62,10 @@ impl <S: Step> InMemoryMesh<S> {
 
         world
     }
-
-    // todo move away
-    pub fn gateways(&self) -> [Gateway<S, InMemoryEndpoint<S>>; 3] {
-        self.endpoints.iter().map(|fabric| {
-            Gateway::new(fabric.id, fabric)
-        }).collect::<Vec<_>>().try_into().unwrap()
-    }
 }
 
 impl <S: Step> InMemoryEndpoint<S> {
-    pub fn new<R: RngCore + Send + 'static>(id: Identity, world: Weak<InMemoryMesh<S>>, mut r: R) -> Self {
+    pub fn new<R: RngCore + Send + 'static>(id: Identity, world: Weak<InMemoryNetwork<S>>, mut r: R) -> Self {
         let (tx, mut open_channel_rx) = mpsc::channel(1);
         let (message_stream_tx, message_stream_rx) = mpsc::channel(1);
 
@@ -114,7 +107,7 @@ impl <S: Step> InMemoryEndpoint<S> {
             channels: Arc::new(Mutex::new(vec![HashMap::default(), HashMap::default(), HashMap::default()])),
             tx,
             rx: Arc::new(Mutex::new(Some(message_stream_rx))),
-            world,
+            network: world,
         }
     }
 }
@@ -148,7 +141,7 @@ impl <S: Step> Fabric<S> for InMemoryEndpoint<S> {
         };
 
         if let Some(rx) = new_rx {
-            self.world.upgrade().unwrap().endpoints[addr.identity].tx
+            self.network.upgrade().unwrap().endpoints[addr.identity].tx
                 .send(ControlMessage::ConnectionRequest(ChannelId::new(self.id, addr.step), rx)).await.unwrap();
         }
 

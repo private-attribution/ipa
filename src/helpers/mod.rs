@@ -102,7 +102,7 @@ mod tests {
 
         #[test]
         pub fn index_works() {
-            let data = [3,4,5];
+            let data = [3, 4, 5];
             assert_eq!(3, data[Identity::H1]);
             assert_eq!(4, data[Identity::H2]);
             assert_eq!(5, data[Identity::H3]);
