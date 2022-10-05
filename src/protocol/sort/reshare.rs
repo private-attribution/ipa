@@ -18,9 +18,9 @@ pub struct PartValue<F> {
     part: F,
 }
 /// Reshare(i, \[x\])
-// This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
-// Input: Pi-1 and Pi+1 know their secret shares
-// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
+/// This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
+/// Input: Pi-1 and Pi+1 know their secret shares
+/// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 #[derive(Debug)]
 pub struct Reshare<F> {
     input: Replicated<F>,
@@ -141,7 +141,6 @@ mod tests {
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
             let output_share = validate_and_reconstruct(f);
             assert_eq!(output_share, input);
-
             assert_ne!(share[0], f.0);
             assert_ne!(share[1], f.1);
             assert_ne!(share[2], f.2);

@@ -25,17 +25,15 @@ use super::{
     ShuffleStep::{self, Step1, Step2, Step3},
 };
 
-#[allow(dead_code)]
-pub struct Shuffle<'a, F, S> {
+pub struct Shuffle<'a, F, SF> {
     input: &'a mut Vec<Replicated<F>>,
-    step_fn: fn(ShuffleStep) -> S,
+    step_fn: SF,
 }
 
 /// This is SHUFFLE(Algorithm 1) described in <https://eprint.iacr.org/2019/695.pdf>.
 /// This protocol shuffles the given inputs across 3 helpers making them indistinguishable to the helpers
-impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
-    #[allow(dead_code)]
-    pub fn new(input: &'a mut Vec<Replicated<F>>, step_fn: fn(ShuffleStep) -> S) -> Self {
+impl<'a, F: Field, S: Step + SpaceIndex, SF: Fn(ShuffleStep) -> S> Shuffle<'a, F, SF> {
+    pub fn new(input: &'a mut Vec<Replicated<F>>, step_fn: SF) -> Self {
         Self { input, step_fn }
     }
 
@@ -62,12 +60,14 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
             seed.extend_from_slice(&randoms.0 .0.to_le_bytes());
             seed.extend_from_slice(&randoms.1 .0.to_le_bytes());
         } else {
-            (
-                prss.generate_values(batchsize as u128).1,
-                prss.generate_values(batchsize as u128 + 1).1,
-            )
+            seed.extend_from_slice(&randoms.0 .1.to_le_bytes());
+            seed.extend_from_slice(&randoms.1 .1.to_le_bytes());
         };
-        generate_random_permutation_internal(batchsize, seed)
+
+        let mut permutation: Vec<usize> = (0..batchsize).collect();
+
+        permutation.shuffle(&mut ChaCha8Rng::from_seed(seed.try_into().unwrap()));
+        Permutation::from_vec(permutation)
     }
 
     // We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
@@ -108,7 +108,6 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// i)   2 helpers generate random sequence using shared prss random number
     /// ii)  2 helpers apply the permutation to their shares
     /// iii) reshare to `to_helper`
-    #[allow(clippy::cast_possible_truncation)]
     async fn single_shuffle<M: Mesh, G: Gateway<M, S>>(
         &mut self,
         ctx: &ProtocolContext<'_, G, S>,
@@ -134,12 +133,11 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
     /// Shuffle calls `single_shuffle` three times with 2 helpers shuffling the shares each time.
     /// Order of calling `single_shuffle` is shuffle with (H2, H3), (H3, H1) and (H1, H2).
+    /// ![Shuffle steps][shuffle]
     /// Each single shuffle requires communication between helpers to perform reshare.
     /// Infrastructure has a pre-requisite to distinguish each communication step uniquely.
     /// For this, we have three shuffle steps one per `single_shuffle` i.e. Step1, Step2 and Step3.
     /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
-    /// ![Shuffle steps][shuffle]
-    #[allow(dead_code)]
     pub async fn execute<M: Mesh, G: Gateway<M, S>>(
         &mut self,
         ctx: &ProtocolContext<'_, G, S>,
@@ -157,18 +155,17 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::mock::StepRng;
     use std::collections::HashSet;
 
     use super::Shuffle;
     use crate::{
         field::Fp31,
         helpers::Direction,
-        protocol::sort::ShuffleStep::Step1,
+        protocol::sort::ShuffleStep::{self, Step1},
         protocol::QueryId,
         test_fixture::{
-            make_contexts, make_participants, make_world, share, validate_and_reconstruct,
-            TestStep, TestWorld,
+            generate_shares, make_contexts, make_participants, make_world,
+            validate_and_reconstruct, TestStep, TestWorld,
         },
     };
     use permutation::Permutation;
@@ -178,45 +175,51 @@ mod tests {
     fn random_sequence_generated() {
         let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
-        let sequence1left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Left,
-            &p1[TestStep::Shuffle(Step1)],
-            Step1,
-        );
-        let sequence1right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Right,
-            &p1[TestStep::Shuffle(Step1)],
-            Step1,
-        );
+        let sequence1left =
+            Shuffle::<Fp31, fn(ShuffleStep) -> TestStep>::generate_random_permutation(
+                batchsize,
+                Direction::Left,
+                &p1[TestStep::Shuffle(Step1)],
+                Step1,
+            );
+        let sequence1right =
+            Shuffle::<Fp31, fn(ShuffleStep) -> TestStep>::generate_random_permutation(
+                batchsize,
+                Direction::Right,
+                &p1[TestStep::Shuffle(Step1)],
+                Step1,
+            );
 
-        let sequence2left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Left,
-            &p2[TestStep::Shuffle(Step1)],
-            Step1,
-        );
+        let sequence2left =
+            Shuffle::<Fp31, fn(ShuffleStep) -> TestStep>::generate_random_permutation(
+                batchsize,
+                Direction::Left,
+                &p2[TestStep::Shuffle(Step1)],
+                Step1,
+            );
 
-        let sequence2right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Right,
-            &p2[TestStep::Shuffle(Step1)],
-            Step1,
-        );
+        let sequence2right =
+            Shuffle::<Fp31, fn(ShuffleStep) -> TestStep>::generate_random_permutation(
+                batchsize,
+                Direction::Right,
+                &p2[TestStep::Shuffle(Step1)],
+                Step1,
+            );
 
-        let sequence3left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Left,
-            &p3[TestStep::Shuffle(Step1)],
-            Step1,
-        );
-        let sequence3right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Right,
-            &p3[TestStep::Shuffle(Step1)],
-            Step1,
-        );
+        let sequence3left =
+            Shuffle::<Fp31, fn(ShuffleStep) -> TestStep>::generate_random_permutation(
+                batchsize,
+                Direction::Left,
+                &p3[TestStep::Shuffle(Step1)],
+                Step1,
+            );
+        let sequence3right =
+            Shuffle::<Fp31, fn(ShuffleStep) -> TestStep>::generate_random_permutation(
+                batchsize,
+                Direction::Right,
+                &p3[TestStep::Shuffle(Step1)],
+                Step1,
+            );
 
         assert_eq!(sequence1right, sequence2left);
         assert_eq!(sequence2right, sequence3left);
@@ -237,31 +240,22 @@ mod tests {
     async fn shuffle() {
         let world: TestWorld<TestStep> = make_world(QueryId);
         let context = make_contexts(&world);
-        let mut rand = StepRng::new(100, 1);
 
         let batchsize = 25;
         let input: Vec<u8> = (0..batchsize).collect();
         let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
         let input_len = input.len();
 
-        let mut shares0 = Vec::with_capacity(input_len);
-        let mut shares1 = Vec::with_capacity(input_len);
-        let mut shares2 = Vec::with_capacity(input_len);
+        let input_u128: Vec<u128> = input.iter().map(|x| u128::from(*x)).collect();
+        let mut shares = generate_shares(input_u128);
 
-        input.clone().into_iter().for_each(|iter| {
-            let share = share(Fp31::from(iter), &mut rand);
-            shares0.push(share[0]);
-            shares1.push(share[1]);
-            shares2.push(share[2]);
-        });
+        let input0 = shares.0.clone();
+        let input1 = shares.1.clone();
+        let input2 = shares.2.clone();
 
-        let input0 = shares0.clone();
-        let input1 = shares1.clone();
-        let input2 = shares2.clone();
-
-        let mut shuffle0 = Shuffle::new(&mut shares0, TestStep::Shuffle);
-        let mut shuffle1 = Shuffle::new(&mut shares1, TestStep::Shuffle);
-        let mut shuffle2 = Shuffle::new(&mut shares2, TestStep::Shuffle);
+        let mut shuffle0 = Shuffle::new(&mut shares.0, TestStep::Shuffle);
+        let mut shuffle1 = Shuffle::new(&mut shares.1, TestStep::Shuffle);
+        let mut shuffle2 = Shuffle::new(&mut shares.2, TestStep::Shuffle);
 
         let h0_future = shuffle0.execute(&context[0]);
         let h1_future = shuffle1.execute(&context[1]);
@@ -270,9 +264,9 @@ mod tests {
         try_join!(h0_future, h1_future, h2_future).unwrap();
 
         // Shuffled output should be same length as input
-        assert_eq!(shares0.len(), input_len);
-        assert_eq!(shares1.len(), input_len);
-        assert_eq!(shares2.len(), input_len);
+        assert_eq!(shares.0.len(), input_len);
+        assert_eq!(shares.1.len(), input_len);
+        assert_eq!(shares.2.len(), input_len);
 
         let mut result0 = Vec::with_capacity(input_len);
         let mut result1 = Vec::with_capacity(input_len);
@@ -280,18 +274,19 @@ mod tests {
 
         let mut hashed_output_secret = HashSet::new();
         let mut output_secret = Vec::new();
-        (0..shares0.len()).for_each(|i| {
-            let val = validate_and_reconstruct((shares0[i], shares1[i], shares2[i]));
+        (0..input_len).for_each(|i| {
+            let val = validate_and_reconstruct((shares.0[i], shares.1[i], shares.2[i]));
             output_secret.push(u8::from(val));
             hashed_output_secret.insert(u8::from(val));
 
-            result0.push(shares0[i]);
-            result1.push(shares1[i]);
-            result2.push(shares2[i]);
+            result0.push(shares.0[i]);
+            result1.push(shares.1[i]);
+            result2.push(shares.2[i]);
         });
 
-        // Order of shares should now be different from original
+        // Order of shares should be different from input
         assert!(result0 != input0 || result1 != input1 || result2 != input2);
+
         // Secrets should be shuffled also
         assert_ne!(output_secret, input);
 

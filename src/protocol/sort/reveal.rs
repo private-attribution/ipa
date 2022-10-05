@@ -18,11 +18,11 @@ pub struct RevealValue<F> {
     share: F,
 }
 
-/// This implements reveal algorithm
+/// This implements reveal algorithm at communication cost of 3R
 /// For simplicity, we consider a simple revealing in which each Pi sends \[a\]i to Pi+1 and then reconstructs a from \[a\]i and
 /// \[a\]i−1.
-// Input: Each helpers know their own secret shares
-// Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
+/// Input: Each helpers know their own secret shares
+/// Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
 pub struct Reveal<'a, G, S> {
     gateway: &'a G,
@@ -31,7 +31,6 @@ pub struct Reveal<'a, G, S> {
 }
 
 impl<'a, G, S: Step> Reveal<'a, G, S> {
-    #[allow(dead_code)]
     // We would want reveal constructors to be hidden from IPA code. Only ProtocolContext should be able to instantiate it and we
     // can verify that the call site is allowed to reveal by checking the step variable.
     pub(in crate::protocol) fn new(gateway: &'a G, step: S, record_id: RecordId) -> Self {
@@ -47,7 +46,6 @@ impl<'a, G, S: Step> Reveal<'a, G, S> {
     /// ![Reveal steps][reveal]
     /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
     /// i.e. their own shares and received share.
-    #[allow(dead_code)]
     pub async fn execute<M, F>(self, input: Replicated<F>) -> Result<F, BoxError>
     where
         F: Field,
