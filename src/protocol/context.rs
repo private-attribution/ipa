@@ -1,5 +1,5 @@
 use crate::helpers::fabric::Fabric;
-use crate::helpers::mock::Gateway;
+use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::securemul::SecureMul;
 

@@ -1,8 +1,7 @@
 use std::ops::{Index, IndexMut};
 
 pub mod error;
-pub mod mesh;
-pub mod mock;
+pub mod messaging;
 pub mod prss;
 pub mod fabric;
 

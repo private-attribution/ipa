@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
 use crate::helpers::fabric::Fabric;
-use crate::helpers::mock::Gateway;
+use crate::helpers::messaging::Gateway;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]

@@ -4,7 +4,6 @@ use std::convert::identity;
 use std::fmt::{Debug, Formatter};
 use std::ops::Index;
 use std::sync::{Arc, Mutex, Weak};
-use enum_map::{EnumArray, EnumMap};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use crate::helpers::fabric::{ChannelId, CommunicationChannel, Fabric, MessageChunks, MessageEnvelope};
@@ -18,7 +17,7 @@ use crate::helpers;
 use crate::helpers::error::Error;
 use futures::StreamExt;
 use rand::Rng;
-use crate::helpers::mock::Gateway;
+use crate::helpers::messaging::Gateway;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
 pub(super) enum ControlMessage<S> {

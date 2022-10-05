@@ -1,4 +1,4 @@
-use crate::helpers::mock::Gateway;
+use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;

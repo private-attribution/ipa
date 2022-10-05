@@ -1,68 +1,35 @@
-/// Provides an implementation of `Gateway` and `Mesh` suitable for unit tests.
-use std::collections::HashMap;
-
-use crate::helpers::error::Error;
-use crate::helpers::mesh::{Message};
-use crate::helpers::Identity;
-use crate::protocol::{RecordId, Step};
-
-use async_trait::async_trait;
-use futures::Stream;
-use futures_util::stream::SelectAll;
-use futures_util::StreamExt;
+//!
+//! This module contains implementations and traits that enable protocols to communicate with
+//! each other. In order for helpers to send messages, they need to know the destination. In some
+//! cases this might be the exact address of helper host/instance (for example IP address), but
+//! in many situations MPC helpers simply need to be able to send messages to the
+//! corresponding helper without needing to know the exact location - this is what this module
+//! enables MPC protocols to do.
+//!
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use crate::{
+    secret_sharing::Replicated,
+    protocol::{RecordId, Step},
+    helpers::Identity,
+    helpers::error::Error,
+    field::Field,
+    helpers::fabric::{ChannelId, CommunicationChannel, Fabric, MessageEnvelope}
+};
+use async_trait::async_trait;
+use serde::{
+    de::DeserializeOwned,
+    Serialize
+};
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
-
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::wrappers::ReceiverStream;
+use futures::StreamExt;
 use tracing::Instrument;
-use crate::field::Field;
-use crate::helpers::fabric::{ChannelId, Fabric, MessageEnvelope};
-use crate::helpers::fabric::CommunicationChannel;
-use crate::secret_sharing::Replicated;
 
-// #[derive(Debug)]
-// pub struct TestHelperGateway<S, F> {
-//     controller: Controller<S, F>,
-// }
-//
-// /// This is the communication end exposed to protocols to send messages between helpers.
-// /// It locks in the step, so all information sent through it is implicitly associated with
-// /// the step used to create this instance. Along with `QueryId` that is used to create the
-// /// test world, it is used to uniquely identify the "stream" of records flowing between
-// /// helper instances
-// #[derive(Debug)]
-// pub struct TestMesh<S, F> {
-//     step: S,
-//     controller: Controller<S, F>,
-// }
-//
-/// Local buffer for messages that are either awaiting requests to receive them or requests
-/// that are pending message reception.
-/// Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
-/// when protection against collisions is not required, so either use a vector indexed by
-/// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
-#[derive(Debug, Default)]
-struct MessageBuffer {
-    buf: HashMap<RecordId, BufItem>,
-}
+/// Trait for messages sent between helpers
+pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
-#[derive(Debug)]
-enum BufItem {
-    /// There is an outstanding request to receive the message but this helper hasn't seen it yet
-    Requested(oneshot::Sender<Box<[u8]>>),
-    /// Message has been received but nobody requested it yet
-    Received(Box<[u8]>),
-}
-
-struct ReceiveRequest<S> {
-    channel_id: ChannelId<S>,
-    record_id: RecordId,
-    sender: oneshot::Sender<Box<[u8]>>,
-}
-
+impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication
@@ -95,6 +62,30 @@ pub struct Mesh<'a, S, F> {
     gateway_tx: mpsc::Sender<ReceiveRequest<S>>,
 }
 
+/// Local buffer for messages that are either awaiting requests to receive them or requests
+/// that are pending message reception.
+/// Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
+/// when protection against collisions is not required, so either use a vector indexed by
+/// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
+#[derive(Debug, Default)]
+struct MessageBuffer {
+    buf: HashMap<RecordId, BufItem>,
+}
+
+#[derive(Debug)]
+enum BufItem {
+    /// There is an outstanding request to receive the message but this helper hasn't seen it yet
+    Requested(oneshot::Sender<Box<[u8]>>),
+    /// Message has been received but nobody requested it yet
+    Received(Box<[u8]>),
+}
+
+struct ReceiveRequest<S> {
+    channel_id: ChannelId<S>,
+    record_id: RecordId,
+    sender: oneshot::Sender<Box<[u8]>>,
+}
+
 impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
     pub async fn send<T: Message>(
         &mut self,
@@ -114,7 +105,7 @@ impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
 
     /// Receive a message that is associated with the given record id.
     pub async fn receive<T: Message>(&mut self, source: Identity, record_id: RecordId)
-        -> Result<T, Error> {
+                                     -> Result<T, Error> {
         let (tx, mut rx) = oneshot::channel();
 
         self.gateway_tx
@@ -123,9 +114,7 @@ impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
             .unwrap();
 
         let payload = rx.await.unwrap();
-        let obj: T = tokio::task::spawn_blocking(move || {
-            serde_json::from_slice(&payload).unwrap()
-        }).await.unwrap();
+        let obj: T = serde_json::from_slice(&payload).unwrap();
 
         Ok(obj)
     }

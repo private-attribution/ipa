@@ -4,7 +4,7 @@ mod sharing;
 mod world;
 pub mod fabric;
 
-use crate::helpers::mock::Gateway;
+use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
