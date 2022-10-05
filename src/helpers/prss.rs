@@ -520,20 +520,11 @@ pub mod test {
         let world: TestWorld<TestStep> = make_world(QueryId);
         let context = make_contexts(&world);
 
-<<<<<<< HEAD
         let reshare0 = &context[0].participant[TestStep::Reshare(0)];
         let reshare1 = &context[0].participant[TestStep::Reshare(1)];
         let mul = &context[0].participant[TestStep::Mul2];
 
         assert_ne!(reshare0, reshare1);
         assert_ne!(reshare0, mul);
-=======
-        let prss_mul10 = &context[0].participant[TestStep::Mul1(0)];
-        let prss_mul11 = &context[0].participant[TestStep::Mul1(1)];
-        let prss_mul2 = &context[0].participant[TestStep::Mul2];
-
-        assert_ne!(prss_mul10, prss_mul11);
-        assert_ne!(prss_mul11, prss_mul2);
->>>>>>> 9d23e50 (1. Fixing reshare test)
     }
 }

@@ -143,6 +143,10 @@ mod tests {
                 new_reshares_atleast_once = true;
                 break;
             }
+
+            assert_ne!(share[0], f.0);
+            assert_ne!(share[1], f.1);
+            assert_ne!(share[2], f.2);
         }
         assert!(new_reshares_atleast_once);
     }
