@@ -34,6 +34,7 @@ pub enum TestStep {
     Mul1(u8),
     Mul2,
     Reshare(u8),
+    Shuffle,
 }
 
 impl Debug for TestStep {
@@ -42,6 +43,7 @@ impl Debug for TestStep {
             TestStep::Mul1(v) => write!(f, "TestStep/Mul1[{}]", v),
             TestStep::Mul2 => write!(f, "TestStep/Mul2"),
             TestStep::Reshare(v) => write!(f, "TestStep/Reshare[{}]", v),
+            TestStep::Shuffle => write!(f, "TestStep/Shuffle"),
         }
     }
 }
@@ -49,13 +51,14 @@ impl Debug for TestStep {
 impl Step for TestStep {}
 
 impl SpaceIndex for TestStep {
-    const MAX: usize = 3;
+    const MAX: usize = 4;
 
     fn as_usize(&self) -> usize {
         match self {
             TestStep::Mul1(_) => 0,
             TestStep::Mul2 => 1,
             TestStep::Reshare(_) => 2,
+            TestStep::Shuffle => 3,
         }
     }
 }
