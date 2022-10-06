@@ -14,24 +14,22 @@ impl Shuffle {
         batchsize: usize,
         direction: Direction,
         index: u128,
-        prss1: &PrssSpace,
-        prss2: &PrssSpace,
+        prss: &PrssSpace,
     ) -> Vec<usize> {
         let mut permutation: Vec<usize> = (0..batchsize).collect();
-        let seed1 = prss1.generate_values(index);
-        let seed2 = prss2.generate_values(index);
+        let seed = prss.generate_values(index);
 
         let seed_bytes = if direction == Direction::Left {
-            (seed1.0.to_le_bytes(), seed2.0.to_le_bytes())
+            seed.0.to_le_bytes()
         } else {
-            (seed1.1.to_le_bytes(), seed2.1.to_le_bytes())
+            seed.1.to_le_bytes()
         };
         // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
         // We are using two spaces to generate indexes and concatenating them
         let mut seed: [u8; 32] = [0; 32];
         let (first_half, second_half) = seed.split_at_mut(16);
-        first_half.copy_from_slice(&seed_bytes.0[..16]);
-        second_half.copy_from_slice(&seed_bytes.1[..16]);
+        first_half.copy_from_slice(&seed_bytes[..16]);
+        second_half.copy_from_slice(&seed_bytes[..16]);
         permutation.shuffle(&mut ChaCha8Rng::from_seed(seed));
         permutation
     }
@@ -51,53 +49,46 @@ mod tests {
     fn random_sequence_generated() {
         let mut rand = StepRng::new(1, 1);
         let batchsize = 10000;
-        let (p11, p12, p13) = make_participants();
-        let (p21, p22, p23) = make_participants();
+        let (p1, p2, p3) = make_participants();
 
         let index = rand.gen::<u128>();
         let sequence1left = Shuffle::generate_random_permutation(
             batchsize,
             Direction::Left,
             index,
-            &p11[TestStep::Shuffle],
-            &p21[TestStep::Shuffle],
+            &p1[TestStep::Shuffle],
         );
         let mut sequence1right = Shuffle::generate_random_permutation(
             batchsize,
             Direction::Right,
             index,
-            &p11[TestStep::Shuffle],
-            &p21[TestStep::Shuffle],
+            &p1[TestStep::Shuffle],
         );
 
         let sequence2left = Shuffle::generate_random_permutation(
             batchsize,
             Direction::Left,
             index,
-            &p12[TestStep::Shuffle],
-            &p22[TestStep::Shuffle],
+            &p2[TestStep::Shuffle],
         );
         let mut sequence2right = Shuffle::generate_random_permutation(
             batchsize,
             Direction::Right,
             index,
-            &p12[TestStep::Shuffle],
-            &p22[TestStep::Shuffle],
+            &p2[TestStep::Shuffle],
         );
 
         let sequence3left = Shuffle::generate_random_permutation(
             batchsize,
             Direction::Left,
             index,
-            &p13[TestStep::Shuffle],
-            &p23[TestStep::Shuffle],
+            &p3[TestStep::Shuffle],
         );
         let mut sequence3right = Shuffle::generate_random_permutation(
             batchsize,
             Direction::Right,
             index,
-            &p13[TestStep::Shuffle],
-            &p23[TestStep::Shuffle],
+            &p3[TestStep::Shuffle],
         );
 
         let expected_numbers: Vec<usize> = (0..batchsize).collect();
