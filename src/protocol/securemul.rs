@@ -1,6 +1,5 @@
 use crate::error::BoxError;
 use crate::field::Field;
-// use crate::helpers::mesh::{Gateway, Mesh};
 use crate::helpers::fabric::Fabric;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::{prss::PrssSpace, Direction};
@@ -27,7 +26,6 @@ pub struct SecureMul<'a, S, F> {
     record_id: RecordId,
 }
 
-// todo fix this F, S -> S, F
 impl<'a, S: Step, FABRIC: Fabric<S>> SecureMul<'a, S, FABRIC> {
     pub fn new(
         prss: &'a PrssSpace,
