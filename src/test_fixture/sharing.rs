@@ -28,5 +28,9 @@ pub fn validate_and_reconstruct<T: Field>(
         input.0.as_tuple().1 + input.1.as_tuple().1 + input.2.as_tuple().1
     );
 
+    assert_eq!(input.0.as_tuple().1, input.1.as_tuple().0);
+    assert_eq!(input.1.as_tuple().1, input.2.as_tuple().0);
+    assert_eq!(input.2.as_tuple().1, input.0.as_tuple().0);
+
     input.0.as_tuple().0 + input.1.as_tuple().0 + input.2.as_tuple().0
 }
