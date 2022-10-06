@@ -19,9 +19,19 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::header::HeaderName;
 
+/// name of the `offset` header to use for [`RecordHeaders`]
 static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
+/// name of the `data_size` header to use for [`RecordHeaders`]
 static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 
+/// Headers that are expected on requests involving a batch of records.
+/// # `offset`
+/// For any given batch, their record_ids must be known. The first record in the batch will have id
+/// `offset`, and subsequent records will be in-order from there.
+/// # `data_size`
+/// the batch will be transmitted as a single `Bytes` block, and the receiver will need to know how
+/// to divide up the block into individual records. `data_size` represents the number of bytes each
+/// record consists of
 pub struct RecordHeaders {
     offset: u32,
     data_size: u32,
@@ -60,8 +70,10 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
     }
 }
 
+/// After receiving a batch of records from the network, package it into this [`BufferedMessages`]
+/// and pass it to the network layer for processing, and to pass on to the messaging layer
 #[derive(Debug, PartialEq, Eq)]
-#[allow(dead_code)] // to be used in next PR
+#[allow(dead_code)] // TODO: to be used in next PR
 pub struct BufferedMessages<S> {
     query_id: QueryId,
     step: S,
@@ -72,6 +84,7 @@ pub struct BufferedMessages<S> {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+#[allow(dead_code)] // TODO: this should be used after breaking down the [`BufferedMessages`]
 pub struct MessageEnvelope {
     record_id: RecordId,
     message: Box<u8>,

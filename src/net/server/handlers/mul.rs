@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::log::debug;
 
+/// Used in the axum handler to extract the `query_id` and `step` from the path of the request
 pub struct Path<S: Step>(QueryId, S);
 #[async_trait]
 impl<B: Send, S: Step> FromRequest<B> for Path<S> {
@@ -28,6 +29,7 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
     }
 }
 
+/// TODO: value of map may change to different implementation
 pub type GatewayMap<S> = Arc<Mutex<HashMap<(QueryId, S), mpsc::Sender<BufferedMessages<S>>>>>;
 
 /// Injects the appropriate gateway/mesh into the Axum request, so that downstream handlers have
@@ -67,8 +69,7 @@ pub async fn gateway_middleware_fn<B: Send, S: Step>(
     Ok(next.run(req).await)
 }
 
-/// accepts all the relevant information from the request, and push all of it onto the `outgoing`
-/// channel
+/// accepts all the relevant information from the request, and push all of it onto the gateway
 /// TODO: implement the receiving end of `outgoing`
 pub async fn handler<S: Step>(
     Extension(outgoing): Extension<mpsc::Sender<BufferedMessages<S>>>,
