@@ -17,7 +17,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::helpers;
 use crate::helpers::error::Error;
 use futures::StreamExt;
-use rand::{thread_rng, Rng};
 use tokio::sync::mpsc;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
@@ -94,9 +93,12 @@ impl<S: Step> InMemoryEndpoint<S> {
                     // from the buffer to messaging layer. Potentially we might be thrashing
                     // on permits here.
                     Ok(permit) = message_stream_tx.reserve(), if !buf.is_empty() => {
-                        // try to pick a random buffer to pop and transfer
-                        let random_v = thread_rng().gen_range(0..buf.len());
-                        let key = *buf.keys().skip(random_v).take(1).last().unwrap();
+                        // TODO(alex): this is bad and I want to experiment with
+                        // Vec<EnumMap<Step, Vec<MessageEnvelope>>, basically using double indirection
+                        // identity -> step -> vec of messages. That will require to keep track
+                        // of all messages in the buffer in a separate local variable, but makes
+                        // fairness easily achievable.
+                        let key = *buf.keys().next().unwrap();
                         let msgs = buf.remove(&key).unwrap();
 
                         permit.send((key, msgs));
@@ -137,7 +139,7 @@ impl<S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
             match peer_channel.entry(addr.step) {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
-                    let (tx, rx) = tokio::sync::mpsc::channel(1);
+                    let (tx, rx) = mpsc::channel(1);
                     let tx = InMemoryChannel {
                         dest: addr.identity,
                         tx,

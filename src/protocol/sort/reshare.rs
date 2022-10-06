@@ -2,7 +2,6 @@ use crate::{
     error::BoxError,
     field::Field,
     helpers::{
-        mesh::{Gateway, Mesh},
         prss::SpaceIndex,
         Direction, Identity,
     },
@@ -11,6 +10,7 @@ use crate::{
 };
 use embed_doc_image::embed_doc_image;
 use serde::{Deserialize, Serialize};
+use crate::helpers::fabric::Fabric;
 
 /// A message sent by each helper when they've reshared their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -44,9 +44,9 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
     #[allow(dead_code)]
-    pub async fn execute<M: Mesh, G: Gateway<M, S>, S: Step + SpaceIndex>(
+    pub async fn execute<S: Step + SpaceIndex, FABRIC: Fabric<S>>(
         self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, FABRIC>,
         record_id: RecordId,
         step: S,
         to_helper: Identity,
