@@ -1,16 +1,13 @@
+use crate::helpers::fabric::Fabric;
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{
-        prss::SpaceIndex,
-        Direction, Identity,
-    },
+    helpers::{prss::SpaceIndex, Direction, Identity},
     protocol::{context::ProtocolContext, RecordId, Step},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 use serde::{Deserialize, Serialize};
-use crate::helpers::fabric::Fabric;
 
 /// A message sent by each helper when they've reshared their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
