@@ -8,13 +8,13 @@ use crate::{
 use crate::helpers::fabric::Fabric;
 use futures::future::try_join_all;
 
+/// Create an object to generate bit permutations for a given bit column of query. This is GENBITPERM(Algorithm 3) from the paper
 #[derive(Debug)]
 pub struct BitPermutations<'a, F> {
     input: &'a [Replicated<F>],
 }
 
 impl<'a, F: Field> BitPermutations<'a, F> {
-    /// Create an object to generate bit permutations for a given bit column of query. This is GENBITPERM(Algorithm 3) from the paper
     #[allow(dead_code)]
     pub fn new(input: &'a [Replicated<F>]) -> BitPermutations<'a, F> {
         Self { input }

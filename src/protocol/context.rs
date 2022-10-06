@@ -11,7 +11,7 @@ use super::{RecordId, Step};
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub struct ProtocolContext<'a, S: SpaceIndex, F> {
-    participant: &'a Participant<S>,
+    pub participant: &'a Participant<S>,
     pub gateway: &'a Gateway<S, F>,
 }
 
