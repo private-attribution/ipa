@@ -19,8 +19,8 @@ pub struct RevealValue<F> {
 }
 
 /// This implements reveal algorithm
-/// For simplicity, we consider a simple revealing in which each Pi sends [a]i to Pi+1 and then reconstructs a from [a]i and
-/// [a]i−1.
+/// For simplicity, we consider a simple revealing in which each Pi sends \[a\]i to Pi+1 and then reconstructs a from \[a\]i and
+/// \[a\]i−1.
 // Input: Each helpers know their own secret shares
 // Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
@@ -42,10 +42,11 @@ impl<'a, G, S: Step> Reveal<'a, G, S> {
         }
     }
 
+    #[embed_doc_image("reveal", "images/sort/reveal.png")]
     /// Steps
+    /// ![Reveal steps][reveal]
     /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
     /// i.e. their own shares and received share.
-    #[embed_doc_image("reveal", "images/sort/reveal.png")]
     #[allow(dead_code)]
     pub async fn execute<M, F>(self, input: Replicated<F>) -> Result<F, BoxError>
     where

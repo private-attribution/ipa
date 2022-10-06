@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub struct PartValue<F> {
     part: F,
 }
-/// Reshare(i, [x])
+/// Reshare(i, \[x\])
 // This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 // Input: Pi-1 and Pi+1 know their secret shares
 // Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
@@ -32,8 +32,9 @@ impl<F: Field> Reshare<F> {
         Self { input }
     }
 
-    /// Steps
     #[embed_doc_image("reshare", "images/sort/reshare.png")]
+    /// Steps
+    /// ![Reshare steps][reshare]
     /// 1. While calculating for helper, we call PRSS to get randoms for helper who needs to receive reshares (say `rand_left`, `rand_right`)
     ///    `to_helper.left` knows `rand_left` (named r1) and `to_helper.right` knows `rand_right` (named r0)
     /// 2. `to_helper.left` calculates part1 = (a1 + a2) - r2 = Same as (inputs.0 + inputs.1) - r1 from helper POV
