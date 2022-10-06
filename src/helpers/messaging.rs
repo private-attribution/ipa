@@ -46,9 +46,9 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// buffer and keeps it there until such request is made by the protocol.
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
-pub struct Gateway<'a, S, F> {
+pub struct Gateway<S, F> {
     helper_identity: Identity,
-    fabric: &'a F,
+    fabric: F,
     /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest<S>>,
 }
@@ -125,8 +125,8 @@ impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
     }
 }
 
-impl <'a, S: Step, F: Fabric<S>> Gateway<'a, S, F> {
-    pub fn new(identity: Identity, fabric: &'a F) -> Self {
+impl <S: Step, F: Fabric<S>> Gateway<S, F> {
+    pub fn new(identity: Identity, fabric: F) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest<S>>(1);
         let mut message_stream = fabric.message_stream();
 

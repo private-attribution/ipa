@@ -12,7 +12,7 @@ use super::{RecordId, Step};
 #[derive(Debug)]
 pub struct ProtocolContext<'a, S: SpaceIndex, F> {
     participant: &'a Participant<S>,
-    pub gateway: &'a Gateway<'a, S, F>,
+    pub gateway: &'a Gateway<S, F>,
 }
 
 impl<'a, S: Step + SpaceIndex, F: Fabric<S>> ProtocolContext<'a, S, F> {

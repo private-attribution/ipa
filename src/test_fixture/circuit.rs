@@ -29,8 +29,8 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
     assert_eq!(sum, u128::from(width));
 }
 
-async fn circuit<'a, F: Field>(
-    world: &'a TestWorld<'a, TestStep>,
+async fn circuit<F: Field>(
+    world: &TestWorld<TestStep>,
     record_id: RecordId,
     depth: u8,
 ) -> [Replicated<F>; 3] {

@@ -15,21 +15,20 @@ use crate::test_fixture::fabric::{InMemoryEndpoint, InMemoryNetwork};
 /// to do if we need it.
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
-pub struct TestWorld<'a, S: SpaceIndex> {
+pub struct TestWorld<S: SpaceIndex> {
     pub query_id: QueryId,
-    pub gateways: [Gateway<'a, S, InMemoryEndpoint<S>>; 3],
+    pub gateways: [Gateway<S, Arc<InMemoryEndpoint<S>>>; 3],
     pub participants: [Participant<S>; 3],
-    network: &'a InMemoryNetwork<S>,
+    network: Arc<InMemoryNetwork<S>>,
 }
 
 #[must_use]
-pub fn make<'a, S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<'a, S> {
+pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
-    let rng = StdRng::from_entropy();
-    let network: &'static InMemoryNetwork<S> = Box::leak(Box::new(InMemoryNetwork::new(rng)));
+    let network = InMemoryNetwork::new();
     let gateways = network.endpoints.iter().map(|fabric| {
-        Gateway::new(fabric.id, fabric)
+        Gateway::new(fabric.id, fabric.clone())
     }).collect::<Vec<_>>().try_into().unwrap();
 
     TestWorld {

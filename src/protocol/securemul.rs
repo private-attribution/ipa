@@ -22,14 +22,14 @@ pub struct DValue<F> {
 #[derive(Debug)]
 pub struct SecureMul<'a, S, F> {
     prss: &'a PrssSpace,
-    gateway: &'a Gateway<'a, S, F>,
+    gateway: &'a Gateway<S, F>,
     step: S,
     record_id: RecordId,
 }
 
 // todo fix this F, S -> S, F
 impl<'a, S: Step, FABRIC: Fabric<S>> SecureMul<'a, S, FABRIC> {
-    pub fn new(prss: &'a PrssSpace, gateway: &'a Gateway<'a, S, FABRIC>, step: S, record_id: RecordId) -> Self {
+    pub fn new(prss: &'a PrssSpace, gateway: &'a Gateway<S, FABRIC>, step: S, record_id: RecordId) -> Self {
         Self {
             prss,
             gateway,
@@ -220,6 +220,7 @@ pub mod stream {
 
 #[cfg(test)]
 pub mod tests {
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use crate::field::{Field, Fp31};
@@ -306,7 +307,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestStep, InMemoryEndpoint<TestStep>>; 3],
+        context: &[ProtocolContext<'_, TestStep, Arc<InMemoryEndpoint<TestStep>>>; 3],
         a: u8,
         b: u8,
         rng: &mut R,

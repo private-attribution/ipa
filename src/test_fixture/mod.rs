@@ -4,6 +4,7 @@ mod sharing;
 mod world;
 pub mod fabric;
 
+use std::sync::Arc;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::protocol::context::ProtocolContext;
@@ -22,7 +23,7 @@ use crate::test_fixture::fabric::InMemoryEndpoint;
 #[must_use]
 pub fn make_contexts<'a, S: Step + SpaceIndex>(
     test_world: &'a TestWorld<S>,
-) -> [ProtocolContext<'a, S, InMemoryEndpoint<S>>; 3] {
+) -> [ProtocolContext<'a, S, Arc<InMemoryEndpoint<S>>>; 3] {
     test_world
         .gateways
         .iter()

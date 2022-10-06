@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use crate::helpers;
 use crate::helpers::error::Error;
 use futures::StreamExt;
-use rand::Rng;
+use rand::{Rng, thread_rng};
 use crate::helpers::messaging::Gateway;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
@@ -27,7 +27,7 @@ pub(super) enum ControlMessage<S> {
 
 #[derive(Debug)]
 pub struct InMemoryNetwork<S> {
-    pub endpoints: [InMemoryEndpoint<S>; 3]
+    pub endpoints: [Arc<InMemoryEndpoint<S>>; 3]
 }
 
 
@@ -51,10 +51,10 @@ pub struct InMemoryChannel {
 }
 
 impl <S: Step> InMemoryNetwork<S> {
-    pub fn new<R: RngCore + Clone + Send + 'static>(mut r: R) -> Arc<Self> {
+    pub fn new() -> Arc<Self> {
         let world = Arc::new_cyclic(|weak_ptr| {
             let endpoints = Identity::all_variants()
-                .map(|i| InMemoryEndpoint::new(i, weak_ptr.clone(), r.clone()));
+                .map(|i| Arc::new(InMemoryEndpoint::new(i, weak_ptr.clone())));
 
             Self { endpoints }
         });
@@ -64,7 +64,7 @@ impl <S: Step> InMemoryNetwork<S> {
 }
 
 impl <S: Step> InMemoryEndpoint<S> {
-    pub fn new<R: RngCore + Send + 'static>(id: Identity, world: Weak<InMemoryNetwork<S>>, mut r: R) -> Self {
+    pub fn new(id: Identity, world: Weak<InMemoryNetwork<S>>) -> Self {
         let (tx, mut open_channel_rx) = mpsc::channel(1);
         let (message_stream_tx, message_stream_rx) = mpsc::channel(1);
 
@@ -88,7 +88,8 @@ impl <S: Step> InMemoryEndpoint<S> {
                     // from the buffer to messaging layer. Potentially we might be thrashing
                     // on permits here.
                     Ok(permit) = message_stream_tx.reserve(), if buf.len() > 0 => {
-                        let random_v = r.gen_range(0..buf.len());
+                        // try to pick a random buffer to pop and transfer
+                        let random_v = thread_rng().gen_range(0..buf.len());
                         let key = *buf.keys().skip(random_v).take(1).last().unwrap();
                         let msgs = buf.remove(&key).unwrap();
 
@@ -113,7 +114,7 @@ impl <S: Step> InMemoryEndpoint<S> {
 
 
 #[async_trait]
-impl <S: Step> Fabric<S> for InMemoryEndpoint<S> {
+impl <S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
     type Channel = InMemoryChannel;
     type MessageStream = ReceiverStream<MessageChunks<S>>;
 
