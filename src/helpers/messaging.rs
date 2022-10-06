@@ -6,24 +6,19 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC protocols to do.
 //!
+use crate::{
+    helpers::error::Error,
+    helpers::fabric::{ChannelId, CommunicationChannel, Fabric, MessageEnvelope},
+    helpers::Identity,
+    protocol::{RecordId, Step},
+};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use crate::{
-    secret_sharing::Replicated,
-    protocol::{RecordId, Step},
-    helpers::Identity,
-    helpers::error::Error,
-    field::Field,
-    helpers::fabric::{ChannelId, CommunicationChannel, Fabric, MessageEnvelope}
-};
-use async_trait::async_trait;
-use serde::{
-    de::DeserializeOwned,
-    Serialize
-};
+
+use futures::StreamExt;
+use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::{mpsc, oneshot};
-use futures::StreamExt;
 use tracing::Instrument;
 
 /// Trait for messages sent between helpers
@@ -86,15 +81,27 @@ struct ReceiveRequest<S> {
     sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
+impl<S: Step, F: Fabric<S>> Mesh<'_, S, F> {
+
+    /// Send a given message to the destination. This method will not return until the message
+    /// is delivered to the `Fabric`.
+    ///
+    /// # Errors
+    /// Returns an error if it fails to send the message or if there is a serialization error.
     pub async fn send<T: Message>(
         &mut self,
         dest: Identity,
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let channel = self.fabric.get_connection(ChannelId::new(dest, self.step)).await;
-        let bytes = serde_json::to_vec(&msg).unwrap().into_boxed_slice();
+        let channel = self
+            .fabric
+            .get_connection(ChannelId::new(dest, self.step))
+            .await;
+        let bytes = serde_json::to_vec(&msg)
+            .map_err(|e| Error::serialization_error(record_id, self.step, e))?
+            .into_boxed_slice();
+
         let envelope = MessageEnvelope {
             record_id,
             payload: bytes,
@@ -104,17 +111,28 @@ impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
     }
 
     /// Receive a message that is associated with the given record id.
-    pub async fn receive<T: Message>(&mut self, source: Identity, record_id: RecordId)
-                                     -> Result<T, Error> {
-        let (tx, mut rx) = oneshot::channel();
+    ///
+    /// # Errors
+    /// Returns an error if it fails to receive the message or if a deserialization error occurred
+    pub async fn receive<T: Message>(
+        &mut self,
+        source: Identity,
+        record_id: RecordId,
+    ) -> Result<T, Error> {
+        let (tx, rx) = oneshot::channel();
 
         self.gateway_tx
-            .send(ReceiveRequest { channel_id: ChannelId::new(source, self.step), record_id, sender: tx })
+            .send(ReceiveRequest {
+                channel_id: ChannelId::new(source, self.step),
+                record_id,
+                sender: tx,
+            })
             .await
-            .unwrap();
+            .map_err(|e| Error::receive_error(source, e.to_string()))?;
 
-        let payload = rx.await.unwrap();
-        let obj: T = serde_json::from_slice(&payload).unwrap();
+        let payload = rx.await.map_err(|e| Error::receive_error(source, e))?;
+        let obj: T = serde_json::from_slice(&payload)
+            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         Ok(obj)
     }
@@ -125,7 +143,7 @@ impl <S: Step, F: Fabric<S>> Mesh<'_, S, F> {
     }
 }
 
-impl <S: Step, F: Fabric<S>> Gateway<S, F> {
+impl<S: Step, F: Fabric<S>> Gateway<S, F> {
     pub fn new(identity: Identity, fabric: F) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest<S>>(1);
         let mut message_stream = fabric.message_stream();
@@ -135,7 +153,6 @@ impl <S: Step, F: Fabric<S>> Gateway<S, F> {
 
             loop {
                 // Make a random choice what to process next:
-                // * Receive and process a control message
                 // * Receive a message from another helper
                 // * Handle the request to receive a message from another helper
                 tokio::select! {
@@ -162,7 +179,7 @@ impl <S: Step, F: Fabric<S>> Gateway<S, F> {
         Self {
             helper_identity: identity,
             fabric,
-            tx
+            tx,
         }
     }
 
@@ -173,7 +190,12 @@ impl <S: Step, F: Fabric<S>> Gateway<S, F> {
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
     pub fn get_channel(&self, step: S) -> Mesh<'_, S, F> {
-        Mesh { fabric: &self.fabric, helper_identity: self.helper_identity, step, gateway_tx: self.tx.clone() }
+        Mesh {
+            fabric: &self.fabric,
+            helper_identity: self.helper_identity,
+            step,
+            gateway_tx: self.tx.clone(),
+        }
     }
 }
 
@@ -217,14 +239,18 @@ impl MessageBuffer {
     }
 
     fn receive_messages(&mut self, msgs: Vec<MessageEnvelope>) {
-        msgs.into_iter().for_each(|msg| {
-            self.receive_message(msg)
-        })
+        for msg in msgs {
+            self.receive_message(msg);
+        }
     }
 }
 
-impl <S: Step> Debug for ReceiveRequest<S> {
+impl<S: Step> Debug for ReceiveRequest<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ReceiveRequest({:?}, {:?})", self.channel_id, self.record_id)
+        write!(
+            f,
+            "ReceiveRequest({:?}, {:?})",
+            self.channel_id, self.record_id
+        )
     }
 }

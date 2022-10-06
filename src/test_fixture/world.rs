@@ -4,9 +4,7 @@ use crate::protocol::{QueryId, Step};
 use crate::test_fixture::make_participants;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use rand::rngs::StdRng;
-use rand::thread_rng;
-use rand_core::SeedableRng;
+
 use crate::test_fixture::fabric::{InMemoryEndpoint, InMemoryNetwork};
 
 /// Test environment for protocols to run tests that require communication between helpers.
@@ -19,23 +17,31 @@ pub struct TestWorld<S: SpaceIndex> {
     pub query_id: QueryId,
     pub gateways: [Gateway<S, Arc<InMemoryEndpoint<S>>>; 3],
     pub participants: [Participant<S>; 3],
-    network: Arc<InMemoryNetwork<S>>,
+    _network: Arc<InMemoryNetwork<S>>,
 }
 
+/// Creates a new `TestWorld` instance.
+///
+/// # Panics
+/// No panic is expected.
 #[must_use]
 pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
     let network = InMemoryNetwork::new();
-    let gateways = network.endpoints.iter().map(|fabric| {
-        Gateway::new(fabric.id, fabric.clone())
-    }).collect::<Vec<_>>().try_into().unwrap();
+    let gateways = network
+        .endpoints
+        .iter()
+        .map(|fabric| Gateway::new(fabric.identity, Arc::clone(fabric)))
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
 
     TestWorld {
         query_id,
         gateways,
         participants,
-        network
+        _network: network,
     }
 }
 

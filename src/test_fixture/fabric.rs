@@ -1,23 +1,24 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::convert::identity;
+
 use std::fmt::{Debug, Formatter};
-use std::ops::Index;
-use std::sync::{Arc, Mutex, Weak};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_stream::wrappers::ReceiverStream;
-use crate::helpers::fabric::{ChannelId, CommunicationChannel, Fabric, MessageChunks, MessageEnvelope};
+
+use crate::helpers::fabric::{
+    ChannelId, CommunicationChannel, Fabric, MessageChunks, MessageEnvelope,
+};
 use crate::helpers::Identity;
 use crate::protocol::Step;
 use async_trait::async_trait;
 use futures_util::stream::SelectAll;
-use rand_core::RngCore;
-use tokio::sync::mpsc;
+use std::sync::{Arc, Mutex, Weak};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_stream::wrappers::ReceiverStream;
+
 use crate::helpers;
 use crate::helpers::error::Error;
 use futures::StreamExt;
-use rand::{Rng, thread_rng};
-use crate::helpers::messaging::Gateway;
+use rand::{thread_rng, Rng};
+use tokio::sync::mpsc;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
 pub(super) enum ControlMessage<S> {
@@ -25,18 +26,19 @@ pub(super) enum ControlMessage<S> {
     ConnectionRequest(ChannelId<S>, Receiver<MessageEnvelope>),
 }
 
+/// Container for all active helper endpoints
 #[derive(Debug)]
 pub struct InMemoryNetwork<S> {
-    pub endpoints: [Arc<InMemoryEndpoint<S>>; 3]
+    pub endpoints: [Arc<InMemoryEndpoint<S>>; 3],
 }
 
-
+/// Helper endpoint in memory. Capable of opening connections to other helpers and buffering
+/// messages it receives from them until someone requests them.
 #[derive(Debug)]
 pub struct InMemoryEndpoint<S> {
-    pub id: Identity,
-
-    // Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
-    // For each peer there are multiple channels open, one per query + step.
+    pub identity: Identity,
+    /// Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
+    /// For each peer there are multiple channels open, one per query + step.
     channels: Arc<Mutex<Vec<HashMap<S, InMemoryChannel>>>>,
     tx: Sender<ControlMessage<S>>,
     rx: Arc<Mutex<Option<Receiver<MessageChunks<S>>>>>,
@@ -47,23 +49,28 @@ pub struct InMemoryEndpoint<S> {
 #[derive(Debug, Clone)]
 pub struct InMemoryChannel {
     dest: Identity,
-    tx: Sender<MessageEnvelope>
+    tx: Sender<MessageEnvelope>,
 }
 
-impl <S: Step> InMemoryNetwork<S> {
+impl<S: Step> InMemoryNetwork<S> {
+    #[must_use]
     pub fn new() -> Arc<Self> {
-        let world = Arc::new_cyclic(|weak_ptr| {
+        Arc::new_cyclic(|weak_ptr| {
             let endpoints = Identity::all_variants()
-                .map(|i| Arc::new(InMemoryEndpoint::new(i, weak_ptr.clone())));
+                .map(|i| Arc::new(InMemoryEndpoint::new(i, Weak::clone(weak_ptr))));
 
             Self { endpoints }
-        });
-
-        world
+        })
     }
 }
 
-impl <S: Step> InMemoryEndpoint<S> {
+impl<S: Step> InMemoryEndpoint<S> {
+
+    /// Creates new instance for a given helper identity.
+    ///
+    /// # Panics
+    /// Panics are not expected
+    #[must_use]
     pub fn new(id: Identity, world: Weak<InMemoryNetwork<S>>) -> Self {
         let (tx, mut open_channel_rx) = mpsc::channel(1);
         let (message_stream_tx, message_stream_rx) = mpsc::channel(1);
@@ -82,12 +89,12 @@ impl <S: Step> InMemoryEndpoint<S> {
                         }
                     }
                     Some((channel_id, msg)) = channels.next() => {
-                        buf.entry(channel_id).or_default().push(msg)
+                        buf.entry(channel_id).or_default().push(msg);
                     }
                     // If there is nothing else to do, try to obtain a permit to move messages
                     // from the buffer to messaging layer. Potentially we might be thrashing
                     // on permits here.
-                    Ok(permit) = message_stream_tx.reserve(), if buf.len() > 0 => {
+                    Ok(permit) = message_stream_tx.reserve(), if !buf.is_empty() => {
                         // try to pick a random buffer to pop and transfer
                         let random_v = thread_rng().gen_range(0..buf.len());
                         let key = *buf.keys().skip(random_v).take(1).last().unwrap();
@@ -103,8 +110,12 @@ impl <S: Step> InMemoryEndpoint<S> {
         });
 
         Self {
-            id,
-            channels: Arc::new(Mutex::new(vec![HashMap::default(), HashMap::default(), HashMap::default()])),
+            identity: id,
+            channels: Arc::new(Mutex::new(vec![
+                HashMap::default(),
+                HashMap::default(),
+                HashMap::default(),
+            ])),
             tx,
             rx: Arc::new(Mutex::new(Some(message_stream_rx))),
             network: world,
@@ -112,9 +123,8 @@ impl <S: Step> InMemoryEndpoint<S> {
     }
 }
 
-
 #[async_trait]
-impl <S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
+impl<S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
     type Channel = InMemoryChannel;
     type MessageStream = ReceiverStream<MessageChunks<S>>;
 
@@ -123,15 +133,16 @@ impl <S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
 
         let channel = {
             let mut channels = self.channels.lock().unwrap();
-            let mut peer_channel = &mut channels[addr.identity];
+            let peer_channel = &mut channels[addr.identity];
 
             match peer_channel.entry(addr.step) {
-                Entry::Occupied(entry) => {
-                    entry.get().clone()
-                }
+                Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
                     let (tx, rx) = tokio::sync::mpsc::channel(1);
-                    let tx = InMemoryChannel { dest: addr.identity, tx };
+                    let tx = InMemoryChannel {
+                        dest: addr.identity,
+                        tx,
+                    };
                     entry.insert(tx.clone());
                     new_rx = Some(rx);
 
@@ -141,8 +152,14 @@ impl <S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
         };
 
         if let Some(rx) = new_rx {
-            self.network.upgrade().unwrap().endpoints[addr.identity].tx
-                .send(ControlMessage::ConnectionRequest(ChannelId::new(self.id, addr.step), rx)).await.unwrap();
+            self.network.upgrade().unwrap().endpoints[addr.identity]
+                .tx
+                .send(ControlMessage::ConnectionRequest(
+                    ChannelId::new(self.identity, addr.step),
+                    rx,
+                ))
+                .await
+                .unwrap();
         }
 
         channel
@@ -161,7 +178,10 @@ impl <S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
 #[async_trait]
 impl CommunicationChannel for InMemoryChannel {
     async fn send(&self, msg: MessageEnvelope) -> helpers::Result<()> {
-        self.tx.send(msg).await.map_err(|e| Error::send_error(self.dest, e))
+        self.tx
+            .send(msg)
+            .await
+            .map_err(|e| Error::send_error(self.dest, e))
     }
 }
 
@@ -174,4 +194,3 @@ impl<S: Step> Debug for ControlMessage<S> {
         }
     }
 }
-

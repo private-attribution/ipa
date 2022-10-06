@@ -1,12 +1,11 @@
 use std::ops::{Index, IndexMut};
 
 pub mod error;
+pub mod fabric;
 pub mod messaging;
 pub mod prss;
-pub mod fabric;
 
-
-pub use error::Result as Result;
+pub use error::Result;
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
@@ -44,7 +43,7 @@ impl Identity {
     }
 }
 
-impl <T> Index<Identity> for [T] {
+impl<T> Index<Identity> for [T] {
     type Output = T;
 
     fn index(&self, index: Identity) -> &Self::Output {
@@ -54,11 +53,11 @@ impl <T> Index<Identity> for [T] {
             Identity::H3 => 2,
         };
 
-        &self.index(idx)
+        self.index(idx)
     }
 }
 
-impl <T> IndexMut<Identity> for [T] {
+impl<T> IndexMut<Identity> for [T] {
     fn index_mut(&mut self, index: Identity) -> &mut Self::Output {
         let idx: usize = match index {
             Identity::H1 => 0,
@@ -70,15 +69,15 @@ impl <T> IndexMut<Identity> for [T] {
     }
 }
 
-impl <T> Index<Identity> for Vec<T> {
+impl<T> Index<Identity> for Vec<T> {
     type Output = T;
 
     fn index(&self, index: Identity) -> &Self::Output {
-        &self.as_slice().index(index)
+        self.as_slice().index(index)
     }
 }
 
-impl <T> IndexMut<Identity> for Vec<T> {
+impl<T> IndexMut<Identity> for Vec<T> {
     fn index_mut(&mut self, index: Identity) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
     }
@@ -106,6 +105,5 @@ mod tests {
             assert_eq!(4, data[Identity::H2]);
             assert_eq!(5, data[Identity::H3]);
         }
-
     }
 }

@@ -5,8 +5,8 @@ use crate::{
     secret_sharing::Replicated,
 };
 
-use futures::future::try_join_all;
 use crate::helpers::fabric::Fabric;
+use futures::future::try_join_all;
 
 #[derive(Debug)]
 pub struct BitPermutations<'a, F> {
@@ -32,10 +32,11 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     where
         F: Field,
     {
-        let share_of_one = Replicated::one(ctx
-            .gateway
-            .get_channel(IPAProtocolStep::Sort(SortStep::BitPermutations))
-            .identity());
+        let share_of_one = Replicated::one(
+            ctx.gateway
+                .get_channel(IPAProtocolStep::Sort(SortStep::BitPermutations))
+                .identity(),
+        );
 
         self.input
             .iter()

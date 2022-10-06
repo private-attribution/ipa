@@ -1,14 +1,14 @@
 use crate::error::BoxError;
 use crate::field::Field;
 // use crate::helpers::mesh::{Gateway, Mesh};
+use crate::helpers::fabric::Fabric;
+use crate::helpers::messaging::Gateway;
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
-use crate::helpers::fabric::Fabric;
-use crate::helpers::messaging::Gateway;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -29,7 +29,12 @@ pub struct SecureMul<'a, S, F> {
 
 // todo fix this F, S -> S, F
 impl<'a, S: Step, FABRIC: Fabric<S>> SecureMul<'a, S, FABRIC> {
-    pub fn new(prss: &'a PrssSpace, gateway: &'a Gateway<S, FABRIC>, step: S, record_id: RecordId) -> Self {
+    pub fn new(
+        prss: &'a PrssSpace,
+        gateway: &'a Gateway<S, FABRIC>,
+        step: S,
+        record_id: RecordId,
+    ) -> Self {
         Self {
             prss,
             gateway,
@@ -220,8 +225,8 @@ pub mod stream {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     use crate::field::{Field, Fp31};
     use crate::protocol::context::ProtocolContext;
@@ -236,8 +241,8 @@ pub mod tests {
 
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
-        fabric::InMemoryEndpoint
+        fabric::InMemoryEndpoint, logging, make_contexts, make_world, share,
+        validate_and_reconstruct, TestStep, TestWorld,
     };
 
     #[tokio::test]

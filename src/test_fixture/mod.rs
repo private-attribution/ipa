@@ -1,29 +1,29 @@
 pub mod circuit;
+pub mod fabric;
 pub mod logging;
 mod sharing;
 mod world;
-pub mod fabric;
 
 use std::sync::Arc;
-use crate::helpers::messaging::Gateway;
+
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
 use rand::thread_rng;
 
+use crate::test_fixture::fabric::InMemoryEndpoint;
 pub use sharing::{share, validate_and_reconstruct};
 pub use world::make as make_world;
 pub use world::{TestStep, TestWorld};
-use crate::test_fixture::fabric::InMemoryEndpoint;
 
 /// Creates protocol contexts for 3 helpers
 ///
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts<'a, S: Step + SpaceIndex>(
-    test_world: &'a TestWorld<S>,
-) -> [ProtocolContext<'a, S, Arc<InMemoryEndpoint<S>>>; 3] {
+pub fn make_contexts<S: Step + SpaceIndex>(
+    test_world: &TestWorld<S>,
+) -> [ProtocolContext<S, Arc<InMemoryEndpoint<S>>>; 3] {
     test_world
         .gateways
         .iter()
