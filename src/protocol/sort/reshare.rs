@@ -100,6 +100,7 @@ impl<F: Field> Reshare<F> {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::Rng;
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
 
@@ -115,26 +116,31 @@ mod tests {
     #[tokio::test]
     pub async fn reshare() {
         let mut rand = StepRng::new(100, 1);
+        let mut rng = rand::thread_rng();
 
-        let input = Fp31::from(23_u128);
-        let share = share(input, &mut rand);
-        let record_id = RecordId::from(1);
+        for _ in 0..10 {
+            let secret = rng.gen::<u128>();
 
-        let world: TestWorld<TestStep> = make_world(QueryId);
-        let context = make_contexts(&world);
+            let input = Fp31::from(secret);
+            let share = share(input, &mut rand);
+            let record_id = RecordId::from(1);
 
-        let step = TestStep::Reshare(1);
+            let world: TestWorld<TestStep> = make_world(QueryId);
+            let context = make_contexts(&world);
 
-        let reshare0 = Reshare::new(share[0]);
-        let reshare1 = Reshare::new(share[1]);
-        let reshare2 = Reshare::new(share[2]);
+            let step = TestStep::Reshare(1);
 
-        let h0_future = reshare0.execute(&context[0], record_id, step, Identity::H2);
-        let h1_future = reshare1.execute(&context[1], record_id, step, Identity::H2);
-        let h2_future = reshare2.execute(&context[2], record_id, step, Identity::H2);
+            let reshare0 = Reshare::new(share[0]);
+            let reshare1 = Reshare::new(share[1]);
+            let reshare2 = Reshare::new(share[2]);
 
-        let f = try_join!(h0_future, h1_future, h2_future).unwrap();
-        let output_share = validate_and_reconstruct(f);
-        assert_eq!(output_share, input);
+            let h0_future = reshare0.execute(&context[0], record_id, step, Identity::H2);
+            let h1_future = reshare1.execute(&context[1], record_id, step, Identity::H2);
+            let h2_future = reshare2.execute(&context[2], record_id, step, Identity::H2);
+
+            let f = try_join!(h0_future, h1_future, h2_future).unwrap();
+            let output_share = validate_and_reconstruct(f);
+            assert_eq!(output_share, input);
+        }
     }
 }
