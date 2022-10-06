@@ -1,7 +1,7 @@
 use crate::error::BoxError;
 use crate::helpers::Identity;
-use thiserror::Error;
 use crate::protocol::{RecordId, Step};
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -23,8 +23,8 @@ pub enum Error {
         record_id: RecordId,
         step: String,
         #[source]
-        inner: serde_json::Error
-    }
+        inner: serde_json::Error,
+    },
 }
 
 impl Error {
@@ -44,11 +44,15 @@ impl Error {
     ) -> Error {
         Self::ReceiveError {
             source,
-            inner: inner.into()
+            inner: inner.into(),
         }
     }
 
-    pub fn serialization_error<S: Step>(record_id: RecordId, step: S, inner: serde_json::Error) -> Error {
+    pub fn serialization_error<S: Step>(
+        record_id: RecordId,
+        step: S,
+        inner: serde_json::Error,
+    ) -> Error {
         Self::SerializationError {
             record_id,
             step: format!("{:?}", step),

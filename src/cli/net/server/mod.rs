@@ -11,7 +11,6 @@ use axum::{
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
 use thiserror::Error;
-
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
 use tracing::Span;

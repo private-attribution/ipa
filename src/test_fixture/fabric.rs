@@ -65,7 +65,6 @@ impl<S: Step> InMemoryNetwork<S> {
 }
 
 impl<S: Step> InMemoryEndpoint<S> {
-
     /// Creates new instance for a given helper identity.
     ///
     /// # Panics

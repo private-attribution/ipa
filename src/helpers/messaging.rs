@@ -82,7 +82,6 @@ struct ReceiveRequest<S> {
 }
 
 impl<S: Step, F: Fabric<S>> Mesh<'_, S, F> {
-
     /// Send a given message to the destination. This method will not return until the message
     /// is delivered to the `Fabric`.
     ///
