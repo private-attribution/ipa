@@ -26,7 +26,7 @@ static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 
 /// Headers that are expected on requests involving a batch of records.
 /// # `offset`
-/// For any given batch, their record_ids must be known. The first record in the batch will have id
+/// For any given batch, their `record_id`s must be known. The first record in the batch will have id
 /// `offset`, and subsequent records will be in-order from there.
 /// # `data_size`
 /// the batch will be transmitted as a single `Bytes` block, and the receiver will need to know how

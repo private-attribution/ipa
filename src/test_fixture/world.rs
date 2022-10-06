@@ -34,6 +34,9 @@ pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
 pub enum TestStep {
     Mul1(u8),
     Mul2,
+    Reshare(u8),
+    Reveal(u8),
+    Shuffle,
 }
 
 impl Display for TestStep {
@@ -41,6 +44,9 @@ impl Display for TestStep {
         match self {
             Self::Mul1(u) => write!(f, "mul1/{}", u),
             Self::Mul2 => write!(f, "mul2"),
+            Self::Reshare(u) => write!(f, "reshare/{}", u),
+            Self::Reveal(u) => write!(f, "reveal/{}", u),
+            Self::Shuffle => write!(f, "shuffle"),
         }
     }
 }
@@ -66,12 +72,15 @@ impl TryFrom<String> for TestStep {
 impl Step for TestStep {}
 
 impl SpaceIndex for TestStep {
-    const MAX: usize = 2;
+    const MAX: usize = 5;
 
     fn as_usize(&self) -> usize {
         match self {
             TestStep::Mul1(_) => 0,
             TestStep::Mul2 => 1,
+            TestStep::Reshare(_) => 2,
+            TestStep::Reveal(_) => 3,
+            TestStep::Shuffle => 4,
         }
     }
 }
