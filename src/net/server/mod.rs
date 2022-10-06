@@ -1,5 +1,5 @@
-use crate::cli::net::BufferedMessages;
 use crate::error::BoxError;
+use crate::net::server::handlers::GatewayMap;
 use crate::protocol::Step;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use ::metrics::increment_counter;
@@ -14,6 +14,7 @@ use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -40,10 +41,11 @@ pub enum MpcServerError {
     SendError(BoxError),
 }
 
-/// [`From`] implementation for [`MpcServerError::SendError`]
-impl<T: Debug + Send + Sync + 'static> From<mpsc::error::SendError<T>> for MpcServerError {
+/// [`From`] implementation for [`MpcServerError::SendError`].
+/// first call `to_string` so as to drop `T` from the [`MpcServerError`]
+impl<T> From<mpsc::error::SendError<T>> for MpcServerError {
     fn from(err: mpsc::error::SendError<T>) -> Self {
-        Self::SendError(err.into())
+        Self::SendError(err.to_string().into())
     }
 }
 
@@ -80,15 +82,16 @@ impl IntoResponse for MpcServerError {
 /// Axum router definition for MPC helper endpoint
 #[allow(dead_code)]
 #[must_use]
-pub fn router<S: Step>(outgoing_chan: mpsc::Sender<BufferedMessages<S>>) -> Router {
+pub fn router<S: Step>(gateway_map: GatewayMap<S>) -> Router {
     Router::new()
-        .route("/echo", get(handlers::echo_handler))
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(move |path, headers, body| {
-                handlers::mul_handler::<S>(outgoing_chan, path, headers, body)
-            }),
+            post(handlers::mul_handler::<S>),
         )
+        .layer(axum::middleware::from_fn(move |req, next| {
+            handlers::gateway_middleware_fn(Arc::clone(&gateway_map), req, next)
+        }))
+        .route("/echo", get(handlers::echo_handler))
 }
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
@@ -103,9 +106,9 @@ pub enum BindTarget {
 /// Returns a socket it is listening to and the join handle of the web server running.
 pub async fn bind<S: Step>(
     target: BindTarget,
-    outgoing_chan: mpsc::Sender<BufferedMessages<S>>,
+    gateway_map: GatewayMap<S>,
 ) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router::<S>(outgoing_chan)
+    let svc = router::<S>(gateway_map)
         .layer(
             TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
                 increment_counter!(REQUESTS_RECEIVED);
@@ -210,8 +213,8 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 
 #[cfg(test)]
 mod e2e_tests {
-    use crate::cli::net::server::handlers::EchoData;
-    use crate::cli::net::server::{bind, BindTarget};
+    use crate::net::server::handlers::EchoData;
+    use crate::net::server::{bind, BindTarget};
     use crate::protocol::IPAProtocolStep;
     use crate::telemetry::metrics::get_counter_value;
     use crate::telemetry::metrics::REQUESTS_RECEIVED;
@@ -224,7 +227,7 @@ mod e2e_tests {
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
-    use tokio::sync::mpsc;
+    use std::sync::{Arc, Mutex};
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -259,9 +262,12 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
-        let (tx, _) = mpsc::channel(1);
-        let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap()), tx).await;
+        let m = Arc::new(Mutex::new(HashMap::new()));
+        let (addr, _) = bind::<IPAProtocolStep>(
+            BindTarget::Http("127.0.0.1:0".parse().unwrap()),
+            Arc::clone(&m),
+        )
+        .await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -284,15 +290,13 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        let config = crate::cli::net::server::tls_config_from_self_signed_cert()
+        let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (tx, _) = mpsc::channel(1);
-        let (addr, _) = bind::<IPAProtocolStep>(
-            BindTarget::Https("127.0.0.1:0".parse().unwrap(), config),
-            tx,
-        )
-        .await;
+        let m = Arc::new(Mutex::new(HashMap::new()));
+        let (addr, _) =
+            bind::<IPAProtocolStep>(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config), m)
+                .await;
 
         let mut expected = EchoData::default();
         // self-signed cert CN is "localhost", therefore request uri must not use the ip address
@@ -330,9 +334,9 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
-        let (tx, _) = mpsc::channel(1);
+        let m = Arc::new(Mutex::new(HashMap::new()));
         let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap()), tx).await;
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap()), m).await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());

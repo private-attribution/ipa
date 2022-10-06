@@ -1,12 +1,13 @@
 use hyper::http::uri::Scheme;
-use raw_ipa::cli::net::{bind_mpc_helper_server, BindTarget};
 use raw_ipa::cli::Verbosity;
+use raw_ipa::net::{bind_mpc_helper_server, BindTarget};
 use raw_ipa::protocol::IPAProtocolStep;
+use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::panic;
+use std::sync::{Arc, Mutex};
 use structopt::StructOpt;
-use tokio::sync::mpsc;
 use tracing::info;
 
 #[derive(Debug, StructOpt)]
@@ -36,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "http" => BindTarget::Http(addr),
         #[cfg(feature = "self-signed-certs")]
         "https" => {
-            let config = raw_ipa::cli::net::tls_config_from_self_signed_cert().await?;
+            let config = raw_ipa::net::tls_config_from_self_signed_cert().await?;
             BindTarget::Https(addr, config)
         }
         _ => {
@@ -45,8 +46,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // start server
-    let (tx, _) = mpsc::channel(1);
-    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target, tx).await;
+    let m = Arc::new(Mutex::new(HashMap::new()));
+    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target, m).await;
     info!(
         "listening to {}://{}, press Enter to quit",
         args.scheme, addr

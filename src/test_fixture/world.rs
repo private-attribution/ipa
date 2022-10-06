@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::{self, Error};
 use crate::helpers::mock::TestHelperGateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{QueryId, Step};
@@ -30,7 +30,7 @@ pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestStep {
     Mul1(u8),
     Mul2,
@@ -45,20 +45,11 @@ impl Display for TestStep {
     }
 }
 
-impl Debug for TestStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TestStep::Mul1(v) => write!(f, "TestStep/Mul1[{}]", v),
-            TestStep::Mul2 => write!(f, "TestStep/Mul2"),
-        }
-    }
-}
-
 impl TryFrom<String> for TestStep {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let value = value.strip_prefix('/').unwrap_or(&value);
+        let value = value.strip_prefix('/').unwrap_or(&value).to_lowercase();
         if value == "mul2" {
             Ok(Self::Mul2)
         } else {
@@ -67,7 +58,7 @@ impl TryFrom<String> for TestStep {
                 .and_then(|(pre, suf)| (pre == "mul1").then_some(suf))
                 .and_then(|suf| suf.parse::<u8>().ok())
                 .map(Self::Mul1)
-                .ok_or(Error::InvalidId)
+                .ok_or_else(|| error::path_parse_error(&value))
         }
     }
 }

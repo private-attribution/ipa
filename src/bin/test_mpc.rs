@@ -1,7 +1,5 @@
-use raw_ipa::cli::{
-    net::{Client, Command, MpcHandle},
-    Verbosity,
-};
+use raw_ipa::cli::Verbosity;
+use raw_ipa::net::{Client, Command, MpcHandle};
 use std::error::Error;
 use structopt::StructOpt;
 

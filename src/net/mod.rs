@@ -12,7 +12,7 @@ pub use server::tls_config_from_self_signed_cert;
 pub use server::{bind as bind_mpc_helper_server, router as mpc_helper_router, BindTarget};
 use std::str::FromStr;
 
-use crate::cli::net::server::MpcServerError;
+use crate::net::server::MpcServerError;
 use crate::protocol::{QueryId, RecordId};
 use async_trait::async_trait;
 use axum::body::Bytes;
@@ -23,8 +23,8 @@ static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
 static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 
 pub struct RecordHeaders {
-    offset: usize,
-    data_size: usize,
+    offset: u32,
+    data_size: u32,
 }
 
 impl RecordHeaders {
@@ -54,8 +54,8 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
     type Rejection = MpcServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let offset: usize = RecordHeaders::get_header(req, OFFSET_HEADER_NAME.clone())?;
-        let data_size: usize = RecordHeaders::get_header(req, DATA_SIZE_HEADER_NAME.clone())?;
+        let offset: u32 = RecordHeaders::get_header(req, OFFSET_HEADER_NAME.clone())?;
+        let data_size: u32 = RecordHeaders::get_header(req, DATA_SIZE_HEADER_NAME.clone())?;
         Ok(RecordHeaders { offset, data_size })
     }
 }
@@ -65,8 +65,8 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
 pub struct BufferedMessages<S> {
     query_id: QueryId,
     step: S,
-    offset: usize,
-    data_size: usize,
+    offset: u32,
+    data_size: u32,
     body: Bytes,
 }
 

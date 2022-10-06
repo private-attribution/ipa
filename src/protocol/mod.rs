@@ -2,7 +2,7 @@ pub mod context;
 mod securemul;
 mod sort;
 
-use crate::error::Error;
+use crate::error::{self, Error};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
@@ -26,12 +26,12 @@ use crate::helpers::prss::SpaceIndex;
 /// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
 /// it should converge to a single implementation.
 pub trait Step:
-    Copy + Clone + Debug + Display + Eq + Hash + Send + Sync + TryFrom<String, Error = Error> + 'static
+    Copy + Clone + Debug + Display + Eq + Hash + Send + TryFrom<String, Error = Error> + 'static
 {
 }
 
 /// Set of steps that define the IPA protocol.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IPAProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
@@ -48,27 +48,13 @@ impl TryFrom<String> for IPAProtocolStep {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let value = value.strip_prefix('/').unwrap_or(&value);
+        let value = value.strip_prefix('/').unwrap_or(&value).to_lowercase();
         if value == Self::CONVERT_SHARES_STR {
             Ok(Self::ConvertShares)
         } else if let Some(rem) = value.strip_prefix(Self::SORT_STR) {
             Ok(Self::Sort(String::from(rem).try_into()?))
         } else {
-            Err(Error::NotFound)
-        }
-    }
-}
-
-impl Debug for IPAProtocolStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IPA/")?;
-        match self {
-            IPAProtocolStep::ConvertShares => {
-                write!(f, "ConvertShares")
-            }
-            IPAProtocolStep::Sort(sort_step) => {
-                write!(f, "Sort/{:?}", sort_step)
-            }
+            Err(error::path_parse_error(&value))
         }
     }
 }
@@ -95,21 +81,13 @@ impl SpaceIndex for IPAProtocolStep {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SortStep {
     BitPermutations,
 }
 
 impl SortStep {
     const BIT_PERMUTATIONS_STR: &'static str = "bit-permutations";
-}
-
-impl Debug for SortStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SortStep::BitPermutations => write!(f, "BitPermutations"),
-        }
-    }
 }
 
 impl Display for SortStep {
@@ -124,10 +102,10 @@ impl TryFrom<String> for SortStep {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let value = value.strip_prefix('/').unwrap_or(&value);
-        match value {
+        let value = value.strip_prefix('/').unwrap_or(&value).to_lowercase();
+        match value.as_str() {
             Self::BIT_PERMUTATIONS_STR => Ok(Self::BitPermutations),
-            _ => Err(Error::NotFound),
+            _ => Err(error::path_parse_error(&value)),
         }
     }
 }
@@ -167,7 +145,9 @@ impl TryFrom<String> for QueryId {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         // dummy value for now
-        (value == "0").then_some(QueryId).ok_or(Error::InvalidId)
+        (value == "0")
+            .then_some(QueryId)
+            .ok_or_else(|| error::path_parse_error(&value))
     }
 }
 
