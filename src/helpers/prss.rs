@@ -12,7 +12,7 @@ use std::ops::Index;
 use std::{marker::PhantomData, mem::size_of};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-pub trait SpaceIndex {
+pub trait SpaceIndex: Copy {
     const MAX: usize;
 
     #[must_use]
@@ -94,15 +94,78 @@ impl PrssSpace {
         let (l, r): (F, F) = self.generate_fields(index);
         l + r
     }
+
+    /// Turn this space into a pair of random number generators, one that is shared
+    /// with the left and one that is shared with the right.
+    /// Nothing prevents this from being used after calls to generate values,
+    /// but it should not be used in both ways.
+    #[must_use]
+    pub fn to_rngs(self) -> (PrssRng, PrssRng) {
+        (
+            PrssRng {
+                generator: self.left,
+                counter: 0,
+            },
+            PrssRng {
+                generator: self.right,
+                counter: 0,
+            },
+        )
+    }
 }
+
+/// An implementation of `RngCore` that uses the same underlying `Generator`.
+/// For use in place of `PrssSpace` where indexing cannot be used, such as
+/// in APIs that expect `Rng`.
+#[allow(clippy::module_name_repetitions)]
+pub struct PrssRng {
+    generator: Generator,
+    counter: u128,
+}
+
+impl RngCore for PrssRng {
+    #[allow(clippy::cast_possible_truncation)]
+    fn next_u32(&mut self) -> u32 {
+        self.next_u64() as u32
+    }
+
+    // This implementation wastes half of the bits that are generated.
+    // That is OK for the same reason that we use in converting a `u128` to a small `Field`.
+    #[allow(clippy::cast_possible_truncation)]
+    fn next_u64(&mut self) -> u64 {
+        let v = self.generator.generate(self.counter);
+        self.counter += 1;
+        v as u64
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        rand_core::impls::fill_bytes_via_next(self, dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        rand_core::impls::fill_bytes_via_next(self, dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for PrssRng {}
 
 /// A single participant in the protocol.
 /// This holds multiple streams of correlated (pseudo)randomness, indexed by `I`.
 pub struct Participant<I: SpaceIndex> {
     // This would be `[PrssSpace; I::MAX]` with `feature(generic_const_exprs)`,
     // but that is still in Nightly.
-    streams: Vec<PrssSpace>,
+    spaces: Vec<Option<PrssSpace>>,
     _marker: PhantomData<I>,
+}
+
+impl<I: SpaceIndex> Participant<I> {
+    /// Take the indicated `PrssSpace`.
+    /// # Panics
+    /// If the space has already been taken.
+    pub fn take(&mut self, idx: I) -> PrssSpace {
+        self.spaces[idx.as_usize()].take().unwrap()
+    }
 }
 
 impl<I: SpaceIndex> Debug for Participant<I> {
@@ -114,7 +177,7 @@ impl<I: SpaceIndex> Debug for Participant<I> {
 impl<I: SpaceIndex> Index<I> for Participant<I> {
     type Output = PrssSpace;
     fn index(&self, idx: I) -> &Self::Output {
-        &self.streams[idx.as_usize()]
+        self.spaces[idx.as_usize()].as_ref().unwrap()
     }
 }
 
@@ -154,19 +217,19 @@ impl ParticipantSetup {
         let fr = self.right.key_exchange(right_pk);
         let mut context = Vec::with_capacity(Self::CONTEXT_BASE.len() + size_of::<usize>());
         context.extend_from_slice(Self::CONTEXT_BASE);
-        let streams = (0..I::MAX)
+        let spaces = (0..I::MAX)
             .map(|i| {
                 context.truncate(Self::CONTEXT_BASE.len());
                 context.extend_from_slice(&i.to_le_bytes());
-                PrssSpace {
+                Some(PrssSpace {
                     left: fl.generator(&context),
                     right: fr.generator(&context),
-                }
+                })
             })
             .collect();
 
         Participant {
-            streams,
+            spaces,
             _marker: PhantomData::default(),
         }
     }
@@ -238,15 +301,16 @@ impl Generator {
 
 #[cfg(test)]
 pub mod test {
-    use rand::thread_rng;
+    use rand::{thread_rng, Rng};
 
     use crate::field::Fp31;
     use crate::test_fixture::make_participants;
 
-    use super::{Generator, KeyExchange, Participant, PrssSpace, SpaceIndex};
+    use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace, SpaceIndex};
 
     /// In testing, having a single space is easiest to use.
     /// This provides an implementation of `PrssSpace`.
+    #[derive(Clone, Copy)]
     pub struct SingleSpace;
 
     impl SpaceIndex for SingleSpace {
@@ -428,5 +492,24 @@ pub mod test {
             }
         }
         assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn prss_rng() {
+        fn same_rng(mut a: PrssRng, mut b: PrssRng) {
+            assert_eq!(a.gen::<u32>(), b.gen::<u32>());
+            assert_eq!(a.gen::<[u8; 20]>(), b.gen::<[u8; 20]>());
+            assert_eq!(a.gen_range(7..99), b.gen_range(7..99));
+            assert_eq!(a.gen_bool(0.3), b.gen_bool(0.3));
+        }
+
+        let (mut p1, mut p2, mut p3) = make_participants();
+        let (rng1_l, rng1_r) = p1.take(SingleSpace).to_rngs();
+        let (rng2_l, rng2_r) = p2.take(SingleSpace).to_rngs();
+        let (rng3_l, rng3_r) = p3.take(SingleSpace).to_rngs();
+
+        same_rng(rng1_l, rng3_r);
+        same_rng(rng2_l, rng1_r);
+        same_rng(rng3_l, rng2_r);
     }
 }
