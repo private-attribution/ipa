@@ -9,9 +9,11 @@ use permutation::Permutation;
 // It would even be cool to use a u16 if you're sorting less than 65,000 items
 // In future, we should plan to change this code to use u32 or u16 based on number of items
 
+#[embed_doc_image("apply", "images/sort/apply.png")]
+#[embed_doc_image("apply_inv", "images/sort/apply_inv.png")]
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
-#[embed_doc_image("apply", "images/sort/apply.png")]
+/// ![Apply steps][apply]
 #[allow(dead_code)]
 pub fn apply<T: Copy + Default, S>(permutation: &mut Permutation, values: &mut S)
 where
@@ -23,7 +25,7 @@ where
 /// To compute `apply_inv` on values, permutation(i) can be regarded as the destination of i, i.e., the i-th item
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
-#[embed_doc_image("apply_inv", "images/sort/apply_inv.png")]
+/// ![Apply inv steps][apply_inv]
 #[allow(clippy::module_name_repetitions, dead_code)]
 pub fn apply_inv<T: Copy + Default, S>(permutation: &mut Permutation, values: &mut S)
 where

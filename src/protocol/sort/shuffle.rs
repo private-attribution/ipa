@@ -25,7 +25,9 @@ impl Shuffle {
             seed.1.to_le_bytes()
         };
         // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
-        // We are using two spaces to generate indexes and concatenating them
+        // We are reusing 128 bit number twice to get a seed for Chacha8Rng.
+        // TODO (richa) Using u128 to seed random number generation is not optimal since we have half the entropy than expected.
+        // Ideally we should be getting u256 from prss
         let mut seed: [u8; 32] = [0; 32];
         let (first_half, second_half) = seed.split_at_mut(16);
         first_half.copy_from_slice(&seed_bytes[..16]);
