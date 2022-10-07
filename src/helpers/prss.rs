@@ -100,14 +100,14 @@ impl PrssSpace {
     /// Nothing prevents this from being used after calls to generate values,
     /// but it should not be used in both ways.
     #[must_use]
-    pub fn to_rngs(self) -> (PrssRng, PrssRng) {
+    pub fn as_rngs(&self) -> (PrssRng, PrssRng) {
         (
             PrssRng {
-                generator: self.left,
+                generator: self.left.clone(),
                 counter: 0,
             },
             PrssRng {
-                generator: self.right,
+                generator: self.right.clone(),
                 counter: 0,
             },
         )
@@ -155,17 +155,8 @@ impl CryptoRng for PrssRng {}
 pub struct Participant<I: SpaceIndex> {
     // This would be `[PrssSpace; I::MAX]` with `feature(generic_const_exprs)`,
     // but that is still in Nightly.
-    spaces: Vec<Option<PrssSpace>>,
+    spaces: Vec<PrssSpace>,
     _marker: PhantomData<I>,
-}
-
-impl<I: SpaceIndex> Participant<I> {
-    /// Take the indicated `PrssSpace`.
-    /// # Panics
-    /// If the space has already been taken.
-    pub fn take(&mut self, idx: I) -> PrssSpace {
-        self.spaces[idx.as_usize()].take().unwrap()
-    }
 }
 
 impl<I: SpaceIndex> Debug for Participant<I> {
@@ -177,7 +168,7 @@ impl<I: SpaceIndex> Debug for Participant<I> {
 impl<I: SpaceIndex> Index<I> for Participant<I> {
     type Output = PrssSpace;
     fn index(&self, idx: I) -> &Self::Output {
-        self.spaces[idx.as_usize()].as_ref().unwrap()
+        &self.spaces[idx.as_usize()]
     }
 }
 
@@ -221,10 +212,10 @@ impl ParticipantSetup {
             .map(|i| {
                 context.truncate(Self::CONTEXT_BASE.len());
                 context.extend_from_slice(&i.to_le_bytes());
-                Some(PrssSpace {
+                PrssSpace {
                     left: fl.generator(&context),
                     right: fr.generator(&context),
-                })
+                }
             })
             .collect();
 
@@ -281,7 +272,7 @@ impl GeneratorFactory {
 }
 
 /// The basic generator.  This generates values based on an arbitrary index.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Generator {
     cipher: Aes256,
 }
@@ -503,10 +494,10 @@ pub mod test {
             assert_eq!(a.gen_bool(0.3), b.gen_bool(0.3));
         }
 
-        let (mut p1, mut p2, mut p3) = make_participants();
-        let (rng1_l, rng1_r) = p1.take(SingleSpace).to_rngs();
-        let (rng2_l, rng2_r) = p2.take(SingleSpace).to_rngs();
-        let (rng3_l, rng3_r) = p3.take(SingleSpace).to_rngs();
+        let (p1, p2, p3) = make_participants();
+        let (rng1_l, rng1_r) = p1[SingleSpace].as_rngs();
+        let (rng2_l, rng2_r) = p2[SingleSpace].as_rngs();
+        let (rng3_l, rng3_r) = p3[SingleSpace].as_rngs();
 
         same_rng(rng1_l, rng3_r);
         same_rng(rng2_l, rng1_r);
