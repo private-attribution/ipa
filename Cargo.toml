@@ -26,8 +26,7 @@ futures = "0.3.21"
 futures-util = "0.3.21"
 
 hex = { version = "0.4", optional = true }
-# rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, so pin this
-hkdf = "0.11"
+hkdf = "0.12.3"
 hyper = { version = "0.14.19", optional = true, features = ["client", "h2"] }
 hyper-tls = { version = "0.5.0", optional = true }
 metrics = "0.19.0"
@@ -43,8 +42,7 @@ rand_distr = "0.4.3"
 # TODO consider using zerocopy or serde_bytes or in-house serialization
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
-# rust-elgamal (via curve25519-dalek-ng) only works with digest 0.9, so pin this
-sha2 = "0.9"
+sha2 = "0.10.6"
 thiserror = "1.0"
 tokio = { version = "1.19.2", optional = true, features = ["rt", "rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1.9", optional = true }
