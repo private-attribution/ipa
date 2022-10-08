@@ -101,6 +101,7 @@ impl<'a> Sample<'a> {
             .index
             .clone();
         let diff = (rng.gen_range(r) * 60.0 * 60.0).floor();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         Duration::from_secs(diff as u64)
     }
 
@@ -113,7 +114,7 @@ impl<'a> Sample<'a> {
 
         // Since [diff] is a range of days, randomly choose hours and seconds for the given range.
         // E.g. return [1..3) days + y hours + z seconds
-        Duration::new(diff as u64 * 24 * 60 * 60, 0)
+        Duration::new(u64::from(diff) * 24 * 60 * 60, 0)
             + Duration::new(rng.gen_range(0..23) * 60 * 60, 0)
             + Duration::new(rng.gen_range(0..59) * 60, 0)
             + Duration::new(rng.gen_range(0..59), 0)
