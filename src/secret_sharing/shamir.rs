@@ -5,7 +5,7 @@
 //!
 use crate::field::{Field, Fp31};
 use rand::Rng;
-use rand_core::RngCore;
+use rand::RngCore;
 use std::iter::repeat_with;
 use std::num::NonZeroU8;
 use std::ops::Add;
@@ -212,7 +212,7 @@ mod tests {
     use proptest::prelude::*;
     use rand::rngs::StdRng;
     use rand::thread_rng;
-    use rand_core::SeedableRng;
+    use rand::SeedableRng;
     use std::cmp::max;
     use std::num::NonZeroU8;
 
