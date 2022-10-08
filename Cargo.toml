@@ -16,8 +16,8 @@ test-fixture = []
 [dependencies]
 aes = "0.8"
 async-trait = "0.1.56"
-axum = { version = "0.5.7", optional = true, features = ["http2"] }
-axum-server = { version = "0.4.0", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
+axum = { version = "0.5.16", optional = true, features = ["http2"] }
+axum-server = { version = "0.4.2", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
 byteorder = "1"
 clap = { version = "4.0.10", optional = true, features = ["derive"] }
 comfy-table = { version = "6.0.0", optional = true }
