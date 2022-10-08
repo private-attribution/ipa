@@ -42,13 +42,13 @@ mod tests {
     #[test]
     fn apply_shares() {
         let mut values = ["A", "B", "C", "D"];
-        let mut indices = Permutation::from_vec([2, 3, 1, 0]);
+        let mut indices = Permutation::oneline([2, 3, 1, 0]).inverse();
         let expected_output_apply = ["C", "D", "B", "A"];
         apply(&mut indices, &mut values);
         assert_eq!(values, expected_output_apply);
 
         let mut values = ["A", "B", "C", "D"];
-        let mut indices = Permutation::from_vec([2, 3, 1, 0]);
+        let mut indices = Permutation::oneline([2, 3, 1, 0]).inverse();
         let expected_output_apply_inv = ["D", "C", "A", "B"];
         apply_inv(&mut indices, &mut values);
         assert_eq!(values, expected_output_apply_inv);

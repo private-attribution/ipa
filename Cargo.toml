@@ -15,25 +15,24 @@ test-fixture = []
 
 [dependencies]
 aes = "0.8"
-async-trait = "0.1.56"
+async-trait = "0.1.57"
 axum = { version = "0.5.16", optional = true, features = ["http2"] }
 axum-server = { version = "0.4.2", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
-byteorder = "1"
+byteorder = "1.4.3"
 clap = { version = "4.0.10", optional = true, features = ["derive"] }
 comfy-table = { version = "6.0.0", optional = true }
 embed-doc-image = "0.1.4"
-futures = "0.3.21"
-futures-util = "0.3.21"
-
+futures = "0.3.24"
+futures-util = "0.3.24"
 hex = { version = "0.4", optional = true }
 hkdf = "0.12.3"
-hyper = { version = "0.14.19", optional = true, features = ["client", "h2"] }
+hyper = { version = "0.14.20", optional = true, features = ["client", "h2"] }
 hyper-tls = { version = "0.5.0", optional = true }
-metrics = "0.19.0"
-metrics-tracing-context = { version = "0.11.0", optional = true }
-metrics-util = { version = "0.13.0", optional = true }
-permutation = "0.3.0"
-pin-project = "1.0.11"
+metrics = "0.20.1"
+metrics-tracing-context = { version = "0.12.0", optional = true }
+metrics-util = { version = "0.14.0", optional = true }
+permutation = "0.4.1"
+pin-project = "1.0.12"
 rand = "0.8"
 rand_chacha = "0.3.1"
 rand_core = "0.6"
@@ -45,12 +44,12 @@ serde_json = { version = "1.0", optional = true }
 sha2 = "0.10.6"
 thiserror = "1.0"
 tokio = { version = "1.19.2", optional = true, features = ["rt", "rt-multi-thread", "macros"] }
-tokio-stream = { version = "0.1.9", optional = true }
+tokio-stream = { version = "0.1.10", optional = true }
 tower = { version = "0.4.13", optional = true }
 tower-http = { version = "0.3.4", optional = true, features = ["trace"] }
 # disable debug traces and below for release builds and keep everything for debug build
-tracing = { version = "0.1.35", features = ["max_level_trace", "release_max_level_info"] }
-tracing-subscriber = { version = "0.3.14", optional = true, features = ["env-filter"] }
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"] }
+tracing-subscriber = { version = "0.3.16", optional = true, features = ["env-filter"] }
 x25519-dalek = "2.0.0-pre.1"
 
 [dev-dependencies]
