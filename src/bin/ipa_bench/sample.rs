@@ -1,6 +1,6 @@
+use rand::distributions::Distribution;
 use rand::distributions::WeightedIndex;
 use rand::{CryptoRng, Rng, RngCore};
-use rand_distr::{num_traits::ToPrimitive, Distribution};
 use std::time::Duration;
 
 use crate::config::Config;
@@ -100,8 +100,8 @@ impl<'a> Sample<'a> {
         let r = self.config.impression_impression_duration[self.frequency_cap_distr.sample(rng)]
             .index
             .clone();
-        let diff = rng.gen_range(r);
-        Duration::new((diff * 60.0 * 60.0).floor().to_u64().unwrap(), 0)
+        let diff = (rng.gen_range(r) * 60.0 * 60.0).floor();
+        Duration::from_secs(diff as u64)
     }
 
     pub fn conversions_time_diff<R: RngCore + CryptoRng>(&self, rng: &mut R) -> Duration {
@@ -113,7 +113,7 @@ impl<'a> Sample<'a> {
 
         // Since [diff] is a range of days, randomly choose hours and seconds for the given range.
         // E.g. return [1..3) days + y hours + z seconds
-        Duration::new(diff.to_u64().unwrap() * 24 * 60 * 60, 0)
+        Duration::new(diff as u64 * 24 * 60 * 60, 0)
             + Duration::new(rng.gen_range(0..23) * 60 * 60, 0)
             + Duration::new(rng.gen_range(0..59) * 60, 0)
             + Duration::new(rng.gen_range(0..59), 0)
