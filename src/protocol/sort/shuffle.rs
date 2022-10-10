@@ -200,15 +200,6 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
             .await
             .unwrap();
 
-        assert_ne!(
-            &ctx.participant[(self.step_fn)(Step1)],
-            &ctx.participant[(self.step_fn)(Step2)]
-        );
-        assert_ne!(
-            &ctx.participant[(self.step_fn)(Step2)],
-            &ctx.participant[(self.step_fn)(Step3)]
-        );
-
         Ok(())
     }
 }
