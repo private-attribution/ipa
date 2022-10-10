@@ -3,58 +3,64 @@ use crate::{
     field::Field,
     helpers::{
         mesh::{Gateway, Mesh},
+        prss::SpaceIndex,
         Identity,
     },
-    protocol::{context::ProtocolContext, IPAProtocolStep, ModulusConversionStep, RecordId},
+    protocol::{context::ProtocolContext, IPAProtocolStep, ModulusConversionStep, RecordId, Step},
     secret_sharing::Replicated,
 };
 use serde::{Deserialize, Serialize};
 
 /// A message sent by each helper when they've reshared their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ReplicatedBinary {
-    left: bool,
-    right: bool,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct ReplicatedBinary(bool, bool);
+
+impl ReplicatedBinary {
+    #[must_use]
+    pub fn new(a: bool, b: bool) -> Self {
+        Self(a, b)
+    }
 }
+
 /// GenRandom(i, \[x\])
 #[derive(Debug)]
-pub struct GenRandom<F> {
+pub struct GenRandom {
     input: ReplicatedBinary,
 }
 
-impl<F: Field> GenRandom<F> {
+impl GenRandom {
     #[allow(dead_code)]
     pub fn new(input: ReplicatedBinary) -> Self {
         Self { input }
     }
 
-    fn local_secret_share(
+    fn local_secret_share<F: Field>(
         input: ReplicatedBinary,
         channel_identity: Identity,
     ) -> (Replicated<F>, Replicated<F>, Replicated<F>)
     where
         F: Field,
     {
-        match channel_identity() {
+        match channel_identity {
             Identity::H1 => (
-                Replicated::new(F::from(input.left), F::ZERO),
-                Replicated::new(F::ZERO, F::from(input.right)),
+                Replicated::new(F::from(input.0 as u128), F::ZERO),
+                Replicated::new(F::ZERO, F::from(input.1 as u128)),
                 Replicated::new(F::ZERO, F::ZERO),
             ),
             Identity::H2 => (
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(input.left), F::ZERO),
-                Replicated::new(F::ZERO, F::from(input.right)),
+                Replicated::new(F::from(input.0 as u128), F::ZERO),
+                Replicated::new(F::ZERO, F::from(input.1 as u128)),
             ),
             Identity::H3 => (
-                Replicated::new(F::ZERO, F::from(input.right)),
+                Replicated::new(F::ZERO, F::from(input.1 as u128)),
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(input.left), F::ZERO),
+                Replicated::new(F::from(input.0 as u128), F::ZERO),
             ),
         }
     }
 
-    async fn xor<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    async fn xor<F: Field, M: Mesh, G: Gateway<M, IPAProtocolStep>>(
         a: Replicated<F>,
         b: Replicated<F>,
         ctx: &ProtocolContext<'_, G, IPAProtocolStep>,
@@ -63,19 +69,19 @@ impl<F: Field> GenRandom<F> {
     ) -> Result<Replicated<F>, BoxError> {
         let result = ctx.multiply(record_id, step).await.execute(a, b).await?;
 
-        a + b - (result * 2)
+        Ok(a + b - (result * F::from(2)))
     }
 
     #[allow(dead_code)]
-    pub async fn execute<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    pub async fn execute<F: Field, M: Mesh, G: Gateway<M, S>, S: Step + SpaceIndex>(
         &self,
-        ctx: &ProtocolContext<'_, G, IPAProtocolStep>,
+        ctx: &ProtocolContext<'_, G, S>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError>
+    ) -> Result<Replicated<F>, BoxError>
     where
         F: Field,
     {
-        let mut channel = ctx.gateway.get_channel(IPAProtocolStep::ConvertShares(
+        let channel = ctx.gateway.get_channel(IPAProtocolStep::ConvertShares(
             ModulusConversionStep::Share0XORShare1,
         ));
         let (sh0, sh1, sh2) = Self::local_secret_share(self.input, channel.identity());
@@ -86,14 +92,16 @@ impl<F: Field> GenRandom<F> {
             ctx,
             IPAProtocolStep::ConvertShares(ModulusConversionStep::Share0XORShare1),
             record_id,
-        )?;
-        Self::xor(
+        )
+        .await?;
+        Ok(Self::xor(
             sh0_xor_sh1,
             sh2,
             ctx,
             IPAProtocolStep::ConvertShares(ModulusConversionStep::ResultXORShare2),
             record_id,
-        )?
+        )
+        .await?)
     }
 }
 
@@ -104,11 +112,11 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        field::Fp31,
-        helpers::Identity,
-        test_fixture::{
-            make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
+        protocol::{
+            modulus_conversion::gen_random::{GenRandom, ReplicatedBinary},
+            QueryId, RecordId,
         },
+        test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestStep, TestWorld},
     };
 
     #[tokio::test]
@@ -130,15 +138,15 @@ mod tests {
             let b1 = rng.gen() > 0.5;
             let b2 = rng.gen() > 0.5;
 
-            input = (b0 ^ b1) ^ b2;
+            let input = (b0 ^ b1) ^ b2;
 
-            let gen_random0 = GenRandom::new(ReplicatedBinary { b0, b1 });
-            let gen_random1 = GenRandom::new(ReplicatedBinary { b1, b2 });
-            let gen_random2 = GenRandom::new(ReplicatedBinary { b2, b0 });
+            let gen_random0 = GenRandom::new(ReplicatedBinary::new(b0, b1));
+            let gen_random1 = GenRandom::new(ReplicatedBinary::new(b1, b2));
+            let gen_random2 = GenRandom::new(ReplicatedBinary::new(b2, b0));
 
-            let h0_future = gen_random0.execute(&context[0], record_id, step);
-            let h1_future = gen_random1.execute(&context[1], record_id, step);
-            let h2_future = gen_random2.execute(&context[2], record_id, step);
+            let h0_future = gen_random0.execute(&context[0], record_id);
+            let h1_future = gen_random1.execute(&context[1], record_id);
+            let h2_future = gen_random2.execute(&context[2], record_id);
 
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
             let output_share = validate_and_reconstruct(f);
