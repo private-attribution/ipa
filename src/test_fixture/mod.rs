@@ -4,12 +4,14 @@ pub mod logging;
 mod sharing;
 mod world;
 
-use std::sync::Arc;
-
+use crate::field::Fp31;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
+use crate::secret_sharing::Replicated;
+use rand::rngs::mock::StepRng;
 use rand::thread_rng;
+use std::sync::Arc;
 
 use crate::test_fixture::fabric::InMemoryEndpoint;
 pub use sharing::{share, validate_and_reconstruct};
@@ -51,4 +53,29 @@ pub fn make_participants<I: SpaceIndex>() -> (Participant<I>, Participant<I>, Pa
     let p3 = setup3.setup(&pk2_r, &pk1_l);
 
     (p1, p2, p3)
+}
+
+pub type ReplicatedShares = (
+    Vec<Replicated<Fp31>>,
+    Vec<Replicated<Fp31>>,
+    Vec<Replicated<Fp31>>,
+);
+
+// Generate vector shares from vector of inputs for three participant
+#[must_use]
+pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
+    let mut rand = StepRng::new(100, 1);
+
+    let len = input.len();
+    let mut shares0 = Vec::with_capacity(len);
+    let mut shares1 = Vec::with_capacity(len);
+    let mut shares2 = Vec::with_capacity(len);
+
+    for iter in input {
+        let share = share(Fp31::from(iter), &mut rand);
+        shares0.push(share[0]);
+        shares1.push(share[1]);
+        shares2.push(share[2]);
+    }
+    (shares0, shares1, shares2)
 }
