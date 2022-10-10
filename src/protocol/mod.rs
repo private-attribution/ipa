@@ -1,3 +1,4 @@
+mod attribute;
 pub mod context;
 mod modulus_conversion;
 pub mod prss;
