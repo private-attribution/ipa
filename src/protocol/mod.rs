@@ -33,7 +33,7 @@ pub trait Step: Copy + Clone + Debug + Eq + Hash + Send + 'static {}
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IPAProtocolStep {
     /// Convert from XOR shares to Replicated shares
-    ConvertShares(ModulusConversionStep),
+    ConvertShares,
     /// Sort shares by the match key
     Sort(SortStep),
 }
@@ -42,8 +42,8 @@ impl Debug for IPAProtocolStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "IPA/")?;
         match self {
-            IPAProtocolStep::ConvertShares(modulus_conversion_step) => {
-                write!(f, "ConvertShares/{:?}", modulus_conversion_step)
+            IPAProtocolStep::ConvertShares => {
+                write!(f, "ConvertShares")
             }
             IPAProtocolStep::Sort(sort_step) => {
                 write!(f, "Sort/{:?}", sort_step)
@@ -59,7 +59,7 @@ impl SpaceIndex for IPAProtocolStep {
 
     fn as_usize(&self) -> usize {
         match self {
-            IPAProtocolStep::ConvertShares(_) => 0,
+            IPAProtocolStep::ConvertShares => 0,
             IPAProtocolStep::Sort(_) => 1,
         }
     }

@@ -2,13 +2,14 @@ use crate::{
     error::BoxError,
     field::Field,
     helpers::{
-        mesh::{Gateway, Mesh},
+        fabric::Network,
         prss::SpaceIndex,
         Identity,
     },
-    protocol::{context::ProtocolContext, IPAProtocolStep, ModulusConversionStep, RecordId, Step},
+    protocol::{context::ProtocolContext, RecordId, Step},
     secret_sharing::Replicated,
 };
+
 use serde::{Deserialize, Serialize};
 
 /// A message sent by each helper when they've reshared their own shares
@@ -17,9 +18,16 @@ pub struct ReplicatedBinary(bool, bool);
 
 impl ReplicatedBinary {
     #[must_use]
+    #[allow(dead_code)]
     pub fn new(a: bool, b: bool) -> Self {
         Self(a, b)
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ModulusConversionStep {
+    Xor1,
+    Xor2,
 }
 
 /// GenRandom(i, \[x\])
@@ -60,11 +68,11 @@ impl GenRandom {
         }
     }
 
-    async fn xor<F: Field, M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    async fn xor<F: Field, S: Step + SpaceIndex, N: Network<S>>(
         a: Replicated<F>,
         b: Replicated<F>,
-        ctx: &ProtocolContext<'_, G, IPAProtocolStep>,
-        step: IPAProtocolStep,
+        ctx: &ProtocolContext<'_, S, N>,
+        step: S,
         record_id: RecordId,
     ) -> Result<Replicated<F>, BoxError> {
         let result = ctx.multiply(record_id, step).await.execute(a, b).await?;
@@ -73,84 +81,92 @@ impl GenRandom {
     }
 
     #[allow(dead_code)]
-    pub async fn execute<F: Field, M: Mesh, G: Gateway<M, S>, S: Step + SpaceIndex>(
+    pub async fn execute<F: Field, S: Step + SpaceIndex, N: Network<S>>(
         &self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
         record_id: RecordId,
-    ) -> Result<Replicated<F>, BoxError>
-    where
-        F: Field,
-    {
-        let channel = ctx.gateway.get_channel(IPAProtocolStep::ConvertShares(
-            ModulusConversionStep::Share0XORShare1,
-        ));
-        let (sh0, sh1, sh2) = Self::local_secret_share(self.input, channel.identity());
+        step1: S,
+        step2: S,
+    ) -> Result<Replicated<F>, BoxError> {
+        let (sh0, sh1, sh2) = Self::local_secret_share(self.input, ctx.identity);
 
-        let sh0_xor_sh1 = Self::xor(
-            sh0,
-            sh1,
-            ctx,
-            IPAProtocolStep::ConvertShares(ModulusConversionStep::Share0XORShare1),
-            record_id,
-        )
-        .await?;
-        Ok(Self::xor(
-            sh0_xor_sh1,
-            sh2,
-            ctx,
-            IPAProtocolStep::ConvertShares(ModulusConversionStep::ResultXORShare2),
-            record_id,
-        )
-        .await?)
+        let sh0_xor_sh1 = Self::xor(sh0, sh1, ctx, step1, record_id).await?;
+        Ok(Self::xor(sh0_xor_sh1, sh2, ctx, step2, record_id).await?)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use proptest::prelude::Rng;
-    use rand::rngs::mock::StepRng;
     use tokio::try_join;
 
     use crate::{
+        field::{Field, Fp31},
         protocol::{
-            modulus_conversion::gen_random::{GenRandom, ReplicatedBinary},
-            QueryId, RecordId,
+            modulus_conversion::gen_random::{GenRandom, ModulusConversionStep, ReplicatedBinary},
+            QueryId, RecordId, SpaceIndex, Step,
         },
-        test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestStep, TestWorld},
+        test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
     };
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+    struct ModulusConversionTestStep {
+        bit_number: u8,
+        internal_step: ModulusConversionStep,
+    }
+
+    impl Step for ModulusConversionTestStep {
+        // TODO
+    }
+
+    impl SpaceIndex for ModulusConversionTestStep {
+        const MAX: usize = 512;
+
+        fn as_usize(&self) -> usize {
+            let b = self.bit_number as usize;
+            match self.internal_step {
+                ModulusConversionStep::Xor1 => b,
+                ModulusConversionStep::Xor2 => 256_usize + b,
+            }
+        }
+    }
 
     #[tokio::test]
     pub async fn gen_random() {
-        let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
 
         for _ in 0..10 {
-            let secret = rng.gen::<u128>();
-
             let record_id = RecordId::from(1);
 
-            let world: TestWorld<TestStep> = make_world(QueryId);
+            let world: TestWorld<ModulusConversionTestStep> = make_world(QueryId);
             let context = make_contexts(&world);
 
-            let step = TestStep::Reshare(1);
+            let step1 = ModulusConversionTestStep {
+                bit_number: 0,
+                internal_step: ModulusConversionStep::Xor1,
+            };
+            let step2 = ModulusConversionTestStep {
+                bit_number: 0,
+                internal_step: ModulusConversionStep::Xor2,
+            };
 
-            let b0 = rng.gen() > 0.5;
-            let b1 = rng.gen() > 0.5;
-            let b2 = rng.gen() > 0.5;
+            let b0 = rng.gen::<u8>() >= 128;
+            let b1 = rng.gen::<u8>() >= 128;
+            let b2 = rng.gen::<u8>() >= 128;
 
-            let input = (b0 ^ b1) ^ b2;
+            let input = ((b0 ^ b1) ^ b2) as u128;
 
             let gen_random0 = GenRandom::new(ReplicatedBinary::new(b0, b1));
             let gen_random1 = GenRandom::new(ReplicatedBinary::new(b1, b2));
             let gen_random2 = GenRandom::new(ReplicatedBinary::new(b2, b0));
 
-            let h0_future = gen_random0.execute(&context[0], record_id);
-            let h1_future = gen_random1.execute(&context[1], record_id);
-            let h2_future = gen_random2.execute(&context[2], record_id);
+            let h0_future = gen_random0.execute(&context[0], record_id, step1, step2);
+            let h1_future = gen_random1.execute(&context[1], record_id, step1, step2);
+            let h2_future = gen_random2.execute(&context[2], record_id, step1, step2);
 
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
-            let output_share = validate_and_reconstruct(f);
-            assert_eq!(output_share, input);
+            let output_share: Fp31 = validate_and_reconstruct(f);
+            assert_eq!(output_share.as_u128(), input);
         }
     }
 }

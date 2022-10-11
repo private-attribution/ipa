@@ -157,6 +157,7 @@ pub mod stream {
     #[cfg(test)]
     mod tests {
         use crate::field::Fp31;
+        use crate::helpers::Identity;
         use crate::protocol::context::ProtocolContext;
         use crate::protocol::securemul::stream::secure_multiply;
         use crate::protocol::QueryId;
@@ -196,9 +197,10 @@ pub mod stream {
                 .into_iter()
                 .zip(world.participants)
                 .zip(world.gateways)
-                .map(|((input, prss), gateway)| {
+                .zip([Identity::H1, Identity::H2, Identity::H3])
+                .map(|(((input, prss), gateway), identity)| {
                     tokio::spawn(async move {
-                        let ctx = ProtocolContext::new(&prss, &gateway);
+                        let ctx = ProtocolContext::new(&prss, &gateway, identity);
                         let mut stream = secure_multiply(input, &ctx, start_index);
 
                         // compute a*b

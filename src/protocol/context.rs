@@ -1,6 +1,7 @@
 use crate::helpers::fabric::Network;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
+use crate::helpers::Identity;
 
 use super::{securemul::SecureMul, sort::reveal::Reveal, RecordId, Step};
 
@@ -12,13 +13,15 @@ use super::{securemul::SecureMul, sort::reveal::Reveal, RecordId, Step};
 pub struct ProtocolContext<'a, S: SpaceIndex, F> {
     pub participant: &'a Participant<S>,
     pub gateway: &'a Gateway<S, F>,
+    pub identity: Identity,
 }
 
 impl<'a, S: Step + SpaceIndex, F: Network<S>> ProtocolContext<'a, S, F> {
-    pub fn new(participant: &'a Participant<S>, gateway: &'a Gateway<S, F>) -> Self {
+    pub fn new(participant: &'a Participant<S>, gateway: &'a Gateway<S, F>, identity: Identity) -> Self {
         Self {
             participant,
             gateway,
+            identity,
         }
     }
 
