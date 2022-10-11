@@ -35,7 +35,7 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// channels and real network.
 ///
 /// ### Implementation details
-/// Gateway, when created, runs an even loop in a dedicated tokio task that pulls the messages
+/// Gateway, when created, runs an event loop in a dedicated tokio task that pulls the messages
 /// from the networking layer and attempts to fulfil the outstanding requests to receive them.
 /// If `receive` method on the channel has never been called, it puts the message to the local
 /// buffer and keeps it there until such request is made by the protocol.
@@ -59,7 +59,7 @@ pub struct Mesh<'a, S, F> {
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
 /// that are pending message reception.
-/// Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
+/// TODO: Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
 /// when protection against collisions is not required, so either use a vector indexed by
 /// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
 #[derive(Debug, Default)]
