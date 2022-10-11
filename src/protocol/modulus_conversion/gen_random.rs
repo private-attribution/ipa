@@ -12,7 +12,6 @@ use crate::{
 
 use serde::{Deserialize, Serialize};
 
-/// A message sent by each helper when they've reshared their own shares
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct ReplicatedBinary(bool, bool);
 
@@ -30,7 +29,6 @@ pub enum ModulusConversionStep {
     Xor2,
 }
 
-/// GenRandom(i, \[x\])
 #[derive(Debug)]
 pub struct GenRandom {
     input: ReplicatedBinary,
@@ -115,9 +113,7 @@ mod tests {
         internal_step: ModulusConversionStep,
     }
 
-    impl Step for ModulusConversionTestStep {
-        // TODO
-    }
+    impl Step for ModulusConversionTestStep {}
 
     impl SpaceIndex for ModulusConversionTestStep {
         const MAX: usize = 512;
@@ -142,11 +138,11 @@ mod tests {
             let context = make_contexts(&world);
 
             let step1 = ModulusConversionTestStep {
-                bit_number: 0,
+                bit_number: i,
                 internal_step: ModulusConversionStep::Xor1,
             };
             let step2 = ModulusConversionTestStep {
-                bit_number: 0,
+                bit_number: i,
                 internal_step: ModulusConversionStep::Xor2,
             };
 
