@@ -1,7 +1,7 @@
 use crate::field::Field;
 use crate::secret_sharing::Replicated;
 use rand::Rng;
-use rand_core::RngCore;
+use rand::RngCore;
 
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] {

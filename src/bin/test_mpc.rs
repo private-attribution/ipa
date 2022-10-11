@@ -1,26 +1,26 @@
+use clap::Parser;
 use raw_ipa::cli::{
     net::{Client, Command, MpcHandle},
     Verbosity,
 };
 use std::error::Error;
-use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
-#[structopt(
+#[derive(Debug, Parser)]
+#[clap(
     name = "mpc-client",
     about = "CLI to execute test scenarios on IPA MPC helpers"
 )]
 struct Args {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     logging: Verbosity,
 
-    #[structopt(short, long)]
+    #[arg(short, long)]
     uri: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::from_args();
+    let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
     // TODO: Start MPC helpers and discover

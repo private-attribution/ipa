@@ -1,33 +1,32 @@
 use std::error::Error;
 
+use clap::Parser;
 use hyper::http::uri::Scheme;
 use raw_ipa::cli::net::{bind_mpc_helper_server, BindTarget};
 use raw_ipa::cli::Verbosity;
 use std::net::SocketAddr;
 use std::panic;
-
-use structopt::StructOpt;
 use tracing::info;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]
+#[derive(Debug, Parser)]
+#[clap(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]
 struct Args {
     /// Configure logging.
-    #[structopt(flatten)]
+    #[clap(flatten)]
     logging: Verbosity,
 
     /// Port to listen. If not specified, will ask Kernel to assign the port
-    #[structopt(short = "p", long = "port")]
+    #[arg(short, long)]
     port: Option<u16>,
 
     /// Indicates whether to start HTTP or HTTPS endpoint
-    #[structopt(short = "-s", long = "scheme", default_value = "http")]
+    #[arg(short, long, default_value = "http")]
     scheme: Scheme,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::from_args();
+    let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
     // decide what protocol we're going to use here
