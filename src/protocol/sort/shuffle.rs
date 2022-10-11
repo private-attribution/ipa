@@ -55,6 +55,11 @@ impl<'a, F: Field, S: Step + SpaceIndex, SF: Fn(ShuffleStep) -> S> Shuffle<'a, F
             prss.generate_values((batchsize + 2 * which_step.as_usize()) as u128),
             prss.generate_values((batchsize + 2 * which_step.as_usize() + 1) as u128),
         );
+        println!(
+            "index:{:?} {:?}",
+            batchsize + 2 * which_step.as_usize(),
+            randoms
+        );
         let mut seed = Vec::with_capacity(32);
         if direction == Direction::Left {
             seed.extend_from_slice(&randoms.0 .0.to_le_bytes());
@@ -124,6 +129,11 @@ impl<'a, F: Field, S: Step + SpaceIndex, SF: Fn(ShuffleStep) -> S> Shuffle<'a, F
             } else {
                 Direction::Right
             };
+            println!(
+                "{:?} {:?}",
+                channel.identity(),
+                step,
+            );
             let mut permute =
                 Self::generate_random_permutation(self.input.len(), direction, prss, which_step);
             apply_inv(&mut permute, &mut self.input);
