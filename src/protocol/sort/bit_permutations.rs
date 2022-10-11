@@ -1,14 +1,15 @@
+use super::SortStep;
 use crate::{
     error::BoxError,
     field::Field,
     helpers::mesh::{Gateway, Mesh},
-    protocol::{context::ProtocolContext, IPAProtocolStep, RecordId, SortStep},
+    protocol::{context::ProtocolContext, IPAProtocolStep, RecordId},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-
-/// Create an object to generate bit permutations for a given bit column of query. This is GENBITPERM(Algorithm 3) from the paper
+/// Generate bit permutations for a given bit column of query.
+/// This is GENBITPERM(Algorithm 3) described in <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
 pub struct BitPermutations<'a, F> {
     input: &'a [Replicated<F>],
@@ -71,6 +72,12 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. multiply each row of previous output individually (i.e. x*y) across mpc helpers.
     /// 3. add ith column by i+len to obtain helper's share of sorted location, where len is same as input shares length
     /// ![Bit Permutations steps][bit_permutations]
+    /// ## Panics
+    ///
+    /// In case the function is unable to get double size of output from multiplication step, the code will panic
+    ///
+    /// ## Errors
+    /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
     pub async fn execute<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
         &self,

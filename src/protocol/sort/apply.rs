@@ -2,7 +2,7 @@ use embed_doc_image::embed_doc_image;
 use permutation::Permutation;
 
 // TODO #OptimizeLater
-// For now, we are using Permutation crate tp implement `apply_inv` and `apply` functions.
+// For now, we are using Permutation crate to implement `apply_inv` and `apply` functions.
 // However this uses usize which is either 32-bit or 64-bit depending on the architecture we are using.
 // In our case, if we are sorting less than 2^32 elements (over 4 billion) 32-bits is sufficient.
 // We probably never need a 64-bit number and is not optimal.
