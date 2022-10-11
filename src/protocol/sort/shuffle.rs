@@ -42,14 +42,17 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
         batchsize: usize,
         direction: Direction,
         prss: &PrssSpace,
+        which_step: ShuffleStep,
     ) -> Permutation {
         // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
         // We are using two seeds from prss to generate a seed for shuffle and concatenating them
         // Since reshare uses indexes 0..batchsize to generate random numbers from prss, we are using
         // batchsize and batchsize+1 as index to get seeds for permutation
         let randoms = (
-            prss.generate_values(batchsize as u128),
-            prss.generate_values(batchsize as u128 + 1),
+            // Currently, PRSS is generating same random numbers across steps.
+            // For shuffle, each step expects a different random number to act as a seed.
+            prss.generate_values((batchsize + 2 * which_step.as_usize()) as u128),
+            prss.generate_values((batchsize + 2 * which_step.as_usize() + 1) as u128),
         );
         let mut seed = Vec::with_capacity(32);
         if direction == Direction::Left {
@@ -117,7 +120,8 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
             } else {
                 Direction::Right
             };
-            let mut permute = Self::generate_random_permutation(self.input.len(), direction, prss);
+            let mut permute =
+                Self::generate_random_permutation(self.input.len(), direction, prss, which_step);
             apply_inv(&mut permute, &mut self.input);
         }
         self.reshare_all_shares(ctx, which_step).await
@@ -182,34 +186,40 @@ mod tests {
             batchsize,
             Direction::Left,
             &p1[TestStep::Shuffle(Step1)],
+            Step1,
         );
         let sequence1right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
             batchsize,
             Direction::Right,
             &p1[TestStep::Shuffle(Step1)],
+            Step1,
         );
 
         let sequence2left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
             batchsize,
             Direction::Left,
             &p2[TestStep::Shuffle(Step1)],
+            Step1,
         );
 
         let sequence2right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
             batchsize,
             Direction::Right,
             &p2[TestStep::Shuffle(Step1)],
+            Step1,
         );
 
         let sequence3left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
             batchsize,
             Direction::Left,
             &p3[TestStep::Shuffle(Step1)],
+            Step1,
         );
         let sequence3right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
             batchsize,
             Direction::Right,
             &p3[TestStep::Shuffle(Step1)],
+            Step1,
         );
 
         assert_eq!(sequence1right, sequence2left);
