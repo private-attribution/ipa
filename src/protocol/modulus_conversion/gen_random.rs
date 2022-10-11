@@ -43,25 +43,22 @@ impl GenRandom {
     fn local_secret_share<F: Field>(
         input: ReplicatedBinary,
         channel_identity: Identity,
-    ) -> (Replicated<F>, Replicated<F>, Replicated<F>)
-    where
-        F: Field,
-    {
+    ) -> (Replicated<F>, Replicated<F>, Replicated<F>) {
         match channel_identity {
             Identity::H1 => (
-                Replicated::new(F::from(input.0 as u128), F::ZERO),
-                Replicated::new(F::ZERO, F::from(input.1 as u128)),
+                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
+                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
                 Replicated::new(F::ZERO, F::ZERO),
             ),
             Identity::H2 => (
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(input.0 as u128), F::ZERO),
-                Replicated::new(F::ZERO, F::from(input.1 as u128)),
+                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
+                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
             ),
             Identity::H3 => (
-                Replicated::new(F::ZERO, F::from(input.1 as u128)),
+                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(input.0 as u128), F::ZERO),
+                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
             ),
         }
     }
@@ -89,7 +86,7 @@ impl GenRandom {
         let (sh0, sh1, sh2) = Self::local_secret_share(self.input, ctx.identity);
 
         let sh0_xor_sh1 = Self::xor(sh0, sh1, ctx, step1, record_id).await?;
-        Ok(Self::xor(sh0_xor_sh1, sh2, ctx, step2, record_id).await?)
+        Self::xor(sh0_xor_sh1, sh2, ctx, step2, record_id).await
     }
 }
 
@@ -131,8 +128,8 @@ mod tests {
     pub async fn gen_random() {
         let mut rng = rand::thread_rng();
 
-        for i in 0..40 {
-            let record_id = RecordId::from(i);
+        for i in 0_u8..40 {
+            let record_id = RecordId::from(u32::from(i));
 
             let world: TestWorld<ModulusConversionTestStep> = make_world(QueryId);
             let context = make_contexts(&world);
@@ -150,7 +147,7 @@ mod tests {
             let b1 = rng.gen::<u8>() >= 128;
             let b2 = rng.gen::<u8>() >= 128;
 
-            let input = ((b0 ^ b1) ^ b2) as u128;
+            let input = u128::from((b0 ^ b1) ^ b2);
 
             let gen_random0 = GenRandom::new(ReplicatedBinary::new(b0, b1));
             let gen_random1 = GenRandom::new(ReplicatedBinary::new(b1, b2));
