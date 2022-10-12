@@ -15,7 +15,7 @@ pub enum Identity {
     H3,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Direction {
     Left,
     Right,

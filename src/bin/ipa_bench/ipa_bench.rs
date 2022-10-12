@@ -4,10 +4,10 @@ mod gen_events;
 mod models;
 mod sample;
 
-use structopt::StructOpt;
+use clap::Parser;
 
 fn main() {
-    let args = cmd::Args::from_args();
+    let args = cmd::Args::parse();
     let _handle = args.common.logging.setup_logging();
     args.cmd.dispatch(&args.common);
 }

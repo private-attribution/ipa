@@ -1,6 +1,6 @@
 use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
-use crate::protocol::{QueryId, Step};
+use crate::protocol::{sort::ShuffleStep, QueryId, Step};
 use crate::test_fixture::make_participants;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -50,6 +50,8 @@ pub enum TestStep {
     Mul1(u8),
     Mul2,
     Reshare(u8),
+    Reveal(u8),
+    Shuffle(ShuffleStep),
 }
 
 impl Debug for TestStep {
@@ -58,6 +60,8 @@ impl Debug for TestStep {
             TestStep::Mul1(v) => write!(f, "TestStep/Mul1[{}]", v),
             TestStep::Mul2 => write!(f, "TestStep/Mul2"),
             TestStep::Reshare(v) => write!(f, "TestStep/Reshare[{}]", v),
+            TestStep::Reveal(v) => write!(f, "TestStep/Reveal[{}]", v),
+            TestStep::Shuffle(v) => write!(f, "TestStep/Shuffle[{:?}]", v),
         }
     }
 }
@@ -65,13 +69,15 @@ impl Debug for TestStep {
 impl Step for TestStep {}
 
 impl SpaceIndex for TestStep {
-    const MAX: usize = 3;
+    const MAX: usize = 5;
 
     fn as_usize(&self) -> usize {
         match self {
             TestStep::Mul1(_) => 0,
             TestStep::Mul2 => 1,
             TestStep::Reshare(_) => 2,
+            TestStep::Reveal(_) => 3,
+            TestStep::Shuffle(_) => 4,
         }
     }
 }

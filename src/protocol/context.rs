@@ -1,9 +1,8 @@
 use crate::helpers::fabric::Fabric;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
-use crate::protocol::securemul::SecureMul;
 
-use super::{RecordId, Step};
+use super::{securemul::SecureMul, sort::reveal::Reveal, RecordId, Step};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
@@ -30,5 +29,11 @@ impl<'a, S: Step + SpaceIndex, F: Fabric<S>> ProtocolContext<'a, S, F> {
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, S, F> {
         SecureMul::new(&self.participant[step], self.gateway, step, record_id)
+    }
+
+    /// Request reveal for a given record.
+    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
+    pub fn reveal(&'a self, record_id: RecordId, step: S) -> Reveal<'a, F, S> {
+        Reveal::new(self.gateway, step, record_id)
     }
 }

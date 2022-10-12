@@ -31,7 +31,7 @@ pub struct CounterDetails {
 /// X1 and X2 cannot be greater than X, but these values may overlap, i.e. X1 + X2 >= X
 pub struct Metrics {
     counters: HashMap<KeyName, CounterDetails>,
-    metric_description: HashMap<KeyName, &'static str>,
+    metric_description: HashMap<KeyName, SharedString>,
 }
 
 impl CounterDetails {
@@ -107,7 +107,9 @@ impl Metrics {
 
             metrics_table.add_row(vec![
                 key_name.as_str(),
-                self.metric_description.get(key_name).unwrap_or(&""),
+                self.metric_description
+                    .get(key_name)
+                    .unwrap_or(&SharedString::from("")),
                 counter_stats.total_value.to_string().as_str(),
                 dim_cell_content.as_str(),
             ]);

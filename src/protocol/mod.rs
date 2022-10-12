@@ -1,11 +1,13 @@
 pub mod context;
 mod securemul;
-mod sort;
+pub mod sort;
 
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 
 use crate::helpers::prss::SpaceIndex;
+
+use self::sort::SortStep;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
 /// in form of a share or set of shares and produces the secret-shared output.
@@ -35,11 +37,6 @@ pub enum IPAProtocolStep {
     Sort(SortStep),
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SortStep {
-    BitPermutations,
-}
-
 impl Debug for IPAProtocolStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "IPA/")?;
@@ -54,14 +51,6 @@ impl Debug for IPAProtocolStep {
     }
 }
 
-impl Debug for SortStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SortStep::BitPermutations => write!(f, "BitPermutations"),
-        }
-    }
-}
-
 impl Step for IPAProtocolStep {}
 
 impl SpaceIndex for IPAProtocolStep {
@@ -72,16 +61,6 @@ impl SpaceIndex for IPAProtocolStep {
             IPAProtocolStep::ConvertShares => 0,
             IPAProtocolStep::Sort(_) => 1,
         }
-    }
-}
-
-impl Step for SortStep {}
-
-impl SpaceIndex for SortStep {
-    const MAX: usize = 1;
-
-    fn as_usize(&self) -> usize {
-        0
     }
 }
 

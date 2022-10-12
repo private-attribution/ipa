@@ -229,8 +229,7 @@ pub mod tests {
     use crate::field::{Field, Fp31};
     use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
-
-    use rand_core::RngCore;
+    use rand::RngCore;
 
     use futures_util::future::join_all;
     use tokio::try_join;
