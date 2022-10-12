@@ -142,6 +142,15 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
         *self.input = self.single_shuffle(ctx, Step2).await.unwrap();
         *self.input = self.single_shuffle(ctx, Step3).await.unwrap();
 
+        assert_ne!(
+            &ctx.participant[(self.step_fn)(Step1)],
+            &ctx.participant[(self.step_fn)(Step2)]
+        );
+        assert_ne!(
+            &ctx.participant[(self.step_fn)(Step2)],
+            &ctx.participant[(self.step_fn)(Step3)]
+        );
+
         Ok(())
     }
 }
