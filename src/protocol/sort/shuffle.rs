@@ -66,7 +66,7 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
         let mut permutation: Vec<usize> = (0..batchsize).collect();
 
         permutation.shuffle(&mut ChaCha8Rng::from_seed(seed.try_into().unwrap()));
-        Permutation::from_vec(permutation)
+        Permutation::oneline(permutation).inverse()
     }
 
     // We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
