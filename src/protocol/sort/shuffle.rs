@@ -7,14 +7,11 @@ use rand_chacha::ChaCha8Rng;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
+use crate::helpers::fabric::Network;
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{
-        mesh::{Gateway, Mesh},
-        prss::SpaceIndex,
-        Direction, Identity,
-    },
+    helpers::{prss::SpaceIndex, Direction, Identity},
     protocol::{context::ProtocolContext, RecordId, Step},
     secret_sharing::Replicated,
 };
@@ -80,15 +77,11 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    async fn reshare_all_shares<M, G>(
+    async fn reshare_all_shares<N: Network<S>>(
         &self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
         which_step: ShuffleStep,
-    ) -> Result<Vec<Replicated<F>>, BoxError>
-    where
-        M: Mesh,
-        G: Gateway<M, S>,
-    {
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         let step = (self.step_fn)(which_step);
         let to_helper = Self::shuffle_for_helper(which_step);
         let reshares = self
@@ -108,9 +101,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// ii)  2 helpers apply the permutation to their shares
     /// iii) reshare to `to_helper`
     #[allow(clippy::cast_possible_truncation)]
-    async fn single_shuffle<M: Mesh, G: Gateway<M, S>>(
+    async fn single_shuffle<N: Network<S>>(
         &mut self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
         which_step: ShuffleStep,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let to_helper = Self::shuffle_for_helper(which_step);
@@ -138,9 +131,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
     /// ![Shuffle steps][shuffle]
     #[allow(dead_code)]
-    pub async fn execute<M: Mesh, G: Gateway<M, S>>(
+    pub async fn execute<N: Network<S>>(
         &mut self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
     ) -> Result<(), BoxError>
     where
         F: Field,

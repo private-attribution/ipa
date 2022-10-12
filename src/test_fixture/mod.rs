@@ -1,14 +1,17 @@
 pub mod circuit;
+pub mod fabric;
 pub mod logging;
 mod sharing;
 mod world;
 
-use crate::helpers::mock::TestHelperGateway;
+use std::sync::Arc;
+
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
 use rand::thread_rng;
 
+use crate::test_fixture::fabric::InMemoryEndpoint;
 pub use sharing::{share, validate_and_reconstruct};
 pub use world::make as make_world;
 pub use world::{TestStep, TestWorld};
@@ -20,7 +23,7 @@ pub use world::{TestStep, TestWorld};
 #[must_use]
 pub fn make_contexts<S: Step + SpaceIndex>(
     test_world: &TestWorld<S>,
-) -> [ProtocolContext<TestHelperGateway<S>, S>; 3] {
+) -> [ProtocolContext<S, Arc<InMemoryEndpoint<S>>>; 3] {
     test_world
         .gateways
         .iter()

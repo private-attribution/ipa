@@ -1,11 +1,8 @@
+use crate::helpers::fabric::Network;
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{
-        mesh::{Gateway, Mesh},
-        prss::SpaceIndex,
-        Direction, Identity,
-    },
+    helpers::{prss::SpaceIndex, Direction, Identity},
     protocol::{context::ProtocolContext, RecordId, Step},
     secret_sharing::Replicated,
 };
@@ -44,9 +41,9 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
-    pub async fn execute<M: Mesh, G: Gateway<M, S>, S: Step + SpaceIndex>(
+    pub async fn execute<S: Step + SpaceIndex, N: Network<S>>(
         self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
         record_id: RecordId,
         step: S,
         to_helper: Identity,

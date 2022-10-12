@@ -1,6 +1,7 @@
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::mesh::{Gateway, Mesh};
+use crate::helpers::fabric::Network;
+use crate::helpers::messaging::Gateway;
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
 use crate::secret_sharing::Replicated;
@@ -18,15 +19,20 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, G, S> {
+pub struct SecureMul<'a, S, F> {
     prss: &'a PrssSpace,
-    gateway: &'a G,
+    gateway: &'a Gateway<S, F>,
     step: S,
     record_id: RecordId,
 }
 
-impl<'a, G, S: Step> SecureMul<'a, G, S> {
-    pub fn new(prss: &'a PrssSpace, gateway: &'a G, step: S, record_id: RecordId) -> Self {
+impl<'a, S: Step, N: Network<S>> SecureMul<'a, S, N> {
+    pub fn new(
+        prss: &'a PrssSpace,
+        gateway: &'a Gateway<S, N>,
+        step: S,
+        record_id: RecordId,
+    ) -> Self {
         Self {
             prss,
             gateway,
@@ -42,14 +48,12 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<M, F>(
+    pub async fn execute<F>(
         self,
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError>
     where
-        M: Mesh,
-        G: Gateway<M, S>,
         F: Field,
     {
         let mut channel = self.gateway.get_channel(self.step);
@@ -95,7 +99,7 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::helpers::mesh::{Gateway, Mesh};
+    use crate::helpers::fabric::Network;
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
 
@@ -118,16 +122,15 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, M, G, S>(
+    pub fn secure_multiply<'a, F, N, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, G, StreamingStep>,
+        ctx: &'a ProtocolContext<'a, StreamingStep, N>,
         _index: u128,
     ) -> impl Stream<Item = Replicated<F>> + 'a
     where
         S: Stream<Item = Replicated<F>> + 'a,
-        F: Field + 'static,
-        M: Mesh + 'a,
-        G: Gateway<M, StreamingStep>,
+        F: Field,
+        N: Network<StreamingStep>,
     {
         let record_id = RecordId::from(1);
         let mut stream_element_idx = 0;
@@ -221,9 +224,9 @@ pub mod stream {
 #[cfg(test)]
 pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     use crate::field::{Field, Fp31};
-    use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::context::ProtocolContext;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
@@ -235,7 +238,8 @@ pub mod tests {
 
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
+        fabric::InMemoryEndpoint, logging, make_contexts, make_world, share,
+        validate_and_reconstruct, TestStep, TestWorld,
     };
 
     #[tokio::test]
@@ -305,7 +309,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelperGateway<TestStep>, TestStep>; 3],
+        context: &[ProtocolContext<'_, TestStep, Arc<InMemoryEndpoint<TestStep>>>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
