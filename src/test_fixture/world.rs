@@ -69,15 +69,15 @@ impl Debug for TestStep {
 impl Step for TestStep {}
 
 impl SpaceIndex for TestStep {
-    const MAX: usize = 5;
-
+    const MAX: usize = u8::BITS as usize * 3 + ShuffleStep::MAX + 1;
     fn as_usize(&self) -> usize {
+        let u8_size = u8::BITS as usize;
         match self {
-            TestStep::Mul1(_) => 0,
-            TestStep::Mul2 => 1,
-            TestStep::Reshare(_) => 2,
-            TestStep::Reveal(_) => 3,
-            TestStep::Shuffle(_) => 4,
+            TestStep::Mul1(s) => *s as usize,
+            TestStep::Mul2 => u8_size,
+            TestStep::Reshare(s) => u8_size + 1 + *s as usize,
+            TestStep::Reveal(s) => u8_size * 2 + 1 + *s as usize,
+            TestStep::Shuffle(s) => u8_size * 3 + 1 + s.as_usize(),
         }
     }
 }
