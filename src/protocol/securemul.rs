@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::fabric::Fabric;
+use crate::helpers::fabric::Network;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::{prss::PrssSpace, Direction};
 use crate::protocol::{RecordId, Step};
@@ -26,10 +26,10 @@ pub struct SecureMul<'a, S, F> {
     record_id: RecordId,
 }
 
-impl<'a, S: Step, FABRIC: Fabric<S>> SecureMul<'a, S, FABRIC> {
+impl<'a, S: Step, N: Network<S>> SecureMul<'a, S, N> {
     pub fn new(
         prss: &'a PrssSpace,
-        gateway: &'a Gateway<S, FABRIC>,
+        gateway: &'a Gateway<S, N>,
         step: S,
         record_id: RecordId,
     ) -> Self {
@@ -99,7 +99,7 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::helpers::fabric::Fabric;
+    use crate::helpers::fabric::Network;
     use crate::helpers::prss::SpaceIndex;
     use crate::protocol::{RecordId, Step};
 
@@ -122,15 +122,15 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, FABRIC, S>(
+    pub fn secure_multiply<'a, F, N, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, StreamingStep, FABRIC>,
+        ctx: &'a ProtocolContext<'a, StreamingStep, N>,
         _index: u128,
     ) -> impl Stream<Item = Replicated<F>> + 'a
     where
         S: Stream<Item = Replicated<F>> + 'a,
         F: Field,
-        FABRIC: Fabric<StreamingStep>,
+        N: Network<StreamingStep>,
     {
         let record_id = RecordId::from(1);
         let mut stream_element_idx = 0;

@@ -21,8 +21,9 @@ pub struct MessageEnvelope {
 
 pub type MessageChunks<S> = (ChannelId<S>, Vec<MessageEnvelope>);
 
+/// Network interface for components that require communication.
 #[async_trait]
-pub trait Fabric<S: Step>: Sync {
+pub trait Network<S: Step>: Sync {
     /// Type of the channel that is used to send messages to other helpers
     type Channel: CommunicationChannel;
     type MessageStream: Stream<Item = MessageChunks<S>> + Send + Unpin + 'static;

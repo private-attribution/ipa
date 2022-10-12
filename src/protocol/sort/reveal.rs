@@ -1,4 +1,4 @@
-use crate::helpers::fabric::Fabric;
+use crate::helpers::fabric::Network;
 use crate::helpers::messaging::Gateway;
 use crate::{
     error::BoxError,
@@ -23,18 +23,18 @@ pub struct RevealValue<F> {
 // Input: Each helpers know their own secret shares
 // Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
-pub struct Reveal<'a, FABRIC, S> {
-    gateway: &'a Gateway<S, FABRIC>,
+pub struct Reveal<'a, N, S> {
+    gateway: &'a Gateway<S, N>,
     step: S,
     record_id: RecordId,
 }
 
-impl<'a, S: Step, FABRIC: Fabric<S>> Reveal<'a, FABRIC, S> {
+impl<'a, S: Step, N: Network<S>> Reveal<'a, N, S> {
     #[allow(dead_code)]
     // We would want reveal constructors to be hidden from IPA code. Only ProtocolContext should be able to instantiate it and we
     // can verify that the call site is allowed to reveal by checking the step variable.
     pub(in crate::protocol) fn new(
-        gateway: &'a Gateway<S, FABRIC>,
+        gateway: &'a Gateway<S, N>,
         step: S,
         record_id: RecordId,
     ) -> Self {

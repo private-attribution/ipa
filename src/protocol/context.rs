@@ -1,4 +1,4 @@
-use crate::helpers::fabric::Fabric;
+use crate::helpers::fabric::Network;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 
@@ -14,7 +14,7 @@ pub struct ProtocolContext<'a, S: SpaceIndex, F> {
     pub gateway: &'a Gateway<S, F>,
 }
 
-impl<'a, S: Step + SpaceIndex, F: Fabric<S>> ProtocolContext<'a, S, F> {
+impl<'a, S: Step + SpaceIndex, F: Network<S>> ProtocolContext<'a, S, F> {
     pub fn new(participant: &'a Participant<S>, gateway: &'a Gateway<S, F>) -> Self {
         Self {
             participant,

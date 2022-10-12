@@ -8,7 +8,7 @@
 //!
 use crate::{
     helpers::error::Error,
-    helpers::fabric::{ChannelId, CommunicationChannel, Fabric, MessageEnvelope},
+    helpers::fabric::{ChannelId, CommunicationChannel, MessageEnvelope, Network},
     helpers::Identity,
     protocol::{RecordId, Step},
 };
@@ -31,7 +31,7 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// channels to be open by calling `get_channel`, after that it is possible to send messages
 /// through the channel end and request a given message type from helper peer.
 ///
-/// Gateways are generic over `Fabric` meaning they can operate on top of in-memory communication
+/// Gateways are generic over `Network` meaning they can operate on top of in-memory communication
 /// channels and real network.
 ///
 /// ### Implementation details
@@ -41,17 +41,17 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// buffer and keeps it there until such request is made by the protocol.
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
-pub struct Gateway<S, F> {
+pub struct Gateway<S, N> {
     helper_identity: Identity,
-    fabric: F,
+    network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest<S>>,
 }
 
 /// Channel end
 #[derive(Debug)]
-pub struct Mesh<'a, S, F> {
-    fabric: &'a F,
+pub struct Mesh<'a, S, N> {
+    network: &'a N,
     step: S,
     helper_identity: Identity,
     gateway_tx: mpsc::Sender<ReceiveRequest<S>>,
@@ -81,9 +81,9 @@ struct ReceiveRequest<S> {
     sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl<S: Step, F: Fabric<S>> Mesh<'_, S, F> {
+impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
     /// Send a given message to the destination. This method will not return until the message
-    /// is delivered to the `Fabric`.
+    /// is delivered to the `Network`.
     ///
     /// # Errors
     /// Returns an error if it fails to send the message or if there is a serialization error.
@@ -94,7 +94,7 @@ impl<S: Step, F: Fabric<S>> Mesh<'_, S, F> {
         msg: T,
     ) -> Result<(), Error> {
         let channel = self
-            .fabric
+            .network
             .get_connection(ChannelId::new(dest, self.step))
             .await;
         let bytes = serde_json::to_vec(&msg)
@@ -142,10 +142,10 @@ impl<S: Step, F: Fabric<S>> Mesh<'_, S, F> {
     }
 }
 
-impl<S: Step, F: Fabric<S>> Gateway<S, F> {
-    pub fn new(identity: Identity, fabric: F) -> Self {
+impl<S: Step, N: Network<S>> Gateway<S, N> {
+    pub fn new(identity: Identity, network: N) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest<S>>(1);
-        let mut message_stream = fabric.message_stream();
+        let mut message_stream = network.message_stream();
 
         tokio::spawn(async move {
             let mut buf = HashMap::<ChannelId<S>, MessageBuffer>::new();
@@ -177,7 +177,7 @@ impl<S: Step, F: Fabric<S>> Gateway<S, F> {
 
         Self {
             helper_identity: identity,
-            fabric,
+            network,
             tx,
         }
     }
@@ -188,9 +188,9 @@ impl<S: Step, F: Fabric<S>> Gateway<S, F> {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    pub fn get_channel(&self, step: S) -> Mesh<'_, S, F> {
+    pub fn get_channel(&self, step: S) -> Mesh<'_, S, N> {
         Mesh {
-            fabric: &self.fabric,
+            network: &self.network,
             helper_identity: self.helper_identity,
             step,
             gateway_tx: self.tx.clone(),

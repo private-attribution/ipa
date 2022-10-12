@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 use crate::helpers::fabric::{
-    ChannelId, CommunicationChannel, Fabric, MessageChunks, MessageEnvelope,
+    ChannelId, CommunicationChannel, MessageChunks, MessageEnvelope, Network,
 };
 use crate::helpers::Identity;
 use crate::protocol::Step;
@@ -125,7 +125,7 @@ impl<S: Step> InMemoryEndpoint<S> {
 }
 
 #[async_trait]
-impl<S: Step> Fabric<S> for Arc<InMemoryEndpoint<S>> {
+impl<S: Step> Network<S> for Arc<InMemoryEndpoint<S>> {
     type Channel = InMemoryChannel;
     type MessageStream = ReceiverStream<MessageChunks<S>>;
 

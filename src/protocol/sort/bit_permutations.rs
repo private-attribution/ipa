@@ -6,7 +6,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 
-use crate::helpers::fabric::Fabric;
+use crate::helpers::fabric::Network;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 /// Generate bit permutations for a given bit column of query.
@@ -27,9 +27,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. calculate cumulative sum at each vector row
     /// 3. return back tuple of step 1 and step 2 output
     #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<FABRIC: Fabric<IPAProtocolStep>>(
+    fn prepare_mult_inputs<N: Network<IPAProtocolStep>>(
         &self,
-        ctx: &ProtocolContext<'a, IPAProtocolStep, FABRIC>,
+        ctx: &ProtocolContext<'a, IPAProtocolStep, N>,
     ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a
     where
         F: Field,
@@ -54,9 +54,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// multiplies the input vector pairs across helpers and returns result
     /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
     #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<FABRIC: Fabric<IPAProtocolStep>>(
+    async fn secure_multiply<N: Network<IPAProtocolStep>>(
         &self,
-        ctx: &ProtocolContext<'a, IPAProtocolStep, FABRIC>,
+        ctx: &ProtocolContext<'a, IPAProtocolStep, N>,
         mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
     ) -> Result<Replicated<F>, BoxError>
     where
@@ -81,9 +81,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    pub async fn execute<FABRIC: Fabric<IPAProtocolStep>>(
+    pub async fn execute<N: Network<IPAProtocolStep>>(
         &self,
-        ctx: &ProtocolContext<'_, IPAProtocolStep, FABRIC>,
+        ctx: &ProtocolContext<'_, IPAProtocolStep, N>,
     ) -> Result<Vec<Replicated<F>>, BoxError>
     where
         F: Field,

@@ -32,7 +32,7 @@ pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
     let gateways = network
         .endpoints
         .iter()
-        .map(|fabric| Gateway::new(fabric.identity, Arc::clone(fabric)))
+        .map(|endpoint| Gateway::new(endpoint.identity, Arc::clone(endpoint)))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

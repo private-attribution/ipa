@@ -1,4 +1,4 @@
-use crate::helpers::fabric::Fabric;
+use crate::helpers::fabric::Network;
 use crate::{
     error::BoxError,
     field::Field,
@@ -41,9 +41,9 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
-    pub async fn execute<S: Step + SpaceIndex, FABRIC: Fabric<S>>(
+    pub async fn execute<S: Step + SpaceIndex, N: Network<S>>(
         self,
-        ctx: &ProtocolContext<'_, S, FABRIC>,
+        ctx: &ProtocolContext<'_, S, N>,
         record_id: RecordId,
         step: S,
         to_helper: Identity,

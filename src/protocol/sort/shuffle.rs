@@ -7,7 +7,7 @@ use rand_chacha::ChaCha8Rng;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
-use crate::helpers::fabric::Fabric;
+use crate::helpers::fabric::Network;
 use crate::{
     error::BoxError,
     field::Field,
@@ -77,9 +77,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    async fn reshare_all_shares<FABRIC: Fabric<S>>(
+    async fn reshare_all_shares<N: Network<S>>(
         &self,
-        ctx: &ProtocolContext<'_, S, FABRIC>,
+        ctx: &ProtocolContext<'_, S, N>,
         which_step: ShuffleStep,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let step = (self.step_fn)(which_step);
@@ -101,9 +101,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// ii)  2 helpers apply the permutation to their shares
     /// iii) reshare to `to_helper`
     #[allow(clippy::cast_possible_truncation)]
-    async fn single_shuffle<FABRIC: Fabric<S>>(
+    async fn single_shuffle<N: Network<S>>(
         &mut self,
-        ctx: &ProtocolContext<'_, S, FABRIC>,
+        ctx: &ProtocolContext<'_, S, N>,
         which_step: ShuffleStep,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let to_helper = Self::shuffle_for_helper(which_step);
@@ -131,9 +131,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
     /// ![Shuffle steps][shuffle]
     #[allow(dead_code)]
-    pub async fn execute<FABRIC: Fabric<S>>(
+    pub async fn execute<N: Network<S>>(
         &mut self,
-        ctx: &ProtocolContext<'_, S, FABRIC>,
+        ctx: &ProtocolContext<'_, S, N>,
     ) -> Result<(), BoxError>
     where
         F: Field,
