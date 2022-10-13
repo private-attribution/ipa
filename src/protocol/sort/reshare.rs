@@ -114,7 +114,7 @@ mod tests {
     pub async fn reshare() {
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
-
+        let mut new_reshares_atleast_once = false;
         for _ in 0..10 {
             let secret = rng.gen::<u128>();
 
@@ -139,9 +139,11 @@ mod tests {
             let output_share = validate_and_reconstruct(f);
             assert_eq!(output_share, input);
 
-            assert_ne!(share[0], f.0);
-            assert_ne!(share[1], f.1);
-            assert_ne!(share[2], f.2);
+            if share[0] != f.0 && share[1] != f.1 && share[2] != f.2 {
+                new_reshares_atleast_once = true;
+                break;
+            }
         }
+        assert!(new_reshares_atleast_once);
     }
 }

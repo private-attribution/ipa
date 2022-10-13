@@ -14,7 +14,6 @@ use permutation::Permutation;
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
 /// ![Apply steps][apply]
-#[allow(dead_code)]
 pub fn apply<T: Copy + Default, S>(permutation: &mut Permutation, values: &mut S)
 where
     S: AsMut<[T]>,
