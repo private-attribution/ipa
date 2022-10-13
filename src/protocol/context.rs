@@ -1,23 +1,69 @@
-use crate::helpers::prss::{Participant, SpaceIndex};
-
-use super::{securemul::SecureMul, sort::reveal::Reveal, RecordId, Step};
+use super::{
+    prss::PrssSpace, securemul::SecureMul, sort::reveal::Reveal, RecordId, Step, UniqueStepId,
+};
+use crate::{
+    helpers::{mesh::Gateway, Identity},
+    protocol::prss::Participant,
+};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
-
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
-pub struct ProtocolContext<'a, G, S: SpaceIndex> {
-    pub participant: &'a Participant<S>,
-    pub gateway: &'a G,
+pub struct ProtocolContext<'a, G> {
+    role: Identity,
+    step: UniqueStepId,
+    participant: &'a Participant,
+    gateway: &'a G,
 }
 
-impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
-    pub fn new(participant: &'a Participant<S>, gateway: &'a G) -> Self {
+impl<'a, G> ProtocolContext<'a, G>
+where
+    G: Gateway,
+{
+    pub fn new(role: Identity, participant: &'a Participant, gateway: &'a G) -> Self {
         Self {
+            role,
+            step: UniqueStepId::default(),
             participant,
             gateway,
         }
+    }
+
+    /// The role of this context.
+    #[must_use]
+    pub fn role(&self) -> Identity {
+        self.role
+    }
+
+    /// A unique identifier for this stage of the protocol execution.
+    #[must_use]
+    pub fn step(&self) -> &UniqueStepId {
+        &self.step
+    }
+
+    /// Make a sub-context.
+    /// Note that each invocation of this should use a unique value of `step`.
+    #[must_use]
+    pub fn narrow<S: Step>(&self, step: &S) -> Self {
+        ProtocolContext {
+            role: self.role,
+            step: self.step.narrow(step),
+            participant: self.participant,
+            gateway: self.gateway,
+        }
+    }
+
+    /// Get the PRSS instance for this step.
+    #[must_use]
+    pub fn prss(&self) -> &PrssSpace {
+        self.participant.prss(&self.step)
+    }
+
+    /// Get a set of communications channels to different peers.
+    #[must_use]
+    pub fn mesh(&self) -> G::Mesh {
+        self.gateway.mesh(&self.step)
     }
 
     /// Request multiplication for a given record. This function is intentionally made async
@@ -25,13 +71,14 @@ impl<'a, G, S: Step + SpaceIndex> ProtocolContext<'a, G, S> {
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(&'a self, record_id: RecordId, step: S) -> SecureMul<'a, G, S> {
-        SecureMul::new(&self.participant[step], self.gateway, step, record_id)
+    pub async fn multiply(&'a self, record_id: RecordId) -> SecureMul<'a, G> {
+        SecureMul::new(self.prss(), self.gateway, &self.step, record_id)
     }
 
     /// Request reveal for a given record.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub fn reveal(&'a self, record_id: RecordId, step: S) -> Reveal<'a, G, S> {
-        Reveal::new(self.gateway, step, record_id)
+    #[must_use]
+    pub fn reveal(&'a self, record_id: RecordId) -> Reveal<'a, G> {
+        Reveal::new(self.gateway, &self.step, record_id)
     }
 }

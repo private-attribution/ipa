@@ -1,65 +1,145 @@
 pub mod context;
+pub mod prss;
 mod securemul;
 pub mod sort;
 
-use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
+#[cfg(debug_assertions)]
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
+use std::{fmt::Debug, hash::Hash};
 
-use crate::helpers::prss::SpaceIndex;
+/// Defines a unique step of the IPA protocol at a given level of implementation.
+///
+/// Any stage of the protocol execution will involve multiple steps.  Each of these steps
+/// then might involve executing a process that can be broken down into further steps.
+/// Ultimately, there will be processes that need to invoke functions on a PRSS or send
+/// data to another helper that needs to be uniquely identified.
+///
+/// Steps are therefore composed into a hierarchy where top-level steps describe major
+/// building blocks for a protocol (such as sort shares, convert shares, apply DP, etc...),
+/// intermediate processes describe reusable processes (like shuffling), and steps at the
+/// lowest level unique identify multiplications.
+///
+/// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
+/// hierarchy of steps at each layer into a unique identifier.
+pub trait Step: AsRef<str> {}
 
-use self::sort::SortStep;
+// In test code, allow a string (or string reference) to be used as a `Step`.
+#[cfg(debug_assertions)]
+impl Step for String {}
+#[cfg(debug_assertions)]
+impl Step for str {}
 
-/// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
-/// in form of a share or set of shares and produces the secret-shared output.
+/// The representation of a unique step in protocol execution.
 ///
-/// Some examples of what defines a step include sorting secret shares, converting them from
-/// one format to another etc.
+/// This gathers context from multiple layers of execution. Each stage of execution has its
+/// own description of the different steps it takes.  Individual components are identified
+/// using an implementation of `Step`.  This type combines those with the identifiers from
+/// outer functional layers to form this unique identifier.
 ///
-/// Steps may form a hierarchy where top-level steps describe large building blocks for IPA protocol
-/// (such as sort shares, convert shares, apply DP, etc) and bottom-level steps are granular enough
-/// to be used to uniquely identify multiplications happening concurrently.
+/// This allows each stage of execution to be uniquely identified, while still
+/// enabling functional decomposition.
 ///
-/// For testing purposes we also implement completely bogus steps that don't make much sense
-/// but used to simplify testing of individual components. Those implementations are hidden behind
-/// `[cfg(test)]` flag and shouldn't be considered for any purpose except unit testing.
+/// Underneath, this just takes the string value of each step and concatenates them,
+/// with a "/" between each component.
 ///
-/// See `IPAProtocolStep` for a canonical implementation of this trait. Every time we switch to
-/// use a new circuit, there will be an additional struct/enum that implements `Step`, but eventually
-/// it should converge to a single implementation.
-pub trait Step: Copy + Clone + Debug + Eq + Hash + Send + 'static {}
-
-/// Set of steps that define the IPA protocol.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum IPAProtocolStep {
-    /// Convert from XOR shares to Replicated shares
-    ConvertShares,
-    /// Sort shares by the match key
-    Sort(SortStep),
+/// For example, you might have a high-level process with three steps "a", "b", and "c".
+/// Step "a" comprises two actions "x" and "y", but "b" and "c" are atomic actions.
+/// Step "a" would be executed with a context identifier of "protocol/a", which it
+///  would `refine()` into "protocol/a/x" and "protocol/a/y" to produce a final set
+/// of identifiers: ".../a/x", ".../a/y", ".../b", and ".../c".
+///
+/// Note that the implementation of this context might change to use a different
+/// (possible more efficient) representation.  It is probably not particularly efficient
+/// to be cloning this object all over the place.  Of course, a string is pretty useful
+/// from a debugging perspective.
+#[derive(Clone, Debug)]
+pub struct UniqueStepId {
+    id: String,
+    /// This tracks the different values that have been provided to `refine()`.
+    #[cfg(debug_assertions)]
+    used: Arc<Mutex<HashSet<String>>>,
 }
 
-impl Debug for IPAProtocolStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IPA/")?;
-        match self {
-            IPAProtocolStep::ConvertShares => {
-                write!(f, "ConvertShares")
-            }
-            IPAProtocolStep::Sort(sort_step) => {
-                write!(f, "Sort/{:?}", sort_step)
-            }
+unsafe impl Send for UniqueStepId {}
+impl Hash for UniqueStepId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.id.as_bytes());
+    }
+}
+impl PartialEq for UniqueStepId {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl Eq for UniqueStepId {}
+
+impl UniqueStepId {
+    /// Narrow the scope of the step identifier.
+    /// # Panics
+    /// In a debug build, this checks that the same refine call isn't run twice and that the string
+    /// value of the step doesn't include '/' (which would lead to a bad outcome).
+    #[must_use]
+    pub fn narrow<S: Step>(&self, step: &S) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            let s = String::from(step.as_ref());
+            assert!(!s.contains('/'), "The string for a step cannot contain '/'");
+            assert!(
+                self.used.lock().unwrap().insert(s),
+                "Refined '{}' with step '{}' twice",
+                self.id,
+                step.as_ref(),
+            );
+        }
+
+        Self {
+            id: self.id.clone() + "/" + step.as_ref(),
+            #[cfg(debug_assertions)]
+            used: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
 
-impl Step for IPAProtocolStep {}
+impl Default for UniqueStepId {
+    // TODO(mt): this should might be better if it were to be constructed from
+    // a QueryId rather than using a default.
+    fn default() -> Self {
+        Self {
+            id: String::from("protocol"),
+            #[cfg(debug_assertions)]
+            used: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+}
 
-impl SpaceIndex for IPAProtocolStep {
-    const MAX: usize = 2;
+impl AsRef<str> for UniqueStepId {
+    fn as_ref(&self) -> &str {
+        self.id.as_str()
+    }
+}
 
-    fn as_usize(&self) -> usize {
+/// Set of steps that define the IPA protocol.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum IpaProtocolStep {
+    /// Convert from XOR shares to Replicated shares
+    ConvertShares,
+    /// Sort shares by the match key
+    Sort,
+    /// Perform attribution.
+    Attribution,
+}
+
+impl Step for IpaProtocolStep {}
+
+impl AsRef<str> for IpaProtocolStep {
+    fn as_ref(&self) -> &str {
         match self {
-            IPAProtocolStep::ConvertShares => 0,
-            IPAProtocolStep::Sort(_) => 1,
+            Self::ConvertShares => "convert",
+            Self::Sort => "sort",
+            Self::Attribution => "attribution",
         }
     }
 }

@@ -1,4 +1,3 @@
-use crate::helpers::prss::PrssSpace;
 use permutation::Permutation;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -12,10 +11,9 @@ use crate::{
     field::Field,
     helpers::{
         mesh::{Gateway, Mesh},
-        prss::SpaceIndex,
         Direction, Identity,
     },
-    protocol::{context::ProtocolContext, RecordId, Step},
+    protocol::{context::ProtocolContext, prss::PrssSpace, RecordId},
     secret_sharing::Replicated,
 };
 
@@ -26,17 +24,16 @@ use super::{
 };
 
 #[allow(dead_code)]
-pub struct Shuffle<'a, F, S> {
+pub struct Shuffle<'a, F> {
     input: &'a mut Vec<Replicated<F>>,
-    step_fn: fn(ShuffleStep) -> S,
 }
 
 /// This is SHUFFLE(Algorithm 1) described in <https://eprint.iacr.org/2019/695.pdf>.
 /// This protocol shuffles the given inputs across 3 helpers making them indistinguishable to the helpers
-impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
+impl<'a, F: Field> Shuffle<'a, F> {
     #[allow(dead_code)]
-    pub fn new(input: &'a mut Vec<Replicated<F>>, step_fn: fn(ShuffleStep) -> S) -> Self {
-        Self { input, step_fn }
+    pub fn new(input: &'a mut Vec<Replicated<F>>) -> Self {
+        Self { input }
     }
 
     /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
@@ -80,24 +77,18 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    async fn reshare_all_shares<M, G>(
+    async fn reshare_all_shares<G: Gateway>(
         &self,
-        ctx: &ProtocolContext<'_, G, S>,
-        which_step: ShuffleStep,
-    ) -> Result<Vec<Replicated<F>>, BoxError>
-    where
-        M: Mesh,
-        G: Gateway<M, S>,
-    {
-        let step = (self.step_fn)(which_step);
-        let to_helper = Self::shuffle_for_helper(which_step);
+        ctx: &ProtocolContext<'_, G>,
+        to_helper: Identity,
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         let reshares = self
             .input
             .iter()
             .enumerate()
             .map(|(index, input)| async move {
                 Reshare::new(*input)
-                    .execute(ctx, RecordId::from(index as u32), step, to_helper)
+                    .execute(ctx, RecordId::from(index as u32), to_helper)
                     .await
             });
         try_join_all(reshares).await
@@ -108,15 +99,15 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// ii)  2 helpers apply the permutation to their shares
     /// iii) reshare to `to_helper`
     #[allow(clippy::cast_possible_truncation)]
-    async fn single_shuffle<M: Mesh, G: Gateway<M, S>>(
+    async fn single_shuffle<G: Gateway>(
         &mut self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, G>,
         which_step: ShuffleStep,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let to_helper = Self::shuffle_for_helper(which_step);
-        let step = (self.step_fn)(which_step);
-        let prss = &ctx.participant[step];
-        let channel = ctx.gateway.get_channel(step);
+        let ctx = ctx.narrow(&which_step);
+        let prss = ctx.prss();
+        let channel = ctx.mesh();
 
         if to_helper != channel.identity() {
             let direction = if to_helper.peer(Direction::Left) == channel.identity() {
@@ -127,8 +118,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
             let mut permute = Self::generate_random_permutation(self.input.len(), direction, prss);
             apply_inv(&mut permute, &mut self.input);
         }
-        self.reshare_all_shares(ctx, which_step).await
+        self.reshare_all_shares(&ctx, to_helper).await
     }
+
     #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
     /// Shuffle calls `single_shuffle` three times with 2 helpers shuffling the shares each time.
     /// Order of calling `single_shuffle` is shuffle with (H2, H3), (H3, H1) and (H1, H2).
@@ -138,9 +130,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
     /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
     /// ![Shuffle steps][shuffle]
     #[allow(dead_code)]
-    pub async fn execute<M: Mesh, G: Gateway<M, S>>(
+    pub async fn execute<G: Gateway>(
         &mut self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, G>,
     ) -> Result<(), BoxError>
     where
         F: Field,
@@ -162,11 +154,10 @@ mod tests {
     use crate::{
         field::Fp31,
         helpers::Direction,
-        protocol::sort::ShuffleStep::Step1,
         protocol::QueryId,
         test_fixture::{
             make_contexts, make_participants, make_world, share, validate_and_reconstruct,
-            TestStep, TestWorld,
+            TestWorld,
         },
     };
     use permutation::Permutation;
@@ -176,38 +167,29 @@ mod tests {
     fn random_sequence_generated() {
         let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
-        let sequence1left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Left,
-            &p1[TestStep::Shuffle(Step1)],
-        );
-        let sequence1right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
+        let sequence1left =
+            Shuffle::<Fp31>::generate_random_permutation(batchsize, Direction::Left, p1.prss("id"));
+        let sequence1right = Shuffle::<Fp31>::generate_random_permutation(
             batchsize,
             Direction::Right,
-            &p1[TestStep::Shuffle(Step1)],
+            p1.prss("id"),
         );
 
-        let sequence2left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Left,
-            &p2[TestStep::Shuffle(Step1)],
-        );
+        let sequence2left =
+            Shuffle::<Fp31>::generate_random_permutation(batchsize, Direction::Left, p2.prss("id"));
 
-        let sequence2right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
+        let sequence2right = Shuffle::<Fp31>::generate_random_permutation(
             batchsize,
             Direction::Right,
-            &p2[TestStep::Shuffle(Step1)],
+            p2.prss("id"),
         );
 
-        let sequence3left = Shuffle::<Fp31, TestStep>::generate_random_permutation(
-            batchsize,
-            Direction::Left,
-            &p3[TestStep::Shuffle(Step1)],
-        );
-        let sequence3right = Shuffle::<Fp31, TestStep>::generate_random_permutation(
+        let sequence3left =
+            Shuffle::<Fp31>::generate_random_permutation(batchsize, Direction::Left, p3.prss("id"));
+        let sequence3right = Shuffle::<Fp31>::generate_random_permutation(
             batchsize,
             Direction::Right,
-            &p3[TestStep::Shuffle(Step1)],
+            p3.prss("id"),
         );
 
         assert_eq!(sequence1right, sequence2left);
@@ -227,7 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle() {
-        let world: TestWorld<TestStep> = make_world(QueryId);
+        let world: TestWorld = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rand = StepRng::new(100, 1);
 
@@ -251,9 +233,9 @@ mod tests {
         let input1 = shares1.clone();
         let input2 = shares2.clone();
 
-        let mut shuffle0 = Shuffle::new(&mut shares0, TestStep::Shuffle);
-        let mut shuffle1 = Shuffle::new(&mut shares1, TestStep::Shuffle);
-        let mut shuffle2 = Shuffle::new(&mut shares2, TestStep::Shuffle);
+        let mut shuffle0 = Shuffle::new(&mut shares0);
+        let mut shuffle1 = Shuffle::new(&mut shares1);
+        let mut shuffle2 = Shuffle::new(&mut shares2);
 
         let h0_future = shuffle0.execute(&context[0]);
         let h1_future = shuffle1.execute(&context[1]);

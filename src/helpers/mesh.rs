@@ -9,7 +9,7 @@
 use crate::field::Field;
 use crate::helpers::error::Error;
 use crate::helpers::Identity;
-use crate::protocol::{RecordId, Step};
+use crate::protocol::{RecordId, UniqueStepId};
 use crate::secret_sharing::Replicated;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
@@ -43,6 +43,7 @@ pub trait Mesh {
 
     /// Returns share of value one for this helper.
     fn share_of_one<F: Field>(&self) -> Replicated<F> {
+        // TODO(mt) - move this somewhere more appropriate (Identity/Replicated)
         match self.identity() {
             Identity::H1 => Replicated::new(F::ONE, F::ZERO),
             Identity::H2 => Replicated::new(F::ZERO, F::ZERO),
@@ -52,12 +53,15 @@ pub trait Mesh {
 }
 
 /// This is the entry point for protocols to request communication when they require it.
-pub trait Gateway<M: Mesh, S: Step> {
-    /// Create or return an existing channel for a given step. Protocols can send messages to
-    /// any helper through this channel (see `Mesh` interface for details).
+pub trait Gateway {
+    /// The type of mesh that this gateway supports.
+    type Mesh: Mesh;
+
+    /// Create or return an existing communications mesh for a given step. Protocols can send
+    /// messages to any helper using this interface (see `Mesh` for details).
     ///
     /// This method makes no guarantee that the communication channel will actually be established
-    /// between this helper and every other one. The actual connection may be created only when
-    /// `Mesh::send` or `Mesh::receive` methods are called.
-    fn get_channel(&self, step: S) -> M;
+    /// between this helper and every other one. The actual connection will be created as needed
+    /// when `Mesh::send` or `Mesh::receive` methods are called.
+    fn mesh(&self, step: &UniqueStepId) -> Self::Mesh;
 }

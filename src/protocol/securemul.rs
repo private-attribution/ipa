@@ -1,8 +1,11 @@
+use super::UniqueStepId;
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::mesh::{Gateway, Mesh};
-use crate::helpers::{prss::PrssSpace, Direction};
-use crate::protocol::{RecordId, Step};
+use crate::helpers::{
+    mesh::{Gateway, Mesh},
+    Direction,
+};
+use crate::protocol::{prss::PrssSpace, RecordId};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -18,15 +21,20 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, G, S> {
+pub struct SecureMul<'a, G> {
     prss: &'a PrssSpace,
     gateway: &'a G,
-    step: S,
+    step: &'a UniqueStepId,
     record_id: RecordId,
 }
 
-impl<'a, G, S: Step> SecureMul<'a, G, S> {
-    pub fn new(prss: &'a PrssSpace, gateway: &'a G, step: S, record_id: RecordId) -> Self {
+impl<'a, G: Gateway> SecureMul<'a, G> {
+    pub fn new(
+        prss: &'a PrssSpace,
+        gateway: &'a G,
+        step: &'a UniqueStepId,
+        record_id: RecordId,
+    ) -> Self {
         Self {
             prss,
             gateway,
@@ -42,17 +50,12 @@ impl<'a, G, S: Step> SecureMul<'a, G, S> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<M, F>(
+    pub async fn execute<F: Field>(
         self,
         a: Replicated<F>,
         b: Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError>
-    where
-        M: Mesh,
-        G: Gateway<M, S>,
-        F: Field,
-    {
-        let mut channel = self.gateway.get_channel(self.step);
+    ) -> Result<Replicated<F>, BoxError> {
+        let mut channel = self.gateway.mesh(self.step);
 
         // generate shared randomness.
         let (s0, s1) = self.prss.generate_fields(self.record_id.into());
@@ -95,19 +98,16 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::helpers::mesh::{Gateway, Mesh};
-    use crate::helpers::prss::SpaceIndex;
+    use crate::helpers::mesh::Gateway;
     use crate::protocol::{RecordId, Step};
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
-    pub struct StreamingStep(u128);
+    pub struct StreamingStep;
 
     impl Step for StreamingStep {}
-    impl SpaceIndex for StreamingStep {
-        const MAX: usize = 1;
-
-        fn as_usize(&self) -> usize {
-            0
+    impl AsRef<str> for StreamingStep {
+        fn as_ref(&self) -> &str {
+            "streaming"
         }
     }
 
@@ -118,18 +118,16 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, M, G, S>(
+    pub fn secure_multiply<'a, F, G, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, G, StreamingStep>,
+        ctx: &'a ProtocolContext<'a, G>,
         _index: u128,
     ) -> impl Stream<Item = Replicated<F>> + 'a
     where
         S: Stream<Item = Replicated<F>> + 'a,
         F: Field + 'static,
-        M: Mesh + 'a,
-        G: Gateway<M, StreamingStep>,
+        G: Gateway,
     {
-        let record_id = RecordId::from(1);
         let mut stream_element_idx = 0;
 
         // TODO (alex): is there a way to deal with async without pinning stream to the heap?
@@ -141,12 +139,12 @@ pub mod stream {
 
                 let b_share = items.pop().unwrap();
                 let a_share = items.pop().unwrap();
-                stream_element_idx += 1;
+                stream_element_idx += 1; // TODO(mt): revisit (use enumerate()?)
 
-                let mul = ctx
-                    .multiply(record_id, StreamingStep(stream_element_idx))
-                    .await;
-                mul.execute(a_share, b_share).await
+                ctx.multiply(RecordId::from(stream_element_idx))
+                    .await
+                    .execute(a_share, b_share)
+                    .await
             },
         ))
     }
@@ -195,7 +193,7 @@ pub mod stream {
                 .zip(world.gateways)
                 .map(|((input, prss), gateway)| {
                     tokio::spawn(async move {
-                        let ctx = ProtocolContext::new(&prss, &gateway);
+                        let ctx = ProtocolContext::new(gateway.role(), &prss, &gateway);
                         let mut stream = secure_multiply(input, &ctx, start_index);
 
                         // compute a*b
@@ -220,29 +218,25 @@ pub mod stream {
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
-
+    use crate::error::BoxError;
     use crate::field::{Field, Fp31};
     use crate::helpers::mock::TestHelperGateway;
     use crate::protocol::context::ProtocolContext;
+    use crate::protocol::{QueryId, RecordId};
+    use crate::secret_sharing::Replicated;
+    use crate::test_fixture::{
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+    };
+    use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
-
-    use futures_util::future::join_all;
-    use tokio::try_join;
-
-    use crate::error::BoxError;
-
-    use crate::protocol::{QueryId, RecordId};
-    use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
-    };
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
         logging::setup();
 
-        let world: TestWorld<TestStep> = make_world(QueryId);
+        let world: TestWorld = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 
@@ -264,48 +258,57 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
+        async fn mul<F: Field>(
+            v: (
+                ProtocolContext<'_, TestHelperGateway>,
+                (Replicated<F>, Replicated<F>),
+            ),
+        ) -> Replicated<F> {
+            let (ctx, (a, b)) = v;
+            ctx.multiply(RecordId::from(1))
+                .await
+                .execute(a, b)
+                .await
+                .unwrap()
+        }
+
         logging::setup();
 
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let contexts = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
-        let a = share(Fp31::from(4_u128), &mut rand);
-        let b = share(Fp31::from(3_u128), &mut rand);
 
         let mut multiplications = Vec::new();
-        let record_id = RecordId::from(1);
 
-        for i in 1..10_u8 {
+        for step in 1..10_u8 {
+            let a = share(Fp31::from(4_u128), &mut rand);
+            let b = share(Fp31::from(3_u128), &mut rand);
+
             // there is something weird going on the compiler's side. I don't see why we need
             // to use async move as `i` is Copy + Clone, but compiler complains about it not living
             // long enough
-            let ctx = &context;
-            let f = async move {
-                let h0_future = ctx[0]
-                    .multiply(record_id, TestStep::Mul1(i))
-                    .await
-                    .execute(a[0], b[0]);
-                let h1_future = ctx[1]
-                    .multiply(record_id, TestStep::Mul1(i))
-                    .await
-                    .execute(a[1], b[1]);
-                let h2_future = ctx[2]
-                    .multiply(record_id, TestStep::Mul1(i))
-                    .await
-                    .execute(a[2], b[2]);
-                try_join!(h0_future, h1_future, h2_future).unwrap()
-            };
+            let step_name = format!("step{}", step);
+            let f = join_all(
+                contexts
+                    .iter()
+                    .map(|ctx| ctx.narrow(&step_name))
+                    .zip(std::iter::zip(a, b))
+                    .map(mul),
+            );
             multiplications.push(f);
         }
 
         let results = join_all(multiplications).await;
         for shares in results {
-            assert_eq!(Fp31::from(12_u128), validate_and_reconstruct(shares));
+            assert_eq!(
+                Fp31::from(12_u128),
+                validate_and_reconstruct((shares[0], shares[1], shares[2]))
+            );
         }
     }
 
     async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelperGateway<TestStep>, TestStep>; 3],
+        context: &[ProtocolContext<'_, TestHelperGateway>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
@@ -326,18 +329,9 @@ pub mod tests {
         let b = share(b, rng);
 
         let result_shares = tokio::try_join!(
-            context[0]
-                .multiply(record_id, TestStep::Mul2)
-                .await
-                .execute(a[0], b[0]),
-            context[1]
-                .multiply(record_id, TestStep::Mul2)
-                .await
-                .execute(a[1], b[1]),
-            context[2]
-                .multiply(record_id, TestStep::Mul2)
-                .await
-                .execute(a[2], b[2]),
+            context[0].multiply(record_id).await.execute(a[0], b[0]),
+            context[1].multiply(record_id).await.execute(a[1], b[1]),
+            context[2].multiply(record_id).await.execute(a[2], b[2]),
         )?;
 
         Ok(validate_and_reconstruct(result_shares).into())

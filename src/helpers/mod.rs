@@ -1,7 +1,6 @@
 pub mod error;
 pub mod mesh;
 pub mod mock;
-pub mod prss;
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]

@@ -3,10 +3,9 @@ use crate::{
     field::Field,
     helpers::{
         mesh::{Gateway, Mesh},
-        prss::SpaceIndex,
         Direction, Identity,
     },
-    protocol::{context::ProtocolContext, RecordId, Step},
+    protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -44,15 +43,14 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
-    pub async fn execute<M: Mesh, G: Gateway<M, S>, S: Step + SpaceIndex>(
+    pub async fn execute<G: Gateway>(
         self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, G>,
         record_id: RecordId,
-        step: S,
         to_helper: Identity,
     ) -> Result<Replicated<F>, BoxError> {
-        let mut channel = ctx.gateway.get_channel(step);
-        let prss = &ctx.participant[step];
+        let mut channel = ctx.mesh();
+        let prss = ctx.prss();
         let (r0, r1) = prss.generate_fields(record_id.into());
 
         let inputs = self.input.as_tuple();
@@ -108,9 +106,7 @@ mod tests {
         field::Fp31,
         helpers::Identity,
         protocol::{sort::reshare::Reshare, QueryId, RecordId},
-        test_fixture::{
-            make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
-        },
+        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
 
     #[tokio::test]
@@ -125,18 +121,16 @@ mod tests {
             let share = share(input, &mut rand);
             let record_id = RecordId::from(1);
 
-            let world: TestWorld<TestStep> = make_world(QueryId);
+            let world: TestWorld = make_world(QueryId);
             let context = make_contexts(&world);
-
-            let step = TestStep::Reshare(1);
 
             let reshare0 = Reshare::new(share[0]);
             let reshare1 = Reshare::new(share[1]);
             let reshare2 = Reshare::new(share[2]);
 
-            let h0_future = reshare0.execute(&context[0], record_id, step, Identity::H2);
-            let h1_future = reshare1.execute(&context[1], record_id, step, Identity::H2);
-            let h2_future = reshare2.execute(&context[2], record_id, step, Identity::H2);
+            let h0_future = reshare0.execute(&context[0], record_id, Identity::H2);
+            let h1_future = reshare1.execute(&context[1], record_id, Identity::H2);
+            let h2_future = reshare2.execute(&context[2], record_id, Identity::H2);
 
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
             let output_share = validate_and_reconstruct(f);

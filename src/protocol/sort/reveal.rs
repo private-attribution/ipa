@@ -5,7 +5,7 @@ use crate::{
         mesh::{Gateway, Mesh},
         Direction,
     },
-    protocol::{RecordId, Step},
+    protocol::{RecordId, UniqueStepId},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -24,17 +24,21 @@ pub struct RevealValue<F> {
 // Input: Each helpers know their own secret shares
 // Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
-pub struct Reveal<'a, G, S> {
+pub struct Reveal<'a, G> {
     gateway: &'a G,
-    step: S,
+    step: &'a UniqueStepId,
     record_id: RecordId,
 }
 
-impl<'a, G, S: Step> Reveal<'a, G, S> {
+impl<'a, G: Gateway> Reveal<'a, G> {
     #[allow(dead_code)]
     // We would want reveal constructors to be hidden from IPA code. Only ProtocolContext should be able to instantiate it and we
     // can verify that the call site is allowed to reveal by checking the step variable.
-    pub(in crate::protocol) fn new(gateway: &'a G, step: S, record_id: RecordId) -> Self {
+    pub(in crate::protocol) fn new(
+        gateway: &'a G,
+        step: &'a UniqueStepId,
+        record_id: RecordId,
+    ) -> Self {
         Self {
             gateway,
             step,
@@ -48,13 +52,8 @@ impl<'a, G, S: Step> Reveal<'a, G, S> {
     /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
     /// i.e. their own shares and received share.
     #[allow(dead_code)]
-    pub async fn execute<M, F>(self, input: Replicated<F>) -> Result<F, BoxError>
-    where
-        F: Field,
-        M: Mesh,
-        G: Gateway<M, S>,
-    {
-        let mut channel = self.gateway.get_channel(self.step);
+    pub async fn execute<F: Field>(self, input: Replicated<F>) -> Result<F, BoxError> {
+        let mut channel = self.gateway.mesh(self.step);
 
         let inputs = input.as_tuple();
         channel
@@ -83,7 +82,7 @@ mod tests {
     use crate::{
         field::Fp31,
         protocol::{QueryId, RecordId},
-        test_fixture::{make_contexts, make_world, share, TestStep, TestWorld},
+        test_fixture::{make_contexts, make_world, share, TestWorld},
     };
 
     #[tokio::test]
@@ -99,15 +98,13 @@ mod tests {
             let share = share(input, &mut rand);
             let record_id = RecordId::from(1);
 
-            let world: TestWorld<TestStep> = make_world(QueryId);
+            let world: TestWorld = make_world(QueryId);
             let ctx = make_contexts(&world);
 
-            let step = TestStep::Reveal(1);
+            let h0_future = ctx[0].reveal(record_id).execute(share[0]);
 
-            let h0_future = ctx[0].reveal(record_id, step).execute(share[0]);
-
-            let h1_future = ctx[1].reveal(record_id, step).execute(share[1]);
-            let h2_future = ctx[2].reveal(record_id, step).execute(share[2]);
+            let h1_future = ctx[1].reveal(record_id).execute(share[1]);
+            let h2_future = ctx[2].reveal(record_id).execute(share[2]);
 
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
             assert_eq!(input, f.0);
