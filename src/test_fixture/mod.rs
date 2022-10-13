@@ -5,8 +5,8 @@ mod sharing;
 mod world;
 
 use crate::field::Fp31;
-use crate::helpers::Identity;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
+use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
 use crate::secret_sharing::Replicated;

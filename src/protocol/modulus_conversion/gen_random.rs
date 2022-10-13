@@ -1,11 +1,7 @@
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{
-        fabric::Network,
-        prss::SpaceIndex,
-        Identity,
-    },
+    helpers::{fabric::Network, prss::SpaceIndex, Identity},
     protocol::{context::ProtocolContext, RecordId, Step},
     secret_sharing::Replicated,
 };
@@ -140,9 +136,9 @@ mod tests {
         },
         test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
     };
-    use tokio::try_join;
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use tokio::try_join;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct ModulusConversionTestStep {

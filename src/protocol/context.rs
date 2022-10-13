@@ -17,7 +17,11 @@ pub struct ProtocolContext<'a, S: SpaceIndex, F> {
 }
 
 impl<'a, S: Step + SpaceIndex, F: Network<S>> ProtocolContext<'a, S, F> {
-    pub fn new(participant: &'a Participant<S>, gateway: &'a Gateway<S, F>, identity: Identity) -> Self {
+    pub fn new(
+        participant: &'a Participant<S>,
+        gateway: &'a Gateway<S, F>,
+        identity: Identity,
+    ) -> Self {
         Self {
             participant,
             gateway,
