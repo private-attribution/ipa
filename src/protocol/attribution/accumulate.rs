@@ -2,10 +2,7 @@ use super::{AccumulationInputRow, AccumulationOutputRow, AttributionInputRow};
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{
-        mesh::{Gateway, Mesh},
-        prss::SpaceIndex,
-    },
+    helpers::{fabric::Network, prss::SpaceIndex},
     protocol::{
         batch::{Batch, RecordIndex},
         context::ProtocolContext,
@@ -35,15 +32,14 @@ impl<'a, F: Field> Accumulate<'a, F> {
     /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
     /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
     #[allow(dead_code)]
-    pub async fn execute<M, G, S>(
+    pub async fn execute<S, N>(
         &self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
         steps: [S; 5],
     ) -> Result<Batch<AccumulationOutputRow<F>>, BoxError>
     where
-        M: Mesh,
-        G: Gateway<M, S>,
         S: Step + SpaceIndex,
+        N: Network<S>,
     {
         //
         #[allow(clippy::cast_possible_truncation)]
@@ -52,7 +48,7 @@ impl<'a, F: Field> Accumulate<'a, F> {
         // 1. Create credit and stop_bit vectors
         // These vectors are updated in each iteration to help accumulate values and determine when to stop accumulating.
 
-        let one = ctx.gateway.get_channel(steps[0]).share_of_one::<F>();
+        let one = Replicated::one(ctx.gateway.get_channel(steps[0]).identity());
         let mut stop_bits: Batch<Replicated<F>> = vec![one; num_rows as usize].into();
 
         let mut credits: Batch<Replicated<F>> = self
@@ -137,9 +133,9 @@ impl<'a, F: Field> Accumulate<'a, F> {
         Ok(output)
     }
 
-    async fn get_accumulated_credit<M, G, S>(
+    async fn get_accumulated_credit<S, N>(
         &self,
-        ctx: &ProtocolContext<'_, G, S>,
+        ctx: &ProtocolContext<'_, S, N>,
         step_size: u32,
         current: AccumulationInputRow<F>,
         successor: AccumulationInputRow<F>,
@@ -147,9 +143,8 @@ impl<'a, F: Field> Accumulate<'a, F> {
         steps: [S; 4],
     ) -> Result<(Replicated<F>, Replicated<F>), BoxError>
     where
-        M: Mesh,
-        G: Gateway<M, S>,
         S: Step + SpaceIndex,
+        N: Network<S>,
     {
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
