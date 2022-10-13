@@ -29,6 +29,31 @@ pub enum ModulusConversionStep {
     Xor2,
 }
 
+///
+/// This file is an implementation of Algorithm D.3 from https://eprint.iacr.org/2018/387.pdf
+/// "Efficient generation of a pair of random shares for small number of parties"
+///
+/// In order to convert from a 3-party secret sharing in Z_2, to a 3-party replicated
+/// secret sharing in Z_p (where p > 2), we need to generate two secret sharings of
+/// a random value 'r' ∈ {0, 1}, where none of the helper parties know the value of 'r'.
+/// With Psuedo-random secret-sharing (PRSS), we can generate a 3-party replicated
+/// secret-sharing of unknown value 'r' without any interaction between the helpers.
+/// We just generate 3 random binary inputs, where each helper is aware of just two.
+///
+/// This 'GenRandom' protocol takes as input such a 3-way random binary replicated secret-sharing,
+/// and produces a 3-party replicated secret-sharing of the same value in a target field
+/// of the caller's choosing.
+/// Example:
+/// For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in Z_2
+/// sample output in Z_31 could be: (22, 19, 21) -> also a sharing of 0 in Z_31
+/// This transformation is simple:
+/// The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
+/// Each of the 3 bits can be trivially converted into a 3-way secret sharing in Z_p
+/// So if the second bit is a '1', we can make a 3-way secret sharing of '1' in Z_p
+/// as (0, 1, 0).
+/// Now we simply need to XOR these three sharings together in Z_p. This is easy because
+/// we know the secret-shared values are all either 0, or 1. As such, the XOR operation
+/// is equivalent to fn xor(a, b) { a + b - 2*a*b }
 #[derive(Debug)]
 pub struct GenRandom {
     input: ReplicatedBinary,
@@ -40,6 +65,10 @@ impl GenRandom {
         Self { input }
     }
 
+    ///
+    /// Internal use only.
+    /// This is an implementation of "Algorithm 3" from https://eprint.iacr.org/2018/387.pdf
+    ///
     fn local_secret_share<F: Field>(
         input: ReplicatedBinary,
         channel_identity: Identity,
@@ -63,6 +92,12 @@ impl GenRandom {
         }
     }
 
+    ///
+    /// Internal use only
+    /// When both inputs are known to be secret share of either '1' or '0',
+    /// XOR can be computed as:
+    /// a + b - 2*a*b
+    ///
     async fn xor<F: Field, S: Step + SpaceIndex, N: Network<S>>(
         a: Replicated<F>,
         b: Replicated<F>,
@@ -75,6 +110,10 @@ impl GenRandom {
         Ok(a + b - (result * F::from(2)))
     }
 
+    ///
+    /// This will convert the input (a random, replicated binary secret sharing
+    /// of unknown number 'r') into a random secret sharing of the same value in Z_p
+    /// where the caller can select the output Field.
     #[allow(dead_code)]
     pub async fn execute<F: Field, S: Step + SpaceIndex, N: Network<S>>(
         &self,
@@ -92,10 +131,8 @@ impl GenRandom {
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::Rng;
-    use tokio::try_join;
-
     use crate::{
+        error::BoxError,
         field::{Field, Fp31},
         protocol::{
             modulus_conversion::gen_random::{GenRandom, ModulusConversionStep, ReplicatedBinary},
@@ -103,6 +140,9 @@ mod tests {
         },
         test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
     };
+    use tokio::try_join;
+    use futures::future::try_join_all;
+    use proptest::prelude::Rng;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct ModulusConversionTestStep {
@@ -125,41 +165,59 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn gen_random() {
+    pub async fn gen_random() -> Result<(), BoxError> {
         let mut rng = rand::thread_rng();
 
-        for i in 0_u8..40 {
-            let record_id = RecordId::from(u32::from(i));
+        let world: TestWorld<ModulusConversionTestStep> = make_world(QueryId);
+        let context = make_contexts(&world);
+        let ctx0 = &context[0];
+        let ctx1 = &context[1];
+        let ctx2 = &context[2];
 
-            let world: TestWorld<ModulusConversionTestStep> = make_world(QueryId);
-            let context = make_contexts(&world);
+        let counting: Vec<u128> = (0..40).collect();
+        let mut bools: Vec<u128> = Vec::with_capacity(40);
 
-            let step1 = ModulusConversionTestStep {
-                bit_number: i,
-                internal_step: ModulusConversionStep::Xor1,
-            };
-            let step2 = ModulusConversionTestStep {
-                bit_number: i,
-                internal_step: ModulusConversionStep::Xor2,
-            };
+        let inputs = counting.into_iter().map(|_| {
+            let b0 = rng.gen::<bool>();
+            let b1 = rng.gen::<bool>();
+            let b2 = rng.gen::<bool>();
+            bools.push(u128::from((b0 ^ b1) ^ b2));
 
-            let b0 = rng.gen::<u8>() >= 128;
-            let b1 = rng.gen::<u8>() >= 128;
-            let b2 = rng.gen::<u8>() >= 128;
+            (
+                GenRandom::new(ReplicatedBinary::new(b0, b1)),
+                GenRandom::new(ReplicatedBinary::new(b1, b2)),
+                GenRandom::new(ReplicatedBinary::new(b2, b0)),
+            )
+        });
 
-            let input = u128::from((b0 ^ b1) ^ b2);
+        let futures = inputs
+            .into_iter()
+            .enumerate()
+            .map(|(index, (gr0, gr1, gr2))| async move {
+                let record_id = RecordId::from(index as u32);
+                let step1 = ModulusConversionTestStep {
+                    bit_number: 0_u8,
+                    internal_step: ModulusConversionStep::Xor1,
+                };
+                let step2 = ModulusConversionTestStep {
+                    bit_number: 0_u8,
+                    internal_step: ModulusConversionStep::Xor2,
+                };
 
-            let gen_random0 = GenRandom::new(ReplicatedBinary::new(b0, b1));
-            let gen_random1 = GenRandom::new(ReplicatedBinary::new(b1, b2));
-            let gen_random2 = GenRandom::new(ReplicatedBinary::new(b2, b0));
+                let f0 = gr0.execute(ctx0, record_id, step1, step2);
+                let f1 = gr1.execute(ctx1, record_id, step1, step2);
+                let f2 = gr2.execute(ctx2, record_id, step1, step2);
 
-            let h0_future = gen_random0.execute(&context[0], record_id, step1, step2);
-            let h1_future = gen_random1.execute(&context[1], record_id, step1, step2);
-            let h2_future = gen_random2.execute(&context[2], record_id, step1, step2);
+                try_join!(f0, f1, f2)
+            });
 
-            let f = try_join!(h0_future, h1_future, h2_future).unwrap();
-            let output_share: Fp31 = validate_and_reconstruct(f);
-            assert_eq!(output_share.as_u128(), input);
+        let awaited_futures = try_join_all(futures).await?;
+
+        for i in 0..40 {
+            let output_share: Fp31 = validate_and_reconstruct(awaited_futures[i]);
+
+            assert_eq!(output_share.as_u128(), bools[i]);
         }
+        Ok(())
     }
 }
