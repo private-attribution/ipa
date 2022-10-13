@@ -26,28 +26,28 @@ pub enum ModulusConversionStep {
 }
 
 ///
-/// This file is an implementation of Algorithm D.3 from https://eprint.iacr.org/2018/387.pdf
+/// This file is an implementation of Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
 /// "Efficient generation of a pair of random shares for small number of parties"
 ///
-/// In order to convert from a 3-party secret sharing in Z_2, to a 3-party replicated
-/// secret sharing in Z_p (where p > 2), we need to generate two secret sharings of
-/// a random value 'r' ∈ {0, 1}, where none of the helper parties know the value of 'r'.
+/// In order to convert from a 3-party secret sharing in `Z_2`, to a 3-party replicated
+/// secret sharing in `Z_p` (where p > 2), we need to generate two secret sharings of
+/// a random value `r` ∈ {0, 1}, where none of the helper parties know the value of `r`.
 /// With Psuedo-random secret-sharing (PRSS), we can generate a 3-party replicated
 /// secret-sharing of unknown value 'r' without any interaction between the helpers.
 /// We just generate 3 random binary inputs, where each helper is aware of just two.
 ///
-/// This 'GenRandom' protocol takes as input such a 3-way random binary replicated secret-sharing,
+/// This `GenRandom` protocol takes as input such a 3-way random binary replicated secret-sharing,
 /// and produces a 3-party replicated secret-sharing of the same value in a target field
 /// of the caller's choosing.
 /// Example:
-/// For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in Z_2
-/// sample output in Z_31 could be: (22, 19, 21) -> also a sharing of 0 in Z_31
+/// For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
+/// sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
 /// This transformation is simple:
 /// The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
-/// Each of the 3 bits can be trivially converted into a 3-way secret sharing in Z_p
-/// So if the second bit is a '1', we can make a 3-way secret sharing of '1' in Z_p
+/// Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
+/// So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
 /// as (0, 1, 0).
-/// Now we simply need to XOR these three sharings together in Z_p. This is easy because
+/// Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
 /// we know the secret-shared values are all either 0, or 1. As such, the XOR operation
 /// is equivalent to fn xor(a, b) { a + b - 2*a*b }
 #[derive(Debug)]
@@ -63,7 +63,7 @@ impl GenRandom {
 
     ///
     /// Internal use only.
-    /// This is an implementation of "Algorithm 3" from https://eprint.iacr.org/2018/387.pdf
+    /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
     ///
     fn local_secret_share<F: Field>(
         input: ReplicatedBinary,
@@ -108,7 +108,7 @@ impl GenRandom {
 
     ///
     /// This will convert the input (a random, replicated binary secret sharing
-    /// of unknown number 'r') into a random secret sharing of the same value in Z_p
+    /// of unknown number 'r') into a random secret sharing of the same value in `Z_p`
     /// where the caller can select the output Field.
     #[allow(dead_code)]
     pub async fn execute<F: Field, S: Step + SpaceIndex, N: Network<S>>(
@@ -170,10 +170,9 @@ mod tests {
         let ctx1 = &context[1];
         let ctx2 = &context[2];
 
-        let counting: Vec<u128> = (0..40).collect();
         let mut bools: Vec<u128> = Vec::with_capacity(40);
 
-        let inputs = counting.into_iter().map(|_| {
+        let inputs = (0..40).into_iter().map(|_i| {
             let b0 = rng.gen::<bool>();
             let b1 = rng.gen::<bool>();
             let b2 = rng.gen::<bool>();
@@ -190,13 +189,15 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(index, (gr0, gr1, gr2))| async move {
-                let record_id = RecordId::from(index as u32);
+                let index_bytes: [u8; 8] = index.to_le_bytes();
+                let i = index_bytes[0];
+                let record_id = RecordId::from(0_u32);
                 let step1 = ModulusConversionTestStep {
-                    bit_number: 0_u8,
+                    bit_number: i,
                     internal_step: ModulusConversionStep::Xor1,
                 };
                 let step2 = ModulusConversionTestStep {
-                    bit_number: 0_u8,
+                    bit_number: i,
                     internal_step: ModulusConversionStep::Xor2,
                 };
 
