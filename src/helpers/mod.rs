@@ -1,5 +1,6 @@
 use std::ops::{Index, IndexMut};
 
+mod buffers;
 pub mod error;
 pub mod fabric;
 pub mod messaging;

@@ -1,4 +1,4 @@
-use crate::helpers::messaging::Gateway;
+use crate::helpers::messaging::{Gateway, GatewayConfig};
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::protocol::{sort::ShuffleStep, QueryId, Step};
 use crate::test_fixture::make_participants;
@@ -20,19 +20,41 @@ pub struct TestWorld<S: SpaceIndex> {
     _network: Arc<InMemoryNetwork<S>>,
 }
 
+#[derive(Copy, Clone)]
+pub struct TestWorldConfig {
+    gateway_config: GatewayConfig,
+}
+
+impl Default for TestWorldConfig {
+    fn default() -> Self {
+        Self {
+            // buffer capacity = 1 effectively means no buffering. This is the desired mode
+            // for unit tests because they may not produce enough data to trigger buffer flush
+            gateway_config: GatewayConfig {
+                send_buffer_capacity: 1,
+            },
+        }
+    }
+}
+
 /// Creates a new `TestWorld` instance.
-///
-/// # Panics
-/// No panic is expected.
 #[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn make<S: Step + SpaceIndex>(query_id: QueryId) -> TestWorld<S> {
+    let config = TestWorldConfig::default();
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
     let network = InMemoryNetwork::new();
     let gateways = network
         .endpoints
         .iter()
-        .map(|endpoint| Gateway::new(endpoint.identity, Arc::clone(endpoint)))
+        .map(|endpoint| {
+            Gateway::new(
+                endpoint.identity,
+                Arc::clone(endpoint),
+                config.gateway_config,
+            )
+        })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

@@ -25,23 +25,15 @@ pub type MessageChunks<S> = (ChannelId<S>, Vec<MessageEnvelope>);
 #[async_trait]
 pub trait Network<S: Step>: Sync {
     /// Type of the channel that is used to send messages to other helpers
-    type Channel: CommunicationChannel;
+    type Sink: futures::Sink<MessageChunks<S>, Error = Error> + Send + Unpin + 'static;
     type MessageStream: Stream<Item = MessageChunks<S>> + Send + Unpin + 'static;
 
-    /// Returns a new connection to be open. `channel_id` indicates the parameters of this
-    /// connection (destination peer and step). Once the connection is returned it is immediately
-    /// ready for sending messages.
-    async fn get_connection(&self, channel_id: ChannelId<S>) -> Self::Channel;
+    /// Returns a sink that accepts data to be sent to other helper parties.
+    fn sink(&self) -> Self::Sink;
 
     /// Returns a stream to receive messages that have arrived from other helpers. Note that
     /// some implementations may panic if this method is called more than once.
-    fn message_stream(&self) -> Self::MessageStream;
-}
-
-#[async_trait]
-pub trait CommunicationChannel {
-    /// Send a given message
-    async fn send(&self, msg: MessageEnvelope) -> Result<(), Error>;
+    fn stream(&self) -> Self::MessageStream;
 }
 
 impl<S: Step> ChannelId<S> {
