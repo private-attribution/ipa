@@ -36,12 +36,6 @@ pub struct PrssSpace {
     right: Generator,
 }
 
-impl PartialEq for PrssSpace {
-    fn eq(&self, other: &Self) -> bool {
-        self.generate_values(1) == other.generate_values(1)
-    }
-}
-
 impl PrssSpace {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
@@ -300,12 +294,8 @@ impl Generator {
 pub mod test {
     use rand::{thread_rng, Rng};
 
-    use crate::protocol::QueryId;
-    use crate::test_fixture::{make_participants, TestWorld};
-    use crate::{
-        field::Fp31,
-        test_fixture::{make_contexts, make_world, TestStep},
-    };
+    use crate::field::Fp31;
+    use crate::test_fixture::make_participants;
 
     use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace, SpaceIndex};
 
@@ -512,19 +502,5 @@ pub mod test {
         same_rng(rng1_l, rng3_r);
         same_rng(rng2_l, rng1_r);
         same_rng(rng3_l, rng2_r);
-    }
-
-    #[tokio::test]
-    async fn different_prss() {
-        // each time we create a step, it should generate a different prss
-        let world: TestWorld<TestStep> = make_world(QueryId);
-        let context = make_contexts(&world);
-
-        let reshare0 = &context[0].participant[TestStep::Reshare(0)];
-        let reshare1 = &context[0].participant[TestStep::Reshare(1)];
-        let mul = &context[0].participant[TestStep::Mul2];
-
-        assert_ne!(reshare0, reshare1);
-        assert_ne!(reshare0, mul);
     }
 }

@@ -6,6 +6,7 @@ use super::Step;
 
 mod apply;
 pub mod bit_permutations;
+mod compose;
 pub mod reshare;
 pub mod reveal;
 mod secureapplyinv;
@@ -85,23 +86,12 @@ impl Debug for ShuffleStep {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ApplyInvStep {
     GenerateRandomPermutation,
     ShuffleInputs(ShuffleStep),
     ShufflePermutation(ShuffleStep),
     RevealPermutation,
-}
-
-impl Debug for ApplyInvStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ApplyInvStep::ShuffleInputs(v) => write!(f, "ShuffleInputs[{:?}]", v),
-            ApplyInvStep::ShufflePermutation(v) => write!(f, "ShufflePermutation[{:?}]", v),
-            ApplyInvStep::RevealPermutation => write!(f, "RevealPermutation"),
-            ApplyInvStep::GenerateRandomPermutation => write!(f, "GenerateRandomPermutation"),
-        }
-    }
 }
 
 impl Step for ApplyInvStep {}
@@ -114,6 +104,28 @@ impl SpaceIndex for ApplyInvStep {
             Self::ShufflePermutation(_) => 1,
             Self::RevealPermutation => 2,
             Self::GenerateRandomPermutation => 3,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ComposeStep {
+    GenerateRandomPermutation,
+    ShuffleLastPermutation(ShuffleStep),
+    RevealPermutation,
+    UnshuffleNewPermutation(ShuffleStep),
+}
+
+impl Step for ComposeStep {}
+
+impl SpaceIndex for ComposeStep {
+    const MAX: usize = 4;
+    fn as_usize(&self) -> usize {
+        match self {
+            Self::GenerateRandomPermutation => 0,
+            Self::ShuffleLastPermutation(_) => 1,
+            Self::RevealPermutation => 2,
+            Self::UnshuffleNewPermutation(_) => 3,
         }
     }
 }
