@@ -1,5 +1,6 @@
 pub mod context;
 mod modulus_conversion;
+mod reveal;
 mod securemul;
 pub mod sort;
 

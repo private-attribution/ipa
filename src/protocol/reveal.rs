@@ -45,7 +45,7 @@ impl<'a, S: Step, N: Network<S>> Reveal<'a, N, S> {
         }
     }
 
-    #[embed_doc_image("reveal", "images/sort/reveal.png")]
+    #[embed_doc_image("reveal", "images/reveal.png")]
     /// Steps
     /// ![Reveal steps][reveal]
     /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
