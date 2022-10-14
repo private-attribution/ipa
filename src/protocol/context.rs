@@ -1,13 +1,11 @@
-use super::{
-    prss::PrssSpace, securemul::SecureMul, sort::reveal::Reveal, RecordId, Step, UniqueStepId,
-};
+use super::{prss::PrssSpace, securemul::SecureMul, RecordId, Step, UniqueStepId};
 use crate::{
     helpers::{
         fabric::Network,
         messaging::{Gateway, Mesh},
         Identity,
     },
-    protocol::prss::Participant,
+    protocol::{prss::Participant, reveal::Reveal},
 };
 
 /// Context used by each helper to perform computation. Currently they need access to shared

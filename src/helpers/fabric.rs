@@ -1,5 +1,4 @@
-use crate::helpers::error::Error;
-use crate::helpers::Identity;
+use crate::helpers::{error::Error, Identity};
 use crate::protocol::{RecordId, UniqueStepId};
 use async_trait::async_trait;
 use futures::Stream;
