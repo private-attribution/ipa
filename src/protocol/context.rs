@@ -3,7 +3,7 @@ use crate::helpers::messaging::Gateway;
 use crate::helpers::prss::{Participant, SpaceIndex};
 use crate::helpers::Identity;
 
-use super::{securemul::SecureMul, sort::reveal::Reveal, RecordId, Step};
+use super::{reveal::Reveal, securemul::SecureMul, RecordId, Step};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.

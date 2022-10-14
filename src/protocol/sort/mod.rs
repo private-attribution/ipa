@@ -7,7 +7,6 @@ use super::Step;
 mod apply;
 pub mod bit_permutations;
 pub mod reshare;
-pub mod reveal;
 mod shuffle;
 
 #[allow(clippy::module_name_repetitions)]
