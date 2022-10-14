@@ -6,6 +6,7 @@ use crate::protocol::{prss::PrssSpace, RecordId};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// A message sent by each helper when they've multiplied their own shares
@@ -19,7 +20,7 @@ pub struct DValue<F> {
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<'a, N> {
-    prss: &'a PrssSpace,
+    prss: Arc<PrssSpace>,
     gateway: &'a Gateway<N>,
     step: &'a UniqueStepId,
     record_id: RecordId,
@@ -27,7 +28,7 @@ pub struct SecureMul<'a, N> {
 
 impl<'a, N: Network> SecureMul<'a, N> {
     pub fn new(
-        prss: &'a PrssSpace,
+        prss: Arc<PrssSpace>,
         gateway: &'a Gateway<N>,
         step: &'a UniqueStepId,
         record_id: RecordId,

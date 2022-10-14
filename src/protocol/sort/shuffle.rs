@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use permutation::Permutation;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -45,7 +47,7 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 #[allow(clippy::cast_possible_truncation, dead_code)]
 pub(self) fn generate_random_permutation(
     batchsize: usize,
-    prss: &PrssSpace,
+    prss: &Arc<PrssSpace>,
 ) -> (Permutation, Permutation) {
     // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
     // We are using two seeds from prss to generate a seed for shuffle and concatenating them
@@ -232,9 +234,9 @@ mod tests {
         const STEP_ID: &str = "permutation";
         let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
-        let perm1 = generate_random_permutation(batchsize, p1.prss(STEP_ID));
-        let perm2 = generate_random_permutation(batchsize, p2.prss(STEP_ID));
-        let perm3 = generate_random_permutation(batchsize, p3.prss(STEP_ID));
+        let perm1 = generate_random_permutation(batchsize, &p1.prss(STEP_ID));
+        let perm2 = generate_random_permutation(batchsize, &p2.prss(STEP_ID));
+        let perm3 = generate_random_permutation(batchsize, &p3.prss(STEP_ID));
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
@@ -272,9 +274,9 @@ mod tests {
         let mut shuffle1 = Shuffle::new(&mut shares.1);
         let mut shuffle2 = Shuffle::new(&mut shares.2);
 
-        let perm1 = generate_random_permutation(input_len, context[0].prss());
-        let perm2 = generate_random_permutation(input_len, context[1].prss());
-        let perm3 = generate_random_permutation(input_len, context[2].prss());
+        let perm1 = generate_random_permutation(input_len, &context[0].prss());
+        let perm2 = generate_random_permutation(input_len, &context[1].prss());
+        let perm3 = generate_random_permutation(input_len, &context[2].prss());
 
         let [c0, c1, c2] = context;
         let h0_future = shuffle0.execute(c0, &perm1);
@@ -326,9 +328,9 @@ mod tests {
 
         let mut shares = generate_shares(input);
 
-        let perm1 = generate_random_permutation(input_len, context[0].prss());
-        let perm2 = generate_random_permutation(input_len, context[1].prss());
-        let perm3 = generate_random_permutation(input_len, context[2].prss());
+        let perm1 = generate_random_permutation(input_len, &context[0].prss());
+        let perm2 = generate_random_permutation(input_len, &context[1].prss());
+        let perm3 = generate_random_permutation(input_len, &context[2].prss());
 
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);

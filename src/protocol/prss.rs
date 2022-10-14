@@ -7,7 +7,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
-use std::{collections::HashMap, fmt::Debug, pin::Pin, ptr::NonNull, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 /// A participant in a 2-of-N replicated secret sharing.
@@ -153,11 +157,8 @@ impl Participant {
     /// # Panics
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
-    pub fn prss(&self, key: impl AsRef<str>) -> &PrssSpace {
-        let p = self.inner.lock().unwrap().prss(key.as_ref());
-        // Safety: This pointer refers to pinned memory that is allocated
-        // and retained as long as this object exists.
-        unsafe { p.as_ref() }
+    pub fn prss(&self, key: impl AsRef<str>) -> Arc<PrssSpace> {
+        self.inner.lock().unwrap().prss(key.as_ref())
     }
 }
 
@@ -173,11 +174,11 @@ struct ParticipantInner {
     // TODO(mt): add a function to get an RNG instead of the indexed PRSS.
     // That should mark the entry as dead, so that any attempt to get the
     // indexed PRSS or another RNG will fail.
-    spaces: HashMap<String, Pin<Box<PrssSpace>>>,
+    spaces: HashMap<String, Arc<PrssSpace>>,
 }
 
 impl ParticipantInner {
-    pub fn prss(&mut self, key: &str) -> NonNull<PrssSpace> {
+    pub fn prss(&mut self, key: &str) -> Arc<PrssSpace> {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
@@ -185,17 +186,13 @@ impl ParticipantInner {
             value
         } else {
             self.spaces.entry(key.to_owned()).or_insert_with_key(|k| {
-                Box::pin(PrssSpace {
+                Arc::new(PrssSpace {
                     left: self.left.generator(k.as_bytes()),
                     right: self.right.generator(k.as_bytes()),
                 })
             })
         };
-        // Safety: we never drop a PRSS instance while the outer object lives.
-        // As each instance is pinned, it is safe to return a pointer to
-        // each once they are created as long as the pointer is not referenced
-        // past the lifetime the container (see above).
-        NonNull::from(unsafe { Pin::into_inner_unchecked(p.as_ref()) })
+        Arc::clone(p)
     }
 }
 
@@ -298,17 +295,11 @@ impl Generator {
 
 #[cfg(test)]
 pub mod test {
-    use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace};
+    use super::{Generator, KeyExchange, PrssRng};
     use crate::{field::Fp31, test_fixture::make_participants};
     use rand::{thread_rng, Rng};
-    use std::ops::Deref;
 
-    impl Deref for Participant {
-        type Target = PrssSpace;
-        fn deref(&self) -> &Self::Target {
-            self.prss("test")
-        }
-    }
+    const KEY: &str = "prss key";
 
     fn make() -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
@@ -364,11 +355,11 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let (r1_l, r1_r) = p1.generate_values(IDX);
+        let (r1_l, r1_r) = p1.prss(KEY).generate_values(IDX);
         assert_ne!(r1_l, r1_r);
-        let (r2_l, r2_r) = p2.generate_values(IDX);
+        let (r2_l, r2_r) = p2.prss(KEY).generate_values(IDX);
         assert_ne!(r2_l, r2_r);
-        let (r3_l, r3_r) = p3.generate_values(IDX);
+        let (r3_l, r3_r) = p3.prss(KEY).generate_values(IDX);
         assert_ne!(r3_l, r3_r);
 
         assert_eq!(r1_l, r3_r);
@@ -381,9 +372,9 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let z1 = p1.zero_u128(IDX);
-        let z2 = p2.zero_u128(IDX);
-        let z3 = p3.zero_u128(IDX);
+        let z1 = p1.prss(KEY).zero_u128(IDX);
+        let z2 = p2.prss(KEY).zero_u128(IDX);
+        let z3 = p3.prss(KEY).zero_u128(IDX);
 
         assert_eq!(0, z1.wrapping_add(z2).wrapping_add(z3));
     }
@@ -393,9 +384,9 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let z1 = p1.zero_xor(IDX);
-        let z2 = p2.zero_xor(IDX);
-        let z3 = p3.zero_xor(IDX);
+        let z1 = p1.prss(KEY).zero_xor(IDX);
+        let z2 = p2.prss(KEY).zero_xor(IDX);
+        let z3 = p3.prss(KEY).zero_xor(IDX);
 
         assert_eq!(0, z1 ^ z2 ^ z3);
     }
@@ -406,16 +397,16 @@ pub mod test {
         const IDX2: u128 = 21362;
         let (p1, p2, p3) = make_participants();
 
-        let r1 = p1.random_u128(IDX1);
-        let r2 = p2.random_u128(IDX1);
-        let r3 = p3.random_u128(IDX1);
+        let r1 = p1.prss(KEY).random_u128(IDX1);
+        let r2 = p2.prss(KEY).random_u128(IDX1);
+        let r3 = p3.prss(KEY).random_u128(IDX1);
 
         let v1 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(0, v1);
 
-        let r1 = p1.random_u128(IDX2);
-        let r2 = p2.random_u128(IDX2);
-        let r3 = p3.random_u128(IDX2);
+        let r1 = p1.prss(KEY).random_u128(IDX2);
+        let r2 = p2.prss(KEY).random_u128(IDX2);
+        let r3 = p3.prss(KEY).random_u128(IDX2);
 
         let v2 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(v1, v2);
@@ -428,9 +419,9 @@ pub mod test {
 
         // These tests do not check that left != right because
         // the field might not be large enough.
-        let (r1_l, r1_r): (Fp31, Fp31) = p1.generate_fields(IDX);
-        let (r2_l, r2_r) = p2.generate_fields(IDX);
-        let (r3_l, r3_r) = p3.generate_fields(IDX);
+        let (r1_l, r1_r): (Fp31, Fp31) = p1.prss(KEY).generate_fields(IDX);
+        let (r2_l, r2_r) = p2.prss(KEY).generate_fields(IDX);
+        let (r3_l, r3_r) = p3.prss(KEY).generate_fields(IDX);
 
         assert_eq!(r1_l, r3_r);
         assert_eq!(r2_l, r1_r);
@@ -442,9 +433,9 @@ pub mod test {
         const IDX: u128 = 72;
         let (p1, p2, p3) = make_participants();
 
-        let z1: Fp31 = p1.zero(IDX);
-        let z2 = p2.zero(IDX);
-        let z3 = p3.zero(IDX);
+        let z1: Fp31 = p1.prss(KEY).zero(IDX);
+        let z2 = p2.prss(KEY).zero(IDX);
+        let z3 = p3.prss(KEY).zero(IDX);
 
         assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
     }
@@ -455,18 +446,18 @@ pub mod test {
         const IDX2: u128 = 12634;
         let (p1, p2, p3) = make_participants();
 
-        let r1: Fp31 = p1.random(IDX1);
-        let r2 = p2.random(IDX1);
-        let r3 = p3.random(IDX1);
+        let r1: Fp31 = p1.prss(KEY).random(IDX1);
+        let r2 = p2.prss(KEY).random(IDX1);
+        let r3 = p3.prss(KEY).random(IDX1);
         let v1 = r1 + r2 + r3;
 
         // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
         // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
         let mut v2 = Fp31::from(0_u8);
         for i in IDX2..(IDX2 + 21) {
-            let r1: Fp31 = p1.random(i);
-            let r2 = p2.random(i);
-            let r3 = p3.random(i);
+            let r1: Fp31 = p1.prss(KEY).random(i);
+            let r2 = p2.prss(KEY).random(i);
+            let r3 = p3.prss(KEY).random(i);
 
             v2 = r1 + r2 + r3;
             if v1 != v2 {
@@ -486,9 +477,9 @@ pub mod test {
         }
 
         let (p1, p2, p3) = make_participants();
-        let (rng1_l, rng1_r) = p1.as_rngs();
-        let (rng2_l, rng2_r) = p2.as_rngs();
-        let (rng3_l, rng3_r) = p3.as_rngs();
+        let (rng1_l, rng1_r) = p1.prss(KEY).as_rngs();
+        let (rng2_l, rng2_r) = p2.prss(KEY).as_rngs();
+        let (rng3_l, rng3_r) = p3.prss(KEY).as_rngs();
 
         same_rng(rng1_l, rng3_r);
         same_rng(rng2_l, rng1_r);

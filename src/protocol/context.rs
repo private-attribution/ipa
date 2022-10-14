@@ -7,6 +7,7 @@ use crate::{
     },
     protocol::{prss::Participant, reveal::Reveal},
 };
+use std::sync::Arc;
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
@@ -55,7 +56,7 @@ impl<'a, N> ProtocolContext<'a, N> {
 
     /// Get the PRSS instance for this step.
     #[must_use]
-    pub fn prss(&self) -> &PrssSpace {
+    pub fn prss(&self) -> Arc<PrssSpace> {
         self.participant.prss(&self.step)
     }
 }
