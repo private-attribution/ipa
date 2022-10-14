@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::field::Field;
+use crate::helpers::Identity;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Replicated<T>(T, T);
@@ -13,6 +14,12 @@ pub struct Replicated<T>(T, T);
 impl<T: Debug> Debug for Replicated<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?}", self.0, self.1)
+    }
+}
+
+impl<T: Field> Default for Replicated<T> {
+    fn default() -> Self {
+        Replicated::new(T::ZERO, T::ZERO)
     }
 }
 
@@ -24,6 +31,16 @@ impl<T: Field> Replicated<T> {
 
     pub fn as_tuple(&self) -> (T, T) {
         (self.0, self.1)
+    }
+
+    /// Returns share of value one.
+    #[must_use]
+    pub fn one(helper_identity: Identity) -> Self {
+        match helper_identity {
+            Identity::H1 => Self::new(T::ONE, T::ZERO),
+            Identity::H2 => Self::new(T::ZERO, T::ZERO),
+            Identity::H3 => Self::new(T::ZERO, T::ONE),
+        }
     }
 }
 

@@ -2,32 +2,26 @@ use crate::sample::Sample;
 
 use super::gen_events::generate_events;
 
+use clap::Parser;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use raw_ipa::cli::Verbosity;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::{io, process};
-use structopt::StructOpt;
 use tracing::{debug, error, info};
 
 const DEFAULT_EVENT_GEN_COUNT: u32 = 100_000;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 pub struct CommonArgs {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     pub logging: Verbosity,
 
-    #[structopt(
-        short,
-        long,
-        global = true,
-        help = "Write the result to the file.",
-        parse(from_os_str)
-    )]
+    #[arg(short, long, global = true, help = "Write the result to the file.")]
     output_file: Option<PathBuf>,
 
-    #[structopt(long, global = true, help = "Overwrite the specified output file.")]
+    #[arg(long, global = true, help = "Overwrite the specified output file.")]
     overwrite: bool,
 }
 
@@ -52,22 +46,22 @@ impl CommonArgs {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "ipa_bench", about = "Synthetic data test harness for IPA")]
+#[derive(Debug, Parser)]
+#[clap(name = "ipa_bench", about = "Synthetic data test harness for IPA")]
 pub struct Args {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     pub common: CommonArgs,
 
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     pub cmd: Command,
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "command")]
+#[derive(Debug, Parser)]
+#[clap(name = "command")]
 pub enum Command {
-    #[structopt(about = "Generate synthetic events.")]
+    #[command(about = "Generate synthetic events.")]
     GenEvents {
-        #[structopt(
+        #[arg(
             short,
             long,
             default_value = "1",
@@ -75,14 +69,14 @@ pub enum Command {
         )]
         scale_factor: u32,
 
-        #[structopt(
+        #[arg(
             short,
             long,
             help = "Random generator seed. Setting the seed allows reproduction of the synthetic data exactly."
         )]
         random_seed: Option<u64>,
 
-        #[structopt(
+        #[arg(
             short,
             long,
             default_value = "0",
@@ -90,11 +84,10 @@ pub enum Command {
         )]
         epoch: u8,
 
-        #[structopt(
+        #[arg(
             short,
             long,
-            help = "Configuration file containing distributions data.",
-            parse(from_os_str)
+            help = "Configuration file containing distributions data."
         )]
         config_file: PathBuf,
     },

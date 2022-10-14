@@ -1,14 +1,20 @@
 pub mod circuit;
+pub mod fabric;
 pub mod logging;
 mod sharing;
 mod world;
 
-use crate::helpers::mock::TestHelperGateway;
+use crate::field::Fp31;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
+use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
+use crate::secret_sharing::Replicated;
+use rand::rngs::mock::StepRng;
 use rand::thread_rng;
+use std::sync::Arc;
 
+use crate::test_fixture::fabric::InMemoryEndpoint;
 pub use sharing::{share, validate_and_reconstruct};
 pub use world::make as make_world;
 pub use world::{TestStep, TestWorld};
@@ -20,12 +26,15 @@ pub use world::{TestStep, TestWorld};
 #[must_use]
 pub fn make_contexts<S: Step + SpaceIndex>(
     test_world: &TestWorld<S>,
-) -> [ProtocolContext<TestHelperGateway<S>, S>; 3] {
+) -> [ProtocolContext<S, Arc<InMemoryEndpoint<S>>>; 3] {
     test_world
         .gateways
         .iter()
         .zip(&test_world.participants)
-        .map(|(gateway, participant)| ProtocolContext::new(participant, gateway))
+        .zip([Identity::H1, Identity::H2, Identity::H3])
+        .map(|((gateway, participant), identity)| {
+            ProtocolContext::new(participant, gateway, identity)
+        })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
@@ -48,4 +57,29 @@ pub fn make_participants<I: SpaceIndex>() -> (Participant<I>, Participant<I>, Pa
     let p3 = setup3.setup(&pk2_r, &pk1_l);
 
     (p1, p2, p3)
+}
+
+pub type ReplicatedShares = (
+    Vec<Replicated<Fp31>>,
+    Vec<Replicated<Fp31>>,
+    Vec<Replicated<Fp31>>,
+);
+
+// Generate vector shares from vector of inputs for three participant
+#[must_use]
+pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
+    let mut rand = StepRng::new(100, 1);
+
+    let len = input.len();
+    let mut shares0 = Vec::with_capacity(len);
+    let mut shares1 = Vec::with_capacity(len);
+    let mut shares2 = Vec::with_capacity(len);
+
+    for iter in input {
+        let share = share(Fp31::from(iter), &mut rand);
+        shares0.push(share[0]);
+        shares1.push(share[1]);
+        shares2.push(share[2]);
+    }
+    (shares0, shares1, shares2)
 }

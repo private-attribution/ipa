@@ -1,10 +1,9 @@
+use crate::helpers::fabric::Network;
+use crate::helpers::messaging::Gateway;
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{
-        mesh::{Gateway, Mesh},
-        Direction,
-    },
+    helpers::Direction,
     protocol::{RecordId, Step},
     secret_sharing::Replicated,
 };
@@ -19,22 +18,26 @@ pub struct RevealValue<F> {
 }
 
 /// This implements reveal algorithm
-/// For simplicity, we consider a simple revealing in which each Pi sends [a]i to Pi+1 and then reconstructs a from [a]i and
-/// [a]i−1.
+/// For simplicity, we consider a simple revealing in which each Pi sends \[a\]i to Pi+1 and then reconstructs a from \[a\]i and
+/// \[a\]i−1.
 // Input: Each helpers know their own secret shares
 // Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
-pub struct Reveal<'a, G, S> {
-    gateway: &'a G,
+pub struct Reveal<'a, N, S> {
+    gateway: &'a Gateway<S, N>,
     step: S,
     record_id: RecordId,
 }
 
-impl<'a, G, S: Step> Reveal<'a, G, S> {
+impl<'a, S: Step, N: Network<S>> Reveal<'a, N, S> {
     #[allow(dead_code)]
     // We would want reveal constructors to be hidden from IPA code. Only ProtocolContext should be able to instantiate it and we
     // can verify that the call site is allowed to reveal by checking the step variable.
-    pub(in crate::protocol) fn new(gateway: &'a G, step: S, record_id: RecordId) -> Self {
+    pub(in crate::protocol) fn new(
+        gateway: &'a Gateway<S, N>,
+        step: S,
+        record_id: RecordId,
+    ) -> Self {
         Self {
             gateway,
             step,
@@ -42,16 +45,15 @@ impl<'a, G, S: Step> Reveal<'a, G, S> {
         }
     }
 
+    #[embed_doc_image("reveal", "images/reveal.png")]
     /// Steps
+    /// ![Reveal steps][reveal]
     /// Each helper sends their left share to the right helper. The helper then reconstructs their secret by adding the three shares
     /// i.e. their own shares and received share.
-    #[embed_doc_image("reveal", "images/sort/reveal.png")]
     #[allow(dead_code)]
-    pub async fn execute<M, F>(self, input: Replicated<F>) -> Result<F, BoxError>
+    pub async fn execute<F>(self, input: Replicated<F>) -> Result<F, BoxError>
     where
         F: Field,
-        M: Mesh,
-        G: Gateway<M, S>,
     {
         let mut channel = self.gateway.get_channel(self.step);
 

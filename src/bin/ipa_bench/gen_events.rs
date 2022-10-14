@@ -2,9 +2,9 @@ use crate::models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Numbe
 
 use super::sample::Sample;
 use byteorder::WriteBytesExt;
+use rand::distributions::Bernoulli;
+use rand::distributions::Distribution;
 use rand::{CryptoRng, Rng, RngCore};
-use rand_distr::num_traits::ToPrimitive;
-use rand_distr::{Bernoulli, Distribution};
 use std::io;
 use tracing::{debug, info, trace};
 
@@ -58,8 +58,8 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
 
             let events = gen_reports(impressions, conversions, epoch, ad_id, sample, rng);
 
-            total_impressions += impressions.to_u32().unwrap();
-            total_conversions += conversions.to_u32().unwrap();
+            total_impressions += u32::from(impressions);
+            total_conversions += u32::from(conversions);
 
             for e in events {
                 out.write_u8(RECORD_SEPARATOR).unwrap();

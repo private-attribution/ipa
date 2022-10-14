@@ -1,22 +1,20 @@
-use metrics_tracing_context::MetricsLayer;
-
-use std::io::stderr;
-
 use crate::cli::install_collector;
 use crate::cli::metric_collector::CollectorHandle;
-use structopt::StructOpt;
+use clap::Parser;
+use metrics_tracing_context::MetricsLayer;
+use std::io::stderr;
 use tracing::{info, metadata::LevelFilter, Level};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 pub struct Verbosity {
     /// Silence all output
-    #[structopt(short = "q", long = "quiet", global = true)]
+    #[clap(short, long, global = true)]
     quiet: bool,
 
     /// Verbose mode (-v, -vv, -vvv, etc)
-    #[structopt(short = "v", long = "verbose", global = true, parse(from_occurrences))]
-    verbose: usize,
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 pub struct LoggingHandle {

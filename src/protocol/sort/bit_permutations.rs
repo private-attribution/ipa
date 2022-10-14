@@ -1,14 +1,16 @@
+use super::SortStep;
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::mesh::{Gateway, Mesh},
-    protocol::{context::ProtocolContext, IPAProtocolStep, RecordId, SortStep},
+    protocol::{context::ProtocolContext, IPAProtocolStep, RecordId},
     secret_sharing::Replicated,
 };
+
+use crate::helpers::fabric::Network;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-
-/// Create an object to generate bit permutations for a given bit column of query. This is GENBITPERM(Algorithm 3) from the paper
+/// Generate bit permutations for a given bit column of query.
+/// This is GENBITPERM(Algorithm 3) described in <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
 pub struct BitPermutations<'a, F> {
     input: &'a [Replicated<F>],
@@ -25,17 +27,18 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. calculate cumulative sum at each vector row
     /// 3. return back tuple of step 1 and step 2 output
     #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    fn prepare_mult_inputs<N: Network<IPAProtocolStep>>(
         &self,
-        ctx: &ProtocolContext<'a, G, IPAProtocolStep>,
+        ctx: &ProtocolContext<'a, IPAProtocolStep, N>,
     ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a
     where
         F: Field,
     {
-        let share_of_one = ctx
-            .gateway
-            .get_channel(IPAProtocolStep::Sort(SortStep::BitPermutations))
-            .share_of_one();
+        let share_of_one = Replicated::one(
+            ctx.gateway
+                .get_channel(IPAProtocolStep::Sort(SortStep::BitPermutations))
+                .identity(),
+        );
 
         self.input
             .iter()
@@ -51,9 +54,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// multiplies the input vector pairs across helpers and returns result
     /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
     #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    async fn secure_multiply<N: Network<IPAProtocolStep>>(
         &self,
-        ctx: &ProtocolContext<'a, G, IPAProtocolStep>,
+        ctx: &ProtocolContext<'a, IPAProtocolStep, N>,
         mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
     ) -> Result<Replicated<F>, BoxError>
     where
@@ -65,16 +68,22 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             .execute(share.0, share.1)
             .await
     }
-
+    #[embed_doc_image("bit_permutations", "images/sort/bit_permutations.png")]
     /// Executes sorting of a bit column on mpc helpers. Each helper receives their input shares and do following steps
     /// 1. local computation by `prepare_mult_inputs` which outputs 2 vectors [x,y]
     /// 2. multiply each row of previous output individually (i.e. x*y) across mpc helpers.
     /// 3. add ith column by i+len to obtain helper's share of sorted location, where len is same as input shares length
+    /// ![Bit Permutations steps][bit_permutations]
+    /// ## Panics
+    ///
+    /// In case the function is unable to get double size of output from multiplication step, the code will panic
+    ///
+    /// ## Errors
+    /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    #[embed_doc_image("reshare", "images/sort/bit_permutations.png")]
-    pub async fn execute<M: Mesh, G: Gateway<M, IPAProtocolStep>>(
+    pub async fn execute<N: Network<IPAProtocolStep>>(
         &self,
-        ctx: &ProtocolContext<'_, G, IPAProtocolStep>,
+        ctx: &ProtocolContext<'_, IPAProtocolStep, N>,
     ) -> Result<Vec<Replicated<F>>, BoxError>
     where
         F: Field,

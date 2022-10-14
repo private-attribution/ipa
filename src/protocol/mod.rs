@@ -1,12 +1,14 @@
 pub mod context;
+mod modulus_conversion;
+mod reveal;
 mod securemul;
-mod sort;
+pub mod sort;
 
 use crate::error::Error;
+use crate::helpers::prss::SpaceIndex;
+use crate::protocol::sort::SortStep;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-
-use crate::helpers::prss::SpaceIndex;
 
 /// Defines a unique step of the IPA protocol. Step is a transformation that takes an input
 /// in form of a share or set of shares and produces the secret-shared output.
@@ -78,45 +80,6 @@ impl SpaceIndex for IPAProtocolStep {
             IPAProtocolStep::ConvertShares => 0,
             IPAProtocolStep::Sort(_) => 1,
         }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SortStep {
-    BitPermutations,
-}
-
-impl SortStep {
-    const BIT_PERMUTATIONS_STR: &'static str = "bit-permutations";
-}
-
-impl Display for SortStep {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::BitPermutations => write!(f, "{}", Self::BIT_PERMUTATIONS_STR),
-        }
-    }
-}
-
-impl TryFrom<String> for SortStep {
-    type Error = Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let value = value.strip_prefix('/').unwrap_or(&value).to_lowercase();
-        match value.as_str() {
-            Self::BIT_PERMUTATIONS_STR => Ok(Self::BitPermutations),
-            _ => Err(Error::path_parse_error(&value)),
-        }
-    }
-}
-
-impl Step for SortStep {}
-
-impl SpaceIndex for SortStep {
-    const MAX: usize = 1;
-
-    fn as_usize(&self) -> usize {
-        0
     }
 }
 
