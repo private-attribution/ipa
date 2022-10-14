@@ -1,11 +1,7 @@
+use crate::helpers::fabric::Network;
+use crate::protocol::context::ProtocolContext;
 use crate::{
-    error::BoxError,
-    field::Field,
-    helpers::{
-        mesh::{Gateway, Mesh},
-        Direction,
-    },
-    protocol::{RecordId, UniqueStepId},
+    error::BoxError, field::Field, helpers::Direction, protocol::RecordId,
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -24,26 +20,20 @@ pub struct RevealValue<F> {
 // Input: Each helpers know their own secret shares
 // Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
-pub struct Reveal<'a, G> {
-    gateway: &'a G,
-    step: &'a UniqueStepId,
+pub struct Reveal<'a, 'b, N> {
+    context: &'a ProtocolContext<'b, N>,
     record_id: RecordId,
 }
 
-impl<'a, G: Gateway> Reveal<'a, G> {
+impl<'a, 'b: 'a, N: Network> Reveal<'a, 'b, N> {
     #[allow(dead_code)]
     // We would want reveal constructors to be hidden from IPA code. Only ProtocolContext should be able to instantiate it and we
     // can verify that the call site is allowed to reveal by checking the step variable.
     pub(in crate::protocol) fn new(
-        gateway: &'a G,
-        step: &'a UniqueStepId,
+        context: &'a ProtocolContext<'b, N>,
         record_id: RecordId,
     ) -> Self {
-        Self {
-            gateway,
-            step,
-            record_id,
-        }
+        Self { context, record_id }
     }
 
     #[embed_doc_image("reveal", "images/sort/reveal.png")]
@@ -53,7 +43,7 @@ impl<'a, G: Gateway> Reveal<'a, G> {
     /// i.e. their own shares and received share.
     #[allow(dead_code)]
     pub async fn execute<F: Field>(self, input: Replicated<F>) -> Result<F, BoxError> {
-        let mut channel = self.gateway.mesh(self.step);
+        let mut channel = self.context.mesh();
 
         let inputs = input.as_tuple();
         channel

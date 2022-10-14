@@ -1,9 +1,11 @@
 use crate::{
-    helpers::mock::TestHelperGateway,
+    helpers::messaging::Gateway,
     protocol::{prss::Participant, QueryId},
-    test_fixture::make_participants,
+    test_fixture::{fabric::InMemoryNetwork, make_participants},
 };
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
+
+use super::fabric::InMemoryEndpoint;
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -13,19 +15,32 @@ use std::fmt::Debug;
 #[allow(clippy::module_name_repetitions)]
 pub struct TestWorld {
     pub query_id: QueryId,
-    pub gateways: [TestHelperGateway; 3],
+    pub gateways: [Gateway<Arc<InMemoryEndpoint>>; 3],
     pub participants: [Participant; 3],
+    _network: Arc<InMemoryNetwork>,
 }
 
+/// Creates a new `TestWorld` instance.
+///
+/// # Panics
+/// No panic is expected.
 #[must_use]
 pub fn make(query_id: QueryId) -> TestWorld {
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
-    let gateways = TestHelperGateway::make_three();
+    let network = InMemoryNetwork::new();
+    let gateways = network
+        .endpoints
+        .iter()
+        .map(|endpoint| Gateway::new(endpoint.identity, Arc::clone(endpoint)))
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
 
     TestWorld {
         query_id,
         gateways,
         participants,
+        _network: network,
     }
 }

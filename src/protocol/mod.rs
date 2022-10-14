@@ -1,4 +1,5 @@
 pub mod context;
+mod modulus_conversion;
 pub mod prss;
 mod securemul;
 pub mod sort;
@@ -63,12 +64,12 @@ pub struct UniqueStepId {
     used: Arc<Mutex<HashSet<String>>>,
 }
 
-unsafe impl Send for UniqueStepId {}
 impl Hash for UniqueStepId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write(self.id.as_bytes());
     }
 }
+
 impl PartialEq for UniqueStepId {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id

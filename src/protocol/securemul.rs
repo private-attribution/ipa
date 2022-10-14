@@ -1,10 +1,7 @@
 use super::UniqueStepId;
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::{
-    mesh::{Gateway, Mesh},
-    Direction,
-};
+use crate::helpers::{fabric::Network, messaging::Gateway, Direction};
 use crate::protocol::{prss::PrssSpace, RecordId};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
@@ -21,17 +18,17 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, G> {
+pub struct SecureMul<'a, N> {
     prss: &'a PrssSpace,
-    gateway: &'a G,
+    gateway: &'a Gateway<N>,
     step: &'a UniqueStepId,
     record_id: RecordId,
 }
 
-impl<'a, G: Gateway> SecureMul<'a, G> {
+impl<'a, N: Network> SecureMul<'a, N> {
     pub fn new(
         prss: &'a PrssSpace,
-        gateway: &'a G,
+        gateway: &'a Gateway<N>,
         step: &'a UniqueStepId,
         record_id: RecordId,
     ) -> Self {
@@ -98,7 +95,7 @@ pub mod stream {
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
-    use crate::helpers::mesh::Gateway;
+    use crate::helpers::fabric::Network;
     use crate::protocol::{RecordId, Step};
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
@@ -118,15 +115,15 @@ pub mod stream {
     /// ## Panics
     /// Panics if one of the internal invariants does not hold.
     #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, G, S>(
+    pub fn secure_multiply<'a, F, N, S>(
         input_stream: S,
-        ctx: &'a ProtocolContext<'a, G>,
+        ctx: &'a ProtocolContext<'a, N>,
         _index: u128,
     ) -> impl Stream<Item = Replicated<F>> + 'a
     where
         S: Stream<Item = Replicated<F>> + 'a,
-        F: Field + 'static,
-        G: Gateway,
+        F: Field,
+        N: Network,
     {
         let mut stream_element_idx = 0;
 
@@ -152,6 +149,7 @@ pub mod stream {
     #[cfg(test)]
     mod tests {
         use crate::field::Fp31;
+        use crate::helpers::Identity;
         use crate::protocol::context::ProtocolContext;
         use crate::protocol::securemul::stream::secure_multiply;
         use crate::protocol::QueryId;
@@ -191,9 +189,10 @@ pub mod stream {
                 .into_iter()
                 .zip(world.participants)
                 .zip(world.gateways)
-                .map(|((input, prss), gateway)| {
+                .zip([Identity::H1, Identity::H2, Identity::H3])
+                .map(|(((input, prss), gateway), role)| {
                     tokio::spawn(async move {
-                        let ctx = ProtocolContext::new(gateway.role(), &prss, &gateway);
+                        let ctx = ProtocolContext::new(role, &prss, &gateway);
                         let mut stream = secure_multiply(input, &ctx, start_index);
 
                         // compute a*b
@@ -220,17 +219,20 @@ pub mod stream {
 pub mod tests {
     use crate::error::BoxError;
     use crate::field::{Field, Fp31};
-    use crate::helpers::mock::TestHelperGateway;
-    use crate::protocol::context::ProtocolContext;
-    use crate::protocol::{QueryId, RecordId};
+    use crate::helpers::fabric::Network;
+    use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        fabric::InMemoryEndpoint, logging, make_contexts, make_world, share,
+        validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -258,11 +260,9 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
+        type MulArgs<F> = (Replicated<F>, Replicated<F>);
         async fn mul<F: Field>(
-            v: (
-                ProtocolContext<'_, TestHelperGateway>,
-                (Replicated<F>, Replicated<F>),
-            ),
+            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>>, MulArgs<F>),
         ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1))
@@ -307,8 +307,8 @@ pub mod tests {
         }
     }
 
-    async fn multiply_sync<R: RngCore>(
-        context: &[ProtocolContext<'_, TestHelperGateway>; 3],
+    async fn multiply_sync<R: RngCore, N: Network>(
+        context: &[ProtocolContext<'_, N>; 3],
         a: u8,
         b: u8,
         rng: &mut R,

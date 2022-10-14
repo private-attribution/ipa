@@ -1,10 +1,11 @@
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::mesh::{Gateway, Mesh},
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
+
+use crate::helpers::fabric::Network;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 /// Generate bit permutations for a given bit column of query.
@@ -25,11 +26,11 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. calculate cumulative sum at each vector row
     /// 3. return back tuple of step 1 and step 2 output
     #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<G: Gateway>(
+    fn prepare_mult_inputs<N: Network>(
         &self,
-        ctx: &ProtocolContext<'a, G>,
+        ctx: &ProtocolContext<'a, N>,
     ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a {
-        let share_of_one = ctx.mesh().share_of_one();
+        let share_of_one = Replicated::one(ctx.role());
 
         self.input
             .iter()
@@ -45,9 +46,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// multiplies the input vector pairs across helpers and returns result
     /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
     #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<G: Gateway>(
+    async fn secure_multiply<N: Network>(
         &self,
-        ctx: &ProtocolContext<'a, G>,
+        ctx: &ProtocolContext<'a, N>,
         mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
     ) -> Result<Replicated<F>, BoxError> {
         let (record_id, share) = mult_input;
@@ -69,9 +70,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    pub async fn execute<G: Gateway>(
+    pub async fn execute<N: Network>(
         &self,
-        ctx: &ProtocolContext<'_, G>,
+        ctx: &ProtocolContext<'_, N>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mult_input = self.prepare_mult_inputs(ctx);
         let async_multiply =

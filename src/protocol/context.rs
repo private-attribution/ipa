@@ -2,7 +2,11 @@ use super::{
     prss::PrssSpace, securemul::SecureMul, sort::reveal::Reveal, RecordId, Step, UniqueStepId,
 };
 use crate::{
-    helpers::{mesh::Gateway, Identity},
+    helpers::{
+        fabric::Network,
+        messaging::{Gateway, Mesh},
+        Identity,
+    },
     protocol::prss::Participant,
 };
 
@@ -10,18 +14,15 @@ use crate::{
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
-pub struct ProtocolContext<'a, G> {
+pub struct ProtocolContext<'a, N> {
     role: Identity,
     step: UniqueStepId,
     participant: &'a Participant,
-    gateway: &'a G,
+    gateway: &'a Gateway<N>,
 }
 
-impl<'a, G> ProtocolContext<'a, G>
-where
-    G: Gateway,
-{
-    pub fn new(role: Identity, participant: &'a Participant, gateway: &'a G) -> Self {
+impl<'a, N> ProtocolContext<'a, N> {
+    pub fn new(role: Identity, participant: &'a Participant, gateway: &'a Gateway<N>) -> Self {
         Self {
             role,
             step: UniqueStepId::default(),
@@ -59,10 +60,12 @@ where
     pub fn prss(&self) -> &PrssSpace {
         self.participant.prss(&self.step)
     }
+}
 
+impl<N: Network> ProtocolContext<'_, N> {
     /// Get a set of communications channels to different peers.
     #[must_use]
-    pub fn mesh(&self) -> G::Mesh {
+    pub fn mesh(&self) -> Mesh<'_, '_, N> {
         self.gateway.mesh(&self.step)
     }
 
@@ -71,14 +74,14 @@ where
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(&'a self, record_id: RecordId) -> SecureMul<'a, G> {
+    pub async fn multiply(&self, record_id: RecordId) -> SecureMul<'_, N> {
         SecureMul::new(self.prss(), self.gateway, &self.step, record_id)
     }
 
     /// Request reveal for a given record.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     #[must_use]
-    pub fn reveal(&'a self, record_id: RecordId) -> Reveal<'a, G> {
-        Reveal::new(self.gateway, &self.step, record_id)
+    pub fn reveal(&self, record_id: RecordId) -> Reveal<'_, '_, N> {
+        Reveal::new(self, record_id)
     }
 }

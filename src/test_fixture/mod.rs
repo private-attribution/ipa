@@ -1,30 +1,53 @@
 pub mod circuit;
+pub mod fabric;
 pub mod logging;
 mod sharing;
 mod world;
 
-use crate::helpers::mock::TestHelperGateway;
-use crate::protocol::{context::ProtocolContext, prss::Participant};
+use self::fabric::InMemoryEndpoint;
+use crate::helpers::Identity;
+use crate::protocol::context::ProtocolContext;
+use crate::protocol::Step;
+use crate::secret_sharing::Replicated;
+use crate::{field::Fp31, protocol::prss::Participant};
+use rand::rngs::mock::StepRng;
 use rand::thread_rng;
+use std::sync::Arc;
 
 pub use sharing::{share, validate_and_reconstruct};
-pub use world::make as make_world;
-pub use world::TestWorld;
+pub use world::{make as make_world, TestWorld};
 
 /// Creates protocol contexts for 3 helpers
 ///
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<TestHelperGateway>; 3] {
-    // TODO(mt) use <[_; 3]>.each_ref().map(...) instead of
-    // .iter().map(...)collect::<Vec<_>>().try_into().unwrap()
-    // when https://github.com/rust-lang/rust/issues/76118 is done.
+pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Arc<InMemoryEndpoint>>; 3] {
     test_world
         .gateways
         .iter()
         .zip(&test_world.participants)
-        .map(|(gateway, participant)| ProtocolContext::new(gateway.role(), participant, gateway))
+        .zip(Identity::all_variants())
+        .map(|((gateway, participant), role)| ProtocolContext::new(*role, participant, gateway))
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
+}
+
+/// Narrows a set of contexts all at once.
+/// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`
+///
+/// # Panics
+/// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
+#[must_use]
+pub fn narrow_contexts<'a>(
+    contexts: &[ProtocolContext<'a, Arc<InMemoryEndpoint>>; 3],
+    step: &impl Step,
+) -> [ProtocolContext<'a, Arc<InMemoryEndpoint>>; 3] {
+    // This really wants <[_; N]>::each_ref()
+    contexts
+        .iter()
+        .map(|c| c.narrow(step))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
@@ -47,4 +70,29 @@ pub fn make_participants() -> (Participant, Participant, Participant) {
     let p3 = setup3.setup(&pk2_r, &pk1_l);
 
     (p1, p2, p3)
+}
+
+pub type ReplicatedShares = (
+    Vec<Replicated<Fp31>>,
+    Vec<Replicated<Fp31>>,
+    Vec<Replicated<Fp31>>,
+);
+
+// Generate vector shares from vector of inputs for three participant
+#[must_use]
+pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
+    let mut rand = StepRng::new(100, 1);
+
+    let len = input.len();
+    let mut shares0 = Vec::with_capacity(len);
+    let mut shares1 = Vec::with_capacity(len);
+    let mut shares2 = Vec::with_capacity(len);
+
+    for iter in input {
+        let share = share(Fp31::from(iter), &mut rand);
+        shares0.push(share[0]);
+        shares1.push(share[1]);
+        shares2.push(share[2]);
+    }
+    (shares0, shares1, shares2)
 }

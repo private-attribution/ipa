@@ -1,6 +1,9 @@
 pub mod error;
-pub mod mesh;
-pub mod mock;
+pub mod fabric;
+pub mod messaging;
+
+pub use error::Result;
+use std::ops::{Index, IndexMut};
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
@@ -38,6 +41,46 @@ impl Identity {
     }
 }
 
+impl<T> Index<Identity> for [T] {
+    type Output = T;
+
+    fn index(&self, index: Identity) -> &Self::Output {
+        let idx: usize = match index {
+            Identity::H1 => 0,
+            Identity::H2 => 1,
+            Identity::H3 => 2,
+        };
+
+        self.index(idx)
+    }
+}
+
+impl<T> IndexMut<Identity> for [T] {
+    fn index_mut(&mut self, index: Identity) -> &mut Self::Output {
+        let idx: usize = match index {
+            Identity::H1 => 0,
+            Identity::H2 => 1,
+            Identity::H3 => 2,
+        };
+
+        self.index_mut(idx)
+    }
+}
+
+impl<T> Index<Identity> for Vec<T> {
+    type Output = T;
+
+    fn index(&self, index: Identity) -> &Self::Output {
+        self.as_slice().index(index)
+    }
+}
+
+impl<T> IndexMut<Identity> for Vec<T> {
+    fn index_mut(&mut self, index: Identity) -> &mut Self::Output {
+        self.as_mut_slice().index_mut(index)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     mod identity_tests {
@@ -51,6 +94,14 @@ mod tests {
             assert_eq!(Identity::H3.peer(Direction::Right), Identity::H1);
             assert_eq!(Identity::H2.peer(Direction::Left), Identity::H1);
             assert_eq!(Identity::H2.peer(Direction::Right), Identity::H3);
+        }
+
+        #[test]
+        pub fn index_works() {
+            let data = [3, 4, 5];
+            assert_eq!(3, data[Identity::H1]);
+            assert_eq!(4, data[Identity::H2]);
+            assert_eq!(5, data[Identity::H3]);
         }
     }
 }
