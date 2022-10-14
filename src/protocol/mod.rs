@@ -2,6 +2,7 @@ pub mod context;
 mod modulus_conversion;
 pub mod prss;
 mod reveal;
+mod reveal_additive_binary;
 mod securemul;
 pub mod sort;
 
@@ -168,5 +169,11 @@ impl From<u32> for RecordId {
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()
+    }
+}
+
+impl From<RecordId> for u32 {
+    fn from(r: RecordId) -> Self {
+        r.0
     }
 }
