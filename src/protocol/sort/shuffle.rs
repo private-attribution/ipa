@@ -10,7 +10,7 @@ use crate::{
     error::BoxError,
     field::Field,
     helpers::{fabric::Network, Direction, Identity},
-    protocol::{context::ProtocolContext, prss::PrssSpace, RecordId, Step},
+    protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Step},
     secret_sharing::Replicated,
 };
 
@@ -45,7 +45,7 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 #[allow(clippy::cast_possible_truncation, dead_code)]
 pub(self) fn generate_random_permutation(
     batchsize: usize,
-    prss: &PrssSpace,
+    prss: &IndexedSharedRandomness,
 ) -> (Permutation, Permutation) {
     // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
     // We are using two seeds from prss to generate a seed for shuffle and concatenating them
@@ -217,7 +217,7 @@ mod tests {
         field::Fp31,
         protocol::{
             sort::shuffle::{generate_random_permutation, Shuffle, ShuffleOrUnshuffle},
-            QueryId,
+            QueryId, UniqueStepId,
         },
         test_fixture::{
             generate_shares, make_contexts, make_participants, make_world, narrow_contexts,
@@ -229,12 +229,12 @@ mod tests {
 
     #[test]
     fn random_sequence_generated() {
-        const STEP_ID: &str = "permutation";
         let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
-        let perm1 = generate_random_permutation(batchsize, p1.prss(STEP_ID));
-        let perm2 = generate_random_permutation(batchsize, p2.prss(STEP_ID));
-        let perm3 = generate_random_permutation(batchsize, p3.prss(STEP_ID));
+        let step = UniqueStepId::default();
+        let perm1 = generate_random_permutation(batchsize, p1.indexed(&step));
+        let perm2 = generate_random_permutation(batchsize, p2.indexed(&step));
+        let perm3 = generate_random_permutation(batchsize, p3.indexed(&step));
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);

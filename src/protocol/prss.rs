@@ -10,15 +10,16 @@ use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug, pin::Pin, ptr::NonNull, sync::Mutex};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
+use super::UniqueStepId;
+
 /// A participant in a 2-of-N replicated secret sharing.
 #[derive(Debug)] // TODO(mt) custom debug implementation
-#[allow(clippy::module_name_repetitions)]
-pub struct PrssSpace {
+pub struct IndexedSharedRandomness {
     left: Generator,
     right: Generator,
 }
 
-impl PrssSpace {
+impl IndexedSharedRandomness {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
@@ -76,36 +77,28 @@ impl PrssSpace {
         let (l, r): (F, F) = self.generate_fields(index);
         l + r
     }
-
-    /// Turn this space into a pair of random number generators, one that is shared
-    /// with the left and one that is shared with the right.
-    /// Nothing prevents this from being used after calls to generate values,
-    /// but it should not be used in both ways.
-    #[must_use]
-    pub fn as_rngs(&self) -> (PrssRng, PrssRng) {
-        (
-            PrssRng {
-                generator: self.left.clone(),
-                counter: 0,
-            },
-            PrssRng {
-                generator: self.right.clone(),
-                counter: 0,
-            },
-        )
-    }
 }
 
 /// An implementation of `RngCore` that uses the same underlying `Generator`.
 /// For use in place of `PrssSpace` where indexing cannot be used, such as
 /// in APIs that expect `Rng`.
 #[allow(clippy::module_name_repetitions)]
-pub struct PrssRng {
+pub struct SequentialSharedRandomness {
     generator: Generator,
     counter: u128,
 }
 
-impl RngCore for PrssRng {
+impl SequentialSharedRandomness {
+    /// Private constructor.
+    fn new(generator: Generator) -> Self {
+        Self {
+            generator,
+            counter: 0,
+        }
+    }
+}
+
+impl RngCore for SequentialSharedRandomness {
     #[allow(clippy::cast_possible_truncation)]
     fn next_u32(&mut self) -> u32 {
         self.next_u64() as u32
@@ -130,15 +123,15 @@ impl RngCore for PrssRng {
     }
 }
 
-impl CryptoRng for PrssRng {}
+impl CryptoRng for SequentialSharedRandomness {}
 
 /// A single participant in the protocol.
 /// This holds multiple streams of correlated (pseudo)randomness.
-pub struct Participant {
-    inner: Mutex<ParticipantInner>,
+pub struct Endpoint {
+    inner: Mutex<EndpointInner>,
 }
 
-impl Participant {
+impl Endpoint {
     /// Construct a new, unconfigured participant.  This can be configured by
     /// providing public keys for the left and right participants to `setup()`.
     pub fn prepare<R: RngCore + CryptoRng>(r: &mut R) -> ParticipantSetup {
@@ -153,49 +146,84 @@ impl Participant {
     /// # Panics
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
-    pub fn prss(&self, key: impl AsRef<str>) -> &PrssSpace {
-        let p = self.inner.lock().unwrap().prss(key.as_ref());
+    pub fn indexed(&self, key: &UniqueStepId) -> &IndexedSharedRandomness {
+        let p = self.inner.lock().unwrap().indexed(key.as_ref());
         // Safety: This pointer refers to pinned memory that is allocated
         // and retained as long as this object exists.
         unsafe { p.as_ref() }
     }
+
+    /// Get a sequential shared randomness.
+    ///
+    /// # Panics
+    /// This can only be called once.  After that, calls to this function or `indexed` will panic.
+    pub fn sequential(
+        &self,
+        key: &UniqueStepId,
+    ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        self.inner.lock().unwrap().sequential(key.as_ref())
+    }
 }
 
-impl Debug for Participant {
+impl Debug for Endpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Participant")
     }
 }
 
-struct ParticipantInner {
+enum EndpointItem {
+    Indexed(Pin<Box<IndexedSharedRandomness>>),
+    Sequential,
+}
+
+struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
     // TODO(mt): add a function to get an RNG instead of the indexed PRSS.
     // That should mark the entry as dead, so that any attempt to get the
     // indexed PRSS or another RNG will fail.
-    spaces: HashMap<String, Pin<Box<PrssSpace>>>,
+    items: HashMap<String, EndpointItem>,
 }
 
-impl ParticipantInner {
-    pub fn prss(&mut self, key: &str) -> NonNull<PrssSpace> {
+impl EndpointInner {
+    pub fn indexed(&mut self, key: &str) -> NonNull<IndexedSharedRandomness> {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
-        let p = if let Some(value) = self.spaces.get(key) {
-            value
+        let item = if let Some(item) = self.items.get(key) {
+            item
         } else {
-            self.spaces.entry(key.to_owned()).or_insert_with_key(|k| {
-                Box::pin(PrssSpace {
+            self.items.entry(key.to_owned()).or_insert_with_key(|k| {
+                EndpointItem::Indexed(Box::pin(IndexedSharedRandomness {
                     left: self.left.generator(k.as_bytes()),
                     right: self.right.generator(k.as_bytes()),
-                })
+                }))
             })
         };
         // Safety: we never drop a PRSS instance while the outer object lives.
         // As each instance is pinned, it is safe to return a pointer to
         // each once they are created as long as the pointer is not referenced
         // past the lifetime the container (see above).
-        NonNull::from(unsafe { Pin::into_inner_unchecked(p.as_ref()) })
+        if let EndpointItem::Indexed(idxd) = item {
+            NonNull::from(unsafe { Pin::into_inner_unchecked(idxd.as_ref()) })
+        } else {
+            panic!("Attempt to get an indexed PRSS for {key} after retrieving a sequential PRSS");
+        }
+    }
+
+    pub fn sequential(
+        &mut self,
+        key: &str,
+    ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        let prev = self.items.insert(key.to_owned(), EndpointItem::Sequential);
+        assert!(
+            prev.is_none(),
+            "Attempt access a sequential PRSS for {key} after another access"
+        );
+        (
+            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
+        )
     }
 }
 
@@ -219,14 +247,14 @@ impl ParticipantSetup {
     /// This is generic over `SpaceIndex` so that it can construct the
     /// appropriate number of spaces for use by a protocol participant.
     #[must_use]
-    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant {
+    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
-        Participant {
-            inner: Mutex::new(ParticipantInner {
+        Endpoint {
+            inner: Mutex::new(EndpointInner {
                 left: fl,
                 right: fr,
-                spaces: HashMap::new(),
+                items: HashMap::new(),
             }),
         }
     }
@@ -298,15 +326,17 @@ impl Generator {
 
 #[cfg(test)]
 pub mod test {
-    use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace};
-    use crate::{field::Fp31, test_fixture::make_participants};
+    use super::{
+        Endpoint, Generator, IndexedSharedRandomness, KeyExchange, SequentialSharedRandomness,
+    };
+    use crate::{field::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
     use rand::{thread_rng, Rng};
     use std::ops::Deref;
 
-    impl Deref for Participant {
-        type Target = PrssSpace;
+    impl Deref for Endpoint {
+        type Target = IndexedSharedRandomness;
         fn deref(&self) -> &Self::Target {
-            self.prss("test")
+            self.indexed(&UniqueStepId::default())
         }
     }
 
@@ -478,7 +508,7 @@ pub mod test {
 
     #[test]
     fn prss_rng() {
-        fn same_rng(mut a: PrssRng, mut b: PrssRng) {
+        fn same_rng(mut a: SequentialSharedRandomness, mut b: SequentialSharedRandomness) {
             assert_eq!(a.gen::<u32>(), b.gen::<u32>());
             assert_eq!(a.gen::<[u8; 20]>(), b.gen::<[u8; 20]>());
             assert_eq!(a.gen_range(7..99), b.gen_range(7..99));
@@ -486,9 +516,10 @@ pub mod test {
         }
 
         let (p1, p2, p3) = make_participants();
-        let (rng1_l, rng1_r) = p1.as_rngs();
-        let (rng2_l, rng2_r) = p2.as_rngs();
-        let (rng3_l, rng3_r) = p3.as_rngs();
+        let step = UniqueStepId::default();
+        let (rng1_l, rng1_r) = p1.sequential(&step);
+        let (rng2_l, rng2_r) = p2.sequential(&step);
+        let (rng3_l, rng3_r) = p3.sequential(&step);
 
         same_rng(rng1_l, rng3_r);
         same_rng(rng2_l, rng1_r);
