@@ -1,4 +1,4 @@
-use super::{AccumulationInputRow, AccumulationOutputRow, AttributionInputRow};
+use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow};
 use crate::{
     error::BoxError,
     field::Field,
@@ -14,11 +14,11 @@ use futures::future::{try_join, try_join_all};
 
 /// Accumulation step for Oblivious Attribution protocol.
 #[allow(dead_code)]
-pub struct Accumulate<'a, F> {
+pub struct AccumulateCredit<'a, F> {
     input: &'a Batch<AttributionInputRow<F>>,
 }
 
-impl<'a, F: Field> Accumulate<'a, F> {
+impl<'a, F: Field> AccumulateCredit<'a, F> {
     #[allow(dead_code)]
     pub fn new(input: &'a Batch<AttributionInputRow<F>>) -> Self {
         Self { input }
@@ -36,12 +36,11 @@ impl<'a, F: Field> Accumulate<'a, F> {
         &self,
         ctx: &ProtocolContext<'_, S, N>,
         steps: [S; 5],
-    ) -> Result<Batch<AccumulationOutputRow<F>>, BoxError>
+    ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError>
     where
         S: Step + SpaceIndex,
         N: Network<S>,
     {
-        //
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
 
@@ -68,7 +67,7 @@ impl<'a, F: Field> Accumulate<'a, F> {
         //     new_stop_bit[current_index] = b * successor.stop_bit;
         //
         // Each list element interacts with exactly one other element in each iteration, and the interaction do not
-        // depend on the calculation results other elements, allowing the algorithm to be executed in parallel.
+        // depend on the calculation results of other elements, allowing the algorithm to be executed in parallel.
 
         // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
         for step_size in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
@@ -79,12 +78,12 @@ impl<'a, F: Field> Accumulate<'a, F> {
 
             // for each input row, create a future to execute secure multiplications
             for i in 0..end {
-                let current = AccumulationInputRow {
+                let current = AccumulateCreditInputRow {
                     stop_bit: stop_bits[i],
                     credit: credits[i],
                     report: self.input[i],
                 };
-                let successor = AccumulationInputRow {
+                let successor = AccumulateCreditInputRow {
                     stop_bit: stop_bits[i + step_size],
                     credit: credits[i + step_size],
                     report: self.input[i + step_size],
@@ -102,7 +101,7 @@ impl<'a, F: Field> Accumulate<'a, F> {
 
             let results = try_join_all(accumulation_futures).await?;
 
-            // save the calculation results to these support vectors for use in the next iteration
+            // accumulate the credit from this iteration into the accumulation vectors
             results
                 .into_iter()
                 .enumerate()
@@ -113,11 +112,11 @@ impl<'a, F: Field> Accumulate<'a, F> {
         }
 
         // drop irrelevant fields and add another supporting field called `aggregation_bit` for the next step
-        let output: Batch<AccumulationOutputRow<F>> = self
+        let output: Batch<AccumulateCreditOutputRow<F>> = self
             .input
             .iter()
             .enumerate()
-            .map(|(i, x)| AccumulationOutputRow {
+            .map(|(i, x)| AccumulateCreditOutputRow {
                 breakdown_key: x.breakdown_key,
                 credit: credits[i],
                 aggregation_bit: one,
@@ -137,8 +136,8 @@ impl<'a, F: Field> Accumulate<'a, F> {
         &self,
         ctx: &ProtocolContext<'_, S, N>,
         step_size: u32,
-        current: AccumulationInputRow<F>,
-        successor: AccumulationInputRow<F>,
+        current: AccumulateCreditInputRow<F>,
+        successor: AccumulateCreditInputRow<F>,
         record_id: RecordId,
         steps: [S; 4],
     ) -> Result<(Replicated<F>, Replicated<F>), BoxError>
@@ -187,7 +186,7 @@ mod tests {
     use crate::{
         field::{Field, Fp31},
         helpers::prss::SpaceIndex,
-        protocol::{attribution::accumulate::Accumulate, batch::Batch, Step},
+        protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch, Step},
         protocol::{attribution::AttributionInputRow, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
@@ -216,9 +215,9 @@ mod tests {
     ) -> [Batch<AttributionInputRow<Fp31>>; 3] {
         let num_rows = input.len();
         let mut shares = [
-            Batch::from(Vec::with_capacity(num_rows)),
-            Batch::from(Vec::with_capacity(num_rows)),
-            Batch::from(Vec::with_capacity(num_rows)),
+            Vec::with_capacity(num_rows),
+            Vec::with_capacity(num_rows),
+            Vec::with_capacity(num_rows),
         ];
 
         for x in input {
@@ -252,7 +251,11 @@ mod tests {
         assert_eq!(shares[0].len(), shares[1].len());
         assert_eq!(shares[1].len(), shares[2].len());
 
-        shares
+        [
+            Batch::from(shares[0].clone()),
+            Batch::from(shares[1].clone()),
+            Batch::from(shares[2].clone()),
+        ]
     }
 
     #[tokio::test]
@@ -276,30 +279,28 @@ mod tests {
 
         let shares = generate_shared_input(&raw_input, &mut rng);
 
-        // Attribution Step (last touch):
-        // Iter 0             [0,  0, 10, 2, 1, 5, 1, 0, 10]
-        // Stop bits           -  --  --  -  -  -  -  -  --
-        // Iter 1 (step = 1)  [0, 10, 12, 3, 6, 6, 1, 0, 10]
-        // Stop bits              --  --  -  -  -
-        // Iter 2 (step = 2)  [0, 13, 18, 9, 7, 6, 1, 0, 10]
-        // Stop bits              --  --  -
-        // Iter 3 (step = 4)  [0, 19, 19, 9, 7, 6, 1, 0, 10]
-        // Stop bits
-        // Iter 4 (step = 8)  [0, 19, 19, 9, 7, 6, 1, 0, 10]
+        // Accumulation Step (last touch):
+        // Iter 0 credits          [0,  0, 10,  2,  1,  5,  1,  0, 10]
+        // Stop bits               [1,  1,  1,  1,  1 , 1,  1,  1,  1]
+        // Iter 1 (step_size = 1)  [0, 10, 12,  3,  6,  6,  1,  0, 10]
+        // Stop bits               [0,  1,  1,  1,  1,  1,  0,  0,  0]
+        // Iter 2 (step_size = 2)  [0, 13, 18,  9,  7,  6,  1,  0, 10]
+        // Stop bits               [0,  1,  1,  1,  0,  0,  0,  0,  0]
+        // Iter 3 (step_size = 4)  [0, 19, 19,  9,  7,  6,  1,  0, 10]
+        // Stop bits               [0,  0,  0,  0,  0,  0,  0,  0,  0]
+        // Iter 4 (step_size = 8)  [0, 19, 19,  9,  7,  6,  1,  0, 10]
 
         let expected_credit_output = vec![0_u128, 19, 19, 9, 7, 6, 1, 0, 10];
 
-        let steps = [
-            AccumulateTestStep::Step(0),
-            AccumulateTestStep::Step(1),
-            AccumulateTestStep::Step(2),
-            AccumulateTestStep::Step(3),
-            AccumulateTestStep::Step(4),
-        ];
+        let steps = (0..=4)
+            .map(AccumulateTestStep::Step)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
-        let acc0 = Accumulate::new(&shares[0]);
-        let acc1 = Accumulate::new(&shares[1]);
-        let acc2 = Accumulate::new(&shares[2]);
+        let acc0 = AccumulateCredit::new(&shares[0]);
+        let acc1 = AccumulateCredit::new(&shares[1]);
+        let acc2 = AccumulateCredit::new(&shares[2]);
         let h0_future = acc0.execute(&context[0], steps);
         let h1_future = acc1.execute(&context[1], steps);
         let h2_future = acc2.execute(&context[2], steps);
