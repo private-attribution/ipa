@@ -1,7 +1,9 @@
 use crate::field::Field;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
-use crate::test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld};
+use crate::test_fixture::{
+    make_contexts, make_world, narrow_contexts, share, validate_and_reconstruct, TestWorld,
+};
 use futures_util::future::join_all;
 use rand::thread_rng;
 
@@ -37,14 +39,7 @@ async fn circuit<F: Field>(
 
     for bit in 0..depth {
         let b = share(F::ONE, &mut thread_rng());
-        // This would be awesome, but it's a nightly-only feature right now:
-        // let bit_ctx = top_ctx.each_ref().map(|ctx| ctx.refine(format!("bit{}", bit)));
-        let bit_ctx: [_; 3] = top_ctx
-            .iter()
-            .map(|ctx| ctx.narrow(&format!("bit{}", bit)))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let bit_ctx = narrow_contexts(&top_ctx, &format!("bit{}", bit));
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {

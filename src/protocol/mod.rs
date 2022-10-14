@@ -49,7 +49,7 @@ impl Step for str {}
 /// For example, you might have a high-level process with three steps "a", "b", and "c".
 /// Step "a" comprises two actions "x" and "y", but "b" and "c" are atomic actions.
 /// Step "a" would be executed with a context identifier of "protocol/a", which it
-///  would `refine()` into "protocol/a/x" and "protocol/a/y" to produce a final set
+///  would `narrow()` into "protocol/a/x" and "protocol/a/y" to produce a final set
 /// of identifiers: ".../a/x", ".../a/y", ".../b", and ".../c".
 ///
 /// Note that the implementation of this context might change to use a different
@@ -59,7 +59,7 @@ impl Step for str {}
 #[derive(Clone, Debug)]
 pub struct UniqueStepId {
     id: String,
-    /// This tracks the different values that have been provided to `refine()`.
+    /// This tracks the different values that have been provided to `narrow()`.
     #[cfg(debug_assertions)]
     used: Arc<Mutex<HashSet<String>>>,
 }
