@@ -69,6 +69,8 @@ pub async fn gateway_middleware_fn<B: Send, S: Step>(
     Ok(next.run(req).await)
 }
 
+/// TODO: identity in Extension
+
 /// accepts all the relevant information from the request, and push all of it onto the gateway
 /// TODO: implement the receiving end of `outgoing`
 pub async fn handler<S: Step>(

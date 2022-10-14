@@ -31,16 +31,18 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
 }
 
+impl Error {
+    #[must_use]
+    #[allow(clippy::module_name_repetitions)] // follows convention of `Error::ParseError`
+    pub fn path_parse_error(source: &str) -> Error {
+        Error::ParseError(format!("unexpected value \"{source}\" in path").into())
+    }
+}
+
 impl From<std::num::ParseIntError> for Error {
     fn from(err: std::num::ParseIntError) -> Self {
         Error::ParseError(err.into())
     }
-}
-
-#[must_use]
-#[allow(clippy::module_name_repetitions)] // follows convention of `Error::ParseError`
-pub fn path_parse_error(source: &str) -> Error {
-    Error::ParseError(format!("unexpected value \"{source}\" in path").into())
 }
 
 #[allow(clippy::module_name_repetitions)]

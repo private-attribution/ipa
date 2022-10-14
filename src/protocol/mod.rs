@@ -2,7 +2,7 @@ pub mod context;
 mod securemul;
 mod sort;
 
-use crate::error::{self, Error};
+use crate::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
@@ -54,7 +54,7 @@ impl TryFrom<String> for IPAProtocolStep {
         } else if let Some(rem) = value.strip_prefix(Self::SORT_STR) {
             Ok(Self::Sort(String::from(rem).try_into()?))
         } else {
-            Err(error::path_parse_error(&value))
+            Err(Error::path_parse_error(&value))
         }
     }
 }
@@ -105,7 +105,7 @@ impl TryFrom<String> for SortStep {
         let value = value.strip_prefix('/').unwrap_or(&value).to_lowercase();
         match value.as_str() {
             Self::BIT_PERMUTATIONS_STR => Ok(Self::BitPermutations),
-            _ => Err(error::path_parse_error(&value)),
+            _ => Err(Error::path_parse_error(&value)),
         }
     }
 }
@@ -147,7 +147,7 @@ impl TryFrom<String> for QueryId {
         // dummy value for now
         (value == "0")
             .then_some(QueryId)
-            .ok_or_else(|| error::path_parse_error(&value))
+            .ok_or_else(|| Error::path_parse_error(&value))
     }
 }
 

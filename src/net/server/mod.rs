@@ -78,7 +78,6 @@ impl IntoResponse for MpcServerError {
     }
 }
 
-/// TODO: how to remove <S, M> from router definition? It should not be there
 /// Axum router definition for MPC helper endpoint
 #[allow(dead_code)]
 #[must_use]
