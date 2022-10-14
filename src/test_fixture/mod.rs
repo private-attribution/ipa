@@ -6,6 +6,7 @@ mod world;
 
 use crate::field::Fp31;
 use crate::helpers::prss::{Participant, ParticipantSetup, SpaceIndex};
+use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
 use crate::secret_sharing::Replicated;
@@ -30,7 +31,10 @@ pub fn make_contexts<S: Step + SpaceIndex>(
         .gateways
         .iter()
         .zip(&test_world.participants)
-        .map(|(gateway, participant)| ProtocolContext::new(participant, gateway))
+        .zip([Identity::H1, Identity::H2, Identity::H3])
+        .map(|((gateway, participant), identity)| {
+            ProtocolContext::new(participant, gateway, identity)
+        })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
