@@ -4,6 +4,7 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId, Step},
 };
 
+use futures::future::try_join;
 use serde::{Deserialize, Serialize};
 
 /// A message sent by each helper when they've revealed their own shares
@@ -33,21 +34,19 @@ impl RevealAdditiveBinary {
     ) -> Result<bool, BoxError> {
         let mut channel = ctx.gateway.get_channel(step);
 
-        channel
-            .send(
-                channel.identity().peer(Direction::Left),
-                record_id,
-                RevealValue { share: input },
-            )
-            .await?;
+        let send_left_future = channel.send(
+            channel.identity().peer(Direction::Left),
+            record_id,
+            RevealValue { share: input },
+        );
 
-        channel
-            .send(
-                channel.identity().peer(Direction::Right),
-                record_id,
-                RevealValue { share: input },
-            )
-            .await?;
+        let send_right_future = channel.send(
+            channel.identity().peer(Direction::Right),
+            record_id,
+            RevealValue { share: input },
+        );
+
+        try_join(send_left_future, send_right_future).await?;
 
         // Sleep until `helper's left` sends their share
         let share_from_left: RevealValue = channel

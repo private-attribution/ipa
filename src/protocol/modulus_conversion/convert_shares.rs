@@ -10,7 +10,7 @@ use crate::{
     },
     secret_sharing::Replicated,
 };
-use futures::future::try_join_all;
+use futures::future::{try_join, try_join_all};
 
 pub struct XorShares {
     num_bits: u8,
@@ -32,8 +32,8 @@ pub struct ConvertShares {
 ///
 /// If the revealed result is `0`, that indicates that `r` had the same value
 /// as the secret input, so the sharing in `Z_p` is returned.
-/// If the revealed result is a `1`, that indicate that `r` was different than
-/// the secret nput, so the sharing 1 - the sharing in `Z_p` is returned.
+/// If the revealed result is a `1`, that indicates that `r` was different than
+/// the secret input, so a sharing of `1 - r` is returned.
 impl ConvertShares {
     #[allow(dead_code)]
     pub fn new(input: XorShares) -> Self {
@@ -66,12 +66,17 @@ impl ConvertShares {
 
             let r_binary = ReplicatedBinary::new(b0, b1);
 
-            let r_big_field: Replicated<F> = GenRandom::new(r_binary)
-                .execute(ctx, inner_record_id, step1, step2)
-                .await?;
+            let gen_random = GenRandom::new(r_binary);
+            let gen_random_future = gen_random.execute(ctx, inner_record_id, step1, step2);
 
-            let revealed_output =
-                RevealAdditiveBinary::execute(ctx, step3, inner_record_id, input_xor_r).await?;
+            let reveal_future =
+                RevealAdditiveBinary::execute(ctx, step3, inner_record_id, input_xor_r);
+
+            let (r_big_field, revealed_output) =
+                match try_join(gen_random_future, reveal_future).await {
+                    Err(error) => panic!("Problem converting shares from Z_2 to Z_p: {:#?}", error),
+                    Ok((a, b)) => (a, b),
+                };
 
             if revealed_output {
                 Ok(Replicated::<F>::one(ctx.identity) - r_big_field)
