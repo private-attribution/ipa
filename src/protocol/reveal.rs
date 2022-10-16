@@ -60,7 +60,7 @@ impl<'a, S: Step, N: Network<S>> Reveal<'a, N, S> {
         let inputs = input.as_tuple();
         channel
             .send(
-                channel.identity().peer(Direction::Right),
+                self.gateway.identity().peer(Direction::Right),
                 self.record_id,
                 RevealValue { share: inputs.0 },
             )
@@ -68,7 +68,10 @@ impl<'a, S: Step, N: Network<S>> Reveal<'a, N, S> {
 
         // Sleep until `helper's left` sends their share
         let RevealValue { share } = channel
-            .receive(channel.identity().peer(Direction::Left), self.record_id)
+            .receive(
+                self.gateway.identity().peer(Direction::Left),
+                self.record_id,
+            )
             .await?;
 
         Ok(inputs.0 + inputs.1 + share)

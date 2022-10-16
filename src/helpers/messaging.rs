@@ -53,7 +53,6 @@ pub struct Gateway<S, N> {
 pub struct Mesh<'a, S, N> {
     network: &'a N,
     step: S,
-    helper_identity: Identity,
     gateway_tx: mpsc::Sender<ReceiveRequest<S>>,
 }
 
@@ -135,11 +134,6 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
 
         Ok(obj)
     }
-
-    /// Returns the unique identity of this helper.
-    pub fn identity(&self) -> Identity {
-        self.helper_identity
-    }
 }
 
 impl<S: Step, N: Network<S>> Gateway<S, N> {
@@ -191,10 +185,13 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
     pub fn get_channel(&self, step: S) -> Mesh<'_, S, N> {
         Mesh {
             network: &self.network,
-            helper_identity: self.helper_identity,
             step,
             gateway_tx: self.tx.clone(),
         }
+    }
+
+    pub fn identity(&self) -> Identity {
+        self.helper_identity
     }
 }
 

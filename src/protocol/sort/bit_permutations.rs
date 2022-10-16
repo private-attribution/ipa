@@ -34,11 +34,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     where
         F: Field,
     {
-        let share_of_one = Replicated::one(
-            ctx.gateway
-                .get_channel(IPAProtocolStep::Sort(SortStep::BitPermutations))
-                .identity(),
-        );
+        let share_of_one = Replicated::one(ctx.identity);
 
         self.input
             .iter()

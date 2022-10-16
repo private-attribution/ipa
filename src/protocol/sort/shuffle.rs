@@ -123,11 +123,9 @@ impl<'a, F: Field, S: Step + SpaceIndex> Shuffle<'a, F, S> {
         permutations: &(Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let to_helper = Self::shuffle_for_helper(which_step);
-        let step = (self.step_fn)(which_step);
-        let channel = ctx.gateway.get_channel(step);
 
-        if to_helper != channel.identity() {
-            let permute = if to_helper.peer(Direction::Left) == channel.identity() {
+        if to_helper != ctx.identity {
+            let permute = if to_helper.peer(Direction::Left) == ctx.identity {
                 &permutations.0
             } else {
                 &permutations.1
