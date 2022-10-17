@@ -52,7 +52,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
-        let mut channel = self.gateway.mesh(self.step);
+        let channel = self.gateway.mesh(self.step);
 
         // generate shared randomness.
         let (s0, s1) = self.prss.generate_fields(self.record_id.into());
