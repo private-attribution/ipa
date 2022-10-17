@@ -1,10 +1,9 @@
 use crate::{
     error::BoxError,
-    helpers::{fabric::Network, prss::SpaceIndex, Direction},
-    protocol::{context::ProtocolContext, RecordId, Step},
+    helpers::{fabric::Network, Direction},
+    protocol::{context::ProtocolContext, RecordId},
 };
 
-use futures::future::try_join;
 use serde::{Deserialize, Serialize};
 
 /// A message sent by each helper when they've revealed their own shares
@@ -26,36 +25,39 @@ pub struct RevealAdditiveBinary {}
 
 impl RevealAdditiveBinary {
     #[allow(dead_code)]
-    pub async fn execute<S: Step + SpaceIndex, N: Network<S>>(
-        ctx: &ProtocolContext<'_, S, N>,
-        step: S,
+    pub async fn execute<N: Network>(
+        ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
         input: bool,
     ) -> Result<bool, BoxError> {
-        let mut channel = ctx.gateway.get_channel(step);
+        let mut channel = ctx.mesh();
 
-        let send_left_future = channel.send(
-            channel.identity().peer(Direction::Left),
-            record_id,
-            RevealValue { share: input },
-        );
+        // Send share to helper to the left
+        channel
+            .send(
+                channel.identity().peer(Direction::Left),
+                record_id,
+                RevealValue { share: input },
+            )
+            .await?;
 
-        let send_right_future = channel.send(
-            channel.identity().peer(Direction::Right),
-            record_id,
-            RevealValue { share: input },
-        );
-
-        try_join(send_left_future, send_right_future).await?;
-
-        // Sleep until `helper's left` sends their share
-        let share_from_left: RevealValue = channel
-            .receive(channel.identity().peer(Direction::Left), record_id)
+        // Send share to helper to the right
+        channel
+            .send(
+                channel.identity().peer(Direction::Right),
+                record_id,
+                RevealValue { share: input },
+            )
             .await?;
 
         // Sleep until `helper's right` sends their share
         let share_from_right: RevealValue = channel
             .receive(channel.identity().peer(Direction::Right), record_id)
+            .await?;
+
+        // Sleep until `helper's left` sends their share
+        let share_from_left: RevealValue = channel
+            .receive(channel.identity().peer(Direction::Left), record_id)
             .await?;
 
         Ok(input ^ share_from_left.share ^ share_from_right.share)
@@ -65,38 +67,52 @@ impl RevealAdditiveBinary {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::Rng;
-    use tokio::try_join;
 
     use crate::{
         protocol::{reveal_additive_binary::RevealAdditiveBinary, QueryId, RecordId},
-        test_fixture::{make_contexts, make_world, TestStep, TestWorld},
+        test_fixture::{make_contexts, make_world, TestWorld},
     };
+    use futures::future::try_join_all;
 
     #[tokio::test]
     pub async fn reveal() {
         let mut rng = rand::thread_rng();
 
-        for i in 0..10 {
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts(&world);
+        let [c0, c1, c2] = ctx;
+
+        let mut bools: Vec<bool> = Vec::with_capacity(40);
+
+        let inputs = (0..10).into_iter().map(|i| {
             let b0 = rng.gen::<bool>();
             let b1 = rng.gen::<bool>();
             let b2 = rng.gen::<bool>();
+            bools.push((b0 ^ b1) ^ b2);
 
-            let input = b0 ^ b1 ^ b2;
-            let record_id = RecordId::from(i);
+            (i, b0, b1, b2, c0.clone(), c1.clone(), c2.clone())
+        });
 
-            let world: TestWorld<TestStep> = make_world(QueryId);
-            let ctx = make_contexts(&world);
+        let futures = inputs
+            .into_iter()
+            .map(|(i, b0, b1, b2, c0, c1, c2)| async move {
+                let record_id = RecordId::from(i);
 
-            let step = TestStep::Reveal(1);
+                let h0_future = RevealAdditiveBinary::execute(c0, record_id, b0);
+                let h1_future = RevealAdditiveBinary::execute(c1, record_id, b1);
+                let h2_future = RevealAdditiveBinary::execute(c2, record_id, b2);
 
-            let h0_future = RevealAdditiveBinary::execute(&ctx[0], step, record_id, b0);
-            let h1_future = RevealAdditiveBinary::execute(&ctx[1], step, record_id, b1);
-            let h2_future = RevealAdditiveBinary::execute(&ctx[2], step, record_id, b2);
+                try_join_all(vec![h0_future, h1_future, h2_future]).await
+            });
 
-            let f = try_join!(h0_future, h1_future, h2_future).unwrap();
-            assert_eq!(input, f.0);
-            assert_eq!(input, f.1);
-            assert_eq!(input, f.2);
+        let results = try_join_all(futures).await.unwrap();
+
+        for i in 0..10 {
+            let correct_result = bools[i];
+
+            assert_eq!(correct_result, results[i][0]);
+            assert_eq!(correct_result, results[i][1]);
+            assert_eq!(correct_result, results[i][2]);
         }
     }
 }

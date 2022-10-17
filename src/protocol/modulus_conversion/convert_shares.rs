@@ -1,12 +1,12 @@
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{fabric::Network, prss::SpaceIndex},
+    helpers::fabric::Network,
     protocol::{
         context::ProtocolContext,
         modulus_conversion::gen_random::{GenRandom, ReplicatedBinary},
         reveal_additive_binary::RevealAdditiveBinary,
-        RecordId, Step,
+        RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -19,6 +19,23 @@ pub struct XorShares {
 
 pub struct ConvertShares {
     input: XorShares,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
+    DoubleRandom,
+    BinaryReveal,
+}
+
+impl crate::protocol::Step for Step {}
+
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::DoubleRandom => "double_random",
+            Self::BinaryReveal => "binary_reveal",
+        }
+    }
 }
 
 ///
@@ -41,49 +58,62 @@ impl ConvertShares {
     }
 
     #[allow(dead_code)]
-    pub async fn execute<F: Field, S: Step + SpaceIndex, N: Network<S>>(
+    pub async fn execute<F: Field, N: Network>(
         &self,
-        ctx: &ProtocolContext<'_, S, N>,
+        ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
-        step0: S,
-        step1: S,
-        step2: S,
-        step3: S,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let prss = &ctx.participant[step0];
+        let prss = &ctx.prss();
         let (left, right) = prss.generate_values(record_id.into());
 
-        let futures = (0..self.input.num_bits).into_iter().map(|i| async move {
-            let inner_record_id = RecordId::from(
-                u32::from(record_id) * u32::from(self.input.num_bits) + u32::from(i),
-            );
+        let bits = (0..self.input.num_bits).into_iter().map(|i| {
             let b0 = left & (1 << i) != 0;
             let b1 = right & (1 << i) != 0;
-
             let input = self.input.packed_bits & (1 << i) != 0;
-
             let input_xor_r = input ^ b0;
-
-            let r_binary = ReplicatedBinary::new(b0, b1);
-
-            let gen_random = GenRandom::new(r_binary);
-            let gen_random_future = gen_random.execute(ctx, inner_record_id, step1, step2);
-
-            let reveal_future =
-                RevealAdditiveBinary::execute(ctx, step3, inner_record_id, input_xor_r);
-
-            let (r_big_field, revealed_output) =
-                match try_join(gen_random_future, reveal_future).await {
-                    Err(error) => panic!("Problem converting shares from Z_2 to Z_p: {:#?}", error),
-                    Ok((a, b)) => (a, b),
-                };
-
-            if revealed_output {
-                Ok(Replicated::<F>::one(ctx.identity) - r_big_field)
-            } else {
-                Ok(r_big_field)
-            }
+            (ctx.narrow(&format!("bit:{}", i)), b0, b1, input_xor_r)
         });
+
+        let futures = bits
+            .into_iter()
+            .map(|(ctx, b0, b1, input_xor_r)| async move {
+                /*
+                            let inner_record_id = RecordId::from(
+                                u32::from(record_id) * u32::from(self.input.num_bits) + u32::from(i),
+                            );
+                            let b0 = left & (1 << i) != 0;
+                            let b1 = right & (1 << i) != 0;
+
+                            let input = self.input.packed_bits & (1 << i) != 0;
+
+                            let input_xor_r = input ^ b0;
+                */
+                let r_binary = ReplicatedBinary::new(b0, b1);
+
+                let gen_random = GenRandom::new(r_binary);
+                let gen_random_future =
+                    gen_random.execute(ctx.narrow(&Step::DoubleRandom), record_id);
+
+                let reveal_future = RevealAdditiveBinary::execute(
+                    ctx.narrow(&Step::BinaryReveal),
+                    record_id,
+                    input_xor_r,
+                );
+
+                let (r_big_field, revealed_output) =
+                    match try_join(gen_random_future, reveal_future).await {
+                        Err(error) => {
+                            panic!("Problem converting shares from Z_2 to Z_p: {:#?}", error)
+                        }
+                        Ok((a, b)) => (a, b),
+                    };
+
+                if revealed_output {
+                    Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
+                } else {
+                    Ok(r_big_field)
+                }
+            });
         try_join_all(futures).await
     }
 }
@@ -94,7 +124,7 @@ mod tests {
         field::{Field, Fp31},
         protocol::{
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
-            QueryId, RecordId, SpaceIndex, Step,
+            QueryId, RecordId,
         },
         test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
     };
@@ -106,25 +136,13 @@ mod tests {
         prss_space_number: u8,
     }
 
-    impl Step for ModulusConversionTestStep {}
-
-    impl SpaceIndex for ModulusConversionTestStep {
-        const MAX: usize = 5;
-
-        fn as_usize(&self) -> usize {
-            usize::from(self.prss_space_number)
-        }
-    }
-
     #[tokio::test]
     pub async fn convert_shares() {
         let mut rng = rand::thread_rng();
 
-        let world: TestWorld<ModulusConversionTestStep> = make_world(QueryId);
+        let world: TestWorld = make_world(QueryId);
         let context = make_contexts(&world);
-        let ctx0 = &context[0];
-        let ctx1 = &context[1];
-        let ctx2 = &context[2];
+        let [c0, c1, c2] = context;
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones
         let match_key: u64 = rng.gen::<u64>() & mask;
@@ -134,35 +152,22 @@ mod tests {
 
         let record_id = RecordId::from(0_u32);
 
-        let step1 = ModulusConversionTestStep {
-            prss_space_number: 1,
-        };
-        let step2 = ModulusConversionTestStep {
-            prss_space_number: 2,
-        };
-        let step3 = ModulusConversionTestStep {
-            prss_space_number: 3,
-        };
-        let step4 = ModulusConversionTestStep {
-            prss_space_number: 4,
-        };
-
         let awaited_futures = try_join_all(vec![
             ConvertShares::new(XorShares {
                 num_bits: 40,
                 packed_bits: share_0,
             })
-            .execute(ctx0, record_id, step1, step2, step3, step4),
+            .execute(c0, record_id),
             ConvertShares::new(XorShares {
                 num_bits: 40,
                 packed_bits: share_1,
             })
-            .execute(ctx1, record_id, step1, step2, step3, step4),
+            .execute(c1, record_id),
             ConvertShares::new(XorShares {
                 num_bits: 40,
                 packed_bits: share_2,
             })
-            .execute(ctx2, record_id, step1, step2, step3, step4),
+            .execute(c2, record_id),
         ])
         .await
         .unwrap();
