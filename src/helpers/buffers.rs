@@ -1,5 +1,5 @@
 use crate::helpers::fabric::{ChannelId, MessageEnvelope};
-use crate::protocol::{RecordId, Step};
+use crate::protocol::RecordId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::mem;
@@ -7,9 +7,9 @@ use tokio::sync::oneshot;
 
 /// Buffer that keeps messages that must be sent to other helpers
 #[derive(Debug)]
-pub(super) struct SendBuffer<S> {
+pub(super) struct SendBuffer {
     max_capacity: usize,
-    inner: HashMap<ChannelId<S>, Vec<MessageEnvelope>>,
+    inner: HashMap<ChannelId, Vec<MessageEnvelope>>,
 }
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
@@ -18,8 +18,8 @@ pub(super) struct SendBuffer<S> {
 /// when protection against collisions is not required, so either use a vector indexed by
 /// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
 #[derive(Debug, Default)]
-pub(super) struct ReceiveBuffer<S> {
-    inner: HashMap<ChannelId<S>, HashMap<RecordId, ReceiveBufItem>>,
+pub(super) struct ReceiveBuffer {
+    inner: HashMap<ChannelId, HashMap<RecordId, ReceiveBufItem>>,
 }
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ enum ReceiveBufItem {
     Received(Box<[u8]>),
 }
 
-impl<S: Step> SendBuffer<S> {
+impl SendBuffer {
     pub fn new(max_channel_capacity: u32) -> Self {
         Self {
             max_capacity: max_channel_capacity as usize,
@@ -40,7 +40,7 @@ impl<S: Step> SendBuffer<S> {
 
     pub fn push(
         &mut self,
-        channel_id: ChannelId<S>,
+        channel_id: ChannelId,
         msg: MessageEnvelope,
     ) -> Option<Vec<MessageEnvelope>> {
         let vec = match self.inner.entry(channel_id) {
@@ -70,17 +70,17 @@ impl<S: Step> SendBuffer<S> {
         self.inner.len()
     }
 
-    pub fn remove_random(&mut self) -> (ChannelId<S>, Vec<MessageEnvelope>) {
+    pub fn remove_random(&mut self) -> (ChannelId, Vec<MessageEnvelope>) {
         assert!(self.len() > 0);
 
-        let channel_id = *self.inner.keys().next().unwrap();
+        let channel_id = self.inner.keys().next().unwrap().clone();
         let data = self.inner.remove(&channel_id).unwrap();
 
         (channel_id, data)
     }
 }
 
-impl<S: Step> ReceiveBuffer<S> {
+impl ReceiveBuffer {
     pub fn new() -> Self {
         Self {
             inner: HashMap::default(),
@@ -90,7 +90,7 @@ impl<S: Step> ReceiveBuffer<S> {
     /// Process request to receive a message with the given `RecordId`.
     pub fn receive_request(
         &mut self,
-        channel_id: ChannelId<S>,
+        channel_id: ChannelId,
         record_id: RecordId,
         sender: oneshot::Sender<Box<[u8]>>,
     ) {
@@ -112,11 +112,11 @@ impl<S: Step> ReceiveBuffer<S> {
     }
 
     /// Process message that has been received
-    pub fn receive_messages(&mut self, channel_id: ChannelId<S>, messages: Vec<MessageEnvelope>) {
+    pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: Vec<MessageEnvelope>) {
         for msg in messages {
             match self
                 .inner
-                .entry(channel_id)
+                .entry(channel_id.clone())
                 .or_default()
                 .entry(msg.record_id)
             {

@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::helpers::Identity;
-use crate::protocol::{RecordId, Step};
+use crate::protocol::{RecordId, UniqueStepId};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
@@ -57,21 +57,22 @@ impl Error {
         }
     }
 
-    pub fn serialization_error<S: Step>(
+    #[must_use]
+    pub fn serialization_error(
         record_id: RecordId,
-        step: S,
+        step: &UniqueStepId,
         inner: serde_json::Error,
     ) -> Error {
         Self::SerializationError {
             record_id,
-            step: format!("{:?}", step),
+            step: String::from(step.as_ref()),
             inner,
         }
     }
 }
 
-impl<S: Step> From<SendError<ReceiveRequest<S>>> for Error {
-    fn from(source: SendError<ReceiveRequest<S>>) -> Self {
+impl From<SendError<ReceiveRequest>> for Error {
+    fn from(source: SendError<ReceiveRequest>) -> Self {
         Self::SendError {
             dest: source.0.channel_id.identity,
             inner: source.to_string().into(),
@@ -79,8 +80,8 @@ impl<S: Step> From<SendError<ReceiveRequest<S>>> for Error {
     }
 }
 
-impl<S: Step> From<SendError<(ChannelId<S>, MessageEnvelope)>> for Error {
-    fn from(source: SendError<(ChannelId<S>, MessageEnvelope)>) -> Self {
+impl From<SendError<(ChannelId, MessageEnvelope)>> for Error {
+    fn from(source: SendError<(ChannelId, MessageEnvelope)>) -> Self {
         Self::SendError {
             dest: source.0 .0.identity,
             inner: source.to_string().into(),

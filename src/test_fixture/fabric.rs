@@ -9,7 +9,7 @@ use crate::helpers;
 use crate::helpers::error::Error;
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
 use crate::helpers::{error, Identity};
-use crate::protocol::Step;
+use crate::protocol::UniqueStepId;
 use async_trait::async_trait;
 use futures::Sink;
 use futures::StreamExt;
@@ -24,29 +24,29 @@ use tokio_util::sync::PollSender;
 use tracing::Instrument;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
-pub(super) enum ControlMessage<S> {
-    /// Connection for step S is requested by the peer
-    ConnectionRequest(ChannelId<S>, Receiver<Vec<MessageEnvelope>>),
+pub(super) enum ControlMessage {
+    /// Connection for a step is requested by the peer.
+    ConnectionRequest(ChannelId, Receiver<Vec<MessageEnvelope>>),
 }
 
 /// Container for all active helper endpoints
 #[derive(Debug)]
-pub struct InMemoryNetwork<S> {
-    pub endpoints: [Arc<InMemoryEndpoint<S>>; 3],
+pub struct InMemoryNetwork {
+    pub endpoints: [Arc<InMemoryEndpoint>; 3],
 }
 
 /// Helper endpoint in memory. Capable of opening connections to other helpers and buffering
 /// messages it receives from them until someone requests them.
 #[derive(Debug)]
-pub struct InMemoryEndpoint<S> {
+pub struct InMemoryEndpoint {
     pub identity: Identity,
     /// Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
     /// For each peer there are multiple channels open, one per query + step.
-    channels: Arc<Mutex<Vec<HashMap<S, InMemoryChannel>>>>,
-    tx: Sender<ControlMessage<S>>,
-    rx: Arc<Mutex<Option<Receiver<MessageChunks<S>>>>>,
-    network: Weak<InMemoryNetwork<S>>,
-    chunks_sender: Sender<MessageChunks<S>>,
+    channels: Arc<Mutex<Vec<HashMap<UniqueStepId, InMemoryChannel>>>>,
+    tx: Sender<ControlMessage>,
+    rx: Arc<Mutex<Option<Receiver<MessageChunks>>>>,
+    network: Weak<InMemoryNetwork>,
+    chunks_sender: Sender<MessageChunks>,
 }
 
 /// In memory channel is just a standard mpsc channel.
@@ -57,12 +57,12 @@ pub struct InMemoryChannel {
 }
 
 #[pin_project]
-pub struct InMemorySink<S> {
+pub struct InMemorySink {
     #[pin]
-    sender: PollSender<MessageChunks<S>>,
+    sender: PollSender<MessageChunks>,
 }
 
-impl<S: Step> InMemoryNetwork<S> {
+impl InMemoryNetwork {
     #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new_cyclic(|weak_ptr| {
@@ -74,11 +74,11 @@ impl<S: Step> InMemoryNetwork<S> {
     }
 }
 
-impl<S: Step> InMemoryEndpoint<S> {
+impl InMemoryEndpoint {
     /// Creates new instance for a given helper identity.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn new(id: Identity, world: Weak<InMemoryNetwork<S>>) -> Arc<Self> {
+    pub fn new(id: Identity, world: Weak<InMemoryNetwork>) -> Arc<Self> {
         let (tx, mut open_channel_rx) = mpsc::channel(1);
         let (message_stream_tx, message_stream_rx) = mpsc::channel(1);
         let (chunks_sender, mut chunks_receiver) = mpsc::channel(1);
@@ -101,7 +101,7 @@ impl<S: Step> InMemoryEndpoint<S> {
             async move {
                 let mut peer_channels = SelectAll::new();
                 let mut pending_sends = FuturesUnordered::new();
-                let mut buf = HashMap::<ChannelId<S>, Vec<MessageEnvelope>>::new();
+                let mut buf = HashMap::<ChannelId, Vec<MessageEnvelope>>::new();
 
                 loop {
                     tokio::select! {
@@ -109,7 +109,7 @@ impl<S: Step> InMemoryEndpoint<S> {
                         Some(control_message) = open_channel_rx.recv() => {
                             match control_message {
                                 ControlMessage::ConnectionRequest(channel_id, new_channel_rx) => {
-                                    peer_channels.push(ReceiverStream::new(new_channel_rx).map(move |msg| (channel_id, msg)));
+                                    peer_channels.push(ReceiverStream::new(new_channel_rx).map(move |msg| (channel_id.clone(), msg)));
                                 }
                             }
                         }
@@ -127,7 +127,7 @@ impl<S: Step> InMemoryEndpoint<S> {
                         // from the buffer to messaging layer. Potentially we might be thrashing
                         // on permits here.
                         Ok(permit) = message_stream_tx.reserve(), if !buf.is_empty() => {
-                            let key = *buf.keys().next().unwrap();
+                            let key = buf.keys().next().unwrap().clone();
                             let msgs = buf.remove(&key).unwrap();
 
                             permit.send((key, msgs));
@@ -144,20 +144,20 @@ impl<S: Step> InMemoryEndpoint<S> {
     }
 }
 
-impl<S: Step> InMemoryEndpoint<S> {
-    async fn send_chunk(&self, chunk: MessageChunks<S>) {
+impl InMemoryEndpoint {
+    async fn send_chunk(&self, chunk: MessageChunks) {
         let conn = self.get_connection(chunk.0).await;
         conn.send(chunk.1).await.unwrap();
     }
 
-    async fn get_connection(&self, addr: ChannelId<S>) -> InMemoryChannel {
+    async fn get_connection(&self, addr: ChannelId) -> InMemoryChannel {
         let mut new_rx = None;
 
         let channel = {
             let mut channels = self.channels.lock().unwrap();
             let peer_channel = &mut channels[addr.identity];
 
-            match peer_channel.entry(addr.step) {
+            match peer_channel.entry(addr.step.clone()) {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
                     let (tx, rx) = mpsc::channel(1);
@@ -189,9 +189,9 @@ impl<S: Step> InMemoryEndpoint<S> {
 }
 
 #[async_trait]
-impl<S: Step> Network<S> for Arc<InMemoryEndpoint<S>> {
-    type Sink = InMemorySink<S>;
-    type MessageStream = ReceiverStream<MessageChunks<S>>;
+impl Network for Arc<InMemoryEndpoint> {
+    type Sink = InMemorySink;
+    type MessageStream = ReceiverStream<MessageChunks>;
 
     fn sink(&self) -> Self::Sink {
         let x = self.chunks_sender.clone();
@@ -217,7 +217,7 @@ impl InMemoryChannel {
     }
 }
 
-impl<S: Step> Debug for ControlMessage<S> {
+impl Debug for ControlMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ControlMessage::ConnectionRequest(channel, step) => {
@@ -227,16 +227,16 @@ impl<S: Step> Debug for ControlMessage<S> {
     }
 }
 
-impl<S: Step> InMemorySink<S> {
+impl InMemorySink {
     #[must_use]
-    pub fn new(sender: Sender<MessageChunks<S>>) -> Self {
+    pub fn new(sender: Sender<MessageChunks>) -> Self {
         Self {
             sender: PollSender::new(sender),
         }
     }
 }
 
-impl<S: Step> Sink<MessageChunks<S>> for InMemorySink<S> {
+impl Sink<MessageChunks> for InMemorySink {
     type Error = error::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -246,7 +246,7 @@ impl<S: Step> Sink<MessageChunks<S>> for InMemorySink<S> {
         })
     }
 
-    fn start_send(self: Pin<&mut Self>, item: MessageChunks<S>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: MessageChunks) -> Result<(), Self::Error> {
         let this = self.project();
         this.sender
             .start_send(item)

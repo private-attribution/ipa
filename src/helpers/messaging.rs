@@ -11,7 +11,7 @@ use crate::{
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Identity,
-    protocol::{RecordId, Step},
+    protocol::{RecordId, UniqueStepId},
 };
 
 use futures::SinkExt;
@@ -44,31 +44,31 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// buffer and keeps it there until such request is made by the protocol.
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
-pub struct Gateway<S, N> {
-    helper_identity: Identity,
+pub struct Gateway<N> {
+    role: Identity,
     /// TODO: no need to keep it here if we're happy with its interface
     _network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
-    tx: mpsc::Sender<ReceiveRequest<S>>,
-    envelope_tx: mpsc::Sender<(ChannelId<S>, MessageEnvelope)>,
+    tx: mpsc::Sender<ReceiveRequest>,
+    envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope)>,
     control_handle: JoinHandle<()>,
 }
 
 /// Channel end
 #[derive(Debug)]
-pub struct Mesh<'a, S, N> {
-    gateway: &'a Gateway<S, N>,
-    step: S,
-    helper_identity: Identity,
+pub struct Mesh<'a, 'b, N> {
+    gateway: &'a Gateway<N>,
+    step: &'b UniqueStepId,
+    role: Identity,
 }
 
-pub(super) struct ReceiveRequest<S> {
-    pub channel_id: ChannelId<S>,
+pub(super) struct ReceiveRequest {
+    pub channel_id: ChannelId,
     pub record_id: RecordId,
     pub sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
+impl<N: Network> Mesh<'_, '_, N> {
     /// Send a given message to the destination. This method will not return until the message
     /// is delivered to the `Network`.
     ///
@@ -90,7 +90,7 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
         };
 
         self.gateway
-            .send(ChannelId::new(dest, self.step), envelope)
+            .send(ChannelId::new(dest, self.step.clone()), envelope)
             .await
     }
 
@@ -105,7 +105,7 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
     ) -> Result<T, Error> {
         let payload = self
             .gateway
-            .receive(ChannelId::new(source, self.step), record_id)
+            .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
         let obj: T = serde_json::from_slice(&payload)
@@ -115,8 +115,9 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
     }
 
     /// Returns the unique identity of this helper.
+    #[must_use]
     pub fn identity(&self) -> Identity {
-        self.helper_identity
+        self.role
     }
 }
 
@@ -128,10 +129,10 @@ pub struct GatewayConfig {
     pub send_buffer_capacity: u32,
 }
 
-impl<S: Step, N: Network<S>> Gateway<S, N> {
-    pub fn new(identity: Identity, network: N, config: GatewayConfig) -> Self {
-        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest<S>>(1);
-        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId<S>, MessageEnvelope)>(1);
+impl<N: Network> Gateway<N> {
+    pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
+        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
+        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
         let mut message_stream = network.stream();
         let mut network_sink = network.sink();
 
@@ -161,11 +162,11 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
                         tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
-                        receive_buf.receive_messages(channel_id, messages);
+                        receive_buf.receive_messages(&channel_id, messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
-                        if let Some(buf_to_send) = send_buf.push(channel_id, msg) {
-                            tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
+                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg) {
+                            tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
                                 .expect("Failed to send data to the network");
                         }
@@ -185,10 +186,10 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
                 // reset the timer as we processed something
                 sleep.as_mut().reset(Instant::now() + INTERVAL);
             }
-        }.instrument(tracing::info_span!("gateway_loop", identity=?identity)));
+        }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
         Self {
-            helper_identity: identity,
+            role,
             _network: network,
             tx,
             envelope_tx,
@@ -202,23 +203,23 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    pub fn get_channel(&self, step: S) -> Mesh<'_, S, N> {
+    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
         Mesh {
             gateway: self,
-            helper_identity: self.helper_identity,
+            role: self.role,
             step,
         }
     }
 
     async fn receive(
         &self,
-        channel_id: ChannelId<S>,
+        channel_id: ChannelId,
         record_id: RecordId,
     ) -> Result<Box<[u8]>, Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(ReceiveRequest {
-                channel_id,
+                channel_id: channel_id.clone(),
                 record_id,
                 sender: tx,
             })
@@ -228,18 +229,18 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
             .map_err(|e| Error::receive_error(channel_id.identity, e))
     }
 
-    async fn send(&self, id: ChannelId<S>, env: MessageEnvelope) -> Result<(), Error> {
+    async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
         Ok(self.envelope_tx.send((id, env)).await?)
     }
 }
 
-impl<S, N> Drop for Gateway<S, N> {
+impl<N> Drop for Gateway<N> {
     fn drop(&mut self) {
         self.control_handle.abort();
     }
 }
 
-impl<S: Step> Debug for ReceiveRequest<S> {
+impl Debug for ReceiveRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

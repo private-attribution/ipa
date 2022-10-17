@@ -1,8 +1,7 @@
-use super::SortStep;
 use crate::{
     error::BoxError,
     field::Field,
-    protocol::{context::ProtocolContext, IPAProtocolStep, RecordId},
+    protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 
@@ -27,18 +26,11 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 2. calculate cumulative sum at each vector row
     /// 3. return back tuple of step 1 and step 2 output
     #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<N: Network<IPAProtocolStep>>(
+    fn prepare_mult_inputs<N: Network>(
         &self,
-        ctx: &ProtocolContext<'a, IPAProtocolStep, N>,
-    ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a
-    where
-        F: Field,
-    {
-        let share_of_one = Replicated::one(
-            ctx.gateway
-                .get_channel(IPAProtocolStep::Sort(SortStep::BitPermutations))
-                .identity(),
-        );
+        ctx: &ProtocolContext<'a, N>,
+    ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a {
+        let share_of_one = Replicated::one(ctx.role());
 
         self.input
             .iter()
@@ -54,16 +46,13 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// multiplies the input vector pairs across helpers and returns result
     /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
     #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<N: Network<IPAProtocolStep>>(
+    async fn secure_multiply<N: Network>(
         &self,
-        ctx: &ProtocolContext<'a, IPAProtocolStep, N>,
+        ctx: &ProtocolContext<'a, N>,
         mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
-    ) -> Result<Replicated<F>, BoxError>
-    where
-        F: Field,
-    {
+    ) -> Result<Replicated<F>, BoxError> {
         let (record_id, share) = mult_input;
-        ctx.multiply(record_id, IPAProtocolStep::Sort(SortStep::BitPermutations))
+        ctx.multiply(record_id)
             .await
             .execute(share.0, share.1)
             .await
@@ -81,13 +70,10 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    pub async fn execute<N: Network<IPAProtocolStep>>(
+    pub async fn execute<N: Network>(
         &self,
-        ctx: &ProtocolContext<'_, IPAProtocolStep, N>,
-    ) -> Result<Vec<Replicated<F>>, BoxError>
-    where
-        F: Field,
-    {
+        ctx: &ProtocolContext<'_, N>,
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mult_input = self.prepare_mult_inputs(ctx);
         let async_multiply =
             mult_input.map(|input| async move { self.secure_multiply(ctx, input).await });
@@ -113,13 +99,13 @@ mod tests {
 
     use crate::{
         field::Fp31,
-        protocol::{sort::bit_permutations::BitPermutations, IPAProtocolStep, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        protocol::{sort::bit_permutations::BitPermutations, QueryId},
+        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
     };
 
     #[tokio::test]
     pub async fn bit_permutations() {
-        let world: TestWorld<IPAProtocolStep> = make_world(QueryId);
+        let world = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rand = StepRng::new(100, 1);
 
