@@ -77,17 +77,6 @@ impl ConvertShares {
         let futures = bits
             .into_iter()
             .map(|(ctx, b0, b1, input_xor_r)| async move {
-                /*
-                            let inner_record_id = RecordId::from(
-                                u32::from(record_id) * u32::from(self.input.num_bits) + u32::from(i),
-                            );
-                            let b0 = left & (1 << i) != 0;
-                            let b1 = right & (1 << i) != 0;
-
-                            let input = self.input.packed_bits & (1 << i) != 0;
-
-                            let input_xor_r = input ^ b0;
-                */
                 let r_binary = ReplicatedBinary::new(b0, b1);
 
                 let gen_random = GenRandom::new(r_binary);

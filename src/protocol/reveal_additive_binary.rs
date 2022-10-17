@@ -13,13 +13,13 @@ pub struct RevealValue {
     share: bool,
 }
 
-/// This implements reveal algorithm
+/// This implements a reveal algorithm for an additive binary secret sharing.
 /// As this is an additive sharing, each helper has just one boolean share
 /// As such, reveal requires each helper to send their share both left and right
 /// Put another way, each `P_i` sends `\[a\]_i` to `P_i+1` and `P_i-1`
 /// and then reconstructs a from` \[a\]_i`, `\[a\]_i+i` and `\[a\]i−1`.
-// Input: Each helpers know their own secret shares
-// Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
+/// Input: Each helpers know their own secret shares
+/// Output: At the end of the protocol, all 3 helpers know a revealed (or opened) secret
 #[derive(Debug)]
 pub struct RevealAdditiveBinary {}
 
