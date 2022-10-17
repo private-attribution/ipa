@@ -1,11 +1,9 @@
-use std::ops::{Index, IndexMut};
-
 pub mod error;
 pub mod fabric;
 pub mod messaging;
-pub mod prss;
 
 pub use error::Result;
+use std::ops::{Index, IndexMut};
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]

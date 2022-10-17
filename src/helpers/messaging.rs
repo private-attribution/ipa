@@ -10,7 +10,7 @@ use crate::{
     helpers::error::Error,
     helpers::fabric::{ChannelId, CommunicationChannel, MessageEnvelope, Network},
     helpers::Identity,
-    protocol::{RecordId, Step},
+    protocol::{RecordId, UniqueStepId},
 };
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -41,20 +41,20 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// buffer and keeps it there until such request is made by the protocol.
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
-pub struct Gateway<S, N> {
-    helper_identity: Identity,
+pub struct Gateway<N> {
+    role: Identity,
     network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
-    tx: mpsc::Sender<ReceiveRequest<S>>,
+    tx: mpsc::Sender<ReceiveRequest>,
 }
 
 /// Channel end
 #[derive(Debug)]
-pub struct Mesh<'a, S, N> {
+pub struct Mesh<'a, 'b, N> {
     network: &'a N,
-    step: S,
-    helper_identity: Identity,
-    gateway_tx: mpsc::Sender<ReceiveRequest<S>>,
+    step: &'b UniqueStepId,
+    role: Identity,
+    gateway_tx: mpsc::Sender<ReceiveRequest>,
 }
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
@@ -75,13 +75,13 @@ enum BufItem {
     Received(Box<[u8]>),
 }
 
-struct ReceiveRequest<S> {
-    channel_id: ChannelId<S>,
+struct ReceiveRequest {
+    channel_id: ChannelId,
     record_id: RecordId,
     sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
+impl<N: Network> Mesh<'_, '_, N> {
     /// Send a given message to the destination. This method will not return until the message
     /// is delivered to the `Network`.
     ///
@@ -95,7 +95,7 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
     ) -> Result<(), Error> {
         let channel = self
             .network
-            .get_connection(ChannelId::new(dest, self.step))
+            .get_connection(ChannelId::new(dest, self.step.clone()))
             .await;
         let bytes = serde_json::to_vec(&msg)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?
@@ -122,7 +122,7 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
 
         self.gateway_tx
             .send(ReceiveRequest {
-                channel_id: ChannelId::new(source, self.step),
+                channel_id: ChannelId::new(source, self.step.clone()),
                 record_id,
                 sender: tx,
             })
@@ -137,18 +137,19 @@ impl<S: Step, F: Network<S>> Mesh<'_, S, F> {
     }
 
     /// Returns the unique identity of this helper.
+    #[must_use]
     pub fn identity(&self) -> Identity {
-        self.helper_identity
+        self.role
     }
 }
 
-impl<S: Step, N: Network<S>> Gateway<S, N> {
-    pub fn new(identity: Identity, network: N) -> Self {
-        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest<S>>(1);
+impl<N: Network> Gateway<N> {
+    pub fn new(role: Identity, network: N) -> Self {
+        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
         let mut message_stream = network.message_stream();
 
         tokio::spawn(async move {
-            let mut buf = HashMap::<ChannelId<S>, MessageBuffer>::new();
+            let mut buf = HashMap::<ChannelId, MessageBuffer>::new();
 
             loop {
                 // Make a random choice what to process next:
@@ -173,13 +174,15 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("gateway_event_loop", identity=?identity)));
+        }.instrument(tracing::info_span!("gateway_event_loop", identity=?role)));
 
-        Self {
-            helper_identity: identity,
-            network,
-            tx,
-        }
+        Self { role, network, tx }
+    }
+
+    /// Get the role of the helper where this gateway lives.
+    #[must_use]
+    pub fn role(&self) -> Identity {
+        self.role
     }
 
     /// Create or return an existing channel for a given step. Protocols can send messages to
@@ -188,10 +191,10 @@ impl<S: Step, N: Network<S>> Gateway<S, N> {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    pub fn get_channel(&self, step: S) -> Mesh<'_, S, N> {
+    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
         Mesh {
             network: &self.network,
-            helper_identity: self.helper_identity,
+            role: self.role,
             step,
             gateway_tx: self.tx.clone(),
         }
@@ -244,7 +247,7 @@ impl MessageBuffer {
     }
 }
 
-impl<S: Step> Debug for ReceiveRequest<S> {
+impl Debug for ReceiveRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

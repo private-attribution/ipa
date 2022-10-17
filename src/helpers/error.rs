@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::helpers::Identity;
-use crate::protocol::{RecordId, Step};
+use crate::protocol::{RecordId, UniqueStepId};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -48,14 +48,15 @@ impl Error {
         }
     }
 
-    pub fn serialization_error<S: Step>(
+    #[must_use]
+    pub fn serialization_error(
         record_id: RecordId,
-        step: S,
+        step: &UniqueStepId,
         inner: serde_json::Error,
     ) -> Error {
         Self::SerializationError {
             record_id,
-            step: format!("{:?}", step),
+            step: String::from(step.as_ref()),
             inner,
         }
     }

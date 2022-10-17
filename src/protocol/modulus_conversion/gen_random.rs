@@ -1,8 +1,8 @@
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{fabric::Network, prss::SpaceIndex, Identity},
-    protocol::{context::ProtocolContext, RecordId, Step},
+    helpers::{fabric::Network, Identity},
+    protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 
@@ -19,10 +19,21 @@ impl ReplicatedBinary {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum ModulusConversionStep {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
     Xor1,
     Xor2,
+}
+
+impl crate::protocol::Step for Step {}
+
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Xor1 => "xor1",
+            Self::Xor2 => "xor2",
+        }
+    }
 }
 
 ///
@@ -94,14 +105,13 @@ impl GenRandom {
     /// XOR can be computed as:
     /// a + b - 2*a*b
     ///
-    async fn xor<F: Field, S: Step + SpaceIndex, N: Network<S>>(
+    async fn xor<F: Field, N: Network>(
+        ctx: ProtocolContext<'_, N>,
+        record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
-        ctx: &ProtocolContext<'_, S, N>,
-        step: S,
-        record_id: RecordId,
     ) -> Result<Replicated<F>, BoxError> {
-        let result = ctx.multiply(record_id, step).await.execute(a, b).await?;
+        let result = ctx.multiply(record_id).await.execute(a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
     }
@@ -111,17 +121,15 @@ impl GenRandom {
     /// of unknown number 'r') into a random secret sharing of the same value in `Z_p`
     /// where the caller can select the output Field.
     #[allow(dead_code)]
-    pub async fn execute<F: Field, S: Step + SpaceIndex, N: Network<S>>(
+    pub async fn execute<F: Field, N: Network>(
         &self,
-        ctx: &ProtocolContext<'_, S, N>,
+        ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
-        step1: S,
-        step2: S,
     ) -> Result<Replicated<F>, BoxError> {
-        let (sh0, sh1, sh2) = Self::local_secret_share(self.input, ctx.identity);
+        let (sh0, sh1, sh2) = Self::local_secret_share(self.input, ctx.role());
 
-        let sh0_xor_sh1 = Self::xor(sh0, sh1, ctx, step1, record_id).await?;
-        Self::xor(sh0_xor_sh1, sh2, ctx, step2, record_id).await
+        let sh0_xor_sh1 = Self::xor(ctx.narrow(&Step::Xor1), record_id, sh0, sh1).await?;
+        Self::xor(ctx.narrow(&Step::Xor2), record_id, sh0_xor_sh1, sh2).await
     }
 }
 
@@ -131,40 +139,20 @@ mod tests {
         error::BoxError,
         field::{Field, Fp31},
         protocol::{
-            modulus_conversion::gen_random::{GenRandom, ModulusConversionStep, ReplicatedBinary},
-            QueryId, RecordId, SpaceIndex, Step,
+            modulus_conversion::gen_random::{GenRandom, ReplicatedBinary},
+            QueryId, RecordId,
         },
-        test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
+        test_fixture::{make_contexts, make_world, validate_and_reconstruct},
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use tokio::try_join;
 
-    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-    struct ModulusConversionTestStep {
-        bit_number: u8,
-        internal_step: ModulusConversionStep,
-    }
-
-    impl Step for ModulusConversionTestStep {}
-
-    impl SpaceIndex for ModulusConversionTestStep {
-        const MAX: usize = 512;
-
-        fn as_usize(&self) -> usize {
-            let b = self.bit_number as usize;
-            match self.internal_step {
-                ModulusConversionStep::Xor1 => b,
-                ModulusConversionStep::Xor2 => 256_usize + b,
-            }
-        }
-    }
-
     #[tokio::test]
     pub async fn gen_random() -> Result<(), BoxError> {
         let mut rng = rand::thread_rng();
 
-        let world: TestWorld<ModulusConversionTestStep> = make_world(QueryId);
+        let world = make_world(QueryId);
         let context = make_contexts(&world);
         let ctx0 = &context[0];
         let ctx1 = &context[1];
@@ -192,18 +180,14 @@ mod tests {
                 let index_bytes: [u8; 8] = index.to_le_bytes();
                 let i = index_bytes[0];
                 let record_id = RecordId::from(0_u32);
-                let step1 = ModulusConversionTestStep {
-                    bit_number: i,
-                    internal_step: ModulusConversionStep::Xor1,
-                };
-                let step2 = ModulusConversionTestStep {
-                    bit_number: i,
-                    internal_step: ModulusConversionStep::Xor2,
-                };
+                let bit_number = format!("bit{}", i);
+                let ctx0 = ctx0.narrow(&bit_number);
+                let ctx1 = ctx1.narrow(&bit_number);
+                let ctx2 = ctx2.narrow(&bit_number);
 
-                let f0 = gr0.execute(ctx0, record_id, step1, step2);
-                let f1 = gr1.execute(ctx1, record_id, step1, step2);
-                let f2 = gr2.execute(ctx2, record_id, step1, step2);
+                let f0 = gr0.execute(ctx0, record_id);
+                let f1 = gr1.execute(ctx1, record_id);
+                let f2 = gr2.execute(ctx2, record_id);
 
                 try_join!(f0, f1, f2)
             });

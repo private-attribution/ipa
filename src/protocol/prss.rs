@@ -7,29 +7,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
-use std::fmt::{Debug, Formatter};
-use std::ops::Index;
-use std::{marker::PhantomData, mem::size_of};
+use std::{collections::HashMap, fmt::Debug, pin::Pin, ptr::NonNull, sync::Mutex};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-pub trait SpaceIndex: Copy {
-    const MAX: usize;
-
-    #[must_use]
-    fn as_usize(&self) -> usize;
-
-    #[must_use]
-    fn to_bytes(&self) -> [u8; 8] {
-        let mut buf = [0; 8];
-        for (i, &v) in self.as_usize().to_le_bytes().iter().enumerate() {
-            buf[i] = v;
-        }
-        buf
-    }
-}
-
 /// A participant in a 2-of-N replicated secret sharing.
-#[derive(Debug)] // TODO custom debug implementation
+#[derive(Debug)] // TODO(mt) custom debug implementation
 #[allow(clippy::module_name_repetitions)]
 pub struct PrssSpace {
     left: Generator,
@@ -151,24 +133,69 @@ impl RngCore for PrssRng {
 impl CryptoRng for PrssRng {}
 
 /// A single participant in the protocol.
-/// This holds multiple streams of correlated (pseudo)randomness, indexed by `I`.
-pub struct Participant<I: SpaceIndex> {
-    // This would be `[PrssSpace; I::MAX]` with `feature(generic_const_exprs)`,
-    // but that is still in Nightly.
-    spaces: Vec<PrssSpace>,
-    _marker: PhantomData<I>,
+/// This holds multiple streams of correlated (pseudo)randomness.
+pub struct Participant {
+    inner: Mutex<ParticipantInner>,
 }
 
-impl<I: SpaceIndex> Debug for Participant<I> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Participant[0..{0}]", I::MAX)
+impl Participant {
+    /// Construct a new, unconfigured participant.  This can be configured by
+    /// providing public keys for the left and right participants to `setup()`.
+    pub fn prepare<R: RngCore + CryptoRng>(r: &mut R) -> ParticipantSetup {
+        ParticipantSetup {
+            left: KeyExchange::new(r),
+            right: KeyExchange::new(r),
+        }
+    }
+
+    /// Get the identified PRSS instance.
+    ///
+    /// # Panics
+    /// When used incorrectly.  For instance, if you ask for an RNG and then ask
+    /// for a PRSS using the same key.
+    pub fn prss(&self, key: impl AsRef<str>) -> &PrssSpace {
+        let p = self.inner.lock().unwrap().prss(key.as_ref());
+        // Safety: This pointer refers to pinned memory that is allocated
+        // and retained as long as this object exists.
+        unsafe { p.as_ref() }
     }
 }
 
-impl<I: SpaceIndex> Index<I> for Participant<I> {
-    type Output = PrssSpace;
-    fn index(&self, idx: I) -> &Self::Output {
-        &self.spaces[idx.as_usize()]
+impl Debug for Participant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Participant")
+    }
+}
+
+struct ParticipantInner {
+    left: GeneratorFactory,
+    right: GeneratorFactory,
+    // TODO(mt): add a function to get an RNG instead of the indexed PRSS.
+    // That should mark the entry as dead, so that any attempt to get the
+    // indexed PRSS or another RNG will fail.
+    spaces: HashMap<String, Pin<Box<PrssSpace>>>,
+}
+
+impl ParticipantInner {
+    pub fn prss(&mut self, key: &str) -> NonNull<PrssSpace> {
+        // The second arm of this statement would be fine, except that `HashMap::entry()`
+        // only takes an owned value as an argument.
+        // This makes the lookup perform an allocation, which is very much suboptimal.
+        let p = if let Some(value) = self.spaces.get(key) {
+            value
+        } else {
+            self.spaces.entry(key.to_owned()).or_insert_with_key(|k| {
+                Box::pin(PrssSpace {
+                    left: self.left.generator(k.as_bytes()),
+                    right: self.right.generator(k.as_bytes()),
+                })
+            })
+        };
+        // Safety: we never drop a PRSS instance while the outer object lives.
+        // As each instance is pinned, it is safe to return a pointer to
+        // each once they are created as long as the pointer is not referenced
+        // past the lifetime the container (see above).
+        NonNull::from(unsafe { Pin::into_inner_unchecked(p.as_ref()) })
     }
 }
 
@@ -179,17 +206,6 @@ pub struct ParticipantSetup {
 }
 
 impl ParticipantSetup {
-    const CONTEXT_BASE: &'static [u8] = b"IPA PRSS ";
-
-    /// Construct a new, unconfigured participant.  This can be configured by
-    /// providing public keys for the left and right participants to `setup()`.
-    pub fn new<R: RngCore + CryptoRng>(r: &mut R) -> Self {
-        Self {
-            left: KeyExchange::new(r),
-            right: KeyExchange::new(r),
-        }
-    }
-
     /// Get the public keys that this setup instance intends to use.
     /// The public key that applies to the left participant is at `.0`,
     /// with the key for the right participant in `.1`.
@@ -203,25 +219,15 @@ impl ParticipantSetup {
     /// This is generic over `SpaceIndex` so that it can construct the
     /// appropriate number of spaces for use by a protocol participant.
     #[must_use]
-    pub fn setup<I: SpaceIndex>(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant<I> {
+    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
-        let mut context = Vec::with_capacity(Self::CONTEXT_BASE.len() + size_of::<usize>());
-        context.extend_from_slice(Self::CONTEXT_BASE);
-        let spaces = (0..I::MAX)
-            .map(|i| {
-                context.truncate(Self::CONTEXT_BASE.len());
-                context.extend_from_slice(&i.to_le_bytes());
-                PrssSpace {
-                    left: fl.generator(&context),
-                    right: fr.generator(&context),
-                }
-            })
-            .collect();
-
         Participant {
-            spaces,
-            _marker: PhantomData::default(),
+            inner: Mutex::new(ParticipantInner {
+                left: fl,
+                right: fr,
+                spaces: HashMap::new(),
+            }),
         }
     }
 }
@@ -292,30 +298,15 @@ impl Generator {
 
 #[cfg(test)]
 pub mod test {
+    use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace};
+    use crate::{field::Fp31, test_fixture::make_participants};
     use rand::{thread_rng, Rng};
+    use std::ops::Deref;
 
-    use crate::field::Fp31;
-    use crate::test_fixture::make_participants;
-
-    use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace, SpaceIndex};
-
-    /// In testing, having a single space is easiest to use.
-    /// This provides an implementation of `PrssSpace`.
-    #[derive(Clone, Copy)]
-    pub struct SingleSpace;
-
-    impl SpaceIndex for SingleSpace {
-        const MAX: usize = 1;
-        fn as_usize(&self) -> usize {
-            0
-        }
-    }
-
-    // This makes it easier to use the single space.
-    impl std::ops::Deref for Participant<SingleSpace> {
+    impl Deref for Participant {
         type Target = PrssSpace;
         fn deref(&self) -> &Self::Target {
-            &self[SingleSpace]
+            self.prss("test")
         }
     }
 
@@ -495,9 +486,9 @@ pub mod test {
         }
 
         let (p1, p2, p3) = make_participants();
-        let (rng1_l, rng1_r) = p1[SingleSpace].as_rngs();
-        let (rng2_l, rng2_r) = p2[SingleSpace].as_rngs();
-        let (rng3_l, rng3_r) = p3[SingleSpace].as_rngs();
+        let (rng1_l, rng1_r) = p1.as_rngs();
+        let (rng2_l, rng2_r) = p2.as_rngs();
+        let (rng3_l, rng3_r) = p3.as_rngs();
 
         same_rng(rng1_l, rng3_r);
         same_rng(rng2_l, rng1_r);
