@@ -24,3 +24,37 @@ pub struct AccumulateCreditOutputRow<F> {
     credit: Replicated<F>,
     aggregation_bit: Replicated<F>,
 }
+
+struct IterStep {
+    name: &'static str,
+    count: u32,
+    id: String,
+}
+
+impl IterStep {
+    pub fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            count: 0,
+            id: String::from(name),
+        }
+    }
+
+    fn next(&mut self) -> &Self {
+        self.count += 1;
+        self.id = format!("{}_{}", self.name, self.count);
+        self
+    }
+
+    fn is_first_iteration(&self) -> bool {
+        self.count == 1
+    }
+}
+
+impl crate::protocol::Step for IterStep {}
+
+impl AsRef<str> for IterStep {
+    fn as_ref(&self) -> &str {
+        self.id.as_str()
+    }
+}

@@ -1,12 +1,12 @@
-use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow};
+use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
 use crate::{
     error::BoxError,
     field::Field,
-    helpers::{fabric::Network, prss::SpaceIndex},
+    helpers::fabric::Network,
     protocol::{
         batch::{Batch, RecordIndex},
         context::ProtocolContext,
-        RecordId, Step,
+        RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -32,22 +32,17 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
     /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
     #[allow(dead_code)]
-    pub async fn execute<S, N>(
+    pub async fn execute<N: Network>(
         &self,
-        ctx: &ProtocolContext<'_, S, N>,
-        steps: [S; 5],
-    ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError>
-    where
-        S: Step + SpaceIndex,
-        N: Network<S>,
-    {
+        ctx: ProtocolContext<'_, N>,
+    ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
 
         // 1. Create credit and stop_bit vectors
         // These vectors are updated in each iteration to help accumulate values and determine when to stop accumulating.
 
-        let one = Replicated::one(ctx.gateway.get_channel(steps[0]).identity());
+        let one = Replicated::one(ctx.mesh().identity());
         let mut stop_bits: Batch<Replicated<F>> = vec![one; num_rows as usize].into();
 
         let mut credits: Batch<Replicated<F>> = self
@@ -59,15 +54,19 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
         // 2. Accumulate (up to 4 multiplications)
         //
-        // For each iteration (`step_size`), we access each node in the list to accumulate values. The accumulation can
-        // be optimized to the following arithmetic circuit.
+        // For each iteration (`log2(input.len())`), we access each node in the
+        // list to accumulate values. The accumulation can be optimized to the
+        // following arithmetic circuit.
         //
-        //     b = current.stop_bit * successor.helper_bit * successor.trigger_bit;
-        //     new_credit[current_index] = current.credit + b * successor.credit;
-        //     new_stop_bit[current_index] = b * successor.stop_bit;
+        //   b = current.stop_bit * successor.helper_bit * successor.trigger_bit;
+        //   new_credit[current_index] = current.credit + b * successor.credit;
+        //   new_stop_bit[current_index] = b * successor.stop_bit;
         //
-        // Each list element interacts with exactly one other element in each iteration, and the interaction do not
-        // depend on the calculation results of other elements, allowing the algorithm to be executed in parallel.
+        // Each list element interacts with exactly one other element in each
+        // iteration, and the interaction do not depend on the calculation results
+        // of other elements, allowing the algorithm to be executed in parallel.
+
+        let mut iteration_step = IterStep::new("iteration");
 
         // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
         for step_size in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
@@ -75,6 +74,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         {
             let end = num_rows - step_size;
             let mut accumulation_futures = Vec::with_capacity(end as usize);
+
+            let ctx = ctx.narrow(iteration_step.next());
+            let mut multiply_step = IterStep::new("multiply");
 
             // for each input row, create a future to execute secure multiplications
             for i in 0..end {
@@ -89,13 +91,11 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
                     report: self.input[i + step_size],
                 };
 
-                accumulation_futures.push(self.get_accumulated_credit(
-                    ctx,
-                    step_size,
+                accumulation_futures.push(Self::get_accumulated_credit(
+                    ctx.narrow(multiply_step.next()),
                     current,
                     successor,
-                    RecordId::from(i),
-                    [steps[1], steps[2], steps[3], steps[4]],
+                    iteration_step.is_first_iteration(),
                 ));
             }
 
@@ -132,49 +132,47 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         Ok(output)
     }
 
-    async fn get_accumulated_credit<S, N>(
-        &self,
-        ctx: &ProtocolContext<'_, S, N>,
-        step_size: u32,
+    async fn get_accumulated_credit<N: Network>(
+        ctx: ProtocolContext<'_, N>,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
-        record_id: RecordId,
-        steps: [S; 4],
-    ) -> Result<(Replicated<F>, Replicated<F>), BoxError>
-    where
-        S: Step + SpaceIndex,
-        N: Network<S>,
-    {
+        first_iteration: bool,
+    ) -> Result<(Replicated<F>, Replicated<F>), BoxError> {
+        // For each input row, we execute the accumulation logic in this method
+        // `log2(input.len())` times. Each accumulation logic is executed with
+        // the unique iteration/row pair sub-context. There are 2~4 multiplications
+        // in this accumulation logic, and each is tagged with a unique `RecordID`.
+
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
-            .multiply(record_id, steps[0])
+            .multiply(RecordId::from(0))
             .await
             .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
             .await?;
 
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
-        if step_size > 1 {
+        if !first_iteration {
             b = ctx
-                .multiply(record_id, steps[1])
+                .multiply(RecordId::from(1))
                 .await
                 .execute(b, current.stop_bit)
                 .await?;
         }
 
         let credit_future = ctx
-            .multiply(record_id, steps[2])
+            .multiply(RecordId::from(2))
             .await
             .execute(b, successor.credit);
 
         // for the same reason as calculating [b], we skip the multiplication in the first iteration
-        let stop_bit_future = if step_size > 1 {
-            futures::future::Either::Left(
-                ctx.multiply(record_id, steps[3])
+        let stop_bit_future = if first_iteration {
+            futures::future::Either::Left(futures::future::ok(b))
+        } else {
+            futures::future::Either::Right(
+                ctx.multiply(RecordId::from(3))
                     .await
                     .execute(b, successor.stop_bit),
             )
-        } else {
-            futures::future::Either::Right(futures::future::ok(b))
         };
 
         try_join(credit_future, stop_bit_future).await
@@ -185,29 +183,12 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 mod tests {
     use crate::{
         field::{Field, Fp31},
-        helpers::prss::SpaceIndex,
-        protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch, Step},
+        protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
     };
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
-
-    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-    enum AccumulateTestStep {
-        Step(usize),
-    }
-
-    impl Step for AccumulateTestStep {}
-
-    impl SpaceIndex for AccumulateTestStep {
-        const MAX: usize = 5;
-        fn as_usize(&self) -> usize {
-            match self {
-                AccumulateTestStep::Step(i) => *i,
-            }
-        }
-    }
 
     fn generate_shared_input(
         input: &[[u128; 4]],
@@ -260,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
-        let world: TestWorld<AccumulateTestStep> = make_world(QueryId);
+        let world = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rng = StepRng::new(100, 1);
 
@@ -292,18 +273,14 @@ mod tests {
 
         let expected_credit_output = vec![0_u128, 19, 19, 9, 7, 6, 1, 0, 10];
 
-        let steps = (0..=4)
-            .map(AccumulateTestStep::Step)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
         let acc0 = AccumulateCredit::new(&shares[0]);
         let acc1 = AccumulateCredit::new(&shares[1]);
         let acc2 = AccumulateCredit::new(&shares[2]);
-        let h0_future = acc0.execute(&context[0], steps);
-        let h1_future = acc1.execute(&context[1], steps);
-        let h2_future = acc2.execute(&context[2], steps);
+
+        let [c0, c1, c2] = context;
+        let h0_future = acc0.execute(c0);
+        let h1_future = acc1.execute(c1);
+        let h2_future = acc2.execute(c2);
 
         let result = try_join!(h0_future, h1_future, h2_future).unwrap();
 
