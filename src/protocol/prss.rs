@@ -525,4 +525,42 @@ pub mod test {
         same_rng(rng2_l, rng1_r);
         same_rng(rng3_l, rng2_r);
     }
+
+    #[test]
+    fn indexed_and_sequential() {
+        let (p1, _p2, _p3) = make_participants();
+
+        let base = UniqueStepId::default();
+        let idx = p1.indexed(&base.narrow("indexed"));
+        let (mut s_left, mut s_right) = p1.sequential(&base.narrow("sequential"));
+        let (i_left, i_right) = idx.generate_values(0);
+        assert_ne!(
+            i_left & u128::from(u64::MAX),
+            u128::from(s_left.gen::<u64>())
+        );
+        assert_ne!(
+            i_right & u128::from(u64::MAX),
+            u128::from(s_right.gen::<u64>())
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn indexed_then_sequential() {
+        let (p1, _p2, _p3) = make_participants();
+
+        let step = UniqueStepId::default().narrow("test");
+        let _ = p1.indexed(&step);
+        let _ = p1.sequential(&step);
+    }
+
+    #[test]
+    #[should_panic]
+    fn sequential_then_indexed() {
+        let (p1, _p2, _p3) = make_participants();
+
+        let step = UniqueStepId::default().narrow("test");
+        let _ = p1.sequential(&step);
+        let _ = p1.indexed(&step);
+    }
 }

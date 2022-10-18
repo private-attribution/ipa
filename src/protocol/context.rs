@@ -48,7 +48,7 @@ impl<'a, N> ProtocolContext<'a, N> {
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    pub fn narrow<S: Step>(&self, step: &S) -> Self {
+    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         ProtocolContext {
             role: self.role,
             step: self.step.narrow(step),
