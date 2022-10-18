@@ -1,4 +1,8 @@
-use super::{prss::PrssSpace, securemul::SecureMul, RecordId, Step, UniqueStepId};
+use super::{
+    prss::PrssSpace,
+    securemul::{SecureMul, SecureMulAll},
+    RecordId, Step, UniqueStepId,
+};
 use crate::{
     helpers::{
         fabric::Network,
@@ -74,6 +78,12 @@ impl<N: Network> ProtocolContext<'_, N> {
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     pub async fn multiply(&self, record_id: RecordId) -> SecureMul<'_, N> {
         SecureMul::new(self.prss(), self.gateway, &self.step, record_id)
+    }
+
+    /// Request multiplication for a given vector of records.
+    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
+    pub async fn multiply_all(&self) -> SecureMulAll<'_, N> {
+        SecureMulAll::new(self.prss(), self.gateway, &self.step)
     }
 
     /// Request reveal for a given record.

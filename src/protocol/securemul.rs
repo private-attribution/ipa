@@ -1,9 +1,11 @@
+use super::batch::{Batch, RecordIndex};
 use super::UniqueStepId;
 use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::{fabric::Network, messaging::Gateway, Direction};
 use crate::protocol::{prss::PrssSpace, RecordId};
 use crate::secret_sharing::Replicated;
+use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
@@ -12,6 +14,53 @@ use thiserror::Error;
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct DValue<F> {
     d: F,
+}
+
+#[derive(Debug)]
+pub struct SecureMulAll<'a, N> {
+    prss: &'a PrssSpace,
+    gateway: &'a Gateway<N>,
+    step: &'a UniqueStepId,
+}
+
+impl<'a, N: Network> SecureMulAll<'a, N> {
+    pub fn new(prss: &'a PrssSpace, gateway: &'a Gateway<N>, step: &'a UniqueStepId) -> Self {
+        Self {
+            prss,
+            gateway,
+            step,
+        }
+    }
+
+    pub async fn execute<F: Field>(
+        self,
+        a: Batch<Replicated<F>>,
+        b: Batch<Replicated<F>>,
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
+        debug_assert_eq!(a.len(), b.len(), "lengths of the vectors must be the same");
+
+        let a: Vec<_> = a.into();
+        let b: Vec<_> = b.into();
+
+        try_join_all(
+            a.into_iter()
+                .zip(b)
+                .enumerate()
+                .map(|(i, (x, y))| async move {
+                    // Batch<> ensures that `i` is safe to cast
+                    #[allow(clippy::cast_possible_truncation)]
+                    SecureMul::new(
+                        self.prss,
+                        self.gateway,
+                        self.step,
+                        RecordId::from(i as RecordIndex),
+                    )
+                    .execute(x, y)
+                    .await
+                }),
+        )
+        .await
+    }
 }
 
 /// IKHC multiplication protocol
@@ -220,6 +269,7 @@ pub mod tests {
     use crate::error::BoxError;
     use crate::field::{Field, Fp31};
     use crate::helpers::fabric::Network;
+    use crate::protocol::batch::Batch;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
@@ -303,6 +353,54 @@ pub mod tests {
             assert_eq!(
                 Fp31::from(12_u128),
                 validate_and_reconstruct((shares[0], shares[1], shares[2]))
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::cast_possible_truncation)]
+    pub async fn multiply_all() {
+        type MulArgs<F> = (Batch<Replicated<F>>, Batch<Replicated<F>>);
+        async fn mul<F: Field>(
+            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>>, MulArgs<F>),
+        ) -> Vec<Replicated<F>> {
+            let (ctx, (a, b)) = v;
+            ctx.multiply_all().await.execute(a, b).await.unwrap()
+        }
+        logging::setup();
+
+        let world = make_world(QueryId);
+        let contexts = make_contexts(&world);
+        let mut rand = StepRng::new(1, 1);
+
+        let (a0, (a1, a2)): (Vec<_>, (Vec<_>, Vec<_>)) = (0..10_u8)
+            .map(|i| share(Fp31::from(i), &mut rand))
+            .map(|s| (s[0], (s[1], s[2])))
+            .unzip();
+        let a = [
+            Batch::try_from(a0).unwrap(),
+            Batch::try_from(a1).unwrap(),
+            Batch::try_from(a2).unwrap(),
+        ];
+        let b = a.clone();
+
+        let step_name = String::from("mult_all");
+        let results = join_all(
+            contexts
+                .iter()
+                .map(|ctx| ctx.narrow(&step_name))
+                .zip(std::iter::zip(a, b))
+                .map(mul),
+        )
+        .await;
+
+        assert_eq!(results[0].len(), results[1].len());
+        assert_eq!(results[1].len(), results[2].len());
+
+        for i in 0..10 {
+            assert_eq!(
+                Fp31::from((i * i) as u32),
+                validate_and_reconstruct((results[0][i], results[1][i], results[2][i]))
             );
         }
     }
