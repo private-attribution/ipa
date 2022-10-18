@@ -11,7 +11,7 @@ use crate::{
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ProtocolContext<'a, N> {
     role: Identity,
     step: UniqueStepId,

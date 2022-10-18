@@ -2,6 +2,7 @@ pub mod context;
 mod modulus_conversion;
 pub mod prss;
 mod reveal;
+mod reveal_additive_binary;
 mod securemul;
 pub mod sort;
 
