@@ -43,7 +43,7 @@ impl<'a, 'b: 'a, N: Network> Reveal<'a, 'b, N> {
     /// i.e. their own shares and received share.
     #[allow(dead_code)]
     pub async fn execute<F: Field>(self, input: Replicated<F>) -> Result<F, BoxError> {
-        let mut channel = self.context.mesh();
+        let channel = self.context.mesh();
 
         let inputs = input.as_tuple();
         channel

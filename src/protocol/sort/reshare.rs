@@ -47,7 +47,7 @@ impl<F: Field> Reshare<F> {
         record_id: RecordId,
         to_helper: Identity,
     ) -> Result<Replicated<F>, BoxError> {
-        let mut channel = ctx.mesh();
+        let channel = ctx.mesh();
         let prss = ctx.prss();
         let (r0, r1) = prss.generate_fields(record_id.into());
 
