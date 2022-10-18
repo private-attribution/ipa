@@ -4,6 +4,7 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId},
 };
 
+use futures::future::try_join;
 use serde::{Deserialize, Serialize};
 
 /// A message sent by each helper when they've revealed their own shares
@@ -30,35 +31,37 @@ impl RevealAdditiveBinary {
         record_id: RecordId,
         input: bool,
     ) -> Result<bool, BoxError> {
-        let mut channel = ctx.mesh();
+        let channel = ctx.mesh();
 
         // Send share to helper to the left
-        channel
-            .send(
-                channel.identity().peer(Direction::Left),
-                record_id,
-                RevealValue { share: input },
-            )
-            .await?;
+        let future_left = channel.send(
+            channel.identity().peer(Direction::Left),
+            record_id,
+            RevealValue { share: input },
+        );
 
         // Send share to helper to the right
-        channel
-            .send(
-                channel.identity().peer(Direction::Right),
-                record_id,
-                RevealValue { share: input },
-            )
-            .await?;
+        let future_right = channel.send(
+            channel.identity().peer(Direction::Right),
+            record_id,
+            RevealValue { share: input },
+        );
 
-        // Sleep until `helper's right` sends their share
-        let share_from_right: RevealValue = channel
-            .receive(channel.identity().peer(Direction::Right), record_id)
-            .await?;
+        try_join(future_left, future_right).await?;
 
         // Sleep until `helper's left` sends their share
-        let share_from_left: RevealValue = channel
-            .receive(channel.identity().peer(Direction::Left), record_id)
-            .await?;
+        let future_left = channel.receive(channel.identity().peer(Direction::Left), record_id);
+
+        // Sleep until `helper's right` sends their share
+        let future_right = channel.receive(channel.identity().peer(Direction::Right), record_id);
+
+        let (share_from_left, share_from_right): (RevealValue, RevealValue) =
+            match try_join(future_left, future_right).await {
+                Err(error) => {
+                    panic!("Problem receiving shares from other helpers: {:#?}", error)
+                }
+                Ok((a, b)) => (a, b),
+            };
 
         Ok(input ^ share_from_left.share ^ share_from_right.share)
     }
