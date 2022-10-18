@@ -128,7 +128,12 @@ impl BitwiseLessThan {
             .fold(Replicated::new(F::ZERO, F::ZERO), |acc, x| acc + x)
     }
 
-    #[allow(dead_code)]
+    /// Takes two bitwise shares, `[a]` and `[b]`, and returns 1 if and only if
+    /// their reconstructed values, `a` and `b`, satisfies `a < b`.
+    ///
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
         ctx: SemiHonestContext<'_, F>,
