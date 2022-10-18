@@ -13,18 +13,21 @@ impl<T> Batch<T> {
         self.0.len()
     }
 
-    pub fn iter(&self) -> BatchIter<'_, T> {
-        BatchIter(self.0.as_slice())
+    pub fn iter(&self) -> core::slice::Iter<'_, T> {
+        self.0.as_slice().iter()
     }
 }
 
-impl<T> From<Vec<T>> for Batch<T> {
-    fn from(v: Vec<T>) -> Self {
-        let _: RecordIndex = v
-            .len()
-            .try_into()
-            .expect("usize doesn't fit into RecordIndex");
-        Self(v)
+impl<T> TryFrom<Vec<T>> for Batch<T> {
+    type Error = &'static str;
+
+    fn try_from(v: Vec<T>) -> Result<Self, Self::Error> {
+        let len = RecordIndex::try_from(v.len());
+        if len.is_err() {
+            Err("usize doesn't fit into RecordIndex")
+        } else {
+            Ok(Self(v))
+        }
     }
 }
 
@@ -47,9 +50,6 @@ impl<T> Index<RecordIndex> for Batch<T> {
 impl<T> Index<usize> for Batch<T> {
     type Output = T;
     fn index(&self, index: usize) -> &Self::Output {
-        let _: RecordIndex = index
-            .try_into()
-            .expect("usize doesn't fit into RecordIndex");
         &self.0[index]
     }
 }
@@ -65,26 +65,7 @@ impl<T> IndexMut<RecordIndex> for Batch<T> {
 
 impl<T> IndexMut<usize> for Batch<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        let _: RecordIndex = index
-            .try_into()
-            .expect("usize doesn't fit into RecordIndex");
         &mut self.0[index]
-    }
-}
-
-#[allow(clippy::module_name_repetitions)]
-pub struct BatchIter<'a, T>(&'a [T]);
-
-impl<'a, T> Iterator for BatchIter<'a, T> {
-    type Item = &'a T;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.get(0) {
-            Some(v) => {
-                *self = BatchIter(&self.0[1..]);
-                Some(v)
-            }
-            None => None,
-        }
     }
 }
 
@@ -95,7 +76,7 @@ mod tests {
     #[test]
     fn batch_index() {
         let v = vec![1, 2, 3, 4, 5];
-        let b = Batch::from(v.clone());
+        let b = Batch::try_from(v.clone()).unwrap();
 
         for i in 0..v.len() {
             assert_eq!(v[i], b[i]);
@@ -105,7 +86,7 @@ mod tests {
     #[test]
     fn batch_index_mut() {
         let v = vec![1, 2, 3, 4, 5];
-        let mut b = Batch::from(v.clone());
+        let mut b = Batch::try_from(v.clone()).unwrap();
 
         b[2u32] = 0;
         for i in 0..v.len() {
@@ -122,7 +103,7 @@ mod tests {
     #[test]
     fn batch_iter() {
         let v = vec![1, 2, 3, 4, 5];
-        let b = Batch::from(v.clone());
+        let b = Batch::try_from(v.clone()).unwrap();
 
         b.iter().zip(v).for_each(|(x, y)| assert_eq!(*x, y));
     }

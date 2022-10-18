@@ -43,14 +43,15 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // These vectors are updated in each iteration to help accumulate values and determine when to stop accumulating.
 
         let one = Replicated::one(ctx.mesh().identity());
-        let mut stop_bits: Batch<Replicated<F>> = vec![one; num_rows as usize].into();
+        let mut stop_bits: Batch<Replicated<F>> = vec![one; num_rows as usize].try_into().unwrap();
 
         let mut credits: Batch<Replicated<F>> = self
             .input
             .iter()
             .map(|x| x.value)
             .collect::<Vec<_>>()
-            .into();
+            .try_into()
+            .unwrap();
 
         // 2. Accumulate (up to 4 multiplications)
         //
@@ -122,7 +123,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
                 aggregation_bit: one,
             })
             .collect::<Vec<_>>()
-            .into();
+            .try_into()
+            .unwrap();
 
         // TODO: Append unique breakdown_key values at the end of the output vector for the next step
         // Since we cannot see the actual breakdown key values, we'll append shares of [0..MAX]. Adding u8::MAX
@@ -233,9 +235,9 @@ mod tests {
         assert_eq!(shares[1].len(), shares[2].len());
 
         [
-            Batch::from(shares[0].clone()),
-            Batch::from(shares[1].clone()),
-            Batch::from(shares[2].clone()),
+            Batch::try_from(shares[0].clone()).unwrap(),
+            Batch::try_from(shares[1].clone()).unwrap(),
+            Batch::try_from(shares[2].clone()).unwrap(),
         ]
     }
 
