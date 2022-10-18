@@ -9,6 +9,7 @@ pub use error::Result;
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Identity {
     H1,
     H2,

@@ -3,11 +3,9 @@ use hyper::http::uri::Scheme;
 use raw_ipa::cli::Verbosity;
 use raw_ipa::net::{bind_mpc_helper_server, BindTarget};
 use raw_ipa::protocol::IPAProtocolStep;
-use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::panic;
-use std::sync::{Arc, Mutex};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -46,8 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // start server
-    let m = Arc::new(Mutex::new(HashMap::new()));
-    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target, m).await;
+    let (addr, server_handle) = bind_mpc_helper_server::<IPAProtocolStep>(target).await;
     info!(
         "listening to {}://{}, press Enter to quit",
         args.scheme, addr

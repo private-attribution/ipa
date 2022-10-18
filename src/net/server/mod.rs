@@ -1,5 +1,5 @@
 use crate::error::BoxError;
-use crate::net::server::handlers::GatewayMap;
+use crate::net::server::handlers::MessageStreamExt;
 use crate::protocol::Step;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use ::metrics::increment_counter;
@@ -14,7 +14,6 @@ use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -34,7 +33,9 @@ pub enum MpcServerError {
     #[error(transparent)]
     BadPathString(#[from] PathRejection),
     #[error(transparent)]
-    HttpError(#[from] hyper::Error),
+    BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
+    #[error(transparent)]
+    HyperError(#[from] hyper::Error),
     #[error("parse error: {0}")]
     SerdeError(#[from] serde_json::Error),
     #[error("could not forward messages: {0}")]
@@ -71,7 +72,9 @@ impl IntoResponse for MpcServerError {
             | Self::SerdeError(_)
             | Self::MissingHeader(_)
             | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
-            Self::HttpError(_) | Self::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::HyperError(_) | Self::SendError(_) | Self::BodyAlreadyExtracted(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         };
 
         (status_code, self.to_string()).into_response()
@@ -81,14 +84,15 @@ impl IntoResponse for MpcServerError {
 /// Axum router definition for MPC helper endpoint
 #[allow(dead_code)]
 #[must_use]
-pub fn router<S: Step>(gateway_map: GatewayMap<S>) -> Router {
+pub fn router<S: Step>() -> Router {
+    let ext = MessageStreamExt::<S>::example();
     Router::new()
         .route(
             "/mul/query-id/:query_id/step/*step",
-            post(handlers::mul_handler::<S>),
+            post(handlers::mul_handler),
         )
         .layer(axum::middleware::from_fn(move |req, next| {
-            handlers::gateway_middleware_fn(Arc::clone(&gateway_map), req, next)
+            handlers::upstream_middleware_fn(ext.clone(), req, next)
         }))
         .route("/echo", get(handlers::echo_handler))
 }
@@ -103,11 +107,8 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
-pub async fn bind<S: Step>(
-    target: BindTarget,
-    gateway_map: GatewayMap<S>,
-) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router::<S>(gateway_map)
+pub async fn bind<S: Step>(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+    let svc = router::<S>()
         .layer(
             TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
                 increment_counter!(REQUESTS_RECEIVED);
@@ -226,7 +227,6 @@ mod e2e_tests {
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -261,12 +261,8 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
-        let m = Arc::new(Mutex::new(HashMap::new()));
-        let (addr, _) = bind::<IPAProtocolStep>(
-            BindTarget::Http("127.0.0.1:0".parse().unwrap()),
-            Arc::clone(&m),
-        )
-        .await;
+        let (addr, _) =
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -292,9 +288,8 @@ mod e2e_tests {
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let m = Arc::new(Mutex::new(HashMap::new()));
         let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config), m)
+            bind::<IPAProtocolStep>(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
                 .await;
 
         let mut expected = EchoData::default();
@@ -333,9 +328,8 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
-        let m = Arc::new(Mutex::new(HashMap::new()));
         let (addr, _) =
-            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap()), m).await;
+            bind::<IPAProtocolStep>(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());
