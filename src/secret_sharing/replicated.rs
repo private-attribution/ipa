@@ -39,10 +39,15 @@ impl<F: Field> Replicated<F> {
     /// Returns share of value one.
     #[must_use]
     pub fn one(helper_role: Role) -> Self {
+        Self::from_scalar(helper_role, F::ONE)
+    }
+
+    /// Returns share of a scalar value.
+    pub fn from_scalar(helper_role: Role, a: F) -> Self {
         match helper_role {
-            Role::H1 => Self::new(F::ONE, F::ZERO),
+            Role::H1 => Self::new(a, F::ZERO),
             Role::H2 => Self::new(F::ZERO, F::ZERO),
-            Role::H3 => Self::new(F::ZERO, F::ONE),
+            Role::H3 => Self::new(F::ZERO, a),
         }
     }
 

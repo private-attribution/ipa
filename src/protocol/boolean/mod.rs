@@ -15,6 +15,8 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
+pub use {bit_decomposition::BitDecomposition, bitwise_lt::BitwiseLessThan};
+
 /// A step generator for bitwise secure operations.
 ///
 /// For each record, we decompose a value into bits (i.e. credits in the
@@ -50,16 +52,13 @@ impl AsRef<str> for BitOpStep {
 /// Internal use only.
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
-fn local_secret_shared_bits<F: Field>(x: u128, helper_role: Role) -> Vec<Replicated<F>> {
+#[must_use]
+pub fn local_secret_shared_bits<F: Field>(x: u128, helper_role: Role) -> Vec<Replicated<F>> {
     // let x = F::PRIME.into();
     (0..F::Integer::BITS)
         .map(|i| {
             let b = F::from((x >> i) & 1);
-            match helper_role {
-                Role::H1 => Replicated::new(b, F::ZERO),
-                Role::H2 => Replicated::new(F::ZERO, F::ZERO),
-                Role::H3 => Replicated::new(F::ZERO, b),
-            }
+            Replicated::from_scalar(helper_role, b)
         })
         .collect::<Vec<_>>()
 }
