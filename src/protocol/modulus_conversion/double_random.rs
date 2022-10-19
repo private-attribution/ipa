@@ -2,7 +2,9 @@ use crate::{
     error::BoxError,
     field::Field,
     helpers::{fabric::Network, Identity},
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{
+        context::ProtocolContext, modulus_conversion::specialized_mul::SpecializedMul, RecordId,
+    },
     secret_sharing::Replicated,
 };
 
@@ -47,7 +49,7 @@ impl AsRef<str> for Step {
 /// secret-sharing of unknown value 'r' without any interaction between the helpers.
 /// We just generate 3 random binary inputs, where each helper is aware of just two.
 ///
-/// This `GenRandom` protocol takes as input such a 3-way random binary replicated secret-sharing,
+/// This `DoubleRandom` protocol takes as input such a 3-way random binary replicated secret-sharing,
 /// and produces a 3-party replicated secret-sharing of the same value in a target field
 /// of the caller's choosing.
 /// Example:
@@ -62,16 +64,9 @@ impl AsRef<str> for Step {
 /// we know the secret-shared values are all either 0, or 1. As such, the XOR operation
 /// is equivalent to fn xor(a, b) { a + b - 2*a*b }
 #[derive(Debug)]
-pub struct GenRandom {
-    input: ReplicatedBinary,
-}
+pub struct DoubleRandom {}
 
-impl GenRandom {
-    #[allow(dead_code)]
-    pub fn new(input: ReplicatedBinary) -> Self {
-        Self { input }
-    }
-
+impl DoubleRandom {
     ///
     /// Internal use only.
     /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
@@ -105,13 +100,48 @@ impl GenRandom {
     /// XOR can be computed as:
     /// a + b - 2*a*b
     ///
-    async fn xor<F: Field, N: Network>(
+    /// This variant is only to be used for the first XOR
+    /// Where helper 1 has shares:
+    /// a: (x1, 0) and b: (0, x2)
+    ///
+    /// And helper 2 has shares:
+    /// a: (0, 0) and b: (x2, 0)
+    ///
+    /// And helper 3 has shares:
+    /// a: (0, x1) and b: (0, 0)
+    async fn xor_specialized_1<F: Field, N: Network>(
         ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
-        let result = ctx.multiply(record_id).await.execute(a, b).await?;
+        let result = SpecializedMul::execute_specialized_1(ctx, record_id, a, b).await?;
+
+        Ok(a + b - (result * F::from(2)))
+    }
+
+    ///
+    /// Internal use only
+    /// When both inputs are known to be secret share of either '1' or '0',
+    /// XOR can be computed as:
+    /// a + b - 2*a*b
+    ///
+    /// This variant is only to be used for the first XOR
+    /// Where helper 1 has shares:
+    /// b: (0, 0)
+    ///
+    /// And helper 2 has shares:
+    /// (0, x3)
+    ///
+    /// And helper 3 has shares:
+    /// (x3, 0)
+    async fn xor_specialized_2<F: Field, N: Network>(
+        ctx: ProtocolContext<'_, N>,
+        record_id: RecordId,
+        a: Replicated<F>,
+        b: Replicated<F>,
+    ) -> Result<Replicated<F>, BoxError> {
+        let result = SpecializedMul::execute_specialized_2(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
     }
@@ -122,14 +152,15 @@ impl GenRandom {
     /// where the caller can select the output Field.
     #[allow(dead_code)]
     pub async fn execute<F: Field, N: Network>(
-        &self,
         ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
+        random_sharing: ReplicatedBinary,
     ) -> Result<Replicated<F>, BoxError> {
-        let (sh0, sh1, sh2) = Self::local_secret_share(self.input, ctx.role());
+        let (sh0, sh1, sh2) = Self::local_secret_share(random_sharing, ctx.role());
 
-        let sh0_xor_sh1 = Self::xor(ctx.narrow(&Step::Xor1), record_id, sh0, sh1).await?;
-        Self::xor(ctx.narrow(&Step::Xor2), record_id, sh0_xor_sh1, sh2).await
+        let sh0_xor_sh1 =
+            Self::xor_specialized_1(ctx.narrow(&Step::Xor1), record_id, sh0, sh1).await?;
+        Self::xor_specialized_2(ctx.narrow(&Step::Xor2), record_id, sh0_xor_sh1, sh2).await
     }
 }
 
@@ -139,14 +170,13 @@ mod tests {
         error::BoxError,
         field::{Field, Fp31},
         protocol::{
-            modulus_conversion::gen_random::{GenRandom, ReplicatedBinary},
+            modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
             QueryId, RecordId,
         },
         test_fixture::{make_contexts, make_world, validate_and_reconstruct},
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
-    use tokio::try_join;
 
     #[tokio::test]
     pub async fn gen_random() -> Result<(), BoxError> {
@@ -159,43 +189,43 @@ mod tests {
         let ctx2 = &context[2];
 
         let mut bools: Vec<u128> = Vec::with_capacity(40);
+        let mut futures = Vec::with_capacity(40);
 
-        let inputs = (0..40).into_iter().map(|_i| {
+        for i in 0..40 {
             let b0 = rng.gen::<bool>();
             let b1 = rng.gen::<bool>();
             let b2 = rng.gen::<bool>();
             bools.push(u128::from((b0 ^ b1) ^ b2));
 
-            (
-                GenRandom::new(ReplicatedBinary::new(b0, b1)),
-                GenRandom::new(ReplicatedBinary::new(b1, b2)),
-                GenRandom::new(ReplicatedBinary::new(b2, b0)),
-            )
-        });
+            let bit_number = format!("bit{}", i);
 
-        let futures = inputs
-            .into_iter()
-            .enumerate()
-            .map(|(index, (gr0, gr1, gr2))| async move {
-                let index_bytes: [u8; 8] = index.to_le_bytes();
-                let i = index_bytes[0];
-                let record_id = RecordId::from(0_u32);
-                let bit_number = format!("bit{}", i);
-                let ctx0 = ctx0.narrow(&bit_number);
-                let ctx1 = ctx1.narrow(&bit_number);
-                let ctx2 = ctx2.narrow(&bit_number);
+            let record_id = RecordId::from(i);
 
-                let f0 = gr0.execute(ctx0, record_id);
-                let f1 = gr1.execute(ctx1, record_id);
-                let f2 = gr2.execute(ctx2, record_id);
+            futures.push(try_join_all(vec![
+                DoubleRandom::execute(
+                    ctx0.narrow(&bit_number),
+                    record_id,
+                    ReplicatedBinary::new(b0, b1),
+                ),
+                DoubleRandom::execute(
+                    ctx1.narrow(&bit_number),
+                    record_id,
+                    ReplicatedBinary::new(b1, b2),
+                ),
+                DoubleRandom::execute(
+                    ctx2.narrow(&bit_number),
+                    record_id,
+                    ReplicatedBinary::new(b2, b0),
+                ),
+            ]));
+        }
 
-                try_join!(f0, f1, f2)
-            });
-
-        let awaited_futures = try_join_all(futures).await?;
+        let results = try_join_all(futures).await?;
 
         for i in 0..40 {
-            let output_share: Fp31 = validate_and_reconstruct(awaited_futures[i]);
+            let result_shares = &results[i];
+            let output_share: Fp31 =
+                validate_and_reconstruct((result_shares[0], result_shares[1], result_shares[2]));
 
             assert_eq!(output_share.as_u128(), bools[i]);
         }
