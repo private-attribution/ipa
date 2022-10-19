@@ -90,12 +90,7 @@ impl ConvertShares {
                 );
 
                 let (r_big_field, revealed_output) =
-                    match try_join(gen_random_future, reveal_future).await {
-                        Err(error) => {
-                            panic!("Problem converting shares from Z_2 to Z_p: {:#?}", error)
-                        }
-                        Ok((a, b)) => (a, b),
-                    };
+                    try_join(gen_random_future, reveal_future).await?;
 
                 if revealed_output {
                     Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
