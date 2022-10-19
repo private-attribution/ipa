@@ -1,10 +1,9 @@
+use embed_doc_image::embed_doc_image;
+use futures::future::try_join_all;
 use permutation::Permutation;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-
-use embed_doc_image::embed_doc_image;
-use futures::future::try_join_all;
 
 use crate::{
     error::BoxError,
@@ -232,9 +231,9 @@ mod tests {
         let batchsize = 10000;
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
-        let perm1 = generate_random_permutation(batchsize, p1.indexed(&step));
-        let perm2 = generate_random_permutation(batchsize, p2.indexed(&step));
-        let perm3 = generate_random_permutation(batchsize, p3.indexed(&step));
+        let perm1 = generate_random_permutation(batchsize, p1.indexed(&step).as_ref());
+        let perm2 = generate_random_permutation(batchsize, p2.indexed(&step).as_ref());
+        let perm3 = generate_random_permutation(batchsize, p3.indexed(&step).as_ref());
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
@@ -272,9 +271,9 @@ mod tests {
         let mut shuffle1 = Shuffle::new(&mut shares.1);
         let mut shuffle2 = Shuffle::new(&mut shares.2);
 
-        let perm1 = generate_random_permutation(input_len, context[0].prss());
-        let perm2 = generate_random_permutation(input_len, context[1].prss());
-        let perm3 = generate_random_permutation(input_len, context[2].prss());
+        let perm1 = generate_random_permutation(input_len, context[0].prss().as_ref());
+        let perm2 = generate_random_permutation(input_len, context[1].prss().as_ref());
+        let perm3 = generate_random_permutation(input_len, context[2].prss().as_ref());
 
         let [c0, c1, c2] = context;
         let h0_future = shuffle0.execute(c0, &perm1);
@@ -326,9 +325,9 @@ mod tests {
 
         let mut shares = generate_shares(input);
 
-        let perm1 = generate_random_permutation(input_len, context[0].prss());
-        let perm2 = generate_random_permutation(input_len, context[1].prss());
-        let perm3 = generate_random_permutation(input_len, context[2].prss());
+        let perm1 = generate_random_permutation(input_len, context[0].prss().as_ref());
+        let perm2 = generate_random_permutation(input_len, context[1].prss().as_ref());
+        let perm3 = generate_random_permutation(input_len, context[2].prss().as_ref());
 
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);

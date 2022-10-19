@@ -7,7 +7,11 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
-use std::{collections::HashMap, fmt::Debug, pin::Pin, ptr::NonNull, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use super::UniqueStepId;
@@ -134,8 +138,8 @@ pub struct Endpoint {
 impl Endpoint {
     /// Construct a new, unconfigured participant.  This can be configured by
     /// providing public keys for the left and right participants to `setup()`.
-    pub fn prepare<R: RngCore + CryptoRng>(r: &mut R) -> ParticipantSetup {
-        ParticipantSetup {
+    pub fn prepare<R: RngCore + CryptoRng>(r: &mut R) -> EndpointSetup {
+        EndpointSetup {
             left: KeyExchange::new(r),
             right: KeyExchange::new(r),
         }
@@ -146,11 +150,8 @@ impl Endpoint {
     /// # Panics
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
-    pub fn indexed(&self, key: &UniqueStepId) -> &IndexedSharedRandomness {
-        let p = self.inner.lock().unwrap().indexed(key.as_ref());
-        // Safety: This pointer refers to pinned memory that is allocated
-        // and retained as long as this object exists.
-        unsafe { p.as_ref() }
+    pub fn indexed(&self, key: &UniqueStepId) -> Arc<IndexedSharedRandomness> {
+        self.inner.lock().unwrap().indexed(key.as_ref())
     }
 
     /// Get a sequential shared randomness.
@@ -172,7 +173,7 @@ impl Debug for Endpoint {
 }
 
 enum EndpointItem {
-    Indexed(Pin<Box<IndexedSharedRandomness>>),
+    Indexed(Arc<IndexedSharedRandomness>),
     Sequential,
 }
 
@@ -186,7 +187,7 @@ struct EndpointInner {
 }
 
 impl EndpointInner {
-    pub fn indexed(&mut self, key: &str) -> NonNull<IndexedSharedRandomness> {
+    pub fn indexed(&mut self, key: &str) -> Arc<IndexedSharedRandomness> {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
@@ -194,7 +195,7 @@ impl EndpointInner {
             item
         } else {
             self.items.entry(key.to_owned()).or_insert_with_key(|k| {
-                EndpointItem::Indexed(Box::pin(IndexedSharedRandomness {
+                EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
                     left: self.left.generator(k.as_bytes()),
                     right: self.right.generator(k.as_bytes()),
                 }))
@@ -205,7 +206,7 @@ impl EndpointInner {
         // each once they are created as long as the pointer is not referenced
         // past the lifetime the container (see above).
         if let EndpointItem::Indexed(idxd) = item {
-            NonNull::from(unsafe { Pin::into_inner_unchecked(idxd.as_ref()) })
+            Arc::clone(idxd)
         } else {
             panic!("Attempt to get an indexed PRSS for {key} after retrieving a sequential PRSS");
         }
@@ -228,12 +229,12 @@ impl EndpointInner {
 }
 
 /// Use this to setup a three-party PRSS configuration.
-pub struct ParticipantSetup {
+pub struct EndpointSetup {
     left: KeyExchange,
     right: KeyExchange,
 }
 
-impl ParticipantSetup {
+impl EndpointSetup {
     /// Get the public keys that this setup instance intends to use.
     /// The public key that applies to the left participant is at `.0`,
     /// with the key for the right participant in `.1`.
@@ -326,19 +327,10 @@ impl Generator {
 
 #[cfg(test)]
 pub mod test {
-    use super::{
-        Endpoint, Generator, IndexedSharedRandomness, KeyExchange, SequentialSharedRandomness,
-    };
+    use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{field::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
     use rand::{thread_rng, Rng};
-    use std::ops::Deref;
-
-    impl Deref for Endpoint {
-        type Target = IndexedSharedRandomness;
-        fn deref(&self) -> &Self::Target {
-            self.indexed(&UniqueStepId::default())
-        }
-    }
+    use std::mem::drop;
 
     fn make() -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
@@ -394,11 +386,12 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let (r1_l, r1_r) = p1.generate_values(IDX);
+        let step = UniqueStepId::default();
+        let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
         assert_ne!(r1_l, r1_r);
-        let (r2_l, r2_r) = p2.generate_values(IDX);
+        let (r2_l, r2_r) = p2.indexed(&step).generate_values(IDX);
         assert_ne!(r2_l, r2_r);
-        let (r3_l, r3_r) = p3.generate_values(IDX);
+        let (r3_l, r3_r) = p3.indexed(&step).generate_values(IDX);
         assert_ne!(r3_l, r3_r);
 
         assert_eq!(r1_l, r3_r);
@@ -411,9 +404,10 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let z1 = p1.zero_u128(IDX);
-        let z2 = p2.zero_u128(IDX);
-        let z3 = p3.zero_u128(IDX);
+        let step = UniqueStepId::default();
+        let z1 = p1.indexed(&step).zero_u128(IDX);
+        let z2 = p2.indexed(&step).zero_u128(IDX);
+        let z3 = p3.indexed(&step).zero_u128(IDX);
 
         assert_eq!(0, z1.wrapping_add(z2).wrapping_add(z3));
     }
@@ -423,9 +417,10 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let z1 = p1.zero_xor(IDX);
-        let z2 = p2.zero_xor(IDX);
-        let z3 = p3.zero_xor(IDX);
+        let step = UniqueStepId::default();
+        let z1 = p1.indexed(&step).zero_xor(IDX);
+        let z2 = p2.indexed(&step).zero_xor(IDX);
+        let z3 = p3.indexed(&step).zero_xor(IDX);
 
         assert_eq!(0, z1 ^ z2 ^ z3);
     }
@@ -436,16 +431,17 @@ pub mod test {
         const IDX2: u128 = 21362;
         let (p1, p2, p3) = make_participants();
 
-        let r1 = p1.random_u128(IDX1);
-        let r2 = p2.random_u128(IDX1);
-        let r3 = p3.random_u128(IDX1);
+        let step = UniqueStepId::default();
+        let r1 = p1.indexed(&step).random_u128(IDX1);
+        let r2 = p2.indexed(&step).random_u128(IDX1);
+        let r3 = p3.indexed(&step).random_u128(IDX1);
 
         let v1 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(0, v1);
 
-        let r1 = p1.random_u128(IDX2);
-        let r2 = p2.random_u128(IDX2);
-        let r3 = p3.random_u128(IDX2);
+        let r1 = p1.indexed(&step).random_u128(IDX2);
+        let r2 = p2.indexed(&step).random_u128(IDX2);
+        let r3 = p3.indexed(&step).random_u128(IDX2);
 
         let v2 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(v1, v2);
@@ -458,9 +454,10 @@ pub mod test {
 
         // These tests do not check that left != right because
         // the field might not be large enough.
-        let (r1_l, r1_r): (Fp31, Fp31) = p1.generate_fields(IDX);
-        let (r2_l, r2_r) = p2.generate_fields(IDX);
-        let (r3_l, r3_r) = p3.generate_fields(IDX);
+        let step = UniqueStepId::default();
+        let (r1_l, r1_r): (Fp31, Fp31) = p1.indexed(&step).generate_fields(IDX);
+        let (r2_l, r2_r) = p2.indexed(&step).generate_fields(IDX);
+        let (r3_l, r3_r) = p3.indexed(&step).generate_fields(IDX);
 
         assert_eq!(r1_l, r3_r);
         assert_eq!(r2_l, r1_r);
@@ -472,9 +469,10 @@ pub mod test {
         const IDX: u128 = 72;
         let (p1, p2, p3) = make_participants();
 
-        let z1: Fp31 = p1.zero(IDX);
-        let z2 = p2.zero(IDX);
-        let z3 = p3.zero(IDX);
+        let step = UniqueStepId::default();
+        let z1: Fp31 = p1.indexed(&step).zero(IDX);
+        let z2 = p2.indexed(&step).zero(IDX);
+        let z3 = p3.indexed(&step).zero(IDX);
 
         assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
     }
@@ -485,18 +483,23 @@ pub mod test {
         const IDX2: u128 = 12634;
         let (p1, p2, p3) = make_participants();
 
-        let r1: Fp31 = p1.random(IDX1);
-        let r2 = p2.random(IDX1);
-        let r3 = p3.random(IDX1);
+        let step = UniqueStepId::default();
+        let s1 = p1.indexed(&step);
+        let s2 = p2.indexed(&step);
+        let s3 = p3.indexed(&step);
+
+        let r1: Fp31 = s1.random(IDX1);
+        let r2 = s2.random(IDX1);
+        let r3 = s3.random(IDX1);
         let v1 = r1 + r2 + r3;
 
         // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
         // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
         let mut v2 = Fp31::from(0_u8);
         for i in IDX2..(IDX2 + 21) {
-            let r1: Fp31 = p1.random(i);
-            let r2 = p2.random(i);
-            let r3 = p3.random(i);
+            let r1: Fp31 = s1.random(i);
+            let r2 = s2.random(i);
+            let r3 = s3.random(i);
 
             v2 = r1 + r2 + r3;
             if v1 != v2 {
@@ -550,7 +553,7 @@ pub mod test {
         let (p1, _p2, _p3) = make_participants();
 
         let step = UniqueStepId::default().narrow("test");
-        let _ = p1.indexed(&step);
+        drop(p1.indexed(&step));
         let _ = p1.sequential(&step);
     }
 
@@ -561,6 +564,6 @@ pub mod test {
 
         let step = UniqueStepId::default().narrow("test");
         let _ = p1.sequential(&step);
-        let _ = p1.indexed(&step);
+        drop(p1.indexed(&step));
     }
 }

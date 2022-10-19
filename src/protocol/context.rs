@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::{
     prss::{IndexedSharedRandomness, SequentialSharedRandomness},
     securemul::SecureMul,
@@ -64,7 +66,7 @@ impl<'a, N> ProtocolContext<'a, N> {
     /// If `prss_rng()` is invoked for the same context, this will panic.  Use of
     /// these two functions are mutually exclusive.
     #[must_use]
-    pub fn prss(&self) -> &IndexedSharedRandomness {
+    pub fn prss(&self) -> Arc<IndexedSharedRandomness> {
         self.prss.indexed(&self.step)
     }
 
