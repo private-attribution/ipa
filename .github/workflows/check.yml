@@ -18,6 +18,12 @@ jobs:
         with:
           command: build
           args: --tests
+# todo: enable this action once Step trait no longer causes release build failures
+#      - uses: actions-rs/cargo@v1
+#        name: Release Build
+#        with:
+#          command: build
+#          args: --release
 
       - uses: actions-rs/cargo@v1
         name: Check formatting
