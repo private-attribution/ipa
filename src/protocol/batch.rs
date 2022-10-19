@@ -13,8 +13,12 @@ impl<T> Batch<T> {
         self.0.len()
     }
 
-    pub fn iter(&self) -> core::slice::Iter<'_, T> {
-        self.0.as_slice().iter()
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.0.iter()
     }
 }
 

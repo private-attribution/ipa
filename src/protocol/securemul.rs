@@ -1,4 +1,3 @@
-use super::batch::{Batch, RecordIndex};
 use super::UniqueStepId;
 use crate::error::BoxError;
 use crate::field::Field;
@@ -16,6 +15,7 @@ pub struct DValue<F> {
     d: F,
 }
 
+/// `SecureMul` for vector multiplications
 #[derive(Debug)]
 pub struct SecureMulAll<'a, N> {
     prss: &'a PrssSpace,
@@ -32,34 +32,28 @@ impl<'a, N: Network> SecureMulAll<'a, N> {
         }
     }
 
+    /// Executes the secure multiplications on the given slices. This is a wrapper
+    /// on `SecureMul` that iteratively performs multiplications on elements in the
+    /// given lists positioned at the same index.
+    ///
+    /// Each multiplication is assigned a `RecordId` starting from 0. Calling this
+    /// method multiple times in parts could result in a bad state.
     pub async fn execute<F: Field>(
         self,
-        a: Batch<Replicated<F>>,
-        b: Batch<Replicated<F>>,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
-        debug_assert_eq!(a.len(), b.len(), "lengths of the vectors must be the same");
+        a: &[Replicated<F>],
+        b: &[Replicated<F>],
+    ) -> Result<impl Iterator<Item = Replicated<F>>, BoxError> {
+        assert_eq!(a.len(), b.len(), "lengths of the lists must be the same");
 
-        let a: Vec<_> = a.into();
-        let b: Vec<_> = b.into();
+        let results = try_join_all(a.iter().zip(b).enumerate().map(|(i, (x, y))| async move {
+            #[allow(clippy::cast_possible_truncation)]
+            SecureMul::new(self.prss, self.gateway, self.step, RecordId::from(i as u32))
+                .execute(*x, *y)
+                .await
+        }))
+        .await?;
 
-        try_join_all(
-            a.into_iter()
-                .zip(b)
-                .enumerate()
-                .map(|(i, (x, y))| async move {
-                    // Batch<> ensures that `i` is safe to cast
-                    #[allow(clippy::cast_possible_truncation)]
-                    SecureMul::new(
-                        self.prss,
-                        self.gateway,
-                        self.step,
-                        RecordId::from(i as RecordIndex),
-                    )
-                    .execute(x, y)
-                    .await
-                }),
-        )
-        .await
+        Ok(results.into_iter())
     }
 }
 
@@ -363,9 +357,13 @@ pub mod tests {
         type MulArgs<F> = (Batch<Replicated<F>>, Batch<Replicated<F>>);
         async fn mul<F: Field>(
             v: (ProtocolContext<'_, Arc<InMemoryEndpoint>>, MulArgs<F>),
-        ) -> Vec<Replicated<F>> {
+        ) -> impl Iterator<Item = Replicated<F>> {
             let (ctx, (a, b)) = v;
-            ctx.multiply_all().await.execute(a, b).await.unwrap()
+            ctx.multiply_all()
+                .await
+                .execute(a.as_slice(), b.as_slice())
+                .await
+                .unwrap()
         }
         logging::setup();
 
@@ -385,7 +383,7 @@ pub mod tests {
         let b = a.clone();
 
         let step_name = String::from("mult_all");
-        let results = join_all(
+        let mut results = join_all(
             contexts
                 .iter()
                 .map(|ctx| ctx.narrow(&step_name))
@@ -394,13 +392,17 @@ pub mod tests {
         )
         .await;
 
-        assert_eq!(results[0].len(), results[1].len());
-        assert_eq!(results[1].len(), results[2].len());
+        assert_eq!(results[0].size_hint(), results[1].size_hint());
+        assert_eq!(results[1].size_hint(), results[2].size_hint());
 
-        for i in 0..10 {
+        for i in 0..10_u8 {
             assert_eq!(
-                Fp31::from((i * i) as u32),
-                validate_and_reconstruct((results[0][i], results[1][i], results[2][i]))
+                Fp31::from(i * i),
+                validate_and_reconstruct((
+                    results[0].next().unwrap(),
+                    results[1].next().unwrap(),
+                    results[2].next().unwrap()
+                ))
             );
         }
     }
