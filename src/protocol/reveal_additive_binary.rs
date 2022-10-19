@@ -56,12 +56,7 @@ impl RevealAdditiveBinary {
         let future_right = channel.receive(channel.identity().peer(Direction::Right), record_id);
 
         let (share_from_left, share_from_right): (RevealValue, RevealValue) =
-            match try_join(future_left, future_right).await {
-                Err(error) => {
-                    panic!("Problem receiving shares from other helpers: {:#?}", error)
-                }
-                Ok((a, b)) => (a, b),
-            };
+            try_join(future_left, future_right).await?;
 
         Ok(input ^ share_from_left.share ^ share_from_right.share)
     }
