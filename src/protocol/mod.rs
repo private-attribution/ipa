@@ -32,9 +32,9 @@ use std::{fmt::Debug, hash::Hash};
 pub trait Step: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
-#[cfg(debug_assertions)]
+#[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for String {}
-#[cfg(debug_assertions)]
+#[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
 /// The representation of a unique step in protocol execution.
