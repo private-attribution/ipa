@@ -1,20 +1,15 @@
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Identity;
 use crate::net::server::MpcServerError;
-use crate::net::{BufferedMessages, RecordHeaders};
+use crate::net::RecordHeaders;
 use crate::protocol::{IPAProtocolStep, QueryId, RecordId, Step};
 use async_trait::async_trait;
 use axum::{
     body::Bytes,
     extract::{self, FromRequest, Query, RequestParts},
-    http::{Request, StatusCode},
-    middleware::Next,
-    response::Response,
     Extension,
 };
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use tokio_util::sync::PollSender;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request
 pub struct Path<S: Step>(QueryId, S);
@@ -30,51 +25,36 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
     }
 }
 
-/// TODO: implement receiver
-#[derive(Clone)]
-pub struct MessageStreamExt<S> {
-    sender: mpsc::Sender<MessageChunks<S>>,
-}
-impl<S: Step> MessageStreamExt<S> {
-    /// TODO: replace with real implementation
-    pub fn example() -> Self {
-        let (tx, _) = mpsc::channel(1);
-        Self { sender: tx }
-    }
-}
-
 /// Injects a permit to send data to the message layer into the Axum request, so that downstream
 /// handlers have simple access to the correct value
 ///
 /// For now, stub out the permit logic with just an empty channel
-pub async fn upstream_middleware_fn<B: Send, S: Step>(
-    message_stream: MessageStreamExt<S>,
-    req: Request<B>,
-    next: Next<B>,
-) -> Result<Response, MpcServerError> {
-    let permit = message_stream.sender.reserve_owned().await?;
+// pub async fn upstream_middleware_fn<B: Send, S: Step>(
+//     message_stream: MessageStreamExt<S>,
+//     req: Request<B>,
+//     next: Next<B>,
+// ) -> Result<Response, MpcServerError> {
+//     let permit = message_stream.sender.reserve_owned().await?;
+//
+//     let mut req_parts = RequestParts::new(req);
+//     req_parts.extensions_mut().insert(permit);
+//
+//     let req = req_parts.try_into_request()?;
+//
+//     Ok(next.run(req).await)
+// }
 
-    let mut req_parts = RequestParts::new(req);
-    req_parts.extensions_mut().insert(permit);
-
-    let req = req_parts.try_into_request()?;
-
-    Ok(next.run(req).await)
-}
-
-#[axum_macros::debug_handler]
 /// accepts all the relevant information from the request, and push all of it onto the gateway
+#[allow(clippy::unused_async)] // handler is expected to be async
+#[allow(clippy::cast_possible_truncation)] // length of envelopes array known to be less u32
 pub async fn handler(
-    Extension(permit): Extension<mpsc::OwnedPermit<MessageChunks<IPAProtocolStep>>>,
+    Extension(mut permit): Extension<PollSender<MessageChunks<IPAProtocolStep>>>,
     Path(_query_id, step): Path<IPAProtocolStep>,
     Query(identity): Query<Identity>,
     RecordHeaders { offset, data_size }: RecordHeaders,
     body: Bytes,
 ) -> Result<(), MpcServerError> {
-    let channel_id = ChannelId {
-        identity: Identity::H1,
-        step,
-    };
+    let channel_id = ChannelId { identity, step };
     let envelopes = body
         .as_ref()
         .chunks(data_size as usize)
@@ -85,7 +65,7 @@ pub async fn handler(
         })
         .collect::<Vec<_>>();
 
-    permit.send((channel_id, envelopes));
+    permit.send_item((channel_id, envelopes))?;
     Ok(())
 }
 

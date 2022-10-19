@@ -1,5 +1,4 @@
 use crate::error::BoxError;
-use crate::net::server::handlers::MessageStreamExt;
 use crate::protocol::Step;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use ::metrics::increment_counter;
@@ -50,6 +49,14 @@ impl<T> From<mpsc::error::SendError<T>> for MpcServerError {
     }
 }
 
+/// [`From`] implementation for [`MpcServerError::SendError`].
+/// first call `to_string` to as to drop `T` from the [`MpcServerError`]
+impl<T> From<tokio_util::sync::PollSendError<T>> for MpcServerError {
+    fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
+        Self::SendError(err.to_string().into())
+    }
+}
+
 /// [`From`] implementation for [`MpcServerError::InvalidHeader`]
 impl From<std::num::ParseIntError> for MpcServerError {
     fn from(err: std::num::ParseIntError) -> Self {
@@ -85,15 +92,16 @@ impl IntoResponse for MpcServerError {
 #[allow(dead_code)]
 #[must_use]
 pub fn router<S: Step>() -> Router {
-    let ext = MessageStreamExt::<S>::example();
+    // dummy implementation for example purposes
+    // TODO: remove when full implementation done
+    let (tx, _) = mpsc::channel::<crate::helpers::fabric::MessageChunks<S>>(1);
+    let message_stream_layer = handlers::MessageStreamLayer::new(tx);
     Router::new()
         .route(
             "/mul/query-id/:query_id/step/*step",
             post(handlers::mul_handler),
         )
-        .layer(axum::middleware::from_fn(move |req, next| {
-            handlers::upstream_middleware_fn(ext.clone(), req, next)
-        }))
+        .layer(message_stream_layer)
         .route("/echo", get(handlers::echo_handler))
 }
 
