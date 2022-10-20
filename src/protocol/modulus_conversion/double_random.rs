@@ -3,7 +3,11 @@ use crate::{
     field::Field,
     helpers::{fabric::Network, Identity},
     protocol::{
-        context::ProtocolContext, modulus_conversion::specialized_mul::SpecializedMul, RecordId,
+        context::ProtocolContext,
+        modulus_conversion::specialized_mul::{
+            multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes,
+        },
+        RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -115,7 +119,7 @@ impl DoubleRandom {
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
-        let result = SpecializedMul::execute_specialized_1(ctx, record_id, a, b).await?;
+        let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
     }
@@ -141,7 +145,7 @@ impl DoubleRandom {
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
-        let result = SpecializedMul::execute_specialized_2(ctx, record_id, a, b).await?;
+        let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
     }
