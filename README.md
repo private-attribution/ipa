@@ -1,23 +1,27 @@
-# Raw IPA
+# IPA
 
-A collaborative effort to generate a raw, but broadly functional, prototype of
-the [Interoperable Private Attribution (IPA)
-proposal](https://docs.google.com/document/d/1KpdSKD8-Rn0bWPTu4UtK54ks0yv2j22pA5SrAD9av4s/edit#heading=h.f4x9f0nqv28x).
+A collaborative effort to create prototype of the helper (or server) components
+of the [Interoperable Private Attribution (IPA)
+proposal](https://github.com/patcg-individual-drafts/ipa/).
 
-The goal of this project is to explore a stricter threat model than the original
-proposal assumes, with the potential for malicious but non-colluding servers.
-That is, servers (or helpers) that do no collude with each other, though they
-may collude with user agents (browsers or mobile operating systems), websites,
-or mobile apps.
+IPA enables
+[attribution](https://en.wikipedia.org/wiki/Attribution_(marketing)), providing
+information about how advertising campaigns are delivering value to advertisers,
+while giving users strong privacy assurances.  IPA uses multi-party computation
+(MPC) to achieve this goal.  IPA relies on three helper nodes (servers) that are
+trusted to faithfully execute the protocol without conspiring with other helper
+nodes to violate user privacy.
 
-The tools here will not include fully functional servers and clients, but
-instead command-line utilities that operate on files.
+## This Project
 
-The focus is on readable code that is easy to understand and modify.  This code
-might be useful for evaluating performance claims, but only in general terms; a
-full and performant implementation is likely to be much faster.
+This project is intended to be a functional, performant, and comprehensible
+implementation of the core IPA protocol.  This should allow for validation of
+the implementation and should enable performance measurement.
 
-A token effort will be made to meet privacy and security goals. However, this is
-only for the purposes of learning.  No serious effort will be made to ensure
-that these goals are met and therefore this code is **not fit for production
-use**.
+The eventual goal is to provide the core of an implementation that could be
+deployed and used.  This will require additional infrastructure in order to meet
+the privacy and security goals of the project.
+
+This is very much a work in progress; input is welcome.  However, see our
+[contribution guidelines](./CONTRIBUTING.md) for some important notices
+regarding how to participate in the project.
