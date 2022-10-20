@@ -1,8 +1,8 @@
-/target/
-*.swp
-*~
-/Cargo.lock
-/.vscode/
 *.code-workspace
+*.swp
 */db
+*~
 /.venv/
+/.vscode/
+/Cargo.lock
+/target/
