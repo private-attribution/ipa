@@ -1,6 +1,6 @@
 use super::Command;
 use crate::net::RecordHeaders;
-use crate::protocol::{QueryId, Step};
+use crate::protocol::{QueryId, UniqueStepId};
 use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::uri::{self, PathAndQuery};
@@ -94,15 +94,19 @@ impl MpcHttpConnection {
         Ok(result.to_vec())
     }
 
-    async fn mul<S: Step>(
+    async fn mul(
         &self,
         query_id: QueryId,
-        step: S,
+        step: UniqueStepId,
         offset: u32,
         data_size: u32,
         messages: Bytes,
     ) -> Result<(), MpcClientError> {
-        let uri = self.build_uri(format!("/mul/query-id/{}/step/{}", query_id, step))?;
+        let uri = self.build_uri(format!(
+            "/mul/query-id/{}/step/{}",
+            query_id,
+            String::from(step)
+        ))?;
         let body = Body::from(messages);
         let headers = RecordHeaders { offset, data_size };
         let req = headers.add_to(Request::post(uri)).body(body)?;

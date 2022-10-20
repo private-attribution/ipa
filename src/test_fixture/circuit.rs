@@ -2,7 +2,7 @@ use crate::field::Field;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
 use crate::test_fixture::{
-    make_contexts, make_world, share, validate_and_reconstruct, TestStep, TestWorld,
+    make_contexts, make_world, narrow_contexts, share, validate_and_reconstruct, TestWorld,
 };
 use futures_util::future::join_all;
 use rand::thread_rng;
@@ -30,20 +30,20 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
 }
 
 async fn circuit<F: Field>(
-    world: &TestWorld<TestStep>,
+    world: &TestWorld,
     record_id: RecordId,
     depth: u8,
 ) -> [Replicated<F>; 3] {
-    let c = make_contexts(world);
+    let top_ctx = make_contexts(world);
     let mut a = share(F::ONE, &mut thread_rng());
 
     for bit in 0..depth {
         let b = share(F::ONE, &mut thread_rng());
-        let c = &c;
+        let bit_ctx = narrow_contexts(&top_ctx, &format!("b{bit}"));
         a = async move {
             let mut coll = Vec::new();
-            for (i, ctx) in c.iter().enumerate() {
-                let mul = ctx.multiply(record_id, TestStep::Mul1(bit)).await;
+            for (i, ctx) in bit_ctx.iter().enumerate() {
+                let mul = ctx.multiply(record_id).await;
                 coll.push(mul.execute(a[i], b[i]));
             }
 

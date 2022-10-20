@@ -193,10 +193,8 @@ impl Debug for Fp31 {
 
 #[cfg(test)]
 mod test {
-    use super::Field;
+    use super::{Field, Fp31};
     use std::ops::Mul;
-
-    use super::Fp31;
 
     #[test]
     fn fp31() {

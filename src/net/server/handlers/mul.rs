@@ -2,7 +2,7 @@ use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Identity;
 use crate::net::server::MpcServerError;
 use crate::net::RecordHeaders;
-use crate::protocol::{IPAProtocolStep, QueryId, RecordId, Step};
+use crate::protocol::{QueryId, RecordId, UniqueStepId};
 use async_trait::async_trait;
 use axum::{
     body::Bytes,
@@ -12,15 +12,14 @@ use axum::{
 use tokio_util::sync::PollSender;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request
-pub struct Path<S: Step>(QueryId, S);
+pub struct Path(QueryId, UniqueStepId);
 #[async_trait]
-impl<B: Send, S: Step> FromRequest<B> for Path<S> {
+impl<B: Send> FromRequest<B> for Path {
     type Rejection = MpcServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let extract::Path((query_id, step)) =
-            extract::Path::<(QueryId, String)>::from_request(req).await?;
-        let step = S::try_from(step).map_err::<serde_json::Error, _>(serde::de::Error::custom)?;
+            extract::Path::<(QueryId, UniqueStepId)>::from_request(req).await?;
         Ok(Path(query_id, step))
     }
 }
@@ -48,8 +47,8 @@ impl<B: Send, S: Step> FromRequest<B> for Path<S> {
 #[allow(clippy::unused_async)] // handler is expected to be async
 #[allow(clippy::cast_possible_truncation)] // length of envelopes array known to be less u32
 pub async fn handler(
-    Extension(mut permit): Extension<PollSender<MessageChunks<IPAProtocolStep>>>,
-    Path(_query_id, step): Path<IPAProtocolStep>,
+    Extension(mut permit): Extension<PollSender<MessageChunks>>,
+    Path(_query_id, step): Path,
     Query(identity): Query<Identity>,
     RecordHeaders { offset, data_size }: RecordHeaders,
     body: Bytes,
