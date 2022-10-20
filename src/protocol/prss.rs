@@ -201,7 +201,6 @@ impl EndpointInner {
                 }))
             })
         };
-        // Safety: we never drop a PRSS instance while the outer object lives.
         // As each instance is pinned, it is safe to return a pointer to
         // each once they are created as long as the pointer is not referenced
         // past the lifetime the container (see above).
