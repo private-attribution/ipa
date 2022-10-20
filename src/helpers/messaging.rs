@@ -75,7 +75,7 @@ impl<N: Network> Mesh<'_, '_, N> {
     /// # Errors
     /// Returns an error if it fails to send the message or if there is a serialization error.
     pub async fn send<T: Message>(
-        &mut self,
+        &self,
         dest: Identity,
         record_id: RecordId,
         msg: T,
@@ -99,7 +99,7 @@ impl<N: Network> Mesh<'_, '_, N> {
     /// # Errors
     /// Returns an error if it fails to receive the message or if a deserialization error occurred
     pub async fn receive<T: Message>(
-        &mut self,
+        &self,
         source: Identity,
         record_id: RecordId,
     ) -> Result<T, Error> {

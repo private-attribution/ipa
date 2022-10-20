@@ -1,7 +1,10 @@
+mod attribution;
+mod batch;
 pub mod context;
 mod modulus_conversion;
 pub mod prss;
 mod reveal;
+mod reveal_additive_binary;
 mod securemul;
 pub mod sort;
 
@@ -29,9 +32,9 @@ use std::{fmt::Debug, hash::Hash};
 pub trait Step: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
-#[cfg(debug_assertions)]
+#[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for String {}
-#[cfg(debug_assertions)]
+#[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
 /// The representation of a unique step in protocol execution.
@@ -84,7 +87,7 @@ impl UniqueStepId {
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
     #[must_use]
-    pub fn narrow<S: Step>(&self, step: &S) -> Self {
+    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         #[cfg(debug_assertions)]
         {
             let s = String::from(step.as_ref());
