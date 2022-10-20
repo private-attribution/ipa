@@ -4,7 +4,7 @@ use crate::{
     helpers::fabric::Network,
     protocol::{
         context::ProtocolContext,
-        modulus_conversion::gen_random::{GenRandom, ReplicatedBinary},
+        modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
         reveal_additive_binary::RevealAdditiveBinary,
         RecordId,
     },
@@ -79,9 +79,8 @@ impl ConvertShares {
             .map(|(ctx, b0, b1, input_xor_r)| async move {
                 let r_binary = ReplicatedBinary::new(b0, b1);
 
-                let gen_random = GenRandom::new(r_binary);
                 let gen_random_future =
-                    gen_random.execute(ctx.narrow(&Step::DoubleRandom), record_id);
+                    DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary);
 
                 let reveal_future = RevealAdditiveBinary::execute(
                     ctx.narrow(&Step::BinaryReveal),
