@@ -29,18 +29,19 @@ pub struct UValue<F> {
 /// <https://link.springer.com/content/pdf/10.1007/978-3-319-96878-0_2.pdf>
 ///
 /// In that paper, this functionality is called `F_product` and
-/// an instantiation for Replciated Secret Sharing is provided in section 6.1 on page 25
+/// an instantiation for Replciated Secret Sharing is provided in section 6.1 on page 27
 ///
 /// To summarize the CHIKP protocol:
-/// each helper computes `u_i = (s_i + s_i+1) * (t_i + t_i+1) - s_i+1 * t_i+1`
-/// It then randomizes this share with correlated randomness, and sends it to the helper to its right
+/// each helper computes `u_i+1 = (s_i + s_i+1) * (t_i + t_i+1) - s_i+1 * t_i+1`
+/// It then randomizes this share with correlated randomness, and sends it to the helper to its right,
+/// and receives `u_i` from the helper to its left.
 /// Each helper then defines the pair `(u_i, u_i+1)` as its shares of the output.
 ///
-/// (Note it is equivalent to compute `u_i = s_i * t_i + s_i+1 * t_i + s_i * t_i+1`,
+/// (Note it is equivalent to compute `u_i+1 = s_i * t_i + s_i+1 * t_i + s_i * t_i+1`,
 /// but this requires three multiplications instead of two. Assuming multiplying field elements is
-/// significantly more costly (in CPU terms) that addition, this is less efficient to compute)
+/// significantly more costly (in CPU terms) than addition, this is less efficient to compute)
 ///
-/// The key observation, that makes this protocol work, is that each helper can compute many `u_i` values
+/// The key observation, that makes this protocol work, is that each helper can compute many `u_i+1` values
 /// from many multiplications, sum them all together, randomize them with correlated randomness, and can
 /// send this single field value to the next helper. The result will be a replicated secret sharing of the
 /// dot-product of the two vectors.
