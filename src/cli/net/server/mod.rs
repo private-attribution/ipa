@@ -1,7 +1,7 @@
 use ::metrics::increment_counter;
 use std::net::SocketAddr;
 
-use crate::telemetry::metrics::REQUESTS_RECEIVED;
+use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
 use axum::{
     extract::rejection::QueryRejection,
     response::{IntoResponse, Response},
@@ -34,7 +34,6 @@ impl IntoResponse for MpcServerError {
 }
 
 /// Axum router definition for MPC helper endpoint
-#[allow(dead_code)]
 #[must_use]
 pub fn router() -> Router {
     Router::new().route("/echo", get(handlers::echo_handler))
@@ -42,7 +41,6 @@ pub fn router() -> Router {
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
-#[allow(dead_code)]
 pub enum BindTarget {
     Http(SocketAddr),
     Https(SocketAddr, RustlsConfig),
@@ -50,11 +48,11 @@ pub enum BindTarget {
 
 /// Starts a new instance of MPC helper and binds it to a given target.
 /// Returns a socket it is listening to and the join handle of the web server running.
-#[allow(dead_code)]
 pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
     let svc = router()
         .layer(
-            TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
+            TraceLayer::new_for_http().on_request(|request: &Request<Body>, _span: &Span| {
+                increment_counter!(RequestProtocolVersion::from(request.version()));
                 increment_counter!(REQUESTS_RECEIVED);
             }),
         )
@@ -163,6 +161,7 @@ mod e2e_tests {
     use hyper::header::HeaderValue;
     use hyper::{
         body, client::HttpConnector, http::uri::Scheme, Body, Request, Response, StatusCode,
+        Version,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
     use std::collections::HashMap;
@@ -170,8 +169,8 @@ mod e2e_tests {
 
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
 
-    use crate::telemetry::metrics::get_counter_value;
     use crate::telemetry::metrics::REQUESTS_RECEIVED;
+    use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion};
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -292,6 +291,53 @@ mod e2e_tests {
             get_counter_value(
                 Snapshotter::current_thread_snapshot().unwrap(),
                 REQUESTS_RECEIVED
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn request_version_metric() {
+        DebuggingRecorder::per_thread().install().unwrap_or(());
+
+        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let mut echo_data = EchoData::default();
+        let client = hyper::Client::new();
+        echo_data.headers.insert("host".into(), addr.to_string());
+
+        // make HTTP/1.1 request
+        let response = client
+            .request(echo_data.to_request(&Scheme::HTTP))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // make HTTP/2 request
+        let client = hyper::Client::builder().http2_only(true).build_http();
+        let response = client
+            .request(echo_data.to_request(&Scheme::HTTP))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_eq!(
+            Some(1),
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                RequestProtocolVersion::from(Version::HTTP_11)
+            )
+        );
+        assert_eq!(
+            Some(1),
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                RequestProtocolVersion::from(Version::HTTP_2)
+            )
+        );
+        assert_eq!(
+            None,
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                RequestProtocolVersion::from(Version::HTTP_3)
             )
         );
     }
