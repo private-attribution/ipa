@@ -1,5 +1,6 @@
 mod attribution;
 mod batch;
+mod check_zero;
 pub mod context;
 mod modulus_conversion;
 pub mod prss;
