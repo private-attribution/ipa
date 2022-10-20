@@ -32,7 +32,7 @@ pub trait Network: Sync {
 
     /// Returns a stream to receive messages that have arrived from other helpers. Note that
     /// some implementations may panic if this method is called more than once.
-    fn stream(&self) -> Self::MessageStream;
+    fn recv_stream(&self) -> Self::MessageStream;
 }
 
 impl ChannelId {

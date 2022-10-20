@@ -198,7 +198,7 @@ impl Network for Arc<InMemoryEndpoint> {
         InMemorySink::new(x)
     }
 
-    fn stream(&self) -> Self::MessageStream {
+    fn recv_stream(&self) -> Self::MessageStream {
         let mut rx = self.rx.lock().unwrap();
         if let Some(rx) = rx.take() {
             ReceiverStream::new(rx)

@@ -81,12 +81,6 @@ impl SendBuffer {
 }
 
 impl ReceiveBuffer {
-    pub fn new() -> Self {
-        Self {
-            inner: HashMap::default(),
-        }
-    }
-
     /// Process request to receive a message with the given `RecordId`.
     pub fn receive_request(
         &mut self,

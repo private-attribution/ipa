@@ -133,7 +133,7 @@ impl<N: Network> Gateway<N> {
     pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
         let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
-        let mut message_stream = network.stream();
+        let mut message_stream = network.recv_stream();
         let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
@@ -144,7 +144,7 @@ impl<N: Network> Gateway<N> {
             // sending buffers that are half-full will lead to underutilizing the network
             const INTERVAL: Duration = Duration::from_millis(200);
 
-            let mut receive_buf = ReceiveBuffer::new();
+            let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
 
             let sleep = tokio::time::sleep(INTERVAL);

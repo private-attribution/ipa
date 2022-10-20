@@ -1,10 +1,10 @@
+use crate::helpers::messaging::GatewayConfig;
 use crate::{
     helpers::messaging::Gateway,
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
     test_fixture::{fabric::InMemoryNetwork, make_participants},
 };
 use std::{fmt::Debug, sync::Arc};
-use crate::helpers::messaging::GatewayConfig;
 
 use super::fabric::InMemoryEndpoint;
 
