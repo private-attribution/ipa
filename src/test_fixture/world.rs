@@ -1,6 +1,6 @@
 use crate::{
     helpers::messaging::Gateway,
-    protocol::{prss::Participant, QueryId},
+    protocol::{prss::Endpoint as PrssEndpoint, QueryId},
     test_fixture::{fabric::InMemoryNetwork, make_participants},
 };
 use std::{fmt::Debug, sync::Arc};
@@ -16,7 +16,7 @@ use super::fabric::InMemoryEndpoint;
 pub struct TestWorld {
     pub query_id: QueryId,
     pub gateways: [Gateway<Arc<InMemoryEndpoint>>; 3],
-    pub participants: [Participant; 3],
+    pub participants: [PrssEndpoint; 3],
     _network: Arc<InMemoryNetwork>,
 }
 

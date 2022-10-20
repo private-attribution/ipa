@@ -9,7 +9,7 @@ use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::Step;
 use crate::secret_sharing::Replicated;
-use crate::{field::Fp31, protocol::prss::Participant};
+use crate::{field::Fp31, protocol::prss::Endpoint as PrssEndpoint};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 use std::sync::Arc;
@@ -56,11 +56,11 @@ pub fn narrow_contexts<'a>(
 /// Generate three participants.
 /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
 #[must_use]
-pub fn make_participants() -> (Participant, Participant, Participant) {
+pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
     let mut r = thread_rng();
-    let setup1 = Participant::prepare(&mut r);
-    let setup2 = Participant::prepare(&mut r);
-    let setup3 = Participant::prepare(&mut r);
+    let setup1 = PrssEndpoint::prepare(&mut r);
+    let setup2 = PrssEndpoint::prepare(&mut r);
+    let setup3 = PrssEndpoint::prepare(&mut r);
     let (pk1_l, pk1_r) = setup1.public_keys();
     let (pk2_l, pk2_r) = setup2.public_keys();
     let (pk3_l, pk3_r) = setup3.public_keys();

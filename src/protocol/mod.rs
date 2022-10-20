@@ -87,7 +87,7 @@ impl UniqueStepId {
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
     #[must_use]
-    pub fn narrow<S: Step>(&self, step: &S) -> Self {
+    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
         #[cfg(debug_assertions)]
         {
             let s = String::from(step.as_ref());

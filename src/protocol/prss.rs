@@ -7,18 +7,23 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
-use std::{collections::HashMap, fmt::Debug, pin::Pin, ptr::NonNull, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 use x25519_dalek::{EphemeralSecret, PublicKey};
+
+use super::UniqueStepId;
 
 /// A participant in a 2-of-N replicated secret sharing.
 #[derive(Debug)] // TODO(mt) custom debug implementation
-#[allow(clippy::module_name_repetitions)]
-pub struct PrssSpace {
+pub struct IndexedSharedRandomness {
     left: Generator,
     right: Generator,
 }
 
-impl PrssSpace {
+impl IndexedSharedRandomness {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
@@ -76,36 +81,28 @@ impl PrssSpace {
         let (l, r): (F, F) = self.generate_fields(index);
         l + r
     }
-
-    /// Turn this space into a pair of random number generators, one that is shared
-    /// with the left and one that is shared with the right.
-    /// Nothing prevents this from being used after calls to generate values,
-    /// but it should not be used in both ways.
-    #[must_use]
-    pub fn as_rngs(&self) -> (PrssRng, PrssRng) {
-        (
-            PrssRng {
-                generator: self.left.clone(),
-                counter: 0,
-            },
-            PrssRng {
-                generator: self.right.clone(),
-                counter: 0,
-            },
-        )
-    }
 }
 
 /// An implementation of `RngCore` that uses the same underlying `Generator`.
 /// For use in place of `PrssSpace` where indexing cannot be used, such as
 /// in APIs that expect `Rng`.
 #[allow(clippy::module_name_repetitions)]
-pub struct PrssRng {
+pub struct SequentialSharedRandomness {
     generator: Generator,
     counter: u128,
 }
 
-impl RngCore for PrssRng {
+impl SequentialSharedRandomness {
+    /// Private constructor.
+    fn new(generator: Generator) -> Self {
+        Self {
+            generator,
+            counter: 0,
+        }
+    }
+}
+
+impl RngCore for SequentialSharedRandomness {
     #[allow(clippy::cast_possible_truncation)]
     fn next_u32(&mut self) -> u32 {
         self.next_u64() as u32
@@ -130,19 +127,19 @@ impl RngCore for PrssRng {
     }
 }
 
-impl CryptoRng for PrssRng {}
+impl CryptoRng for SequentialSharedRandomness {}
 
 /// A single participant in the protocol.
 /// This holds multiple streams of correlated (pseudo)randomness.
-pub struct Participant {
-    inner: Mutex<ParticipantInner>,
+pub struct Endpoint {
+    inner: Mutex<EndpointInner>,
 }
 
-impl Participant {
+impl Endpoint {
     /// Construct a new, unconfigured participant.  This can be configured by
     /// providing public keys for the left and right participants to `setup()`.
-    pub fn prepare<R: RngCore + CryptoRng>(r: &mut R) -> ParticipantSetup {
-        ParticipantSetup {
+    pub fn prepare<R: RngCore + CryptoRng>(r: &mut R) -> EndpointSetup {
+        EndpointSetup {
             left: KeyExchange::new(r),
             right: KeyExchange::new(r),
         }
@@ -153,59 +150,90 @@ impl Participant {
     /// # Panics
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
-    pub fn prss(&self, key: impl AsRef<str>) -> &PrssSpace {
-        let p = self.inner.lock().unwrap().prss(key.as_ref());
-        // Safety: This pointer refers to pinned memory that is allocated
-        // and retained as long as this object exists.
-        unsafe { p.as_ref() }
+    pub fn indexed(&self, key: &UniqueStepId) -> Arc<IndexedSharedRandomness> {
+        self.inner.lock().unwrap().indexed(key.as_ref())
+    }
+
+    /// Get a sequential shared randomness.
+    ///
+    /// # Panics
+    /// This can only be called once.  After that, calls to this function or `indexed` will panic.
+    pub fn sequential(
+        &self,
+        key: &UniqueStepId,
+    ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        self.inner.lock().unwrap().sequential(key.as_ref())
     }
 }
 
-impl Debug for Participant {
+impl Debug for Endpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Participant")
     }
 }
 
-struct ParticipantInner {
+enum EndpointItem {
+    Indexed(Arc<IndexedSharedRandomness>),
+    Sequential,
+}
+
+struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
     // TODO(mt): add a function to get an RNG instead of the indexed PRSS.
     // That should mark the entry as dead, so that any attempt to get the
     // indexed PRSS or another RNG will fail.
-    spaces: HashMap<String, Pin<Box<PrssSpace>>>,
+    items: HashMap<String, EndpointItem>,
 }
 
-impl ParticipantInner {
-    pub fn prss(&mut self, key: &str) -> NonNull<PrssSpace> {
+impl EndpointInner {
+    pub fn indexed(&mut self, key: &str) -> Arc<IndexedSharedRandomness> {
         // The second arm of this statement would be fine, except that `HashMap::entry()`
         // only takes an owned value as an argument.
         // This makes the lookup perform an allocation, which is very much suboptimal.
-        let p = if let Some(value) = self.spaces.get(key) {
-            value
+        let item = if let Some(item) = self.items.get(key) {
+            item
         } else {
-            self.spaces.entry(key.to_owned()).or_insert_with_key(|k| {
-                Box::pin(PrssSpace {
+            self.items.entry(key.to_owned()).or_insert_with_key(|k| {
+                EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
                     left: self.left.generator(k.as_bytes()),
                     right: self.right.generator(k.as_bytes()),
-                })
+                }))
             })
         };
-        // Safety: we never drop a PRSS instance while the outer object lives.
         // As each instance is pinned, it is safe to return a pointer to
         // each once they are created as long as the pointer is not referenced
         // past the lifetime the container (see above).
-        NonNull::from(unsafe { Pin::into_inner_unchecked(p.as_ref()) })
+        if let EndpointItem::Indexed(idxd) = item {
+            Arc::clone(idxd)
+        } else {
+            panic!("Attempt to get an indexed PRSS for {key} after retrieving a sequential PRSS");
+        }
+    }
+
+    pub fn sequential(
+        &mut self,
+        key: &str,
+    ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        let prev = self.items.insert(key.to_owned(), EndpointItem::Sequential);
+        assert!(
+            prev.is_none(),
+            "Attempt access a sequential PRSS for {key} after another access"
+        );
+        (
+            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
+        )
     }
 }
 
 /// Use this to setup a three-party PRSS configuration.
-pub struct ParticipantSetup {
+pub struct EndpointSetup {
     left: KeyExchange,
     right: KeyExchange,
 }
 
-impl ParticipantSetup {
+impl EndpointSetup {
     /// Get the public keys that this setup instance intends to use.
     /// The public key that applies to the left participant is at `.0`,
     /// with the key for the right participant in `.1`.
@@ -219,14 +247,14 @@ impl ParticipantSetup {
     /// This is generic over `SpaceIndex` so that it can construct the
     /// appropriate number of spaces for use by a protocol participant.
     #[must_use]
-    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Participant {
+    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
-        Participant {
-            inner: Mutex::new(ParticipantInner {
+        Endpoint {
+            inner: Mutex::new(EndpointInner {
                 left: fl,
                 right: fr,
-                spaces: HashMap::new(),
+                items: HashMap::new(),
             }),
         }
     }
@@ -298,17 +326,10 @@ impl Generator {
 
 #[cfg(test)]
 pub mod test {
-    use super::{Generator, KeyExchange, Participant, PrssRng, PrssSpace};
-    use crate::{field::Fp31, test_fixture::make_participants};
+    use super::{Generator, KeyExchange, SequentialSharedRandomness};
+    use crate::{field::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
     use rand::{thread_rng, Rng};
-    use std::ops::Deref;
-
-    impl Deref for Participant {
-        type Target = PrssSpace;
-        fn deref(&self) -> &Self::Target {
-            self.prss("test")
-        }
-    }
+    use std::mem::drop;
 
     fn make() -> (Generator, Generator) {
         const CONTEXT: &[u8] = b"test generator";
@@ -364,11 +385,12 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let (r1_l, r1_r) = p1.generate_values(IDX);
+        let step = UniqueStepId::default();
+        let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
         assert_ne!(r1_l, r1_r);
-        let (r2_l, r2_r) = p2.generate_values(IDX);
+        let (r2_l, r2_r) = p2.indexed(&step).generate_values(IDX);
         assert_ne!(r2_l, r2_r);
-        let (r3_l, r3_r) = p3.generate_values(IDX);
+        let (r3_l, r3_r) = p3.indexed(&step).generate_values(IDX);
         assert_ne!(r3_l, r3_r);
 
         assert_eq!(r1_l, r3_r);
@@ -381,9 +403,10 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let z1 = p1.zero_u128(IDX);
-        let z2 = p2.zero_u128(IDX);
-        let z3 = p3.zero_u128(IDX);
+        let step = UniqueStepId::default();
+        let z1 = p1.indexed(&step).zero_u128(IDX);
+        let z2 = p2.indexed(&step).zero_u128(IDX);
+        let z3 = p3.indexed(&step).zero_u128(IDX);
 
         assert_eq!(0, z1.wrapping_add(z2).wrapping_add(z3));
     }
@@ -393,9 +416,10 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let z1 = p1.zero_xor(IDX);
-        let z2 = p2.zero_xor(IDX);
-        let z3 = p3.zero_xor(IDX);
+        let step = UniqueStepId::default();
+        let z1 = p1.indexed(&step).zero_xor(IDX);
+        let z2 = p2.indexed(&step).zero_xor(IDX);
+        let z3 = p3.indexed(&step).zero_xor(IDX);
 
         assert_eq!(0, z1 ^ z2 ^ z3);
     }
@@ -406,16 +430,17 @@ pub mod test {
         const IDX2: u128 = 21362;
         let (p1, p2, p3) = make_participants();
 
-        let r1 = p1.random_u128(IDX1);
-        let r2 = p2.random_u128(IDX1);
-        let r3 = p3.random_u128(IDX1);
+        let step = UniqueStepId::default();
+        let r1 = p1.indexed(&step).random_u128(IDX1);
+        let r2 = p2.indexed(&step).random_u128(IDX1);
+        let r3 = p3.indexed(&step).random_u128(IDX1);
 
         let v1 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(0, v1);
 
-        let r1 = p1.random_u128(IDX2);
-        let r2 = p2.random_u128(IDX2);
-        let r3 = p3.random_u128(IDX2);
+        let r1 = p1.indexed(&step).random_u128(IDX2);
+        let r2 = p2.indexed(&step).random_u128(IDX2);
+        let r3 = p3.indexed(&step).random_u128(IDX2);
 
         let v2 = r1.wrapping_add(r2).wrapping_add(r3);
         assert_ne!(v1, v2);
@@ -428,9 +453,10 @@ pub mod test {
 
         // These tests do not check that left != right because
         // the field might not be large enough.
-        let (r1_l, r1_r): (Fp31, Fp31) = p1.generate_fields(IDX);
-        let (r2_l, r2_r) = p2.generate_fields(IDX);
-        let (r3_l, r3_r) = p3.generate_fields(IDX);
+        let step = UniqueStepId::default();
+        let (r1_l, r1_r): (Fp31, Fp31) = p1.indexed(&step).generate_fields(IDX);
+        let (r2_l, r2_r) = p2.indexed(&step).generate_fields(IDX);
+        let (r3_l, r3_r) = p3.indexed(&step).generate_fields(IDX);
 
         assert_eq!(r1_l, r3_r);
         assert_eq!(r2_l, r1_r);
@@ -442,9 +468,10 @@ pub mod test {
         const IDX: u128 = 72;
         let (p1, p2, p3) = make_participants();
 
-        let z1: Fp31 = p1.zero(IDX);
-        let z2 = p2.zero(IDX);
-        let z3 = p3.zero(IDX);
+        let step = UniqueStepId::default();
+        let z1: Fp31 = p1.indexed(&step).zero(IDX);
+        let z2 = p2.indexed(&step).zero(IDX);
+        let z3 = p3.indexed(&step).zero(IDX);
 
         assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
     }
@@ -455,18 +482,23 @@ pub mod test {
         const IDX2: u128 = 12634;
         let (p1, p2, p3) = make_participants();
 
-        let r1: Fp31 = p1.random(IDX1);
-        let r2 = p2.random(IDX1);
-        let r3 = p3.random(IDX1);
+        let step = UniqueStepId::default();
+        let s1 = p1.indexed(&step);
+        let s2 = p2.indexed(&step);
+        let s3 = p3.indexed(&step);
+
+        let r1: Fp31 = s1.random(IDX1);
+        let r2 = s2.random(IDX1);
+        let r3 = s3.random(IDX1);
         let v1 = r1 + r2 + r3;
 
         // There isn't enough entropy in this field (~5 bits) to be sure that the test will pass.
         // So run a few rounds (~21 -> ~100 bits) looking for a mismatch.
         let mut v2 = Fp31::from(0_u8);
         for i in IDX2..(IDX2 + 21) {
-            let r1: Fp31 = p1.random(i);
-            let r2 = p2.random(i);
-            let r3 = p3.random(i);
+            let r1: Fp31 = s1.random(i);
+            let r2 = s2.random(i);
+            let r3 = s3.random(i);
 
             v2 = r1 + r2 + r3;
             if v1 != v2 {
@@ -478,7 +510,7 @@ pub mod test {
 
     #[test]
     fn prss_rng() {
-        fn same_rng(mut a: PrssRng, mut b: PrssRng) {
+        fn same_rng(mut a: SequentialSharedRandomness, mut b: SequentialSharedRandomness) {
             assert_eq!(a.gen::<u32>(), b.gen::<u32>());
             assert_eq!(a.gen::<[u8; 20]>(), b.gen::<[u8; 20]>());
             assert_eq!(a.gen_range(7..99), b.gen_range(7..99));
@@ -486,12 +518,51 @@ pub mod test {
         }
 
         let (p1, p2, p3) = make_participants();
-        let (rng1_l, rng1_r) = p1.as_rngs();
-        let (rng2_l, rng2_r) = p2.as_rngs();
-        let (rng3_l, rng3_r) = p3.as_rngs();
+        let step = UniqueStepId::default();
+        let (rng1_l, rng1_r) = p1.sequential(&step);
+        let (rng2_l, rng2_r) = p2.sequential(&step);
+        let (rng3_l, rng3_r) = p3.sequential(&step);
 
         same_rng(rng1_l, rng3_r);
         same_rng(rng2_l, rng1_r);
         same_rng(rng3_l, rng2_r);
+    }
+
+    #[test]
+    fn indexed_and_sequential() {
+        let (p1, _p2, _p3) = make_participants();
+
+        let base = UniqueStepId::default();
+        let idx = p1.indexed(&base.narrow("indexed"));
+        let (mut s_left, mut s_right) = p1.sequential(&base.narrow("sequential"));
+        let (i_left, i_right) = idx.generate_values(0);
+        assert_ne!(
+            i_left & u128::from(u64::MAX),
+            u128::from(s_left.gen::<u64>())
+        );
+        assert_ne!(
+            i_right & u128::from(u64::MAX),
+            u128::from(s_right.gen::<u64>())
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn indexed_then_sequential() {
+        let (p1, _p2, _p3) = make_participants();
+
+        let step = UniqueStepId::default().narrow("test");
+        drop(p1.indexed(&step));
+        let _ = p1.sequential(&step);
+    }
+
+    #[test]
+    #[should_panic]
+    fn sequential_then_indexed() {
+        let (p1, _p2, _p3) = make_participants();
+
+        let step = UniqueStepId::default().narrow("test");
+        let _ = p1.sequential(&step);
+        drop(p1.indexed(&step));
     }
 }
