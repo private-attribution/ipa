@@ -181,9 +181,6 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    // TODO(mt): add a function to get an RNG instead of the indexed PRSS.
-    // That should mark the entry as dead, so that any attempt to get the
-    // indexed PRSS or another RNG will fail.
     items: HashMap<String, EndpointItem>,
 }
 
@@ -202,9 +199,6 @@ impl EndpointInner {
                 }))
             })
         };
-        // As each instance is pinned, it is safe to return a pointer to
-        // each once they are created as long as the pointer is not referenced
-        // past the lifetime the container (see above).
         if let EndpointItem::Indexed(idxd) = item {
             Arc::clone(idxd)
         } else {
