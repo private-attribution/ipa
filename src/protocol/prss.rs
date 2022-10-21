@@ -27,14 +27,15 @@ impl IndexedSharedRandomness {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
-    pub fn generate_values(&self, index: u128) -> (u128, u128) {
+    pub fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
+        let index = index.into();
         (self.left.generate(index), self.right.generate(index))
     }
 
     /// Generate two random field values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
-    pub fn generate_fields<F: Field>(&self, index: u128) -> (F, F) {
+    pub fn generate_fields<F: Field, I: Into<u128>>(&self, index: I) -> (F, F) {
         let (l, r) = self.generate_values(index);
         (F::from(l), F::from(r))
     }
@@ -45,14 +46,14 @@ impl IndexedSharedRandomness {
     /// and subtract their right value, each share will be added once (as a left share)
     /// and subtracted once (as a right share), resulting in values that sum to zero.
     #[must_use]
-    pub fn zero_u128(&self, index: u128) -> u128 {
+    pub fn zero_u128<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l.wrapping_sub(r)
     }
 
     /// Generate an XOR share of zero.
     #[must_use]
-    pub fn zero_xor(&self, index: u128) -> u128 {
+    pub fn zero_xor<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l ^ r
     }
@@ -63,21 +64,21 @@ impl IndexedSharedRandomness {
     /// using a wrapping add, the result won't be even because the high bit will
     /// wrap around and populate the low bit.
     #[must_use]
-    pub fn random_u128(&self, index: u128) -> u128 {
+    pub fn random_u128<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l.wrapping_add(r)
     }
 
     /// Generate additive shares of zero in a field.
     #[must_use]
-    pub fn zero<F: Field>(&self, index: u128) -> F {
+    pub fn zero<F: Field, I: Into<u128>>(&self, index: I) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
         l - r
     }
 
     /// Generate additive shares of a random field value.
     #[must_use]
-    pub fn random<F: Field>(&self, index: u128) -> F {
+    pub fn random<F: Field, I: Into<u128>>(&self, index: I) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
         l + r
     }
@@ -180,9 +181,6 @@ enum EndpointItem {
 struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
-    // TODO(mt): add a function to get an RNG instead of the indexed PRSS.
-    // That should mark the entry as dead, so that any attempt to get the
-    // indexed PRSS or another RNG will fail.
     items: HashMap<String, EndpointItem>,
 }
 
@@ -201,9 +199,6 @@ impl EndpointInner {
                 }))
             })
         };
-        // As each instance is pinned, it is safe to return a pointer to
-        // each once they are created as long as the pointer is not referenced
-        // past the lifetime the container (see above).
         if let EndpointItem::Indexed(idxd) = item {
             Arc::clone(idxd)
         } else {
@@ -535,7 +530,7 @@ pub mod test {
         let base = UniqueStepId::default();
         let idx = p1.indexed(&base.narrow("indexed"));
         let (mut s_left, mut s_right) = p1.sequential(&base.narrow("sequential"));
-        let (i_left, i_right) = idx.generate_values(0);
+        let (i_left, i_right) = idx.generate_values(0_u128);
         assert_ne!(
             i_left & u128::from(u64::MAX),
             u128::from(s_left.gen::<u64>())

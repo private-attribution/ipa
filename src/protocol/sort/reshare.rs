@@ -49,7 +49,7 @@ impl<F: Field> Reshare<F> {
     ) -> Result<Replicated<F>, BoxError> {
         let channel = ctx.mesh();
         let prss = ctx.prss();
-        let (r0, r1) = prss.generate_fields(record_id.into());
+        let (r0, r1) = prss.generate_fields(record_id);
 
         let inputs = self.input.as_tuple();
         // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
