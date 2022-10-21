@@ -31,7 +31,7 @@ impl AsRef<str> for Step {
     }
 }
 
-/// A very simple protocol to check if a replicated secret sharing is in fact a sharing of zero
+/// A very simple protocol to check if a replicated secret sharing is a sharing of zero.
 ///
 /// NOTE: this protocol leaks information about `v` the helpers. Please only use this in cases where
 /// this type of information leakage is acceptable, such as where `v` is the product of a secret value
@@ -70,15 +70,15 @@ pub async fn check_zero<F: Field, N: Network>(
     let (left, right) = prss.generate_fields(record_id.into());
     let r_sharing = Replicated::new(left, right);
 
-    let r_times_v = ctx
+    let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
         .multiply(record_id)
         .await
         .execute(r_sharing, v)
         .await?;
-    let r_revealed = reveal(ctx.narrow(&Step::RevealR), record_id, r_times_v).await?;
+    let rv = reveal(ctx.narrow(&Step::RevealR), record_id, rv_share).await?;
 
-    Ok(r_revealed == F::ZERO)
+    Ok(rv == F::ZERO)
 }
 
 #[cfg(test)]
@@ -95,44 +95,41 @@ pub mod tests {
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rng = rand::thread_rng();
+        let mut counter = 0;
 
-        for i in 0..u32::from(Fp31::PRIME) {
-            let a = Fp31::from(i);
+        for v in 0..u32::from(Fp31::PRIME) {
+            let v = Fp31::from(v);
             let mut num_false_positives = 0;
-            for j in 0..10 {
-                let a_shares = share(a, &mut rng);
-                let row = i * u32::from(Fp31::PRIME) + j;
-                let record_id = RecordId::from(row);
-
-                let iteration = format!("{}", row);
+            for _ in 0..10 {
+                let v_shares = share(v, &mut rng);
+                let record_id = RecordId::from(counter);
+                let iteration = format!("{}", counter);
+                counter += 1;
 
                 let protocol_output = tokio::try_join!(
-                    check_zero(context[0].narrow(&iteration), record_id, a_shares[0],),
-                    check_zero(context[1].narrow(&iteration), record_id, a_shares[1],),
-                    check_zero(context[2].narrow(&iteration), record_id, a_shares[2],),
+                    check_zero(context[0].narrow(&iteration), record_id, v_shares[0],),
+                    check_zero(context[1].narrow(&iteration), record_id, v_shares[1],),
+                    check_zero(context[2].narrow(&iteration), record_id, v_shares[2],),
                 )?;
 
                 // All three helpers should always get the same result
                 assert_eq!(protocol_output.0, protocol_output.1);
                 assert_eq!(protocol_output.1, protocol_output.2);
 
-                match i {
-                    0 => {
-                        // When it actually is a secret sharing of zero
-                        // the helpers should definitely all receive "true"
-                        assert!(protocol_output.0);
-                        assert!(protocol_output.1);
-                        assert!(protocol_output.2);
-                    }
-                    _ => {
-                        // Unfortunately, there is a small chance of an incorrect
-                        // "true", even in when the secret shared value is NOT zero.
-                        // Since we will test out 10 different random secret sharings
-                        // let's count how many false positives we get. Odds are there
-                        // will be 0, 1, or maybe 2 out of 10
-                        if protocol_output.0 {
-                            num_false_positives += 1;
-                        }
+                if v == Fp31::ZERO {
+                    // When it actually is a secret sharing of zero
+                    // the helpers should definitely all receive "true"
+                    assert!(protocol_output.0);
+                    assert!(protocol_output.1);
+                    assert!(protocol_output.2);
+                } else if protocol_output.0 {
+                    // Unfortunately, there is a small chance of an incorrect
+                    // "true", even in when the secret shared value is NOT zero.
+                    // Since we will test out 10 different random secret sharings
+                    // let's count how many false positives we get. Odds are there
+                    // will be 0, 1, or maybe 2 out of 10
+                    if protocol_output.0 {
+                        num_false_positives += 1;
                     }
                 }
             }
