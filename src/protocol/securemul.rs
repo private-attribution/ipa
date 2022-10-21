@@ -56,7 +56,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
         let channel = self.gateway.mesh(self.step);
 
         // generate shared randomness.
-        let (s0, s1) = self.prss.generate_fields(self.record_id.into());
+        let (s0, s1) = self.prss.generate_fields(self.record_id);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = a.as_tuple();

@@ -46,7 +46,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
     match ctx.role() {
         Identity::H1 => {
             let prss = &ctx.prss();
-            let (s_3_1, _) = prss.generate_fields(record_id.into());
+            let (s_3_1, _) = prss.generate_fields(record_id);
 
             // d_1 = a_1 * b_2 + a_2 * b_1 - s_3,1
             // d_1 = a_1 * b_2 + 0 * 0 - s_3,1
@@ -92,7 +92,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
             // And there is no need to send it.
 
             let prss = &ctx.prss();
-            let (_, s_3_1) = prss.generate_fields(record_id.into());
+            let (_, s_3_1) = prss.generate_fields(record_id);
 
             Ok(Replicated::new(F::ZERO, s_3_1))
         }
@@ -132,7 +132,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
     b: Replicated<F>,
 ) -> Result<Replicated<F>, BoxError> {
     let prss = &ctx.prss();
-    let (s_left, s_right) = prss.generate_fields(record_id.into());
+    let (s_left, s_right) = prss.generate_fields(record_id);
 
     match ctx.role() {
         Identity::H1 => {
