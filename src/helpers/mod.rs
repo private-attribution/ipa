@@ -1,3 +1,6 @@
+use std::ops::{Index, IndexMut};
+
+mod buffers;
 pub mod error;
 pub mod fabric;
 pub mod messaging;
@@ -6,7 +9,6 @@ use crate::error::Error;
 use crate::helpers::Direction::{Left, Right};
 use crate::helpers::Identity::{H1, H2, H3};
 pub use error::Result;
-use std::ops::{Index, IndexMut};
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]

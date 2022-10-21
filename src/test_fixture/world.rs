@@ -1,8 +1,10 @@
-use super::fabric::InMemoryEndpoint;
 use crate::{
-    helpers::messaging::Gateway,
+    helpers::messaging::{Gateway, GatewayConfig},
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
-    test_fixture::{fabric::InMemoryNetwork, make_participants},
+    test_fixture::{
+        fabric::{InMemoryEndpoint, InMemoryNetwork},
+        make_participants,
+    },
 };
 use std::{fmt::Debug, sync::Arc};
 
@@ -19,19 +21,41 @@ pub struct TestWorld {
     _network: Arc<InMemoryNetwork>,
 }
 
+#[derive(Copy, Clone)]
+pub struct TestWorldConfig {
+    gateway_config: GatewayConfig,
+}
+
+impl Default for TestWorldConfig {
+    fn default() -> Self {
+        Self {
+            // buffer capacity = 1 effectively means no buffering. This is the desired mode
+            // for unit tests because they may not produce enough data to trigger buffer flush
+            gateway_config: GatewayConfig {
+                send_buffer_capacity: 1,
+            },
+        }
+    }
+}
+
 /// Creates a new `TestWorld` instance.
-///
-/// # Panics
-/// No panic is expected.
 #[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn make(query_id: QueryId) -> TestWorld {
+    let config = TestWorldConfig::default();
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
     let network = InMemoryNetwork::new();
     let gateways = network
         .endpoints
         .iter()
-        .map(|endpoint| Gateway::new(endpoint.identity, Arc::clone(endpoint)))
+        .map(|endpoint| {
+            Gateway::new(
+                endpoint.identity,
+                Arc::clone(endpoint),
+                config.gateway_config,
+            )
+        })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

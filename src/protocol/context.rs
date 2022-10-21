@@ -11,7 +11,7 @@ use crate::{
         messaging::{Gateway, Mesh},
         Identity,
     },
-    protocol::{prss::Endpoint as PrssEndpoint, reveal::Reveal},
+    protocol::prss::Endpoint as PrssEndpoint,
 };
 
 /// Context used by each helper to perform computation. Currently they need access to shared
@@ -96,12 +96,5 @@ impl<N: Network> ProtocolContext<'_, N> {
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     pub async fn multiply(&self, record_id: RecordId) -> SecureMul<'_, N> {
         SecureMul::new(self.prss(), self.gateway, &self.step, record_id)
-    }
-
-    /// Request reveal for a given record.
-    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    #[must_use]
-    pub fn reveal(&self, record_id: RecordId) -> Reveal<'_, '_, N> {
-        Reveal::new(self, record_id)
     }
 }
