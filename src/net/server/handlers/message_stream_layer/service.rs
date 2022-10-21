@@ -1,5 +1,5 @@
 use super::future::ResponseFuture;
-use axum::extract::RequestParts;
+use crate::net::server::MpcServerError;
 use axum::http::{Request, Response};
 use std::task::{ready, Context, Poll};
 use tokio::sync::mpsc;
@@ -23,6 +23,13 @@ impl<T> Clone for SenderStatus<T> {
             Self::Err => Self::Err,
             Self::Spent => Self::Spent,
         }
+    }
+}
+
+pub struct ReservedPermit<T>(PollSender<T>);
+impl<T: Send + 'static> ReservedPermit<T> {
+    pub fn send(&mut self, item: T) -> Result<(), MpcServerError> {
+        Ok(self.0.send_item(item)?)
     }
 }
 
@@ -83,22 +90,19 @@ where
         }
     }
 
-    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+    fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         match &self.sender {
             SenderStatus::NotReady(_) => panic!("poll_ready not called"),
             SenderStatus::Ready(_) => {
                 if let SenderStatus::Ready(sender) =
                     std::mem::replace(&mut self.sender, SenderStatus::Spent)
                 {
-                    let mut req_parts = RequestParts::new(req);
                     // must insert value wrapped in `Some` due to `Extension`'s `FromRequest` impl
                     // calling `.clone()` on all `Extension`s. Thus, we must call `.extensions_mut` on
                     // the `Request` inside the handler, which does NOT call `.clone()`, but which means
-                    // we must `.take()` the `sender` out of the `Extension`.
-                    req_parts.extensions_mut().insert(Some(sender));
-                    let req = req_parts
-                        .try_into_request()
-                        .expect("body should not be used");
+                    // we must `.take()` the `sender` out of the `Extension` to prevent borrow contention
+                    // on the `Request`.
+                    req.extensions_mut().insert(Some(ReservedPermit(sender)));
                     ResponseFuture::Inner(self.inner.call(req))
                 } else {
                     panic!("SenderStatus was not Ready")

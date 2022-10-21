@@ -1,13 +1,12 @@
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Identity;
-use crate::net::server::MpcServerError;
+use crate::net::server::{handlers::message_stream_layer::ReservedPermit, MpcServerError};
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, RecordId, UniqueStepId};
 use async_trait::async_trait;
 use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
 use hyper::Body;
-use tokio_util::sync::PollSender;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request
 pub struct Path(QueryId, UniqueStepId);
@@ -47,7 +46,12 @@ pub struct IdentityQuery {
 //     Ok(next.run(req).await)
 // }
 
-/// accepts all the relevant information from the request, and push all of it onto the gateway
+/// extracts the [`MessageChunks`] from the request and forwards it to the Message layer via the
+/// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
+/// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
+/// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
+/// Unfortunately, this also means we must wrap the `permit` in an `Option` such that we can
+/// `take()` the `permit`, freeing up the `req` for `Request::into_body`
 #[allow(clippy::unused_async)] // handler is expected to be async
 #[allow(clippy::cast_possible_truncation)] // length of envelopes array known to be less u32
 pub async fn handler(
@@ -60,7 +64,7 @@ pub async fn handler(
     // this also necessitates `take`ing the value out so that we stop borrowing it
     let mut permit = req
         .extensions_mut()
-        .get_mut::<Option<PollSender<MessageChunks>>>()
+        .get_mut::<Option<ReservedPermit<MessageChunks>>>()
         .unwrap()
         .take()
         .unwrap();
@@ -77,7 +81,7 @@ pub async fn handler(
         })
         .collect::<Vec<_>>();
 
-    permit.send_item((channel_id, envelopes))?;
+    permit.send((channel_id, envelopes))?;
     Ok(())
 }
 
