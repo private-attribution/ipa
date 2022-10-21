@@ -1,4 +1,5 @@
 use crate::error::BoxError;
+use crate::helpers::fabric::MessageChunks;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use ::metrics::increment_counter;
 use axum::extract::rejection::PathRejection;
@@ -87,73 +88,84 @@ impl IntoResponse for MpcServerError {
     }
 }
 
-/// Axum router definition for MPC helper endpoint
-#[allow(dead_code)]
-#[must_use]
-pub fn router() -> Router {
-    // dummy implementation for example purposes
-    // TODO: remove when full implementation done
-    let (tx, _) = mpsc::channel::<crate::helpers::fabric::MessageChunks>(1);
-    let message_stream_layer = handlers::MessageStreamLayer::new(tx);
-    Router::new()
-        .route(
-            "/mul/query-id/:query_id/step/*step",
-            post(handlers::mul_handler),
-        )
-        .layer(message_stream_layer)
-        .route("/echo", get(handlers::echo_handler))
-}
-
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
-#[allow(dead_code)]
 pub enum BindTarget {
     Http(SocketAddr),
     Https(SocketAddr, RustlsConfig),
 }
 
-/// Starts a new instance of MPC helper and binds it to a given target.
-/// Returns a socket it is listening to and the join handle of the web server running.
-pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router()
-        .layer(
-            TraceLayer::new_for_http().on_request(|_request: &Request<Body>, _span: &Span| {
-                increment_counter!(REQUESTS_RECEIVED);
+/// Contains all of the state needed to start the MPC server.
+/// For now, stub out gateway with simple send/receive
+/// TODO: replace stub with real thing when [`Network`] is implemented
+#[allow(clippy::module_name_repetitions)] // standard naming convention
+pub struct MpcServer {
+    tx: mpsc::Sender<MessageChunks>,
+}
+
+impl MpcServer {
+    #[must_use]
+    pub fn new(tx: mpsc::Sender<MessageChunks>) -> Self {
+        MpcServer { tx }
+    }
+
+    /// Axum router definition for MPC helper endpoint
+    #[must_use]
+    pub(crate) fn router(&self) -> Router {
+        let message_stream_layer = handlers::MessageStreamLayer::new(self.tx.clone());
+        Router::new()
+            .route(
+                "/mul/query-id/:query_id/step/*step",
+                post(handlers::mul_handler),
+            )
+            .layer(message_stream_layer)
+            .route("/echo", get(handlers::echo_handler))
+    }
+
+    /// Starts a new instance of MPC helper and binds it to a given target.
+    /// Returns a socket it is listening to and the join handle of the web server running.
+    pub async fn bind(&self, target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+        let svc = self
+            .router()
+            .layer(TraceLayer::new_for_http().on_request(
+                |_request: &Request<Body>, _span: &Span| {
+                    increment_counter!(REQUESTS_RECEIVED);
+                },
+            ))
+            .into_make_service();
+        let handle = Handle::new();
+
+        let task_handle = match target {
+            BindTarget::Http(addr) => tokio::spawn({
+                let handle = handle.clone();
+                async move {
+                    axum_server::bind(addr)
+                        .handle(handle)
+                        .serve(svc)
+                        .await
+                        .expect("Failed to serve");
+                }
             }),
+            BindTarget::Https(addr, tls_config) => tokio::spawn({
+                let handle = handle.clone();
+                async move {
+                    axum_server::bind_rustls(addr, tls_config)
+                        .handle(handle)
+                        .serve(svc)
+                        .await
+                        .expect("Failed to serve");
+                }
+            }),
+        };
+
+        (
+            handle
+                .listening()
+                .await
+                .expect("Failed to bind server to a port"),
+            task_handle,
         )
-        .into_make_service();
-    let handle = Handle::new();
-
-    let task_handle = match target {
-        BindTarget::Http(addr) => tokio::spawn({
-            let handle = handle.clone();
-            async move {
-                axum_server::bind(addr)
-                    .handle(handle)
-                    .serve(svc)
-                    .await
-                    .expect("Failed to serve");
-            }
-        }),
-        BindTarget::Https(addr, tls_config) => tokio::spawn({
-            let handle = handle.clone();
-            async move {
-                axum_server::bind_rustls(addr, tls_config)
-                    .handle(handle)
-                    .serve(svc)
-                    .await
-                    .expect("Failed to serve");
-            }
-        }),
-    };
-
-    (
-        handle
-            .listening()
-            .await
-            .expect("Failed to bind server to a port"),
-        task_handle,
-    )
+    }
 }
 
 /// Returns `RustTlsConfig` instance configured with self-signed cert and key. Not intended to
@@ -221,7 +233,7 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 #[cfg(test)]
 mod e2e_tests {
     use crate::net::server::handlers::EchoData;
-    use crate::net::server::{bind, BindTarget};
+    use crate::net::server::{BindTarget, MpcServer};
     use crate::telemetry::metrics::get_counter_value;
     use crate::telemetry::metrics::REQUESTS_RECEIVED;
     use hyper::header::HeaderName;
@@ -233,6 +245,7 @@ mod e2e_tests {
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
+    use tokio::sync::mpsc;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -267,7 +280,11 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -290,10 +307,14 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) = bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
+        let (addr, _) = server
+            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
+            .await;
 
         let mut expected = EchoData::default();
         // self-signed cert CN is "localhost", therefore request uri must not use the ip address
@@ -331,7 +352,12 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
+
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());

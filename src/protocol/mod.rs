@@ -136,6 +136,9 @@ impl AsRef<str> for UniqueStepId {
 
 impl From<String> for UniqueStepId {
     fn from(id: String) -> Self {
+        let id = id
+            .strip_prefix('/')
+            .map_or_else(|| id.clone(), str::to_owned);
         UniqueStepId {
             id,
             #[cfg(debug_assertions)]

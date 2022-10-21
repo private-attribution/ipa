@@ -9,7 +9,7 @@ pub use client::{MpcHandle, MpcHttpConnection as Client};
 pub use data::Command;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
-pub use server::{bind as bind_mpc_helper_server, router as mpc_helper_router, BindTarget};
+pub use server::{BindTarget, MpcServer};
 use std::str::FromStr;
 
 use crate::net::server::MpcServerError;
