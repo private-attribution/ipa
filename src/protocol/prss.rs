@@ -1,4 +1,5 @@
 use crate::field::Field;
+use crate::secret_sharing::Replicated;
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -23,6 +24,11 @@ pub struct IndexedSharedRandomness {
     right: Generator,
 }
 
+/// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
+/// You can read about it in the seminal paper:
+/// "Share Conversion, Pseudorandom Secret-Sharing and Applications to Secure Computation"
+/// by Ronald Cramer, Ivan Damgård, and Yuval Ishai - 2005
+/// <https://link.springer.com/content/pdf/10.1007/978-3-540-30576-7_19.pdf>
 impl IndexedSharedRandomness {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
@@ -38,6 +44,20 @@ impl IndexedSharedRandomness {
     pub fn generate_fields<F: Field, I: Into<u128>>(&self, index: I) -> (F, F) {
         let (l, r) = self.generate_values(index);
         (F::from(l), F::from(r))
+    }
+
+    ///
+    /// Generate a replicated secret sharing of a random value, which none
+    /// of the helpers knows. This is an implementation of the functionality 2.1 `F_rand`
+    /// described on page 5 of the paper:
+    /// "Efficient Bit-Decomposition and Modulus Conversion Protocols with an Honest Majority"
+    /// by Ryo Kikuchi, Dai Ikarashi, Takahiro Matsuda, Koki Hamada, and Koji Chida
+    /// <https://eprint.iacr.org/2018/387.pdf>
+    ///
+    #[must_use]
+    pub fn generate_replicated<F: Field, I: Into<u128>>(&self, index: I) -> Replicated<F> {
+        let (l, r) = self.generate_fields(index);
+        Replicated::new(l, r)
     }
 
     /// Generate an additive share of zero.
