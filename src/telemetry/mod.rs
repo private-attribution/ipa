@@ -20,8 +20,8 @@ pub mod metrics {
     impl From<RequestProtocolVersion> for KeyName {
         fn from(v: RequestProtocolVersion) -> Self {
             const HTTP11: &str = "request.protocol.HTTP/1.1";
-            const HTTP2: &str = "request.protocol.HTTP/2.0";
-            const HTTP3: &str = "request.protocol.HTTP/3.0";
+            const HTTP2: &str = "request.protocol.HTTP/2";
+            const HTTP3: &str = "request.protocol.HTTP/3";
             const UNKNOWN: &str = "request.protocol.HTTP/UNKNOWN";
 
             KeyName::from_const_str(if v.0 == Version::HTTP_11 {
