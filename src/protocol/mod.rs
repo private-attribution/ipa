@@ -161,12 +161,26 @@ pub struct QueryId;
 
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RecordId(u32);
+
+// impl Add<RecordId> for RecordId {
+//     type Output = RecordId;
+//
+//     fn add(self, rhs: RecordId) -> Self::Output {
+//         RecordId(self.0.add(rhs.0))
+//     }
+// }
 
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {
         RecordId(v)
+    }
+}
+
+impl From<RecordId> for u32 {
+    fn from(v: RecordId) -> Self {
+        v.0
     }
 }
 

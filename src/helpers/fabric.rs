@@ -13,6 +13,8 @@ pub struct ChannelId {
 }
 
 #[derive(Debug)]
+/// In tests it is convenient to be able to clone the envelope
+#[cfg_attr(test, derive(Clone))]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
     pub payload: Box<[u8]>,

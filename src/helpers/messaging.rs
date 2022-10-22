@@ -18,8 +18,9 @@ use futures::SinkExt;
 use futures::StreamExt;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::task::Waker;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, Notify, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::Instrument;
@@ -49,10 +50,21 @@ pub struct Gateway<N> {
     /// TODO: no need to keep it here if we're happy with its interface
     _network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
-    tx: mpsc::Sender<ReceiveRequest>,
-    envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope)>,
+    receive_request_tx: mpsc::Sender<ReceiveRequest>,
+    envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope, oneshot::Sender<SendRequestStatus>)>,
     control_handle: JoinHandle<()>,
 }
+
+pub(super) enum SendRequestStatus {
+    Accepted,
+    Rejected(SendRejectionReason)
+}
+
+pub(super) enum SendRejectionReason {
+    // TODO provide accepted range
+    TooFarAhead
+}
+
 
 /// Channel end
 #[derive(Debug)]
@@ -132,7 +144,7 @@ pub struct GatewayConfig {
 impl<N: Network> Gateway<N> {
     pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
-        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
+        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope, oneshot::Sender<SendRequestStatus>)>(1);
         let mut message_stream = network.recv_stream();
         let mut network_sink = network.sink();
 
@@ -164,8 +176,9 @@ impl<N: Network> Gateway<N> {
                         tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
                         receive_buf.receive_messages(&channel_id, messages);
                     }
-                    Some((channel_id, msg)) = envelope_rx.recv() => {
-                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg) {
+                    Some((channel_id, msg, _)) = envelope_rx.recv() => {
+                        // todo check for out of range error
+                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).ok().flatten() {
                             tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
                                 .expect("Failed to send data to the network");
@@ -191,7 +204,7 @@ impl<N: Network> Gateway<N> {
         Self {
             role,
             _network: network,
-            tx,
+            receive_request_tx: tx,
             envelope_tx,
             control_handle,
         }
@@ -217,7 +230,7 @@ impl<N: Network> Gateway<N> {
         record_id: RecordId,
     ) -> Result<Box<[u8]>, Error> {
         let (tx, rx) = oneshot::channel();
-        self.tx
+        self.receive_request_tx
             .send(ReceiveRequest {
                 channel_id: channel_id.clone(),
                 record_id,
@@ -230,7 +243,12 @@ impl<N: Network> Gateway<N> {
     }
 
     async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
-        Ok(self.envelope_tx.send((id, env)).await?)
+        let (tx, rx) = oneshot::channel();
+        self.envelope_tx.send((id.clone(), env, tx)).await?;
+
+        let status = rx.await
+            .map_err(|e| Error::receive_error(id.identity, e))?;
+        Ok(())
     }
 }
 

@@ -3,9 +3,10 @@ use crate::helpers::Identity;
 use crate::protocol::{RecordId, UniqueStepId};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::{Notify, oneshot};
 
 use crate::helpers::fabric::{ChannelId, MessageEnvelope};
-use crate::helpers::messaging::ReceiveRequest;
+use crate::helpers::messaging::{ReceiveRequest, SendRejectionReason, SendRequestStatus};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -80,13 +81,14 @@ impl From<SendError<ReceiveRequest>> for Error {
     }
 }
 
-impl From<SendError<(ChannelId, MessageEnvelope)>> for Error {
-    fn from(source: SendError<(ChannelId, MessageEnvelope)>) -> Self {
+impl From<SendError<(ChannelId, MessageEnvelope, oneshot::Sender<SendRequestStatus>)>> for Error {
+    fn from(source: SendError<(ChannelId, MessageEnvelope, oneshot::Sender<SendRequestStatus>)>) -> Self {
         Self::SendError {
-            dest: source.0 .0.identity,
+            dest: source.0.0.identity,
             inner: source.to_string().into(),
         }
     }
 }
+
 
 pub type Result<T> = std::result::Result<T, Error>;
