@@ -146,23 +146,26 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // in this accumulation logic, and each is tagged with a unique `RecordID`.
 
         // first, calculate [successor.helper_bit * successor.trigger_bit]
+        let mut record_id = 0_u32;
         let mut b = ctx
-            .multiply(RecordId::from(0))
+            .multiply(RecordId::from(record_id))
             .await
             .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
             .await?;
 
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
         if !first_iteration {
+            record_id += 1;
             b = ctx
-                .multiply(RecordId::from(1))
+                .multiply(RecordId::from(record_id))
                 .await
                 .execute(b, current.stop_bit)
                 .await?;
         }
 
+        record_id += 1;
         let credit_future = ctx
-            .multiply(RecordId::from(2))
+            .multiply(RecordId::from(record_id))
             .await
             .execute(b, successor.credit);
 
@@ -170,8 +173,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         let stop_bit_future = if first_iteration {
             futures::future::Either::Left(futures::future::ok(b))
         } else {
+            record_id += 1;
             futures::future::Either::Right(
-                ctx.multiply(RecordId::from(3))
+                ctx.multiply(RecordId::from(record_id))
                     .await
                     .execute(b, successor.stop_bit),
             )
@@ -183,13 +187,16 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
 #[cfg(test)]
 mod tests {
+    use crate::helpers::messaging::GatewayConfig;
+    use crate::test_fixture::{logging, make_world_with_config, TestWorldConfig};
     use crate::{
         field::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
+        test_fixture::{make_contexts, share, validate_and_reconstruct},
     };
     use rand::rngs::mock::StepRng;
+    use std::time::Duration;
     use tokio::try_join;
 
     fn generate_shared_input(
@@ -243,10 +250,9 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
-        let world = make_world(QueryId);
-        let context = make_contexts(&world);
-        let mut rng = StepRng::new(100, 1);
+        logging::setup();
 
+        let mut rng = StepRng::new(100, 1);
         let raw_input: [[u128; 4]; 9] = [
             // [is_trigger, helper_bit, breakdown_key, credit]
             [0, 0, 3, 0],
@@ -259,6 +265,22 @@ mod tests {
             [0, 0, 1, 0],
             [1, 0, 0, 10],
         ];
+        let world = make_world_with_config(
+            QueryId,
+            TestWorldConfig::new(GatewayConfig {
+                // credit function spawns either 3 or 4 futures, buffer capacity must be enough
+                // to keep them all. Setting it lower may lead to test flakiness
+                send_buffer_capacity: 4,
+
+                // not every subroutine in this protocol benefits from large send buffers. It is
+                // actually the opposite - multiplications that are awaited immediately will need to
+                // wait until the buffer is flushed and test will be running for seconds. We are not
+                // testing the infrastructure capabilities here and just want to make this test finish
+                // as quickly as possible, so it is ok to flush partial buffers
+                flush_interval: Duration::from_millis(1),
+            }),
+        );
+        let context = make_contexts(&world);
 
         let shares = generate_shared_input(&raw_input, &mut rng);
 

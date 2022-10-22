@@ -203,7 +203,7 @@ mod tests {
 
             let bit_number = format!("bit{}", i);
 
-            let record_id = RecordId::from(i);
+            let record_id = RecordId::from(0);
 
             futures.push(try_join_all(vec![
                 DoubleRandom::execute(

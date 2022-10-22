@@ -10,6 +10,7 @@ mod reveal_additive_binary;
 mod securemul;
 pub mod sort;
 
+use std::fmt::Formatter;
 #[cfg(debug_assertions)]
 use std::{
     collections::HashSet,
@@ -62,7 +63,7 @@ impl Step for str {}
 /// (possible more efficient) representation.  It is probably not particularly efficient
 /// to be cloning this object all over the place.  Of course, a string is pretty useful
 /// from a debugging perspective.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct UniqueStepId {
     id: String,
     /// This tracks the different values that have been provided to `narrow()`.
@@ -81,7 +82,14 @@ impl PartialEq for UniqueStepId {
         self.id == other.id
     }
 }
+
 impl Eq for UniqueStepId {}
+
+impl Debug for UniqueStepId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UniqueStepId({})", self.id)
+    }
+}
 
 impl UniqueStepId {
     /// Narrow the scope of the step identifier.
@@ -163,14 +171,6 @@ pub struct QueryId;
 /// of the assumption that the maximum input is 1B records per query.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RecordId(u32);
-
-// impl Add<RecordId> for RecordId {
-//     type Output = RecordId;
-//
-//     fn add(self, rhs: RecordId) -> Self::Output {
-//         RecordId(self.0.add(rhs.0))
-//     }
-// }
 
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {

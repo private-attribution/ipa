@@ -4,6 +4,7 @@ use crate::{
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
     test_fixture::{fabric::InMemoryNetwork, make_participants},
 };
+use std::time::Duration;
 use std::{fmt::Debug, sync::Arc};
 
 use super::fabric::InMemoryEndpoint;
@@ -33,16 +34,26 @@ impl Default for TestWorldConfig {
             // for unit tests because they may not produce enough data to trigger buffer flush
             gateway_config: GatewayConfig {
                 send_buffer_capacity: 1,
+                // Note that the interval picked here is somewhat random -
+                // waiting for too long will result in elevated latencies. On the other hand,
+                // sending buffers that are half-full will lead to underutilizing the network
+                flush_interval: Duration::from_millis(200),
             },
         }
     }
 }
 
-/// Creates a new `TestWorld` instance.
+impl TestWorldConfig {
+    #[must_use]
+    pub fn new(gateway_config: GatewayConfig) -> Self {
+        Self { gateway_config }
+    }
+}
+
+/// Creates a new `TestWorld` instance using the provided `config`.
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
-pub fn make(query_id: QueryId) -> TestWorld {
-    let config = TestWorldConfig::default();
+pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
     let network = InMemoryNetwork::new();
@@ -66,4 +77,10 @@ pub fn make(query_id: QueryId) -> TestWorld {
         participants,
         _network: network,
     }
+}
+
+/// Creates a new `TestWorld` instance.
+#[must_use]
+pub fn make(query_id: QueryId) -> TestWorld {
+    make_with_config(query_id, TestWorldConfig::default())
 }

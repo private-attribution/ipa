@@ -18,9 +18,10 @@ use futures::SinkExt;
 use futures::StreamExt;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
-use std::task::Waker;
+
+use crate::helpers::buffers::SendBufferError;
 use std::time::Duration;
-use tokio::sync::{mpsc, Notify, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::Instrument;
@@ -51,20 +52,19 @@ pub struct Gateway<N> {
     _network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
     receive_request_tx: mpsc::Sender<ReceiveRequest>,
-    envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope, oneshot::Sender<SendRequestStatus>)>,
+    envelope_tx: mpsc::Sender<(
+        ChannelId,
+        MessageEnvelope,
+        oneshot::Sender<SendRequestStatus>,
+    )>,
     control_handle: JoinHandle<()>,
 }
 
+#[derive(Debug)]
 pub(super) enum SendRequestStatus {
     Accepted,
-    Rejected(SendRejectionReason)
+    Rejected(SendBufferError),
 }
-
-pub(super) enum SendRejectionReason {
-    // TODO provide accepted range
-    TooFarAhead
-}
-
 
 /// Channel end
 #[derive(Debug)]
@@ -102,7 +102,7 @@ impl<N: Network> Mesh<'_, '_, N> {
         };
 
         self.gateway
-            .send(ChannelId::new(dest, self.step.clone()), envelope)
+            .send(&ChannelId::new(dest, self.step.clone()), envelope)
             .await
     }
 
@@ -139,27 +139,34 @@ pub struct GatewayConfig {
     /// Note that this buffer is per channel, so setting it to 10 does not imply that every
     /// 10 messages sent trigger a network request.
     pub send_buffer_capacity: u32,
+
+    /// The wait time for the gateway before flushing buffers to network if there is no activity
+    /// from the protocols.
+    /// To make forward progress, we periodically check if the system is stalled
+    /// if nothing happens for long period of time, we try to unblock it by flushing
+    /// the data that remains inside buffers.
+    ///
+    /// Increasing this interval leads to higher latencies. Setting it low increases the chance
+    /// of flushing buffers that are half-full and underutilizing the network.
+    pub flush_interval: Duration,
 }
 
 impl<N: Network> Gateway<N> {
     pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
-        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope, oneshot::Sender<SendRequestStatus>)>(1);
+        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(
+            ChannelId,
+            MessageEnvelope,
+            oneshot::Sender<SendRequestStatus>,
+        )>(1);
         let mut message_stream = network.recv_stream();
         let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
-            // to make forward progress, we periodically check if the system is stalled
-            // if nothing happens for long period of time, we try to unblock it by flushing
-            // the data that remains inside buffers. Note that the interval picked here is somewhat
-            // random - waiting for too long will result in elevated latencies. On the other hand,
-            // sending buffers that are half-full will lead to underutilizing the network
-            const INTERVAL: Duration = Duration::from_millis(200);
-
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
 
-            let sleep = tokio::time::sleep(INTERVAL);
+            let sleep = tokio::time::sleep(config.flush_interval);
             tokio::pin!(sleep);
 
             loop {
@@ -176,17 +183,35 @@ impl<N: Network> Gateway<N> {
                         tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
                         receive_buf.receive_messages(&channel_id, messages);
                     }
-                    Some((channel_id, msg, _)) = envelope_rx.recv() => {
-                        // todo check for out of range error
-                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).ok().flatten() {
-                            tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
-                            network_sink.send((channel_id, buf_to_send)).await
-                                .expect("Failed to send data to the network");
-                        }
+                    Some((channel_id, msg, status_tx)) = envelope_rx.recv() => {
+                        // New send request - attempt to add it to the send buffer.
+                        // If buffer is full, flush it down to network layer
+                        let record_id = msg.record_id;
+                        tracing::trace!("new request to send message {record_id:?} to {channel_id:?}");
+                        let status = match send_buf.push(channel_id.clone(), msg) {
+                            Ok(maybe_buf) => {
+                                if let Some(buf_to_send) = maybe_buf {
+                                    tracing::trace!("{channel_id:?} send buffer is full ({} messages)", buf_to_send.len());
+                                    network_sink.send((channel_id, buf_to_send)).await
+                                        .expect("Failed to send data to the network");
+                                }
+
+                                SendRequestStatus::Accepted
+                            }
+                            Err(error) => {
+                                tracing::warn!("Failed to put message with {record_id:?} to the send buffer {channel_id:?}: {error:?}");
+                                SendRequestStatus::Rejected(error)
+                            }
+                        };
+
+                        // report the send status back to the protocol
+                        status_tx.send(status).expect("Failed to report send status");
                     }
                     _ = &mut sleep, if send_buf.len() > 0 => {
                         let (channel_id, buf_to_send) = send_buf.remove_random();
-                        tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
+                        tracing::trace!("Nothing happened in {:?}, flushing the send buffer {channel_id:?} ({} messages)",
+                            config.flush_interval,
+                            buf_to_send.len());
                         network_sink.send((channel_id, buf_to_send)).await
                             .expect("Failed to send data to the network");
                     }
@@ -197,7 +222,7 @@ impl<N: Network> Gateway<N> {
                 }
 
                 // reset the timer as we processed something
-                sleep.as_mut().reset(Instant::now() + INTERVAL);
+                sleep.as_mut().reset(Instant::now() + config.flush_interval);
             }
         }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
@@ -242,13 +267,40 @@ impl<N: Network> Gateway<N> {
             .map_err(|e| Error::receive_error(channel_id.identity, e))
     }
 
-    async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
+    /// Sends the given message to the gateway processing loop. If `Gateway` decides that it is
+    /// ready to process this message immediately, it will be accepted and `Result::Ok` is returned.
+    /// However, that may not be the case. Gateway checks whether `MessageEnvelope::record_id` is
+    /// in the valid range of record identifiers. If record id is smaller than the minimum accepted
+    /// identifier, this `send` operation is rejected and an error is reported back to the caller.
+    /// If record id is larger than the maximum id the acceptable range, `send` is also **rejected**
+    /// but this will likely change in the future. Instead of rejecting such messages, `Gateway`
+    /// should block such operations until the acceptable window moves and record id becomes valid.
+    ///
+    /// A valid range size is determined by `GatewayConfig::max_batch_size` configuration parameter.
+    /// Once every element inside that range is received by the `Gateway` instance, the whole batch
+    /// is flushed to the network layer and acceptable record id window is moved to the right.
+    /// That means, that the new window becomes `w_next = w_prev.max..w_prev.max + batch_size`
+    ///
+    /// This behavior (reject `record_id` > max) is chosen because it is easier to implement and it
+    /// makes it easy to debug/unit test MPC protocols. A bug in the implementation may lead to
+    /// unit tests flakiness and/or make them never complete. These issues are never easy to debug,
+    /// so we may consider this behavior as default for unit testing.
+    ///
+    /// Once we start processing large amount of data, this behavior will lead to query executions
+    /// that never terminate successfully.
+    async fn send(&self, id: &ChannelId, env: MessageEnvelope) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.envelope_tx.send((id.clone(), env, tx)).await?;
 
-        let status = rx.await
-            .map_err(|e| Error::receive_error(id.identity, e))?;
-        Ok(())
+        let status = rx.await.map_err(|e| Error::receive_error(id.identity, e))?;
+
+        match status {
+            SendRequestStatus::Accepted => Ok(()),
+            SendRequestStatus::Rejected(reason) => Err(Error::SendError {
+                dest: id.identity,
+                inner: Box::new(reason),
+            }),
+        }
     }
 }
 

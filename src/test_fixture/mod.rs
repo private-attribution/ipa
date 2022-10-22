@@ -15,7 +15,9 @@ use rand::thread_rng;
 use std::sync::Arc;
 
 pub use sharing::{share, validate_and_reconstruct};
-pub use world::{make as make_world, TestWorld};
+pub use world::{
+    make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
+};
 
 /// Creates protocol contexts for 3 helpers
 ///

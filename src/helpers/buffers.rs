@@ -6,14 +6,8 @@ use std::mem;
 use std::mem::ManuallyDrop;
 
 use std::ops::Range;
-use std::sync::atomic::AtomicU32;
 use thiserror::Error;
 use tokio::sync::oneshot;
-
-pub(super) struct BufOffset {
-    offset: AtomicU32,
-    batch_size: AtomicU32,
-}
 
 /// Accumulator of records that must be send down to network.
 #[derive(Debug)]
@@ -25,6 +19,9 @@ struct SendBatch {
 
     /// number of records to accumulate inside the buffer (per channel) before flush.
     batch_size: u32,
+
+    /// The range of valid identifiers currently accepted by the batch.
+    accepted_range: Range<RecordId>,
 
     /// Tracks number of elements in `data`. Must be stored separately because `data` always
     /// contains elements
@@ -203,6 +200,8 @@ impl SendBatch {
         Self {
             offset: initial_offset,
             batch_size,
+            accepted_range: RecordId::from(initial_offset * batch_size)
+                ..RecordId::from(initial_offset * batch_size + batch_size),
             len: 0,
             data: {
                 let batch_size = batch_size as usize;
@@ -241,20 +240,13 @@ impl SendBatch {
     }
 
     fn accept_msg(&self, msg: &MessageEnvelope) -> Result<u32, SendBufferError> {
-        // TODO don't multiply all the time and don't construct ranges all the time
-        let batch_size = self.batch_size as u32;
-        let min = self.offset * batch_size;
-        let range = min..min + batch_size;
-        let record_id: u32 = msg.record_id.into();
-
-        if range.contains(&record_id) {
+        if self.accepted_range.contains(&msg.record_id) {
             // safety: safe to subtract unsigned as record_id is greater than min
-            Ok(record_id - min)
+            Ok(u32::from(msg.record_id) - u32::from(self.accepted_range.start))
         } else {
-            let range = RecordId::from(range.start)..RecordId::from(range.end);
             Err(SendBufferError::RecordOutOfRange {
                 record_id: msg.record_id,
-                accepted_range: range,
+                accepted_range: self.accepted_range.clone(),
             })
         }
     }
@@ -262,7 +254,7 @@ impl SendBatch {
 
 impl From<SendBatch> for Vec<MessageEnvelope> {
     fn from(value: SendBatch) -> Self {
-        // we can safely reinterpet because batch is full
+        // we can safely reinterpret because batch is full
         if value.len == value.batch_size {
             // what we are about to do is unsafe, so it is better to check that we won't cause a UB
             // Note that if the implementation is correct, checking self.len == self.batch_size is enough
