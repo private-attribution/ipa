@@ -228,12 +228,12 @@ mod tests {
 
     #[test]
     fn random_sequence_generated() {
-        let batchsize = 10000;
+        const BATCH_SIZE: usize = 10000;
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
-        let perm1 = generate_random_permutation(batchsize, p1.indexed(&step).as_ref());
-        let perm2 = generate_random_permutation(batchsize, p2.indexed(&step).as_ref());
-        let perm3 = generate_random_permutation(batchsize, p3.indexed(&step).as_ref());
+        let perm1 = generate_random_permutation(BATCH_SIZE, p1.indexed(&step).as_ref());
+        let perm2 = generate_random_permutation(BATCH_SIZE, p2.indexed(&step).as_ref());
+        let perm3 = generate_random_permutation(BATCH_SIZE, p3.indexed(&step).as_ref());
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
