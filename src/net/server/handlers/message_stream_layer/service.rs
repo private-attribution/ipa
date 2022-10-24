@@ -33,8 +33,12 @@ impl<T: Send + 'static> ReservedPermit<T> {
     }
 }
 
+/// Middleware that ensures requests can be forwarded to the messaging layer immediately when
+/// handled. Before handling the request, query messaging layer for bandwidth, and only proceed
+/// with the request after bandwidth is guaranteed.
+///
 /// `poll_ready` will first grab a permit via the `PollSender`. Once ready, the sender is injected
-/// into the Request as an Extension. This can only be done once
+/// into the Request as an Extension. This can only be done once per request.
 #[derive(Debug)]
 pub struct MessageStream<S, T> {
     inner: S,
