@@ -13,7 +13,7 @@ pub struct Replicated<T>(T, T);
 
 impl<T: Debug> Debug for Replicated<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({:?}, {:?}", self.0, self.1)
+        write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 

@@ -3,114 +3,87 @@ use std::collections::HashMap;
 
 use std::fmt::{Debug, Formatter};
 
-use crate::helpers::fabric::{
-    ChannelId, CommunicationChannel, MessageChunks, MessageEnvelope, Network,
-};
-use crate::helpers::Identity;
-use crate::protocol::Step;
-use async_trait::async_trait;
-use futures_util::stream::SelectAll;
-use std::sync::{Arc, Mutex, Weak};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_stream::wrappers::ReceiverStream;
+use std::pin::Pin;
 
 use crate::helpers;
 use crate::helpers::error::Error;
+use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
+use crate::helpers::{error, Identity};
+use crate::protocol::UniqueStepId;
+use async_trait::async_trait;
+use futures::Sink;
 use futures::StreamExt;
+use futures_util::stream::{FuturesUnordered, SelectAll};
+use pin_project::pin_project;
+use std::sync::{Arc, Mutex, Weak};
+use std::task::{Context, Poll};
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::PollSender;
+use tracing::Instrument;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
-pub(super) enum ControlMessage<S> {
-    /// Connection for step S is requested by the peer
-    ConnectionRequest(ChannelId<S>, Receiver<MessageEnvelope>),
+pub(super) enum ControlMessage {
+    /// Connection for a step is requested by the peer.
+    ConnectionRequest(ChannelId, Receiver<Vec<MessageEnvelope>>),
 }
 
 /// Container for all active helper endpoints
 #[derive(Debug)]
-pub struct InMemoryNetwork<S> {
-    pub endpoints: [Arc<InMemoryEndpoint<S>>; 3],
+pub struct InMemoryNetwork {
+    pub endpoints: [Arc<InMemoryEndpoint>; 3],
 }
 
 /// Helper endpoint in memory. Capable of opening connections to other helpers and buffering
 /// messages it receives from them until someone requests them.
 #[derive(Debug)]
-pub struct InMemoryEndpoint<S> {
+pub struct InMemoryEndpoint {
     pub identity: Identity,
     /// Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
     /// For each peer there are multiple channels open, one per query + step.
-    channels: Arc<Mutex<Vec<HashMap<S, InMemoryChannel>>>>,
-    tx: Sender<ControlMessage<S>>,
-    rx: Arc<Mutex<Option<Receiver<MessageChunks<S>>>>>,
-    network: Weak<InMemoryNetwork<S>>,
+    channels: Arc<Mutex<Vec<HashMap<UniqueStepId, InMemoryChannel>>>>,
+    tx: Sender<ControlMessage>,
+    rx: Arc<Mutex<Option<Receiver<MessageChunks>>>>,
+    network: Weak<InMemoryNetwork>,
+    chunks_sender: Sender<MessageChunks>,
 }
 
 /// In memory channel is just a standard mpsc channel.
 #[derive(Debug, Clone)]
 pub struct InMemoryChannel {
     dest: Identity,
-    tx: Sender<MessageEnvelope>,
+    tx: Sender<Vec<MessageEnvelope>>,
 }
 
-impl<S: Step> InMemoryNetwork<S> {
+#[pin_project]
+pub struct InMemorySink {
+    #[pin]
+    sender: PollSender<MessageChunks>,
+}
+
+impl InMemoryNetwork {
     #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new_cyclic(|weak_ptr| {
-            let endpoints = Identity::all_variants()
-                .map(|i| Arc::new(InMemoryEndpoint::new(i, Weak::clone(weak_ptr))));
+            let endpoints =
+                Identity::all_variants().map(|i| InMemoryEndpoint::new(i, Weak::clone(weak_ptr)));
 
             Self { endpoints }
         })
     }
 }
 
-impl<S: Step> InMemoryEndpoint<S> {
+impl InMemoryEndpoint {
     /// Creates new instance for a given helper identity.
-    ///
-    /// # Panics
-    /// Panics are not expected
     #[must_use]
-    pub fn new(id: Identity, world: Weak<InMemoryNetwork<S>>) -> Self {
+    #[allow(clippy::missing_panics_doc)]
+    pub fn new(id: Identity, world: Weak<InMemoryNetwork>) -> Arc<Self> {
         let (tx, mut open_channel_rx) = mpsc::channel(1);
         let (message_stream_tx, message_stream_rx) = mpsc::channel(1);
+        let (chunks_sender, mut chunks_receiver) = mpsc::channel(1);
 
-        tokio::spawn(async move {
-            let mut channels = SelectAll::new();
-            let mut buf = HashMap::<ChannelId<S>, Vec<MessageEnvelope>>::new();
-
-            loop {
-                tokio::select! {
-                    Some(control_message) = open_channel_rx.recv() => {
-                        match control_message {
-                            ControlMessage::ConnectionRequest(channel_id, new_channel_rx) => {
-                                channels.push(ReceiverStream::new(new_channel_rx).map(move |msg| (channel_id, msg)));
-                            }
-                        }
-                    }
-                    Some((channel_id, msg)) = channels.next() => {
-                        buf.entry(channel_id).or_default().push(msg);
-                    }
-                    // If there is nothing else to do, try to obtain a permit to move messages
-                    // from the buffer to messaging layer. Potentially we might be thrashing
-                    // on permits here.
-                    Ok(permit) = message_stream_tx.reserve(), if !buf.is_empty() => {
-                        // TODO(alex): this is bad and I want to experiment with
-                        // Vec<EnumMap<Step, Vec<MessageEnvelope>>, basically using double indirection
-                        // identity -> step -> vec of messages. That will require to keep track
-                        // of all messages in the buffer in a separate local variable, but makes
-                        // fairness easily achievable.
-                        let key = *buf.keys().next().unwrap();
-                        let msgs = buf.remove(&key).unwrap();
-
-                        permit.send((key, msgs));
-                    }
-                    else => {
-                        break;
-                    }
-                }
-            }
-        });
-
-        Self {
+        let this = Arc::new(Self {
             identity: id,
             channels: Arc::new(Mutex::new(vec![
                 HashMap::default(),
@@ -120,23 +93,71 @@ impl<S: Step> InMemoryEndpoint<S> {
             tx,
             rx: Arc::new(Mutex::new(Some(message_stream_rx))),
             network: world,
-        }
+            chunks_sender,
+        });
+
+        tokio::spawn({
+            let this = Arc::clone(&this);
+            async move {
+                let mut peer_channels = SelectAll::new();
+                let mut pending_sends = FuturesUnordered::new();
+                let mut buf = HashMap::<ChannelId, Vec<MessageEnvelope>>::new();
+
+                loop {
+                    tokio::select! {
+                        // handle request to establish connection with a peer
+                        Some(control_message) = open_channel_rx.recv() => {
+                            match control_message {
+                                ControlMessage::ConnectionRequest(channel_id, new_channel_rx) => {
+                                    peer_channels.push(ReceiverStream::new(new_channel_rx).map(move |msg| (channel_id.clone(), msg)));
+                                }
+                            }
+                        }
+                        // receive a batch of messages from the peer
+                        Some((channel_id, msgs)) = peer_channels.next() => {
+                            buf.entry(channel_id).or_default().extend(msgs);
+                        }
+                        // Handle request to send messages to a peer
+                        Some(chunk) = chunks_receiver.recv() => {
+                            pending_sends.push(this.send_chunk(chunk));
+                        }
+                        // Drive pending sends to completion
+                        Some(_) = pending_sends.next() => { }
+                        // If there is nothing else to do, try to obtain a permit to move messages
+                        // from the buffer to messaging layer. Potentially we might be thrashing
+                        // on permits here.
+                        Ok(permit) = message_stream_tx.reserve(), if !buf.is_empty() => {
+                            let key = buf.keys().next().unwrap().clone();
+                            let msgs = buf.remove(&key).unwrap();
+
+                            permit.send((key, msgs));
+                        }
+                        else => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }.instrument(tracing::info_span!("in_memory_helper_event_loop", identity=?id)));
+
+        this
     }
 }
 
-#[async_trait]
-impl<S: Step> Network<S> for Arc<InMemoryEndpoint<S>> {
-    type Channel = InMemoryChannel;
-    type MessageStream = ReceiverStream<MessageChunks<S>>;
+impl InMemoryEndpoint {
+    async fn send_chunk(&self, chunk: MessageChunks) {
+        let conn = self.get_connection(chunk.0).await;
+        conn.send(chunk.1).await.unwrap();
+    }
 
-    async fn get_connection(&self, addr: ChannelId<S>) -> Self::Channel {
+    async fn get_connection(&self, addr: ChannelId) -> InMemoryChannel {
         let mut new_rx = None;
 
         let channel = {
             let mut channels = self.channels.lock().unwrap();
             let peer_channel = &mut channels[addr.identity];
 
-            match peer_channel.entry(addr.step) {
+            match peer_channel.entry(addr.step.clone()) {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
                     let (tx, rx) = mpsc::channel(1);
@@ -165,8 +186,19 @@ impl<S: Step> Network<S> for Arc<InMemoryEndpoint<S>> {
 
         channel
     }
+}
 
-    fn message_stream(&self) -> Self::MessageStream {
+#[async_trait]
+impl Network for Arc<InMemoryEndpoint> {
+    type Sink = InMemorySink;
+    type MessageStream = ReceiverStream<MessageChunks>;
+
+    fn sink(&self) -> Self::Sink {
+        let x = self.chunks_sender.clone();
+        InMemorySink::new(x)
+    }
+
+    fn recv_stream(&self) -> Self::MessageStream {
         let mut rx = self.rx.lock().unwrap();
         if let Some(rx) = rx.take() {
             ReceiverStream::new(rx)
@@ -176,9 +208,8 @@ impl<S: Step> Network<S> for Arc<InMemoryEndpoint<S>> {
     }
 }
 
-#[async_trait]
-impl CommunicationChannel for InMemoryChannel {
-    async fn send(&self, msg: MessageEnvelope) -> helpers::Result<()> {
+impl InMemoryChannel {
+    async fn send(&self, msg: Vec<MessageEnvelope>) -> helpers::Result<()> {
         self.tx
             .send(msg)
             .await
@@ -186,12 +217,55 @@ impl CommunicationChannel for InMemoryChannel {
     }
 }
 
-impl<S: Step> Debug for ControlMessage<S> {
+impl Debug for ControlMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ControlMessage::ConnectionRequest(channel, step) => {
                 write!(f, "ConnectionRequest(from={:?}, step={:?})", channel, step)
             }
         }
+    }
+}
+
+impl InMemorySink {
+    #[must_use]
+    pub fn new(sender: Sender<MessageChunks>) -> Self {
+        Self {
+            sender: PollSender::new(sender),
+        }
+    }
+}
+
+impl Sink<MessageChunks> for InMemorySink {
+    type Error = error::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.project();
+        this.sender.poll_ready(cx).map_err(|e| Error::NetworkError {
+            inner: e.to_string().into(),
+        })
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: MessageChunks) -> Result<(), Self::Error> {
+        let this = self.project();
+        this.sender
+            .start_send(item)
+            .map_err(|e| Error::NetworkError {
+                inner: e.to_string().into(),
+            })
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.project();
+        this.sender.poll_flush(cx).map_err(|e| Error::NetworkError {
+            inner: e.to_string().into(),
+        })
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let this = self.project();
+        this.sender.poll_close(cx).map_err(|e| Error::NetworkError {
+            inner: e.to_string().into(),
+        })
     }
 }

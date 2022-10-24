@@ -9,6 +9,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let rt = Builder::new_multi_thread()
         .worker_threads(3)
         .thread_name("helper-worker")
+        .enable_time()
         .build()
         .expect("Creating runtime failed");
 

@@ -1,9 +1,9 @@
 use std::ops::{Index, IndexMut};
 
+mod buffers;
 pub mod error;
 pub mod fabric;
 pub mod messaging;
-pub mod prss;
 
 pub use error::Result;
 
