@@ -24,14 +24,11 @@ pub mod metrics {
             const HTTP3: &str = "request.protocol.HTTP/3";
             const UNKNOWN: &str = "request.protocol.HTTP/UNKNOWN";
 
-            KeyName::from_const_str(if v.0 == Version::HTTP_11 {
-                HTTP11
-            } else if v.0 == Version::HTTP_2 {
-                HTTP2
-            } else if v.0 == Version::HTTP_3 {
-                HTTP3
-            } else {
-                UNKNOWN
+            KeyName::from_const_str(match v.0 {
+                Version::HTTP_11 => HTTP11,
+                Version::HTTP_2 => HTTP2,
+                Version::HTTP_3 => HTTP3,
+                _ => UNKNOWN,
             })
         }
     }
