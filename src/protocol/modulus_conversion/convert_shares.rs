@@ -64,7 +64,7 @@ impl ConvertShares {
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let prss = &ctx.prss();
-        let (left, right) = prss.generate_values(record_id.into());
+        let (left, right) = prss.generate_values(record_id);
 
         let bits = (0..self.input.num_bits).into_iter().map(|i| {
             let b0 = left & (1 << i) != 0;

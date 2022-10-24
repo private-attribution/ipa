@@ -56,7 +56,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
         let channel = self.gateway.mesh(self.step);
 
         // generate shared randomness.
-        let (s0, s1) = self.prss.generate_fields(self.record_id.into());
+        let (s0, s1) = self.prss.generate_fields(self.record_id);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = a.as_tuple();
@@ -285,9 +285,6 @@ pub mod tests {
             let a = share(Fp31::from(4_u128), &mut rand);
             let b = share(Fp31::from(3_u128), &mut rand);
 
-            // there is something weird going on the compiler's side. I don't see why we need
-            // to use async move as `i` is Copy + Clone, but compiler complains about it not living
-            // long enough
             let step_name = format!("step{}", step);
             let f = join_all(
                 contexts

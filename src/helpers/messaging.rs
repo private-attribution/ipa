@@ -7,18 +7,21 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
+    helpers::buffers::{ReceiveBuffer, SendBuffer},
     helpers::error::Error,
-    helpers::fabric::{ChannelId, CommunicationChannel, MessageEnvelope, Network},
+    helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Identity,
     protocol::{RecordId, UniqueStepId},
 };
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 
+use futures::SinkExt;
 use futures::StreamExt;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::Instrument;
 
 /// Trait for messages sent between helpers
@@ -43,42 +46,26 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 #[derive(Debug)]
 pub struct Gateway<N> {
     role: Identity,
-    network: N,
+    /// TODO: no need to keep it here if we're happy with its interface
+    _network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest>,
+    envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope)>,
+    control_handle: JoinHandle<()>,
 }
 
 /// Channel end
 #[derive(Debug)]
 pub struct Mesh<'a, 'b, N> {
-    network: &'a N,
+    gateway: &'a Gateway<N>,
     step: &'b UniqueStepId,
     role: Identity,
-    gateway_tx: mpsc::Sender<ReceiveRequest>,
 }
 
-/// Local buffer for messages that are either awaiting requests to receive them or requests
-/// that are pending message reception.
-/// TODO: Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
-/// when protection against collisions is not required, so either use a vector indexed by
-/// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
-#[derive(Debug, Default)]
-struct MessageBuffer {
-    buf: HashMap<RecordId, BufItem>,
-}
-
-#[derive(Debug)]
-enum BufItem {
-    /// There is an outstanding request to receive the message but this helper hasn't seen it yet
-    Requested(oneshot::Sender<Box<[u8]>>),
-    /// Message has been received but nobody requested it yet
-    Received(Box<[u8]>),
-}
-
-struct ReceiveRequest {
-    channel_id: ChannelId,
-    record_id: RecordId,
-    sender: oneshot::Sender<Box<[u8]>>,
+pub(super) struct ReceiveRequest {
+    pub channel_id: ChannelId,
+    pub record_id: RecordId,
+    pub sender: oneshot::Sender<Box<[u8]>>,
 }
 
 impl<N: Network> Mesh<'_, '_, N> {
@@ -93,10 +80,6 @@ impl<N: Network> Mesh<'_, '_, N> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let channel = self
-            .network
-            .get_connection(ChannelId::new(dest, self.step.clone()))
-            .await;
         let bytes = serde_json::to_vec(&msg)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?
             .into_boxed_slice();
@@ -106,7 +89,9 @@ impl<N: Network> Mesh<'_, '_, N> {
             payload: bytes,
         };
 
-        channel.send(envelope).await
+        self.gateway
+            .send(ChannelId::new(dest, self.step.clone()), envelope)
+            .await
     }
 
     /// Receive a message that is associated with the given record id.
@@ -118,18 +103,11 @@ impl<N: Network> Mesh<'_, '_, N> {
         source: Identity,
         record_id: RecordId,
     ) -> Result<T, Error> {
-        let (tx, rx) = oneshot::channel();
+        let payload = self
+            .gateway
+            .receive(ChannelId::new(source, self.step.clone()), record_id)
+            .await?;
 
-        self.gateway_tx
-            .send(ReceiveRequest {
-                channel_id: ChannelId::new(source, self.step.clone()),
-                record_id,
-                sender: tx,
-            })
-            .await
-            .map_err(|e| Error::receive_error(source, e.to_string()))?;
-
-        let payload = rx.await.map_err(|e| Error::receive_error(source, e))?;
         let obj: T = serde_json::from_slice(&payload)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
@@ -143,46 +121,80 @@ impl<N: Network> Mesh<'_, '_, N> {
     }
 }
 
-impl<N: Network> Gateway<N> {
-    pub fn new(role: Identity, network: N) -> Self {
-        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
-        let mut message_stream = network.message_stream();
+#[derive(Clone, Copy, Debug)]
+pub struct GatewayConfig {
+    /// Maximum number of items to keep inside the buffer before flushing it to network.
+    /// Note that this buffer is per channel, so setting it to 10 does not imply that every
+    /// 10 messages sent trigger a network request.
+    pub send_buffer_capacity: u32,
+}
 
-        tokio::spawn(async move {
-            let mut buf = HashMap::<ChannelId, MessageBuffer>::new();
+impl<N: Network> Gateway<N> {
+    pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
+        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
+        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
+        let mut message_stream = network.recv_stream();
+        let mut network_sink = network.sink();
+
+        let control_handle = tokio::spawn(async move {
+            // to make forward progress, we periodically check if the system is stalled
+            // if nothing happens for long period of time, we try to unblock it by flushing
+            // the data that remains inside buffers. Note that the interval picked here is somewhat
+            // random - waiting for too long will result in elevated latencies. On the other hand,
+            // sending buffers that are half-full will lead to underutilizing the network
+            const INTERVAL: Duration = Duration::from_millis(200);
+
+            let mut receive_buf = ReceiveBuffer::default();
+            let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
+
+            let sleep = tokio::time::sleep(INTERVAL);
+            tokio::pin!(sleep);
 
             loop {
                 // Make a random choice what to process next:
                 // * Receive a message from another helper
                 // * Handle the request to receive a message from another helper
+                // * If send buffer is full, send it down
                 tokio::select! {
                     Some(receive_request) = receive_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
-                        buf.entry(receive_request.channel_id)
-                           .or_default()
-                           .receive_request(receive_request.record_id, receive_request.sender);
+                        receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender);
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
                         tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
-                        buf.entry(channel_id)
-                           .or_default()
-                           .receive_messages(messages);
+                        receive_buf.receive_messages(&channel_id, messages);
+                    }
+                    Some((channel_id, msg)) = envelope_rx.recv() => {
+                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg) {
+                            tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
+                            network_sink.send((channel_id, buf_to_send)).await
+                                .expect("Failed to send data to the network");
+                        }
+                    }
+                    _ = &mut sleep, if send_buf.len() > 0 => {
+                        let (channel_id, buf_to_send) = send_buf.remove_random();
+                        tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
+                        network_sink.send((channel_id, buf_to_send)).await
+                            .expect("Failed to send data to the network");
                     }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;
                     }
                 }
+
+                // reset the timer as we processed something
+                sleep.as_mut().reset(Instant::now() + INTERVAL);
             }
-        }.instrument(tracing::info_span!("gateway_event_loop", identity=?role)));
+        }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
-        Self { role, network, tx }
-    }
-
-    /// Get the role of the helper where this gateway lives.
-    #[must_use]
-    pub fn role(&self) -> Identity {
-        self.role
+        Self {
+            role,
+            _network: network,
+            tx,
+            envelope_tx,
+            control_handle,
+        }
     }
 
     /// Create or return an existing channel for a given step. Protocols can send messages to
@@ -193,57 +205,38 @@ impl<N: Network> Gateway<N> {
     /// `Mesh::send` or `Mesh::receive` methods are called.
     pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
         Mesh {
-            network: &self.network,
+            gateway: self,
             role: self.role,
             step,
-            gateway_tx: self.tx.clone(),
         }
+    }
+
+    async fn receive(
+        &self,
+        channel_id: ChannelId,
+        record_id: RecordId,
+    ) -> Result<Box<[u8]>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(ReceiveRequest {
+                channel_id: channel_id.clone(),
+                record_id,
+                sender: tx,
+            })
+            .await?;
+
+        rx.await
+            .map_err(|e| Error::receive_error(channel_id.identity, e))
+    }
+
+    async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
+        Ok(self.envelope_tx.send((id, env)).await?)
     }
 }
 
-impl MessageBuffer {
-    /// Process request to receive a message with the given `RecordId`.
-    fn receive_request(&mut self, record_id: RecordId, s: oneshot::Sender<Box<[u8]>>) {
-        match self.buf.entry(record_id) {
-            Entry::Occupied(entry) => match entry.remove() {
-                BufItem::Requested(_) => {
-                    panic!("More than one request to receive a message for {record_id:?}");
-                }
-                BufItem::Received(payload) => {
-                    s.send(payload).unwrap_or_else(|_| {
-                        tracing::warn!("No listener for message {record_id:?}");
-                    });
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(BufItem::Requested(s));
-            }
-        }
-    }
-
-    /// Process message that has been received
-    fn receive_message(&mut self, msg: MessageEnvelope) {
-        match self.buf.entry(msg.record_id) {
-            Entry::Occupied(entry) => match entry.remove() {
-                BufItem::Requested(s) => {
-                    s.send(msg.payload).unwrap_or_else(|_| {
-                        tracing::warn!("No listener for message {:?}", msg.record_id);
-                    });
-                }
-                BufItem::Received(_) => {
-                    panic!("Duplicate message for the same record {:?}", msg.record_id);
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(BufItem::Received(msg.payload));
-            }
-        }
-    }
-
-    fn receive_messages(&mut self, msgs: Vec<MessageEnvelope>) {
-        for msg in msgs {
-            self.receive_message(msg);
-        }
+impl<N> Drop for Gateway<N> {
+    fn drop(&mut self) {
+        self.control_handle.abort();
     }
 }
 
