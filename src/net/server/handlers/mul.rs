@@ -1,12 +1,15 @@
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Identity;
-use crate::net::server::{handlers::message_stream_layer::ReservedPermit, MpcServerError};
+use crate::net::server::MpcServerError;
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, RecordId, UniqueStepId};
 use async_trait::async_trait;
 use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
+use axum::middleware::Next;
+use axum::response::Response;
 use hyper::Body;
+use tokio::sync::mpsc;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request
 pub struct Path(QueryId, UniqueStepId);
@@ -27,31 +30,61 @@ pub struct IdentityQuery {
     identity: Identity,
 }
 
+/// After an [`OwnedPermit`] has been reserved, it can be used once to send an item on the channel.
+/// Panics if cloned while a permit exists.
+pub struct ReservedPermit<T>(Option<mpsc::OwnedPermit<T>>);
+
+impl<T: Send + 'static> ReservedPermit<T> {
+    pub fn new(permit: mpsc::OwnedPermit<T>) -> Self {
+        Self(Some(permit))
+    }
+    /// # Panics
+    /// if called more than once
+    pub fn send(&mut self, item: T) {
+        self.0
+            .take()
+            .expect("should only call `send` once")
+            .send(item);
+    }
+}
+
+impl<T> Clone for ReservedPermit<T> {
+    /// # Panics
+    /// if a permit exists
+    fn clone(&self) -> Self {
+        assert!(self.0.is_none());
+        Self(None)
+    }
+}
+
+pub async fn obtain_permit_mw<T: Send + 'static, B>(
+    sender: mpsc::Sender<T>,
+    mut req: Request<B>,
+    next: Next<B>,
+) -> Result<Response, MpcServerError> {
+    let permit = sender.reserve_owned().await?;
+    req.extensions_mut().insert(ReservedPermit::new(permit));
+    Ok(next.run(req).await)
+}
+
 /// extracts the [`MessageChunks`] from the request and forwards it to the Message layer via the
 /// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
 /// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
-/// Unfortunately, this also means we must wrap the `permit` in an `Option` such that we can
-/// `take()` the `permit`, freeing up the `req` for `Request::into_body`
 #[allow(clippy::unused_async)] // handler is expected to be async
 #[allow(clippy::cast_possible_truncation)] // length of envelopes array known to be less u32
 pub async fn handler(
     Path(_query_id, step): Path,
+    // TODO: we shouldn't trust the client to tell us their identity.
+    //       revisit when we have figured out discovery/handshake
     Query(IdentityQuery { identity }): Query<IdentityQuery>,
     RecordHeaders { offset, data_size }: RecordHeaders,
     mut req: Request<Body>,
 ) -> Result<(), MpcServerError> {
-    // must extract `permit` first since `to_bytes` consumes `req`
-    // this also necessitates `take`ing the value out so that we stop borrowing it
-    let mut permit = req
-        .extensions_mut()
-        .get_mut::<Option<ReservedPermit<MessageChunks>>>()
-        .unwrap()
-        .take()
-        .unwrap();
-
+    // prepare data
     let channel_id = ChannelId { identity, step };
-    let body = hyper::body::to_bytes(req.into_body()).await?;
+
+    let body = hyper::body::to_bytes(req.body_mut()).await?;
     let envelopes = body
         .as_ref()
         .chunks(data_size as usize)
@@ -62,7 +95,13 @@ pub async fn handler(
         })
         .collect::<Vec<_>>();
 
-    permit.send((channel_id, envelopes))?;
+    // send data
+    let permit = req
+        .extensions_mut()
+        .get_mut::<ReservedPermit<MessageChunks>>()
+        .unwrap();
+
+    permit.send((channel_id, envelopes));
     Ok(())
 }
 
@@ -76,7 +115,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     const DATA_SIZE: u32 = 4;
-    const DATA_LEN: usize = 3;
+    const DATA_LEN: u32 = 3;
 
     async fn send_req(
         rx: &mut mpsc::Receiver<MessageChunks>,
@@ -122,8 +161,7 @@ mod tests {
         // response comparison
         let channel_id = ChannelId { identity, step };
         let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
-        #[allow(clippy::cast_possible_truncation)] // DATA_LEN is a known size
-        let envs = (0..DATA_LEN as u32)
+        let envs = (0..DATA_LEN)
             .map(|i| MessageEnvelope {
                 record_id: i.into(),
                 payload: env.clone(),
@@ -150,7 +188,7 @@ mod tests {
         let target_helper = Identity::H2;
         let step = UniqueStepId::default().narrow("test");
         let offset = 0;
-        let body = &[0; DATA_LEN * DATA_SIZE as usize];
+        let body = &[0; (DATA_LEN * DATA_SIZE) as usize];
 
         // try a request 10 times
         for _ in 0..10 {

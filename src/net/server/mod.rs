@@ -2,9 +2,9 @@ use crate::error::BoxError;
 use crate::helpers::fabric::MessageChunks;
 use crate::telemetry::metrics::REQUESTS_RECEIVED;
 use ::metrics::increment_counter;
-use axum::extract::rejection::PathRejection;
 use axum::{
-    extract::rejection::QueryRejection,
+    extract::rejection::{PathRejection, QueryRejection},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -112,13 +112,17 @@ impl MpcServer {
     /// Axum router definition for MPC helper endpoint
     #[must_use]
     pub(crate) fn router(&self) -> Router {
-        let message_stream_layer = handlers::MessageStreamLayer::new(self.tx.clone());
         Router::new()
             .route(
                 "/mul/query-id/:query_id/step/*step",
                 post(handlers::mul_handler),
             )
-            .layer(message_stream_layer)
+            .layer({
+                let tx = self.tx.clone();
+                middleware::from_fn(move |req, next| {
+                    handlers::obtain_permit_mw(tx.clone(), req, next)
+                })
+            })
             .route("/echo", get(handlers::echo_handler))
     }
 

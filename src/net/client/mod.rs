@@ -95,23 +95,18 @@ impl MpcHttpConnection {
         Ok(result.to_vec())
     }
 
-    async fn mul(
-        &self,
-        query_id: QueryId,
-        step: UniqueStepId,
-        identity: Identity,
-        offset: u32,
-        data_size: u32,
-        messages: Bytes,
-    ) -> Result<(), MpcClientError> {
+    async fn mul(&self, args: HttpMulArgs) -> Result<(), MpcClientError> {
         let uri = self.build_uri(format!(
             "/mul/query-id/{}/step/{}?identity={}",
-            query_id,
-            String::from(step),
-            String::from(identity),
+            args.query_id,
+            String::from(args.step.clone()),
+            String::from(args.identity),
         ))?;
-        let body = Body::from(messages);
-        let headers = RecordHeaders { offset, data_size };
+        let body = Body::from(args.messages);
+        let headers = RecordHeaders {
+            offset: args.offset,
+            data_size: args.data_size,
+        };
         let req = headers.add_to(Request::post(uri)).body(body)?;
         let response = self.client.request(req).await?;
         let resp_status = response.status();
@@ -120,6 +115,15 @@ impl MpcHttpConnection {
             .then_some(())
             .ok_or(MpcClientError::FailedRequest(resp_status))
     }
+}
+
+pub struct HttpMulArgs {
+    pub query_id: QueryId,
+    pub step: UniqueStepId,
+    pub identity: Identity,
+    pub offset: u32,
+    pub data_size: u32,
+    pub messages: Bytes,
 }
 
 #[cfg(test)]
@@ -132,29 +136,28 @@ mod tests {
 
     async fn mul_req(client: MpcHttpConnection, mut rx: mpsc::Receiver<MessageChunks>) {
         const DATA_SIZE: u32 = 4;
-        const DATA_LEN: usize = 3;
+        const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = UniqueStepId::default().narrow("mul_test");
         let identity = Identity::H1;
         let offset = 0;
-        let messages = &[0; DATA_SIZE as usize * DATA_LEN];
+        let messages = &[0; (DATA_SIZE * DATA_LEN) as usize];
 
         let res = client
-            .mul(
+            .mul(HttpMulArgs {
                 query_id,
-                step.clone(),
+                step: step.clone(),
                 identity,
                 offset,
-                DATA_SIZE as u32,
-                Bytes::from_static(messages),
-            )
+                data_size: DATA_SIZE,
+                messages: Bytes::from_static(messages),
+            })
             .await;
         assert!(res.is_ok(), "{}", res.unwrap_err());
 
         let channel_id = ChannelId { identity, step };
         let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
-        #[allow(clippy::cast_possible_truncation)] // DATA_LEN is known value
-        let envs = (0..DATA_LEN as u32)
+        let envs = (0..DATA_LEN)
             .map(|i| MessageEnvelope {
                 record_id: i.into(),
                 payload: env.clone(),
