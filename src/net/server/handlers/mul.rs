@@ -27,25 +27,6 @@ pub struct IdentityQuery {
     identity: Identity,
 }
 
-/// Injects a permit to send data to the message layer into the Axum request, so that downstream
-/// handlers have simple access to the correct value
-///
-/// For now, stub out the permit logic with just an empty channel
-// pub async fn upstream_middleware_fn<B: Send, S: Step>(
-//     message_stream: MessageStreamExt<S>,
-//     req: Request<B>,
-//     next: Next<B>,
-// ) -> Result<Response, MpcServerError> {
-//     let permit = message_stream.sender.reserve_owned().await?;
-//
-//     let mut req_parts = RequestParts::new(req);
-//     req_parts.extensions_mut().insert(permit);
-//
-//     let req = req_parts.try_into_request()?;
-//
-//     Ok(next.run(req).await)
-// }
-
 /// extracts the [`MessageChunks`] from the request and forwards it to the Message layer via the
 /// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
 /// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
@@ -94,17 +75,21 @@ mod tests {
     use hyper::{body, Body, Client};
     use tokio::sync::mpsc;
 
-    fn build_req(
+    const DATA_SIZE: u32 = 4;
+    const DATA_LEN: usize = 3;
+
+    async fn send_req(
+        rx: &mut mpsc::Receiver<MessageChunks>,
         port: u16,
         query_id: QueryId,
         step: UniqueStepId,
         identity: Identity,
         offset: u32,
-        data_size: u32,
         body: &'static [u8],
-    ) -> Request<Body> {
+    ) {
+        // build req
         assert_eq!(
-            body.len() % (data_size as usize),
+            body.len() % (DATA_SIZE as usize),
             0,
             "body len must align with data_size"
         );
@@ -112,25 +97,46 @@ mod tests {
             "http://127.0.0.1:{}/mul/query-id/{}/step/{}?identity={}",
             port,
             query_id,
-            String::from(step),
+            String::from(step.clone()),
             String::from(identity),
         );
         let headers = RecordHeaders {
             offset,
-            data_size: data_size as u32,
+            data_size: DATA_SIZE as u32,
         };
         let body = Body::from(Bytes::from_static(body));
-        headers
+        let req = headers
             .add_to(Request::post(uri))
             .body(body)
-            .expect("request should be valid")
+            .expect("request should be valid");
+
+        let client = Client::default();
+        let resp = client
+            .request(req)
+            .await
+            .expect("client should be able to communicate with server");
+        let status = resp.status();
+        let resp_body = body::to_bytes(resp.into_body()).await.unwrap();
+        let resp_body_str = String::from_utf8_lossy(&resp_body);
+
+        // response comparison
+        let channel_id = ChannelId { identity, step };
+        let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
+        #[allow(clippy::cast_possible_truncation)] // DATA_LEN is a known size
+        let envs = (0..DATA_LEN as u32)
+            .map(|i| MessageEnvelope {
+                record_id: i.into(),
+                payload: env.clone(),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
+        let messages = rx.try_recv().expect("should have already received value");
+        assert_eq!(messages, (channel_id, envs));
     }
 
     #[tokio::test]
     async fn collect_req() {
-        const DATA_SIZE: u32 = 4;
-        const DATA_LEN: usize = 3;
-
         // initialize server
         let (tx, mut rx) = mpsc::channel(1);
         let server = MpcServer::new(tx);
@@ -146,45 +152,18 @@ mod tests {
         let offset = 0;
         let body = &[0; DATA_LEN * DATA_SIZE as usize];
 
-        let req = build_req(
-            port,
-            query_id,
-            step.clone(),
-            target_helper,
-            offset,
-            DATA_SIZE,
-            body,
-        );
-
-        // call
-        let client = Client::default();
-        let resp = client
-            .request(req)
-            .await
-            .expect("client should be able to communicate with server");
-        // let service = server.router().into_service();
-        // let resp = service.oneshot(req).await.unwrap();
-
-        let status = resp.status();
-        let resp_body = body::to_bytes(resp.into_body()).await.unwrap();
-        let resp_body_str = String::from_utf8_lossy(&resp_body);
-
-        // response comparison
-        let channel_id = ChannelId {
-            identity: target_helper,
-            step,
-        };
-        let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
-        #[allow(clippy::cast_possible_truncation)] // DATA_LEN is a known size
-        let envs = (0..DATA_LEN as u32)
-            .map(|i| MessageEnvelope {
-                record_id: i.into(),
-                payload: env.clone(),
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
-        let messages = rx.try_recv().expect("should have already received value");
-        assert_eq!(messages, (channel_id, envs));
+        // try a request 10 times
+        for _ in 0..10 {
+            send_req(
+                &mut rx,
+                port,
+                query_id,
+                step.clone(),
+                target_helper,
+                offset,
+                body,
+            )
+            .await;
+        }
     }
 }

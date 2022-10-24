@@ -73,7 +73,6 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
 /// After receiving a batch of records from the network, package it into this [`BufferedMessages`]
 /// and pass it to the network layer for processing, and to pass on to the messaging layer
 #[derive(Debug, PartialEq, Eq)]
-#[allow(dead_code)] // TODO: to be used in next PR
 pub struct BufferedMessages<S> {
     query_id: QueryId,
     step: S,
@@ -84,7 +83,6 @@ pub struct BufferedMessages<S> {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-#[allow(dead_code)] // TODO: this should be used after breaking down the [`BufferedMessages`]
 pub struct MessageEnvelope {
     record_id: RecordId,
     message: Box<u8>,
