@@ -43,13 +43,10 @@ pub async fn reveal<F: Field, N: Network>(
         )
         .await?;
 
-        // Sleep until `helper's left` sends their share
-        let RevealValue { share } = channel
-            .receive(
-                ctx.role().peer(Direction::Left),
-                record_id,
-            )
-            .await?;
+    // Sleep until `helper's left` sends their share
+    let RevealValue { share } = channel
+        .receive(ctx.role().peer(Direction::Left), record_id)
+        .await?;
 
     Ok(inputs.0 + inputs.1 + share)
 }
