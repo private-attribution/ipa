@@ -1,16 +1,13 @@
-use std::cmp::{max, min};
-use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
-use crate::protocol::RecordId;
+use std::cmp::max;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::io::Write;
 use std::mem;
-use std::mem::ManuallyDrop;
-
 use std::ops::Range;
-use smallvec::{Array, SmallVec};
+use smallvec::SmallVec;
 use thiserror::Error;
-use tokio::sync::oneshot;
+
+use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+use crate::protocol::RecordId;
 
 /// Accumulator of records that must be send down to network.
 #[derive(Debug)]
@@ -56,34 +53,24 @@ struct SendBatch {
     records: Vec<bool>,
 }
 
+#[derive(Debug)]
+struct SendBatchSet<const M: usize> {
+    batch_size: u32,
+    initial_offset: u32,
+}
+
 /// Buffer that keeps messages that must be sent to other helpers
 #[derive(Debug)]
-pub(super) struct SendBuffer {
+pub struct SendBuffer<const M: usize> {
     batch_size: u32,
     initial_offset: u32,
     inner: HashMap<ChannelId, SendBatch>,
 }
 
-/// Local buffer for messages that are either awaiting requests to receive them or requests
-/// that are pending message reception.
-/// TODO: Right now it is backed by a hashmap but `SipHash` (default hasher) performance is not great
-/// when protection against collisions is not required, so either use a vector indexed by
-/// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
-#[derive(Debug, Default)]
-pub(super) struct ReceiveBuffer {
-    inner: HashMap<ChannelId, HashMap<RecordId, ReceiveBufItem>>,
-}
-
-#[derive(Debug)]
-enum ReceiveBufItem {
-    /// There is an outstanding request to receive the message but this helper hasn't seen it yet
-    Requested(oneshot::Sender<InlineBuf>),
-    /// Message has been received but nobody requested it yet
-    Received(InlineBuf),
-}
+type SingleSendBuffer = SendBuffer<1>;
 
 #[derive(Debug, Error)]
-pub(super) enum SendBufferError {
+pub enum SendBufferError {
     #[error(
     "Message is out of range (expected record id {record_id:?} to be in {accepted_range:?})"
     )]
@@ -98,8 +85,8 @@ pub(super) enum SendBufferError {
     TooLarge { record_id: RecordId },
 }
 
-impl SendBuffer {
-    pub(super) fn new(batch_size: u32) -> Self {
+impl<const M: usize> SendBuffer<M> {
+    pub fn new(batch_size: u32) -> Self {
         Self::from_batch_and_offset(batch_size, 0)
     }
 
@@ -113,7 +100,7 @@ impl SendBuffer {
         }
     }
 
-    pub(super) fn push(
+    pub fn push(
         &mut self,
         channel_id: ChannelId,
         msg: MessageEnvelope,
@@ -144,67 +131,16 @@ impl SendBuffer {
     }
 
     pub fn remove_random(&mut self) -> (ChannelId, Vec<MessageEnvelope>) {
-        // panic!("we can't remove half-empty buffers")
-        assert!(self.len() > 0);
-
-        let channel_id = self.inner.keys().next().unwrap().clone();
-        let batch = self.inner.remove(&channel_id).unwrap();
-
-        (channel_id, batch.into())
+        panic!("we can't remove half-empty buffers");
+        // assert!(self.len() > 0);
+        //
+        // let channel_id = self.inner.keys().next().unwrap().clone();
+        // let batch = self.inner.remove(&channel_id).unwrap();
+        //
+        // (channel_id, batch.into())
     }
 }
 
-impl ReceiveBuffer {
-    /// Process request to receive a message with the given `RecordId`.
-    pub fn receive_request(
-        &mut self,
-        channel_id: ChannelId,
-        record_id: RecordId,
-        sender: oneshot::Sender<InlineBuf>,
-    ) {
-        match self.inner.entry(channel_id).or_default().entry(record_id) {
-            Entry::Occupied(entry) => match entry.remove() {
-                ReceiveBufItem::Requested(_) => {
-                    panic!("More than one request to receive a message for {record_id:?}");
-                }
-                ReceiveBufItem::Received(payload) => {
-                    sender.send(payload).unwrap_or_else(|_| {
-                        tracing::warn!("No listener for message {record_id:?}");
-                    });
-                }
-            },
-            Entry::Vacant(entry) => {
-                entry.insert(ReceiveBufItem::Requested(sender));
-            }
-        }
-    }
-
-    /// Process message that has been received
-    pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: Vec<MessageEnvelope>) {
-        for msg in messages {
-            match self
-                .inner
-                .entry(channel_id.clone())
-                .or_default()
-                .entry(msg.record_id)
-            {
-                Entry::Occupied(entry) => match entry.remove() {
-                    ReceiveBufItem::Requested(s) => {
-                        s.send(msg.payload).unwrap_or_else(|_| {
-                            tracing::warn!("No listener for message {:?}", msg.record_id);
-                        });
-                    }
-                    ReceiveBufItem::Received(_) => {
-                        panic!("Duplicate message for the same record {:?}", msg.record_id);
-                    }
-                },
-                Entry::Vacant(entry) => {
-                    entry.insert(ReceiveBufItem::Received(msg.payload));
-                }
-            }
-        }
-    }
-}
 
 impl SendBatch {
     pub fn new(initial_offset: u32, batch_size: u32) -> Self {
@@ -237,9 +173,9 @@ impl SendBatch {
             if msg.payload.len() > 8 {
                 Err(SendBufferError::TooLarge { record_id: msg.record_id })
             } else {
-                let end = idx*8 + 8;
+                let end = idx * 8 + 8;
                 // let start = idx*8;
-                let start = max(idx*8, end - msg.payload.len());
+                let start = max(idx * 8, end - msg.payload.len());
                 // let start = idx*8 ;
                 // let end = min(8, msg.payload.len());
                 self.data[start..end].copy_from_slice(&msg.payload);
@@ -302,7 +238,7 @@ impl From<SendBatch> for Vec<MessageEnvelope> {
                 let payload = SmallVec::from_slice(chunk);
                 MessageEnvelope {
                     record_id,
-                    payload
+                    payload,
                 }
             })
             .collect()
@@ -346,132 +282,131 @@ impl From<SendBatch> for Vec<MessageEnvelope> {
 
 #[cfg(test)]
 mod tests {
-    mod send_buffer_tests {
-        use crate::helpers::buffers::{SendBuffer, SendBufferError};
-        use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
-        use crate::helpers::Identity;
-        use crate::protocol::{RecordId, UniqueStepId};
-        use rand::seq::SliceRandom;
-        use rand::thread_rng;
-        use std::cmp::Ordering;
+    use crate::helpers::buffers::{SendBuffer, SendBufferError};
+    use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
+    use crate::helpers::Identity;
+    use crate::protocol::{RecordId, UniqueStepId};
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
+    use std::cmp::Ordering;
+    use crate::helpers::buffers::send::SingleSendBuffer;
 
-        #[test]
-        fn rejects_records_out_of_range() {
-            let record_id = RecordId::from(11);
-            let accepted_range = RecordId::from(0)..RecordId::from(10);
-            let mut buf = SendBuffer::new(10);
-            let msg = MessageEnvelope {
-                record_id,
-                payload: InlineBuf::default(),
-            };
+    #[test]
+    fn rejects_records_out_of_range() {
+        let record_id = RecordId::from(11);
+        let accepted_range = RecordId::from(0)..RecordId::from(10);
+        let mut buf = SingleSendBuffer::new(10);
+        let msg = MessageEnvelope {
+            record_id,
+            payload: InlineBuf::default(),
+        };
 
-            assert!(matches!(
+        assert!(matches!(
                 buf.push(ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
                 Err(SendBufferError::RecordOutOfRange { record_id, accepted_range: range }) if record_id == record_id && range == accepted_range
             ));
-        }
+    }
 
-        #[test]
-        fn offset_is_per_channel() {
-            let mut buf = SendBuffer::new(1);
-            let c1 = ChannelId::new(Identity::H1, UniqueStepId::default());
-            let c2 = ChannelId::new(Identity::H2, UniqueStepId::default());
+    #[test]
+    fn offset_is_per_channel() {
+        let mut buf = SingleSendBuffer::new(1);
+        let c1 = ChannelId::new(Identity::H1, UniqueStepId::default());
+        let c2 = ChannelId::new(Identity::H2, UniqueStepId::default());
 
-            let m1 = MessageEnvelope {
-                record_id: RecordId::from(0),
-                payload: InlineBuf::default(),
-            };
-            let m2 = MessageEnvelope {
-                record_id: RecordId::from(1),
-                payload: InlineBuf::default(),
-            };
+        let m1 = MessageEnvelope {
+            record_id: RecordId::from(0),
+            payload: InlineBuf::default(),
+        };
+        let m2 = MessageEnvelope {
+            record_id: RecordId::from(1),
+            payload: InlineBuf::default(),
+        };
 
-            buf.push(c1.clone(), m1).unwrap();
-            buf.push(c1, m2.clone()).unwrap();
+        buf.push(c1.clone(), m1).unwrap();
+        buf.push(c1, m2.clone()).unwrap();
 
-            assert!(matches!(
+        assert!(matches!(
                 buf.push(c2, m2),
                 Err(SendBufferError::RecordOutOfRange { .. })
             ));
-        }
+    }
 
-        #[test]
-        fn rejects_duplicates() {
-            let mut buf = SendBuffer::new(10);
-            let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
-            let record_id = RecordId::from(3);
-            let m1 = MessageEnvelope {
-                record_id,
-                payload: InlineBuf::default(),
-            };
-            let m2 = MessageEnvelope {
-                record_id,
-                payload: InlineBuf::default(),
-            };
+    #[test]
+    fn rejects_duplicates() {
+        let mut buf = SingleSendBuffer::new(10);
+        let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
+        let record_id = RecordId::from(3);
+        let m1 = MessageEnvelope {
+            record_id,
+            payload: InlineBuf::default(),
+        };
+        let m2 = MessageEnvelope {
+            record_id,
+            payload: InlineBuf::default(),
+        };
 
-            assert!(matches!(buf.push(channel.clone(), m1), Ok(None)));
-            assert!(matches!(
+        assert!(matches!(buf.push(channel.clone(), m1), Ok(None)));
+        assert!(matches!(
                 buf.push(channel, m2),
                 Err(SendBufferError::DuplicateMessage { record_id: _ })
             ));
-        }
+    }
 
-        #[test]
-        fn accepts_records_within_the_valid_range() {
-            let mut buf = SendBuffer::new(10);
-            let msg = MessageEnvelope {
-                record_id: RecordId::from(5),
-                payload: InlineBuf::default(),
-            };
+    #[test]
+    fn accepts_records_within_the_valid_range() {
+        let mut buf = SingleSendBuffer::new(10);
+        let msg = MessageEnvelope {
+            record_id: RecordId::from(5),
+            payload: InlineBuf::default(),
+        };
 
-            assert!(matches!(
+        assert!(matches!(
                 buf.push(ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
                 Ok(None)
             ));
-        }
+    }
 
-        #[test]
-        fn accepts_records_from_next_range_after_flushing() {
-            let mut buf = SendBuffer::new(1);
-            let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
-            let next_msg = MessageEnvelope {
-                record_id: RecordId::from(1),
+    #[test]
+    fn accepts_records_from_next_range_after_flushing() {
+        let mut buf = SingleSendBuffer::new(1);
+        let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
+        let next_msg = MessageEnvelope {
+            record_id: RecordId::from(1),
+            payload: InlineBuf::default(),
+        };
+        let this_msg = MessageEnvelope {
+            record_id: RecordId::from(0),
+            payload: InlineBuf::default(),
+        };
+
+        // this_msg belongs to current range, should be accepted
+        assert!(matches!(buf.push(channel.clone(), this_msg), Ok(Some(_))));
+        // this_msg belongs to next valid range that must be set as current by now
+        assert!(matches!(buf.push(channel, next_msg), Ok(Some(_))));
+    }
+
+    #[test]
+    fn returns_sorted_batch() {
+        let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
+        let mut buf = SingleSendBuffer::from_batch_and_offset(10, 1);
+        let mut record_ids = (10u32..20).collect::<Vec<_>>();
+        record_ids.shuffle(&mut thread_rng());
+
+        for record in record_ids {
+            let msg = MessageEnvelope {
+                record_id: RecordId::from(record),
                 payload: InlineBuf::default(),
             };
-            let this_msg = MessageEnvelope {
-                record_id: RecordId::from(0),
-                payload: InlineBuf::default(),
-            };
 
-            // this_msg belongs to current range, should be accepted
-            assert!(matches!(buf.push(channel.clone(), this_msg), Ok(Some(_))));
-            // this_msg belongs to next valid range that must be set as current by now
-            assert!(matches!(buf.push(channel, next_msg), Ok(Some(_))));
-        }
+            if let Some(batch) = buf.push(channel.clone(), msg).ok().flatten() {
+                // todo: use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_sorted_by
+                // or https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.is_sorted when stable
+                let is_sorted = batch
+                    .as_slice()
+                    .windows(2)
+                    .all(|w| w[0].record_id.cmp(&w[1].record_id) != Ordering::Greater);
 
-        #[test]
-        fn returns_sorted_batch() {
-            let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
-            let mut buf = SendBuffer::from_batch_and_offset(10, 1);
-            let mut record_ids = (10u32..20).collect::<Vec<_>>();
-            record_ids.shuffle(&mut thread_rng());
-
-            for record in record_ids {
-                let msg = MessageEnvelope {
-                    record_id: RecordId::from(record),
-                    payload: InlineBuf::default(),
-                };
-
-                if let Some(batch) = buf.push(channel.clone(), msg).ok().flatten() {
-                    // todo: use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_sorted_by
-                    // or https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.is_sorted when stable
-                    let is_sorted = batch
-                        .as_slice()
-                        .windows(2)
-                        .all(|w| w[0].record_id.cmp(&w[1].record_id) != Ordering::Greater);
-
-                    assert!(is_sorted, "batch {batch:?} is not sorted by record_id");
-                }
+                assert!(is_sorted, "batch {batch:?} is not sorted by record_id");
             }
         }
     }

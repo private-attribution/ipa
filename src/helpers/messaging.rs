@@ -114,13 +114,9 @@ impl<N: Network> Mesh<'_, '_, N> {
         msg: T,
     ) -> Result<(), Error> {
         let mut payload = smallvec![0; 8];
-        assert!(T::BYTES < 32, "Infra is not ready to send large messages yet");
         msg.serialize(&mut payload);
-        assert!(!payload.spilled());
-
-        // let bytes = serde_json::to_vec(&msg)
-        //     .map_err(|e| Error::serialization_error(record_id, self.step, e))?
-        //     .into_boxed_slice();
+        // TODO consider warning instead as this will lead to heap allocation?
+        assert!(!payload.spilled(), "Infra cannot deal with large messages yet");
 
         let envelope = MessageEnvelope {
             record_id,
@@ -193,7 +189,7 @@ impl<N: Network> Gateway<N> {
 
         let control_handle = tokio::spawn(async move {
             let mut receive_buf = ReceiveBuffer::default();
-            let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
+            let mut send_buf = SendBuffer::<2>::new(config.send_buffer_capacity);
 
             let sleep = tokio::time::sleep(config.flush_interval);
             tokio::pin!(sleep);
