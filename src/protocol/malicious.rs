@@ -117,12 +117,12 @@ impl<'a, F: Field, N: Network> SecurityValidator<'a, F, N> {
         let channel = self.internally_indexed_ctx.mesh();
         try_join(
             channel.send(
-                channel.identity().peer(Direction::Right),
+                self.internally_indexed_ctx.role().peer(Direction::Right),
                 record_3,
                 UValue { payload: self.u },
             ),
             channel.send(
-                channel.identity().peer(Direction::Right),
+                self.internally_indexed_ctx.role().peer(Direction::Right),
                 record_4,
                 UValue { payload: self.w },
             ),
@@ -131,8 +131,14 @@ impl<'a, F: Field, N: Network> SecurityValidator<'a, F, N> {
 
         // receive `u_i` value from helper to the left
         let (u_left_struct, w_left_struct): (UValue<F>, UValue<F>) = try_join(
-            channel.receive(channel.identity().peer(Direction::Left), record_3),
-            channel.receive(channel.identity().peer(Direction::Left), record_4),
+            channel.receive(
+                self.internally_indexed_ctx.role().peer(Direction::Left),
+                record_3,
+            ),
+            channel.receive(
+                self.internally_indexed_ctx.role().peer(Direction::Left),
+                record_4,
+            ),
         )
         .await?;
 
