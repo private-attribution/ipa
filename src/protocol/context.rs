@@ -95,6 +95,12 @@ impl<N: Network> ProtocolContext<'_, N> {
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     pub async fn multiply(&self, record_id: RecordId) -> SecureMul<'_, N> {
-        SecureMul::new(self.prss(), self.gateway, &self.step, record_id)
+        SecureMul::new(
+            self.prss(),
+            self.gateway,
+            &self.step,
+            record_id,
+            self.role(),
+        )
     }
 }

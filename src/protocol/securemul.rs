@@ -1,7 +1,7 @@
 use super::UniqueStepId;
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::{fabric::Network, messaging::Gateway, Direction};
+use crate::helpers::{fabric::Network, messaging::Gateway, Direction, Identity};
 use crate::protocol::{prss::IndexedSharedRandomness, RecordId};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,7 @@ pub struct SecureMul<'a, N> {
     gateway: &'a Gateway<N>,
     step: &'a UniqueStepId,
     record_id: RecordId,
+    role: Identity,
 }
 
 impl<'a, N: Network> SecureMul<'a, N> {
@@ -32,12 +33,14 @@ impl<'a, N: Network> SecureMul<'a, N> {
         gateway: &'a Gateway<N>,
         step: &'a UniqueStepId,
         record_id: RecordId,
+        role: Identity,
     ) -> Self {
         Self {
             prss,
             gateway,
             step,
             record_id,
+            role,
         }
     }
 
@@ -66,7 +69,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
         // notify helper on the right that we've computed our value
         channel
             .send(
-                channel.identity().peer(Direction::Right),
+                self.role.peer(Direction::Right),
                 self.record_id,
                 DValue { d: right_d },
             )
@@ -74,7 +77,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
 
         // Sleep until helper on the left sends us their (d_i-1) value
         let DValue { d: left_d } = channel
-            .receive(channel.identity().peer(Direction::Left), self.record_id)
+            .receive(self.role.peer(Direction::Left), self.record_id)
             .await?;
 
         // now we are ready to construct the result - 2/3 secret shares of a * b.
