@@ -94,13 +94,7 @@ impl<N: Network> ProtocolContext<'_, N> {
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(&self, record_id: RecordId) -> SecureMul<'_, N> {
-        SecureMul::new(
-            self.prss(),
-            self.gateway,
-            &self.step,
-            record_id,
-            self.role(),
-        )
+    pub async fn multiply<'a>(&'a self, record_id: RecordId) -> SecureMul<'a, N> {
+        SecureMul::new(self, record_id)
     }
 }
