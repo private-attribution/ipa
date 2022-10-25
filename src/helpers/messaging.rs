@@ -18,18 +18,39 @@ use futures::SinkExt;
 use futures::StreamExt;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
-
+use crate::field::Int;
 use crate::helpers::buffers::SendBufferError;
 use std::time::Duration;
+use smallvec::{Array, SmallVec, smallvec};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::Instrument;
+use crate::field::{DeserializationError, Field};
+use crate::helpers::fabric::InlineBuf;
 
 /// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
+pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {
+    const BYTES: usize;
 
-impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
+    /// TODO: return result
+    fn deserialize<A: Array<Item = u8>>(buf: &mut SmallVec<A>) -> Self;
+    fn serialize<A: Array<Item = u8>>(self, buf: &mut SmallVec<A>);
+}
+
+impl <F: Field> Message for F {
+    const BYTES: usize = F::Integer::BYTES;
+
+    fn deserialize<A: Array<Item=u8>>(buf: &mut SmallVec<A>) -> Self {
+        <F as Field>::deserialize(buf).unwrap()
+    }
+
+    fn serialize<A: Array<Item=u8>>(self, buf: &mut SmallVec<A>) {
+        Field::serialize(&self, buf);
+    }
+}
+
+// impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication
@@ -77,7 +98,7 @@ pub struct Mesh<'a, 'b, N> {
 pub(super) struct ReceiveRequest {
     pub channel_id: ChannelId,
     pub record_id: RecordId,
-    pub sender: oneshot::Sender<Box<[u8]>>,
+    pub sender: oneshot::Sender<InlineBuf>,
 }
 
 impl<N: Network> Mesh<'_, '_, N> {
@@ -92,13 +113,17 @@ impl<N: Network> Mesh<'_, '_, N> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let bytes = serde_json::to_vec(&msg)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?
-            .into_boxed_slice();
+        let mut payload = smallvec![0; 8];
+        assert!(T::BYTES < 32, "Infra is not ready to send large messages yet");
+        msg.serialize(&mut payload);
+
+        // let bytes = serde_json::to_vec(&msg)
+        //     .map_err(|e| Error::serialization_error(record_id, self.step, e))?
+        //     .into_boxed_slice();
 
         let envelope = MessageEnvelope {
             record_id,
-            payload: bytes,
+            payload
         };
 
         self.gateway
@@ -115,15 +140,18 @@ impl<N: Network> Mesh<'_, '_, N> {
         source: Identity,
         record_id: RecordId,
     ) -> Result<T, Error> {
-        let payload = self
+        let mut payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj: T = serde_json::from_slice(&payload)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
+        // TODO error handling
+        Ok(<T as Message>::deserialize(&mut payload))
 
-        Ok(obj)
+        // let obj: T = serde_json::from_slice(&payload)
+        //     .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
+
+        // Ok(obj)
     }
 
     /// Returns the unique identity of this helper.
@@ -208,6 +236,7 @@ impl<N: Network> Gateway<N> {
                         status_tx.send(status).expect("Failed to report send status");
                     }
                     _ = &mut sleep, if send_buf.len() > 0 => {
+                        // TODO this is dead wrong, remove it
                         let (channel_id, buf_to_send) = send_buf.remove_random();
                         tracing::trace!("Nothing happened in {:?}, flushing the send buffer {channel_id:?} ({} messages)",
                             config.flush_interval,
@@ -253,7 +282,7 @@ impl<N: Network> Gateway<N> {
         &self,
         channel_id: ChannelId,
         record_id: RecordId,
-    ) -> Result<Box<[u8]>, Error> {
+    ) -> Result<InlineBuf, Error> {
         let (tx, rx) = oneshot::channel();
         self.receive_request_tx
             .send(ReceiveRequest {

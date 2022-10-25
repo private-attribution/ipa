@@ -9,11 +9,6 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 use serde::{Deserialize, Serialize};
 
-/// A message sent by each helper when they've reshared their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct PartValue<F> {
-    part: F,
-}
 /// Reshare(i, \[x\])
 // This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 // Input: Pi-1 and Pi+1 know their secret shares
@@ -60,12 +55,12 @@ impl<F: Field> Reshare<F> {
                 .send(
                     to_helper.peer(Direction::Right),
                     record_id,
-                    PartValue { part: part1 },
+                    part1,
                 )
                 .await?;
 
             // Sleep until `to_helper.right` sends us their part2 value
-            let PartValue { part: part2 } = channel
+            let part2: F = channel
                 .receive(to_helper.peer(Direction::Right), record_id)
                 .await?;
 
@@ -78,12 +73,12 @@ impl<F: Field> Reshare<F> {
                 .send(
                     to_helper.peer(Direction::Left),
                     record_id,
-                    PartValue { part: part2 },
+                    part2,
                 )
                 .await?;
 
             // Sleep until `to_helper.left` sends us their part1 value
-            let PartValue::<F> { part: part1 } = channel
+            let part1: F = channel
                 .receive(to_helper.peer(Direction::Left), record_id)
                 .await?;
 

@@ -1,11 +1,14 @@
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+use std::cmp::{max, min};
+use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
 use crate::protocol::RecordId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::io::Write;
 use std::mem;
 use std::mem::ManuallyDrop;
 
 use std::ops::Range;
+use smallvec::{Array, SmallVec};
 use thiserror::Error;
 use tokio::sync::oneshot;
 
@@ -46,7 +49,11 @@ struct SendBatch {
     /// should be avoided if possible
     ///
     /// This implementation guarantees that this vector is sorted according to `MessageEnvelope::record_id`
-    data: Vec<Option<MessageEnvelope>>,
+    // data: Vec<Option<MessageEnvelope>>,
+    data: Vec<u8>,
+
+    // TODO replace with bitvec
+    records: Vec<bool>,
 }
 
 /// Buffer that keeps messages that must be sent to other helpers
@@ -70,15 +77,15 @@ pub(super) struct ReceiveBuffer {
 #[derive(Debug)]
 enum ReceiveBufItem {
     /// There is an outstanding request to receive the message but this helper hasn't seen it yet
-    Requested(oneshot::Sender<Box<[u8]>>),
+    Requested(oneshot::Sender<InlineBuf>),
     /// Message has been received but nobody requested it yet
-    Received(Box<[u8]>),
+    Received(InlineBuf),
 }
 
 #[derive(Debug, Error)]
 pub(super) enum SendBufferError {
     #[error(
-        "Message is out of range (expected record id {record_id:?} to be in {accepted_range:?})"
+    "Message is out of range (expected record id {record_id:?} to be in {accepted_range:?})"
     )]
     RecordOutOfRange {
         accepted_range: Range<RecordId>,
@@ -86,6 +93,9 @@ pub(super) enum SendBufferError {
     },
     #[error("Attempt to keep two distinct messages with the same record id {record_id:?}")]
     DuplicateMessage { record_id: RecordId },
+
+    #[error("Message payload with record id {record_id:?} exceeds 8 bytes")]
+    TooLarge { record_id: RecordId },
 }
 
 impl SendBuffer {
@@ -134,6 +144,7 @@ impl SendBuffer {
     }
 
     pub fn remove_random(&mut self) -> (ChannelId, Vec<MessageEnvelope>) {
+        // panic!("we can't remove half-empty buffers")
         assert!(self.len() > 0);
 
         let channel_id = self.inner.keys().next().unwrap().clone();
@@ -149,7 +160,7 @@ impl ReceiveBuffer {
         &mut self,
         channel_id: ChannelId,
         record_id: RecordId,
-        sender: oneshot::Sender<Box<[u8]>>,
+        sender: oneshot::Sender<InlineBuf>,
     ) {
         match self.inner.entry(channel_id).or_default().entry(record_id) {
             Entry::Occupied(entry) => match entry.remove() {
@@ -205,26 +216,50 @@ impl SendBatch {
             len: 0,
             data: {
                 let batch_size = batch_size as usize;
-                let mut data = Vec::with_capacity(batch_size);
-                data.resize_with(batch_size, || None);
+                // TODO why 8 bytes per record?
+                // let mut data = Vec::with_capacity(batch_size * 8);
+                // data.resize_with(batch_size, || None);
+                let mut data = vec![0_u8; batch_size * 8];
 
                 data
             },
+            records: vec![false; batch_size as usize],
         }
     }
 
     pub fn push(&mut self, msg: MessageEnvelope) -> Result<(), SendBufferError> {
         let idx = self.accept_msg(&msg)? as usize;
-        if self.data[idx].is_some() {
+        if self.records[idx] {
             Err(SendBufferError::DuplicateMessage {
                 record_id: msg.record_id,
             })
         } else {
-            self.data[idx] = Some(msg);
-            self.len += 1;
+            if msg.payload.len() > 8 {
+                Err(SendBufferError::TooLarge { record_id: msg.record_id })
+            } else {
+                let end = idx*8 + 8;
+                // let start = idx*8;
+                let start = max(idx*8, end - msg.payload.len());
+                // let start = idx*8 ;
+                // let end = min(8, msg.payload.len());
+                self.data[start..end].copy_from_slice(&msg.payload);
+                self.len += 1;
+                self.records[idx] = true;
 
-            Ok(())
+                Ok(())
+            }
         }
+
+        // if self.data[idx].is_some() {
+        //     Err(SendBufferError::DuplicateMessage {
+        //         record_id: msg.record_id,
+        //     })
+        // } else {
+        //     self.data[idx] = Some(msg);
+        //     self.len += 1;
+        //
+        //     Ok(())
+        // }
     }
 
     pub fn is_full(&self) -> bool {
@@ -254,39 +289,58 @@ impl SendBatch {
 
 impl From<SendBatch> for Vec<MessageEnvelope> {
     fn from(value: SendBatch) -> Self {
-        // we can safely reinterpret because batch is full
-        if value.len == value.batch_size {
-            // what we are about to do is unsafe, so it is better to check that we won't cause a UB
-            // Note that if the implementation is correct, checking self.len == self.batch_size is enough
-            // to prevent undefined behaviour, this is just an extra safety guard
-            debug_assert!(value.data.as_slice().iter().all(Option::is_some));
+        assert_eq!(value.len, value.batch_size);
 
-            // safety: Option<T> and T have the same layout as long as Option is Some
-            // https://doc.rust-lang.org/std/option/#representation
-            // we checked above that all elements inside the vec are set to Some(T) by verifying the len
-            unsafe {
-                // don't drop the original vector
-                let mut data = ManuallyDrop::new(value.data);
+        // TODO fix these allocations
+        value.data
+            .chunks(8)
+            .enumerate()
+            .map(|(i, chunk)| {
+                let record_id = RecordId::from(value.offset + i as u32);
+                // let payload = payload[start..payload.len()].to_vec().into_boxed_slice();
 
-                // reinterpret Vec<Option<T>> as Vec<T>
-                Vec::from_raw_parts(
-                    data.as_mut_ptr().cast::<MessageEnvelope>(),
-                    data.len(),
-                    data.capacity(),
-                )
-            }
-        } else {
-            // batch is not full, a copy is required to flush it
-            let mut res = Vec::with_capacity(value.len as usize);
+                let payload = SmallVec::from_slice(chunk);
+                MessageEnvelope {
+                    record_id,
+                    payload
+                }
+            })
+            .collect()
 
-            // the batch is sorted, so traversing it from left to right is enough to keep
-            // result sorted as well
-            for msg in value.data.into_iter().flatten() {
-                res.push(msg);
-            }
 
-            res
-        }
+        // // we can safely reinterpret because batch is full
+        // if value.len == value.batch_size {
+        //     // what we are about to do is unsafe, so it is better to check that we won't cause a UB
+        //     // Note that if the implementation is correct, checking self.len == self.batch_size is enough
+        //     // to prevent undefined behaviour, this is just an extra safety guard
+        //     debug_assert!(value.data.as_slice().iter().all(Option::is_some));
+        //
+        //     // safety: Option<T> and T have the same layout as long as Option is Some
+        //     // https://doc.rust-lang.org/std/option/#representation
+        //     // we checked above that all elements inside the vec are set to Some(T) by verifying the len
+        //     unsafe {
+        //         // don't drop the original vector
+        //         let mut data = ManuallyDrop::new(value.data);
+        //
+        //         // reinterpret Vec<Option<T>> as Vec<T>
+        //         Vec::from_raw_parts(
+        //             data.as_mut_ptr().cast::<MessageEnvelope>(),
+        //             data.len(),
+        //             data.capacity(),
+        //         )
+        //     }
+        // } else {
+        //     // batch is not full, a copy is required to flush it
+        //     let mut res = Vec::with_capacity(value.len as usize);
+        //
+        //     // the batch is sorted, so traversing it from left to right is enough to keep
+        //     // result sorted as well
+        //     for msg in value.data.into_iter().flatten() {
+        //         res.push(msg);
+        //     }
+        //
+        //     res
+        // }
     }
 }
 
@@ -294,7 +348,7 @@ impl From<SendBatch> for Vec<MessageEnvelope> {
 mod tests {
     mod send_buffer_tests {
         use crate::helpers::buffers::{SendBuffer, SendBufferError};
-        use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+        use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
         use crate::helpers::Identity;
         use crate::protocol::{RecordId, UniqueStepId};
         use rand::seq::SliceRandom;
@@ -308,7 +362,7 @@ mod tests {
             let mut buf = SendBuffer::new(10);
             let msg = MessageEnvelope {
                 record_id,
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
 
             assert!(matches!(
@@ -325,11 +379,11 @@ mod tests {
 
             let m1 = MessageEnvelope {
                 record_id: RecordId::from(0),
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
             let m2 = MessageEnvelope {
                 record_id: RecordId::from(1),
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
 
             buf.push(c1.clone(), m1).unwrap();
@@ -348,11 +402,11 @@ mod tests {
             let record_id = RecordId::from(3);
             let m1 = MessageEnvelope {
                 record_id,
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
             let m2 = MessageEnvelope {
                 record_id,
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
 
             assert!(matches!(buf.push(channel.clone(), m1), Ok(None)));
@@ -367,7 +421,7 @@ mod tests {
             let mut buf = SendBuffer::new(10);
             let msg = MessageEnvelope {
                 record_id: RecordId::from(5),
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
 
             assert!(matches!(
@@ -382,11 +436,11 @@ mod tests {
             let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
             let next_msg = MessageEnvelope {
                 record_id: RecordId::from(1),
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
             let this_msg = MessageEnvelope {
                 record_id: RecordId::from(0),
-                payload: Box::new([]),
+                payload: InlineBuf::default(),
             };
 
             // this_msg belongs to current range, should be accepted
@@ -405,7 +459,7 @@ mod tests {
             for record in record_ids {
                 let msg = MessageEnvelope {
                     record_id: RecordId::from(record),
-                    payload: Box::new([]),
+                    payload: InlineBuf::default(),
                 };
 
                 if let Some(batch) = buf.push(channel.clone(), msg).ok().flatten() {

@@ -8,12 +8,6 @@ use crate::{
 
 use serde::{Deserialize, Serialize};
 
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
-
 /// A highly specialized variant of the IKHC multiplication protocol which is only valid
 /// in the case where 4 of the 6 shares are zero.
 ///
@@ -63,7 +57,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
                 .send(
                     channel.identity().peer(Direction::Right),
                     record_id,
-                    DValue { d: d_1 },
+                    d_1,
                 )
                 .await?;
 
@@ -78,7 +72,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
 
             // Sleep until helper on the left sends us their (d_i-1) value
             let channel = ctx.mesh();
-            let DValue { d: d_1 } = channel
+            let d_1 = channel
                 .receive(channel.identity().peer(Direction::Left), record_id)
                 .await?;
 
@@ -144,7 +138,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
 
             // Sleep until helper on the left sends us their (d_i-1) value
             let channel = ctx.mesh();
-            let DValue { d: d_3 } = channel
+            let d_3: F = channel
                 .receive(channel.identity().peer(Direction::Left), record_id)
                 .await?;
 
@@ -166,7 +160,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
                 .send(
                     channel.identity().peer(Direction::Right),
                     record_id,
-                    DValue { d: d_2 },
+                    d_2,
                 )
                 .await?;
 
@@ -188,12 +182,12 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
                 .send(
                     channel.identity().peer(Direction::Right),
                     record_id,
-                    DValue { d: d_3 },
+                    d_3,
                 )
                 .await?;
 
             // Sleep until helper on the left sends us their (d_i-1) value
-            let DValue { d: d_2 } = channel
+            let d_2: F = channel
                 .receive(channel.identity().peer(Direction::Left), record_id)
                 .await?;
 

@@ -3,6 +3,10 @@ use crate::protocol::{RecordId, UniqueStepId};
 use async_trait::async_trait;
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
+use smallvec::{Array, SmallVec};
+
+pub(super) type ByteArray<A> = SmallVec<A>;
+pub(super) type InlineBuf = ByteArray<[u8; 8]>;
 
 /// Combination of helper identity and step that uniquely identifies a single channel of communication
 /// between two helpers.
@@ -17,7 +21,7 @@ pub struct ChannelId {
 #[cfg_attr(test, derive(Clone))]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
-    pub payload: Box<[u8]>,
+    pub payload: InlineBuf,
 }
 
 pub type MessageChunks = (ChannelId, Vec<MessageEnvelope>);

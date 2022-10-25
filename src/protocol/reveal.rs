@@ -7,13 +7,6 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 use serde::{Deserialize, Serialize};
 
-/// A message sent by each helper when they've revealed their own shares
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct RevealValue<F> {
-    share: F,
-}
-
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
 /// each helper has all three shares and can reconstruct `a`
@@ -39,12 +32,12 @@ pub async fn reveal<F: Field, N: Network>(
         .send(
             channel.identity().peer(Direction::Right),
             record_id,
-            RevealValue { share: inputs.0 },
+            inputs.0,
         )
         .await?;
 
     // Sleep until `helper's left` sends their share
-    let RevealValue { share } = channel
+    let share: F = channel
         .receive(channel.identity().peer(Direction::Left), record_id)
         .await?;
 

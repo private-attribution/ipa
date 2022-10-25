@@ -9,12 +9,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;
 
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
-
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
@@ -68,12 +62,12 @@ impl<'a, N: Network> SecureMul<'a, N> {
             .send(
                 channel.identity().peer(Direction::Right),
                 self.record_id,
-                DValue { d: right_d },
+                right_d,
             )
             .await?;
 
         // Sleep until helper on the left sends us their (d_i-1) value
-        let DValue { d: left_d } = channel
+        let left_d: F = channel
             .receive(channel.identity().peer(Direction::Left), self.record_id)
             .await?;
 

@@ -41,12 +41,6 @@ use crate::{
 use futures::{stream::StreamExt, Stream};
 use serde::{Deserialize, Serialize};
 
-/// A message sent by each helper when they've computed one share of the result
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct UValue<F> {
-    u: F,
-}
-
 ///
 /// Consumes the input stream of pairs of replicated secret shares and
 /// for each pair, multiplies them, and accumulates the result in a running sum.
@@ -87,12 +81,12 @@ pub async fn accumulate_dot_product<
         .send(
             channel.identity().peer(Direction::Right),
             record_id,
-            UValue { u: u_right },
+            u_right,
         )
         .await?;
 
     // receive `u_i` value from helper to the left
-    let UValue { u: u_left } = channel
+    let u_left = channel
         .receive(channel.identity().peer(Direction::Left), record_id)
         .await?;
 

@@ -1,11 +1,22 @@
 use std::ops::{BitAnd, Shr};
-use std::{
-    fmt::Debug,
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
-
+use std::{fmt::Debug, io, ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign}};
+use std::io::Error;
+use aes::cipher::generic_array::GenericArray;
+use byteorder::ReadBytesExt;
+use hyper::body::Buf;
+use smallvec::{Array, SmallVec};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use crate::error::BoxError;
+
+#[derive(thiserror::Error, Debug)]
+pub enum DeserializationError {
+    #[error("Failed to read field value from the buffer")]
+    ReadError {
+        #[source]
+        inner: BoxError
+    }
+}
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int:
@@ -21,10 +32,12 @@ pub trait Int:
     + PartialEq
 {
     const BITS: u32;
+    const BYTES: usize;
 }
 
 impl Int for u8 {
     const BITS: u32 = u8::BITS;
+    const BYTES: usize = 1;
 }
 
 pub trait Field:
@@ -36,6 +49,7 @@ pub trait Field:
     + Mul<Output = Self>
     + MulAssign
     + From<u128>
+    + From<Self::Integer>
     + Into<Self::Integer>
     + Clone
     + Copy
@@ -90,6 +104,37 @@ pub trait Field:
     fn as_u128(&self) -> u128 {
         let int: Self::Integer = (*self).into();
         int.into()
+    }
+
+    /// Generic implementation to serialize fields to a slice on the stack.
+    /// It is less efficient because it operates with generic representation of fields as 16 byte
+    /// integers, so consider overriding it for the best performance. It does not heap allocate and
+    /// verifies that in debug builds.
+    fn serialize<A: Array<Item = u8>>(&self, buf: &mut SmallVec<A>) {
+        let bytes = Self::Integer::BYTES;
+        assert!(bytes <= 8);
+
+        let raw_value = self.as_u128().to_le_bytes();
+        buf[..bytes].copy_from_slice(&raw_value[..bytes]);
+
+        debug_assert!(!buf.spilled());
+    }
+
+    fn deserialize<A: Array<Item = u8>>(buf: &mut SmallVec<A>) -> Result<Self, DeserializationError> {
+        // let raw_value = buf.reader().read_u8();
+        let bits = Self::Integer::BITS;
+        let mut reader = buf.reader();
+        let mut bytes_to_read = (bits / 8) as usize;
+
+        assert!(bytes_to_read <= 8);
+        let mut raw_data = [0; 16];
+        let mut i = 0;
+        while i < bytes_to_read {
+            raw_data[i] = reader.read_u8()?;
+            i += 1;
+        };
+
+        Ok(Self::from(u128::from_le_bytes(raw_data)))
     }
 }
 
@@ -191,6 +236,15 @@ impl Debug for Fp31 {
     }
 }
 
+
+impl From<io::Error> for DeserializationError {
+    fn from(source: Error) -> Self {
+        DeserializationError::ReadError {
+            inner: Box::new(source)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{Field, Fp31};
@@ -264,3 +318,4 @@ mod test {
         assert_ne!(Fp31::ZERO, Fp31(0).invert());
     }
 }
+
