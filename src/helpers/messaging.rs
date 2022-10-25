@@ -34,19 +34,19 @@ pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {
     const BYTES: usize;
 
     /// TODO: return result
-    fn deserialize<A: Array<Item = u8>>(buf: &mut SmallVec<A>) -> Self;
-    fn serialize<A: Array<Item = u8>>(self, buf: &mut SmallVec<A>);
+    fn deserialize(buf: &mut [u8]) -> Self;
+    fn serialize(self, buf: &mut [u8]);
 }
 
 impl <F: Field> Message for F {
     const BYTES: usize = F::Integer::BYTES;
 
-    fn deserialize<A: Array<Item=u8>>(buf: &mut SmallVec<A>) -> Self {
+    fn deserialize(buf: &mut [u8]) -> Self {
         <F as Field>::deserialize(buf).unwrap()
     }
 
-    fn serialize<A: Array<Item=u8>>(self, buf: &mut SmallVec<A>) {
-        Field::serialize(&self, buf);
+    fn serialize(self, buf: &mut [u8]) {
+        <F as Field>::serialize(&self, buf);
     }
 }
 
@@ -116,6 +116,7 @@ impl<N: Network> Mesh<'_, '_, N> {
         let mut payload = smallvec![0; 8];
         assert!(T::BYTES < 32, "Infra is not ready to send large messages yet");
         msg.serialize(&mut payload);
+        assert!(!payload.spilled());
 
         // let bytes = serde_json::to_vec(&msg)
         //     .map_err(|e| Error::serialization_error(record_id, self.step, e))?

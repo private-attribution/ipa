@@ -21,14 +21,13 @@ pub struct RevealValue {
 impl Message for RevealValue {
     const BYTES: usize = 1;
 
-    fn deserialize<A: Array<Item=u8>>(buf: &mut SmallVec<A>) -> Self {
+    fn deserialize(buf: &mut [u8]) -> Self {
         let byte = buf.reader().read_u8().unwrap();
         Self { share: byte > 0 }
     }
 
-    fn serialize<A: Array<Item=u8>>(self, buf: &mut SmallVec<A>) {
+    fn serialize(self, buf: &mut [u8]) {
         buf[0] = self.share.into();
-        assert!(!buf.spilled());
     }
 }
 

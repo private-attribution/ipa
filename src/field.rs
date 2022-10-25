@@ -106,22 +106,22 @@ pub trait Field:
         int.into()
     }
 
-    /// Generic implementation to serialize fields to a slice on the stack.
+    /// Generic implementation to serialize fields to a mutable slice. Callers need to make sure
+    /// there is enough capacity to store the value of this field, otherwise it will panic.
     /// It is less efficient because it operates with generic representation of fields as 16 byte
-    /// integers, so consider overriding it for the best performance. It does not heap allocate and
-    /// verifies that in debug builds.
-    fn serialize<A: Array<Item = u8>>(&self, buf: &mut SmallVec<A>) {
+    /// integers, so consider overriding it for actual field implementations
+    fn serialize(&self, buf: &mut [u8]) {
         let bytes = Self::Integer::BYTES;
         assert!(bytes <= 8);
+        assert!(buf.len() >= bytes);
 
+        // TODO: this looks weird - what if we re-use buf later to serialize something else?
+        // should we take `Write` or `BufWriter` instead?
         let raw_value = self.as_u128().to_le_bytes();
         buf[..bytes].copy_from_slice(&raw_value[..bytes]);
-
-        debug_assert!(!buf.spilled());
     }
 
-    fn deserialize<A: Array<Item = u8>>(buf: &mut SmallVec<A>) -> Result<Self, DeserializationError> {
-        // let raw_value = buf.reader().read_u8();
+    fn deserialize(buf: &mut [u8]) -> Result<Self, DeserializationError> {
         let bits = Self::Integer::BITS;
         let mut reader = buf.reader();
         let mut bytes_to_read = (bits / 8) as usize;
