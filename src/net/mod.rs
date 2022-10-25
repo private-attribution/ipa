@@ -57,6 +57,17 @@ impl RecordHeaders {
         req.header(OFFSET_HEADER_NAME.clone(), self.offset)
             .header(DATA_SIZE_HEADER_NAME.clone(), self.data_size)
     }
+
+    /// # Errors
+    /// Returns an error if the body's length does not align with the data-size header.
+    /// Namely, checks if `body.len() % data-size == 0`
+    pub fn matches_body(&self, body_len: usize) -> Result<(), MpcServerError> {
+        (body_len % self.data_size as usize == 0)
+            .then_some(())
+            .ok_or_else(|| {
+                MpcServerError::InvalidHeader("data-size header does not align with body".into())
+            })
+    }
 }
 
 #[async_trait]

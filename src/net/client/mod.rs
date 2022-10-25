@@ -98,7 +98,7 @@ impl MpcHttpConnection {
     async fn mul(&self, args: HttpMulArgs) -> Result<(), MpcClientError> {
         let uri = self.build_uri(format!(
             "/mul/query-id/{}/step/{}?identity={}",
-            args.query_id,
+            String::from(args.query_id),
             String::from(args.step.clone()),
             String::from(args.identity),
         ))?;

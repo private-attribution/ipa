@@ -11,7 +11,7 @@ mod securemul;
 pub mod sort;
 
 use crate::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::hash::Hash;
 
 #[cfg(debug_assertions)]
@@ -39,6 +39,7 @@ pub trait Step: AsRef<str> {}
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for String {}
+
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
@@ -89,6 +90,7 @@ impl PartialEq for UniqueStepId {
         self.id == other.id
     }
 }
+
 impl Eq for UniqueStepId {}
 
 impl UniqueStepId {
@@ -191,10 +193,9 @@ impl AsRef<str> for IpaProtocolStep {
 )]
 pub struct QueryId;
 
-impl Display for QueryId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // dummy value for now
-        write!(f, "0")
+impl From<QueryId> for String {
+    fn from(_qid: QueryId) -> Self {
+        "0".into()
     }
 }
 

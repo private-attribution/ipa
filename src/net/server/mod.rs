@@ -74,11 +74,10 @@ impl From<axum::http::header::ToStrError> for MpcServerError {
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
-            Self::BadQueryString(_)
-            | Self::BadPathString(_)
-            | Self::SerdeError(_)
-            | Self::MissingHeader(_)
-            | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
+            Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+            Self::SerdeError(_) | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
             Self::HyperError(_) | Self::SendError(_) | Self::BodyAlreadyExtracted(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
