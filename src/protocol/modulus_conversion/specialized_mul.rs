@@ -61,7 +61,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
             let channel = ctx.mesh();
             channel
                 .send(
-                    channel.identity().peer(Direction::Right),
+                    ctx.role().peer(Direction::Right),
                     record_id,
                     DValue { d: d_1 },
                 )
@@ -79,7 +79,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
             // Sleep until helper on the left sends us their (d_i-1) value
             let channel = ctx.mesh();
             let DValue { d: d_1 } = channel
-                .receive(channel.identity().peer(Direction::Left), record_id)
+                .receive(ctx.role().peer(Direction::Left), record_id)
                 .await?;
 
             Ok(Replicated::new(d_1, F::ZERO))
@@ -145,7 +145,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
             // Sleep until helper on the left sends us their (d_i-1) value
             let channel = ctx.mesh();
             let DValue { d: d_3 } = channel
-                .receive(channel.identity().peer(Direction::Left), record_id)
+                .receive(ctx.role().peer(Direction::Left), record_id)
                 .await?;
 
             Ok(Replicated::new(d_3, s_right))
@@ -164,7 +164,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
             let channel = ctx.mesh();
             channel
                 .send(
-                    channel.identity().peer(Direction::Right),
+                    ctx.role().peer(Direction::Right),
                     record_id,
                     DValue { d: d_2 },
                 )
@@ -186,7 +186,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
             let channel = ctx.mesh();
             channel
                 .send(
-                    channel.identity().peer(Direction::Right),
+                    ctx.role().peer(Direction::Right),
                     record_id,
                     DValue { d: d_3 },
                 )
@@ -194,7 +194,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
 
             // Sleep until helper on the left sends us their (d_i-1) value
             let DValue { d: d_2 } = channel
-                .receive(channel.identity().peer(Direction::Left), record_id)
+                .receive(ctx.role().peer(Direction::Left), record_id)
                 .await?;
 
             Ok(Replicated::new(a_3 * b_3 + d_2 + s_left, d_3))

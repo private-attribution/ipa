@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::helpers::fabric::MessageChunks;
-use crate::telemetry::metrics::REQUESTS_RECEIVED;
+use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
 use ::metrics::increment_counter;
 use axum::{
     extract::rejection::{PathRejection, QueryRejection},
@@ -132,7 +132,8 @@ impl MpcServer {
         let svc = self
             .router()
             .layer(TraceLayer::new_for_http().on_request(
-                |_request: &Request<Body>, _span: &Span| {
+                |request: &Request<Body>, _span: &Span| {
+                    increment_counter!(RequestProtocolVersion::from(request.version()));
                     increment_counter!(REQUESTS_RECEIVED);
                 },
             ))
@@ -238,12 +239,13 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 mod e2e_tests {
     use crate::net::server::handlers::EchoData;
     use crate::net::server::{BindTarget, MpcServer};
-    use crate::telemetry::metrics::get_counter_value;
-    use crate::telemetry::metrics::REQUESTS_RECEIVED;
-    use hyper::header::HeaderName;
-    use hyper::header::HeaderValue;
+    use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
     use hyper::{
-        body, client::HttpConnector, http::uri::Scheme, Body, Request, Response, StatusCode,
+        body,
+        client::HttpConnector,
+        header::{HeaderName, HeaderValue},
+        http::uri::Scheme,
+        Body, Request, Response, StatusCode, Version,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
@@ -383,6 +385,57 @@ mod e2e_tests {
             get_counter_value(
                 Snapshotter::current_thread_snapshot().unwrap(),
                 REQUESTS_RECEIVED
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn request_version_metric() {
+        DebuggingRecorder::per_thread().install().unwrap_or(());
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
+
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
+        let mut echo_data = EchoData::default();
+        let client = hyper::Client::new();
+        echo_data.headers.insert("host".into(), addr.to_string());
+
+        // make HTTP/1.1 request
+        let response = client
+            .request(echo_data.to_request(&Scheme::HTTP))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // make HTTP/2 request
+        let client = hyper::Client::builder().http2_only(true).build_http();
+        let response = client
+            .request(echo_data.to_request(&Scheme::HTTP))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        assert_eq!(
+            Some(1),
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                RequestProtocolVersion::from(Version::HTTP_11)
+            )
+        );
+        assert_eq!(
+            Some(1),
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                RequestProtocolVersion::from(Version::HTTP_2)
+            )
+        );
+        assert_eq!(
+            None,
+            get_counter_value(
+                Snapshotter::current_thread_snapshot().unwrap(),
+                RequestProtocolVersion::from(Version::HTTP_3)
             )
         );
     }

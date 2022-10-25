@@ -35,14 +35,14 @@ impl RevealAdditiveBinary {
 
         // Send share to helper to the left
         let future_left = channel.send(
-            channel.identity().peer(Direction::Left),
+            ctx.role().peer(Direction::Left),
             record_id,
             RevealValue { share: input },
         );
 
         // Send share to helper to the right
         let future_right = channel.send(
-            channel.identity().peer(Direction::Right),
+            ctx.role().peer(Direction::Right),
             record_id,
             RevealValue { share: input },
         );
@@ -50,10 +50,10 @@ impl RevealAdditiveBinary {
         try_join(future_left, future_right).await?;
 
         // Sleep until `helper's left` sends their share
-        let future_left = channel.receive(channel.identity().peer(Direction::Left), record_id);
+        let future_left = channel.receive(ctx.role().peer(Direction::Left), record_id);
 
         // Sleep until `helper's right` sends their share
-        let future_right = channel.receive(channel.identity().peer(Direction::Right), record_id);
+        let future_right = channel.receive(ctx.role().peer(Direction::Right), record_id);
 
         let (share_from_left, share_from_right): (RevealValue, RevealValue) =
             try_join(future_left, future_right).await?;
