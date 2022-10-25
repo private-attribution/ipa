@@ -2,6 +2,7 @@ mod attribution;
 mod batch;
 mod check_zero;
 pub mod context;
+mod dot_product;
 mod modulus_conversion;
 pub mod prss;
 mod reveal;
