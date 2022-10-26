@@ -10,27 +10,27 @@ use crate::field::Field;
 use crate::helpers::Identity;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Replicated<T>(T, T);
+pub struct Replicated<F>(F, F);
 
-impl<T: Debug> Debug for Replicated<T> {
+impl<F: Debug> Debug for Replicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<T: Field> Default for Replicated<T> {
+impl<F: Field> Default for Replicated<F> {
     fn default() -> Self {
-        Replicated::new(T::ZERO, T::ZERO)
+        Replicated::new(F::ZERO, F::ZERO)
     }
 }
 
-impl<T: Field> Replicated<T> {
+impl<F: Field> Replicated<F> {
     #[must_use]
-    pub fn new(a: T, b: T) -> Self {
+    pub fn new(a: F, b: F) -> Self {
         Self(a, b)
     }
 
-    pub fn as_tuple(&self) -> (T, T) {
+    pub fn as_tuple(&self) -> (F, F) {
         (self.0, self.1)
     }
 
@@ -38,14 +38,14 @@ impl<T: Field> Replicated<T> {
     #[must_use]
     pub fn one(helper_identity: Identity) -> Self {
         match helper_identity {
-            Identity::H1 => Self::new(T::ONE, T::ZERO),
-            Identity::H2 => Self::new(T::ZERO, T::ZERO),
-            Identity::H3 => Self::new(T::ZERO, T::ONE),
+            Identity::H1 => Self::new(F::ONE, F::ZERO),
+            Identity::H2 => Self::new(F::ZERO, F::ZERO),
+            Identity::H3 => Self::new(F::ZERO, F::ONE),
         }
     }
 }
 
-impl<T: Field> Add for Replicated<T> {
+impl<F: Field> Add for Replicated<F> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
@@ -53,19 +53,19 @@ impl<T: Field> Add for Replicated<T> {
     }
 }
 
-impl<T: Field> AddAssign for Replicated<T> {
+impl<F: Field> AddAssign for Replicated<F> {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.add(rhs);
     }
 }
 
-impl<T: Field> SubAssign for Replicated<T> {
+impl<F: Field> SubAssign for Replicated<F> {
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.sub(rhs);
     }
 }
 
-impl<T: Field> Neg for Replicated<T> {
+impl<F: Field> Neg for Replicated<F> {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -73,7 +73,7 @@ impl<T: Field> Neg for Replicated<T> {
     }
 }
 
-impl<T: Field> Sub for Replicated<T> {
+impl<F: Field> Sub for Replicated<F> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
@@ -81,10 +81,10 @@ impl<T: Field> Sub for Replicated<T> {
     }
 }
 
-impl<T: Field> Mul<T> for Replicated<T> {
+impl<F: Field> Mul<F> for Replicated<F> {
     type Output = Self;
 
-    fn mul(self, rhs: T) -> Self {
+    fn mul(self, rhs: F) -> Self {
         Self(rhs * self.0, rhs * self.1)
     }
 }

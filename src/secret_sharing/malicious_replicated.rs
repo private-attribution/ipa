@@ -11,91 +11,99 @@ use crate::helpers::Identity;
 use crate::secret_sharing::Replicated;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct MaliciousReplicated<T>(Replicated<T>, Replicated<T>);
+pub struct MaliciousReplicated<F> {
+    x: Replicated<F>,
+    rx: Replicated<F>,
+}
 
-impl<T: Debug> Debug for MaliciousReplicated<T> {
+impl<F: Debug> Debug for MaliciousReplicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "x: {:?}, rx: {:?}", self.0, self.1)
+        write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
     }
 }
 
-impl<T: Field> Default for MaliciousReplicated<T> {
+impl<F: Field> Default for MaliciousReplicated<F> {
     fn default() -> Self {
         MaliciousReplicated::new(Replicated::default(), Replicated::default())
     }
 }
 
-impl<T: Field> MaliciousReplicated<T> {
+impl<F: Field> MaliciousReplicated<F> {
     #[must_use]
-    pub fn new(x: Replicated<T>, rx: Replicated<T>) -> Self {
-        Self(x, rx)
+    pub fn new(x: Replicated<F>, rx: Replicated<F>) -> Self {
+        Self { x, rx }
     }
 
     #[allow(dead_code)]
-    pub fn x(&self) -> Replicated<T> {
-        self.0
+    pub fn x(&self) -> Replicated<F> {
+        self.x
     }
 
     #[allow(dead_code)]
-    pub fn rx(&self) -> Replicated<T> {
-        self.1
+    pub fn rx(&self) -> Replicated<F> {
+        self.rx
     }
-
-    /*
-    /// Unsure if we need this...
-    pub fn as_tuple(&self) -> (T, T) {
-        (self.0, self.1)
-    }
-    */
 
     /// Returns a pair of replicated secret sharings. One of "one", one of "r"
     #[allow(dead_code)]
-    pub fn one(helper_identity: Identity, r_share: Replicated<T>) -> Self {
+    pub fn one(helper_identity: Identity, r_share: Replicated<F>) -> Self {
         Self::new(Replicated::one(helper_identity), r_share)
     }
 }
 
-impl<T: Field> Add for MaliciousReplicated<T> {
+impl<F: Field> Add for MaliciousReplicated<F> {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self {
-        Self(self.0 + rhs.0, self.1 + rhs.1)
+        Self {
+            x: self.x + rhs.x,
+            rx: self.rx + rhs.rx,
+        }
     }
 }
 
-impl<T: Field> AddAssign for MaliciousReplicated<T> {
+impl<F: Field> AddAssign for MaliciousReplicated<F> {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.add(rhs);
     }
 }
 
-impl<T: Field> SubAssign for MaliciousReplicated<T> {
+impl<F: Field> SubAssign for MaliciousReplicated<F> {
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.sub(rhs);
     }
 }
 
-impl<T: Field> Neg for MaliciousReplicated<T> {
+impl<F: Field> Neg for MaliciousReplicated<F> {
     type Output = Self;
 
     fn neg(self) -> Self {
-        Self(-self.0, -self.1)
+        Self {
+            x: -self.x,
+            rx: -self.rx,
+        }
     }
 }
 
-impl<T: Field> Sub for MaliciousReplicated<T> {
+impl<F: Field> Sub for MaliciousReplicated<F> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self {
-        Self(self.0 - rhs.0, self.1 - rhs.1)
+        Self {
+            x: self.x - rhs.x,
+            rx: self.rx - rhs.rx,
+        }
     }
 }
 
-impl<T: Field> Mul<T> for MaliciousReplicated<T> {
+impl<F: Field> Mul<F> for MaliciousReplicated<F> {
     type Output = Self;
 
-    fn mul(self, rhs: T) -> Self {
-        Self(self.0 * rhs, self.1 * rhs)
+    fn mul(self, rhs: F) -> Self {
+        Self {
+            x: self.x * rhs,
+            rx: self.rx * rhs,
+        }
     }
 }
 
