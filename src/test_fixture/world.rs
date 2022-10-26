@@ -6,6 +6,7 @@ use crate::{
 };
 use std::time::Duration;
 use std::{fmt::Debug, sync::Arc};
+use crate::helpers::buffers::SendBufferConfig;
 
 use super::fabric::InMemoryEndpoint;
 
@@ -30,14 +31,10 @@ pub struct TestWorldConfig {
 impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
-            // buffer capacity = 1 effectively means no buffering. This is the desired mode
-            // for unit tests because they may not produce enough data to trigger buffer flush
             gateway_config: GatewayConfig {
-                send_buffer_capacity: 1,
-                // Note that the interval picked here is somewhat random -
-                // waiting for too long will result in elevated latencies. On the other hand,
-                // sending buffers that are half-full will lead to underutilizing the network
-                flush_interval: Duration::from_millis(200),
+                // flush threshold = 1 effectively means no buffering. This is the desired mode
+                // for unit tests because they may not produce enough data to trigger buffer flush
+                send_buffer_config: SendBufferConfig::new(1.try_into().unwrap(), 1.try_into().unwrap()),
             },
         }
     }

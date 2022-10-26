@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
-use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
+use crate::helpers::fabric::{ByteBuf, ChannelId, InlineBuf, MessageEnvelope};
 use crate::protocol::RecordId;
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
@@ -17,9 +17,9 @@ pub struct ReceiveBuffer {
 #[derive(Debug)]
 enum ReceiveBufItem {
     /// There is an outstanding request to receive the message but this helper hasn't seen it yet
-    Requested(oneshot::Sender<InlineBuf>),
+    Requested(oneshot::Sender<ByteBuf>),
     /// Message has been received but nobody requested it yet
-    Received(InlineBuf),
+    Received(ByteBuf),
 }
 impl ReceiveBuffer {
     /// Process request to receive a message with the given `RecordId`.
@@ -27,7 +27,7 @@ impl ReceiveBuffer {
         &mut self,
         channel_id: ChannelId,
         record_id: RecordId,
-        sender: oneshot::Sender<InlineBuf>,
+        sender: oneshot::Sender<ByteBuf>,
     ) {
         match self.inner.entry(channel_id).or_default().entry(record_id) {
             Entry::Occupied(entry) => match entry.remove() {

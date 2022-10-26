@@ -1,7 +1,6 @@
 use std::ops::{BitAnd, Shr};
 use std::{fmt::Debug, io, ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign}};
 use std::io::Error;
-use aes::cipher::generic_array::GenericArray;
 use byteorder::ReadBytesExt;
 use hyper::body::Buf;
 use smallvec::{Array, SmallVec};

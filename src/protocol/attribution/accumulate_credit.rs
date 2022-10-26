@@ -198,6 +198,7 @@ mod tests {
     use rand::rngs::mock::StepRng;
     use std::time::Duration;
     use tokio::try_join;
+    use crate::helpers::buffers::SendBufferConfig;
 
     fn generate_shared_input(
         input: &[[u128; 4]],
@@ -268,16 +269,10 @@ mod tests {
         let world = make_world_with_config(
             QueryId,
             TestWorldConfig::new(GatewayConfig {
-                // credit function spawns either 3 or 4 futures, buffer capacity must be enough
-                // to keep them all. Setting it lower may lead to test flakiness
-                send_buffer_capacity: 2,
-
-                // not every subroutine in this protocol benefits from large send buffers. It is
-                // actually the opposite - multiplications that are awaited immediately will need to
-                // wait until the buffer is flushed and test will be running for seconds. We are not
-                // testing the infrastructure capabilities here and just want to make this test finish
-                // as quickly as possible, so it is ok to flush partial buffers
-                flush_interval: Duration::from_millis(2),
+                // credit function spawns either 3 or 4 futures, total buffer capacity must be enough
+                // to keep them all. but unit test should move as fast as possible, hence the
+                // flush threshold 1
+                send_buffer_config: SendBufferConfig::new(1.try_into().unwrap(), 4.try_into().unwrap()),
             }),
         );
         let context = make_contexts(&world);

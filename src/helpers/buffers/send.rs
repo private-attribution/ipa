@@ -2,12 +2,31 @@ use std::cmp::max;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::mem;
+use std::num::{NonZeroU32, NonZeroU8};
 use std::ops::Range;
-use smallvec::SmallVec;
+use smallvec::{Array, SmallVec};
 use thiserror::Error;
 
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
 use crate::protocol::RecordId;
+
+#[derive(Clone, Copy, Debug)]
+pub struct SendBufferConfig {
+    /// Total capacity for send buffers (per channel). Always a multiply of `flush_threshold`.
+    total_capacity: u32,
+
+    /// threshold to flush part. Always less than or equal to `total_capacity`.
+    flush_threshold: u32,
+}
+
+impl SendBufferConfig {
+    pub fn new(flush_threshold: NonZeroU32, multiplier: NonZeroU8) -> Self {
+        Self {
+            total_capacity: flush_threshold.get() * multiplier.get() as u32,
+            flush_threshold: flush_threshold.get()
+        }
+    }
+}
 
 /// Accumulator of records that must be send down to network.
 #[derive(Debug)]
@@ -16,6 +35,8 @@ struct SendBatch {
     /// If offset is 0, record identifiers from range 0..`batch_size` are accepted.
     /// If offset is 1, record identifiers from `batch_size`..2*`batch_size` are accepted
     offset: u32,
+
+    total_size: u32,
 
     /// number of records to accumulate inside the buffer (per channel) before flush.
     batch_size: u32,
@@ -53,21 +74,14 @@ struct SendBatch {
     records: Vec<bool>,
 }
 
-#[derive(Debug)]
-struct SendBatchSet<const M: usize> {
-    batch_size: u32,
-    initial_offset: u32,
-}
-
 /// Buffer that keeps messages that must be sent to other helpers
 #[derive(Debug)]
-pub struct SendBuffer<const M: usize> {
+pub struct SendBuffer {
     batch_size: u32,
+    total_size: u32,
     initial_offset: u32,
     inner: HashMap<ChannelId, SendBatch>,
 }
-
-type SingleSendBuffer = SendBuffer<1>;
 
 #[derive(Debug, Error)]
 pub enum SendBufferError {
@@ -85,16 +99,16 @@ pub enum SendBufferError {
     TooLarge { record_id: RecordId },
 }
 
-impl<const M: usize> SendBuffer<M> {
-    pub fn new(batch_size: u32) -> Self {
-        Self::from_batch_and_offset(batch_size, 0)
+impl SendBuffer {
+    pub fn new<C: Into<SendBufferConfig>>(config: C) -> Self {
+        Self::with_offset(config, 0)
     }
 
-    fn from_batch_and_offset(batch_size: u32, initial_offset: u32) -> Self {
-        assert_ne!(0, batch_size, "Invalid batch size, must be greater than 0");
-
+    fn with_offset<C: Into<SendBufferConfig>>(config: C, initial_offset: u32) -> Self {
+        let config = config.into();
         Self {
-            batch_size,
+            batch_size: config.flush_threshold,
+            total_size: config.total_capacity,
             initial_offset,
             inner: HashMap::default(),
         }
@@ -113,13 +127,13 @@ impl<const M: usize> SendBuffer<M> {
                 vec
             }
             Entry::Vacant(entry) => {
-                let batch = entry.insert(SendBatch::new(self.initial_offset, self.batch_size));
+                let batch = entry.insert(SendBatch::new(self.initial_offset, self.batch_size, self.total_size));
                 batch.push(msg)?;
                 batch
             }
         };
 
-        if batch.is_full() {
+        if batch.is_ready() {
             Ok(Some(batch.flush()))
         } else {
             Ok(None)
@@ -143,9 +157,12 @@ impl<const M: usize> SendBuffer<M> {
 
 
 impl SendBatch {
-    pub fn new(initial_offset: u32, batch_size: u32) -> Self {
+    /// TODO take a config
+    pub fn new(initial_offset: u32, batch_size: u32, total_size: u32) -> Self {
+        assert_eq!(0, total_size % batch_size);
         Self {
             offset: initial_offset,
+            total_size,
             batch_size,
             accepted_range: RecordId::from(initial_offset * batch_size)
                 ..RecordId::from(initial_offset * batch_size + batch_size),
@@ -174,10 +191,7 @@ impl SendBatch {
                 Err(SendBufferError::TooLarge { record_id: msg.record_id })
             } else {
                 let end = idx * 8 + 8;
-                // let start = idx*8;
                 let start = max(idx * 8, end - msg.payload.len());
-                // let start = idx*8 ;
-                // let end = min(8, msg.payload.len());
                 self.data[start..end].copy_from_slice(&msg.payload);
                 self.len += 1;
                 self.records[idx] = true;
@@ -185,29 +199,44 @@ impl SendBatch {
                 Ok(())
             }
         }
-
-        // if self.data[idx].is_some() {
-        //     Err(SendBufferError::DuplicateMessage {
-        //         record_id: msg.record_id,
-        //     })
-        // } else {
-        //     self.data[idx] = Some(msg);
-        //     self.len += 1;
-        //
-        //     Ok(())
-        // }
     }
 
-    pub fn is_full(&self) -> bool {
+    pub fn is_ready(&self) -> bool {
         self.len == self.batch_size
     }
 
     pub fn flush(&mut self) -> Vec<MessageEnvelope> {
-        let offset = self.offset + 1;
-        let batch_size = self.batch_size;
-        let prev_self = mem::replace(self, Self::new(offset, batch_size));
+        // take first batch_size records and drain the vec
+        let flush = self.data
+            .drain(0..self.batch_size as usize * InlineBuf::size())
+            .as_slice()
+            .chunks(8)
+            .enumerate()
+            .map(|(i, chunk)| {
+                let record_id = RecordId::from(self.offset + i as u32);
+                // let payload = payload[start..payload.len()].to_vec().into_boxed_slice();
 
-        prev_self.into()
+                let payload = SmallVec::from_slice(chunk);
+                MessageEnvelope {
+                    record_id,
+                    payload,
+                }
+            })
+            .collect::<Vec<_>>();
+
+
+        // increment the offset
+        *self = Self::new(self.offset + 1, self.batch_size, self.total_size);
+
+        flush
+
+
+        // let offset = self.offset + 1;
+        // let batch_size = self.batch_size;
+        // let total_size = self.total_size;
+        // let prev_self = mem::replace(self, Self::new(offset, batch_size, total_size));
+        //
+        // prev_self.into()
     }
 
     fn accept_msg(&self, msg: &MessageEnvelope) -> Result<u32, SendBufferError> {
@@ -282,23 +311,31 @@ impl From<SendBatch> for Vec<MessageEnvelope> {
 
 #[cfg(test)]
 mod tests {
-    use crate::helpers::buffers::{SendBuffer, SendBufferError};
-    use crate::helpers::fabric::{ChannelId, InlineBuf, MessageEnvelope};
+    use crate::helpers::buffers::{SendBuffer, SendBufferConfig, SendBufferError};
+    use crate::helpers::fabric::{ByteBuf, ChannelId, InlineBuf, MessageEnvelope};
     use crate::helpers::Identity;
     use crate::protocol::{RecordId, UniqueStepId};
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use std::cmp::Ordering;
-    use crate::helpers::buffers::send::SingleSendBuffer;
+
+    impl From<u32> for SendBufferConfig {
+        fn from(flush_threshold: u32) -> Self {
+            Self {
+                total_capacity: flush_threshold,
+                flush_threshold
+            }
+        }
+    }
 
     #[test]
     fn rejects_records_out_of_range() {
         let record_id = RecordId::from(11);
         let accepted_range = RecordId::from(0)..RecordId::from(10);
-        let mut buf = SingleSendBuffer::new(10);
+        let mut buf = SendBuffer::new(10);
         let msg = MessageEnvelope {
             record_id,
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
 
         assert!(matches!(
@@ -309,17 +346,17 @@ mod tests {
 
     #[test]
     fn offset_is_per_channel() {
-        let mut buf = SingleSendBuffer::new(1);
+        let mut buf = SendBuffer::new(1);
         let c1 = ChannelId::new(Identity::H1, UniqueStepId::default());
         let c2 = ChannelId::new(Identity::H2, UniqueStepId::default());
 
         let m1 = MessageEnvelope {
             record_id: RecordId::from(0),
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
         let m2 = MessageEnvelope {
             record_id: RecordId::from(1),
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
 
         buf.push(c1.clone(), m1).unwrap();
@@ -333,16 +370,16 @@ mod tests {
 
     #[test]
     fn rejects_duplicates() {
-        let mut buf = SingleSendBuffer::new(10);
+        let mut buf = SendBuffer::new(10);
         let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
         let record_id = RecordId::from(3);
         let m1 = MessageEnvelope {
             record_id,
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
         let m2 = MessageEnvelope {
             record_id,
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
 
         assert!(matches!(buf.push(channel.clone(), m1), Ok(None)));
@@ -354,10 +391,10 @@ mod tests {
 
     #[test]
     fn accepts_records_within_the_valid_range() {
-        let mut buf = SingleSendBuffer::new(10);
+        let mut buf = SendBuffer::new(10);
         let msg = MessageEnvelope {
             record_id: RecordId::from(5),
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
 
         assert!(matches!(
@@ -368,15 +405,15 @@ mod tests {
 
     #[test]
     fn accepts_records_from_next_range_after_flushing() {
-        let mut buf = SingleSendBuffer::new(1);
+        let mut buf = SendBuffer::new(1);
         let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
         let next_msg = MessageEnvelope {
             record_id: RecordId::from(1),
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
         let this_msg = MessageEnvelope {
             record_id: RecordId::from(0),
-            payload: InlineBuf::default(),
+            payload: ByteBuf::default(),
         };
 
         // this_msg belongs to current range, should be accepted
@@ -388,14 +425,14 @@ mod tests {
     #[test]
     fn returns_sorted_batch() {
         let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
-        let mut buf = SingleSendBuffer::from_batch_and_offset(10, 1);
+        let mut buf = SendBuffer::with_offset(10, 1);
         let mut record_ids = (10u32..20).collect::<Vec<_>>();
         record_ids.shuffle(&mut thread_rng());
 
         for record in record_ids {
             let msg = MessageEnvelope {
                 record_id: RecordId::from(record),
-                payload: InlineBuf::default(),
+                payload: ByteBuf::default(),
             };
 
             if let Some(batch) = buf.push(channel.clone(), msg).ok().flatten() {

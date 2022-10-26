@@ -18,8 +18,9 @@ use futures::SinkExt;
 use futures::StreamExt;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::num::{NonZeroU32, NonZeroU8};
 use crate::field::Int;
-use crate::helpers::buffers::SendBufferError;
+use crate::helpers::buffers::{SendBufferConfig, SendBufferError};
 use std::time::Duration;
 use smallvec::{Array, SmallVec, smallvec};
 use tokio::sync::{mpsc, oneshot};
@@ -27,7 +28,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::Instrument;
 use crate::field::{DeserializationError, Field};
-use crate::helpers::fabric::InlineBuf;
+use crate::helpers::fabric::ByteBuf;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {
@@ -98,7 +99,7 @@ pub struct Mesh<'a, 'b, N> {
 pub(super) struct ReceiveRequest {
     pub channel_id: ChannelId,
     pub record_id: RecordId,
-    pub sender: oneshot::Sender<InlineBuf>,
+    pub sender: oneshot::Sender<ByteBuf>,
 }
 
 impl<N: Network> Mesh<'_, '_, N> {
@@ -158,23 +159,12 @@ impl<N: Network> Mesh<'_, '_, N> {
     }
 }
 
+
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    /// Maximum number of items to keep inside the buffer before flushing it to network.
-    /// Note that this buffer is per channel, so setting it to 10 does not imply that every
-    /// 10 messages sent trigger a network request.
-    pub send_buffer_capacity: u32,
-
-    /// The wait time for the gateway before flushing buffers to network if there is no activity
-    /// from the protocols.
-    /// To make forward progress, we periodically check if the system is stalled
-    /// if nothing happens for long period of time, we try to unblock it by flushing
-    /// the data that remains inside buffers.
-    ///
-    /// Increasing this interval leads to higher latencies. Setting it low increases the chance
-    /// of flushing buffers that are half-full and underutilizing the network.
-    pub flush_interval: Duration,
+    pub send_buffer_config: SendBufferConfig
 }
+
 
 impl<N: Network> Gateway<N> {
     pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
@@ -189,10 +179,7 @@ impl<N: Network> Gateway<N> {
 
         let control_handle = tokio::spawn(async move {
             let mut receive_buf = ReceiveBuffer::default();
-            let mut send_buf = SendBuffer::<2>::new(config.send_buffer_capacity);
-
-            let sleep = tokio::time::sleep(config.flush_interval);
-            tokio::pin!(sleep);
+            let mut send_buf = SendBuffer::new(config.send_buffer_config);
 
             loop {
                 // Make a random choice what to process next:
@@ -232,23 +219,11 @@ impl<N: Network> Gateway<N> {
                         // report the send status back to the protocol
                         status_tx.send(status).expect("Failed to report send status");
                     }
-                    _ = &mut sleep, if send_buf.len() > 0 => {
-                        // TODO this is dead wrong, remove it
-                        let (channel_id, buf_to_send) = send_buf.remove_random();
-                        tracing::trace!("Nothing happened in {:?}, flushing the send buffer {channel_id:?} ({} messages)",
-                            config.flush_interval,
-                            buf_to_send.len());
-                        network_sink.send((channel_id, buf_to_send)).await
-                            .expect("Failed to send data to the network");
-                    }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;
                     }
                 }
-
-                // reset the timer as we processed something
-                sleep.as_mut().reset(Instant::now() + config.flush_interval);
             }
         }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
@@ -279,7 +254,7 @@ impl<N: Network> Gateway<N> {
         &self,
         channel_id: ChannelId,
         record_id: RecordId,
-    ) -> Result<InlineBuf, Error> {
+    ) -> Result<ByteBuf, Error> {
         let (tx, rx) = oneshot::channel();
         self.receive_request_tx
             .send(ReceiveRequest {

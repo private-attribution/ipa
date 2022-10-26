@@ -5,8 +5,9 @@ use futures::Stream;
 use std::fmt::{Debug, Formatter};
 use smallvec::{Array, SmallVec};
 
-pub(super) type ByteArray<A> = SmallVec<A>;
-pub(super) type InlineBuf = ByteArray<[u8; 8]>;
+// pub(super) type ByteArray<A> = SmallVec<A>;
+pub(super) type InlineBuf = [u8; 8];
+pub(super) type ByteBuf = SmallVec<InlineBuf>;
 
 /// Combination of helper identity and step that uniquely identifies a single channel of communication
 /// between two helpers.
@@ -21,7 +22,7 @@ pub struct ChannelId {
 #[cfg_attr(test, derive(Clone))]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
-    pub payload: InlineBuf,
+    pub payload: ByteBuf,
 }
 
 pub type MessageChunks = (ChannelId, Vec<MessageEnvelope>);
