@@ -1,5 +1,6 @@
 use std::fmt::Formatter;
 use std::ops::AddAssign;
+use std::ops::SubAssign;
 use std::{
     fmt::Debug,
     ops::{Add, Mul, Neg, Sub},
@@ -55,6 +56,12 @@ impl<T: Field> Add for Replicated<T> {
 impl<T: Field> AddAssign for Replicated<T> {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.add(rhs);
+    }
+}
+
+impl<T: Field> SubAssign for Replicated<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = self.sub(rhs);
     }
 }
 

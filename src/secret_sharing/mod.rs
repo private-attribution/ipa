@@ -1,3 +1,4 @@
+mod malicious_replicated;
 mod replicated;
 mod shamir;
 
