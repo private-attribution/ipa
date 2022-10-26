@@ -3,7 +3,7 @@ use crate::{
     field::Field,
     helpers::{fabric::Network, Direction},
     protocol::{check_zero::check_zero, context::ProtocolContext, reveal::reveal, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::{MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
 
@@ -114,8 +114,7 @@ impl<F: Field> SecurityValidator<F> {
         &mut self,
         ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
-        x: Replicated<F>,
-        rx: Replicated<F>,
+        input: MaliciousReplicated<F>,
     ) {
         // The helpers need to use the same shared randomness to generate the random constant used to validate a given multiplication.
         // This is a bit tricky, because we cannot count on the multiplications being executed in the same order across all the helpers.
@@ -124,8 +123,8 @@ impl<F: Field> SecurityValidator<F> {
         // That way, we don't need to worry about the order in which the multiplications are executed.
         let random_constant = ctx.prss().generate_replicated(record_id);
 
-        self.u += Self::compute_dot_product_contribution(random_constant, rx);
-        self.w += Self::compute_dot_product_contribution(random_constant, x);
+        self.u += Self::compute_dot_product_contribution(random_constant, input.rx());
+        self.w += Self::compute_dot_product_contribution(random_constant, input.x());
     }
 
     /// ## Errors
@@ -183,6 +182,7 @@ pub mod tests {
         malicious::{SecurityValidator, Step},
         QueryId, RecordId,
     };
+    use crate::secret_sharing::MaliciousReplicated;
     use crate::test_fixture::{logging, make_contexts, make_world, share, TestWorld};
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
@@ -234,17 +234,18 @@ pub mod tests {
             )
             .await?;
 
+            let a_malicious = MaliciousReplicated::new(a_shares[i], ra);
+            let b_malicious = MaliciousReplicated::new(b_shares[i], rb);
+
             v.accumulate_macs(
                 a_ctx.narrow(&Step::ValidateInput),
                 RecordId::from(0),
-                a_shares[i],
-                ra,
+                a_malicious,
             );
             v.accumulate_macs(
                 b_ctx.narrow(&Step::ValidateInput),
                 RecordId::from(1),
-                b_shares[i],
-                rb,
+                b_malicious,
             );
 
             let (ab, rab) = try_join(
@@ -264,8 +265,7 @@ pub mod tests {
             v.accumulate_macs(
                 a_ctx.narrow(&Step::ValidateMultiplySubstep),
                 RecordId::from(0),
-                ab,
-                rab,
+                MaliciousReplicated::new(ab, rab),
             );
 
             v.validate(ctx.narrow(&"SecurityValidatorValidate".to_string()))
@@ -354,8 +354,7 @@ pub mod tests {
                         v.accumulate_macs(
                             narrowed_ctx.narrow(&Step::ValidateInput),
                             *record_id,
-                            *x,
-                            *rx,
+                            MaliciousReplicated::new(*x, *rx),
                         );
                     }
 
@@ -400,8 +399,7 @@ pub mod tests {
                         v.accumulate_macs(
                             narrowed_ctx.narrow(&Step::ValidateMultiplySubstep),
                             *record_id,
-                            ab,
-                            rab,
+                            MaliciousReplicated::new(ab, rab),
                         );
                     }
 

@@ -34,11 +34,11 @@ impl<F: Field> Replicated<F> {
         (self.0, self.1)
     }
 
-    pub fn left(&self) -> T {
+    pub fn left(&self) -> F {
         self.0
     }
 
-    pub fn right(&self) -> T {
+    pub fn right(&self) -> F {
         self.1
     }
 
