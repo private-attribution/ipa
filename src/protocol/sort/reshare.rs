@@ -49,7 +49,7 @@ impl<F: Field> Reshare<F> {
         let inputs = self.input.as_tuple();
         // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
         // This is same as (a1 + a2) - r2 in the diagram
-        if channel.identity() == to_helper.peer(Direction::Left) {
+        if ctx.role() == to_helper.peer(Direction::Left) {
             let part1 = inputs.0 + inputs.1 - r1;
             channel
                 .send(
@@ -65,7 +65,7 @@ impl<F: Field> Reshare<F> {
                 .await?;
 
             Ok(Replicated::new(part1 + part2, r1))
-        } else if channel.identity() == to_helper.peer(Direction::Right) {
+        } else if ctx.role() == to_helper.peer(Direction::Right) {
             // `to_helper.right` calculates part2 = (input.0 - r0) and sends it to `to_helper.left`
             // This is same as (a3 - r3) in the diagram
             let part2 = inputs.0 - r0;

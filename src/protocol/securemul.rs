@@ -1,12 +1,10 @@
-use super::UniqueStepId;
 use crate::error::BoxError;
 use crate::field::Field;
-use crate::helpers::{fabric::Network, messaging::Gateway, Direction};
-use crate::protocol::{prss::IndexedSharedRandomness, RecordId};
+use crate::helpers::{fabric::Network, Direction};
+use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::sync::Arc;
 use thiserror::Error;
 
 /// IKHC multiplication protocol
@@ -14,25 +12,13 @@ use thiserror::Error;
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<'a, N> {
-    prss: Arc<IndexedSharedRandomness>,
-    gateway: &'a Gateway<N>,
-    step: &'a UniqueStepId,
+    ctx: &'a ProtocolContext<'a, N>,
     record_id: RecordId,
 }
 
 impl<'a, N: Network> SecureMul<'a, N> {
-    pub fn new(
-        prss: Arc<IndexedSharedRandomness>,
-        gateway: &'a Gateway<N>,
-        step: &'a UniqueStepId,
-        record_id: RecordId,
-    ) -> Self {
-        Self {
-            prss,
-            gateway,
-            step,
-            record_id,
-        }
+    pub fn new(ctx: &'a ProtocolContext<'a, N>, record_id: RecordId) -> Self {
+        Self { ctx, record_id }
     }
 
     /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
@@ -47,10 +33,11 @@ impl<'a, N: Network> SecureMul<'a, N> {
         a: Replicated<F>,
         b: Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
-        let channel = self.gateway.mesh(self.step);
+        let channel = self.ctx.mesh();
 
         // generate shared randomness.
-        let (s0, s1) = self.prss.generate_fields(self.record_id);
+        let prss = self.ctx.prss();
+        let (s0, s1) = prss.generate_fields(self.record_id);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let (a0, a1) = a.as_tuple();
@@ -60,7 +47,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
         // notify helper on the right that we've computed our value
         channel
             .send(
-                channel.identity().peer(Direction::Right),
+                self.ctx.role().peer(Direction::Right),
                 self.record_id,
                 right_d,
             )
@@ -68,7 +55,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
 
         // Sleep until helper on the left sends us their (d_i-1) value
         let left_d: F = channel
-            .receive(channel.identity().peer(Direction::Left), self.record_id)
+            .receive(self.ctx.role().peer(Direction::Left), self.record_id)
             .await?;
 
         // now we are ready to construct the result - 2/3 secret shares of a * b.
@@ -151,9 +138,6 @@ pub mod tests {
             let a = share(Fp31::from(4_u128), &mut rand);
             let b = share(Fp31::from(3_u128), &mut rand);
 
-            // there is something weird going on the compiler's side. I don't see why we need
-            // to use async move as `i` is Copy + Clone, but compiler complains about it not living
-            // long enough
             let step_name = format!("step{}", step);
             let f = join_all(
                 contexts

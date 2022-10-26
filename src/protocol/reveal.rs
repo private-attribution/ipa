@@ -30,7 +30,7 @@ pub async fn reveal<F: Field, N: Network>(
     let inputs = input.as_tuple();
     channel
         .send(
-            channel.identity().peer(Direction::Right),
+            ctx.role().peer(Direction::Right),
             record_id,
             inputs.0,
         )
@@ -38,7 +38,7 @@ pub async fn reveal<F: Field, N: Network>(
 
     // Sleep until `helper's left` sends their share
     let share: F = channel
-        .receive(channel.identity().peer(Direction::Left), record_id)
+        .receive(ctx.role().peer(Direction::Left), record_id)
         .await?;
 
     Ok(inputs.0 + inputs.1 + share)

@@ -69,7 +69,6 @@ impl <F: Field> Message for F {
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
 pub struct Gateway<N> {
-    role: Identity,
     /// TODO: no need to keep it here if we're happy with its interface
     _network: N,
     /// Sender end of the channel to send requests to receive messages from peers.
@@ -93,7 +92,6 @@ pub(super) enum SendRequestStatus {
 pub struct Mesh<'a, 'b, N> {
     gateway: &'a Gateway<N>,
     step: &'b UniqueStepId,
-    role: Identity,
 }
 
 pub(super) struct ReceiveRequest {
@@ -150,12 +148,6 @@ impl<N: Network> Mesh<'_, '_, N> {
         //     .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         // Ok(obj)
-    }
-
-    /// Returns the unique identity of this helper.
-    #[must_use]
-    pub fn identity(&self) -> Identity {
-        self.role
     }
 }
 
@@ -228,7 +220,6 @@ impl<N: Network> Gateway<N> {
         }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
         Self {
-            role,
             _network: network,
             receive_request_tx: tx,
             envelope_tx,
@@ -245,7 +236,6 @@ impl<N: Network> Gateway<N> {
     pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
         Mesh {
             gateway: self,
-            role: self.role,
             step,
         }
     }
