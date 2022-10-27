@@ -1,11 +1,10 @@
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::ops::{BitAnd, Shr};
 use std::{
     fmt::Debug,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int:

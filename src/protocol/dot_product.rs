@@ -33,10 +33,9 @@
 ///
 use crate::{
     error::BoxError,
-    field::Field,
     helpers::{fabric::Network, Direction},
     protocol::{context::ProtocolContext, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::{Field, Replicated},
 };
 use futures::{stream::StreamExt, Stream};
 use serde::{Deserialize, Serialize};
@@ -102,10 +101,9 @@ pub async fn accumulate_dot_product<
 #[cfg(test)]
 mod tests {
     use crate::error::BoxError;
-    use crate::field::Field;
-    use crate::field::Fp31;
     use crate::protocol::dot_product::accumulate_dot_product;
     use crate::protocol::{QueryId, RecordId};
+    use crate::secret_sharing::{Field, Fp31};
     use crate::test_fixture::{
         logging, make_contexts, make_world, share, validate_and_reconstruct,
     };

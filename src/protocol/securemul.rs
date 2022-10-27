@@ -1,8 +1,7 @@
 use crate::error::BoxError;
-use crate::field::Field;
 use crate::helpers::{fabric::Network, Direction};
 use crate::protocol::{context::ProtocolContext, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Field, Replicated};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use thiserror::Error;
@@ -77,9 +76,8 @@ pub enum Error {}
 
 /// Module to support streaming interface for secure multiplication
 pub mod stream {
-    use crate::field::Field;
     use crate::protocol::context::ProtocolContext;
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::{Field, Replicated};
     use futures::Stream;
 
     use crate::chunkscan::ChunkScan;
@@ -136,12 +134,11 @@ pub mod stream {
 
     #[cfg(test)]
     mod tests {
-        use crate::field::Fp31;
         use crate::helpers::Identity;
         use crate::protocol::context::ProtocolContext;
         use crate::protocol::securemul::stream::secure_multiply;
         use crate::protocol::QueryId;
-        use crate::secret_sharing::Replicated;
+        use crate::secret_sharing::{Fp31, Replicated};
         use crate::test_fixture::{logging, make_world, share, validate_and_reconstruct};
         use futures::StreamExt;
         use futures_util::future::join_all;
@@ -206,10 +203,9 @@ pub mod stream {
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
     use crate::helpers::fabric::Network;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::{Field, Fp31, Replicated};
     use crate::test_fixture::{
         fabric::InMemoryEndpoint, logging, make_contexts, make_world, share,
         validate_and_reconstruct, TestWorld,
