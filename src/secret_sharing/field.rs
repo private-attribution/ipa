@@ -1,10 +1,11 @@
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::ops::{BitAnd, Shr};
 use std::{
     fmt::Debug,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
+
+use super::Share;
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int:
@@ -27,7 +28,8 @@ impl Int for u8 {
 }
 
 pub trait Field:
-    Add<Output = Self>
+    Share
+    + Add<Output = Self>
     + AddAssign
     + Neg<Output = Self>
     + Sub<Output = Self>
@@ -37,14 +39,8 @@ pub trait Field:
     + From<u128>
     + Into<Self::Integer>
     + Clone
-    + Copy
     + PartialEq
-    + Debug
-    + Send
     + Sized
-    + Serialize
-    + DeserializeOwned
-    + 'static
 {
     type Integer: Int;
 
@@ -103,6 +99,10 @@ impl From<Fp31> for u8 {
     fn from(v: Fp31) -> Self {
         v.0
     }
+}
+
+impl Share for Fp31 {
+    const DEFAULT: Self = Fp31(0);
 }
 
 impl Field for Fp31 {

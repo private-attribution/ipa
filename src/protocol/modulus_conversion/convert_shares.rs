@@ -2,10 +2,8 @@ use crate::{
     error::BoxError,
     helpers::fabric::Network,
     protocol::{
-        context::ProtocolContext,
-        modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
-        reveal_additive_binary::RevealAdditiveBinary,
-        RecordId,
+        context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
+        reveal_additive_binary::RevealAdditiveBinary, RecordId,
     },
     secret_sharing::{Field, Replicated},
 };
@@ -76,7 +74,7 @@ impl ConvertShares {
         let futures = bits
             .into_iter()
             .map(|(ctx, b0, b1, input_xor_r)| async move {
-                let r_binary = ReplicatedBinary::new(b0, b1);
+                let r_binary = Replicated::new(b0, b1);
 
                 let gen_random_future =
                     DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary);

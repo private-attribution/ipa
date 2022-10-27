@@ -8,21 +8,8 @@ use crate::{
         },
         RecordId,
     },
-    secret_sharing::{Field, Replicated},
+    secret_sharing::{Binary, Field, Replicated},
 };
-
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct ReplicatedBinary(bool, bool);
-
-impl ReplicatedBinary {
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn new(a: bool, b: bool) -> Self {
-        Self(a, b)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -74,25 +61,27 @@ impl DoubleRandom {
     /// Internal use only.
     /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
     ///
-    fn local_secret_share<F: Field>(
-        input: ReplicatedBinary,
+    fn local_secret_share<B: Binary, F: Field>(
+        input: Replicated<B>,
         channel_identity: Identity,
     ) -> (Replicated<F>, Replicated<F>, Replicated<F>) {
+        let (left, right) = input.as_tuple();
+
         match channel_identity {
             Identity::H1 => (
-                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
-                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
+                Replicated::new(F::from(left.into()), F::ZERO),
+                Replicated::new(F::ZERO, F::from(right.into())),
                 Replicated::new(F::ZERO, F::ZERO),
             ),
             Identity::H2 => (
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
-                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
+                Replicated::new(F::from(left.into()), F::ZERO),
+                Replicated::new(F::ZERO, F::from(right.into())),
             ),
             Identity::H3 => (
-                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
+                Replicated::new(F::ZERO, F::from(right.into())),
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
+                Replicated::new(F::from(left.into()), F::ZERO),
             ),
         }
     }
@@ -154,10 +143,10 @@ impl DoubleRandom {
     /// of unknown number 'r') into a random secret sharing of the same value in `Z_p`
     /// where the caller can select the output Field.
     #[allow(dead_code)]
-    pub async fn execute<F: Field, N: Network>(
+    pub async fn execute<B: Binary, F: Field, N: Network>(
         ctx: ProtocolContext<'_, N>,
         record_id: RecordId,
-        random_sharing: ReplicatedBinary,
+        random_sharing: Replicated<B>,
     ) -> Result<Replicated<F>, BoxError> {
         let (sh0, sh1, sh2) = Self::local_secret_share(random_sharing, ctx.role());
 
@@ -171,11 +160,8 @@ impl DoubleRandom {
 mod tests {
     use crate::{
         error::BoxError,
-        protocol::{
-            modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
-            QueryId, RecordId,
-        },
-        secret_sharing::{Field, Fp31},
+        protocol::{modulus_conversion::double_random::DoubleRandom, QueryId, RecordId},
+        secret_sharing::{Field, Fp31, Replicated},
         test_fixture::{make_contexts, make_world, validate_and_reconstruct},
     };
     use futures::future::try_join_all;
@@ -205,21 +191,9 @@ mod tests {
             let record_id = RecordId::from(i);
 
             futures.push(try_join_all(vec![
-                DoubleRandom::execute(
-                    ctx0.narrow(&bit_number),
-                    record_id,
-                    ReplicatedBinary::new(b0, b1),
-                ),
-                DoubleRandom::execute(
-                    ctx1.narrow(&bit_number),
-                    record_id,
-                    ReplicatedBinary::new(b1, b2),
-                ),
-                DoubleRandom::execute(
-                    ctx2.narrow(&bit_number),
-                    record_id,
-                    ReplicatedBinary::new(b2, b0),
-                ),
+                DoubleRandom::execute(ctx0.narrow(&bit_number), record_id, Replicated::new(b0, b1)),
+                DoubleRandom::execute(ctx1.narrow(&bit_number), record_id, Replicated::new(b1, b2)),
+                DoubleRandom::execute(ctx2.narrow(&bit_number), record_id, Replicated::new(b2, b0)),
             ]));
         }
 

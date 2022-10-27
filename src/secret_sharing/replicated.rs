@@ -1,4 +1,5 @@
 use super::Field;
+use super::Share;
 use crate::helpers::Identity;
 use std::fmt::Formatter;
 use std::ops::AddAssign;
@@ -9,30 +10,32 @@ use std::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Replicated<F>(F, F);
+pub struct Replicated<T>(T, T);
 
-impl<F: Debug> Debug for Replicated<F> {
+impl<T: Debug> Debug for Replicated<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<F: Field> Default for Replicated<F> {
+impl<S: Share> Default for Replicated<S> {
     fn default() -> Self {
-        Replicated::new(F::ZERO, F::ZERO)
+        Replicated::new(S::DEFAULT, S::DEFAULT)
+    }
+}
+
+impl<S: Share> Replicated<S> {
+    #[must_use]
+    pub fn new(a: S, b: S) -> Self {
+        Self(a, b)
+    }
+
+    pub fn as_tuple(&self) -> (S, S) {
+        (self.0, self.1)
     }
 }
 
 impl<F: Field> Replicated<F> {
-    #[must_use]
-    pub fn new(a: F, b: F) -> Self {
-        Self(a, b)
-    }
-
-    pub fn as_tuple(&self) -> (F, F) {
-        (self.0, self.1)
-    }
-
     /// Returns share of value one.
     #[must_use]
     pub fn one(helper_identity: Identity) -> Self {
