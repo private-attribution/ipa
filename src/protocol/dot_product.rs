@@ -84,15 +84,11 @@ pub async fn accumulate_dot_product<
     // send our `u_i+1` value to the helper on the right
     let channel = ctx.mesh();
     channel
-        .send(
-            ctx.role().peer(Direction::Right),
-            record_id,
-            UValue { u: u_right },
-        )
+        .send(ctx.role().peer(Direction::Right), record_id, u_right)
         .await?;
 
     // receive `u_i` value from helper to the left
-    let UValue { u: u_left } = channel
+    let u_left = channel
         .receive(ctx.role().peer(Direction::Left), record_id)
         .await?;
 

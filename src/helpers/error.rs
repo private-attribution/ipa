@@ -27,7 +27,7 @@ pub enum Error {
         record_id: RecordId,
         step: String,
         #[source]
-        inner: serde_json::Error,
+        inner: BoxError,
     },
     #[error("Failed to send data to the network")]
     NetworkError {
@@ -58,15 +58,15 @@ impl Error {
     }
 
     #[must_use]
-    pub fn serialization_error(
+    pub fn serialization_error<E: Into<BoxError>>(
         record_id: RecordId,
         step: &UniqueStepId,
-        inner: serde_json::Error,
+        inner: E,
     ) -> Error {
         Self::SerializationError {
             record_id,
             step: String::from(step.as_ref()),
-            inner,
+            inner: inner.into(),
         }
     }
 }

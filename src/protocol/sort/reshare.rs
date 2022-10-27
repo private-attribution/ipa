@@ -57,15 +57,11 @@ impl<F: Field> Reshare<F> {
         if ctx.role() == to_helper.peer(Direction::Left) {
             let part1 = inputs.0 + inputs.1 - r1;
             channel
-                .send(
-                    to_helper.peer(Direction::Right),
-                    record_id,
-                    PartValue { part: part1 },
-                )
+                .send(to_helper.peer(Direction::Right), record_id, part1)
                 .await?;
 
             // Sleep until `to_helper.right` sends us their part2 value
-            let PartValue { part: part2 } = channel
+            let part2 = channel
                 .receive(to_helper.peer(Direction::Right), record_id)
                 .await?;
 
@@ -75,15 +71,11 @@ impl<F: Field> Reshare<F> {
             // This is same as (a3 - r3) in the diagram
             let part2 = inputs.0 - r0;
             channel
-                .send(
-                    to_helper.peer(Direction::Left),
-                    record_id,
-                    PartValue { part: part2 },
-                )
+                .send(to_helper.peer(Direction::Left), record_id, part2)
                 .await?;
 
             // Sleep until `to_helper.left` sends us their part1 value
-            let PartValue::<F> { part: part1 } = channel
+            let part1: F = channel
                 .receive(to_helper.peer(Direction::Left), record_id)
                 .await?;
 

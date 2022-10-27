@@ -14,10 +14,13 @@ use crate::{
     protocol::{RecordId, UniqueStepId},
 };
 
+use crate::field::Field;
+use crate::field::Int;
 use futures::SinkExt;
 use futures::StreamExt;
-use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::io;
+use std::io::{Cursor, Read, Write};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -25,9 +28,37 @@ use tokio::time::Instant;
 use tracing::Instrument;
 
 /// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
+pub trait Message: Debug + Send + Sized + 'static {
+    /// Required number of bytes to store this message on disk/network
+    const BYTES: u32;
 
-impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
+    /// Deserialize message from a sequence of bytes.
+    ///
+    /// ## Errors
+    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
+    fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self>;
+
+    /// Serialize this message to a sequence of bytes. Implementations need to ensure the
+    /// operation completed writing exactly `BYTES` bytes into `writer`.
+    ///
+    /// ## Errors
+    /// Returns an error if `writer` does not have enough capacity to store at least `BYTES` more
+    /// data.
+    fn serialize<W: Write>(self, writer: &mut W) -> io::Result<()>;
+}
+
+/// Any field value can be send as a message
+impl<F: Field> Message for F {
+    const BYTES: u32 = F::Integer::BITS / 8;
+
+    fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self> {
+        <F as Field>::deserialize(reader)
+    }
+
+    fn serialize<W: Write>(self, writer: &mut W) -> io::Result<()> {
+        <F as Field>::serialize(&self, writer)
+    }
+}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication
@@ -78,14 +109,13 @@ impl<N: Network> Mesh<'_, '_, N> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let bytes = serde_json::to_vec(&msg)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?
-            .into_boxed_slice();
+        let mut c = Cursor::new(Vec::with_capacity(T::BYTES as usize));
+        msg.serialize(&mut c)
+            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
-        let envelope = MessageEnvelope {
-            record_id,
-            payload: bytes,
-        };
+        let payload = c.into_inner().into_boxed_slice();
+
+        let envelope = MessageEnvelope { record_id, payload };
 
         self.gateway
             .send(ChannelId::new(dest, self.step.clone()), envelope)
@@ -106,7 +136,7 @@ impl<N: Network> Mesh<'_, '_, N> {
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj: T = serde_json::from_slice(&payload)
+        let obj = T::deserialize(&mut Cursor::new(payload))
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         Ok(obj)

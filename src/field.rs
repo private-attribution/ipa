@@ -1,10 +1,12 @@
+use byteorder::ReadBytesExt;
+use std::io::{ErrorKind, Read, Write};
 use std::ops::{BitAnd, Shr};
 use std::{
     fmt::Debug,
+    io,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 // Trait for primitive integer types used to represent the underlying type for field values
@@ -43,8 +45,6 @@ pub trait Field:
     + Debug
     + Send
     + Sized
-    + Serialize
-    + DeserializeOwned
     + 'static
 {
     type Integer: Int;
@@ -90,6 +90,52 @@ pub trait Field:
     fn as_u128(&self) -> u128 {
         let int: Self::Integer = (*self).into();
         int.into()
+    }
+
+    /// Generic implementation to serialize fields into a buffer. Callers need to make sure
+    /// there is enough capacity to store the value of this field.
+    /// It is less efficient because it operates with generic representation of fields as 16 byte
+    /// integers, so consider overriding it for actual field implementations
+    ///
+    /// ## Errors
+    /// Returns an error if buffer did not have enough capacity to store this field value
+    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        let bytes = Self::Integer::BITS as usize / 8;
+        let raw_value = &self.as_u128().to_le_bytes()[..bytes];
+
+        let expected_capacity = raw_value.len();
+        let actually_written = writer.write(raw_value)?;
+        if actually_written == raw_value.len() {
+            Ok(())
+        } else {
+            let error_text = format!(
+                "Buffer does not have enough capacity to hold \
+                {expected_capacity} bytes needed to store the field value {self:?}. Only \
+                {actually_written} bytes have been written to it."
+            );
+
+            Err(io::Error::new(ErrorKind::WriteZero, error_text))
+        }
+    }
+
+    /// Generic implementation to deserialize fields from buffer.
+    /// It is less efficient because it allocates 16 bytes on the stack to accommodate for all
+    /// possible field implementations, so consider overriding it for actual field implementations
+    ///
+    /// In the bright future when we have const generic expressions, this can be changed to provide
+    /// zero-cost generic implementation
+    ///
+    /// ## Errors
+    /// Returns an error if buffer did not have enough capacity left to read the field value.
+    fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let bytes = Self::Integer::BITS as usize / 8;
+        let mut buf = [0; 16]; // one day...
+
+        for item in buf.iter_mut().take(bytes) {
+            *item = reader.read_u8()?;
+        }
+
+        Ok(Self::from(u128::from_le_bytes(buf)))
     }
 }
 
@@ -194,6 +240,9 @@ impl Debug for Fp31 {
 #[cfg(test)]
 mod test {
     use super::{Field, Fp31};
+    use proptest::proptest;
+    use std::io;
+    use std::io::Cursor;
     use std::ops::Mul;
 
     #[test]
@@ -262,5 +311,33 @@ mod test {
         // assertion does not matter here, test should panic when `invert` is called.
         // it is here to silence #must_use warning
         assert_ne!(Fp31::ZERO, Fp31(0).invert());
+    }
+
+    #[test]
+    fn ser_not_enough_capacity() {
+        let buf = [0; 0];
+        assert!(matches!(
+            Fp31::ONE.serialize(&mut Cursor::new(buf)),
+            Err(e) if e.kind() == io::ErrorKind::WriteZero));
+    }
+
+    #[test]
+    fn de_buf_too_small() {
+        let buf = [0; 0];
+        assert!(matches!(
+            Fp31::deserialize(&mut Cursor::new(buf)),
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof));
+    }
+
+    proptest! {
+        #[test]
+        fn serde(v in 0..Fp31::PRIME) {
+            let field_v = Fp31(v);
+            let mut buf = Cursor::new(vec![]);
+            field_v.serialize(&mut buf).unwrap();
+
+            let buf = buf.into_inner();
+            assert_eq!(field_v, Fp31::deserialize(&mut Cursor::new(buf)).unwrap());
+        }
     }
 }

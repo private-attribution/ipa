@@ -55,12 +55,12 @@ impl<'a, N: Network> SecureMul<'a, N> {
             .send(
                 self.ctx.role().peer(Direction::Right),
                 self.record_id,
-                DValue { d: right_d },
+                right_d,
             )
             .await?;
 
         // Sleep until helper on the left sends us their (d_i-1) value
-        let DValue { d: left_d } = channel
+        let left_d = channel
             .receive(self.ctx.role().peer(Direction::Left), self.record_id)
             .await?;
 
