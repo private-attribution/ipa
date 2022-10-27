@@ -7,6 +7,7 @@ mod world;
 use self::fabric::InMemoryEndpoint;
 use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
+use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
 use crate::secret_sharing::Replicated;
 use crate::{

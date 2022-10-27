@@ -1,3 +1,5 @@
+use super::Field;
+use crate::helpers::Identity;
 use std::fmt::Formatter;
 use std::ops::AddAssign;
 use std::ops::SubAssign;
@@ -5,9 +7,6 @@ use std::{
     fmt::Debug,
     ops::{Add, Mul, Neg, Sub},
 };
-
-use crate::field::Field;
-use crate::helpers::Identity;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Replicated<F>(F, F);
@@ -100,8 +99,7 @@ impl<F: Field> Mul<F> for Replicated<F> {
 #[cfg(test)]
 mod tests {
     use super::Replicated;
-
-    use crate::field::Fp31;
+    use crate::secret_sharing::Fp31;
 
     fn secret_share(a: u8, b: u8, c: u8) -> (Replicated<Fp31>, Replicated<Fp31>, Replicated<Fp31>) {
         (

@@ -1,6 +1,5 @@
-use crate::field::Field;
 use crate::protocol::{QueryId, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Field, Replicated};
 use crate::test_fixture::{
     make_contexts, make_world, narrow_contexts, share, validate_and_reconstruct, Fp31, TestWorld,
 };

@@ -1,9 +1,8 @@
 use crate::{
     error::BoxError,
-    field::Field,
     helpers::{fabric::Network, Direction, Identity},
     protocol::{context::ProtocolContext, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::{Field, Replicated},
 };
 
 use serde::{Deserialize, Serialize};
@@ -193,14 +192,13 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
     use crate::protocol::{
         modulus_conversion::specialized_mul::{
             multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes,
         },
         QueryId, RecordId,
     };
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::{Field, Fp31, Replicated};
     use crate::test_fixture::{
         logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };

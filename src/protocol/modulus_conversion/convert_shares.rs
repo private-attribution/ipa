@@ -1,6 +1,5 @@
 use crate::{
     error::BoxError,
-    field::Field,
     helpers::fabric::Network,
     protocol::{
         context::ProtocolContext,
@@ -8,7 +7,7 @@ use crate::{
         reveal_additive_binary::RevealAdditiveBinary,
         RecordId,
     },
-    secret_sharing::Replicated,
+    secret_sharing::{Field, Replicated},
 };
 use futures::future::{try_join, try_join_all};
 
@@ -114,11 +113,11 @@ impl ConvertShares {
 #[cfg(test)]
 mod tests {
     use crate::{
-        field::{Field, Fp31},
         protocol::{
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
             QueryId, RecordId,
         },
+        secret_sharing::{Field, Fp31},
         test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
