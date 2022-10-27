@@ -84,12 +84,12 @@ pub mod stream {
 
     use crate::chunkscan::ChunkScan;
     use crate::helpers::fabric::Network;
-    use crate::protocol::{RecordId, Step};
+    use crate::protocol::{RecordId, Substep};
 
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
     pub struct StreamingStep;
 
-    impl Step for StreamingStep {}
+    impl Substep for StreamingStep {}
     impl AsRef<str> for StreamingStep {
         fn as_ref(&self) -> &str {
             "streaming"

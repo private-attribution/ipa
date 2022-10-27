@@ -11,7 +11,7 @@ use crate::{
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Identity,
-    protocol::{RecordId, UniqueStepId},
+    protocol::{RecordId, Step},
 };
 
 use futures::SinkExt;
@@ -57,7 +57,7 @@ pub struct Gateway<N> {
 #[derive(Debug)]
 pub struct Mesh<'a, 'b, N> {
     gateway: &'a Gateway<N>,
-    step: &'b UniqueStepId,
+    step: &'b Step,
 }
 
 pub(super) struct ReceiveRequest {
@@ -194,7 +194,7 @@ impl<N: Network> Gateway<N> {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
+    pub fn mesh<'a, 'b>(&'a self, step: &'b Step) -> Mesh<'a, 'b, N> {
         Mesh {
             gateway: self,
             step,

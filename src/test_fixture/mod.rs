@@ -7,7 +7,7 @@ mod world;
 use self::fabric::InMemoryEndpoint;
 use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
-use crate::protocol::Step;
+use crate::protocol::Substep;
 use crate::secret_sharing::Replicated;
 use crate::{field::Fp31, protocol::prss::Endpoint as PrssEndpoint};
 use rand::rngs::mock::StepRng;
@@ -42,7 +42,7 @@ pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Arc<InMemor
 #[must_use]
 pub fn narrow_contexts<'a>(
     contexts: &[ProtocolContext<'a, Arc<InMemoryEndpoint>>; 3],
-    step: &impl Step,
+    step: &impl Substep,
 ) -> [ProtocolContext<'a, Arc<InMemoryEndpoint>>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts

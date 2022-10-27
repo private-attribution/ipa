@@ -1,5 +1,5 @@
 use crate::helpers::{error::Error, Identity};
-use crate::protocol::{RecordId, UniqueStepId};
+use crate::protocol::{RecordId, Step};
 use async_trait::async_trait;
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
@@ -9,7 +9,7 @@ use std::fmt::{Debug, Formatter};
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId {
     pub identity: Identity,
-    pub step: UniqueStepId,
+    pub step: Step,
 }
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ pub trait Network: Sync {
 
 impl ChannelId {
     #[must_use]
-    pub fn new(identity: Identity, step: UniqueStepId) -> Self {
+    pub fn new(identity: Identity, step: Step) -> Self {
         Self { identity, step }
     }
 }

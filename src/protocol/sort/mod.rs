@@ -1,4 +1,4 @@
-use super::Step;
+use super::Substep;
 use std::fmt::Debug;
 
 mod apply;
@@ -12,7 +12,7 @@ pub enum SortStep {
     BitPermutations,
 }
 
-impl Step for SortStep {}
+impl Substep for SortStep {}
 
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
@@ -29,7 +29,7 @@ pub enum ShuffleStep {
     Step3,
 }
 
-impl Step for ShuffleStep {}
+impl Substep for ShuffleStep {}
 
 impl AsRef<str> for ShuffleStep {
     fn as_ref(&self) -> &str {

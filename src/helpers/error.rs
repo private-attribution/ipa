@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::helpers::Identity;
-use crate::protocol::{RecordId, UniqueStepId};
+use crate::protocol::{RecordId, Step};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 
@@ -60,7 +60,7 @@ impl Error {
     #[must_use]
     pub fn serialization_error(
         record_id: RecordId,
-        step: &UniqueStepId,
+        step: &Step,
         inner: serde_json::Error,
     ) -> Error {
         Self::SerializationError {

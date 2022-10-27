@@ -31,13 +31,13 @@ use std::{fmt::Debug, hash::Hash};
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Step: AsRef<str> {}
+pub trait Substep: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl Step for String {}
+impl Substep for String {}
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl Step for str {}
+impl Substep for str {}
 
 /// The representation of a unique step in protocol execution.
 ///
@@ -63,33 +63,33 @@ impl Step for str {}
 /// to be cloning this object all over the place.  Of course, a string is pretty useful
 /// from a debugging perspective.
 #[derive(Clone, Debug)]
-pub struct UniqueStepId {
+pub struct Step {
     id: String,
     /// This tracks the different values that have been provided to `narrow()`.
     #[cfg(debug_assertions)]
     used: Arc<Mutex<HashSet<String>>>,
 }
 
-impl Hash for UniqueStepId {
+impl Hash for Step {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write(self.id.as_bytes());
     }
 }
 
-impl PartialEq for UniqueStepId {
+impl PartialEq for Step {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
-impl Eq for UniqueStepId {}
+impl Eq for Step {}
 
-impl UniqueStepId {
+impl Step {
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
     #[must_use]
-    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
+    pub fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         #[cfg(debug_assertions)]
         {
             let s = String::from(step.as_ref());
@@ -110,7 +110,7 @@ impl UniqueStepId {
     }
 }
 
-impl Default for UniqueStepId {
+impl Default for Step {
     // TODO(mt): this should might be better if it were to be constructed from
     // a QueryId rather than using a default.
     fn default() -> Self {
@@ -122,7 +122,7 @@ impl Default for UniqueStepId {
     }
 }
 
-impl AsRef<str> for UniqueStepId {
+impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         self.id.as_str()
     }
@@ -139,7 +139,7 @@ pub enum IpaProtocolStep {
     Attribution,
 }
 
-impl Step for IpaProtocolStep {}
+impl Substep for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {

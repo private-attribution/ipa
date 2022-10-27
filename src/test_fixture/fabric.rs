@@ -9,7 +9,7 @@ use crate::helpers;
 use crate::helpers::error::Error;
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
 use crate::helpers::{error, Identity};
-use crate::protocol::UniqueStepId;
+use crate::protocol::Step;
 use async_trait::async_trait;
 use futures::Sink;
 use futures::StreamExt;
@@ -42,7 +42,7 @@ pub struct InMemoryEndpoint {
     pub identity: Identity,
     /// Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
     /// For each peer there are multiple channels open, one per query + step.
-    channels: Arc<Mutex<Vec<HashMap<UniqueStepId, InMemoryChannel>>>>,
+    channels: Arc<Mutex<Vec<HashMap<Step, InMemoryChannel>>>>,
     tx: Sender<ControlMessage>,
     rx: Arc<Mutex<Option<Receiver<MessageChunks>>>>,
     network: Weak<InMemoryNetwork>,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::{
     prss::{IndexedSharedRandomness, SequentialSharedRandomness},
     securemul::SecureMul,
-    RecordId, Step, UniqueStepId,
+    RecordId, Step, Substep,
 };
 use crate::{
     helpers::{
@@ -20,7 +20,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct ProtocolContext<'a, N> {
     role: Identity,
-    step: UniqueStepId,
+    step: Step,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway<N>,
 }
@@ -29,7 +29,7 @@ impl<'a, N> ProtocolContext<'a, N> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway<N>) -> Self {
         Self {
             role,
-            step: UniqueStepId::default(),
+            step: Step::default(),
             prss: participant,
             gateway,
         }
@@ -43,14 +43,14 @@ impl<'a, N> ProtocolContext<'a, N> {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    pub fn step(&self) -> &UniqueStepId {
+    pub fn step(&self) -> &Step {
         &self.step
     }
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
+    pub fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         ProtocolContext {
             role: self.role,
             step: self.step.narrow(step),
