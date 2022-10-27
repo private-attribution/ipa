@@ -21,10 +21,14 @@ use axum::http::header::HeaderName;
 
 /// name of the `offset` header to use for [`RecordHeaders`]
 static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
-/// name of the `data_size` header to use for [`RecordHeaders`]
+/// name of the `data-size` header to use for [`RecordHeaders`]
 static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
+/// name of the `content-type` header used to get the length of the body, to verify valid `data-size`
+static CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
 
 /// Headers that are expected on requests involving a batch of records.
+/// # `content_length`
+/// standard HTTP header representing length of entire body
 /// # `offset`
 /// For any given batch, their `record_id`s must be known. The first record in the batch will have id
 /// `offset`, and subsequent records will be in-order from there.
@@ -33,6 +37,7 @@ static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 /// to divide up the block into individual records. `data_size` represents the number of bytes each
 /// record consists of
 pub struct RecordHeaders {
+    content_length: u32,
     offset: u32,
     data_size: u32,
 }
@@ -54,19 +59,9 @@ impl RecordHeaders {
     }
 
     pub(crate) fn add_to(&self, req: axum::http::request::Builder) -> axum::http::request::Builder {
-        req.header(OFFSET_HEADER_NAME.clone(), self.offset)
+        req.header(CONTENT_LENGTH_HEADER_NAME.clone(), self.content_length)
+            .header(OFFSET_HEADER_NAME.clone(), self.offset)
             .header(DATA_SIZE_HEADER_NAME.clone(), self.data_size)
-    }
-
-    /// # Errors
-    /// Returns an error if the body's length does not align with the data-size header.
-    /// Namely, checks if `body.len() % data-size == 0`
-    pub fn matches_body(&self, body_len: usize) -> Result<(), MpcServerError> {
-        (body_len % self.data_size as usize == 0)
-            .then_some(())
-            .ok_or_else(|| {
-                MpcServerError::InvalidHeader("data-size header does not align with body".into())
-            })
     }
 }
 
@@ -75,9 +70,28 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
     type Rejection = MpcServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        let content_length: u32 =
+            RecordHeaders::get_header(req, CONTENT_LENGTH_HEADER_NAME.clone())?;
         let offset: u32 = RecordHeaders::get_header(req, OFFSET_HEADER_NAME.clone())?;
         let data_size: u32 = RecordHeaders::get_header(req, DATA_SIZE_HEADER_NAME.clone())?;
-        Ok(RecordHeaders { offset, data_size })
+        // cannot divide by 0
+        if data_size == 0 {
+            Err(MpcServerError::InvalidHeader(
+                "data-size header must not be 0".into(),
+            ))
+        }
+        // `data_size` NOT a multiple of `body_len`
+        else if content_length % data_size != 0 {
+            Err(MpcServerError::InvalidHeader(
+                "data-size header does not align with body".into(),
+            ))
+        } else {
+            Ok(RecordHeaders {
+                content_length,
+                offset,
+                data_size,
+            })
+        }
     }
 }
 

@@ -95,19 +95,22 @@ impl MpcHttpConnection {
         Ok(result.to_vec())
     }
 
-    async fn mul(&self, args: HttpMulArgs) -> Result<(), MpcClientError> {
+    async fn mul(&self, args: HttpMulArgs<'_>) -> Result<(), MpcClientError> {
         let uri = self.build_uri(format!(
             "/mul/query-id/{}/step/{}?identity={}",
-            String::from(args.query_id),
-            String::from(args.step.clone()),
-            String::from(args.identity),
+            args.query_id.as_ref(),
+            args.step.as_ref(),
+            args.identity.as_ref(),
         ))?;
-        let body = Body::from(args.messages);
+        #[allow(clippy::cast_possible_truncation)] // `messages.len` is known to be smaller than u32
         let headers = RecordHeaders {
+            content_length: args.messages.len() as u32,
             offset: args.offset,
             data_size: args.data_size,
         };
-        let req = headers.add_to(Request::post(uri)).body(body)?;
+        let req = headers
+            .add_to(Request::post(uri))
+            .body(Body::from(args.messages))?;
         let response = self.client.request(req).await?;
         let resp_status = response.status();
         resp_status
@@ -117,9 +120,9 @@ impl MpcHttpConnection {
     }
 }
 
-pub struct HttpMulArgs {
-    pub query_id: QueryId,
-    pub step: UniqueStepId,
+pub struct HttpMulArgs<'a> {
+    pub query_id: &'a QueryId,
+    pub step: &'a UniqueStepId,
     pub identity: Identity,
     pub offset: u32,
     pub data_size: u32,
@@ -145,8 +148,8 @@ mod tests {
 
         let res = client
             .mul(HttpMulArgs {
-                query_id,
-                step: step.clone(),
+                query_id: &query_id,
+                step: &step,
                 identity,
                 offset,
                 data_size: DATA_SIZE,

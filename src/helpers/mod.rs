@@ -14,8 +14,8 @@ pub use error::Result;
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(try_from = "String", into = "String")
+    derive(serde::Deserialize),
+    serde(try_from = "&str")
 )]
 pub enum Identity {
     H1,
@@ -52,11 +52,11 @@ impl Identity {
     }
 }
 
-impl TryFrom<String> for Identity {
+impl TryFrom<&str> for Identity {
     type Error = Error;
 
-    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        match value.as_str() {
+    fn try_from(id: &str) -> std::result::Result<Self, Self::Error> {
+        match id {
             Identity::H1_STR => Ok(H1),
             Identity::H2_STR => Ok(H2),
             Identity::H3_STR => Ok(H3),
@@ -65,14 +65,13 @@ impl TryFrom<String> for Identity {
     }
 }
 
-impl From<Identity> for String {
-    fn from(id: Identity) -> Self {
-        match id {
+impl AsRef<str> for Identity {
+    fn as_ref(&self) -> &str {
+        match self {
             H1 => Identity::H1_STR,
             H2 => Identity::H2_STR,
             H3 => Identity::H3_STR,
         }
-        .into()
     }
 }
 

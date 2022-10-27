@@ -69,8 +69,8 @@ impl Step for str {}
 #[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(from = "String", into = "String")
+    derive(serde::Deserialize),
+    serde(from = "&str")
 )]
 pub struct UniqueStepId {
     id: String,
@@ -138,22 +138,14 @@ impl AsRef<str> for UniqueStepId {
     }
 }
 
-impl From<String> for UniqueStepId {
-    fn from(id: String) -> Self {
-        let id = id
-            .strip_prefix('/')
-            .map_or_else(|| id.clone(), str::to_owned);
+impl From<&str> for UniqueStepId {
+    fn from(id: &str) -> Self {
+        let id = id.strip_prefix('/').unwrap_or(id);
         UniqueStepId {
-            id,
+            id: id.to_owned(),
             #[cfg(debug_assertions)]
             used: Arc::new(Mutex::new(HashSet::new())),
         }
-    }
-}
-
-impl From<UniqueStepId> for String {
-    fn from(step: UniqueStepId) -> Self {
-        step.id
     }
 }
 
@@ -189,24 +181,25 @@ impl AsRef<str> for IpaProtocolStep {
 #[cfg_attr(
     feature = "serde",
     derive(serde::Deserialize),
-    serde(try_from = "String")
+    serde(try_from = "&str")
 )]
 pub struct QueryId;
 
-impl From<QueryId> for String {
-    fn from(_qid: QueryId) -> Self {
-        "0".into()
+impl AsRef<str> for QueryId {
+    fn as_ref(&self) -> &str {
+        "0"
     }
 }
 
-impl TryFrom<String> for QueryId {
+impl TryFrom<&str> for QueryId {
     type Error = Error;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        // dummy value for now
-        (value == "0")
-            .then_some(QueryId)
-            .ok_or_else(|| Error::path_parse_error(&value))
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value == "0" {
+            Ok(QueryId)
+        } else {
+            Err(Error::path_parse_error(value))
+        }
     }
 }
 

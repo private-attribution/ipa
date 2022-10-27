@@ -31,7 +31,10 @@ pub struct IdentityQuery {
 }
 
 /// After an [`OwnedPermit`] has been reserved, it can be used once to send an item on the channel.
-/// Panics if cloned while a permit exists.
+///
+/// Panics if cloned while a permit exists. the `Clone` implementation must exist so that
+/// `ReservedPermit` can be added to a request via an `Extension`, which requires `Clone`. However,
+/// Axum/Tower do not clone the request between middleware and the handler, so this is a safe usage.  
 pub struct ReservedPermit<T>(Option<mpsc::OwnedPermit<T>>);
 
 impl<T: Send + 'static> ReservedPermit<T> {
@@ -57,6 +60,8 @@ impl<T> Clone for ReservedPermit<T> {
     }
 }
 
+/// Middleware that first reserves a permit on the channel to send messages to the messaging layer.
+/// Once reserved, adds the permit to the extension for retrieval from the handler.
 pub async fn obtain_permit_mw<T: Send + 'static, B>(
     sender: mpsc::Sender<T>,
     mut req: Request<B>,
@@ -71,29 +76,33 @@ pub async fn obtain_permit_mw<T: Send + 'static, B>(
 /// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
 /// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
-#[allow(clippy::unused_async)] // handler is expected to be async
-#[allow(clippy::cast_possible_truncation)] // length of envelopes array known to be less u32
 pub async fn handler(
-    Path(_query_id, step): Path,
+    path: Path,
     // TODO: we shouldn't trust the client to tell us their identity.
     //       revisit when we have figured out discovery/handshake
-    Query(IdentityQuery { identity }): Query<IdentityQuery>,
+    query: Query<IdentityQuery>,
     headers: RecordHeaders,
     mut req: Request<Body>,
 ) -> Result<(), MpcServerError> {
     // prepare data
-    let channel_id = ChannelId { identity, step };
+    let Path(_query_id, step) = path;
+    let channel_id = ChannelId {
+        identity: query.identity,
+        step,
+    };
 
     let body = hyper::body::to_bytes(req.body_mut()).await?;
-    headers.matches_body(body.len())?;
     let envelopes = body
         .as_ref()
         .chunks(headers.data_size as usize)
         .enumerate()
-        .map(|(record_id, chunk)| MessageEnvelope {
-            record_id: RecordId::from(headers.offset + record_id as u32),
-            payload: chunk.to_vec().into_boxed_slice(),
-        })
+        .map(
+            #[allow(clippy::cast_possible_truncation)] // record_id is known to be < u32
+            |(record_id, chunk)| MessageEnvelope {
+                record_id: RecordId::from(headers.offset + record_id as u32),
+                payload: chunk.to_vec().into_boxed_slice(),
+            },
+        )
         .collect::<Vec<_>>();
 
     // send data
@@ -109,15 +118,17 @@ pub async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::{BindTarget, MpcServer, DATA_SIZE_HEADER_NAME, OFFSET_HEADER_NAME};
+    use crate::net::{
+        BindTarget, MpcServer, CONTENT_LENGTH_HEADER_NAME, DATA_SIZE_HEADER_NAME,
+        OFFSET_HEADER_NAME,
+    };
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
+    use futures_util::FutureExt;
     use hyper::header::HeaderName;
     use hyper::service::Service;
     use hyper::{body, Body, Client, Response};
-    use std::collections::HashMap;
     use std::future::Future;
-    use std::pin::Pin;
     use std::task::{Context, Poll};
     use tokio::sync::mpsc;
     use tower::ServiceExt;
@@ -138,7 +149,7 @@ mod tests {
     fn build_req(
         port: u16,
         query_id: QueryId,
-        step: UniqueStepId,
+        step: &UniqueStepId,
         identity: Identity,
         offset: u32,
         body: &'static [u8],
@@ -151,13 +162,15 @@ mod tests {
         let uri = format!(
             "http://127.0.0.1:{}/mul/query-id/{}/step/{}?identity={}",
             port,
-            String::from(query_id),
-            String::from(step),
-            String::from(identity),
+            query_id.as_ref(),
+            step.as_ref(),
+            identity.as_ref(),
         );
+        #[allow(clippy::cast_possible_truncation)] // `body.len()` known to be less than u32
         let headers = RecordHeaders {
+            content_length: body.len() as u32,
             offset,
-            data_size: DATA_SIZE as u32,
+            data_size: DATA_SIZE,
         };
         let body = Body::from(Bytes::from_static(body));
         headers
@@ -169,7 +182,7 @@ mod tests {
     async fn send_req(
         port: u16,
         query_id: QueryId,
-        step: UniqueStepId,
+        step: &UniqueStepId,
         identity: Identity,
         offset: u32,
         body: &'static [u8],
@@ -197,7 +210,7 @@ mod tests {
 
         // try a request 10 times
         for _ in 0..10 {
-            let resp = send_req(port, query_id, step.clone(), target_helper, offset, body).await;
+            let resp = send_req(port, query_id, &step, target_helper, offset, body).await;
 
             let status = resp.status();
             let resp_body = body::to_bytes(resp.into_body()).await.unwrap();
@@ -222,169 +235,121 @@ mod tests {
         }
     }
 
-    #[allow(clippy::mutable_key_type)] // `HeaderName` is known good key
-    fn build_malformed_req<Q: Into<String>, S: Into<String>, I: Into<String>, B: Into<Body>>(
-        port: u16,
-        query_id: Q,
-        step: S,
-        identity: I,
-        headers: HashMap<HeaderName, HeaderValue>,
-        body: B,
-    ) -> Request<Body> {
-        let uri = format!(
-            "http://127.0.0.1:{}/mul/query-id/{}/step/{}?identity={}",
-            port,
-            query_id.into(),
-            step.into(),
-            identity.into(),
-        );
-
-        let mut req = Request::post(uri);
-        let req_headers = req.headers_mut().unwrap();
-        for (key, value) in headers {
-            req_headers.insert(key, value);
-        }
-        req.body(body.into()).unwrap()
+    struct OverrideReq {
+        query_id: String,
+        step: String,
+        identity: String,
+        offset_header: (HeaderName, HeaderValue),
+        data_size_header: (HeaderName, HeaderValue),
+        body: &'static [u8],
     }
 
-    async fn expect_res(req: Request<Body>, expected_status: StatusCode) {
+    impl OverrideReq {
+        fn into_req(self, port: u16) -> Request<Body> {
+            let uri = format!(
+                "http://127.0.0.1:{}/mul/query-id/{}/step/{}?identity={}",
+                port, self.query_id, self.step, self.identity
+            );
+            let mut req = Request::post(uri);
+            let req_headers = req.headers_mut().unwrap();
+            req_headers.insert(CONTENT_LENGTH_HEADER_NAME.clone(), self.body.len().into());
+            req_headers.insert(self.offset_header.0, self.offset_header.1);
+            req_headers.insert(self.data_size_header.0, self.data_size_header.1);
+
+            req.body(self.body.into()).unwrap()
+        }
+    }
+
+    impl Default for OverrideReq {
+        fn default() -> Self {
+            Self {
+                query_id: QueryId.as_ref().to_owned(),
+                step: UniqueStepId::default().narrow("test").as_ref().to_owned(),
+                identity: Identity::H2.as_ref().to_owned(),
+                offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
+                data_size_header: (DATA_SIZE_HEADER_NAME.clone(), DATA_SIZE.into()),
+                body: &[0; (DATA_LEN * DATA_SIZE) as usize],
+            }
+        }
+    }
+
+    async fn resp_eq(req: OverrideReq, expected_status: StatusCode) {
+        let (port, _rx) = init_server().await;
         let resp = Client::default()
-            .request(req)
+            .request(req.into_req(port))
             .await
             .expect("request should complete successfully");
         assert_eq!(resp.status(), expected_status);
     }
 
     #[tokio::test]
-    #[allow(clippy::mutable_key_type)] // [`HeaderName`] is known good key
-    #[allow(clippy::too_many_lines)] // testing all permutations of request
-    async fn malformed_req_fails() {
-        const MALFORMED_DATA_SIZE: usize = 7;
-        let (port, rx) = init_server().await;
-        tokio::spawn(async move {
-            let mut rx = Box::pin(rx);
-            while let Some(next) = rx.recv().await {
-                println!("received value on receive: {:?}", next.0);
-            }
-        });
+    async fn malformed_query_id_fails() {
+        let req = OverrideReq {
+            query_id: "not-a-query-id".into(),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
 
-        // well-formed request
-        let valid_query_id = QueryId;
-        let valid_target_helper = Identity::H2;
-        let valid_step = UniqueStepId::default().narrow("test");
-        let valid_offset = 0;
-        let valid_body = Bytes::from_static(&[0; (DATA_LEN * DATA_SIZE) as usize]);
-        let valid_headers = HashMap::from([
-            (OFFSET_HEADER_NAME.clone(), valid_offset.into()),
-            (DATA_SIZE_HEADER_NAME.clone(), DATA_SIZE.into()),
-        ]);
+    #[tokio::test]
+    async fn malformed_identity_fails() {
+        let req = OverrideReq {
+            identity: "h4".into(),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
 
-        // malformed request
-        let malformed_query_id = "not-a-query-id";
-        let malformed_target_helper = "h4";
-        let malformed_offset = -1;
-        #[allow(clippy::cast_possible_truncation)] // value == 7
-        let malformed_body = Bytes::from_static(&[0, MALFORMED_DATA_SIZE as u8]);
-        let malformed_offset_name_headers = HashMap::from([
-            (HeaderName::from_static("ofset"), valid_offset.into()),
-            (DATA_SIZE_HEADER_NAME.clone(), DATA_SIZE.into()),
-        ]);
-        let malformed_offset_value_headers = HashMap::from([
-            (OFFSET_HEADER_NAME.clone(), malformed_offset.into()),
-            (DATA_SIZE_HEADER_NAME.clone(), DATA_SIZE.into()),
-        ]);
-        let malformed_data_size_name_headers = HashMap::from([
-            (OFFSET_HEADER_NAME.clone(), valid_offset.into()),
-            (HeaderName::from_static("datasize"), DATA_SIZE.into()),
-        ]);
-        let malformed_data_size_value_headers = HashMap::from([
-            (OFFSET_HEADER_NAME.clone(), valid_offset.into()),
-            (DATA_SIZE_HEADER_NAME.clone(), MALFORMED_DATA_SIZE.into()),
-        ]);
+    #[tokio::test]
+    async fn malformed_offset_header_name_fails() {
+        let req = OverrideReq {
+            offset_header: (HeaderName::from_static("ofset"), 0.into()),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
 
-        // malformed query_id
-        let req = build_malformed_req(
-            port,
-            malformed_query_id,
-            valid_step.clone(),
-            valid_target_helper,
-            valid_headers.clone(),
-            valid_body.clone(),
-        );
-        expect_res(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    #[tokio::test]
+    async fn malformed_offset_header_value_fails() {
+        let req = OverrideReq {
+            offset_header: (OFFSET_HEADER_NAME.clone(), HeaderValue::from(-1)),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::BAD_REQUEST).await;
+    }
 
-        // malformed identity
-        let req = build_malformed_req(
-            port,
-            valid_query_id,
-            valid_step.clone(),
-            malformed_target_helper,
-            valid_headers.clone(),
-            valid_body.clone(),
-        );
-        expect_res(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    #[tokio::test]
+    async fn malformed_data_size_header_name_fails() {
+        let req = OverrideReq {
+            data_size_header: (HeaderName::from_static("datasize"), DATA_SIZE.into()),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
 
-        // malformed offset header name
-        let req = build_malformed_req(
-            port,
-            valid_query_id,
-            valid_step.clone(),
-            valid_target_helper,
-            malformed_offset_name_headers,
-            valid_body.clone(),
-        );
-        expect_res(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    #[tokio::test]
+    async fn malformed_data_size_header_value_fails() {
+        let req = OverrideReq {
+            data_size_header: (DATA_SIZE_HEADER_NAME.clone(), 7.into()),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::BAD_REQUEST).await;
+    }
 
-        // malformed offset header value
-        let req = build_malformed_req(
-            port,
-            valid_query_id,
-            valid_step.clone(),
-            valid_target_helper,
-            malformed_offset_value_headers,
-            valid_body.clone(),
-        );
-        expect_res(req, StatusCode::BAD_REQUEST).await;
-
-        // malformed data-size header name
-        let req = build_malformed_req(
-            port,
-            valid_query_id,
-            valid_step.clone(),
-            valid_target_helper,
-            malformed_data_size_name_headers,
-            valid_body.clone(),
-        );
-        expect_res(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-
-        // malformed data-size header value
-        let req = build_malformed_req(
-            port,
-            valid_query_id,
-            valid_step.clone(),
-            valid_target_helper,
-            malformed_data_size_value_headers,
-            valid_body.clone(),
-        );
-        expect_res(req, StatusCode::BAD_REQUEST).await;
-
-        // malformed body
-        let req = build_malformed_req(
-            port,
-            valid_query_id,
-            valid_step.clone(),
-            valid_target_helper,
-            valid_headers.clone(),
-            malformed_body,
-        );
-        expect_res(req, StatusCode::BAD_REQUEST).await;
+    #[tokio::test]
+    async fn malformed_body_fails() {
+        let req = OverrideReq {
+            body: &[0, 7],
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::BAD_REQUEST).await;
     }
 
     fn poll<F, T>(f: &mut F) -> Poll<T>
     where
         F: Future<Output = T> + Unpin,
     {
-        Pin::new(f).poll(&mut Context::from_waker(futures::task::noop_waker_ref()))
+        f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref()))
     }
 
     #[tokio::test]
@@ -401,11 +366,17 @@ mod tests {
         let offset = 0;
         let body = &[0; (DATA_LEN * DATA_SIZE) as usize];
 
-        let new_req = || build_req(0, query_id, step.clone(), target_helper, offset, body);
+        let new_req = || build_req(0, query_id, &step, target_helper, offset, body);
 
         // fill channel
         for _ in 0..QUEUE_DEPTH {
-            r.ready().await.unwrap().call(new_req()).await.unwrap();
+            let resp = r.ready().await.unwrap().call(new_req()).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "body: {}",
+                String::from_utf8_lossy(&body::to_bytes(resp.into_body()).await.unwrap())
+            );
         }
 
         // channel should now be full
