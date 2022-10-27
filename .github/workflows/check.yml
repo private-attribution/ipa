@@ -6,40 +6,27 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          components: clippy,rustfmt
 
-      - uses: actions-rs/cargo@v1
-        name: Build
-        with:
-          command: build
-          args: --tests
-# todo: enable this action once Step trait no longer causes release build failures
-#      - uses: actions-rs/cargo@v1
-#        name: Release Build
-#        with:
-#          command: build
-#          args: --release
+      - name: Build
+        run: cargo build --tests
 
-      - uses: actions-rs/cargo@v1
-        name: Check formatting
+      - name: Release Build
+        run: cargo build --release
+
+      - name: Check formatting
         if: ${{ success() || failure() }}
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
-      - uses: actions-rs/cargo@v1
-        name: Clippy
+      - name: Clippy
         if: ${{ success() || failure() }}
-        with:
-          command: clippy
-          args: --tests -- -D warnings -D clippy::pedantic
+        run: cargo clippy --tests -- -D warnings -D clippy::pedantic
 
-      - uses: actions-rs/cargo@v1
-        name: Run Tests
-        with:
-          command: test
+      - name: Run Tests
+        run: cargo test
