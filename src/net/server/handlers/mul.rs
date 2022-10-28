@@ -25,6 +25,7 @@ impl<B: Send> FromRequest<B> for Path {
     }
 }
 
+/// Used in the axum handler to extract the identity from the query params of the request
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 pub struct IdentityQuery {
     identity: Identity,
