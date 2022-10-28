@@ -2,12 +2,12 @@ use crate::error::BoxError;
 use crate::field::Field;
 use crate::helpers::fabric::Network;
 use crate::protocol::{
-    context::ProtocolContext, malicious::SecurityValidator, securemul::SecureMul, RecordId,
+    context::ProtocolContext, malicious::SecurityValidatorAccumulator, securemul::SecureMul,
+    RecordId,
 };
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -48,22 +48,22 @@ impl AsRef<str> for Step {
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
 pub struct MaliciouslySecureMul<'a, N, F> {
-    ctx: &'a ProtocolContext<'a, N>,
+    ctx: ProtocolContext<'a, N, F>,
     record_id: RecordId,
-    security_validator: Arc<Mutex<SecurityValidator<F>>>,
+    accumulator: SecurityValidatorAccumulator<F>,
 }
 
 impl<'a, N: Network, F: Field> MaliciouslySecureMul<'a, N, F> {
     #[must_use]
     pub fn new(
-        ctx: &'a ProtocolContext<'a, N>,
+        ctx: ProtocolContext<'a, N, F>,
         record_id: RecordId,
-        security_validator: Arc<Mutex<SecurityValidator<F>>>,
+        accumulator: SecurityValidatorAccumulator<F>,
     ) -> Self {
         Self {
             ctx,
             record_id,
-            security_validator,
+            accumulator,
         }
     }
 
@@ -81,20 +81,19 @@ impl<'a, N: Network, F: Field> MaliciouslySecureMul<'a, N, F> {
         a: MaliciousReplicated<F>,
         b: MaliciousReplicated<F>,
     ) -> Result<MaliciousReplicated<F>, BoxError> {
-        let duplicate_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
+        // being clever and assuming a clean context...
+        let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
+        let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
         let (ab, rab) = try_join(
             SecureMul::new(self.ctx, self.record_id).execute(a.x(), b.x()),
-            SecureMul::new(&duplicate_ctx, self.record_id).execute(a.rx(), b.x()),
+            SecureMul::new(duplicate_multiply_ctx, self.record_id).execute(a.rx(), b.x()),
         )
         .await?;
 
         let malicious_ab = MaliciousReplicated::new(ab, rab);
 
-        self.security_validator.lock().unwrap().accumulate_macs(
-            self.ctx.narrow(&Step::RandomnessForValidation),
-            self.record_id,
-            malicious_ab,
-        );
+        self.accumulator
+            .accumulate_macs(random_constant_prss, self.record_id, malicious_ab);
 
         Ok(malicious_ab)
     }
@@ -115,7 +114,6 @@ pub mod tests {
 
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
-    use std::sync::{Arc, Mutex};
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -146,18 +144,16 @@ pub mod tests {
         let b_shares = share(b, &mut rng);
 
         let futures = (0..3).into_iter().zip(context).map(|(i, ctx)| async move {
-            let mut v = SecurityValidator::new(ctx.narrow(&"SecurityValidatorInit".to_string()));
+            let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
+            let acc = v.accumulator();
             let r_share = v.r_share();
 
-            let a_ctx = ctx.narrow("input");
-            let b_ctx = ctx.clone();
-
             let (ra, rb) = try_join(
-                a_ctx
+                ctx.narrow("mult1")
                     .multiply(RecordId::from(0))
                     .await
                     .execute(a_shares[i], r_share),
-                b_ctx
+                ctx.narrow("mult2")
                     .multiply(RecordId::from(1))
                     .await
                     .execute(b_shares[i], r_share),
@@ -167,31 +163,23 @@ pub mod tests {
             let a_malicious = MaliciousReplicated::new(a_shares[i], ra);
             let b_malicious = MaliciousReplicated::new(b_shares[i], rb);
 
-            v.accumulate_macs(
-                a_ctx.narrow(&"validate_input".to_string()),
+            acc.accumulate_macs(
+                ctx.narrow("validate_input1").prss(),
                 RecordId::from(0),
                 a_malicious,
             );
-            v.accumulate_macs(
-                b_ctx.narrow(&"validate_input".to_string()),
+            acc.accumulate_macs(
+                ctx.narrow("validate_input2").prss(),
                 RecordId::from(1),
                 b_malicious,
             );
 
-            let mult_context = a_ctx.narrow("Mult");
-            let arc_mutex_v = Arc::new(Mutex::new(v));
-            let malicious_ab = MaliciouslySecureMul::new(
-                &mult_context,
-                RecordId::from(0),
-                Arc::clone(&arc_mutex_v),
-            )
-            .execute(a_malicious, b_malicious)
-            .await?;
+            let malicious_ab =
+                MaliciouslySecureMul::new(ctx.narrow("MultTogether"), RecordId::from(0), acc)
+                    .execute(a_malicious, b_malicious)
+                    .await?;
 
-            let unlocked_v = arc_mutex_v.lock().unwrap();
-            unlocked_v
-                .validate(ctx.narrow(&"SecurityValidatorValidate".to_string()))
-                .await?;
+            v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
 
             Ok::<(MaliciousReplicated<Fp31>, Replicated<Fp31>), BoxError>((malicious_ab, r_share))
         });
@@ -265,8 +253,8 @@ pub mod tests {
                 .into_iter()
                 .zip(shared_inputs)
                 .map(|(ctx, input_shares)| async move {
-                    let mut v =
-                        SecurityValidator::new(ctx.narrow(&"SecurityValidatorInit".to_string()));
+                    let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
+                    let acc = v.accumulator();
                     let r_share = v.r_share();
 
                     let mut inputs = Vec::with_capacity(100);
@@ -282,6 +270,7 @@ pub mod tests {
                     let rx_values = try_join_all(inputs.iter().map(
                         |(record_narrowed_ctx, record_id, x)| async move {
                             let rx = record_narrowed_ctx
+                                .narrow("mult")
                                 .multiply(*record_id)
                                 .await
                                 .execute(*x, r_share)
@@ -296,14 +285,12 @@ pub mod tests {
                     for i in 0..100 {
                         let (narrowed_ctx, record_id, _) = &inputs[i];
                         let rx = &rx_values[i];
-                        v.accumulate_macs(
-                            narrowed_ctx.narrow(&"validate_input".to_string()),
+                        acc.accumulate_macs(
+                            narrowed_ctx.narrow("validate_input").prss(),
                             *record_id,
                             *rx,
                         );
                     }
-
-                    let arc_mutex_v = Arc::new(Mutex::new(v));
 
                     let mut mult_inputs = Vec::with_capacity(99);
                     for i in 0..99 {
@@ -314,29 +301,26 @@ pub mod tests {
                         mult_inputs.push((
                             narrowed_ctx,
                             *record_id,
-                            Arc::clone(&arc_mutex_v),
+                            acc.clone(),
                             *malicious_a,
                             *malicious_b,
                         ));
                     }
 
                     let _outputs = try_join_all(mult_inputs.iter().map(
-                        |(narrowed_ctx, record_id, amv, malicious_a, malicious_b)| async move {
-                            MaliciouslySecureMul::new(
-                                &narrowed_ctx.narrow(&"SingleMult".to_string()),
-                                *record_id,
-                                Arc::clone(amv),
-                            )
-                            .execute(*malicious_a, *malicious_b)
-                            .await
-                        },
-                    ))
-                    .await?;
-
-                    let unlocked_v = arc_mutex_v.lock().unwrap();
-                    unlocked_v
-                        .validate(ctx.narrow(&"SecurityValidatorValidate".to_string()))
+                    |(narrowed_ctx, record_id, acc_clone, malicious_a, malicious_b)| async move {
+                        MaliciouslySecureMul::new(
+                            narrowed_ctx.narrow("SingleMult"),
+                            *record_id,
+                            acc_clone.clone(),
+                        )
+                        .execute(*malicious_a, *malicious_b)
                         .await
+                    },
+                ))
+                .await?;
+
+                    v.validate(ctx.narrow("SecurityValidatorValidate")).await
                 });
 
         try_join_all(futures).await?;

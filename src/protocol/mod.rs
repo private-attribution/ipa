@@ -2,7 +2,6 @@ mod attribution;
 mod batch;
 mod check_zero;
 pub mod context;
-mod dot_product;
 pub mod malicious;
 pub mod maliciously_secure_mul;
 mod modulus_conversion;

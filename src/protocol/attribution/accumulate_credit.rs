@@ -12,6 +12,25 @@ use crate::{
 };
 use futures::future::{try_join, try_join_all};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
+    HelperBitTimesIsTriggerBit,
+    BTimesStopBit,
+    BTimesSuccessorCredit,
+}
+
+impl crate::protocol::Step for Step {}
+
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::HelperBitTimesIsTriggerBit => "helper_bit_times_is_trigger_bit",
+            Self::BTimesStopBit => "b_times_stop_bit",
+            Self::BTimesSuccessorCredit => "b_times_successor_credit",
+        }
+    }
+}
+
 /// Accumulation step for Oblivious Attribution protocol.
 #[allow(dead_code)]
 pub struct AccumulateCredit<'a, F> {
@@ -34,7 +53,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     #[allow(dead_code)]
     pub async fn execute<N: Network>(
         &self,
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, N, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -96,6 +115,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
                     ctx.narrow(multiply_step.next()),
                     current,
                     successor,
+                    RecordId::from(i),
                     iteration_step.is_first_iteration(),
                 ));
             }
@@ -135,9 +155,10 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     }
 
     async fn get_accumulated_credit<N: Network>(
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, N, F>,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
+        record_id: RecordId,
         first_iteration: bool,
     ) -> Result<(Replicated<F>, Replicated<F>), BoxError> {
         // For each input row, we execute the accumulation logic in this method
@@ -147,7 +168,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
-            .multiply(RecordId::from(0))
+            .narrow(&Step::HelperBitTimesIsTriggerBit)
+            .multiply(record_id)
             .await
             .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
             .await?;
@@ -155,6 +177,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
         if !first_iteration {
             b = ctx
+                .narrow(&Step::BTimesStopBit)
                 .multiply(RecordId::from(1))
                 .await
                 .execute(b, current.stop_bit)
@@ -162,6 +185,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         }
 
         let credit_future = ctx
+            .narrow(&Step::BTimesSuccessorCredit)
             .multiply(RecordId::from(2))
             .await
             .execute(b, successor.credit);

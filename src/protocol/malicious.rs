@@ -2,10 +2,14 @@ use crate::{
     error::{BoxError, Error},
     field::Field,
     helpers::{fabric::Network, Direction},
-    protocol::{check_zero::check_zero, context::ProtocolContext, reveal::reveal, RecordId},
+    protocol::{
+        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
+        reveal::reveal, RecordId,
+    },
     secret_sharing::{MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
+use std::sync::{Arc, Mutex, Weak};
 
 use serde::{Deserialize, Serialize};
 
@@ -77,27 +81,81 @@ impl AsRef<str> for Step {
 /// This means that we can locally accumulate values along the way, and only perform a tiny amount of communication when the arithmetic circuit is complete
 /// and the parties wish to validate the circuit. This makes for a very memory efficient implementation.
 ///
+#[derive(Clone, Copy)]
+struct AccumulatorState<F> {
+    u: F,
+    w: F,
+}
+
+#[derive(Clone)]
+pub struct SecurityValidatorAccumulator<F> {
+    inner: Weak<Mutex<AccumulatorState<F>>>,
+}
+
+impl<F: Field> SecurityValidatorAccumulator<F> {
+    fn compute_dot_product_contribution(a: Replicated<F>, b: Replicated<F>) -> F {
+        (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
+    }
+
+    /// ## Panics
+    /// Will panic if the mutex is poisoned
+    pub fn accumulate_macs(
+        &self,
+        prss: Arc<IndexedSharedRandomness>,
+        record_id: RecordId,
+        input: MaliciousReplicated<F>,
+    ) {
+        let random_constant = prss.generate_replicated(record_id);
+
+        let u_contribution = Self::compute_dot_product_contribution(random_constant, input.rx());
+        let w_contribution = Self::compute_dot_product_contribution(random_constant, input.x());
+
+        let arc_mutex = self.inner.upgrade().unwrap();
+        // LOCK BEGIN
+        let mut accumulator_state = arc_mutex.lock().unwrap();
+
+        accumulator_state.u += u_contribution;
+        accumulator_state.w += w_contribution;
+        // LOCK END
+    }
+
+    pub fn duplicate(&self) -> Self {
+        SecurityValidatorAccumulator {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub struct SecurityValidator<F> {
     r_share: Replicated<F>,
-    u: F,
-    w: F,
+    u_and_w: Arc<Mutex<AccumulatorState<F>>>,
 }
 
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new<N: Network>(ctx: ProtocolContext<'_, N>) -> SecurityValidator<F> {
+    pub fn new<N: Network>(ctx: ProtocolContext<'_, N, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RecordId::from(0));
         let (u_left, u_right): (F, F) = prss.generate_fields(RecordId::from(1));
         let (w_left, w_right): (F, F) = prss.generate_fields(RecordId::from(2));
 
-        SecurityValidator {
-            r_share,
+        let state = AccumulatorState {
             u: u_right - u_left,
             w: w_right - w_left,
+        };
+
+        SecurityValidator {
+            r_share,
+            u_and_w: Arc::new(Mutex::new(state)),
+        }
+    }
+
+    pub fn accumulator(&self) -> SecurityValidatorAccumulator<F> {
+        SecurityValidatorAccumulator {
+            inner: Arc::downgrade(&self.u_and_w),
         }
     }
 
@@ -105,33 +163,15 @@ impl<F: Field> SecurityValidator<F> {
         self.r_share
     }
 
-    fn compute_dot_product_contribution(a: Replicated<F>, b: Replicated<F>) -> F {
-        (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn accumulate_macs<N: Network>(
-        &mut self,
-        ctx: ProtocolContext<'_, N>,
-        record_id: RecordId,
-        input: MaliciousReplicated<F>,
-    ) {
-        // The helpers need to use the same shared randomness to generate the random constant used to validate a given multiplication.
-        // This is a bit tricky, because we cannot count on the multiplications being executed in the same order across all the helpers.
-        // The easiest way is to just narrow the context used to perform the multiplication, and then re-use the same record_id.
-        // This ensures that when the helpers all go to validate the multiplication: "1/foo/bar/baz", they all use the prss from "1/foo/bar/baz/validate".
-        // That way, we don't need to worry about the order in which the multiplications are executed.
-        let random_constant = ctx.prss().generate_replicated(record_id);
-
-        self.u += Self::compute_dot_product_contribution(random_constant, input.rx());
-        self.w += Self::compute_dot_product_contribution(random_constant, input.x());
-    }
-
     /// ## Errors
     /// If the two information theoretic MACs are not equal (after multiplying by `r`), this indicates that one of the parties
     /// must have launched an additive attack. At this point the honest parties should abort the protocol. This method throws an
     /// error in such a case.
-    pub async fn validate<N: Network>(&self, ctx: ProtocolContext<'_, N>) -> Result<(), BoxError> {
+    /// TODO: add a "Drop Guard"
+    pub async fn validate<N: Network>(
+        self,
+        ctx: ProtocolContext<'_, N, F>,
+    ) -> Result<(), BoxError> {
         let record_0 = RecordId::from(0);
         let record_1 = RecordId::from(1);
         let record_2 = RecordId::from(2);
@@ -141,9 +181,10 @@ impl<F: Field> SecurityValidator<F> {
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
         let helper_left = ctx.role().peer(Direction::Left);
+        let state = self.u_and_w.lock().unwrap();
         try_join(
-            channel.send(helper_right, record_0, UValue { payload: self.u }),
-            channel.send(helper_right, record_1, UValue { payload: self.w }),
+            channel.send(helper_right, record_0, UValue { payload: state.u }),
+            channel.send(helper_right, record_1, UValue { payload: state.w }),
         )
         .await?;
 
@@ -157,8 +198,8 @@ impl<F: Field> SecurityValidator<F> {
         let u_left = u_left_struct.payload;
         let w_left = w_left_struct.payload;
 
-        let u_share = Replicated::new(u_left, self.u);
-        let w_share = Replicated::new(w_left, self.w);
+        let u_share = Replicated::new(u_left, state.u);
+        let w_share = Replicated::new(w_left, state.w);
 
         // This should probably be done in parallel with the futures above
         let r = reveal(ctx.narrow(&Step::RevealR), record_2, self.r_share).await?;
@@ -216,18 +257,21 @@ pub mod tests {
         let b_shares = share(b, &mut rng);
 
         let futures = (0..3).into_iter().zip(context).map(|(i, ctx)| async move {
-            let mut v = SecurityValidator::new(ctx.narrow(&"SecurityValidatorInit".to_string()));
+            let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
+            let acc = v.accumulator();
             let r_share = v.r_share();
 
-            let a_ctx = ctx.narrow("multiply");
-            let b_ctx = ctx.clone();
+            let a_ctx = ctx.narrow("1");
+            let b_ctx = ctx.narrow("2");
 
             let (ra, rb) = try_join(
                 a_ctx
+                    .narrow("input")
                     .multiply(RecordId::from(0))
                     .await
                     .execute(a_shares[i], r_share),
                 b_ctx
+                    .narrow("input")
                     .multiply(RecordId::from(1))
                     .await
                     .execute(b_shares[i], r_share),
@@ -237,39 +281,38 @@ pub mod tests {
             let a_malicious = MaliciousReplicated::new(a_shares[i], ra);
             let b_malicious = MaliciousReplicated::new(b_shares[i], rb);
 
-            v.accumulate_macs(
-                a_ctx.narrow(&Step::ValidateInput),
+            acc.accumulate_macs(
+                a_ctx.narrow(&Step::ValidateInput).prss(),
                 RecordId::from(0),
                 a_malicious,
             );
-            v.accumulate_macs(
-                b_ctx.narrow(&Step::ValidateInput),
+            acc.accumulate_macs(
+                b_ctx.narrow(&Step::ValidateInput).prss(),
                 RecordId::from(1),
                 b_malicious,
             );
 
             let (ab, rab) = try_join(
                 a_ctx
-                    .narrow(&"SingleMult".to_string())
+                    .narrow("SingleMult")
                     .multiply(RecordId::from(0))
                     .await
                     .execute(a_shares[i], b_shares[i]),
                 a_ctx
-                    .narrow(&"DoubleMult".to_string())
+                    .narrow("DoubleMult")
                     .multiply(RecordId::from(1))
                     .await
                     .execute(ra, b_shares[i]),
             )
             .await?;
 
-            v.accumulate_macs(
-                a_ctx.narrow(&Step::ValidateMultiplySubstep),
+            acc.accumulate_macs(
+                a_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
                 RecordId::from(0),
                 MaliciousReplicated::new(ab, rab),
             );
 
-            v.validate(ctx.narrow(&"SecurityValidatorValidate".to_string()))
-                .await
+            v.validate(ctx.narrow("SecurityValidatorValidate")).await
         });
 
         try_join_all(futures).await?;
@@ -323,15 +366,17 @@ pub mod tests {
                 .into_iter()
                 .zip(shared_inputs)
                 .map(|(ctx, input_shares)| async move {
-                    let mut v =
-                        SecurityValidator::new(ctx.narrow(&"SecurityValidatorInit".to_string()));
+                    let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
+                    let acc = v.accumulator();
+
                     let r_share = v.r_share();
 
                     let mut inputs = Vec::with_capacity(100);
                     for i in 0..100 {
-                        let step = format!("record_{}_hack", i);
+                        // let step = format!("record_{}_hack", i); // TODO: clone this 1000x instead
+                        // first clone, then narrow
                         let record_id = RecordId::from(i);
-                        let record_narrowed_ctx = ctx.narrow(&step);
+                        let record_narrowed_ctx = ctx.narrow(&format!("record_{}", i));
 
                         let x = input_shares[usize::try_from(i).unwrap()];
                         inputs.push((record_narrowed_ctx, record_id, x));
@@ -340,6 +385,7 @@ pub mod tests {
                     let rx_values = try_join_all(inputs.iter().map(
                         |(record_narrowed_ctx, record_id, x)| async move {
                             record_narrowed_ctx
+                                .narrow("mult")
                                 .multiply(*record_id)
                                 .await
                                 .execute(*x, r_share)
@@ -351,8 +397,8 @@ pub mod tests {
                     for i in 0..100 {
                         let (narrowed_ctx, record_id, x) = &inputs[i];
                         let rx = &rx_values[i];
-                        v.accumulate_macs(
-                            narrowed_ctx.narrow(&Step::ValidateInput),
+                        acc.accumulate_macs(
+                            narrowed_ctx.narrow(&Step::ValidateInput).prss(),
                             *record_id,
                             MaliciousReplicated::new(*x, *rx),
                         );
@@ -372,7 +418,7 @@ pub mod tests {
                         try_join_all(mult_inputs.iter().map(
                             |(narrowed_ctx, record_id, a, b, _)| async move {
                                 narrowed_ctx
-                                    .narrow(&"SingleMult".to_string())
+                                    .narrow("SingleMult")
                                     .multiply(*record_id)
                                     .await
                                     .execute(*a, *b)
@@ -382,7 +428,7 @@ pub mod tests {
                         try_join_all(mult_inputs.iter().map(
                             |(narrowed_ctx, record_id, a, _, rb)| async move {
                                 narrowed_ctx
-                                    .narrow(&"DoubleMult".to_string())
+                                    .narrow("DoubleMult")
                                     .multiply(*record_id)
                                     .await
                                     .execute(*a, *rb)
@@ -396,15 +442,14 @@ pub mod tests {
                         let ab = ab_outputs[i];
                         let rab = double_check_outputs[i];
                         let (narrowed_ctx, record_id, _, _, _) = &mult_inputs[i];
-                        v.accumulate_macs(
-                            narrowed_ctx.narrow(&Step::ValidateMultiplySubstep),
+                        acc.accumulate_macs(
+                            narrowed_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
                             *record_id,
                             MaliciousReplicated::new(ab, rab),
                         );
                     }
 
-                    v.validate(ctx.narrow(&"SecurityValidatorValidate".to_string()))
-                        .await
+                    v.validate(ctx.narrow("SecurityValidatorValidate")).await
                 });
 
         try_join_all(futures).await?;
