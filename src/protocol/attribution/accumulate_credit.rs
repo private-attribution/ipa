@@ -12,6 +12,25 @@ use crate::{
 };
 use futures::future::{try_join, try_join_all};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
+    HelperBitTimesIsTriggerBit,
+    BTimesStopBit,
+    BTimesSuccessorCredit,
+}
+
+impl crate::protocol::Step for Step {}
+
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::HelperBitTimesIsTriggerBit => "helper_bit_times_is_trigger_bit",
+            Self::BTimesStopBit => "b_times_stop_bit",
+            Self::BTimesSuccessorCredit => "b_times_successor_credit",
+        }
+    }
+}
+
 /// Accumulation step for Oblivious Attribution protocol.
 #[allow(dead_code)]
 pub struct AccumulateCredit<'a, F> {
@@ -94,6 +113,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
                 accumulation_futures.push(Self::get_accumulated_credit(
                     ctx.narrow(multiply_step.next()),
+                    RecordId::from(i),
                     current,
                     successor,
                     iteration_step.is_first_iteration(),
@@ -136,6 +156,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
     async fn get_accumulated_credit<N: Network>(
         ctx: ProtocolContext<'_, N>,
+        record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
         first_iteration: bool,
@@ -147,7 +168,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
-            .multiply(RecordId::from(0))
+            .narrow(&Step::HelperBitTimesIsTriggerBit)
+            .multiply(record_id)
             .await
             .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
             .await?;
@@ -155,6 +177,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
         if !first_iteration {
             b = ctx
+                .narrow(&Step::BTimesStopBit)
                 .multiply(RecordId::from(1))
                 .await
                 .execute(b, current.stop_bit)
@@ -162,7 +185,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         }
 
         let credit_future = ctx
-            .multiply(RecordId::from(2))
+            .narrow(&Step::BTimesSuccessorCredit)
+            .multiply(record_id)
             .await
             .execute(b, successor.credit);
 
@@ -171,9 +195,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
             futures::future::Either::Left(futures::future::ok(b))
         } else {
             futures::future::Either::Right(
-                ctx.multiply(RecordId::from(3))
-                    .await
-                    .execute(b, successor.stop_bit),
+                ctx.multiply(record_id).await.execute(b, successor.stop_bit),
             )
         };
 

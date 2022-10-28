@@ -8,8 +8,11 @@ use crate::{
 use crate::helpers::fabric::Network;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-/// Generate bit permutations for a given bit column of query.
-/// This is GENBITPERM(Algorithm 3) described in <https://eprint.iacr.org/2019/695.pdf>.
+
+/// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
+/// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
+/// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
+/// <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
 pub struct BitPermutations<'a, F> {
     input: &'a [Replicated<F>],
@@ -21,50 +24,20 @@ impl<'a, F: Field> BitPermutations<'a, F> {
         Self { input }
     }
 
-    /// In this step, multiplication inputs are generated locally at each helper from input share, x in following steps
-    /// 1. calculate 1 - x, x and concatenate them
-    /// 2. calculate cumulative sum at each vector row
-    /// 3. return back tuple of step 1 and step 2 output
-    #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<N: Network>(
-        &self,
-        ctx: &ProtocolContext<'a, N>,
-    ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a {
-        let share_of_one = Replicated::one(ctx.role());
-
-        self.input
-            .iter()
-            .map(move |x: &Replicated<F>| share_of_one - *x)
-            .chain(self.input.iter().copied())
-            .enumerate()
-            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, (index, n)| {
-                *sum += n;
-                Some((RecordId::from(index as u32), (n, *sum)))
-            })
-    }
-
-    /// multiplies the input vector pairs across helpers and returns result
-    /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
-    #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<N: Network>(
-        &self,
-        ctx: &ProtocolContext<'a, N>,
-        mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
-    ) -> Result<Replicated<F>, BoxError> {
-        let (record_id, share) = mult_input;
-        ctx.multiply(record_id)
-            .await
-            .execute(share.0, share.1)
-            .await
-    }
     #[embed_doc_image("bit_permutations", "images/sort/bit_permutations.png")]
-    /// Executes sorting of a bit column on mpc helpers. Each helper receives their input shares and do following steps
-    /// 1. local computation by `prepare_mult_inputs` which outputs 2 vectors [x,y]
-    /// 2. multiply each row of previous output individually (i.e. x*y) across mpc helpers.
-    /// 3. add ith column by i+len to obtain helper's share of sorted location, where len is same as input shares length
+    /// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
+    ///
+    /// At a high level, the protocol works as follows:
+    /// 1. Start with a list of `n` secret shares `[x_1]` ... `[x_n]` where each is a secret sharing of either zero or one.
+    /// 2. Create a vector of length `2*n` where the first `n` rows have the values `[1 - x_1]` ... `[1 - x_n]`
+    /// and the next `n` rows have the value `[x_1]` ... `[x_n]`
+    /// 3. Compute a new vector of length `2*n` by computing the running sum of the vector from step 2.
+    /// 4. Compute another vector of length `2*n` by multipling the vectors from steps 2 and 3 element-wise.
+    /// 5. Compute the final output, a vector of length `n`. Each element `i` in this output vector is the sum of
+    /// the elements at index `i` and `i+n` from the vector computed in step 4.
+    ///
     /// ![Bit Permutations steps][bit_permutations]
     /// ## Panics
-    ///
     /// In case the function is unable to get double size of output from multiplication step, the code will panic
     ///
     /// ## Errors
@@ -74,9 +47,28 @@ impl<'a, F: Field> BitPermutations<'a, F> {
         &self,
         ctx: &ProtocolContext<'_, N>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mult_input = self.prepare_mult_inputs(ctx);
-        let async_multiply =
-            mult_input.map(|input| async move { self.secure_multiply(ctx, input).await });
+        let share_of_one = Replicated::one(ctx.role());
+
+        let mult_input = self
+            .input
+            .iter()
+            .map(move |x: &Replicated<F>| share_of_one - *x)
+            .chain(self.input.iter().copied())
+            .enumerate()
+            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, (index, x)| {
+                *sum += x;
+                Some((
+                    ctx.narrow(&format!("record_{}", index)),
+                    RecordId::from(u32::try_from(index).unwrap()),
+                    x,
+                    *sum,
+                ))
+            });
+
+        let async_multiply = mult_input.map(|(ctx, record_id, x, sum)| async move {
+            //ctx.narrow(&Step::MultiplyAcross)
+            ctx.multiply(record_id).await.execute(x, sum).await
+        });
         let mut mult_output = try_join_all(async_multiply).await?;
 
         assert_eq!(mult_output.len(), self.input.len() * 2);
