@@ -54,6 +54,9 @@ pub trait Field:
     const ZERO: Self;
     /// Multiplicative identity element
     const ONE: Self;
+    /// Derived from the size of the backing field, this constant indicates how much
+    /// space is required to store this field value
+    const SIZE_IN_BYTES: usize = Self::Integer::BITS as usize / 8;
 
     /// computes the multiplicative inverse of `self`. It is UB if `self` is 0.
     #[must_use]
@@ -100,8 +103,7 @@ pub trait Field:
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity to store this field value
     fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        let bytes = Self::Integer::BITS as usize / 8;
-        let raw_value = &self.as_u128().to_le_bytes()[..bytes];
+        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES];
 
         let expected_capacity = raw_value.len();
         let actually_written = writer.write(raw_value)?;
@@ -128,10 +130,9 @@ pub trait Field:
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
     fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let bytes = Self::Integer::BITS as usize / 8;
         let mut buf = [0; 16]; // one day...
 
-        for item in buf.iter_mut().take(bytes) {
+        for item in buf.iter_mut().take(Self::SIZE_IN_BYTES) {
             *item = reader.read_u8()?;
         }
 
