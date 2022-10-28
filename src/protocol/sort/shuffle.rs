@@ -19,7 +19,6 @@ use super::{
     ShuffleStep::{self, Step1, Step2, Step3},
 };
 
-#[allow(dead_code)]
 pub struct Shuffle<'a, F> {
     input: &'a mut Vec<Replicated<F>>,
 }
@@ -41,8 +40,8 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 }
 
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
-#[allow(clippy::cast_possible_truncation, dead_code)]
-pub(self) fn generate_random_permutation(
+#[allow(clippy::cast_possible_truncation)]
+pub fn generate_random_permutation(
     batchsize: usize,
     prss: &IndexedSharedRandomness,
 ) -> (Permutation, Permutation) {
@@ -82,7 +81,6 @@ pub(self) fn generate_random_permutation(
 /// This is SHUFFLE(Algorithm 1) described in <https://eprint.iacr.org/2019/695.pdf>.
 /// This protocol shuffles the given inputs across 3 helpers making them indistinguishable to the helpers
 impl<'a, F: Field> Shuffle<'a, F> {
-    #[allow(dead_code)]
     pub fn new(input: &'a mut Vec<Replicated<F>>) -> Self {
         Self { input }
     }
