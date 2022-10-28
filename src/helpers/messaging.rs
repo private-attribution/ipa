@@ -20,7 +20,6 @@ use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::io;
-use std::io::{Cursor, Read, Write};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -30,33 +29,33 @@ use tracing::Instrument;
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
     /// Required number of bytes to store this message on disk/network
-    const BYTES: u32;
+    const SIZE_IN_BYTES: u32;
 
     /// Deserialize message from a sequence of bytes.
     ///
     /// ## Errors
     /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self>;
+    fn deserialize(buf: &mut [u8]) -> io::Result<Self>;
 
-    /// Serialize this message to a sequence of bytes. Implementations need to ensure the
-    /// operation completed writing exactly `BYTES` bytes into `writer`.
+    /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
+    /// capacity to store this message.
     ///
     /// ## Errors
-    /// Returns an error if `writer` does not have enough capacity to store at least `BYTES` more
+    /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
     /// data.
-    fn serialize<W: Write>(self, writer: &mut W) -> io::Result<()>;
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()>;
 }
 
 /// Any field value can be send as a message
 impl<F: Field> Message for F {
-    const BYTES: u32 = F::Integer::BITS / 8;
+    const SIZE_IN_BYTES: u32 = F::Integer::BITS / 8;
 
-    fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self> {
-        <F as Field>::deserialize(reader)
+    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
+        <F as Field>::deserialize(buf)
     }
 
-    fn serialize<W: Write>(self, writer: &mut W) -> io::Result<()> {
-        <F as Field>::serialize(&self, writer)
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        <F as Field>::serialize(&self, buf)
     }
 }
 
@@ -109,12 +108,11 @@ impl<N: Network> Mesh<'_, '_, N> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let mut c = Cursor::new(Vec::with_capacity(T::BYTES as usize));
-        msg.serialize(&mut c)
+        let mut buf = vec![0; T::SIZE_IN_BYTES as usize];
+        msg.serialize(&mut buf)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
-        let payload = c.into_inner().into_boxed_slice();
-
+        let payload = buf.into_boxed_slice();
         let envelope = MessageEnvelope { record_id, payload };
 
         self.gateway
@@ -131,12 +129,12 @@ impl<N: Network> Mesh<'_, '_, N> {
         source: Identity,
         record_id: RecordId,
     ) -> Result<T, Error> {
-        let payload = self
+        let mut payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj = T::deserialize(&mut Cursor::new(payload))
+        let obj = T::deserialize(&mut payload)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         Ok(obj)

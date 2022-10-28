@@ -5,9 +5,10 @@ use crate::{
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io;
-use std::io::{Read, Write};
+
 
 use futures::future::try_join;
+use hyper::body::Buf;
 
 use crate::helpers::messaging::Message;
 
@@ -19,16 +20,16 @@ pub struct RevealValue {
 }
 
 impl Message for RevealValue {
-    const BYTES: u32 = 1;
+    const SIZE_IN_BYTES: u32 = 1;
 
-    fn deserialize<R: Read>(reader: &mut R) -> io::Result<Self> {
+    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
         Ok(RevealValue {
-            share: reader.read_u8()? != 0,
+            share: buf.reader().read_u8()? != 0,
         })
     }
 
-    fn serialize<W: Write>(self, writer: &mut W) -> io::Result<()> {
-        writer.write_u8(self.share.into())
+    fn serialize(self, mut buf: &mut [u8]) -> io::Result<()> {
+        buf.write_u8(self.share.into())
     }
 }
 
