@@ -38,6 +38,7 @@ impl<'a, N, F> ProtocolContext<'a, N, F> {
         }
     }
 
+    #[must_use]
     pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> Self {
         ProtocolContext {
             role: self.role,
@@ -116,6 +117,7 @@ impl<'a, N: Network, F: Field> ProtocolContext<'a, N, F> {
 
     /// ## Panics
     /// If you failed to upgrade to malicious protocol context
+    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
     pub async fn malicious_multiply(self, _record_id: RecordId) {
         // -> MaliciouslySecureMul<'a, N, F> {
         let _accumulator = self.accumulator.as_ref().unwrap().clone();

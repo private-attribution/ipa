@@ -101,7 +101,7 @@ impl<F: Field> SecurityValidatorAccumulator<F> {
     /// Will panic if the mutex is poisoned
     pub fn accumulate_macs(
         &self,
-        prss: Arc<IndexedSharedRandomness>,
+        prss: &Arc<IndexedSharedRandomness>,
         record_id: RecordId,
         input: MaliciousReplicated<F>,
     ) {
@@ -118,12 +118,6 @@ impl<F: Field> SecurityValidatorAccumulator<F> {
         accumulator_state.w += w_contribution;
         // LOCK END
     }
-
-    pub fn duplicate(&self) -> Self {
-        SecurityValidatorAccumulator {
-            inner: self.inner.clone(),
-        }
-    }
 }
 
 #[allow(dead_code)]
@@ -138,11 +132,12 @@ impl<F: Field> SecurityValidator<F> {
     pub fn new<N: Network>(ctx: ProtocolContext<'_, N, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
-        let r_share = prss.generate_replicated(RecordId::from(0));
-        let u = prss.zero(RecordId::from(1));
-        let w = prss.zero(RecordId::from(2));
+        let r_share = prss.generate_replicated(RECORD_0);
 
-        let state = AccumulatorState { u, w };
+        let state = AccumulatorState {
+            u: prss.zero(RECORD_1),
+            w: prss.zero(RECORD_2),
+        };
 
         SecurityValidator {
             r_share,
@@ -165,6 +160,10 @@ impl<F: Field> SecurityValidator<F> {
     /// must have launched an additive attack. At this point the honest parties should abort the protocol. This method throws an
     /// error in such a case.
     /// TODO: add a "Drop Guard"
+    ///
+    /// ## Panics
+    /// Will panic if the mutex is poisoned
+    #[allow(clippy::await_holding_lock)]
     pub async fn validate<N: Network>(
         self,
         ctx: ProtocolContext<'_, N, F>,
@@ -173,6 +172,7 @@ impl<F: Field> SecurityValidator<F> {
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
         let helper_left = ctx.role().peer(Direction::Left);
+
         let state = self.u_and_w.lock().unwrap();
         try_join(
             channel.send(helper_right, RECORD_0, UValue { payload: state.u }),
@@ -274,12 +274,12 @@ pub mod tests {
             let b_malicious = MaliciousReplicated::new(b_shares[i], rb);
 
             acc.accumulate_macs(
-                a_ctx.narrow(&Step::ValidateInput).prss(),
+                &a_ctx.narrow(&Step::ValidateInput).prss(),
                 RecordId::from(0),
                 a_malicious,
             );
             acc.accumulate_macs(
-                b_ctx.narrow(&Step::ValidateInput).prss(),
+                &b_ctx.narrow(&Step::ValidateInput).prss(),
                 RecordId::from(1),
                 b_malicious,
             );
@@ -299,7 +299,7 @@ pub mod tests {
             .await?;
 
             acc.accumulate_macs(
-                a_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
+                &a_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
                 RecordId::from(0),
                 MaliciousReplicated::new(ab, rab),
             );
@@ -386,7 +386,7 @@ pub mod tests {
                     let _ = input_shares.iter().zip(rx_values.iter()).enumerate().map(
                         |(i, (x, rx))| {
                             acc.accumulate_macs(
-                                ctx.narrow(&Step::ValidateInput).prss(),
+                                &ctx.narrow(&Step::ValidateInput).prss(),
                                 RecordId::from(u32::try_from(i).unwrap()),
                                 MaliciousReplicated::new(*x, *rx),
                             );
@@ -431,7 +431,7 @@ pub mod tests {
                         .enumerate()
                         .map(|(i, (ab, rab))| {
                             acc.accumulate_macs(
-                                ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
+                                &ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
                                 RecordId::from(u32::try_from(i).unwrap()),
                                 MaliciousReplicated::new(*ab, *rab),
                             );
