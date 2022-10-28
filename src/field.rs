@@ -1,4 +1,3 @@
-
 use std::any::type_name;
 use std::io::ErrorKind;
 use std::ops::{BitAnd, Shr};
@@ -251,7 +250,7 @@ mod test {
     use super::{Field, Fp31};
     use proptest::proptest;
     use std::io;
-    
+
     use std::ops::Mul;
 
     #[test]

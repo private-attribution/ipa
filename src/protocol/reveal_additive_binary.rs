@@ -6,7 +6,6 @@ use crate::{
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io;
 
-
 use futures::future::try_join;
 use hyper::body::Buf;
 
