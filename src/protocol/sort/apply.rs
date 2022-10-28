@@ -52,4 +52,14 @@ mod tests {
         apply_inv(&mut indices, &mut values);
         assert_eq!(values, expected_output_apply_inv);
     }
+
+    #[test]
+    pub fn composing() {
+        let sigma = vec![4, 2, 0, 5, 1, 3];
+        let mut rho = vec![3, 4, 0, 5, 1, 2];
+
+        // Applying sigma on rho
+        apply_inv(&mut Permutation::oneline(sigma), &mut rho);
+        assert_eq!(rho, vec![1, 0, 3, 2, 4, 5]);
+    }
 }

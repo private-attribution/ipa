@@ -18,7 +18,7 @@ use futures::future::try_join;
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
-/// https://eprint.iacr.org/2019/695.pdf
+/// <https://eprint.iacr.org/2019/695.pdf>
 /// This is a protocol that applies the inverse of a secret-shared permutation to a vector of secret-shared values
 /// Input: Each helpers know their own secret shares of input and permutation
 /// Output: At the end of the protocol, all helpers receive inputs after the permutation is applied
