@@ -21,6 +21,8 @@ pub enum Error {
     TooManyHelpers,
     #[error("failed to parse: {0}")]
     ParseError(BoxError),
+    #[error("malicious security check failed")]
+    MaliciousSecurityCheckFailed,
     #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]
     Hex(#[from] hex::FromHexError),

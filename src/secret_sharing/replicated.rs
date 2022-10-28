@@ -34,6 +34,14 @@ impl<F: Field> Replicated<F> {
         (self.0, self.1)
     }
 
+    pub fn left(&self) -> F {
+        self.0
+    }
+
+    pub fn right(&self) -> F {
+        self.1
+    }
+
     /// Returns share of value one.
     #[must_use]
     pub fn one(helper_identity: Identity) -> Self {
