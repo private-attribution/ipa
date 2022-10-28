@@ -6,32 +6,45 @@ use super::{
     RecordId, Step, UniqueStepId,
 };
 use crate::{
+    field::Field,
     helpers::{
         fabric::Network,
         messaging::{Gateway, Mesh},
         Identity,
     },
-    protocol::prss::Endpoint as PrssEndpoint,
+    protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, N> {
+pub struct ProtocolContext<'a, N, F> {
     role: Identity,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway<N>,
+    accumulator: Option<SecurityValidatorAccumulator<F>>,
 }
 
-impl<'a, N> ProtocolContext<'a, N> {
+impl<'a, N, F> ProtocolContext<'a, N, F> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway<N>) -> Self {
         Self {
             role,
             step: UniqueStepId::default(),
             prss: participant,
             gateway,
+            accumulator: None,
+        }
+    }
+
+    pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> Self {
+        ProtocolContext {
+            role: self.role,
+            step: self.step,
+            prss: self.prss,
+            gateway: self.gateway,
+            accumulator: Some(accumulator),
         }
     }
 
@@ -56,6 +69,9 @@ impl<'a, N> ProtocolContext<'a, N> {
             step: self.step.narrow(step),
             prss: self.prss,
             gateway: self.gateway,
+            // TODO: make this work
+            // accumulator: self.accumulator, //TODO: make this work
+            accumulator: None, // God help me, I just can't make this work
         }
     }
 
@@ -82,7 +98,7 @@ impl<'a, N> ProtocolContext<'a, N> {
     }
 }
 
-impl<'a, N: Network> ProtocolContext<'a, N> {
+impl<'a, N: Network, F: Field> ProtocolContext<'a, N, F> {
     /// Get a set of communications channels to different peers.
     #[must_use]
     pub fn mesh(&self) -> Mesh<'_, '_, N> {
@@ -94,7 +110,16 @@ impl<'a, N: Network> ProtocolContext<'a, N> {
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a, N> {
+    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a, N, F> {
         SecureMul::new(self, record_id)
+    }
+
+    /// ## Panics
+    /// If you failed to upgrade to malicious protocol context
+    pub async fn malicious_multiply(self, _record_id: RecordId) {
+        // -> MaliciouslySecureMul<'a, N, F> {
+        let _accumulator = self.accumulator.as_ref().unwrap().clone();
+        // TODO: next diff!
+        // MaliciouslySecureMul::new(self, record_id, accumulator)
     }
 }

@@ -1,5 +1,6 @@
 use crate::{
     error::BoxError,
+    field::Field,
     helpers::{fabric::Network, Direction},
     protocol::{context::ProtocolContext, RecordId},
 };
@@ -26,8 +27,8 @@ pub struct RevealAdditiveBinary {}
 
 impl RevealAdditiveBinary {
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
-        ctx: ProtocolContext<'_, N>,
+    pub async fn execute<N: Network, F: Field>(
+        ctx: ProtocolContext<'_, N, F>,
         record_id: RecordId,
         input: bool,
     ) -> Result<bool, BoxError> {

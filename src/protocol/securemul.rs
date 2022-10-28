@@ -16,13 +16,13 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, N> {
-    ctx: ProtocolContext<'a, N>,
+pub struct SecureMul<'a, N, F> {
+    ctx: ProtocolContext<'a, N, F>,
     record_id: RecordId,
 }
 
-impl<'a, N: Network> SecureMul<'a, N> {
-    pub fn new(ctx: ProtocolContext<'a, N>, record_id: RecordId) -> Self {
+impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
+    pub fn new(ctx: ProtocolContext<'a, N, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -33,7 +33,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<F: Field>(
+    pub async fn execute(
         self,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -118,7 +118,7 @@ pub mod tests {
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
         async fn mul<F: Field>(
-            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>>, MulArgs<F>),
+            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>, F>, MulArgs<F>),
         ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1))
@@ -160,18 +160,15 @@ pub mod tests {
         }
     }
 
-    async fn multiply_sync<R: RngCore, N: Network>(
-        context: &[ProtocolContext<'_, N>; 3],
+    async fn multiply_sync<R: RngCore, N: Network, F: Field>(
+        context: &[ProtocolContext<'_, N, F>; 3],
         narrowed_context_str: &str,
         a: u8,
         b: u8,
         rng: &mut R,
-    ) -> Result<u8, BoxError> {
-        assert!(a < Fp31::PRIME);
-        assert!(b < Fp31::PRIME);
-
-        let a = Fp31::from(u128::from(a));
-        let b = Fp31::from(u128::from(b));
+    ) -> Result<u128, BoxError> {
+        let a = F::from(u128::from(a));
+        let b = F::from(u128::from(b));
 
         thread_local! {
             static INDEX: AtomicU32 = AtomicU32::default();
@@ -200,6 +197,6 @@ pub mod tests {
                 .execute(a[2], b[2]),
         )?;
 
-        Ok(validate_and_reconstruct(result_shares).into())
+        Ok(validate_and_reconstruct(result_shares).as_u128())
     }
 }
