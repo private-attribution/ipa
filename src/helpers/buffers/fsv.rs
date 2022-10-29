@@ -1,4 +1,6 @@
 use std::ops::{Range};
+use bitvec::bitvec;
+use bitvec::prelude::BitVec;
 
 /// A vector of bytes that never grows over a certain size or shrinks below that size.
 /// Vector is segmented into regions and `max_size` is a factor of number of regions.
@@ -19,7 +21,6 @@ use std::ops::{Range};
 ///
 /// [X,X,X,X][_,_,X,_][_,X,_,X] -> `drain` -> [_,_,X,_][_,X,_,X][_,_,_,_]
 ///
-///
 /// This vector is used inside the send buffer to keep track of messages added to it. Once first
 /// batch of messages is ready (region1 is full), it drains this vector and send those messages
 /// down to the network layer
@@ -27,7 +28,7 @@ pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
     region_size: usize,
     // TODO replace with bitvec
-    added: Vec<bool>,
+    added: BitVec,
 }
 
 impl <const N: usize> FixedSizeByteVec<N> {
@@ -35,7 +36,7 @@ impl <const N: usize> FixedSizeByteVec<N> {
         // assert_eq!(region_size % N, 0);
         Self {
             data: vec![0_u8; region_size * N * region_count],
-            added: vec![false; region_size * region_count],
+            added: bitvec![0; region_size * region_count],
             region_size,
         }
     }
@@ -53,7 +54,7 @@ impl <const N: usize> FixedSizeByteVec<N> {
 
             Some(r)
         } else {
-            self.added[index] = true;
+            self.added.set(index, true);
             self.data[offset].copy_from_slice(&elem);
 
             None
@@ -61,15 +62,16 @@ impl <const N: usize> FixedSizeByteVec<N> {
     }
 
     pub fn ready(&self) -> bool {
-        self.added[..self.region_size].iter().all(|v| *v)
+        self.added[..self.region_size].all()
     }
 
     pub fn drain(&mut self) -> Option<Vec<u8>> {
         if self.ready() {
+            // Pop out first `region_size` elements and shift the remaining elements to the left
             self.added.drain(..self.region_size).for_each(drop);
             let r = self.data.drain(..self.region_size*N).collect();
 
-            // restore the elements at the end of the buffer
+            // clear out last `region_size` elements in the buffer
             self.data.resize(self.data.len() + self.region_size * N, 0);
             self.added.resize(self.added.len() + self.region_size, false);
 
