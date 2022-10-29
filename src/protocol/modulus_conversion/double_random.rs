@@ -114,7 +114,7 @@ impl DoubleRandom {
     /// And helper 3 has shares:
     /// a: (0, x1) and b: (0, 0)
     async fn xor_specialized_1<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, N, F>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -140,7 +140,7 @@ impl DoubleRandom {
     /// And helper 3 has shares:
     /// (x3, 0)
     async fn xor_specialized_2<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, N, F>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -156,7 +156,7 @@ impl DoubleRandom {
     /// where the caller can select the output Field.
     #[allow(dead_code)]
     pub async fn execute<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, N, F>,
         record_id: RecordId,
         random_sharing: ReplicatedBinary,
     ) -> Result<Replicated<F>, BoxError> {

@@ -45,7 +45,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     #[allow(dead_code)]
     pub async fn execute<N: Network>(
         &self,
-        ctx: &ProtocolContext<'_, N>,
+        ctx: &ProtocolContext<'_, N, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let share_of_one = Replicated::one(ctx.role());
 
