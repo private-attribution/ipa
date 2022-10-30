@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use super::{
+    maliciously_secure_mul::MaliciouslySecureMul,
     prss::{IndexedSharedRandomness, SequentialSharedRandomness},
     securemul::SecureMul,
     RecordId, Step, UniqueStepId,
@@ -26,7 +27,7 @@ pub struct ProtocolContext<'a, F> {
     accumulator: Option<SecurityValidatorAccumulator<F>>,
 }
 
-impl<'a, F> ProtocolContext<'a, F> {
+impl<'a, F: Field> ProtocolContext<'a, F> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
@@ -69,9 +70,7 @@ impl<'a, F> ProtocolContext<'a, F> {
             step: self.step.narrow(step),
             prss: self.prss,
             gateway: self.gateway,
-            // TODO: make this work
-            // accumulator: self.accumulator, //TODO: make this work
-            accumulator: None, // God help me, I just can't make this work
+            accumulator: self.accumulator.clone(),
         }
     }
 
@@ -117,10 +116,8 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
     /// ## Panics
     /// If you failed to upgrade to malicious protocol context
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn malicious_multiply(self, _record_id: RecordId) {
-        // -> MaliciouslySecureMul<'a, N, F> {
-        let _accumulator = self.accumulator.as_ref().unwrap().clone();
-        // TODO: next diff!
-        // MaliciouslySecureMul::new(self, record_id, accumulator)
+    pub async fn malicious_multiply(self, record_id: RecordId) -> MaliciouslySecureMul<'a, F> {
+        let accumulator = self.accumulator.as_ref().unwrap().clone();
+        MaliciouslySecureMul::new(self, record_id, accumulator)
     }
 }
