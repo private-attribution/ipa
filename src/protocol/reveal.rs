@@ -28,7 +28,7 @@ pub struct RevealValue<F> {
 #[embed_doc_image("reveal", "images/reveal.png")]
 #[allow(dead_code)]
 pub async fn reveal<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N>,
+    ctx: ProtocolContext<'_, N, F>,
     record_id: RecordId,
     input: Replicated<F>,
 ) -> Result<F, BoxError> {

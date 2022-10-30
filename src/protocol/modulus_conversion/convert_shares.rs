@@ -23,6 +23,7 @@ pub struct ConvertShares {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
+    Bit(u8),
     DoubleRandom,
     BinaryReveal,
 }
@@ -31,7 +32,16 @@ impl crate::protocol::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
+        const BITS: [&str; 64] = [
+            "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "b10", "b11", "b12", "b13",
+            "b14", "b15", "b16", "b17", "b18", "b19", "b20", "b21", "b22", "b23", "b24", "b25",
+            "b26", "b27", "b28", "b29", "b30", "b31", "b32", "b33", "b34", "b35", "b36", "b37",
+            "b38", "b39", "b40", "b41", "b42", "b43", "b44", "b45", "b46", "b47", "b48", "b49",
+            "b50", "b51", "b52", "b53", "b54", "b55", "b56", "b57", "b58", "b59", "b60", "b61",
+            "b62", "b63",
+        ];
         match self {
+            Self::Bit(i) => BITS[usize::from(*i)], // yes, panic on overflow
             Self::DoubleRandom => "double_random",
             Self::BinaryReveal => "binary_reveal",
         }
@@ -60,7 +70,7 @@ impl ConvertShares {
     #[allow(dead_code)]
     pub async fn execute<F: Field, N: Network>(
         &self,
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, N, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let prss = &ctx.prss();
@@ -71,7 +81,7 @@ impl ConvertShares {
             let b1 = right & (1 << i) != 0;
             let input = self.input.packed_bits & (1 << i) != 0;
             let input_xor_r = input ^ b0;
-            (ctx.narrow(&format!("bit:{}", i)), b0, b1, input_xor_r)
+            (ctx.narrow(&Step::Bit(i)), b0, b1, input_xor_r)
         });
 
         let futures = bits

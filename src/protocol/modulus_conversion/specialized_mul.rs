@@ -38,7 +38,7 @@ pub struct DValue<F> {
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N>,
+    ctx: ProtocolContext<'_, N, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
@@ -122,7 +122,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N>,
+    ctx: ProtocolContext<'_, N, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,

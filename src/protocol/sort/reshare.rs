@@ -37,13 +37,13 @@ impl<F: Field> Reshare<F> {
     /// 2. `to_helper.left` calculates part1 = (a1 + a2) - r2 = Same as (inputs.0 + inputs.1) - r1 from helper POV
     ///    `to_helper.right` calculates part2 = (a3 - r3) = Same as (inputs.0 - r0) from helper POV
     /// 3. `to_helper.left` and `to_helper.right` exchange their calculated shares
-    /// 4. Everyone sets their shares  
+    /// 4. Everyone sets their shares
     ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
     pub async fn execute<N: Network>(
         self,
-        ctx: &ProtocolContext<'_, N>,
+        ctx: &ProtocolContext<'_, N, F>,
         record_id: RecordId,
         to_helper: Identity,
     ) -> Result<Replicated<F>, BoxError> {

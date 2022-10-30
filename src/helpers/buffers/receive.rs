@@ -2,15 +2,7 @@ use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 use crate::protocol::RecordId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::mem;
 use tokio::sync::oneshot;
-
-/// Buffer that keeps messages that must be sent to other helpers
-#[derive(Debug)]
-pub(super) struct SendBuffer {
-    max_capacity: usize,
-    inner: HashMap<ChannelId, Vec<MessageEnvelope>>,
-}
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
 /// that are pending message reception.
@@ -18,7 +10,7 @@ pub(super) struct SendBuffer {
 /// when protection against collisions is not required, so either use a vector indexed by
 /// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
 #[derive(Debug, Default)]
-pub(super) struct ReceiveBuffer {
+pub(in crate::helpers) struct ReceiveBuffer {
     inner: HashMap<ChannelId, HashMap<RecordId, ReceiveBufItem>>,
 }
 
@@ -28,56 +20,6 @@ enum ReceiveBufItem {
     Requested(oneshot::Sender<Box<[u8]>>),
     /// Message has been received but nobody requested it yet
     Received(Box<[u8]>),
-}
-
-impl SendBuffer {
-    pub fn new(max_channel_capacity: u32) -> Self {
-        Self {
-            max_capacity: max_channel_capacity as usize,
-            inner: HashMap::default(),
-        }
-    }
-
-    pub fn push(
-        &mut self,
-        channel_id: ChannelId,
-        msg: MessageEnvelope,
-    ) -> Option<Vec<MessageEnvelope>> {
-        let vec = match self.inner.entry(channel_id) {
-            Entry::Occupied(entry) => {
-                let vec = entry.into_mut();
-                vec.push(msg);
-
-                vec
-            }
-            Entry::Vacant(entry) => {
-                let vec = entry.insert(Vec::with_capacity(self.max_capacity));
-                vec.push(msg);
-
-                vec
-            }
-        };
-
-        if vec.len() >= self.max_capacity {
-            let data = mem::replace(vec, Vec::with_capacity(self.max_capacity));
-            Some(data)
-        } else {
-            None
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    pub fn remove_random(&mut self) -> (ChannelId, Vec<MessageEnvelope>) {
-        assert!(self.len() > 0);
-
-        let channel_id = self.inner.keys().next().unwrap().clone();
-        let data = self.inner.remove(&channel_id).unwrap();
-
-        (channel_id, data)
-    }
 }
 
 impl ReceiveBuffer {
