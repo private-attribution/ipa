@@ -6,7 +6,7 @@ use super::{
     RecordId, Step, UniqueStepId,
 };
 use crate::{
-    field::Field,
+    ff::Field,
     helpers::{
         fabric::Network,
         messaging::{Gateway, Mesh},
