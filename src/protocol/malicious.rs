@@ -1,6 +1,6 @@
 use crate::{
     error::{BoxError, Error},
-    field::Field,
+    ff::Field,
     helpers::{fabric::Network, Direction},
     protocol::{
         check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
@@ -199,7 +199,7 @@ impl<F: Field> SecurityValidator<F> {
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::Fp31;
+    use crate::ff::Fp31;
     use crate::protocol::{
         malicious::{SecurityValidator, Step},
         QueryId, RecordId,

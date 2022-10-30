@@ -1,4 +1,5 @@
-use crate::secret_sharing::{Field, Replicated};
+use crate::ff::Field;
+use crate::secret_sharing::Replicated;
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -341,7 +342,7 @@ impl Generator {
 #[cfg(test)]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
-    use crate::{protocol::UniqueStepId, secret_sharing::Fp31, test_fixture::make_participants};
+    use crate::{ff::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
     use rand::{thread_rng, Rng};
     use std::mem::drop;
 

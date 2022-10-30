@@ -1,13 +1,14 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
 use crate::{
     error::BoxError,
+    ff::Field,
     helpers::fabric::Network,
     protocol::{
         batch::{Batch, RecordIndex},
         context::ProtocolContext,
         RecordId,
     },
-    secret_sharing::{Field, Replicated},
+    secret_sharing::Replicated,
 };
 use futures::future::{try_join, try_join_all};
 
@@ -205,9 +206,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 #[cfg(test)]
 mod tests {
     use crate::{
+        ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
-        secret_sharing::{Field, Fp31},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
     };
     use rand::rngs::mock::StepRng;

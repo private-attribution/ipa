@@ -3,7 +3,7 @@
 //!
 //! [`Shamir secret sharing`](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing)
 //!
-use super::{Field, Fp31};
+use crate::ff::{Field, Fp31};
 use rand::Rng;
 use rand::RngCore;
 use std::iter::repeat_with;
@@ -100,7 +100,6 @@ pub enum Error {
 
 /// Represents a single share: f(x) point. The index of it inside the share slice is used to represent
 /// the "x" coordinate of this share.
-#[allow(clippy::module_name_repetitions)]
 #[derive(Clone)]
 pub struct Share<F> {
     y: F,
@@ -210,7 +209,7 @@ impl<F: Field> Add for &Share<F> {
 #[cfg(test)]
 mod tests {
     use super::{Error, LagrangePolynomial, Shamir, Share};
-    use crate::secret_sharing::{Field, Fp31};
+    use crate::ff::{Field, Fp31};
     use proptest::prelude::*;
     use rand::rngs::mock::StepRng;
     use rand::rngs::StdRng;

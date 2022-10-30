@@ -1,5 +1,6 @@
 use crate::{
     error::BoxError,
+    ff::Field,
     helpers::{fabric::Network, Identity},
     protocol::{
         context::ProtocolContext,
@@ -8,7 +9,7 @@ use crate::{
         },
         RecordId,
     },
-    secret_sharing::{Field, Replicated},
+    secret_sharing::Replicated,
 };
 
 use serde::{Deserialize, Serialize};
@@ -171,11 +172,11 @@ impl DoubleRandom {
 mod tests {
     use crate::{
         error::BoxError,
+        ff::{Field, Fp31},
         protocol::{
             modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
             QueryId, RecordId,
         },
-        secret_sharing::{Field, Fp31},
         test_fixture::{make_contexts, make_world, validate_and_reconstruct},
     };
     use futures::future::try_join_all;

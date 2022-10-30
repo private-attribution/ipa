@@ -5,16 +5,13 @@ mod sharing;
 mod world;
 
 use self::fabric::InMemoryEndpoint;
+use crate::ff::{Field, Fp31};
+use crate::helpers::fabric::Network;
 use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
 use crate::secret_sharing::Replicated;
-use crate::{
-    field::{Field, Fp31},
-    helpers::fabric::Network,
-    protocol::prss::Endpoint as PrssEndpoint,
-};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 use std::sync::Arc;

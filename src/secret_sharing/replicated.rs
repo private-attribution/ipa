@@ -1,4 +1,4 @@
-use super::Field;
+use crate::ff::Field;
 use crate::helpers::Identity;
 use std::fmt::Formatter;
 use std::ops::AddAssign;
@@ -99,7 +99,7 @@ impl<F: Field> Mul<F> for Replicated<F> {
 #[cfg(test)]
 mod tests {
     use super::Replicated;
-    use crate::secret_sharing::Fp31;
+    use crate::ff::Fp31;
 
     fn secret_share(a: u8, b: u8, c: u8) -> (Replicated<Fp31>, Replicated<Fp31>, Replicated<Fp31>) {
         (

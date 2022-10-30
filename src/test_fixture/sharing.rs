@@ -1,4 +1,4 @@
-use crate::secret_sharing::Field;
+use crate::ff::Field;
 use crate::secret_sharing::Replicated;
 use rand::Rng;
 use rand::RngCore;

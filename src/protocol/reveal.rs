@@ -1,6 +1,7 @@
+use crate::ff::Field;
 use crate::helpers::fabric::Network;
 use crate::protocol::context::ProtocolContext;
-use crate::secret_sharing::{Field, Replicated};
+use crate::secret_sharing::Replicated;
 use crate::{error::BoxError, helpers::Direction, protocol::RecordId};
 use embed_doc_image::embed_doc_image;
 use serde::{Deserialize, Serialize};
@@ -52,8 +53,8 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
+        ff::Fp31,
         protocol::{reveal::reveal, QueryId, RecordId},
-        secret_sharing::Fp31,
         test_fixture::{make_contexts, make_world, share, TestWorld},
     };
 
