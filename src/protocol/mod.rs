@@ -175,3 +175,9 @@ impl From<RecordId> for u128 {
         r.0.into()
     }
 }
+
+impl From<RecordId> for u32 {
+    fn from(v: RecordId) -> Self {
+        v.0
+    }
+}

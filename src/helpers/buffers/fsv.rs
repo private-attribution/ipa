@@ -24,25 +24,26 @@ use bitvec::prelude::BitVec;
 /// This vector is used inside the send buffer to keep track of messages added to it. Once first
 /// batch of messages is ready (region1 is full), it drains this vector and send those messages
 /// down to the network layer
+#[derive(Debug)]
 pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
     region_size: usize,
-    // TODO replace with bitvec
     added: BitVec,
+    drained: usize,
 }
 
 impl <const N: usize> FixedSizeByteVec<N> {
     pub fn new(region_count: usize, region_size: usize) -> Self {
-        // assert_eq!(region_size % N, 0);
         Self {
-            data: vec![0_u8; region_size * N * region_count],
+            data: vec![0_u8; N * region_size * region_count],
             added: bitvec![0; region_size * region_count],
+            drained: 0,
             region_size,
         }
     }
 
     pub fn insert(&mut self, index: usize, elem: [u8; N]) -> Option<[u8; N]> {
-        let offset = Self::offset(index);
+        let offset = Self::index_offset(index);
 
         // if index is out of bounds, this line will panic, there is no need for additional check
         if self.added[index] {
@@ -70,6 +71,7 @@ impl <const N: usize> FixedSizeByteVec<N> {
             // Pop out first `region_size` elements and shift the remaining elements to the left
             self.added.drain(..self.region_size).for_each(drop);
             let r = self.data.drain(..self.region_size*N).collect();
+            self.drained += self.region_size;
 
             // clear out last `region_size` elements in the buffer
             self.data.resize(self.data.len() + self.region_size * N, 0);
@@ -81,7 +83,15 @@ impl <const N: usize> FixedSizeByteVec<N> {
         }
     }
 
-    fn offset(index: usize) -> Range<usize> {
+    pub fn elements_drained(&self) -> usize {
+        self.drained
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.data.capacity() / N
+    }
+
+    fn index_offset(index: usize) -> Range<usize> {
         let start = index * N;
         start..start + N
     }
@@ -145,11 +155,14 @@ mod tests {
 
         // However there should be no elements in the second region because of the shift
         assert_eq!(v.insert_test_data(1), None);
+        assert_eq!(1, v.elements_drained())
     }
 
     #[test]
     fn drain_touches_first_region_only() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 2);
+        assert_eq!(4, v.capacity());
+
         v.insert_test_data(2);
         v.insert_test_data(3);
 
@@ -177,6 +190,9 @@ mod tests {
             v.drain(),
             Some(vec![test_data_at(2), test_data_at(3)].into_iter().flatten().collect())
         );
+
+        // in total, 4 elements left the buffer
+        assert_eq!(4, v.elements_drained());
 
         // buffer should be empty by now
         assert!(!v.ready());
