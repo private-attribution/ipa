@@ -95,7 +95,7 @@ mod tests {
     #[tokio::test]
     pub async fn bit_permutations() {
         let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts(&world);
+        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(100, 1);
 
         // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output

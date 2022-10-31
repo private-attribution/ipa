@@ -265,7 +265,7 @@ mod tests {
     #[tokio::test]
     pub async fn accumulate() {
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = StepRng::new(100, 1);
 
         let raw_input: [[u128; 4]; 9] = [

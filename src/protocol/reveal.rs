@@ -55,7 +55,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts(&world);
+        let ctx = make_contexts::<Fp31>(&world);
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();

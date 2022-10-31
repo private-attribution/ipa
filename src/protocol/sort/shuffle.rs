@@ -253,7 +253,7 @@ mod tests {
     #[tokio::test]
     async fn shuffle() {
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
 
         let batchsize = 25;
         let input: Vec<u8> = (0..batchsize).collect();
@@ -315,7 +315,7 @@ mod tests {
     #[tokio::test]
     async fn shuffle_unshuffle() {
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
 
         let batchsize = 5;
         let input: Vec<u128> = (0..batchsize).collect();

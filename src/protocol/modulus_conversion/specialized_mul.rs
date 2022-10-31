@@ -204,7 +204,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
         for i in 0..10_u32 {
@@ -249,7 +249,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
         let mut inputs = Vec::with_capacity(10);
@@ -306,7 +306,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
         for i in 0..10_u32 {
@@ -354,7 +354,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
         let mut inputs = Vec::with_capacity(10);

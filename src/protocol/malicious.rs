@@ -225,7 +225,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
         let a = Fp31::from(rng.gen::<u128>());
@@ -323,7 +323,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
         let mut shared_inputs = [
