@@ -95,16 +95,16 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        // let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 
-        assert_eq!(30, multiply_sync(&context, "1", 6, 5, &mut rand).await?);
-        assert_eq!(25, multiply_sync(&context, "2", 5, 5, &mut rand).await?);
-        assert_eq!(7, multiply_sync(&context, "3", 7, 1, &mut rand).await?);
-        assert_eq!(0, multiply_sync(&context, "4", 0, 14, &mut rand).await?);
-        assert_eq!(8, multiply_sync(&context, "5", 7, 10, &mut rand).await?);
-        assert_eq!(4, multiply_sync(&context, "6", 5, 7, &mut rand).await?);
-        assert_eq!(1, multiply_sync(&context, "7", 16, 2, &mut rand).await?);
+        assert_eq!(30, multiply_sync(make_contexts(&world), 6, 5, &mut rand).await?);
+        assert_eq!(25, multiply_sync(make_contexts(&world), 5, 5, &mut rand).await?);
+        assert_eq!(7, multiply_sync(make_contexts(&world), 7, 1, &mut rand).await?);
+        assert_eq!(0, multiply_sync(make_contexts(&world), 0, 14, &mut rand).await?);
+        assert_eq!(8, multiply_sync(make_contexts(&world), 7, 10, &mut rand).await?);
+        assert_eq!(4, multiply_sync(make_contexts(&world), 5, 7, &mut rand).await?);
+        assert_eq!(1, multiply_sync(make_contexts(&world), 16, 2, &mut rand).await?);
 
         Ok(())
     }
@@ -121,7 +121,7 @@ pub mod tests {
             v: (ProtocolContext<'_, Arc<InMemoryEndpoint>, F>, MulArgs<F>),
         ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(1))
+            ctx.multiply(RecordId::from(0))
                 .await
                 .execute(a, b)
                 .await
@@ -161,8 +161,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore, N: Network, F: Field>(
-        context: &[ProtocolContext<'_, N, F>; 3],
-        narrowed_context_str: &str,
+        context: [ProtocolContext<'_, N, F>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
@@ -174,24 +173,25 @@ pub mod tests {
             static INDEX: AtomicU32 = AtomicU32::default();
         }
 
+        let [context0, context1, context2] = context;
         let record_id = INDEX.with(|i| i.fetch_add(1, Ordering::Release)).into();
 
         let a = share(a, rng);
         let b = share(b, rng);
 
         let result_shares = tokio::try_join!(
-            context[0]
-                .narrow(narrowed_context_str)
+            context0
+                // .narrow(narrowed_context_str)
                 .multiply(record_id)
                 .await
                 .execute(a[0], b[0]),
-            context[1]
-                .narrow(narrowed_context_str)
+            context1
+                // .narrow(narrowed_context_str)
                 .multiply(record_id)
                 .await
                 .execute(a[1], b[1]),
-            context[2]
-                .narrow(narrowed_context_str)
+            context2
+                // .narrow(narrowed_context_str)
                 .multiply(record_id)
                 .await
                 .execute(a[2], b[2]),

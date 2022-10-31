@@ -2,6 +2,8 @@ use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::mem;
+use std::ops::Range;
+use std::task::ready;
 use crate::helpers::buffers::fsv;
 use crate::helpers::buffers::fsv::FixedSizeByteVec;
 use crate::protocol::RecordId;
@@ -18,8 +20,11 @@ pub(in crate::helpers) struct SendBuffer {
 
 #[derive(thiserror::Error, Debug)]
 pub(in crate::helpers) enum PushError {
-    #[error("Record is out of range")]
-    OutOfRange,
+    #[error("Record {record_id:?} is out of accepted range {accepted_range:?}")]
+    OutOfRange {
+        record_id: RecordId,
+        accepted_range: Range<RecordId>,
+    },
     #[error("Record already exists")]
     Duplicate,
 }
@@ -68,28 +73,20 @@ impl SendBuffer {
         channel_id: ChannelId,
         msg: MessageEnvelope,
     ) -> Result<Option<Vec<MessageEnvelope>>, PushError> {
-        let record_id = u32::from(msg.record_id) as usize;
-
-        let (index, vec) = match self.inner.entry(channel_id) {
-            Entry::Occupied(entry) => {
-                let vec = entry.into_mut();
-
-                if record_id < vec.elements_drained() {
-                    return Err(PushError::OutOfRange)
-                }
-
-                (record_id - vec.elements_drained(), vec)
-            }
-            Entry::Vacant(entry) => {
-                let vec = entry.insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch));
-
-                (record_id, vec)
-            }
+        let vec = match self.inner.entry(channel_id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry
+                .insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
         };
 
-        if record_id >= vec.elements_drained() + vec.capacity() {
-            return Err(PushError::OutOfRange)
+        let start = RecordId::from(u32::try_from(vec.elements_drained()).unwrap());
+        let end = RecordId::from(u32::try_from(vec.elements_drained() + vec.capacity()).unwrap());
+
+        if !(start..end).contains(&msg.record_id) {
+            return Err(PushError::OutOfRange { record_id: msg.record_id, accepted_range: (start..end) })
         }
+
+        let index: u32 = u32::from(msg.record_id) - u32::from(start);
 
         if msg.payload.len() > ByteBuf::N1 {
             panic!("Message payload ({} bytes) exceeds maximum size allowed ({} bytes)", msg.payload.len(), vec.bytes_per_element());
@@ -97,7 +94,7 @@ impl SendBuffer {
 
         let mut payload = [0; ByteBuf::N1];
         payload[..msg.payload.len()].copy_from_slice(msg.payload.as_ref());
-        if let Some(_) = vec.insert(index, payload) {
+        if let Some(_) = vec.insert(index as usize, payload) {
             return Err(PushError::Duplicate)
         }
 
@@ -161,7 +158,7 @@ mod tests {
 
         assert!(matches!(
                 buf.push(ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
-                Err(PushError::OutOfRange),
+                Err(PushError::OutOfRange { .. }),
             ));
     }
 
@@ -205,7 +202,7 @@ mod tests {
 
         assert!(matches!(
                 buf.push(c2, m2),
-                Err(PushError::OutOfRange),
+                Err(PushError::OutOfRange { .. }),
             ));
     }
 

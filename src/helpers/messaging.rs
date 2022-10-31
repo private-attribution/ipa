@@ -192,6 +192,7 @@ impl<N: Network> Gateway<N> {
                         receive_buf.receive_messages(&channel_id, messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
+                        tracing::trace!("new send request: {:?} to {channel_id:?}", msg);
                         if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).unwrap() {
                             tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
