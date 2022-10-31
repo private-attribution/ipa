@@ -7,7 +7,7 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
-    helpers::buffers::{ReceiveBuffer, SendBuffer},
+    helpers::buffers::{ReceiveBuffer},
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Identity,
@@ -166,20 +166,14 @@ impl<N: Network> Gateway<N> {
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBufferBuilder::default()
                 .items_in_batch(config.items_in_batch)
-                // TODO: fix
                 .batch_count(config.batch_count)
                 .build();
-
-            // let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
-
-            let sleep = tokio::time::sleep(INTERVAL);
-            tokio::pin!(sleep);
 
             loop {
                 // Make a random choice what to process next:
                 // * Receive a message from another helper
                 // * Handle the request to receive a message from another helper
-                // * If send buffer is full, send it down
+                // * Send a message
                 tokio::select! {
                     Some(receive_request) = receive_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
@@ -197,20 +191,11 @@ impl<N: Network> Gateway<N> {
                                 .expect("Failed to send data to the network");
                         }
                     }
-                    // _ = &mut sleep, if send_buf.len() > 0 => {
-                    //     let (channel_id, buf_to_send) = send_buf.remove_random();
-                    //     tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
-                    //     network_sink.send((channel_id, buf_to_send)).await
-                    //         .expect("Failed to send data to the network");
-                    // }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;
                     }
                 }
-
-                // reset the timer as we processed something
-                sleep.as_mut().reset(Instant::now() + INTERVAL);
             }
         }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 

@@ -4,7 +4,7 @@ use crate::{
     helpers::{fabric::Network, Direction},
     protocol::{
         check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
-        reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2, RECORD_3,
+        reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::{MaliciousReplicated, Replicated},
 };
@@ -362,7 +362,7 @@ pub mod tests {
                             .iter()
                             .zip(row_narrowed_contexts.iter())
                             .enumerate()
-                            .map(|(i, (x, ctx))| async move {
+                            .map(|(_i, (x, ctx))| async move {
                                 ctx.narrow("mult")
                                     .multiply(RecordId::from(0))
                                     .await
@@ -389,7 +389,7 @@ pub mod tests {
                                 .zip(input_shares.iter().skip(1))
                                 .zip(row_narrowed_contexts.iter())
                                 .enumerate()
-                                .map(|(i, ((a, b), ctx))| async move {
+                                .map(|(_i, ((a, b), ctx))| async move {
                                     ctx.narrow("SingleMult")
                                         .multiply(RecordId::from(0))
                                         .await
@@ -403,7 +403,7 @@ pub mod tests {
                                 .zip(rx_values.iter().skip(1))
                                 .zip(row_narrowed_contexts.iter())
                                 .enumerate()
-                                .map(|(i, ((a, rb), ctx))| async move {
+                                .map(|(_i, ((a, rb), ctx))| async move {
                                     ctx.narrow("DoubleMult")
                                         .multiply(RecordId::from(0))
                                         .await

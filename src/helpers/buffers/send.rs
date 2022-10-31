@@ -1,10 +1,10 @@
 use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::mem;
+
 use std::ops::Range;
-use std::task::ready;
-use crate::helpers::buffers::fsv;
+
+
 use crate::helpers::buffers::fsv::FixedSizeByteVec;
 use crate::protocol::RecordId;
 
@@ -118,20 +118,6 @@ impl SendBuffer {
             None
         })
     }
-
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    pub fn remove_random(&mut self) -> (ChannelId, Vec<MessageEnvelope>) {
-        panic!("no longer support remove random")
-        // assert!(self.len() > 0);
-        //
-        // let channel_id = self.inner.keys().next().unwrap().clone();
-        // let data = self.inner.remove(&channel_id).unwrap();
-        //
-        // (channel_id, data)
-    }
 }
 
 
@@ -143,7 +129,7 @@ mod tests {
     use rand::thread_rng;
     use std::cmp::Ordering;
     use crate::helpers::buffers::send::{PushError, SendBufferBuilder};
-    use crate::helpers::buffers::SendBuffer;
+    
     use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 
     impl Clone for MessageEnvelope {
