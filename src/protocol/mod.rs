@@ -165,9 +165,9 @@ pub struct QueryId;
 pub struct RecordId(u32);
 
 pub const RECORD_0: RecordId = RecordId(0);
-pub const RECORD_1: RecordId = RecordId(0);
-pub const RECORD_2: RecordId = RecordId(0);
-pub const RECORD_3: RecordId = RecordId(0);
+pub const RECORD_1: RecordId = RecordId(1);
+pub const RECORD_2: RecordId = RecordId(2);
+pub const RECORD_3: RecordId = RecordId(3);
 
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {

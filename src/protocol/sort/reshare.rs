@@ -109,7 +109,7 @@ mod tests {
 
             let input = Fp31::from(secret);
             let share = share(input, &mut rand);
-            let record_id = RecordId::from(1);
+            let record_id = RecordId::from(0);
 
             let world: TestWorld = make_world(QueryId);
             let context = make_contexts(&world);

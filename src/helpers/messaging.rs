@@ -144,10 +144,8 @@ impl<N: Network> Mesh<'_, '_, N> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    /// Maximum number of items to keep inside the buffer before flushing it to network.
-    /// Note that this buffer is per channel, so setting it to 10 does not imply that every
-    /// 10 messages sent trigger a network request.
-    pub send_buffer_capacity: u32,
+    pub items_in_batch: u32,
+    pub batch_count: u32,
 }
 
 impl<N: Network> Gateway<N> {
@@ -167,9 +165,9 @@ impl<N: Network> Gateway<N> {
 
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBufferBuilder::default()
-                .items_in_batch(config.send_buffer_capacity)
+                .items_in_batch(config.items_in_batch)
                 // TODO: fix
-                .batch_count(4)
+                .batch_count(config.batch_count)
                 .build();
 
             // let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
@@ -199,12 +197,12 @@ impl<N: Network> Gateway<N> {
                                 .expect("Failed to send data to the network");
                         }
                     }
-                    _ = &mut sleep, if send_buf.len() > 0 => {
-                        let (channel_id, buf_to_send) = send_buf.remove_random();
-                        tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
-                        network_sink.send((channel_id, buf_to_send)).await
-                            .expect("Failed to send data to the network");
-                    }
+                    // _ = &mut sleep, if send_buf.len() > 0 => {
+                    //     let (channel_id, buf_to_send) = send_buf.remove_random();
+                    //     tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
+                    //     network_sink.send((channel_id, buf_to_send)).await
+                    //         .expect("Failed to send data to the network");
+                    // }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;

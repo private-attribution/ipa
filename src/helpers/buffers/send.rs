@@ -22,6 +22,7 @@ pub(in crate::helpers) struct SendBuffer {
 pub(in crate::helpers) enum PushError {
     #[error("Record {record_id:?} is out of accepted range {accepted_range:?}")]
     OutOfRange {
+        channel_id: ChannelId,
         record_id: RecordId,
         accepted_range: Range<RecordId>,
     },
@@ -73,7 +74,7 @@ impl SendBuffer {
         channel_id: ChannelId,
         msg: MessageEnvelope,
     ) -> Result<Option<Vec<MessageEnvelope>>, PushError> {
-        let vec = match self.inner.entry(channel_id) {
+        let vec = match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry
                 .insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
@@ -83,7 +84,11 @@ impl SendBuffer {
         let end = RecordId::from(u32::try_from(vec.elements_drained() + vec.capacity()).unwrap());
 
         if !(start..end).contains(&msg.record_id) {
-            return Err(PushError::OutOfRange { record_id: msg.record_id, accepted_range: (start..end) })
+            return Err(PushError::OutOfRange {
+                channel_id,
+                record_id: msg.record_id,
+                accepted_range: (start..end)
+            })
         }
 
         let index: u32 = u32::from(msg.record_id) - u32::from(start);

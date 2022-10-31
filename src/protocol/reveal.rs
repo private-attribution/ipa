@@ -74,7 +74,7 @@ mod tests {
             let input = Fp31::from(secret);
             let share = share(input, &mut rand);
 
-            let record_id = RecordId::from(i);
+            let record_id = RecordId::from(0);
             let iteration = format!("{}", i);
 
             let h0_future = reveal(ctx[0].narrow(&iteration), record_id, share[0]);

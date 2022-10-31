@@ -181,11 +181,13 @@ mod tests {
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use crate::test_fixture::logging;
 
     #[tokio::test]
     pub async fn gen_random() -> Result<(), BoxError> {
-        let mut rng = rand::thread_rng();
+        logging::setup();
 
+        let mut rng = rand::thread_rng();
         let world = make_world(QueryId);
         let context = make_contexts(&world);
         let ctx0 = &context[0];
@@ -203,7 +205,7 @@ mod tests {
 
             let bit_number = format!("bit{}", i);
 
-            let record_id = RecordId::from(i);
+            let record_id = RecordId::from(0);
 
             futures.push(try_join_all(vec![
                 DoubleRandom::execute(

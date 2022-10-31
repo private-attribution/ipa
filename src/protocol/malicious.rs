@@ -183,10 +183,10 @@ impl<F: Field> SecurityValidator<F> {
         let w_share = Replicated::new(w_left, state.w);
 
         // This should probably be done in parallel with the futures above
-        let r = reveal(ctx.narrow(&Step::RevealR), RECORD_2, self.r_share).await?;
+        let r = reveal(ctx.narrow(&Step::RevealR), RECORD_0, self.r_share).await?;
         let t = u_share - (w_share * r);
 
-        let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_3, t).await?;
+        let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_0, t).await?;
 
         if is_valid {
             Ok(())
@@ -253,7 +253,7 @@ pub mod tests {
                     .execute(a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(1))
+                    .multiply(RecordId::from(0))
                     .await
                     .execute(b_shares[i], r_share),
             )
@@ -269,7 +269,7 @@ pub mod tests {
             );
             acc.accumulate_macs(
                 &b_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(1),
+                RecordId::from(0),
                 b_malicious,
             );
 
@@ -281,7 +281,7 @@ pub mod tests {
                     .execute(a_shares[i], b_shares[i]),
                 a_ctx
                     .narrow("DoubleMult")
-                    .multiply(RecordId::from(1))
+                    .multiply(RecordId::from(0))
                     .await
                     .execute(ra, b_shares[i]),
             )
@@ -364,7 +364,7 @@ pub mod tests {
                             .enumerate()
                             .map(|(i, (x, ctx))| async move {
                                 ctx.narrow("mult")
-                                    .multiply(RecordId::from(u32::try_from(i).unwrap()))
+                                    .multiply(RecordId::from(0))
                                     .await
                                     .execute(*x, r_share)
                                     .await
@@ -391,7 +391,7 @@ pub mod tests {
                                 .enumerate()
                                 .map(|(i, ((a, b), ctx))| async move {
                                     ctx.narrow("SingleMult")
-                                        .multiply(RecordId::from(u32::try_from(i).unwrap()))
+                                        .multiply(RecordId::from(0))
                                         .await
                                         .execute(*a, *b)
                                         .await
@@ -405,7 +405,7 @@ pub mod tests {
                                 .enumerate()
                                 .map(|(i, ((a, rb), ctx))| async move {
                                     ctx.narrow("DoubleMult")
-                                        .multiply(RecordId::from(u32::try_from(i).unwrap()))
+                                        .multiply(RecordId::from(0))
                                         .await
                                         .execute(*a, *rb)
                                         .await

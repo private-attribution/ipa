@@ -113,7 +113,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
                 accumulation_futures.push(Self::get_accumulated_credit(
                     ctx.narrow(multiply_step.next()),
-                    RecordId::from(i),
+                    RecordId::from(0),
                     current,
                     successor,
                     iteration_step.is_first_iteration(),
@@ -178,7 +178,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         if !first_iteration {
             b = ctx
                 .narrow(&Step::BTimesStopBit)
-                .multiply(RecordId::from(1))
+                .multiply(record_id)
                 .await
                 .execute(b, current.stop_bit)
                 .await?;
@@ -213,6 +213,7 @@ mod tests {
     };
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
+    use crate::test_fixture::logging;
 
     fn generate_shared_input(
         input: &[[u128; 4]],
@@ -265,6 +266,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
+        logging::setup();
+
         let world = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rng = StepRng::new(100, 1);

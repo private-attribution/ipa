@@ -59,7 +59,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
                 *sum += x;
                 Some((
                     ctx.narrow(&format!("record_{}", index)),
-                    RecordId::from(u32::try_from(index).unwrap()),
+                    RecordId::from(0),
                     x,
                     *sum,
                 ))
