@@ -5,14 +5,6 @@ use crate::{
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
-use serde::{Deserialize, Serialize};
-
-/// A message sent by each helper when they've revealed their own shares
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct RevealValue<F> {
-    share: F,
-}
 
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which

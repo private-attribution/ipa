@@ -3,14 +3,7 @@ use crate::field::Field;
 use crate::helpers::{fabric::Network, Direction};
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
