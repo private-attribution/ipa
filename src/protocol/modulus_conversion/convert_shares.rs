@@ -1,12 +1,10 @@
 use crate::{
     error::BoxError,
-    ff::Field,
+    ff::{Field, Fp2},
     helpers::fabric::Network,
     protocol::{
-        context::ProtocolContext,
-        modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
-        reveal_additive_binary::RevealAdditiveBinary,
-        RecordId,
+        context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
+        reveal_additive_binary::RevealAdditiveBinary, RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -87,7 +85,7 @@ impl ConvertShares {
         let futures = bits
             .into_iter()
             .map(|(ctx, b0, b1, input_xor_r)| async move {
-                let r_binary = ReplicatedBinary::new(b0, b1);
+                let r_binary = Replicated::new(Fp2::from(b0), Fp2::from(b1));
 
                 let gen_random_future =
                     DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary);
@@ -95,13 +93,13 @@ impl ConvertShares {
                 let reveal_future = RevealAdditiveBinary::execute(
                     ctx.narrow(&Step::BinaryReveal),
                     record_id,
-                    input_xor_r,
+                    Fp2::from(input_xor_r),
                 );
 
                 let (r_big_field, revealed_output) =
                     try_join(gen_random_future, reveal_future).await?;
 
-                if revealed_output {
+                if revealed_output == Fp2::ONE {
                     Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
                 } else {
                     Ok(r_big_field)

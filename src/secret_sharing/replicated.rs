@@ -1,12 +1,7 @@
 use crate::ff::Field;
 use crate::helpers::Identity;
-use std::fmt::Formatter;
-use std::ops::AddAssign;
-use std::ops::SubAssign;
-use std::{
-    fmt::Debug,
-    ops::{Add, Mul, Neg, Sub},
-};
+use std::fmt::{Debug, Formatter};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Replicated<F>(F, F);
