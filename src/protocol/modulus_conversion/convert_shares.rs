@@ -1,7 +1,6 @@
 use crate::{
     error::BoxError,
     ff::{Field, Fp2},
-    helpers::fabric::Network,
     protocol::{
         context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
         reveal_additive_binary::RevealAdditiveBinary, RecordId,
@@ -66,9 +65,9 @@ impl ConvertShares {
     }
 
     #[allow(dead_code)]
-    pub async fn execute<F: Field, N: Network>(
+    pub async fn execute<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, N, F>,
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let prss = &ctx.prss();

@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::ff::Field;
-use crate::helpers::{fabric::Network, Direction};
+use crate::helpers::Direction;
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use std::fmt::Debug;
@@ -9,13 +9,13 @@ use std::fmt::Debug;
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, N, F> {
-    ctx: ProtocolContext<'a, N, F>,
+pub struct SecureMul<'a, F> {
+    ctx: ProtocolContext<'a, F>,
     record_id: RecordId,
 }
 
-impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
-    pub fn new(ctx: ProtocolContext<'a, N, F>, record_id: RecordId) -> Self {
+impl<'a, F: Field> SecureMul<'a, F> {
+    pub fn new(ctx: ProtocolContext<'a, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -66,20 +66,15 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
 pub mod tests {
     use crate::error::BoxError;
     use crate::ff::{Field, Fp31};
-    use crate::helpers::fabric::Network;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        fabric::InMemoryEndpoint, logging, make_contexts, make_world, share,
-        validate_and_reconstruct, TestWorld,
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
-    use std::sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    };
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -108,11 +103,9 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(
-            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>, F>, MulArgs<F>),
-        ) -> Replicated<F> {
+        async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(1))
+            ctx.multiply(RecordId::from(1_u32))
                 .await
                 .execute(a, b)
                 .await
@@ -151,8 +144,8 @@ pub mod tests {
         }
     }
 
-    async fn multiply_sync<R: RngCore, N: Network, F: Field>(
-        context: &[ProtocolContext<'_, N, F>; 3],
+    async fn multiply_sync<R: RngCore, F: Field>(
+        context: &[ProtocolContext<'_, F>; 3],
         narrowed_context_str: &str,
         a: u8,
         b: u8,

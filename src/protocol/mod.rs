@@ -175,6 +175,12 @@ impl From<u32> for RecordId {
     }
 }
 
+impl From<usize> for RecordId {
+    fn from(v: usize) -> Self {
+        RecordId::from(u32::try_from(v).unwrap())
+    }
+}
+
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()

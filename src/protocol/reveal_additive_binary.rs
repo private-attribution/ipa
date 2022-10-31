@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::{Field, Fp2},
-    helpers::{fabric::Network, Direction},
+    helpers::Direction,
     protocol::{context::ProtocolContext, RecordId},
 };
 
@@ -19,8 +19,8 @@ pub struct RevealAdditiveBinary {}
 
 impl RevealAdditiveBinary {
     #[allow(dead_code)]
-    pub async fn execute<N: Network, F: Field>(
-        ctx: ProtocolContext<'_, N, F>,
+    pub async fn execute<F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         input: Fp2,
     ) -> Result<Fp2, BoxError> {
@@ -68,7 +68,7 @@ mod tests {
 
         let mut bools: Vec<bool> = Vec::with_capacity(40);
 
-        let inputs = (0..10).into_iter().map(|i| {
+        let inputs = (0..10_u32).into_iter().map(|i| {
             let b0 = rng.gen::<bool>();
             let b1 = rng.gen::<bool>();
             let b2 = rng.gen::<bool>();

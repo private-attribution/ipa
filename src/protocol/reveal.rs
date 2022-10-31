@@ -1,5 +1,4 @@
 use crate::ff::Field;
-use crate::helpers::fabric::Network;
 use crate::protocol::context::ProtocolContext;
 use crate::secret_sharing::Replicated;
 use crate::{error::BoxError, helpers::Direction, protocol::RecordId};
@@ -18,8 +17,8 @@ use embed_doc_image::embed_doc_image;
 /// i.e. their own shares and received share.
 #[embed_doc_image("reveal", "images/reveal.png")]
 #[allow(dead_code)]
-pub async fn reveal<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N, F>,
+pub async fn reveal<F: Field>(
+    ctx: ProtocolContext<'_, F>,
     record_id: RecordId,
     input: Replicated<F>,
 ) -> Result<F, BoxError> {
@@ -58,7 +57,7 @@ mod tests {
         let world: TestWorld = make_world(QueryId);
         let ctx = make_contexts(&world);
 
-        for i in 0..10 {
+        for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
 
             let input = Fp31::from(secret);

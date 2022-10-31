@@ -1,5 +1,4 @@
 use crate::ff::Field;
-use crate::helpers::fabric::Network;
 use crate::{
     error::BoxError,
     helpers::{Direction, Identity},
@@ -35,9 +34,9 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
     ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         self,
-        ctx: &ProtocolContext<'_, N, F>,
+        ctx: &ProtocolContext<'_, F>,
         record_id: RecordId,
         to_helper: Identity,
     ) -> Result<Replicated<F>, BoxError> {
@@ -102,7 +101,7 @@ mod tests {
 
             let input = Fp31::from(secret);
             let share = share(input, &mut rand);
-            let record_id = RecordId::from(1);
+            let record_id = RecordId::from(1_u32);
 
             let world: TestWorld = make_world(QueryId);
             let context = make_contexts(&world);

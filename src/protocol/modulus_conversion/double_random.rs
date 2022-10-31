@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::{BinaryField, Field},
-    helpers::{fabric::Network, Identity},
+    helpers::Identity,
     protocol::{
         context::ProtocolContext,
         modulus_conversion::specialized_mul::{
@@ -101,8 +101,8 @@ impl DoubleRandom {
     ///
     /// And helper 3 has shares:
     /// a: (0, x1) and b: (0, 0)
-    async fn xor_specialized_1<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N, F>,
+    async fn xor_specialized_1<F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -127,8 +127,8 @@ impl DoubleRandom {
     ///
     /// And helper 3 has shares:
     /// (x3, 0)
-    async fn xor_specialized_2<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N, F>,
+    async fn xor_specialized_2<F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -143,8 +143,8 @@ impl DoubleRandom {
     /// of unknown number 'r') into a random secret sharing of the same value in `Z_p`
     /// where the caller can select the output Field.
     #[allow(dead_code)]
-    pub async fn execute<B: BinaryField, F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N, F>,
+    pub async fn execute<B: BinaryField, F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         random_sharing: Replicated<B>,
     ) -> Result<Replicated<F>, BoxError> {
@@ -181,7 +181,7 @@ mod tests {
         let mut bools: Vec<u128> = Vec::with_capacity(40);
         let mut futures = Vec::with_capacity(40);
 
-        for i in 0..40 {
+        for i in 0..40_u32 {
             let b0 = rng.gen::<bool>();
             let b1 = rng.gen::<bool>();
             let b2 = rng.gen::<bool>();
