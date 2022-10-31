@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::Instrument;
+use crate::helpers::buffers::SendBufferBuilder;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
@@ -137,7 +138,13 @@ impl<N: Network> Gateway<N> {
             const INTERVAL: Duration = Duration::from_millis(200);
 
             let mut receive_buf = ReceiveBuffer::default();
-            let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
+            let mut send_buf = SendBufferBuilder::default()
+                .items_in_batch(config.send_buffer_capacity)
+                // TODO: fix
+                .batch_count(4)
+                .build();
+
+            // let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
 
             let sleep = tokio::time::sleep(INTERVAL);
             tokio::pin!(sleep);
@@ -157,7 +164,7 @@ impl<N: Network> Gateway<N> {
                         receive_buf.receive_messages(&channel_id, messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
-                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg) {
+                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).unwrap() {
                             tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
                                 .expect("Failed to send data to the network");

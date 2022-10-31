@@ -33,6 +33,13 @@ pub struct FixedSizeByteVec<const N: usize> {
 }
 
 impl <const N: usize> FixedSizeByteVec<N> {
+
+    pub const N1: usize = N;
+
+    pub const fn bytes_per_element(&self) -> usize {
+        N
+    }
+
     pub fn new(region_count: usize, region_size: usize) -> Self {
         Self {
             data: vec![0_u8; N * region_size * region_count],
