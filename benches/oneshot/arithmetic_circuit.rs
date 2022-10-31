@@ -1,7 +1,7 @@
 use clap::Parser;
+use raw_ipa::ff::{Field, Fp31};
 use raw_ipa::test_fixture::circuit;
 use std::time::Instant;
-use raw_ipa::ff::{Field, Fp31};
 
 #[derive(Debug, Parser)]
 pub struct CircuitArgs {
