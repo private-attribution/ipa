@@ -19,6 +19,8 @@ pub enum Error {
     NotFound,
     #[error("too many helpers")]
     TooManyHelpers,
+    #[error("malicious security check failed")]
+    MaliciousSecurityCheckFailed,
 
     #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]

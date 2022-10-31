@@ -5,7 +5,6 @@ use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use thiserror::Error;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -17,13 +16,13 @@ pub struct DValue<F> {
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, N> {
-    ctx: &'a ProtocolContext<'a, N>,
+pub struct SecureMul<'a, N, F> {
+    ctx: ProtocolContext<'a, N, F>,
     record_id: RecordId,
 }
 
-impl<'a, N: Network> SecureMul<'a, N> {
-    pub fn new(ctx: &'a ProtocolContext<'a, N>, record_id: RecordId) -> Self {
+impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
+    pub fn new(ctx: ProtocolContext<'a, N, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -34,7 +33,7 @@ impl<'a, N: Network> SecureMul<'a, N> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<F: Field>(
+    pub async fn execute(
         self,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -55,12 +54,12 @@ impl<'a, N: Network> SecureMul<'a, N> {
             .send(
                 self.ctx.role().peer(Direction::Right),
                 self.record_id,
-                DValue { d: right_d },
+                right_d,
             )
             .await?;
 
         // Sleep until helper on the left sends us their (d_i-1) value
-        let DValue { d: left_d } = channel
+        let left_d = channel
             .receive(self.ctx.role().peer(Direction::Left), self.record_id)
             .await?;
 
@@ -69,137 +68,6 @@ impl<'a, N: Network> SecureMul<'a, N> {
         let rhs = a1 * b1 + right_d + s1;
 
         Ok(Replicated::new(lhs, rhs))
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum Error {}
-
-/// Module to support streaming interface for secure multiplication
-pub mod stream {
-    use crate::field::Field;
-    use crate::protocol::context::ProtocolContext;
-    use crate::secret_sharing::Replicated;
-    use futures::Stream;
-
-    use crate::chunkscan::ChunkScan;
-    use crate::helpers::fabric::Network;
-    use crate::protocol::{RecordId, Step};
-
-    #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
-    pub struct StreamingStep;
-
-    impl Step for StreamingStep {}
-    impl AsRef<str> for StreamingStep {
-        fn as_ref(&self) -> &str {
-            "streaming"
-        }
-    }
-
-    /// Consumes the input stream of replicated secret shares and produces a new stream with elements
-    /// being the product of items in the input stream. For example, if (a, b, c) are elements of the
-    /// input stream, output will contain two elements: (a*b, a*b*c)
-    ///
-    /// ## Panics
-    /// Panics if one of the internal invariants does not hold.
-    #[allow(dead_code)]
-    pub fn secure_multiply<'a, F, N, S>(
-        input_stream: S,
-        ctx: &'a ProtocolContext<'a, N>,
-        _index: u128,
-    ) -> impl Stream<Item = Replicated<F>> + 'a
-    where
-        S: Stream<Item = Replicated<F>> + 'a,
-        F: Field,
-        N: Network,
-    {
-        let mut stream_element_idx = 0;
-
-        // TODO (alex): is there a way to deal with async without pinning stream to the heap?
-        Box::pin(ChunkScan::new(
-            input_stream,
-            2, // buffer two elements
-            move |mut items: Vec<Replicated<F>>| async move {
-                debug_assert!(items.len() == 2);
-
-                let b_share = items.pop().unwrap();
-                let a_share = items.pop().unwrap();
-                stream_element_idx += 1; // TODO(mt): revisit (use enumerate()?)
-
-                ctx.multiply(RecordId::from(stream_element_idx))
-                    .await
-                    .execute(a_share, b_share)
-                    .await
-            },
-        ))
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use crate::field::Fp31;
-        use crate::helpers::Identity;
-        use crate::protocol::context::ProtocolContext;
-        use crate::protocol::securemul::stream::secure_multiply;
-        use crate::protocol::QueryId;
-        use crate::secret_sharing::Replicated;
-        use crate::test_fixture::{logging, make_world, share, validate_and_reconstruct};
-        use futures::StreamExt;
-        use futures_util::future::join_all;
-        use futures_util::stream;
-        use rand::rngs::mock::StepRng;
-
-        /// Secure multiplication may be used with Stream API where shares are provided as elements
-        /// of a `Stream`.
-        #[tokio::test]
-        async fn supports_stream_of_secret_shares() {
-            // beforeEach is not a thing in Rust yet: https://github.com/rust-lang/rfcs/issues/1664
-            logging::setup();
-
-            // we compute a*b*c in this test. 4*3*2 = 24
-            let mut rand = StepRng::new(1, 1);
-            let a = share(Fp31::from(4_u128), &mut rand);
-            let b = share(Fp31::from(3_u128), &mut rand);
-            let c = share(Fp31::from(2_u128), &mut rand);
-            let start_index = 1024_u128;
-
-            // setup helpers
-            let world = make_world(QueryId);
-
-            // dedicated streams for each helper
-            let input = [
-                stream::iter(vec![a[0], b[0], c[0]]),
-                stream::iter(vec![a[1], b[1], c[1]]),
-                stream::iter(vec![a[2], b[2], c[2]]),
-            ];
-
-            // create 3 tasks (1 per helper) that will execute secure multiplication
-            let handles = input
-                .into_iter()
-                .zip(world.participants)
-                .zip(world.gateways)
-                .zip([Identity::H1, Identity::H2, Identity::H3])
-                .map(|(((input, prss), gateway), role)| {
-                    tokio::spawn(async move {
-                        let ctx = ProtocolContext::new(role, &prss, &gateway);
-                        let mut stream = secure_multiply(input, &ctx, start_index);
-
-                        // compute a*b
-                        let _ = stream.next().await.expect("Failed to compute a*b");
-
-                        // compute (a*b)*c and return it
-                        stream.next().await.expect("Failed to compute a*b*c")
-                    })
-                });
-
-            let result_shares: [Replicated<Fp31>; 3] =
-                join_all(handles.map(|handle| async { handle.await.unwrap() }))
-                    .await
-                    .try_into()
-                    .unwrap();
-            let result_shares = (result_shares[0], result_shares[1], result_shares[2]);
-
-            assert_eq!(Fp31::from(24_u128), validate_and_reconstruct(result_shares));
-        }
     }
 }
 
@@ -230,13 +98,13 @@ pub mod tests {
         let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 
-        assert_eq!(30, multiply_sync(&context, 6, 5, &mut rand).await?);
-        assert_eq!(25, multiply_sync(&context, 5, 5, &mut rand).await?);
-        assert_eq!(7, multiply_sync(&context, 7, 1, &mut rand).await?);
-        assert_eq!(0, multiply_sync(&context, 0, 14, &mut rand).await?);
-        assert_eq!(8, multiply_sync(&context, 7, 10, &mut rand).await?);
-        assert_eq!(4, multiply_sync(&context, 5, 7, &mut rand).await?);
-        assert_eq!(1, multiply_sync(&context, 16, 2, &mut rand).await?);
+        assert_eq!(30, multiply_sync(&context, "1", 6, 5, &mut rand).await?);
+        assert_eq!(25, multiply_sync(&context, "2", 5, 5, &mut rand).await?);
+        assert_eq!(7, multiply_sync(&context, "3", 7, 1, &mut rand).await?);
+        assert_eq!(0, multiply_sync(&context, "4", 0, 14, &mut rand).await?);
+        assert_eq!(8, multiply_sync(&context, "5", 7, 10, &mut rand).await?);
+        assert_eq!(4, multiply_sync(&context, "6", 5, 7, &mut rand).await?);
+        assert_eq!(1, multiply_sync(&context, "7", 16, 2, &mut rand).await?);
 
         Ok(())
     }
@@ -250,7 +118,7 @@ pub mod tests {
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
         async fn mul<F: Field>(
-            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>>, MulArgs<F>),
+            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>, F>, MulArgs<F>),
         ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1))
@@ -292,17 +160,15 @@ pub mod tests {
         }
     }
 
-    async fn multiply_sync<R: RngCore, N: Network>(
-        context: &[ProtocolContext<'_, N>; 3],
+    async fn multiply_sync<R: RngCore, N: Network, F: Field>(
+        context: &[ProtocolContext<'_, N, F>; 3],
+        narrowed_context_str: &str,
         a: u8,
         b: u8,
         rng: &mut R,
-    ) -> Result<u8, BoxError> {
-        assert!(a < Fp31::PRIME);
-        assert!(b < Fp31::PRIME);
-
-        let a = Fp31::from(u128::from(a));
-        let b = Fp31::from(u128::from(b));
+    ) -> Result<u128, BoxError> {
+        let a = F::from(u128::from(a));
+        let b = F::from(u128::from(b));
 
         thread_local! {
             static INDEX: AtomicU32 = AtomicU32::default();
@@ -314,11 +180,23 @@ pub mod tests {
         let b = share(b, rng);
 
         let result_shares = tokio::try_join!(
-            context[0].multiply(record_id).await.execute(a[0], b[0]),
-            context[1].multiply(record_id).await.execute(a[1], b[1]),
-            context[2].multiply(record_id).await.execute(a[2], b[2]),
+            context[0]
+                .narrow(narrowed_context_str)
+                .multiply(record_id)
+                .await
+                .execute(a[0], b[0]),
+            context[1]
+                .narrow(narrowed_context_str)
+                .multiply(record_id)
+                .await
+                .execute(a[1], b[1]),
+            context[2]
+                .narrow(narrowed_context_str)
+                .multiply(record_id)
+                .await
+                .execute(a[2], b[2]),
         )?;
 
-        Ok(validate_and_reconstruct(result_shares).into())
+        Ok(validate_and_reconstruct(result_shares).as_u128())
     }
 }

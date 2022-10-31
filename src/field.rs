@@ -1,10 +1,12 @@
+use std::any::type_name;
+use std::io::ErrorKind;
 use std::ops::{BitAnd, Shr};
 use std::{
     fmt::Debug,
+    io,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 // Trait for primitive integer types used to represent the underlying type for field values
@@ -43,8 +45,6 @@ pub trait Field:
     + Debug
     + Send
     + Sized
-    + Serialize
-    + DeserializeOwned
     + 'static
 {
     type Integer: Int;
@@ -54,6 +54,9 @@ pub trait Field:
     const ZERO: Self;
     /// Multiplicative identity element
     const ONE: Self;
+    /// Derived from the size of the backing field, this constant indicates how much
+    /// space is required to store this field value
+    const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
 
     /// computes the multiplicative inverse of `self`. It is UB if `self` is 0.
     #[must_use]
@@ -90,6 +93,57 @@ pub trait Field:
     fn as_u128(&self) -> u128 {
         let int: Self::Integer = (*self).into();
         int.into()
+    }
+
+    /// Generic implementation to serialize fields into a buffer. Callers need to make sure
+    /// there is enough capacity to store the value of this field.
+    /// It is less efficient because it operates with generic representation of fields as 16 byte
+    /// integers, so consider overriding it for actual field implementations
+    ///
+    /// ## Errors
+    /// Returns an error if buffer did not have enough capacity to store this field value
+    fn serialize(&self, buf: &mut [u8]) -> io::Result<()> {
+        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES as usize];
+
+        if buf.len() >= raw_value.len() {
+            buf[..Self::SIZE_IN_BYTES as usize].copy_from_slice(raw_value);
+            Ok(())
+        } else {
+            let error_text = format!(
+                "Buffer with total capacity {} cannot hold field value {:?} because \
+                 it required at least {} bytes available",
+                buf.len(),
+                self,
+                Self::SIZE_IN_BYTES
+            );
+
+            Err(io::Error::new(ErrorKind::WriteZero, error_text))
+        }
+    }
+
+    /// Generic implementation to deserialize fields from buffer.
+    /// It is less efficient because it allocates 16 bytes on the stack to accommodate for all
+    /// possible field implementations, so consider overriding it for actual field implementations
+    ///
+    /// In the bright future when we have const generic expressions, this can be changed to provide
+    /// zero-cost generic implementation
+    ///
+    /// ## Errors
+    /// Returns an error if buffer did not have enough capacity left to read the field value.
+    fn deserialize(buf_from: &mut [u8]) -> io::Result<Self> {
+        if Self::SIZE_IN_BYTES as usize <= buf_from.len() {
+            let mut buf_to = [0; 16]; // one day...
+            buf_to[..Self::SIZE_IN_BYTES as usize]
+                .copy_from_slice(&buf_from[..Self::SIZE_IN_BYTES as usize]);
+
+            Ok(Self::from(u128::from_le_bytes(buf_to)))
+        } else {
+            let error_text = format!(
+                "Buffer is too small to read values of the field type {}. Required at least {} bytes,\
+                 got {}", type_name::<Self>(), Self::SIZE_IN_BYTES, buf_from.len()
+            );
+            Err(io::Error::new(ErrorKind::UnexpectedEof, error_text))
+        }
     }
 }
 
@@ -194,6 +248,9 @@ impl Debug for Fp31 {
 #[cfg(test)]
 mod test {
     use super::{Field, Fp31};
+    use proptest::proptest;
+    use std::io;
+
     use std::ops::Mul;
 
     #[test]
@@ -262,5 +319,40 @@ mod test {
         // assertion does not matter here, test should panic when `invert` is called.
         // it is here to silence #must_use warning
         assert_ne!(Fp31::ZERO, Fp31(0).invert());
+    }
+
+    #[test]
+    fn ser_not_enough_capacity() {
+        let mut buf = [0; 0];
+        assert!(matches!(
+            Fp31::ONE.serialize(&mut buf),
+            Err(e) if e.kind() == io::ErrorKind::WriteZero));
+    }
+
+    #[test]
+    fn can_write_into_buf_larger_than_required() {
+        let mut buf = [0; 24];
+
+        // panic will show the error while assert will just tell us that something went wrong
+        Fp31::ONE.serialize(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn de_buf_too_small() {
+        let mut buf = [0; 0];
+        assert!(matches!(
+            Fp31::deserialize(&mut buf),
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof));
+    }
+
+    proptest! {
+        #[test]
+        fn serde(v in 0..Fp31::PRIME) {
+            let field_v = Fp31(v);
+            let mut buf = vec![0; Fp31::SIZE_IN_BYTES as usize];
+            field_v.serialize(&mut buf).unwrap();
+
+            assert_eq!(field_v, Fp31::deserialize(&mut buf).unwrap());
+        }
     }
 }
