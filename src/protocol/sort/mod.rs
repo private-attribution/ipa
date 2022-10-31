@@ -44,7 +44,6 @@ impl AsRef<str> for ShuffleStep {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ApplyInvStep {
-    GenerateRandomPermutation,
     ShuffleInputs,
     ShufflePermutation,
     RevealPermutation,
@@ -55,7 +54,6 @@ impl Step for ApplyInvStep {}
 impl AsRef<str> for ApplyInvStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::GenerateRandomPermutation => "generate_random_permutation",
             Self::ShuffleInputs => "shuffle_inputs",
             Self::ShufflePermutation => "shuffle_permutation",
             Self::RevealPermutation => "reveal_permutation",

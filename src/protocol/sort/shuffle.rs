@@ -41,7 +41,7 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
 #[allow(clippy::cast_possible_truncation)]
-pub fn generate_random_permutation(
+pub fn generate_random_permutations_using_prss(
     batchsize: usize,
     prss: &IndexedSharedRandomness,
 ) -> (Permutation, Permutation) {
@@ -123,21 +123,21 @@ impl<'a, F: Field> Shuffle<'a, F> {
         shuffle_or_unshuffle: ShuffleOrUnshuffle,
         ctx: &ProtocolContext<'_, F>,
         which_step: ShuffleStep,
-        permutations: &(Permutation, Permutation),
+        permutations: &mut (Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let to_helper = Self::shuffle_for_helper(which_step);
         let ctx = ctx.narrow(&which_step);
 
         if to_helper != ctx.role() {
             let permute = if to_helper.peer(Direction::Left) == ctx.role() {
-                &permutations.0
+                &mut permutations.0
             } else {
-                &permutations.1
+                &mut permutations.1
             };
 
             match shuffle_or_unshuffle {
-                ShuffleOrUnshuffle::Shuffle => apply_inv(&mut permute.clone(), &mut self.input),
-                ShuffleOrUnshuffle::Unshuffle => apply(&mut permute.clone(), &mut self.input),
+                ShuffleOrUnshuffle::Shuffle => apply_inv(permute, self.input),
+                ShuffleOrUnshuffle::Unshuffle => apply(permute, self.input),
             }
         }
         self.reshare_all_shares(&ctx, to_helper).await
@@ -155,7 +155,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     pub async fn execute(
         &mut self,
         ctx: ProtocolContext<'_, F>,
-        permutations: &(Permutation, Permutation),
+        permutations: &mut (Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
         F: Field,
@@ -184,7 +184,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     pub async fn execute_unshuffle(
         &mut self,
         ctx: ProtocolContext<'_, F>,
-        permutations: &(Permutation, Permutation),
+        permutations: &mut (Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
         F: Field,
@@ -213,7 +213,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            sort::shuffle::{generate_random_permutation, Shuffle, ShuffleOrUnshuffle},
+            sort::shuffle::{generate_random_permutations_using_prss, Shuffle, ShuffleOrUnshuffle},
             QueryId, UniqueStepId,
         },
         test_fixture::{
@@ -229,9 +229,9 @@ mod tests {
         const BATCH_SIZE: usize = 10000;
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
-        let perm1 = generate_random_permutation(BATCH_SIZE, p1.indexed(&step).as_ref());
-        let perm2 = generate_random_permutation(BATCH_SIZE, p2.indexed(&step).as_ref());
-        let perm3 = generate_random_permutation(BATCH_SIZE, p3.indexed(&step).as_ref());
+        let perm1 = generate_random_permutations_using_prss(BATCH_SIZE, p1.indexed(&step).as_ref());
+        let perm2 = generate_random_permutations_using_prss(BATCH_SIZE, p2.indexed(&step).as_ref());
+        let perm3 = generate_random_permutations_using_prss(BATCH_SIZE, p3.indexed(&step).as_ref());
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
@@ -265,18 +265,21 @@ mod tests {
         let input1 = shares.1.clone();
         let input2 = shares.2.clone();
 
+        let mut perm1 =
+            generate_random_permutations_using_prss(input_len, context[0].prss().as_ref());
+        let mut perm2 =
+            generate_random_permutations_using_prss(input_len, context[1].prss().as_ref());
+        let mut perm3 =
+            generate_random_permutations_using_prss(input_len, context[2].prss().as_ref());
+
+        let [c0, c1, c2] = context;
         let mut shuffle0 = Shuffle::new(&mut shares.0);
         let mut shuffle1 = Shuffle::new(&mut shares.1);
         let mut shuffle2 = Shuffle::new(&mut shares.2);
 
-        let perm1 = generate_random_permutation(input_len, context[0].prss().as_ref());
-        let perm2 = generate_random_permutation(input_len, context[1].prss().as_ref());
-        let perm3 = generate_random_permutation(input_len, context[2].prss().as_ref());
-
-        let [c0, c1, c2] = context;
-        let h0_future = shuffle0.execute(c0, &perm1);
-        let h1_future = shuffle1.execute(c1, &perm2);
-        let h2_future = shuffle2.execute(c2, &perm3);
+        let h0_future = shuffle0.execute(c0, &mut perm1);
+        let h1_future = shuffle1.execute(c1, &mut perm2);
+        let h2_future = shuffle2.execute(c2, &mut perm3);
 
         try_join!(h0_future, h1_future, h2_future).unwrap();
 
@@ -323,9 +326,12 @@ mod tests {
 
         let mut shares = generate_shares(input);
 
-        let perm1 = generate_random_permutation(input_len, context[0].prss().as_ref());
-        let perm2 = generate_random_permutation(input_len, context[1].prss().as_ref());
-        let perm3 = generate_random_permutation(input_len, context[2].prss().as_ref());
+        let mut perm1 =
+            generate_random_permutations_using_prss(input_len, context[0].prss().as_ref());
+        let mut perm2 =
+            generate_random_permutations_using_prss(input_len, context[1].prss().as_ref());
+        let mut perm3 =
+            generate_random_permutations_using_prss(input_len, context[2].prss().as_ref());
 
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);
@@ -333,22 +339,22 @@ mod tests {
             let mut shuffle1 = Shuffle::new(&mut shares.1);
             let mut shuffle2 = Shuffle::new(&mut shares.2);
 
-            let h0_future = shuffle0.execute(ctx0, &perm1);
-            let h1_future = shuffle1.execute(ctx1, &perm2);
-            let h2_future = shuffle2.execute(ctx2, &perm3);
+            let h0_future = shuffle0.execute(ctx0, &mut perm1);
+            let h1_future = shuffle1.execute(ctx1, &mut perm2);
+            let h2_future = shuffle2.execute(ctx2, &mut perm3);
 
             try_join!(h0_future, h1_future, h2_future).unwrap();
         }
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Unshuffle);
-            // When unshuffle and shuffle are called with same step, they undo each other's effect
             let mut unshuffle0 = Shuffle::new(&mut shares.0);
             let mut unshuffle1 = Shuffle::new(&mut shares.1);
             let mut unshuffle2 = Shuffle::new(&mut shares.2);
 
-            let h0_future = unshuffle0.execute_unshuffle(ctx0, &perm1);
-            let h1_future = unshuffle1.execute_unshuffle(ctx1, &perm2);
-            let h2_future = unshuffle2.execute_unshuffle(ctx2, &perm3);
+            // When unshuffle and shuffle are called with same step, they undo each other's effect
+            let h0_future = unshuffle0.execute_unshuffle(ctx0, &mut perm1);
+            let h1_future = unshuffle1.execute_unshuffle(ctx1, &mut perm2);
+            let h2_future = unshuffle2.execute_unshuffle(ctx2, &mut perm3);
 
             try_join!(h0_future, h1_future, h2_future).unwrap();
         }
