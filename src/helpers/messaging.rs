@@ -73,9 +73,7 @@ impl<F: Field> Message for F {
 /// buffer and keeps it there until such request is made by the protocol.
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
-pub struct Gateway<N> {
-    /// TODO: no need to keep it here if we're happy with its interface
-    _network: N,
+pub struct Gateway {
     /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest>,
     envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope)>,
@@ -84,8 +82,8 @@ pub struct Gateway<N> {
 
 /// Channel end
 #[derive(Debug)]
-pub struct Mesh<'a, 'b, N> {
-    gateway: &'a Gateway<N>,
+pub struct Mesh<'a, 'b> {
+    gateway: &'a Gateway,
     step: &'b UniqueStepId,
 }
 
@@ -95,7 +93,7 @@ pub(super) struct ReceiveRequest {
     pub sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl<N: Network> Mesh<'_, '_, N> {
+impl Mesh<'_, '_> {
     /// Send a given message to the destination. This method will not return until the message
     /// is delivered to the `Network`.
     ///
@@ -148,8 +146,8 @@ pub struct GatewayConfig {
     pub send_buffer_capacity: u32,
 }
 
-impl<N: Network> Gateway<N> {
-    pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
+impl Gateway {
+    pub fn new<N: Network>(role: Identity, network: &N, config: GatewayConfig) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
         let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
         let mut message_stream = network.recv_stream();
@@ -208,7 +206,6 @@ impl<N: Network> Gateway<N> {
         }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
         Self {
-            _network: network,
             tx,
             envelope_tx,
             control_handle,
@@ -221,7 +218,8 @@ impl<N: Network> Gateway<N> {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
+    #[must_use]
+    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b> {
         Mesh {
             gateway: self,
             step,
@@ -251,7 +249,7 @@ impl<N: Network> Gateway<N> {
     }
 }
 
-impl<N> Drop for Gateway<N> {
+impl Drop for Gateway {
     fn drop(&mut self) {
         self.control_handle.abort();
     }

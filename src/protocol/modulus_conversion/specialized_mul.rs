@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::Field,
-    helpers::{fabric::Network, Direction, Identity},
+    helpers::{Direction, Identity},
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
@@ -29,8 +29,8 @@ use crate::{
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 #[allow(dead_code)]
-pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N, F>,
+pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
+    ctx: ProtocolContext<'_, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
@@ -113,8 +113,8 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field, N: Network>(
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 #[allow(dead_code)]
-pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N, F>,
+pub async fn multiply_one_share_mostly_zeroes<F: Field>(
+    ctx: ProtocolContext<'_, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
@@ -207,7 +207,7 @@ pub mod tests {
         let context = make_contexts(&world);
         let mut rng = rand::thread_rng();
 
-        for i in 0..10 {
+        for i in 0..10_u32 {
             let a = Fp31::from(rng.gen::<u128>());
             let b = Fp31::from(rng.gen::<u128>());
 
@@ -255,7 +255,7 @@ pub mod tests {
         let mut inputs = Vec::with_capacity(10);
         let mut futures = Vec::with_capacity(10);
 
-        for i in 0..10 {
+        for i in 0..10_u32 {
             let a = Fp31::from(rng.gen::<u128>());
             let b = Fp31::from(rng.gen::<u128>());
 
@@ -309,7 +309,7 @@ pub mod tests {
         let context = make_contexts(&world);
         let mut rng = rand::thread_rng();
 
-        for i in 0..10 {
+        for i in 0..10_u32 {
             let a = Fp31::from(rng.gen::<u128>());
             let b = Fp31::from(rng.gen::<u128>());
 
@@ -360,7 +360,7 @@ pub mod tests {
         let mut inputs = Vec::with_capacity(10);
         let mut futures = Vec::with_capacity(10);
 
-        for i in 0..10 {
+        for i in 0..10_u32 {
             let a = Fp31::from(rng.gen::<u128>());
             let b = Fp31::from(rng.gen::<u128>());
 

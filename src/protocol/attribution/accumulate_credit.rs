@@ -2,7 +2,6 @@ use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInpu
 use crate::{
     error::BoxError,
     ff::Field,
-    helpers::fabric::Network,
     protocol::{
         batch::{Batch, RecordIndex},
         context::ProtocolContext,
@@ -51,9 +50,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
     /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, N, F>,
+        ctx: ProtocolContext<'_, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -154,8 +153,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         Ok(output)
     }
 
-    async fn get_accumulated_credit<N: Network>(
-        ctx: ProtocolContext<'_, N, F>,
+    async fn get_accumulated_credit(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
@@ -178,7 +177,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         if !first_iteration {
             b = ctx
                 .narrow(&Step::BTimesStopBit)
-                .multiply(RecordId::from(1))
+                .multiply(RecordId::from(1_u32))
                 .await
                 .execute(b, current.stop_bit)
                 .await?;

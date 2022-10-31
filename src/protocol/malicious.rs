@@ -1,7 +1,7 @@
 use crate::{
     error::{BoxError, Error},
     ff::Field,
-    helpers::{fabric::Network, Direction},
+    helpers::Direction,
     protocol::{
         check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
         reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2, RECORD_3,
@@ -121,7 +121,7 @@ pub struct SecurityValidator<F> {
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new<N: Network>(ctx: ProtocolContext<'_, N, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: ProtocolContext<'_, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RECORD_0);
@@ -156,10 +156,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate<N: Network>(
-        self,
-        ctx: ProtocolContext<'_, N, F>,
-    ) -> Result<(), BoxError> {
+    pub async fn validate(self, ctx: ProtocolContext<'_, F>) -> Result<(), BoxError> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -248,12 +245,12 @@ pub mod tests {
             let (ra, rb) = try_join(
                 a_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(0))
+                    .multiply(RecordId::from(0_u32))
                     .await
                     .execute(a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(1))
+                    .multiply(RecordId::from(1_u32))
                     .await
                     .execute(b_shares[i], r_share),
             )
@@ -264,24 +261,24 @@ pub mod tests {
 
             acc.accumulate_macs(
                 &a_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(0),
+                RecordId::from(0_u32),
                 a_malicious,
             );
             acc.accumulate_macs(
                 &b_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(1),
+                RecordId::from(1_u32),
                 b_malicious,
             );
 
             let (ab, rab) = try_join(
                 a_ctx
                     .narrow("SingleMult")
-                    .multiply(RecordId::from(0))
+                    .multiply(RecordId::from(0_u32))
                     .await
                     .execute(a_shares[i], b_shares[i]),
                 a_ctx
                     .narrow("DoubleMult")
-                    .multiply(RecordId::from(1))
+                    .multiply(RecordId::from(1_u32))
                     .await
                     .execute(ra, b_shares[i]),
             )
@@ -289,7 +286,7 @@ pub mod tests {
 
             acc.accumulate_macs(
                 &a_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
-                RecordId::from(0),
+                RecordId::from(0_u32),
                 MaliciousReplicated::new(ab, rab),
             );
 
