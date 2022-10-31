@@ -354,20 +354,17 @@ pub mod tests {
 
                     let r_share = v.r_share();
 
-                    let rx_values: Vec<Replicated<Fp31>> = try_join_all(
-                        input_shares
-                            .iter()
-                            .zip(row_narrowed_contexts.iter())
-                            .enumerate()
-                            .map(|(_i, (x, ctx))| async move {
+                    let rx_values: Vec<Replicated<Fp31>> =
+                        try_join_all(input_shares.iter().zip(row_narrowed_contexts.iter()).map(
+                            |(x, ctx)| async move {
                                 ctx.narrow("mult")
                                     .multiply(RecordId::from(0_u32))
                                     .await
                                     .execute(*x, r_share)
                                     .await
-                            }),
-                    )
-                    .await?;
+                            },
+                        ))
+                        .await?;
 
                     let _ = input_shares.iter().zip(rx_values.iter()).enumerate().map(
                         |(i, (x, rx))| {
@@ -385,8 +382,7 @@ pub mod tests {
                                 .iter()
                                 .zip(input_shares.iter().skip(1))
                                 .zip(row_narrowed_contexts.iter())
-                                .enumerate()
-                                .map(|(_i, ((a, b), ctx))| async move {
+                                .map(|((a, b), ctx)| async move {
                                     ctx.narrow("SingleMult")
                                         .multiply(RecordId::from(0_u32))
                                         .await
@@ -399,8 +395,7 @@ pub mod tests {
                                 .iter()
                                 .zip(rx_values.iter().skip(1))
                                 .zip(row_narrowed_contexts.iter())
-                                .enumerate()
-                                .map(|(_i, ((a, rb), ctx))| async move {
+                                .map(|((a, rb), ctx)| async move {
                                     ctx.narrow("DoubleMult")
                                         .multiply(RecordId::from(0_u32))
                                         .await

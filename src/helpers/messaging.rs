@@ -7,7 +7,7 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
-    helpers::buffers::{ReceiveBuffer},
+    helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Identity,
@@ -15,15 +15,14 @@ use crate::{
 };
 
 use crate::ff::{Field, Int};
+use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::io;
-use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
-use crate::helpers::buffers::SendBufferBuilder;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -140,8 +139,19 @@ impl Mesh<'_, '_> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    pub items_in_batch: u32,
-    pub batch_count: u32,
+    /// Configuration for send buffers. See `SendBufferConfig` for more details
+    pub send_buffer_config: SendBufferConfig,
+    // ///
+    // pub items_in_batch: u32,
+    //
+    // /// How many messages can be sent in parallel. This value is picked arbitrarily as
+    // /// most unit tests don't send more than this value, so the setup does not have to
+    // /// be annoying. `items_in_batch` * `batch_count` defines the total capacity for
+    // /// send buffer. Increasing this value does not really impact the latency for tests
+    // /// because they flush the data to network once they've accumulated at least
+    // /// `items_in_batch` elements. Ofc setting it to some absurdly large value is going
+    // /// to be problematic from memory perspective.
+    // pub batch_count: u32,
 }
 
 impl Gateway {
@@ -152,18 +162,8 @@ impl Gateway {
         let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
-            // to make forward progress, we periodically check if the system is stalled
-            // if nothing happens for long period of time, we try to unblock it by flushing
-            // the data that remains inside buffers. Note that the interval picked here is somewhat
-            // random - waiting for too long will result in elevated latencies. On the other hand,
-            // sending buffers that are half-full will lead to underutilizing the network
-            const INTERVAL: Duration = Duration::from_millis(200);
-
             let mut receive_buf = ReceiveBuffer::default();
-            let mut send_buf = SendBufferBuilder::default()
-                .items_in_batch(config.items_in_batch)
-                .batch_count(config.batch_count)
-                .build();
+            let mut send_buf = SendBuffer::new(config.send_buffer_config);
 
             loop {
                 // Make a random choice what to process next:
@@ -180,7 +180,6 @@ impl Gateway {
                         receive_buf.receive_messages(&channel_id, messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
-                        tracing::trace!("new send request: {:?} to {channel_id:?}", msg);
                         if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).expect("Failed to append data to the send buffer") {
                             tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await

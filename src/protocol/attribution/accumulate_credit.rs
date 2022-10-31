@@ -204,6 +204,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_fixture::logging;
     use crate::{
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
@@ -212,7 +213,6 @@ mod tests {
     };
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
-    use crate::test_fixture::logging;
 
     fn generate_shared_input(
         input: &[[u128; 4]],

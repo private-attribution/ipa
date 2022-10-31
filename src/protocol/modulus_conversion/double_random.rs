@@ -158,6 +158,7 @@ impl DoubleRandom {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_fixture::logging;
     use crate::{
         error::BoxError,
         ff::{Field, Fp2, Fp31},
@@ -167,7 +168,6 @@ mod tests {
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
-    use crate::test_fixture::logging;
 
     #[tokio::test]
     pub async fn gen_random() -> Result<(), BoxError> {

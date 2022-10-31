@@ -64,7 +64,6 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             zip(repeat(ctx), mult_input)
                 .enumerate()
                 .map(|(i, (ctx, (x, sum)))| async move {
-                    // todo it is likely we need from(0) here as before?
                     ctx.multiply(RecordId::from(i)).await.execute(x, sum).await
                 });
         let mut mult_output = try_join_all(async_multiply).await?;

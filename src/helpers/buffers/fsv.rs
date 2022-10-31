@@ -1,6 +1,6 @@
-use std::ops::{Range};
 use bitvec::bitvec;
 use bitvec::prelude::BitVec;
+use std::ops::Range;
 
 /// A vector of bytes that never grows over a certain size or shrinks below that size.
 /// Vector is segmented into regions and `max_size` is a factor of number of regions.
@@ -29,22 +29,24 @@ pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
     region_size: usize,
     added: BitVec,
-    drained: usize,
+    elements_drained: usize,
 }
 
-impl <const N: usize> FixedSizeByteVec<N> {
-
-    pub const N1: usize = N;
+impl<const N: usize> FixedSizeByteVec<N> {
+    pub const ELEMENT_SIZE_BYTES: usize = N;
 
     pub fn new(region_count: usize, region_size: usize) -> Self {
         Self {
             data: vec![0_u8; N * region_size * region_count],
             added: bitvec![0; region_size * region_count],
-            drained: 0,
+            elements_drained: 0,
             region_size,
         }
     }
 
+    /// Inserts a new element to the specified position, returning the previous element at this `index`.
+    /// ## Panics
+    /// * Panics if `index` is out of bounds.
     pub fn insert(&mut self, index: usize, elem: [u8; N]) -> Option<[u8; N]> {
         let offset = Self::index_offset(index);
 
@@ -65,31 +67,37 @@ impl <const N: usize> FixedSizeByteVec<N> {
         }
     }
 
+    /// Checks whether the first region of elements is ready to be drained.
     pub fn ready(&self) -> bool {
         self.added[..self.region_size].all()
     }
 
-    pub fn drain(&mut self) -> Option<Vec<u8>> {
-        if self.ready() {
-            // Pop out first `region_size` elements and shift the remaining elements to the left
-            self.added.drain(..self.region_size).for_each(drop);
-            let r = self.data.drain(..self.region_size*N).collect();
-            self.drained += self.region_size;
+    /// Drains the elements from the beginning of the vector. If all of the first `self.region_size`
+    /// elements have been inserted, returns them in order. `self.ready()` should indicate that.
+    ///
+    /// ## Panic
+    /// Panics if `ready()` is false before calling `drain()`.
+    pub fn drain(&mut self) -> Vec<u8> {
+        let all_ones = self.added.drain(..self.region_size).all(|bit| bit);
+        assert!(all_ones, "drain() called when ready() was false");
 
-            // clear out last `region_size` elements in the buffer
-            self.data.resize(self.data.len() + self.region_size * N, 0);
-            self.added.resize(self.added.len() + self.region_size, false);
+        let r = self.data.drain(..self.region_size * N).collect();
+        self.elements_drained += self.region_size;
 
-            Some(r)
-        } else {
-            None
-        }
+        // clear out last `region_size` elements in the buffer
+        self.data.resize(self.data.len() + self.region_size * N, 0);
+        self.added
+            .resize(self.added.len() + self.region_size, false);
+
+        r
     }
 
+    /// Returns total number of elements evicted from this buffer since the creation.
     pub fn elements_drained(&self) -> usize {
-        self.drained
+        self.elements_drained
     }
 
+    /// returns the maximum number of elements this vector can hold.
     pub fn capacity(&self) -> usize {
         self.data.capacity() / N
     }
@@ -102,9 +110,9 @@ impl <const N: usize> FixedSizeByteVec<N> {
 
 #[cfg(test)]
 mod tests {
-    
-    use proptest::num::usize;
+
     use crate::helpers::buffers::fsv::FixedSizeByteVec;
+    use proptest::num::usize;
 
     const ELEMENT_SIZE: usize = 8;
     fn test_data_at(mut index: usize) -> [u8; ELEMENT_SIZE] {
@@ -126,7 +134,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn insert() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 1);
@@ -134,13 +141,13 @@ mod tests {
         v.insert_test_data(1);
 
         assert!(v.ready());
-        assert_eq!(v.drain(), Some(test_data_at(0).to_vec()));
+        assert_eq!(v.drain(), test_data_at(0).to_vec());
 
         // element already present should be returned
         assert_eq!(v.insert(0, [10; ELEMENT_SIZE]), Some(test_data_at(1)));
 
         assert!(v.ready());
-        assert_eq!(v.drain(), Some(vec![10; ELEMENT_SIZE]));
+        assert_eq!(v.drain(), vec![10; ELEMENT_SIZE]);
     }
 
     #[test]
@@ -150,11 +157,10 @@ mod tests {
 
         // drain the first region
         assert!(v.ready());
-        assert_eq!(v.drain(), Some(test_data_at(0).to_vec()));
+        assert_eq!(v.drain(), test_data_at(0).to_vec());
 
         // second region became first because of shift but it is not ready to drain
         assert!(!v.ready());
-        assert_eq!(v.drain(), None);
 
         // However there should be no elements in the second region because of the shift
         assert_eq!(v.insert_test_data(1), None);
@@ -170,13 +176,11 @@ mod tests {
         v.insert_test_data(3);
 
         assert!(!v.ready());
-        assert_eq!(v.drain(), None);
 
         v.insert_test_data(1);
 
         // still not ready (element at 0 is missing)
         assert!(!v.ready());
-        assert_eq!(v.drain(), None);
 
         v.insert_test_data(0);
 
@@ -184,14 +188,20 @@ mod tests {
         assert!(v.ready());
         assert_eq!(
             v.drain(),
-            Some(vec![test_data_at(0), test_data_at(1)].into_iter().flatten().collect())
+            vec![test_data_at(0), test_data_at(1)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
         );
 
         // next region should be ready too as it was at capacity even earlier
         assert!(v.ready());
         assert_eq!(
             v.drain(),
-            Some(vec![test_data_at(2), test_data_at(3)].into_iter().flatten().collect())
+            vec![test_data_at(2), test_data_at(3)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
         );
 
         // in total, 4 elements left the buffer
@@ -199,7 +209,6 @@ mod tests {
 
         // buffer should be empty by now
         assert!(!v.ready());
-        assert_eq!(v.drain(), None);
     }
 
     #[test]

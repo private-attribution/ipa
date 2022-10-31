@@ -1,7 +1,5 @@
 #![deny(clippy::clone_on_ref_ptr)]
 
-extern crate core;
-
 pub mod chunkscan;
 pub mod cli;
 pub mod error;

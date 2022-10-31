@@ -5,7 +5,9 @@ pub mod error;
 pub mod fabric;
 pub mod messaging;
 
+pub use buffers::SendBufferConfig;
 pub use error::Result;
+pub use messaging::GatewayConfig;
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]

@@ -10,7 +10,8 @@ use tokio::sync::oneshot;
 /// when protection against collisions is not required, so either use a vector indexed by
 /// an offset + record or [xxHash](https://github.com/Cyan4973/xxHash)
 #[derive(Debug, Default)]
-pub(in crate::helpers) struct ReceiveBuffer {
+#[allow(clippy::module_name_repetitions)]
+pub struct ReceiveBuffer {
     inner: HashMap<ChannelId, HashMap<RecordId, ReceiveBufItem>>,
 }
 

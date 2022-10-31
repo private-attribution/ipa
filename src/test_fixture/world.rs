@@ -1,4 +1,5 @@
 use crate::helpers::messaging::GatewayConfig;
+use crate::helpers::SendBufferConfig;
 use crate::{
     helpers::messaging::Gateway,
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
@@ -28,18 +29,20 @@ impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
             gateway_config: GatewayConfig {
-                /// This value set to 1 effectively means no buffering. This is the desired mode
-                /// for unit tests to drive them to completion as fast as possible.
-                items_in_batch: 1,
+                send_buffer_config: SendBufferConfig {
+                    /// This value set to 1 effectively means no buffering. This is the desired mode
+                    /// for unit tests to drive them to completion as fast as possible.
+                    items_in_batch: 1,
 
-                /// How many messages can be sent in parallel. This value is picked arbitrarily as
-                /// most unit tests don't send more than this value, so the setup does not have to
-                /// be annoying. `items_in_batch` * `batch_count` defines the total capacity for
-                /// send buffer. Increasing this value does not really impact the latency for tests
-                /// because they flush the data to network once they've accumulated at least
-                /// `items_in_batch` elements. Ofc setting it to some absurdly large value is going
-                /// to be problematic from memory perspective.
-                batch_count: 40,
+                    /// How many messages can be sent in parallel. This value is picked arbitrarily as
+                    /// most unit tests don't send more than this value, so the setup does not have to
+                    /// be annoying. `items_in_batch` * `batch_count` defines the total capacity for
+                    /// send buffer. Increasing this value does not really impact the latency for tests
+                    /// because they flush the data to network once they've accumulated at least
+                    /// `items_in_batch` elements. Ofc setting it to some absurdly large value is going
+                    /// to be problematic from memory perspective.
+                    batch_count: 40,
+                },
             },
         }
     }

@@ -1,7 +1,7 @@
 use iai::black_box;
+use raw_ipa::ff::Fp31;
 use raw_ipa::test_fixture::circuit;
 use tokio::runtime::Builder;
-use raw_ipa::ff::Fp31;
 
 pub fn iai_benchmark() {
     let rt = Builder::new_multi_thread()
