@@ -1,17 +1,18 @@
 use crate::{
     error::BoxError,
+    ff::Field,
     protocol::{
         context::ProtocolContext,
         reveal::reveal_a_permutation,
         sort::ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
     },
-    secret_sharing::Replicated, ff::Field,
+    secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 
 use super::{
     apply::apply,
-    shuffle::{generate_random_permutations_using_prss, Shuffle},
+    shuffle::{get_two_of_three_random_permutations, Shuffle},
 };
 use tokio::try_join;
 
@@ -46,7 +47,7 @@ impl SecureApplyInv {
         sort_permutation: &'_ mut Vec<Replicated<F>>,
     ) -> Result<(), BoxError> {
         let mut random_permutations =
-            generate_random_permutations_using_prss(input.len(), &ctx.prss());
+            get_two_of_three_random_permutations(input.len(), &ctx.prss());
         let mut random_permutations_copy = random_permutations.clone();
 
         let mut shuffle_inputs = Shuffle::new(input);
@@ -60,11 +61,8 @@ impl SecureApplyInv {
             ),
         )?;
         let mut permutation =
-            reveal_a_permutation(&ctx.narrow(&RevealPermutation), sort_permutation).await?;
+            reveal_a_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
 
-        // 5. apply the permutation on the shuffled input
-        // The paper suggests taking apply_inv. However, Permutation::oneline returns an inverted permutation, so we are negating
-        // the effect by just calling apply instead of apply_inv here
         apply(&mut permutation, input);
         Ok(())
     }

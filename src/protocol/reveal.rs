@@ -1,3 +1,5 @@
+use std::iter::{repeat, zip};
+
 use crate::ff::Field;
 use crate::protocol::context::ProtocolContext;
 use crate::secret_sharing::Replicated;
@@ -5,14 +7,6 @@ use crate::{error::BoxError, helpers::Direction, protocol::RecordId};
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 use permutation::Permutation;
-use serde::{Deserialize, Serialize};
-
-/// A message sent by each helper when they've revealed their own shares
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct RevealValue<F> {
-    share: F,
-}
 
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
@@ -51,20 +45,15 @@ pub async fn reveal<F: Field>(
 /// from the revealed rows.
 #[allow(clippy::cast_possible_truncation, clippy::module_name_repetitions)]
 pub async fn reveal_a_permutation<F: Field>(
-    ctx: &ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, F>,
     permutations: &mut [Replicated<F>],
 ) -> Result<Permutation, BoxError> {
-    let reveals = permutations
-        .iter()
-        .enumerate()
-        .map(|(index, input)| async move {
-            reveal(
-                ctx.narrow(&index.to_string()),
-                RecordId::from(index as u32),
-                *input,
-            )
-            .await
-        });
+    let reveals =
+        zip(repeat(ctx), permutations)
+            .enumerate()
+            .map(|(index, (ctx, input))| async move {
+                reveal(ctx, RecordId::from(index as u32), *input).await
+            });
     let permutation = try_join_all(reveals).await?;
     let mut perms = Vec::new();
     for i in permutation {

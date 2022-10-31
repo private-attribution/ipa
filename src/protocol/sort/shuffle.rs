@@ -41,7 +41,7 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
 #[allow(clippy::cast_possible_truncation)]
-pub fn generate_random_permutations_using_prss(
+pub fn get_two_of_three_random_permutations(
     batchsize: usize,
     prss: &IndexedSharedRandomness,
 ) -> (Permutation, Permutation) {
@@ -213,7 +213,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            sort::shuffle::{generate_random_permutations_using_prss, Shuffle, ShuffleOrUnshuffle},
+            sort::shuffle::{get_two_of_three_random_permutations, Shuffle, ShuffleOrUnshuffle},
             QueryId, UniqueStepId,
         },
         test_fixture::{
@@ -229,9 +229,9 @@ mod tests {
         const BATCH_SIZE: usize = 10000;
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
-        let perm1 = generate_random_permutations_using_prss(BATCH_SIZE, p1.indexed(&step).as_ref());
-        let perm2 = generate_random_permutations_using_prss(BATCH_SIZE, p2.indexed(&step).as_ref());
-        let perm3 = generate_random_permutations_using_prss(BATCH_SIZE, p3.indexed(&step).as_ref());
+        let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
+        let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
+        let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.indexed(&step).as_ref());
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
@@ -265,12 +265,9 @@ mod tests {
         let input1 = shares.1.clone();
         let input2 = shares.2.clone();
 
-        let mut perm1 =
-            generate_random_permutations_using_prss(input_len, context[0].prss().as_ref());
-        let mut perm2 =
-            generate_random_permutations_using_prss(input_len, context[1].prss().as_ref());
-        let mut perm3 =
-            generate_random_permutations_using_prss(input_len, context[2].prss().as_ref());
+        let mut perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
+        let mut perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
+        let mut perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
 
         let [c0, c1, c2] = context;
         let mut shuffle0 = Shuffle::new(&mut shares.0);
@@ -326,12 +323,9 @@ mod tests {
 
         let mut shares = generate_shares(input);
 
-        let mut perm1 =
-            generate_random_permutations_using_prss(input_len, context[0].prss().as_ref());
-        let mut perm2 =
-            generate_random_permutations_using_prss(input_len, context[1].prss().as_ref());
-        let mut perm3 =
-            generate_random_permutations_using_prss(input_len, context[2].prss().as_ref());
+        let mut perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
+        let mut perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
+        let mut perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
 
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);
