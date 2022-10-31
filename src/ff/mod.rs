@@ -4,4 +4,4 @@
 
 mod field;
 
-pub use field::{Field, Fp31};
+pub use field::{Field, Fp31, Int};

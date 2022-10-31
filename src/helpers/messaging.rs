@@ -14,8 +14,7 @@ use crate::{
     protocol::{RecordId, UniqueStepId},
 };
 
-use crate::field::Field;
-use crate::field::Int;
+use crate::ff::{Field, Int};
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
