@@ -1,16 +1,10 @@
 use super::{field::BinaryField, Field};
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::Debug,
-    ops::{
-        Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Mul,
-        MulAssign, Neg, Not, Sub, SubAssign,
-    },
-};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
-    ( $( $field:ty ),* ) => { $(
-        impl Add for $field {
+    ( $field:ty ) => {
+        impl std::ops::Add for $field {
             type Output = Self;
 
             fn add(self, rhs: Self) -> Self::Output {
@@ -18,14 +12,14 @@ macro_rules! field_impl {
             }
         }
 
-        impl AddAssign for $field {
+        impl std::ops::AddAssign for $field {
             #[allow(clippy::assign_op_pattern)]
             fn add_assign(&mut self, rhs: Self) {
                 *self = *self + rhs;
             }
         }
 
-        impl Neg for $field {
+        impl std::ops::Neg for $field {
             type Output = Self;
 
             fn neg(self) -> Self::Output {
@@ -33,7 +27,7 @@ macro_rules! field_impl {
             }
         }
 
-        impl Sub for $field {
+        impl std::ops::Sub for $field {
             type Output = Self;
 
             fn sub(self, rhs: Self) -> Self::Output {
@@ -46,14 +40,14 @@ macro_rules! field_impl {
             }
         }
 
-        impl SubAssign for $field {
+        impl std::ops::SubAssign for $field {
             #[allow(clippy::assign_op_pattern)]
             fn sub_assign(&mut self, rhs: Self) {
                 *self = *self - rhs;
             }
         }
 
-        impl Mul for $field {
+        impl std::ops::Mul for $field {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self::Output {
@@ -64,7 +58,7 @@ macro_rules! field_impl {
             }
         }
 
-        impl MulAssign for $field {
+        impl std::ops::MulAssign for $field {
             #[allow(clippy::assign_op_pattern)]
             fn mul_assign(&mut self, rhs: Self) {
                 *self = *self * rhs;
@@ -90,17 +84,19 @@ macro_rules! field_impl {
             }
         }
 
-        impl Debug for $field {
+        impl std::fmt::Debug for $field {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}_mod{}", self.0, Self::PRIME)
             }
         }
-    )* };
+    };
 }
 
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Fp2(<Self as Field>::Integer);
+
+field_impl! { Fp2 }
 
 impl Field for Fp2 {
     type Integer = u8;
@@ -115,7 +111,7 @@ impl BitAnd for Fp2 {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        Self((self.0 & rhs.0) & 1)
+        Self(self.0 & rhs.0)
     }
 }
 
@@ -129,7 +125,7 @@ impl BitOr for Fp2 {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        Self((self.0 | rhs.0) & 1)
+        Self(self.0 | rhs.0)
     }
 }
 
@@ -143,7 +139,7 @@ impl BitXor for Fp2 {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Self((self.0 ^ rhs.0) & 1)
+        Self(self.0 ^ rhs.0)
     }
 }
 
@@ -157,7 +153,10 @@ impl Not for Fp2 {
     type Output = Self;
 
     fn not(self) -> Self::Output {
-        Self((self.0 + 1) & 1)
+        // Using `::from()` makes sure that the internal value is always 0 or 1, but since
+        // we use `u8` to represent a binary value, `!0` and `!1` will result in 255 and
+        // 254 respectively. Add `& 1` at the end to mask the LSB.
+        Self(!self.0 & 1)
     }
 }
 
@@ -172,12 +171,31 @@ impl Field for Fp31 {
     const ONE: Self = Fp31(1);
 }
 
-field_impl! { Fp2, Fp31 }
+field_impl! { Fp31 }
 
 #[cfg(test)]
 mod test {
     use super::{Field, Fp2, Fp31};
-    use std::ops::Mul;
+
+    #[allow(clippy::eq_op)]
+    fn zero_test<F: Field>(prime: u128) {
+        assert_eq!(F::ZERO, F::from(prime), "from takes a modulus",);
+        assert_eq!(F::ZERO, F::ZERO + F::ZERO);
+        assert_eq!(F::ZERO, F::ZERO - F::ZERO);
+        assert_eq!(F::from(prime - 1), F::ZERO - F::ONE);
+        assert_eq!(F::ZERO, F::ZERO * F::ONE);
+    }
+
+    fn invert_test<F: Field>(prime: u128) {
+        for i in 1..prime {
+            let field_element = F::from(i);
+            assert_eq!(
+                F::ONE,
+                field_element.invert().mul(field_element),
+                "{field_element:?}*1/{field_element:?} != 1"
+            );
+        }
+    }
 
     #[test]
     fn fp2() {
@@ -202,27 +220,27 @@ mod test {
         assert_eq!(zero, zero & one);
         assert_eq!(zero, one & zero);
         assert_eq!(zero, zero & zero);
-        assert_eq!(zero, Fp2(31) & Fp2(32));
-        assert_eq!(one, Fp2(31) & Fp2(63));
+        assert_eq!(zero, Fp2::from(31_u128) & Fp2::from(32_u128));
+        assert_eq!(one, Fp2::from(31_u128) & Fp2::from(63_u128));
 
         assert_eq!(zero, zero | zero);
         assert_eq!(one, one | one);
         assert_eq!(one, zero | one);
         assert_eq!(one, one | zero);
-        assert_eq!(one, Fp2(31) | Fp2(32));
-        assert_eq!(zero, Fp2(32) | Fp2(64));
+        assert_eq!(one, Fp2::from(31_u128) | Fp2::from(32_u128));
+        assert_eq!(zero, Fp2::from(32_u128) | Fp2::from(64_u128));
 
         assert_eq!(zero, zero ^ zero);
         assert_eq!(one, zero ^ one);
         assert_eq!(one, one ^ zero);
         assert_eq!(zero, one ^ one);
-        assert_eq!(one, Fp2(31) ^ Fp2(32));
-        assert_eq!(zero, Fp2(32) ^ Fp2(64));
+        assert_eq!(one, Fp2::from(31_u128) ^ Fp2::from(32_u128));
+        assert_eq!(zero, Fp2::from(32_u128) ^ Fp2::from(64_u128));
 
         assert_eq!(one, !zero);
         assert_eq!(zero, !one);
-        assert_eq!(one, !Fp2(32));
-        assert_eq!(zero, !Fp2(31));
+        assert_eq!(one, !Fp2::from(32_u128));
+        assert_eq!(zero, !Fp2::from(31_u128));
     }
 
     #[test]
@@ -240,22 +258,13 @@ mod test {
     }
 
     #[test]
-    fn zero() {
-        macro_rules! gen_zero_test {
-            ( $( $field:ident ),* ) => { $(
-                assert_eq!(
-                    $field(0),
-                    $field::from(<$field as Field>::PRIME),
-                    "from takes a modulus",
-                );
-                assert_eq!($field(0), $field(0) + $field(0));
-                assert_eq!($field(0), $field(0) - $field(0));
-                assert_eq!($field(<$field as Field>::PRIME - 1), $field(0) - $field(1));
-                assert_eq!($field(0), $field(0) * $field(1));
-            ) * };
-        }
+    fn zero_fp2() {
+        zero_test::<Fp2>(u128::from(Fp2::PRIME));
+    }
 
-        gen_zero_test!(Fp2, Fp31);
+    #[test]
+    fn zero_fp31() {
+        zero_test::<Fp31>(u128::from(Fp31::PRIME));
     }
 
     #[test]
@@ -279,21 +288,13 @@ mod test {
     }
 
     #[test]
-    fn invert() {
-        macro_rules! gen_invert_test {
-            ( $( $field:ident ),* ) => { $(
-                for i in 1..$field::PRIME {
-                    let field_element = $field(i);
-                    assert_eq!(
-                        $field::ONE,
-                        field_element.invert().mul(field_element),
-                        "{field_element:?}*1/{field_element:?} != 1"
-                    );
-                }
-            ) * }
-        }
+    fn invert_fp2() {
+        invert_test::<Fp2>(u128::from(Fp2::PRIME));
+    }
 
-        gen_invert_test!(Fp2, Fp31);
+    #[test]
+    fn invert_fp31() {
+        invert_test::<Fp31>(u128::from(Fp31::PRIME));
     }
 
     #[test]
