@@ -4,15 +4,33 @@ use crate::{
     helpers::{fabric::Network, Direction},
     protocol::{context::ProtocolContext, RecordId},
 };
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use std::io;
 
 use futures::future::try_join;
-use serde::{Deserialize, Serialize};
+use hyper::body::Buf;
+
+use crate::helpers::messaging::Message;
 
 /// A message sent by each helper when they've revealed their own shares
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Default)]
 pub struct RevealValue {
     share: bool,
+}
+
+impl Message for RevealValue {
+    const SIZE_IN_BYTES: u32 = 1;
+
+    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
+        Ok(RevealValue {
+            share: buf.reader().read_u8()? != 0,
+        })
+    }
+
+    fn serialize(self, mut buf: &mut [u8]) -> io::Result<()> {
+        buf.write_u8(self.share.into())
+    }
 }
 
 /// This implements a reveal algorithm for an additive binary secret sharing.

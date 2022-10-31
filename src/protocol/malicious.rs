@@ -11,14 +11,6 @@ use crate::{
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
 
-use serde::{Deserialize, Serialize};
-
-/// A message sent by each helper when they've computed one share of the result
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct UValue<F> {
-    payload: F,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     #[allow(dead_code)]
@@ -175,20 +167,17 @@ impl<F: Field> SecurityValidator<F> {
 
         let state = self.u_and_w.lock().unwrap();
         try_join(
-            channel.send(helper_right, RECORD_0, UValue { payload: state.u }),
-            channel.send(helper_right, RECORD_1, UValue { payload: state.w }),
+            channel.send(helper_right, RECORD_0, state.u),
+            channel.send(helper_right, RECORD_1, state.w),
         )
         .await?;
 
         // receive `u_i` value from helper to the left
-        let (u_left_struct, w_left_struct): (UValue<F>, UValue<F>) = try_join(
+        let (u_left, w_left): (F, F) = try_join(
             channel.receive(helper_left, RECORD_0),
             channel.receive(helper_left, RECORD_1),
         )
         .await?;
-
-        let u_left = u_left_struct.payload;
-        let w_left = w_left_struct.payload;
 
         let u_share = Replicated::new(u_left, state.u);
         let w_share = Replicated::new(w_left, state.w);
