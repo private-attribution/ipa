@@ -1,11 +1,10 @@
-use serde::{Deserialize, Serialize};
 use std::any::type_name;
+use std::fmt::Debug;
+use std::io;
 use std::io::ErrorKind;
-use std::ops::{BitAnd, Shr};
-use std::{
-    fmt::Debug,
-    io,
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+use std::ops::{
+    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Mul, MulAssign,
+    Neg, Not, Shr, Sub, SubAssign,
 };
 
 // Trait for primitive integer types used to represent the underlying type for field values
@@ -146,212 +145,15 @@ pub trait Field:
     }
 }
 
-// TODO(mt) - this code defining fields can be turned into a macro if we ever
-// need lots of fields with different primes.
-
-#[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
-pub struct Fp31(<Self as Field>::Integer);
-
-impl From<Fp31> for u8 {
-    fn from(v: Fp31) -> Self {
-        v.0
-    }
-}
-
-impl Field for Fp31 {
-    type Integer = u8;
-    const PRIME: Self::Integer = 31;
-    const ZERO: Self = Fp31(0);
-    const ONE: Self = Fp31(1);
-}
-
-impl Add for Fp31 {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        // TODO(mt) - constant time?
-        Self((self.0 + rhs.0) % Self::PRIME)
-    }
-}
-
-impl AddAssign for Fp31 {
-    #[allow(clippy::assign_op_pattern)]
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
-    }
-}
-
-impl Neg for Fp31 {
-    type Output = Self;
-
-    fn neg(self) -> Self::Output {
-        Self((Self::PRIME - self.0) % Self::PRIME)
-    }
-}
-
-impl Sub for Fp31 {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        // TODO(mt) - constant time?
-        // Note: no upcast needed here because `2*p < u8::MAX`.
-        Self((Self::PRIME + self.0 - rhs.0) % Self::PRIME)
-    }
-}
-
-impl SubAssign for Fp31 {
-    #[allow(clippy::assign_op_pattern)]
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = *self - rhs;
-    }
-}
-
-impl Mul for Fp31 {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        // TODO(mt) - constant time?
-        let c = u16::from;
-        #[allow(clippy::cast_possible_truncation)]
-        Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
-    }
-}
-
-impl MulAssign for Fp31 {
-    #[allow(clippy::assign_op_pattern)]
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
-}
-
-/// An infallible conversion from `u128` to this type.  This can be used to draw
-/// a random value in the field.  This introduces bias into the final value
-/// but for our purposes that bias is small provided that `2^128 >> PRIME`, which
-/// is true provided that `PRIME` is kept to at most 64 bits in value.
-///
-/// This method is simpler than rejection sampling for these small prime fields.
-impl<T: Into<u128>> From<T> for Fp31 {
-    fn from(v: T) -> Self {
-        #[allow(clippy::cast_possible_truncation)]
-        Self((v.into() % u128::from(Self::PRIME)) as <Self as Field>::Integer)
-    }
-}
-
-impl Debug for Fp31 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}_mod{}", self.0, Self::PRIME)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::{Field, Fp31};
-    use proptest::proptest;
-    use std::io;
-
-    use std::ops::Mul;
-
-    #[test]
-    fn fp31() {
-        let x = Fp31(24);
-        let y = Fp31(23);
-
-        assert_eq!(Fp31(16), x + y);
-        assert_eq!(Fp31(25), x * y);
-        assert_eq!(Fp31(1), x - y);
-
-        let mut x = Fp31(1);
-        x += Fp31(2);
-        assert_eq!(Fp31(3), x);
-    }
-
-    #[test]
-    fn zero() {
-        assert_eq!(
-            Fp31(0),
-            Fp31::from(<Fp31 as Field>::PRIME),
-            "from takes a modulus"
-        );
-        assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
-        assert_eq!(Fp31(0), Fp31(0) + Fp31(0));
-        assert_eq!(Fp31(<Fp31 as Field>::PRIME - 1), Fp31(0) - Fp31(1));
-        assert_eq!(Fp31(0), Fp31(0) * Fp31(1));
-    }
-
-    #[test]
-    fn pow() {
-        let zero = Fp31::ZERO;
-        let one = Fp31::ONE;
-
-        assert_eq!(Fp31(2), Fp31(2).pow(1));
-        assert_eq!(one, Fp31(2).pow(0));
-        assert_eq!(one, one.pow(0));
-        assert_eq!(one, one.pow(2));
-        assert_eq!(zero, zero.pow(2));
-
-        assert_eq!(Fp31(Fp31::PRIME - 1), Fp31(Fp31::PRIME - 1).pow(1));
-        assert_eq!(one, Fp31(2).pow(Fp31::PRIME - 1));
-
-        assert_eq!(Fp31(8), Fp31(2).pow(3));
-        assert_eq!(Fp31(5), Fp31(6).pow(2));
-        assert_eq!(Fp31(16), Fp31(4).pow(2));
-        assert_eq!(Fp31(27), Fp31(3).pow(3));
-    }
-
-    #[test]
-    fn invert() {
-        for i in 1..Fp31::PRIME {
-            let field_element = Fp31(i);
-            assert_eq!(
-                Fp31::ONE,
-                field_element.invert().mul(field_element),
-                "{field_element:?}*1/{field_element:?} != 1"
-            );
-        }
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic]
-    fn invert_panics_if_called_on_zero() {
-        // assertion does not matter here, test should panic when `invert` is called.
-        // it is here to silence #must_use warning
-        assert_ne!(Fp31::ZERO, Fp31(0).invert());
-    }
-
-    #[test]
-    fn ser_not_enough_capacity() {
-        let mut buf = [0; 0];
-        assert!(matches!(
-            Fp31::ONE.serialize(&mut buf),
-            Err(e) if e.kind() == io::ErrorKind::WriteZero));
-    }
-
-    #[test]
-    fn can_write_into_buf_larger_than_required() {
-        let mut buf = [0; 24];
-
-        // panic will show the error while assert will just tell us that something went wrong
-        Fp31::ONE.serialize(&mut buf).unwrap();
-    }
-
-    #[test]
-    fn de_buf_too_small() {
-        let mut buf = [0; 0];
-        assert!(matches!(
-            Fp31::deserialize(&mut buf),
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof));
-    }
-
-    proptest! {
-        #[test]
-        fn serde(v in 0..Fp31::PRIME) {
-            let field_v = Fp31(v);
-            let mut buf = vec![0; Fp31::SIZE_IN_BYTES as usize];
-            field_v.serialize(&mut buf).unwrap();
-
-            assert_eq!(field_v, Fp31::deserialize(&mut buf).unwrap());
-        }
-    }
+#[allow(clippy::module_name_repetitions)]
+pub trait BinaryField:
+    Field
+    + BitAnd<Output = Self>
+    + BitAndAssign
+    + BitOr<Output = Self>
+    + BitOrAssign
+    + BitXor<Output = Self>
+    + BitXorAssign
+    + Not
+{
 }

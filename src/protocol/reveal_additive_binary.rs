@@ -1,37 +1,11 @@
 use crate::{
     error::BoxError,
-    ff::Field,
+    ff::{Field, Fp2},
     helpers::{fabric::Network, Direction},
     protocol::{context::ProtocolContext, RecordId},
 };
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::io;
 
 use futures::future::try_join;
-use hyper::body::Buf;
-
-use crate::helpers::messaging::Message;
-
-/// A message sent by each helper when they've revealed their own shares
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Default)]
-pub struct RevealValue {
-    share: bool,
-}
-
-impl Message for RevealValue {
-    const SIZE_IN_BYTES: u32 = 1;
-
-    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
-        Ok(RevealValue {
-            share: buf.reader().read_u8()? != 0,
-        })
-    }
-
-    fn serialize(self, mut buf: &mut [u8]) -> io::Result<()> {
-        buf.write_u8(self.share.into())
-    }
-}
 
 /// This implements a reveal algorithm for an additive binary secret sharing.
 /// As this is an additive sharing, each helper has just one boolean share
@@ -48,23 +22,15 @@ impl RevealAdditiveBinary {
     pub async fn execute<N: Network, F: Field>(
         ctx: ProtocolContext<'_, N, F>,
         record_id: RecordId,
-        input: bool,
-    ) -> Result<bool, BoxError> {
+        input: Fp2,
+    ) -> Result<Fp2, BoxError> {
         let channel = ctx.mesh();
 
         // Send share to helper to the left
-        let future_left = channel.send(
-            ctx.role().peer(Direction::Left),
-            record_id,
-            RevealValue { share: input },
-        );
+        let future_left = channel.send(ctx.role().peer(Direction::Left), record_id, input);
 
         // Send share to helper to the right
-        let future_right = channel.send(
-            ctx.role().peer(Direction::Right),
-            record_id,
-            RevealValue { share: input },
-        );
+        let future_right = channel.send(ctx.role().peer(Direction::Right), record_id, input);
 
         try_join(future_left, future_right).await?;
 
@@ -74,10 +40,10 @@ impl RevealAdditiveBinary {
         // Sleep until `helper's right` sends their share
         let future_right = channel.receive(ctx.role().peer(Direction::Right), record_id);
 
-        let (share_from_left, share_from_right): (RevealValue, RevealValue) =
+        let (share_from_left, share_from_right): (Fp2, Fp2) =
             try_join(future_left, future_right).await?;
 
-        Ok(input ^ share_from_left.share ^ share_from_right.share)
+        Ok(input ^ share_from_left ^ share_from_right)
     }
 }
 
@@ -86,6 +52,7 @@ mod tests {
     use proptest::prelude::Rng;
 
     use crate::{
+        ff::Fp2,
         protocol::{reveal_additive_binary::RevealAdditiveBinary, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, TestWorld},
     };
@@ -115,9 +82,9 @@ mod tests {
             .map(|(i, b0, b1, b2, c0, c1, c2)| async move {
                 let record_id = RecordId::from(i);
 
-                let h0_future = RevealAdditiveBinary::execute(c0, record_id, b0);
-                let h1_future = RevealAdditiveBinary::execute(c1, record_id, b1);
-                let h2_future = RevealAdditiveBinary::execute(c2, record_id, b2);
+                let h0_future = RevealAdditiveBinary::execute(c0, record_id, Fp2::from(b0));
+                let h1_future = RevealAdditiveBinary::execute(c1, record_id, Fp2::from(b1));
+                let h2_future = RevealAdditiveBinary::execute(c2, record_id, Fp2::from(b2));
 
                 try_join_all(vec![h0_future, h1_future, h2_future]).await
             });
@@ -125,7 +92,7 @@ mod tests {
         let results = try_join_all(futures).await.unwrap();
 
         for i in 0..10 {
-            let correct_result = bools[i];
+            let correct_result = Fp2::from(bools[i]);
 
             assert_eq!(correct_result, results[i][0]);
             assert_eq!(correct_result, results[i][1]);
