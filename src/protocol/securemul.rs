@@ -38,9 +38,7 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
         let (s0, s1) = prss.generate_fields(self.record_id);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
-        let (a0, a1) = a.as_tuple();
-        let (b0, b1) = b.as_tuple();
-        let right_d = a0 * b1 + a1 * b0 - s0;
+        let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
         // notify helper on the right that we've computed our value
         channel
@@ -57,8 +55,8 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
             .await?;
 
         // now we are ready to construct the result - 2/3 secret shares of a * b.
-        let lhs = a0 * b0 + left_d + s0;
-        let rhs = a1 * b1 + right_d + s1;
+        let lhs = a.left() * b.left() + left_d + s0;
+        let rhs = a.right() * b.right() + right_d + s1;
 
         Ok(Replicated::new(lhs, rhs))
     }
