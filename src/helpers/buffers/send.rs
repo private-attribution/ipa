@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn rejects_records_out_of_range() {
-        let record_id = RecordId::from(11);
+        let record_id = RecordId::from(11_u32);
         let mut buf = SendBufferBuilder::default().build();
         let msg = empty_msg(record_id);
 
@@ -203,7 +203,7 @@ mod tests {
             .items_in_batch(10)
             .build();
         let channel = ChannelId::new(Identity::H1, UniqueStepId::default());
-        let record_id = RecordId::from(3);
+        let record_id = RecordId::from(3_u32);
         let m1 = empty_msg(record_id);
         let m2 = empty_msg(record_id);
 

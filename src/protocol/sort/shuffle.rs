@@ -7,8 +7,8 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::{
     error::BoxError,
-    field::Field,
-    helpers::{fabric::Network, Direction, Identity},
+    ff::Field,
+    helpers::{Direction, Identity},
     protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Step},
     secret_sharing::Replicated,
 };
@@ -98,9 +98,9 @@ impl<'a, F: Field> Shuffle<'a, F> {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    async fn reshare_all_shares<N: Network>(
+    async fn reshare_all_shares(
         &self,
-        ctx: &ProtocolContext<'_, N, F>,
+        ctx: &ProtocolContext<'_, F>,
         to_helper: Identity,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let reshares = self
@@ -120,10 +120,10 @@ impl<'a, F: Field> Shuffle<'a, F> {
     /// ii)  2 helpers apply the permutation to their shares
     /// iii) reshare to `to_helper`
     #[allow(clippy::cast_possible_truncation)]
-    async fn shuffle_or_unshuffle_once<N: Network>(
+    async fn shuffle_or_unshuffle_once(
         &mut self,
         shuffle_or_unshuffle: ShuffleOrUnshuffle,
-        ctx: &ProtocolContext<'_, N, F>,
+        ctx: &ProtocolContext<'_, F>,
         which_step: ShuffleStep,
         permutations: &(Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError> {
@@ -154,9 +154,9 @@ impl<'a, F: Field> Shuffle<'a, F> {
     /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
     /// ![Shuffle steps][shuffle]
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         &mut self,
-        ctx: ProtocolContext<'_, N, F>,
+        ctx: ProtocolContext<'_, F>,
         permutations: &(Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
@@ -183,9 +183,9 @@ impl<'a, F: Field> Shuffle<'a, F> {
     /// Order of calling `shuffle_or_unshuffle_once` is shuffle with (H1, H2), (H3, H1) and (H2, H3)
     /// ![Unshuffle steps][unshuffle]
     #[allow(dead_code)]
-    pub async fn execute_unshuffle<N: Network>(
+    pub async fn execute_unshuffle(
         &mut self,
-        ctx: ProtocolContext<'_, N, F>,
+        ctx: ProtocolContext<'_, F>,
         permutations: &(Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
@@ -213,7 +213,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         protocol::{
             sort::shuffle::{generate_random_permutation, Shuffle, ShuffleOrUnshuffle},
             QueryId, UniqueStepId,

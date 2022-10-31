@@ -4,19 +4,14 @@ pub mod logging;
 mod sharing;
 mod world;
 
-use self::fabric::InMemoryEndpoint;
+use crate::ff::{Field, Fp31};
 use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
+use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
 use crate::secret_sharing::Replicated;
-use crate::{
-    field::{Field, Fp31},
-    helpers::fabric::Network,
-    protocol::prss::Endpoint as PrssEndpoint,
-};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
-use std::sync::Arc;
 
 pub use sharing::{share, validate_and_reconstruct};
 pub use world::{make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig};
@@ -26,9 +21,7 @@ pub use world::{make as make_world, make_with_config as make_world_with_config, 
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts(
-    test_world: &TestWorld,
-) -> [ProtocolContext<'_, Arc<InMemoryEndpoint>, Fp31>; 3] {
+pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Fp31>; 3] {
     test_world
         .gateways
         .iter()
@@ -46,10 +39,10 @@ pub fn make_contexts(
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<'a, N: Network + std::fmt::Debug, F: Field>(
-    contexts: &[ProtocolContext<'a, N, F>; 3],
+pub fn narrow_contexts<'a, F: Field>(
+    contexts: &[ProtocolContext<'a, F>; 3],
     step: &impl Step,
-) -> [ProtocolContext<'a, N, F>; 3] {
+) -> [ProtocolContext<'a, F>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()

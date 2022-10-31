@@ -1,11 +1,12 @@
+use std::iter::{repeat, zip};
+
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 
-use crate::helpers::fabric::Network;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
@@ -43,9 +44,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         &self,
-        ctx: &ProtocolContext<'_, N, F>,
+        ctx: ProtocolContext<'_, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let share_of_one = Replicated::one(ctx.role());
 
@@ -54,21 +55,18 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             .iter()
             .map(move |x: &Replicated<F>| share_of_one - *x)
             .chain(self.input.iter().copied())
-            .enumerate()
-            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, (index, x)| {
+            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
                 *sum += x;
-                Some((
-                    ctx.narrow(&format!("record_{}", index)),
-                    RecordId::from(0),
-                    x,
-                    *sum,
-                ))
+                Some((x, *sum))
             });
 
-        let async_multiply = mult_input.map(|(ctx, record_id, x, sum)| async move {
-            //ctx.narrow(&Step::MultiplyAcross)
-            ctx.multiply(record_id).await.execute(x, sum).await
-        });
+        let async_multiply =
+            zip(repeat(ctx), mult_input)
+                .enumerate()
+                .map(|(i, (ctx, (x, sum)))| async move {
+                    // todo it is likely we need from(0) here as before?
+                    ctx.multiply(RecordId::from(i)).await.execute(x, sum).await
+                });
         let mut mult_output = try_join_all(async_multiply).await?;
 
         assert_eq!(mult_output.len(), self.input.len() * 2);
@@ -90,7 +88,7 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         protocol::{sort::bit_permutations::BitPermutations, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
     };
@@ -98,7 +96,7 @@ mod tests {
     #[tokio::test]
     pub async fn bit_permutations() {
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let [ctx0, ctx1, ctx2] = make_contexts(&world);
         let mut rand = StepRng::new(100, 1);
 
         // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
@@ -121,9 +119,9 @@ mod tests {
         let bitperms0 = BitPermutations::new(&shares[0]);
         let bitperms1 = BitPermutations::new(&shares[1]);
         let bitperms2 = BitPermutations::new(&shares[2]);
-        let h0_future = bitperms0.execute(&context[0]);
-        let h1_future = bitperms1.execute(&context[1]);
-        let h2_future = bitperms2.execute(&context[2]);
+        let h0_future = bitperms0.execute(ctx0);
+        let h1_future = bitperms1.execute(ctx1);
+        let h2_future = bitperms2.execute(ctx2);
 
         let result = try_join!(h0_future, h1_future, h2_future).unwrap();
 

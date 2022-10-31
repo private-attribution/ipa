@@ -1,4 +1,4 @@
-use crate::field::Field;
+use crate::ff::Field;
 use crate::secret_sharing::Replicated;
 use rand::Rng;
 use rand::RngCore;
@@ -24,13 +24,13 @@ pub fn validate_and_reconstruct<T: Field>(
     input: (Replicated<T>, Replicated<T>, Replicated<T>),
 ) -> T {
     assert_eq!(
-        input.0.as_tuple().0 + input.1.as_tuple().0 + input.2.as_tuple().0,
-        input.0.as_tuple().1 + input.1.as_tuple().1 + input.2.as_tuple().1
+        input.0.left() + input.1.left() + input.2.left(),
+        input.0.right() + input.1.right() + input.2.right()
     );
 
-    assert_eq!(input.0.as_tuple().1, input.1.as_tuple().0);
-    assert_eq!(input.1.as_tuple().1, input.2.as_tuple().0);
-    assert_eq!(input.2.as_tuple().1, input.0.as_tuple().0);
+    assert_eq!(input.0.right(), input.1.left());
+    assert_eq!(input.1.right(), input.2.left());
+    assert_eq!(input.2.right(), input.0.left());
 
-    input.0.as_tuple().0 + input.1.as_tuple().0 + input.2.as_tuple().0
+    input.0.left() + input.1.left() + input.2.left()
 }

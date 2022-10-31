@@ -6,8 +6,6 @@ use crate::{
 };
 use std::{fmt::Debug, sync::Arc};
 
-use super::fabric::InMemoryEndpoint;
-
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
@@ -16,7 +14,7 @@ use super::fabric::InMemoryEndpoint;
 #[allow(clippy::module_name_repetitions)]
 pub struct TestWorld {
     pub query_id: QueryId,
-    pub gateways: [Gateway<Arc<InMemoryEndpoint>>; 3],
+    pub gateways: [Gateway; 3],
     pub participants: [PrssEndpoint; 3],
     _network: Arc<InMemoryNetwork>,
 }
@@ -54,13 +52,7 @@ pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld
     let gateways = network
         .endpoints
         .iter()
-        .map(|endpoint| {
-            Gateway::new(
-                endpoint.identity,
-                Arc::clone(endpoint),
-                config.gateway_config,
-            )
-        })
+        .map(|endpoint| Gateway::new(endpoint.identity, endpoint, config.gateway_config))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

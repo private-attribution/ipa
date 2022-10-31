@@ -1,7 +1,7 @@
 use crate::{
     error::{BoxError, Error},
-    field::Field,
-    helpers::{fabric::Network, Direction},
+    ff::Field,
+    helpers::Direction,
     protocol::{
         check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
         reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2,
@@ -121,7 +121,7 @@ pub struct SecurityValidator<F> {
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new<N: Network>(ctx: ProtocolContext<'_, N, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: ProtocolContext<'_, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RECORD_0);
@@ -156,10 +156,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate<N: Network>(
-        self,
-        ctx: ProtocolContext<'_, N, F>,
-    ) -> Result<(), BoxError> {
+    pub async fn validate(self, ctx: ProtocolContext<'_, F>) -> Result<(), BoxError> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -199,7 +196,7 @@ impl<F: Field> SecurityValidator<F> {
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::Fp31;
+    use crate::ff::Fp31;
     use crate::protocol::{
         malicious::{SecurityValidator, Step},
         QueryId, RecordId,
@@ -248,12 +245,12 @@ pub mod tests {
             let (ra, rb) = try_join(
                 a_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(0))
+                    .multiply(RecordId::from(0_u32))
                     .await
                     .execute(a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(0))
+                    .multiply(RecordId::from(0_u32))
                     .await
                     .execute(b_shares[i], r_share),
             )
@@ -264,24 +261,24 @@ pub mod tests {
 
             acc.accumulate_macs(
                 &a_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(0),
+                RecordId::from(0_u32),
                 a_malicious,
             );
             acc.accumulate_macs(
                 &b_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(0),
+                RecordId::from(0_u32),
                 b_malicious,
             );
 
             let (ab, rab) = try_join(
                 a_ctx
                     .narrow("SingleMult")
-                    .multiply(RecordId::from(0))
+                    .multiply(RecordId::from(0_u32))
                     .await
                     .execute(a_shares[i], b_shares[i]),
                 a_ctx
                     .narrow("DoubleMult")
-                    .multiply(RecordId::from(0))
+                    .multiply(RecordId::from(0_u32))
                     .await
                     .execute(ra, b_shares[i]),
             )
@@ -289,7 +286,7 @@ pub mod tests {
 
             acc.accumulate_macs(
                 &a_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
-                RecordId::from(0),
+                RecordId::from(0_u32),
                 MaliciousReplicated::new(ab, rab),
             );
 
@@ -364,7 +361,7 @@ pub mod tests {
                             .enumerate()
                             .map(|(_i, (x, ctx))| async move {
                                 ctx.narrow("mult")
-                                    .multiply(RecordId::from(0))
+                                    .multiply(RecordId::from(0_u32))
                                     .await
                                     .execute(*x, r_share)
                                     .await
@@ -391,7 +388,7 @@ pub mod tests {
                                 .enumerate()
                                 .map(|(_i, ((a, b), ctx))| async move {
                                     ctx.narrow("SingleMult")
-                                        .multiply(RecordId::from(0))
+                                        .multiply(RecordId::from(0_u32))
                                         .await
                                         .execute(*a, *b)
                                         .await
@@ -405,7 +402,7 @@ pub mod tests {
                                 .enumerate()
                                 .map(|(_i, ((a, rb), ctx))| async move {
                                     ctx.narrow("DoubleMult")
-                                        .multiply(RecordId::from(0))
+                                        .multiply(RecordId::from(0_u32))
                                         .await
                                         .execute(*a, *rb)
                                         .await

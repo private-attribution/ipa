@@ -1,8 +1,7 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
 use crate::{
     error::BoxError,
-    field::Field,
-    helpers::fabric::Network,
+    ff::Field,
     protocol::{
         batch::{Batch, RecordIndex},
         context::ProtocolContext,
@@ -51,9 +50,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
     /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, N, F>,
+        ctx: ProtocolContext<'_, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -113,7 +112,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
                 accumulation_futures.push(Self::get_accumulated_credit(
                     ctx.narrow(multiply_step.next()),
-                    RecordId::from(0),
+                    RecordId::from(0_u32),
                     current,
                     successor,
                     iteration_step.is_first_iteration(),
@@ -154,8 +153,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         Ok(output)
     }
 
-    async fn get_accumulated_credit<N: Network>(
-        ctx: ProtocolContext<'_, N, F>,
+    async fn get_accumulated_credit(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
@@ -206,7 +205,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        field::{Field, Fp31},
+        ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},

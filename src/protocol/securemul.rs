@@ -1,28 +1,21 @@
 use crate::error::BoxError;
-use crate::field::Field;
-use crate::helpers::{fabric::Network, Direction};
+use crate::ff::Field;
+use crate::helpers::Direction;
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, N, F> {
-    ctx: ProtocolContext<'a, N, F>,
+pub struct SecureMul<'a, F> {
+    ctx: ProtocolContext<'a, F>,
     record_id: RecordId,
 }
 
-impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
-    pub fn new(ctx: ProtocolContext<'a, N, F>, record_id: RecordId) -> Self {
+impl<'a, F: Field> SecureMul<'a, F> {
+    pub fn new(ctx: ProtocolContext<'a, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -45,9 +38,7 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
         let (s0, s1) = prss.generate_fields(self.record_id);
 
         // compute the value (d_i) we want to send to the right helper (i+1)
-        let (a0, a1) = a.as_tuple();
-        let (b0, b1) = b.as_tuple();
-        let right_d = a0 * b1 + a1 * b0 - s0;
+        let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
         // notify helper on the right that we've computed our value
         channel
@@ -64,8 +55,8 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
             .await?;
 
         // now we are ready to construct the result - 2/3 secret shares of a * b.
-        let lhs = a0 * b0 + left_d + s0;
-        let rhs = a1 * b1 + right_d + s1;
+        let lhs = a.left() * b.left() + left_d + s0;
+        let rhs = a.right() * b.right() + right_d + s1;
 
         Ok(Replicated::new(lhs, rhs))
     }
@@ -74,21 +65,16 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
-    use crate::helpers::fabric::Network;
+    use crate::ff::{Field, Fp31};
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        fabric::InMemoryEndpoint, logging, make_contexts, make_world, share,
-        validate_and_reconstruct, TestWorld,
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
-    use std::sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    };
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -117,11 +103,9 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(
-            v: (ProtocolContext<'_, Arc<InMemoryEndpoint>, F>, MulArgs<F>),
-        ) -> Replicated<F> {
+        async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(0))
+            ctx.multiply(RecordId::from(0_u32))
                 .await
                 .execute(a, b)
                 .await
@@ -160,8 +144,8 @@ pub mod tests {
         }
     }
 
-    async fn multiply_sync<R: RngCore, N: Network, F: Field>(
-        context: [ProtocolContext<'_, N, F>; 3],
+    async fn multiply_sync<R: RngCore, F: Field>(
+        context: [ProtocolContext<'_, F>; 3],
         a: u8,
         b: u8,
         rng: &mut R,

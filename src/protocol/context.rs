@@ -6,9 +6,8 @@ use super::{
     RecordId, Step, UniqueStepId,
 };
 use crate::{
-    field::Field,
+    ff::Field,
     helpers::{
-        fabric::Network,
         messaging::{Gateway, Mesh},
         Identity,
     },
@@ -19,16 +18,16 @@ use crate::{
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, N, F> {
+pub struct ProtocolContext<'a, F> {
     role: Identity,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
-    gateway: &'a Gateway<N>,
+    gateway: &'a Gateway,
     accumulator: Option<SecurityValidatorAccumulator<F>>,
 }
 
-impl<'a, N, F> ProtocolContext<'a, N, F> {
-    pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway<N>) -> Self {
+impl<'a, F> ProtocolContext<'a, F> {
+    pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
             step: UniqueStepId::default(),
@@ -99,10 +98,10 @@ impl<'a, N, F> ProtocolContext<'a, N, F> {
     }
 }
 
-impl<'a, N: Network, F: Field> ProtocolContext<'a, N, F> {
+impl<'a, F: Field> ProtocolContext<'a, F> {
     /// Get a set of communications channels to different peers.
     #[must_use]
-    pub fn mesh(&self) -> Mesh<'_, '_, N> {
+    pub fn mesh(&self) -> Mesh<'_, '_> {
         self.gateway.mesh(&self.step)
     }
 
@@ -111,7 +110,7 @@ impl<'a, N: Network, F: Field> ProtocolContext<'a, N, F> {
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a, N, F> {
+    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a, F> {
         SecureMul::new(self, record_id)
     }
 
