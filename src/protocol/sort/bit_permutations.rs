@@ -44,10 +44,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    pub async fn execute(
-        &self,
-        ctx: ProtocolContext<'_, F>,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    pub async fn execute(&self, ctx: ProtocolContext<'_>) -> Result<Vec<Replicated<F>>, BoxError> {
         let share_of_one = Replicated::one(ctx.role());
 
         let mult_input = self

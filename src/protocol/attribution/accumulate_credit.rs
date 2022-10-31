@@ -52,7 +52,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -154,7 +154,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     }
 
     async fn get_accumulated_credit(
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_>,
         record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,

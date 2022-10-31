@@ -18,33 +18,20 @@ use crate::{
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, F> {
+pub struct ProtocolContext<'a> {
     role: Identity,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
-    accumulator: Option<SecurityValidatorAccumulator<F>>,
 }
 
-impl<'a, F> ProtocolContext<'a, F> {
+impl<'a> ProtocolContext<'a> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
             step: UniqueStepId::default(),
             prss: participant,
             gateway,
-            accumulator: None,
-        }
-    }
-
-    #[must_use]
-    pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> Self {
-        ProtocolContext {
-            role: self.role,
-            step: self.step,
-            prss: self.prss,
-            gateway: self.gateway,
-            accumulator: Some(accumulator),
         }
     }
 
@@ -69,9 +56,6 @@ impl<'a, F> ProtocolContext<'a, F> {
             step: self.step.narrow(step),
             prss: self.prss,
             gateway: self.gateway,
-            // TODO: make this work
-            // accumulator: self.accumulator, //TODO: make this work
-            accumulator: None, // God help me, I just can't make this work
         }
     }
 
@@ -98,7 +82,7 @@ impl<'a, F> ProtocolContext<'a, F> {
     }
 }
 
-impl<'a, F: Field> ProtocolContext<'a, F> {
+impl<'a> ProtocolContext<'a> {
     /// Get a set of communications channels to different peers.
     #[must_use]
     pub fn mesh(&self) -> Mesh<'_, '_> {
@@ -110,16 +94,19 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
     /// In this case, function returns only when multiplication for this record can actually
     /// be processed.
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a, F> {
+    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a> {
         SecureMul::new(self, record_id)
     }
 
     /// ## Panics
     /// If you failed to upgrade to malicious protocol context
     #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn malicious_multiply(self, _record_id: RecordId) {
+    pub async fn malicious_multiply<F: Field>(
+        self,
+        _accumulator: SecurityValidatorAccumulator<F>,
+        _record_id: RecordId,
+    ) {
         // -> MaliciouslySecureMul<'a, N, F> {
-        let _accumulator = self.accumulator.as_ref().unwrap().clone();
         // TODO: next diff!
         // MaliciouslySecureMul::new(self, record_id, accumulator)
     }

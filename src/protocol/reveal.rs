@@ -18,7 +18,7 @@ use embed_doc_image::embed_doc_image;
 #[embed_doc_image("reveal", "images/reveal.png")]
 #[allow(dead_code)]
 pub async fn reveal<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_>,
     record_id: RecordId,
     input: Replicated<F>,
 ) -> Result<F, BoxError> {

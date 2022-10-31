@@ -61,7 +61,7 @@ impl AsRef<str> for Step {
 /// back via the error response
 #[allow(dead_code)]
 pub async fn check_zero<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_>,
     record_id: RecordId,
     v: Replicated<F>,
 ) -> Result<bool, BoxError> {

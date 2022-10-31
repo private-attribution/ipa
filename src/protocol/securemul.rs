@@ -9,13 +9,13 @@ use std::fmt::Debug;
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, F> {
-    ctx: ProtocolContext<'a, F>,
+pub struct SecureMul<'a> {
+    ctx: ProtocolContext<'a>,
     record_id: RecordId,
 }
 
-impl<'a, F: Field> SecureMul<'a, F> {
-    pub fn new(ctx: ProtocolContext<'a, F>, record_id: RecordId) -> Self {
+impl<'a> SecureMul<'a> {
+    pub fn new(ctx: ProtocolContext<'a>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -26,7 +26,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute(
+    pub async fn execute<F: Field>(
         self,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -103,7 +103,7 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
+        async fn mul<F: Field>(v: (ProtocolContext<'_>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1_u32))
                 .await
@@ -144,15 +144,18 @@ pub mod tests {
         }
     }
 
-    async fn multiply_sync<R: RngCore, F: Field>(
-        context: &[ProtocolContext<'_, F>; 3],
+    async fn multiply_sync<R: RngCore>(
+        context: &[ProtocolContext<'_>; 3],
         narrowed_context_str: &str,
         a: u8,
         b: u8,
         rng: &mut R,
     ) -> Result<u128, BoxError> {
-        let a = F::from(u128::from(a));
-        let b = F::from(u128::from(b));
+        assert!(a < Fp31::PRIME);
+        assert!(b < Fp31::PRIME);
+
+        let a = Fp31::from(u128::from(a));
+        let b = Fp31::from(u128::from(b));
 
         thread_local! {
             static INDEX: AtomicU32 = AtomicU32::default();

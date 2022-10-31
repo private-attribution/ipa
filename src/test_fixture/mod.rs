@@ -4,7 +4,7 @@ pub mod logging;
 mod sharing;
 mod world;
 
-use crate::ff::{Field, Fp31};
+use crate::ff::Fp31;
 use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
@@ -21,7 +21,7 @@ pub use world::{make as make_world, TestWorld};
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Fp31>; 3] {
+pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_>; 3] {
     test_world
         .gateways
         .iter()
@@ -39,10 +39,10 @@ pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Fp31>; 3] {
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<'a, F: Field>(
-    contexts: &[ProtocolContext<'a, F>; 3],
+pub fn narrow_contexts<'a>(
+    contexts: &[ProtocolContext<'a>; 3],
     step: &impl Step,
-) -> [ProtocolContext<'a, F>; 3] {
+) -> [ProtocolContext<'a>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()

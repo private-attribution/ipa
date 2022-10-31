@@ -121,7 +121,7 @@ pub struct SecurityValidator<F> {
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: ProtocolContext<'_, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: ProtocolContext<'_>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RECORD_0);
@@ -156,7 +156,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(self, ctx: ProtocolContext<'_, F>) -> Result<(), BoxError> {
+    pub async fn validate(self, ctx: ProtocolContext<'_>) -> Result<(), BoxError> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);

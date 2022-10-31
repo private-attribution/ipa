@@ -67,7 +67,7 @@ impl ConvertShares {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let prss = &ctx.prss();
