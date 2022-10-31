@@ -3,7 +3,7 @@
 pub mod chunkscan;
 pub mod cli;
 pub mod error;
-pub mod field;
+pub mod ff;
 pub mod helpers;
 pub mod protocol;
 pub mod secret_sharing;

@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::{fabric::Network, Direction},
     protocol::{context::ProtocolContext, RecordId},
 };

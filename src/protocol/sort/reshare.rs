@@ -1,7 +1,7 @@
+use crate::ff::Field;
 use crate::helpers::fabric::Network;
 use crate::{
     error::BoxError,
-    field::Field,
     helpers::{Direction, Identity},
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
@@ -87,7 +87,7 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         helpers::Identity,
         protocol::{sort::reshare::Reshare, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},

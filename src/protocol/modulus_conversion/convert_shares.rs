@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::fabric::Network,
     protocol::{
         context::ProtocolContext,
@@ -114,7 +114,7 @@ impl ConvertShares {
 #[cfg(test)]
 mod tests {
     use crate::{
-        field::{Field, Fp31},
+        ff::{Field, Fp31},
         protocol::{
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
             QueryId, RecordId,

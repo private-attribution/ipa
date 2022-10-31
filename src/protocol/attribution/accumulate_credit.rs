@@ -1,7 +1,7 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::fabric::Network,
     protocol::{
         batch::{Batch, RecordIndex},
@@ -206,7 +206,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        field::{Field, Fp31},
+        ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},

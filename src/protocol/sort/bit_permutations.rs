@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
@@ -90,7 +90,7 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         protocol::{sort::bit_permutations::BitPermutations, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
     };

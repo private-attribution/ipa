@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::any::type_name;
 use std::io::ErrorKind;
 use std::ops::{BitAnd, Shr};
@@ -6,8 +7,6 @@ use std::{
     io,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-
-use serde::{Deserialize, Serialize};
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int:

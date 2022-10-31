@@ -7,7 +7,7 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::{fabric::Network, Direction, Identity},
     protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Step},
     secret_sharing::Replicated,
@@ -213,7 +213,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         protocol::{
             sort::shuffle::{generate_random_permutation, Shuffle, ShuffleOrUnshuffle},
             QueryId, UniqueStepId,

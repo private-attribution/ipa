@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::{fabric::Network, Direction, Identity},
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
@@ -185,7 +185,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field, N: Network>(
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
+    use crate::ff::{Field, Fp31};
     use crate::protocol::{
         modulus_conversion::specialized_mul::{
             multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes,

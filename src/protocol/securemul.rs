@@ -1,5 +1,5 @@
 use crate::error::BoxError;
-use crate::field::Field;
+use crate::ff::Field;
 use crate::helpers::{fabric::Network, Direction};
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
@@ -67,7 +67,7 @@ impl<'a, N: Network, F: Field> SecureMul<'a, N, F> {
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
+    use crate::ff::{Field, Fp31};
     use crate::helpers::fabric::Network;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;

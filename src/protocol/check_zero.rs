@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::fabric::Network,
     protocol::{context::ProtocolContext, reveal::reveal, RecordId},
     secret_sharing::Replicated,
@@ -83,7 +83,7 @@ pub async fn check_zero<F: Field, N: Network>(
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
+    use crate::ff::{Field, Fp31};
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
     use crate::test_fixture::{logging, make_contexts, make_world, share, TestWorld};
 

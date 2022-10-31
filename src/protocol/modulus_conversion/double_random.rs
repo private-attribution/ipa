@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     helpers::{fabric::Network, Identity},
     protocol::{
         context::ProtocolContext,
@@ -172,7 +172,7 @@ impl DoubleRandom {
 mod tests {
     use crate::{
         error::BoxError,
-        field::{Field, Fp31},
+        ff::{Field, Fp31},
         protocol::{
             modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
             QueryId, RecordId,
