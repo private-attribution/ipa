@@ -7,13 +7,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
-use serde::{Deserialize, Serialize};
 
-/// A message sent by each helper when they've reshared their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct PartValue<F> {
-    part: F,
-}
 /// Reshare(i, \[x\])
 // This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 // Input: Pi-1 and Pi+1 know their secret shares

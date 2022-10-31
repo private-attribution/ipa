@@ -6,14 +6,6 @@ use crate::{
     secret_sharing::Replicated,
 };
 
-use serde::{Deserialize, Serialize};
-
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
-
 /// A highly specialized variant of the IKHC multiplication protocol which is only valid
 /// in the case where 4 of the 6 shares are zero.
 ///
