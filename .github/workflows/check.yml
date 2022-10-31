@@ -14,6 +14,16 @@ jobs:
         with:
           components: clippy,rustfmt
 
+      - uses: actions/cache@v3
+        with:
+          path: |g
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
       - name: Build
         run: cargo build --tests
 
