@@ -1,10 +1,7 @@
 use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-
 use std::ops::Range;
-
-
 use crate::helpers::buffers::fsv::FixedSizeByteVec;
 use crate::protocol::RecordId;
 
@@ -26,10 +23,15 @@ pub(in crate::helpers) enum PushError {
         record_id: RecordId,
         accepted_range: Range<RecordId>,
     },
-    #[error("Record already exists")]
-    Duplicate,
+    #[error("Message with the same record id {record_id:?} has been already sent to {channel_id:?}")]
+    Duplicate {
+        channel_id: ChannelId,
+        record_id: RecordId,
+        previous_value: Box<[u8]>,
+    }
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct SendBufferBuilder {
     items_in_batch: u32,
     batch_count: u32,
@@ -69,19 +71,25 @@ impl SendBuffer {
         }
     }
 
+    /// TODO: change the output to Vec<u8> - we no longer need a wrapper. The raw byte vector
+    /// will be communicated down to the network layer.
+    #[allow(clippy::needless_pass_by_value)] // will be fixed when tiny/smallvec is used
     pub fn push(
         &mut self,
         channel_id: ChannelId,
         msg: MessageEnvelope,
     ) -> Result<Option<Vec<MessageEnvelope>>, PushError> {
-        let vec = match self.inner.entry(channel_id.clone()) {
+        assert!(msg.payload.len() <= ByteBuf::N1, "Message payload exceeds the maximum allowed size");
+
+        let buf = match self.inner.entry(channel_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry
                 .insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
         };
 
-        let start = RecordId::from(u32::try_from(vec.elements_drained()).unwrap());
-        let end = RecordId::from(u32::try_from(vec.elements_drained() + vec.capacity()).unwrap());
+        // Make sure record id is within the accepted range and reject the request if it is not
+        let start = RecordId::from(u32::try_from(buf.elements_drained()).unwrap());
+        let end = RecordId::from(u32::try_from(buf.elements_drained() + buf.capacity()).unwrap());
 
         if !(start..end).contains(&msg.record_id) {
             return Err(PushError::OutOfRange {
@@ -91,24 +99,25 @@ impl SendBuffer {
             })
         }
 
+        // Determine the offset for this record and insert the payload inside the buffer.
+        // Message payload may be less than allocated capacity per element, if that's the case
+        // payload will be extended to fill the gap.
         let index: u32 = u32::from(msg.record_id) - u32::from(start);
-
-        if msg.payload.len() > ByteBuf::N1 {
-            panic!("Message payload ({} bytes) exceeds maximum size allowed ({} bytes)", msg.payload.len(), vec.bytes_per_element());
-        }
-
         let mut payload = [0; ByteBuf::N1];
-        payload[..msg.payload.len()].copy_from_slice(msg.payload.as_ref());
-        if let Some(_) = vec.insert(index as usize, payload) {
-            return Err(PushError::Duplicate)
+        payload[..msg.payload.len()].copy_from_slice(&msg.payload);
+        if let Some(v) = buf.insert(index as usize, payload) {
+            return Err(PushError::Duplicate { record_id: msg.record_id, channel_id, previous_value: Box::new(v) })
         }
 
-        Ok(if vec.ready() {
-            let start_record_id = vec.elements_drained();
-            let mut buf = vec.drain().unwrap();
+        Ok(if buf.ready() {
+            // The next chunk is ready to be drained as byte vec has accumulated enough elements
+            // in its first region. Drain it and move the elements to call site.
+            // TODO: get rid of `Vec<MessageEnvelope>` and move `Vec<u8>` instead.
+            let start_record_id = buf.elements_drained();
+            let mut buf = buf.drain().unwrap();
 
             let envs = buf.chunks_mut(8).enumerate().map(|(i, chunk)| {
-                let record_id = RecordId::from((start_record_id + i) as u32);
+                let record_id = RecordId::from(start_record_id + i);
                 let payload = chunk.to_vec().into_boxed_slice();
                 MessageEnvelope { record_id, payload }
             }).collect::<Vec<_>>();
@@ -160,20 +169,20 @@ mod tests {
             .items_in_batch(10)
             .build();
 
-        let batch = (0u8..10).filter_map(|i| {
+        let batch = (0u8..10).find_map(|i| {
             let msg = MessageEnvelope {
                 record_id: RecordId::from(u32::from(i)),
                 payload: i.to_le_bytes().to_vec().into_boxed_slice()
             };
             buf.push(c1.clone(), msg).ok().flatten()
-        }).next().unwrap();
+        }).unwrap();
 
         for v in batch {
             let payload = u64::from_le_bytes(v.payload.as_ref().try_into().unwrap());
             assert!(payload < u64::from(u8::MAX));
 
             assert_eq!(
-                u32::from(payload as u8),
+                u32::from(u8::try_from(payload).unwrap()),
                 u32::from(v.record_id),
             );
         }
@@ -210,7 +219,7 @@ mod tests {
         assert!(matches!(buf.push(channel.clone(), m1), Ok(None)));
         assert!(matches!(
                 buf.push(channel, m2),
-                Err(PushError::Duplicate)
+                Err(PushError::Duplicate { .. })
             ));
     }
 
@@ -267,7 +276,7 @@ mod tests {
             }
         }
 
-        assert!(batch_processed)
+        assert!(batch_processed);
     }
 
     fn empty_msg<I: TryInto<u32>>(record_id: I) -> MessageEnvelope where I::Error: std::fmt::Debug {

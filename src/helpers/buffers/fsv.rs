@@ -36,10 +36,6 @@ impl <const N: usize> FixedSizeByteVec<N> {
 
     pub const N1: usize = N;
 
-    pub const fn bytes_per_element(&self) -> usize {
-        N
-    }
-
     pub fn new(region_count: usize, region_size: usize) -> Self {
         Self {
             data: vec![0_u8; N * region_size * region_count],
@@ -162,7 +158,7 @@ mod tests {
 
         // However there should be no elements in the second region because of the shift
         assert_eq!(v.insert_test_data(1), None);
-        assert_eq!(1, v.elements_drained())
+        assert_eq!(1, v.elements_drained());
     }
 
     #[test]

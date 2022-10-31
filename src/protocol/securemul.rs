@@ -81,7 +81,6 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        // let context = make_contexts(&world);
         let mut rand = StepRng::new(1, 1);
 
         assert_eq!(30, multiply_sync(make_contexts(&world), 6, 5, &mut rand).await?);

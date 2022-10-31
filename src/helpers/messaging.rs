@@ -22,7 +22,6 @@ use std::io;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
 use tracing::Instrument;
 use crate::helpers::buffers::SendBufferBuilder;
 
@@ -182,7 +181,7 @@ impl Gateway {
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
                         tracing::trace!("new send request: {:?} to {channel_id:?}", msg);
-                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).unwrap() {
+                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg).expect("Failed to append data to the send buffer") {
                             tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
                                 .expect("Failed to send data to the network");

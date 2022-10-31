@@ -45,6 +45,9 @@ impl Default for TestWorldConfig {
     }
 }
 
+/// Creates a new `TestWorld` instance using the provided `config`.
+#[must_use]
+#[allow(clippy::missing_panics_doc)]
 pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
