@@ -26,9 +26,8 @@ pub async fn reveal<F: Field, N: Network>(
 ) -> Result<F, BoxError> {
     let channel = ctx.mesh();
 
-    let inputs = input.as_tuple();
     channel
-        .send(ctx.role().peer(Direction::Right), record_id, inputs.0)
+        .send(ctx.role().peer(Direction::Right), record_id, input.left())
         .await?;
 
     // Sleep until `helper's left` sends their share
@@ -36,7 +35,7 @@ pub async fn reveal<F: Field, N: Network>(
         .receive(ctx.role().peer(Direction::Left), record_id)
         .await?;
 
-    Ok(inputs.0 + inputs.1 + share)
+    Ok(input.left() + input.right() + share)
 }
 
 #[cfg(test)]
