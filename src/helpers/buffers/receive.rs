@@ -3,6 +3,7 @@ use crate::protocol::RecordId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
+use crate::helpers::MessagePayload;
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
 /// that are pending message reception.
@@ -18,9 +19,9 @@ pub struct ReceiveBuffer {
 #[derive(Debug)]
 enum ReceiveBufItem {
     /// There is an outstanding request to receive the message but this helper hasn't seen it yet
-    Requested(oneshot::Sender<Box<[u8]>>),
+    Requested(oneshot::Sender<MessagePayload>),
     /// Message has been received but nobody requested it yet
-    Received(Box<[u8]>),
+    Received(MessagePayload),
 }
 
 impl ReceiveBuffer {
@@ -29,7 +30,7 @@ impl ReceiveBuffer {
         &mut self,
         channel_id: ChannelId,
         record_id: RecordId,
-        sender: oneshot::Sender<Box<[u8]>>,
+        sender: oneshot::Sender<MessagePayload>,
     ) {
         match self.inner.entry(channel_id).or_default().entry(record_id) {
             Entry::Occupied(entry) => match entry.remove() {

@@ -20,9 +20,11 @@ use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::io;
+use tinyvec::array_vec;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
+use crate::helpers::{MESSAGE_PAYLOAD_SIZE_BYTES, MessagePayload};
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -89,7 +91,7 @@ pub struct Mesh<'a, 'b> {
 pub(super) struct ReceiveRequest {
     pub channel_id: ChannelId,
     pub record_id: RecordId,
-    pub sender: oneshot::Sender<Box<[u8]>>,
+    pub sender: oneshot::Sender<MessagePayload>,
 }
 
 impl Mesh<'_, '_> {
@@ -104,12 +106,18 @@ impl Mesh<'_, '_> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let mut buf = vec![0; T::SIZE_IN_BYTES as usize];
+        if T::SIZE_IN_BYTES as usize > MESSAGE_PAYLOAD_SIZE_BYTES {
+            Err(Error::serialization_error::<String>(record_id,
+                                      self.step,
+                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}").into())
+            )?
+        }
+
+        let mut buf = array_vec![0; MESSAGE_PAYLOAD_SIZE_BYTES];
         msg.serialize(&mut buf)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
-        let payload = buf.into_boxed_slice();
-        let envelope = MessageEnvelope { record_id, payload };
+        let envelope = MessageEnvelope { record_id, payload: buf };
 
         self.gateway
             .send(ChannelId::new(dest, self.step.clone()), envelope)
@@ -219,7 +227,7 @@ impl Gateway {
         &self,
         channel_id: ChannelId,
         record_id: RecordId,
-    ) -> Result<Box<[u8]>, Error> {
+    ) -> Result<MessagePayload, Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(ReceiveRequest {

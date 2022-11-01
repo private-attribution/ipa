@@ -1,8 +1,9 @@
-use crate::helpers::{error::Error, Identity};
+use crate::helpers::{error::Error, Identity, MessagePayload};
 use crate::protocol::{RecordId, UniqueStepId};
 use async_trait::async_trait;
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
+
 
 /// Combination of helper identity and step that uniquely identifies a single channel of communication
 /// between two helpers.
@@ -15,7 +16,7 @@ pub struct ChannelId {
 #[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
-    pub payload: Box<[u8]>,
+    pub payload: MessagePayload,
 }
 
 pub type MessageChunks = (ChannelId, Vec<MessageEnvelope>);

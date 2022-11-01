@@ -1,4 +1,5 @@
 use std::ops::{Index, IndexMut};
+use tinyvec::ArrayVec;
 
 mod buffers;
 mod error;
@@ -11,6 +12,9 @@ pub use buffers::SendBufferConfig;
 pub use error::Error;
 pub use error::Result;
 pub use messaging::GatewayConfig;
+
+pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
+type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
 /// Represents a unique identity of each helper running MPC computation.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]

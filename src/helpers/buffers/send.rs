@@ -4,11 +4,12 @@ use crate::protocol::RecordId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
+use crate::helpers::{MESSAGE_PAYLOAD_SIZE_BYTES, MessagePayload};
 
 /// Use the buffer that allocates 8 bytes per element. It could probably go down to 4 if the
 /// only thing IPA sends is a single field value. To support arbitrarily sized values, it needs
 /// to be at least 16 bytes to be able to store a fat pointer in it.
-type ByteBuf = FixedSizeByteVec<8>;
+type ByteBuf = FixedSizeByteVec<{MESSAGE_PAYLOAD_SIZE_BYTES}>;
 
 /// Buffer that keeps messages that must be sent to other helpers
 #[derive(Debug)]
@@ -33,7 +34,7 @@ pub enum PushError {
     Duplicate {
         channel_id: ChannelId,
         record_id: RecordId,
-        previous_value: Box<[u8]>,
+        previous_value: MessagePayload,
     },
 }
 
@@ -110,7 +111,7 @@ impl SendBuffer {
             return Err(PushError::Duplicate {
                 record_id: msg.record_id,
                 channel_id,
-                previous_value: Box::new(v),
+                previous_value: v.try_into().unwrap(),
             });
         }
 
@@ -128,7 +129,9 @@ impl SendBuffer {
                 .enumerate()
                 .map(|(i, chunk)| {
                     let record_id = RecordId::from(start_record_id + i);
-                    let payload = chunk.to_vec().into_boxed_slice();
+                    // Safety: element is aligned to the maximum possible payload size.
+                    let payload = chunk.try_into().unwrap();
+
                     MessageEnvelope { record_id, payload }
                 })
                 .collect::<Vec<_>>();
@@ -160,13 +163,14 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::helpers::buffers::send::{Config, PushError};
+    use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
     use crate::helpers::buffers::SendBuffer;
     use crate::helpers::Identity;
     use crate::protocol::{RecordId, UniqueStepId};
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use std::cmp::Ordering;
+    use tinyvec::array_vec;
 
     use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 
@@ -200,7 +204,7 @@ mod tests {
             .find_map(|i| {
                 let msg = MessageEnvelope {
                     record_id: RecordId::from(u32::from(i)),
-                    payload: i.to_le_bytes().to_vec().into_boxed_slice(),
+                    payload: array_vec!([u8; ByteBuf::ELEMENT_SIZE_BYTES] => i)
                 };
                 buf.push(c1.clone(), msg).ok().flatten()
             })
@@ -308,7 +312,7 @@ mod tests {
     {
         MessageEnvelope {
             record_id: RecordId::from(record_id.try_into().unwrap()),
-            payload: Box::new([]),
+            payload: array_vec!()
         }
     }
 }
