@@ -58,6 +58,7 @@ pub async fn reveal_a_permutation<F: Field>(
     }
     Ok(Permutation::oneline(perms))
 }
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::Rng;

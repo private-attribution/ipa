@@ -39,15 +39,14 @@ impl<'a, F: Field> Compose<'a, F> {
     /// 2. First permutation (sigma) is shuffled with random permutations
     /// 3. Reveal the permutation
     /// 4. Revealed permutation is applied locally on another permutation shares (rho)
-    /// 5. Unshuffle the permutation with random permutations to negate the effect of shuffling
+    /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
     #[allow(dead_code)]
     pub async fn execute(&mut self, ctx: ProtocolContext<'_, F>) -> Result<(), BoxError> {
         let mut random_permutations =
             get_two_of_three_random_permutations(self.rho.len(), &ctx.prss());
         let mut random_permutations_copy = random_permutations.clone();
 
-        let mut shuffle_sigma = Shuffle::new(self.sigma);
-        shuffle_sigma
+        Shuffle::new(self.sigma)
             .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
             .await?;
 
@@ -55,8 +54,7 @@ impl<'a, F: Field> Compose<'a, F> {
 
         apply_inv(&mut perms, &mut self.rho);
 
-        let mut unshuffle_rho = Shuffle::new(self.rho);
-        unshuffle_rho
+        Shuffle::new(self.rho)
             .execute_unshuffle(ctx.narrow(&UnshuffleRho), &mut random_permutations_copy)
             .await?;
 
@@ -71,17 +69,18 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
+        error::BoxError,
         protocol::{
             sort::{apply::apply_inv, compose::Compose},
             QueryId,
         },
         test_fixture::{
-            generate_shares, make_contexts, make_world, validate_result_from_shares, TestWorld,
+            generate_shares, make_contexts, make_world, validate_list_of_shares, TestWorld,
         },
     };
 
     #[tokio::test]
-    pub async fn compose() {
+    pub async fn compose() -> Result<(), BoxError> {
         const BATCHSIZE: usize = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
@@ -97,9 +96,7 @@ mod tests {
             let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
 
             let mut rho_composed = rho_u128.clone();
-
-            let mut sigma_copy = Permutation::oneline(sigma.clone());
-            apply_inv(&mut sigma_copy, &mut rho_composed);
+            apply_inv(&mut Permutation::oneline(sigma.clone()), &mut rho_composed);
 
             let mut sigma_shares = generate_shares(sigma_u128);
             let mut rho_shares = generate_shares(rho_u128);
@@ -114,14 +111,15 @@ mod tests {
             let h1_future = compose1.execute(ctx1);
             let h2_future = compose2.execute(ctx2);
 
-            try_join!(h0_future, h1_future, h2_future).unwrap();
+            try_join!(h0_future, h1_future, h2_future)?;
 
             assert_eq!(rho_shares.0.len(), BATCHSIZE);
             assert_eq!(rho_shares.1.len(), BATCHSIZE);
             assert_eq!(rho_shares.2.len(), BATCHSIZE);
 
             // We should get the same result of applying inverse of sigma on rho as in clear
-            validate_result_from_shares(&rho_composed, &rho_shares);
+            validate_list_of_shares(&rho_composed, &rho_shares);
         }
+        Ok(())
     }
 }
