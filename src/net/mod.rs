@@ -2,11 +2,9 @@
 #![allow(clippy::type_repetition_in_bounds)]
 
 mod client;
-mod data;
 mod server;
 
-pub use client::{MpcHandle, MpcHttpConnection as Client};
-pub use data::Command;
+pub use client::MpcClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
 pub use server::{BindTarget, MpcServer};

@@ -1,6 +1,6 @@
 use clap::Parser;
 use raw_ipa::cli::Verbosity;
-use raw_ipa::net::{Client, Command, MpcHandle};
+use raw_ipa::net::MpcClient;
 use std::error::Error;
 
 #[derive(Debug, Parser)]
@@ -22,9 +22,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _handle = args.logging.setup_logging();
 
     // TODO: Start MPC helpers and discover
-    let client = Client::with_str_addr(&args.uri)?;
+    let client = MpcClient::with_str_addr(&args.uri)?;
 
-    let response = client.execute(Command::Echo("hello".into())).await?;
+    let response = client.echo("hello").await?;
 
     println!(
         "Response: {:?}",
