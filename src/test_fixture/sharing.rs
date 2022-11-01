@@ -41,7 +41,7 @@ pub fn validate_and_reconstruct<T: Field>(
 ///
 /// # Panics
 /// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
-pub fn validate_result_from_shares(expected_result: &[u128], result: &ReplicatedShares) {
+pub fn validate_list_of_shares(expected_result: &[u128], result: &ReplicatedShares) {
     (0..result.0.len()).for_each(|i| {
         assert_eq!(
             validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),

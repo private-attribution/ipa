@@ -107,7 +107,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
             .enumerate()
             .map(|(index, input)| async move {
                 Reshare::new(*input)
-                    .execute(ctx, RecordId::from(index as u32), to_helper)
+                    .execute(ctx, RecordId::from(index), to_helper)
                     .await
             });
         try_join_all(reshares).await

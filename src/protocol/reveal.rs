@@ -46,18 +46,15 @@ pub async fn reveal<F: Field>(
 #[allow(clippy::cast_possible_truncation, clippy::module_name_repetitions)]
 pub async fn reveal_a_permutation<F: Field>(
     ctx: ProtocolContext<'_, F>,
-    permutations: &mut [Replicated<F>],
+    permutation: &mut [Replicated<F>],
 ) -> Result<Permutation, BoxError> {
-    let reveals =
-        zip(repeat(ctx), permutations)
-            .enumerate()
-            .map(|(index, (ctx, input))| async move {
-                reveal(ctx, RecordId::from(index as u32), *input).await
-            });
-    let permutation = try_join_all(reveals).await?;
+    let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
+        |(index, (ctx, input))| async move { reveal(ctx, RecordId::from(index), *input).await },
+    ))
+    .await?;
     let mut perms = Vec::new();
-    for i in permutation {
-        perms.push(i.as_u128() as usize);
+    for i in revealed_permutation {
+        perms.push(i.as_u128().try_into()?);
     }
     Ok(Permutation::oneline(perms))
 }

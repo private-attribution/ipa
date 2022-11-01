@@ -14,8 +14,7 @@ use super::{
     apply::apply,
     shuffle::{get_two_of_three_random_permutations, Shuffle},
 };
-use tokio::try_join;
-
+use futures::future::try_join;
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -48,21 +47,18 @@ impl SecureApplyInv {
     ) -> Result<(), BoxError> {
         let mut random_permutations =
             get_two_of_three_random_permutations(input.len(), &ctx.prss());
-        let mut random_permutations_copy = random_permutations.clone();
 
-        let mut shuffle_inputs = Shuffle::new(input);
-        let mut shuffle_permutation = Shuffle::new(sort_permutation);
-
-        let (_, _) = try_join!(
-            shuffle_inputs.execute(ctx.narrow(&ShuffleInputs), &mut random_permutations,),
-            shuffle_permutation.execute(
-                ctx.narrow(&ShufflePermutation),
-                &mut random_permutations_copy
-            ),
-        )?;
+        let (_, _) = try_join(
+            Shuffle::new(input)
+                .execute(ctx.narrow(&ShuffleInputs), &mut random_permutations.clone()),
+            Shuffle::new(sort_permutation)
+                .execute(ctx.narrow(&ShufflePermutation), &mut random_permutations),
+        )
+        .await?;
         let mut permutation =
             reveal_a_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
-
+        // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
+        // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
         apply(&mut permutation, input);
         Ok(())
     }
@@ -75,8 +71,8 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        protocol::{sort::apply::apply_inv, QueryId},
-        test_fixture::{generate_shares, make_contexts, make_world, validate_result_from_shares},
+        protocol::{sort::apply::apply, QueryId},
+        test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
     };
 
     use super::SecureApplyInv;
@@ -92,9 +88,12 @@ mod tests {
             permutation.shuffle(&mut rng);
 
             let mut expected_result = input.clone();
-            let mut cloned_perm = Permutation::oneline(permutation.clone()).inverse();
+            let mut cloned_perm = Permutation::oneline(permutation.clone());
+            // The actual paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(perm.inverse(), input))
+            // Since this is same as apply(perm, input), we are doing that instead both in the code and in the test.
 
-            apply_inv(&mut cloned_perm, &mut expected_result);
+            // Applying permutation on the input in clear to get the expected result
+            apply(&mut cloned_perm, &mut expected_result);
 
             let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
 
@@ -118,7 +117,7 @@ mod tests {
             assert_eq!(input_shares.2.len(), BATCHSIZE);
 
             // We should get the same result of applying inverse as what we get when applying in clear
-            validate_result_from_shares(&expected_result, &input_shares);
+            validate_list_of_shares(&expected_result, &input_shares);
         }
     }
 }

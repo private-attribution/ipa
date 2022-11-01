@@ -89,7 +89,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{sort::bit_permutations::BitPermutations, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_result_from_shares},
+        test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
     };
 
     #[tokio::test]
@@ -128,6 +128,6 @@ mod tests {
         assert_eq!(result.1.len(), input_len);
         assert_eq!(result.2.len(), input_len);
 
-        validate_result_from_shares(&expected_sort_output, &result);
+        validate_list_of_shares(&expected_sort_output, &result);
     }
 }
