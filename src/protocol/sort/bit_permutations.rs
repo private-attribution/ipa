@@ -1,15 +1,19 @@
+use std::iter::{repeat, zip};
+
 use crate::{
     error::BoxError,
-    field::Field,
+    ff::Field,
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 
-use crate::helpers::fabric::Network;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-/// Generate bit permutations for a given bit column of query.
-/// This is GENBITPERM(Algorithm 3) described in <https://eprint.iacr.org/2019/695.pdf>.
+
+/// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
+/// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
+/// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
+/// <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
 pub struct BitPermutations<'a, F> {
     input: &'a [Replicated<F>],
@@ -21,62 +25,47 @@ impl<'a, F: Field> BitPermutations<'a, F> {
         Self { input }
     }
 
-    /// In this step, multiplication inputs are generated locally at each helper from input share, x in following steps
-    /// 1. calculate 1 - x, x and concatenate them
-    /// 2. calculate cumulative sum at each vector row
-    /// 3. return back tuple of step 1 and step 2 output
-    #[allow(clippy::cast_possible_truncation)]
-    fn prepare_mult_inputs<N: Network>(
-        &self,
-        ctx: &ProtocolContext<'a, N>,
-    ) -> impl Iterator<Item = (RecordId, (Replicated<F>, Replicated<F>))> + 'a {
-        let share_of_one = Replicated::one(ctx.role());
-
-        self.input
-            .iter()
-            .map(move |x: &Replicated<F>| share_of_one - *x)
-            .chain(self.input.iter().copied())
-            .enumerate()
-            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, (index, n)| {
-                *sum += n;
-                Some((RecordId::from(index as u32), (n, *sum)))
-            })
-    }
-
-    /// multiplies the input vector pairs across helpers and returns result
-    /// For this, it spawns all multiplication, wait for them to finish in parallel and then collect the results
-    #[allow(clippy::cast_possible_truncation)]
-    async fn secure_multiply<N: Network>(
-        &self,
-        ctx: &ProtocolContext<'a, N>,
-        mult_input: (RecordId, (Replicated<F>, Replicated<F>)),
-    ) -> Result<Replicated<F>, BoxError> {
-        let (record_id, share) = mult_input;
-        ctx.multiply(record_id)
-            .await
-            .execute(share.0, share.1)
-            .await
-    }
     #[embed_doc_image("bit_permutations", "images/sort/bit_permutations.png")]
-    /// Executes sorting of a bit column on mpc helpers. Each helper receives their input shares and do following steps
-    /// 1. local computation by `prepare_mult_inputs` which outputs 2 vectors [x,y]
-    /// 2. multiply each row of previous output individually (i.e. x*y) across mpc helpers.
-    /// 3. add ith column by i+len to obtain helper's share of sorted location, where len is same as input shares length
+    /// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
+    ///
+    /// At a high level, the protocol works as follows:
+    /// 1. Start with a list of `n` secret shares `[x_1]` ... `[x_n]` where each is a secret sharing of either zero or one.
+    /// 2. Create a vector of length `2*n` where the first `n` rows have the values `[1 - x_1]` ... `[1 - x_n]`
+    /// and the next `n` rows have the value `[x_1]` ... `[x_n]`
+    /// 3. Compute a new vector of length `2*n` by computing the running sum of the vector from step 2.
+    /// 4. Compute another vector of length `2*n` by multipling the vectors from steps 2 and 3 element-wise.
+    /// 5. Compute the final output, a vector of length `n`. Each element `i` in this output vector is the sum of
+    /// the elements at index `i` and `i+n` from the vector computed in step 4.
+    ///
     /// ![Bit Permutations steps][bit_permutations]
     /// ## Panics
-    ///
     /// In case the function is unable to get double size of output from multiplication step, the code will panic
     ///
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         &self,
-        ctx: &ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mult_input = self.prepare_mult_inputs(ctx);
+        let share_of_one = Replicated::one(ctx.role());
+
+        let mult_input = self
+            .input
+            .iter()
+            .map(move |x: &Replicated<F>| share_of_one - *x)
+            .chain(self.input.iter().copied())
+            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
+                *sum += x;
+                Some((x, *sum))
+            });
+
         let async_multiply =
-            mult_input.map(|input| async move { self.secure_multiply(ctx, input).await });
+            zip(repeat(ctx), mult_input)
+                .enumerate()
+                .map(|(i, (ctx, (x, sum)))| async move {
+                    ctx.multiply(RecordId::from(i)).await.execute(x, sum).await
+                });
         let mut mult_output = try_join_all(async_multiply).await?;
 
         assert_eq!(mult_output.len(), self.input.len() * 2);
@@ -98,15 +87,15 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         protocol::{sort::bit_permutations::BitPermutations, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
+        test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
     };
 
     #[tokio::test]
     pub async fn bit_permutations() {
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(100, 1);
 
         // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
@@ -129,9 +118,9 @@ mod tests {
         let bitperms0 = BitPermutations::new(&shares[0]);
         let bitperms1 = BitPermutations::new(&shares[1]);
         let bitperms2 = BitPermutations::new(&shares[2]);
-        let h0_future = bitperms0.execute(&context[0]);
-        let h1_future = bitperms1.execute(&context[1]);
-        let h2_future = bitperms2.execute(&context[2]);
+        let h0_future = bitperms0.execute(ctx0);
+        let h1_future = bitperms1.execute(ctx1);
+        let h2_future = bitperms2.execute(ctx2);
 
         let result = try_join!(h0_future, h1_future, h2_future).unwrap();
 
@@ -139,11 +128,6 @@ mod tests {
         assert_eq!(result.1.len(), input_len);
         assert_eq!(result.2.len(), input_len);
 
-        (0..result.0.len()).for_each(|i| {
-            assert_eq!(
-                validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
-                Fp31::from(expected_sort_output[i])
-            );
-        });
+        validate_list_of_shares(&expected_sort_output, &result);
     }
 }

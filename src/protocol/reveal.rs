@@ -1,18 +1,12 @@
-use crate::helpers::fabric::Network;
-use crate::protocol::context::ProtocolContext;
-use crate::{
-    error::BoxError, field::Field, helpers::Direction, protocol::RecordId,
-    secret_sharing::Replicated,
-};
-use embed_doc_image::embed_doc_image;
-use serde::{Deserialize, Serialize};
+use std::iter::{repeat, zip};
 
-/// A message sent by each helper when they've revealed their own shares
-#[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct RevealValue<F> {
-    share: F,
-}
+use crate::ff::Field;
+use crate::protocol::context::ProtocolContext;
+use crate::secret_sharing::Replicated;
+use crate::{error::BoxError, helpers::Direction, protocol::RecordId};
+use embed_doc_image::embed_doc_image;
+use futures::future::try_join_all;
+use permutation::Permutation;
 
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
@@ -27,28 +21,42 @@ pub struct RevealValue<F> {
 /// i.e. their own shares and received share.
 #[embed_doc_image("reveal", "images/reveal.png")]
 #[allow(dead_code)]
-pub async fn reveal<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N>,
+pub async fn reveal<F: Field>(
+    ctx: ProtocolContext<'_, F>,
     record_id: RecordId,
     input: Replicated<F>,
 ) -> Result<F, BoxError> {
     let channel = ctx.mesh();
 
-    let inputs = input.as_tuple();
     channel
-        .send(
-            ctx.role().peer(Direction::Right),
-            record_id,
-            RevealValue { share: inputs.0 },
-        )
+        .send(ctx.role().peer(Direction::Right), record_id, input.left())
         .await?;
 
     // Sleep until `helper's left` sends their share
-    let RevealValue { share } = channel
+    let share = channel
         .receive(ctx.role().peer(Direction::Left), record_id)
         .await?;
 
-    Ok(inputs.0 + inputs.1 + share)
+    Ok(input.left() + input.right() + share)
+}
+
+/// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
+/// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
+/// from the revealed rows.
+#[allow(clippy::cast_possible_truncation, clippy::module_name_repetitions)]
+pub async fn reveal_a_permutation<F: Field>(
+    ctx: ProtocolContext<'_, F>,
+    permutation: &mut [Replicated<F>],
+) -> Result<Permutation, BoxError> {
+    let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
+        |(index, (ctx, input))| async move { reveal(ctx, RecordId::from(index), *input).await },
+    ))
+    .await?;
+    let mut perms = Vec::new();
+    for i in revealed_permutation {
+        perms.push(i.as_u128().try_into()?);
+    }
+    Ok(Permutation::oneline(perms))
 }
 
 #[cfg(test)]
@@ -58,7 +66,7 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
-        field::Fp31,
+        ff::Fp31,
         protocol::{reveal::reveal, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, share, TestWorld},
     };
@@ -70,9 +78,9 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts(&world);
+        let ctx = make_contexts::<Fp31>(&world);
 
-        for i in 0..10 {
+        for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
 
             let input = Fp31::from(secret);

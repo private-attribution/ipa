@@ -14,10 +14,11 @@ use crate::{
     protocol::{RecordId, UniqueStepId},
 };
 
+use crate::ff::{Field, Int};
 use futures::SinkExt;
 use futures::StreamExt;
-use serde::{de::DeserializeOwned, Serialize};
 use std::fmt::{Debug, Formatter};
+use std::io;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -25,9 +26,37 @@ use tokio::time::Instant;
 use tracing::Instrument;
 
 /// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Serialize + DeserializeOwned + 'static {}
+pub trait Message: Debug + Send + Sized + 'static {
+    /// Required number of bytes to store this message on disk/network
+    const SIZE_IN_BYTES: u32;
 
-impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'static {}
+    /// Deserialize message from a sequence of bytes.
+    ///
+    /// ## Errors
+    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
+    fn deserialize(buf: &mut [u8]) -> io::Result<Self>;
+
+    /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
+    /// capacity to store this message.
+    ///
+    /// ## Errors
+    /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
+    /// data.
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()>;
+}
+
+/// Any field value can be send as a message
+impl<F: Field> Message for F {
+    const SIZE_IN_BYTES: u32 = F::Integer::BITS / 8;
+
+    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
+        <F as Field>::deserialize(buf)
+    }
+
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        <F as Field>::serialize(&self, buf)
+    }
+}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication
@@ -44,9 +73,7 @@ impl<T> Message for T where T: Debug + Send + Serialize + DeserializeOwned + 'st
 /// buffer and keeps it there until such request is made by the protocol.
 /// TODO: limit the size of the buffer and only pull messages when there is enough capacity
 #[derive(Debug)]
-pub struct Gateway<N> {
-    /// TODO: no need to keep it here if we're happy with its interface
-    _network: N,
+pub struct Gateway {
     /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest>,
     envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope)>,
@@ -55,8 +82,8 @@ pub struct Gateway<N> {
 
 /// Channel end
 #[derive(Debug)]
-pub struct Mesh<'a, 'b, N> {
-    gateway: &'a Gateway<N>,
+pub struct Mesh<'a, 'b> {
+    gateway: &'a Gateway,
     step: &'b UniqueStepId,
 }
 
@@ -66,7 +93,7 @@ pub(super) struct ReceiveRequest {
     pub sender: oneshot::Sender<Box<[u8]>>,
 }
 
-impl<N: Network> Mesh<'_, '_, N> {
+impl Mesh<'_, '_> {
     /// Send a given message to the destination. This method will not return until the message
     /// is delivered to the `Network`.
     ///
@@ -78,14 +105,12 @@ impl<N: Network> Mesh<'_, '_, N> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let bytes = serde_json::to_vec(&msg)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?
-            .into_boxed_slice();
+        let mut buf = vec![0; T::SIZE_IN_BYTES as usize];
+        msg.serialize(&mut buf)
+            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
-        let envelope = MessageEnvelope {
-            record_id,
-            payload: bytes,
-        };
+        let payload = buf.into_boxed_slice();
+        let envelope = MessageEnvelope { record_id, payload };
 
         self.gateway
             .send(ChannelId::new(dest, self.step.clone()), envelope)
@@ -101,12 +126,12 @@ impl<N: Network> Mesh<'_, '_, N> {
         source: Identity,
         record_id: RecordId,
     ) -> Result<T, Error> {
-        let payload = self
+        let mut payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj: T = serde_json::from_slice(&payload)
+        let obj = T::deserialize(&mut payload)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         Ok(obj)
@@ -121,8 +146,8 @@ pub struct GatewayConfig {
     pub send_buffer_capacity: u32,
 }
 
-impl<N: Network> Gateway<N> {
-    pub fn new(role: Identity, network: N, config: GatewayConfig) -> Self {
+impl Gateway {
+    pub fn new<N: Network>(role: Identity, network: &N, config: GatewayConfig) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
         let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
         let mut message_stream = network.recv_stream();
@@ -181,7 +206,6 @@ impl<N: Network> Gateway<N> {
         }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
 
         Self {
-            _network: network,
             tx,
             envelope_tx,
             control_handle,
@@ -194,7 +218,8 @@ impl<N: Network> Gateway<N> {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
-    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b, N> {
+    #[must_use]
+    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b> {
         Mesh {
             gateway: self,
             step,
@@ -224,7 +249,7 @@ impl<N: Network> Gateway<N> {
     }
 }
 
-impl<N> Drop for Gateway<N> {
+impl Drop for Gateway {
     fn drop(&mut self) {
         self.control_handle.abort();
     }

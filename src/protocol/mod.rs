@@ -2,8 +2,8 @@ mod attribution;
 mod batch;
 mod check_zero;
 pub mod context;
-mod dot_product;
 pub mod malicious;
+mod maliciously_secure_mul;
 mod modulus_conversion;
 pub mod prss;
 mod reveal;
@@ -210,9 +210,20 @@ impl TryFrom<&str> for QueryId {
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
+pub const RECORD_0: RecordId = RecordId(0);
+pub const RECORD_1: RecordId = RecordId(0);
+pub const RECORD_2: RecordId = RecordId(0);
+pub const RECORD_3: RecordId = RecordId(0);
+
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {
         RecordId(v)
+    }
+}
+
+impl From<usize> for RecordId {
+    fn from(v: usize) -> Self {
+        RecordId::from(u32::try_from(v).unwrap())
     }
 }
 

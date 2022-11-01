@@ -16,7 +16,7 @@ use std::{fmt::Debug, sync::Arc};
 #[allow(clippy::module_name_repetitions)]
 pub struct TestWorld {
     pub query_id: QueryId,
-    pub gateways: [Gateway<Arc<InMemoryEndpoint>>; 3],
+    pub gateways: [Gateway; 3],
     pub participants: [PrssEndpoint; 3],
     _network: Arc<InMemoryNetwork>,
 }
@@ -49,13 +49,7 @@ pub fn make(query_id: QueryId) -> TestWorld {
     let gateways = network
         .endpoints
         .iter()
-        .map(|endpoint| {
-            Gateway::new(
-                endpoint.identity,
-                Arc::clone(endpoint),
-                config.gateway_config,
-            )
-        })
+        .map(|endpoint| Gateway::new(endpoint.identity, endpoint, config.gateway_config))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
-    field::Field,
-    helpers::{fabric::Network, Identity},
+    ff::{BinaryField, Field},
+    helpers::Identity,
     protocol::{
         context::ProtocolContext,
         modulus_conversion::specialized_mul::{
@@ -11,18 +11,6 @@ use crate::{
     },
     secret_sharing::Replicated,
 };
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct ReplicatedBinary(bool, bool);
-
-impl ReplicatedBinary {
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn new(a: bool, b: bool) -> Self {
-        Self(a, b)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -74,25 +62,26 @@ impl DoubleRandom {
     /// Internal use only.
     /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
     ///
-    fn local_secret_share<F: Field>(
-        input: ReplicatedBinary,
+    fn local_secret_share<B: BinaryField, F: Field>(
+        input: Replicated<B>,
         channel_identity: Identity,
     ) -> (Replicated<F>, Replicated<F>, Replicated<F>) {
+        let (left, right) = input.as_tuple();
         match channel_identity {
             Identity::H1 => (
-                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
-                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
+                Replicated::new(F::from(left.as_u128()), F::ZERO),
+                Replicated::new(F::ZERO, F::from(right.as_u128())),
                 Replicated::new(F::ZERO, F::ZERO),
             ),
             Identity::H2 => (
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
-                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
+                Replicated::new(F::from(left.as_u128()), F::ZERO),
+                Replicated::new(F::ZERO, F::from(right.as_u128())),
             ),
             Identity::H3 => (
-                Replicated::new(F::ZERO, F::from(u128::from(input.1))),
+                Replicated::new(F::ZERO, F::from(right.as_u128())),
                 Replicated::new(F::ZERO, F::ZERO),
-                Replicated::new(F::from(u128::from(input.0)), F::ZERO),
+                Replicated::new(F::from(left.as_u128()), F::ZERO),
             ),
         }
     }
@@ -112,8 +101,8 @@ impl DoubleRandom {
     ///
     /// And helper 3 has shares:
     /// a: (0, x1) and b: (0, 0)
-    async fn xor_specialized_1<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N>,
+    async fn xor_specialized_1<F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -138,8 +127,8 @@ impl DoubleRandom {
     ///
     /// And helper 3 has shares:
     /// (x3, 0)
-    async fn xor_specialized_2<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N>,
+    async fn xor_specialized_2<F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
@@ -154,10 +143,10 @@ impl DoubleRandom {
     /// of unknown number 'r') into a random secret sharing of the same value in `Z_p`
     /// where the caller can select the output Field.
     #[allow(dead_code)]
-    pub async fn execute<F: Field, N: Network>(
-        ctx: ProtocolContext<'_, N>,
+    pub async fn execute<B: BinaryField, F: Field>(
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
-        random_sharing: ReplicatedBinary,
+        random_sharing: Replicated<B>,
     ) -> Result<Replicated<F>, BoxError> {
         let (sh0, sh1, sh2) = Self::local_secret_share(random_sharing, ctx.role());
 
@@ -171,11 +160,9 @@ impl DoubleRandom {
 mod tests {
     use crate::{
         error::BoxError,
-        field::{Field, Fp31},
-        protocol::{
-            modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
-            QueryId, RecordId,
-        },
+        ff::{Field, Fp2, Fp31},
+        protocol::{modulus_conversion::double_random::DoubleRandom, QueryId, RecordId},
+        secret_sharing::Replicated,
         test_fixture::{make_contexts, make_world, validate_and_reconstruct},
     };
     use futures::future::try_join_all;
@@ -186,7 +173,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let ctx0 = &context[0];
         let ctx1 = &context[1];
         let ctx2 = &context[2];
@@ -194,7 +181,7 @@ mod tests {
         let mut bools: Vec<u128> = Vec::with_capacity(40);
         let mut futures = Vec::with_capacity(40);
 
-        for i in 0..40 {
+        for i in 0..40_u32 {
             let b0 = rng.gen::<bool>();
             let b1 = rng.gen::<bool>();
             let b2 = rng.gen::<bool>();
@@ -208,17 +195,17 @@ mod tests {
                 DoubleRandom::execute(
                     ctx0.narrow(&bit_number),
                     record_id,
-                    ReplicatedBinary::new(b0, b1),
+                    Replicated::new(Fp2::from(b0), Fp2::from(b1)),
                 ),
                 DoubleRandom::execute(
                     ctx1.narrow(&bit_number),
                     record_id,
-                    ReplicatedBinary::new(b1, b2),
+                    Replicated::new(Fp2::from(b1), Fp2::from(b2)),
                 ),
                 DoubleRandom::execute(
                     ctx2.narrow(&bit_number),
                     record_id,
-                    ReplicatedBinary::new(b2, b0),
+                    Replicated::new(Fp2::from(b2), Fp2::from(b0)),
                 ),
             ]));
         }

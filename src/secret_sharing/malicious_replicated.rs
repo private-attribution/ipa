@@ -6,7 +6,7 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
 };
 
-use crate::field::Field;
+use crate::ff::Field;
 use crate::helpers::Identity;
 use crate::secret_sharing::Replicated;
 
@@ -110,8 +110,7 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
 #[cfg(test)]
 mod tests {
     use super::MaliciousReplicated;
-    use crate::field::Field;
-    use crate::field::Fp31;
+    use crate::ff::{Field, Fp31};
     use crate::helpers::Identity;
     use crate::test_fixture::{share, validate_and_reconstruct};
     use proptest::prelude::Rng;

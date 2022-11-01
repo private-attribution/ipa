@@ -1,8 +1,7 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
 use crate::{
     error::BoxError,
-    field::Field,
-    helpers::fabric::Network,
+    ff::Field,
     protocol::{
         batch::{Batch, RecordIndex},
         context::ProtocolContext,
@@ -11,6 +10,25 @@ use crate::{
     secret_sharing::Replicated,
 };
 use futures::future::{try_join, try_join_all};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
+    HelperBitTimesIsTriggerBit,
+    BTimesStopBit,
+    BTimesSuccessorCredit,
+}
+
+impl crate::protocol::Step for Step {}
+
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::HelperBitTimesIsTriggerBit => "helper_bit_times_is_trigger_bit",
+            Self::BTimesStopBit => "b_times_stop_bit",
+            Self::BTimesSuccessorCredit => "b_times_successor_credit",
+        }
+    }
+}
 
 /// Accumulation step for Oblivious Attribution protocol.
 #[allow(dead_code)]
@@ -32,9 +50,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
     /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
     #[allow(dead_code)]
-    pub async fn execute<N: Network>(
+    pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -94,6 +112,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
                 accumulation_futures.push(Self::get_accumulated_credit(
                     ctx.narrow(multiply_step.next()),
+                    RecordId::from(i),
                     current,
                     successor,
                     iteration_step.is_first_iteration(),
@@ -134,8 +153,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         Ok(output)
     }
 
-    async fn get_accumulated_credit<N: Network>(
-        ctx: ProtocolContext<'_, N>,
+    async fn get_accumulated_credit(
+        ctx: ProtocolContext<'_, F>,
+        record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
         first_iteration: bool,
@@ -147,7 +167,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
-            .multiply(RecordId::from(0))
+            .narrow(&Step::HelperBitTimesIsTriggerBit)
+            .multiply(record_id)
             .await
             .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
             .await?;
@@ -155,14 +176,16 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
         if !first_iteration {
             b = ctx
-                .multiply(RecordId::from(1))
+                .narrow(&Step::BTimesStopBit)
+                .multiply(RecordId::from(1_u32))
                 .await
                 .execute(b, current.stop_bit)
                 .await?;
         }
 
         let credit_future = ctx
-            .multiply(RecordId::from(2))
+            .narrow(&Step::BTimesSuccessorCredit)
+            .multiply(record_id)
             .await
             .execute(b, successor.credit);
 
@@ -171,9 +194,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
             futures::future::Either::Left(futures::future::ok(b))
         } else {
             futures::future::Either::Right(
-                ctx.multiply(RecordId::from(3))
-                    .await
-                    .execute(b, successor.stop_bit),
+                ctx.multiply(record_id).await.execute(b, successor.stop_bit),
             )
         };
 
@@ -184,7 +205,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        field::{Field, Fp31},
+        ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
@@ -244,7 +265,7 @@ mod tests {
     #[tokio::test]
     pub async fn accumulate() {
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = StepRng::new(100, 1);
 
         let raw_input: [[u128; 4]; 9] = [

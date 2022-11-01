@@ -1,8 +1,8 @@
-use crate::field::Field;
+use crate::ff::Field;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
 use crate::test_fixture::{
-    make_contexts, make_world, narrow_contexts, share, validate_and_reconstruct, TestWorld,
+    make_contexts, make_world, narrow_contexts, share, validate_and_reconstruct, Fp31, TestWorld,
 };
 use futures_util::future::join_all;
 use rand::thread_rng;
@@ -16,7 +16,7 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
 
     let mut multiplications = Vec::new();
     for record in 0..width {
-        let circuit_result = circuit::<F>(&world, RecordId::from(record), depth);
+        let circuit_result = circuit(&world, RecordId::from(record), depth);
         multiplications.push(circuit_result);
     }
 
@@ -29,21 +29,17 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
     assert_eq!(sum, u128::from(width));
 }
 
-async fn circuit<F: Field>(
-    world: &TestWorld,
-    record_id: RecordId,
-    depth: u8,
-) -> [Replicated<F>; 3] {
-    let top_ctx = make_contexts(world);
-    let mut a = share(F::ONE, &mut thread_rng());
+async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicated<Fp31>; 3] {
+    let top_ctx = make_contexts::<Fp31>(world);
+    let mut a = share(Fp31::ONE, &mut thread_rng());
 
     for bit in 0..depth {
-        let b = share(F::ONE, &mut thread_rng());
+        let b = share(Fp31::ONE, &mut thread_rng());
         let bit_ctx = narrow_contexts(&top_ctx, &format!("b{bit}"));
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {
-                let mul = ctx.multiply(record_id).await;
+                let mul = ctx.narrow(&"mult".to_string()).multiply(record_id).await;
                 coll.push(mul.execute(a[i], b[i]));
             }
 

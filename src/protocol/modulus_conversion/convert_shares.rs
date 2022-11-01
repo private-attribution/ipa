@@ -1,12 +1,9 @@
 use crate::{
     error::BoxError,
-    field::Field,
-    helpers::fabric::Network,
+    ff::{Field, Fp2},
     protocol::{
-        context::ProtocolContext,
-        modulus_conversion::double_random::{DoubleRandom, ReplicatedBinary},
-        reveal_additive_binary::RevealAdditiveBinary,
-        RecordId,
+        context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
+        reveal_additive_binary::RevealAdditiveBinary, RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -68,9 +65,9 @@ impl ConvertShares {
     }
 
     #[allow(dead_code)]
-    pub async fn execute<F: Field, N: Network>(
+    pub async fn execute<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, N>,
+        ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let prss = &ctx.prss();
@@ -87,7 +84,7 @@ impl ConvertShares {
         let futures = bits
             .into_iter()
             .map(|(ctx, b0, b1, input_xor_r)| async move {
-                let r_binary = ReplicatedBinary::new(b0, b1);
+                let r_binary = Replicated::new(Fp2::from(b0), Fp2::from(b1));
 
                 let gen_random_future =
                     DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary);
@@ -95,13 +92,13 @@ impl ConvertShares {
                 let reveal_future = RevealAdditiveBinary::execute(
                     ctx.narrow(&Step::BinaryReveal),
                     record_id,
-                    input_xor_r,
+                    Fp2::from(input_xor_r),
                 );
 
                 let (r_big_field, revealed_output) =
                     try_join(gen_random_future, reveal_future).await?;
 
-                if revealed_output {
+                if revealed_output == Fp2::ONE {
                     Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
                 } else {
                     Ok(r_big_field)
@@ -114,7 +111,7 @@ impl ConvertShares {
 #[cfg(test)]
 mod tests {
     use crate::{
-        field::{Field, Fp31},
+        ff::{Field, Fp31},
         protocol::{
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
             QueryId, RecordId,
@@ -134,7 +131,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = context;
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones

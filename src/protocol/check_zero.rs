@@ -1,7 +1,6 @@
 use crate::{
     error::BoxError,
-    field::Field,
-    helpers::fabric::Network,
+    ff::Field,
     protocol::{context::ProtocolContext, reveal::reveal, RecordId},
     secret_sharing::Replicated,
 };
@@ -61,8 +60,8 @@ impl AsRef<str> for Step {
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 #[allow(dead_code)]
-pub async fn check_zero<F: Field, N: Network>(
-    ctx: ProtocolContext<'_, N>,
+pub async fn check_zero<F: Field>(
+    ctx: ProtocolContext<'_, F>,
     record_id: RecordId,
     v: Replicated<F>,
 ) -> Result<bool, BoxError> {
@@ -83,7 +82,7 @@ pub async fn check_zero<F: Field, N: Network>(
 #[cfg(test)]
 pub mod tests {
     use crate::error::BoxError;
-    use crate::field::{Field, Fp31};
+    use crate::ff::{Field, Fp31};
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
     use crate::test_fixture::{logging, make_contexts, make_world, share, TestWorld};
 
@@ -92,9 +91,9 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
-        let mut counter = 0;
+        let mut counter = 0_u32;
 
         for v in 0..u32::from(Fp31::PRIME) {
             let v = Fp31::from(v);
