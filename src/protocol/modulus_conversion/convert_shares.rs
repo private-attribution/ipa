@@ -110,6 +110,7 @@ impl ConvertShares {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_fixture::logging;
     use crate::{
         ff::{Field, Fp31},
         protocol::{
@@ -128,6 +129,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn convert_shares() {
+        logging::setup();
+
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);

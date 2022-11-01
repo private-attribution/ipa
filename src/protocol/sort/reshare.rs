@@ -84,6 +84,7 @@ mod tests {
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
 
+    use crate::test_fixture::logging;
     use crate::{
         ff::Fp31,
         helpers::Identity,
@@ -93,6 +94,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn reshare() {
+        logging::setup();
+
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
         let mut new_reshares_atleast_once = false;

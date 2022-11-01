@@ -158,6 +158,7 @@ impl DoubleRandom {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_fixture::logging;
     use crate::{
         error::BoxError,
         ff::{Field, Fp2, Fp31},
@@ -170,6 +171,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn gen_random() -> Result<(), BoxError> {
+        logging::setup();
+
         let mut rng = rand::thread_rng();
 
         let world = make_world(QueryId);
