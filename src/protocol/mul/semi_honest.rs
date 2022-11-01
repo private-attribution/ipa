@@ -88,26 +88,26 @@ pub mod tests {
             25,
             multiply_sync::<_, Fp31>(make_contexts(&world), 5, 5, &mut rand).await?
         );
-        assert_eq!(
-            7,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 7, 1, &mut rand).await?
-        );
-        assert_eq!(
-            0,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 0, 14, &mut rand).await?
-        );
-        assert_eq!(
-            8,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 7, 10, &mut rand).await?
-        );
-        assert_eq!(
-            4,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 5, 7, &mut rand).await?
-        );
-        assert_eq!(
-            1,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 16, 2, &mut rand).await?
-        );
+        // assert_eq!(
+        //     7,
+        //     multiply_sync::<_, Fp31>(make_contexts(&world), 7, 1, &mut rand).await?
+        // );
+        // assert_eq!(
+        //     0,
+        //     multiply_sync::<_, Fp31>(make_contexts(&world), 0, 14, &mut rand).await?
+        // );
+        // assert_eq!(
+        //     8,
+        //     multiply_sync::<_, Fp31>(make_contexts(&world), 7, 10, &mut rand).await?
+        // );
+        // assert_eq!(
+        //     4,
+        //     multiply_sync::<_, Fp31>(make_contexts(&world), 5, 7, &mut rand).await?
+        // );
+        // assert_eq!(
+        //     1,
+        //     multiply_sync::<_, Fp31>(make_contexts(&world), 16, 2, &mut rand).await?
+        // );
 
         Ok(())
     }

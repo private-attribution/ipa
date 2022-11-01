@@ -9,6 +9,7 @@ pub mod prss;
 mod reveal;
 pub mod sort;
 
+use std::ops::AddAssign;
 use crate::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -240,5 +241,17 @@ impl From<RecordId> for u128 {
 impl From<RecordId> for u32 {
     fn from(v: RecordId) -> Self {
         v.0
+    }
+}
+
+impl From<RecordId> for usize {
+    fn from(r: RecordId) -> Self {
+        r.0 as usize
+    }
+}
+
+impl AddAssign<usize> for RecordId {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += u32::try_from(rhs).unwrap();
     }
 }

@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
 
-
 /// Combination of helper identity and step that uniquely identifies a single channel of communication
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -19,7 +18,7 @@ pub struct MessageEnvelope {
     pub payload: MessagePayload,
 }
 
-pub type MessageChunks = (ChannelId, Vec<MessageEnvelope>);
+pub type MessageChunks = (ChannelId, Vec<u8>);
 
 /// Network interface for components that require communication.
 #[async_trait]
