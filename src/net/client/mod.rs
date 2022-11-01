@@ -58,6 +58,10 @@ impl MpcHelperClient {
         Ok(Self::new(addr.parse()?))
     }
 
+    pub fn origin(&self) -> String {
+        format!("{}://{}", self.scheme.as_str(), self.authority.as_str())
+    }
+
     fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcHelperClientError>
     where
         PathAndQuery: TryFrom<T>,
