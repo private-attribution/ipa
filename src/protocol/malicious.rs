@@ -202,7 +202,9 @@ pub mod tests {
         QueryId, RecordId,
     };
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
-    use crate::test_fixture::{logging, make_contexts, make_world, share, TestWorld};
+    use crate::test_fixture::{
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+    };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
 
@@ -239,8 +241,8 @@ pub mod tests {
             let acc = v.accumulator();
             let r_share = v.r_share();
 
-            let a_ctx = ctx.narrow("1");
-            let b_ctx = ctx.narrow("2");
+            let a_ctx = ctx.narrow("1").upgrade_to_malicious(acc.clone());
+            let b_ctx = ctx.narrow("2").upgrade_to_malicious(acc.clone());
 
             let (ra, rb) = try_join(
                 a_ctx
@@ -270,30 +272,31 @@ pub mod tests {
                 b_malicious,
             );
 
-            let (ab, rab) = try_join(
-                a_ctx
-                    .narrow("SingleMult")
-                    .multiply(RecordId::from(0_u32))
-                    .await
-                    .execute(a_shares[i], b_shares[i]),
-                a_ctx
-                    .narrow("DoubleMult")
-                    .multiply(RecordId::from(1_u32))
-                    .await
-                    .execute(ra, b_shares[i]),
-            )
-            .await?;
+            #[allow(clippy::similar_names)]
+            let mult_result = a_ctx
+                .malicious_multiply(RecordId::from(0_u32))
+                .await
+                .execute(a_malicious, b_malicious)
+                .await?;
 
-            acc.accumulate_macs(
-                &a_ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
-                RecordId::from(0_u32),
-                MaliciousReplicated::new(ab, rab),
-            );
+            v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
 
-            v.validate(ctx.narrow("SecurityValidatorValidate")).await
+            Ok::<_, BoxError>((mult_result, r_share))
         });
 
-        try_join_all(futures).await?;
+        let ab_pieces = try_join_all(futures).await?;
+
+        let r = validate_and_reconstruct((ab_pieces[0].1, ab_pieces[1].1, ab_pieces[2].1));
+        let ab =
+            validate_and_reconstruct((ab_pieces[0].0.x(), ab_pieces[1].0.x(), ab_pieces[2].0.x()));
+        let rab = validate_and_reconstruct((
+            ab_pieces[0].0.rx(),
+            ab_pieces[1].0.rx(),
+            ab_pieces[2].0.rx(),
+        ));
+
+        assert_eq!(ab, a * b);
+        assert_eq!(rab, r * a * b);
 
         Ok(())
     }
@@ -319,114 +322,119 @@ pub mod tests {
     /// MACs are compared. If any helper deviated from the protocol, chances are that the MACs will not match up.
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
-    async fn test_complex_circuit() -> Result<(), BoxError> {
+    async fn complex_circuit() -> Result<(), BoxError> {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts(&world);
         let mut rng = rand::thread_rng();
 
-        let mut shared_inputs = [
-            Vec::with_capacity(100),
-            Vec::with_capacity(100),
-            Vec::with_capacity(100),
-        ];
+        let mut original_inputs = Vec::with_capacity(100);
         for _ in 0..100 {
             let x = Fp31::from(rng.gen::<u128>());
-            let x_shared = share(x, &mut rng);
-            shared_inputs[0].push(x_shared[0]);
-            shared_inputs[1].push(x_shared[1]);
-            shared_inputs[2].push(x_shared[2]);
+            original_inputs.push(x);
         }
+        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
+            .iter()
+            .map(|x| share(*x, &mut rng))
+            .collect();
+        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0]).collect();
+        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1]).collect();
+        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2]).collect();
 
-        let futures =
-            context
-                .into_iter()
-                .zip(shared_inputs)
-                .map(|(ctx, input_shares)| async move {
-                    let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
-                    let acc = v.accumulator();
+        let futures = context
+            .into_iter()
+            .zip(vec![h1_shares, h2_shares, h3_shares])
+            .map(|(ctx, input_shares)| async move {
+                let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
+                let acc = v.accumulator();
 
-                    let mut row_narrowed_contexts = Vec::with_capacity(100);
-                    for i in 0..100 {
-                        row_narrowed_contexts.push(ctx.narrow(&format!("row {}", i)));
-                    }
-
-                    let r_share = v.r_share();
-
-                    let rx_values: Vec<Replicated<Fp31>> = try_join_all(
-                        input_shares
-                            .iter()
-                            .zip(row_narrowed_contexts.iter())
-                            .enumerate()
-                            .map(|(i, (x, ctx))| async move {
-                                ctx.narrow("mult")
-                                    .multiply(RecordId::from(u32::try_from(i).unwrap()))
-                                    .await
-                                    .execute(*x, r_share)
-                                    .await
-                            }),
-                    )
-                    .await?;
-
-                    let _ = input_shares.iter().zip(rx_values.iter()).enumerate().map(
-                        |(i, (x, rx))| {
-                            acc.accumulate_macs(
-                                &ctx.narrow(&Step::ValidateInput).prss(),
-                                RecordId::from(u32::try_from(i).unwrap()),
-                                MaliciousReplicated::new(*x, *rx),
-                            );
-                        },
+                let mut row_narrowed_contexts = Vec::with_capacity(100);
+                for i in 0..100 {
+                    row_narrowed_contexts.push(
+                        ctx.narrow(&format!("row {}", i))
+                            .upgrade_to_malicious(acc.clone()),
                     );
+                }
 
-                    let (ab_outputs, double_check_outputs) = try_join(
-                        try_join_all(
-                            input_shares
-                                .iter()
-                                .zip(input_shares.iter().skip(1))
-                                .zip(row_narrowed_contexts.iter())
-                                .enumerate()
-                                .map(|(i, ((a, b), ctx))| async move {
-                                    ctx.narrow("SingleMult")
-                                        .multiply(RecordId::from(u32::try_from(i).unwrap()))
-                                        .await
-                                        .execute(*a, *b)
-                                        .await
-                                }),
-                        ),
-                        try_join_all(
-                            input_shares
-                                .iter()
-                                .zip(rx_values.iter().skip(1))
-                                .zip(row_narrowed_contexts.iter())
-                                .enumerate()
-                                .map(|(i, ((a, rb), ctx))| async move {
-                                    ctx.narrow("DoubleMult")
-                                        .multiply(RecordId::from(u32::try_from(i).unwrap()))
-                                        .await
-                                        .execute(*a, *rb)
-                                        .await
-                                }),
-                        ),
-                    )
-                    .await?;
+                let r_share = v.r_share();
 
-                    let _ = ab_outputs
+                let maliciously_secure_inputs = try_join_all(
+                    input_shares
                         .iter()
-                        .zip(double_check_outputs.iter())
+                        .zip(row_narrowed_contexts.iter())
                         .enumerate()
-                        .map(|(i, (ab, rab))| {
-                            acc.accumulate_macs(
-                                &ctx.narrow(&Step::ValidateMultiplySubstep).prss(),
-                                RecordId::from(u32::try_from(i).unwrap()),
-                                MaliciousReplicated::new(*ab, *rab),
-                            );
-                        });
+                        .map(|(i, (x, ctx))| async move {
+                            let rx = ctx
+                                .narrow("mult")
+                                .multiply(RecordId::from(i))
+                                .await
+                                .execute(*x, r_share)
+                                .await?;
 
-                    v.validate(ctx.narrow("SecurityValidatorValidate")).await
-                });
+                            Ok::<_, BoxError>(MaliciousReplicated::new(*x, rx))
+                        }),
+                )
+                .await?;
 
-        try_join_all(futures).await?;
+                let _ = maliciously_secure_inputs
+                    .iter()
+                    .zip(row_narrowed_contexts.iter())
+                    .enumerate()
+                    .map(|(i, (maliciously_secure_input, ctx))| {
+                        acc.accumulate_macs(
+                            &ctx.narrow(&Step::ValidateInput).prss(),
+                            RecordId::from(i),
+                            *maliciously_secure_input,
+                        );
+                    });
+
+                let mult_results = try_join_all(
+                    maliciously_secure_inputs
+                        .iter()
+                        .zip(maliciously_secure_inputs.iter().skip(1))
+                        .zip(row_narrowed_contexts.iter())
+                        .enumerate()
+                        .map(|(i, ((a_malicious, b_malicious), ctx))| async move {
+                            ctx.narrow("Circuit_Step_2")
+                                .malicious_multiply(RecordId::from(i))
+                                .await
+                                .execute(*a_malicious, *b_malicious)
+                                .await
+                        }),
+                )
+                .await?;
+
+                v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
+
+                Ok::<_, BoxError>((mult_results, r_share))
+            });
+
+        let processed_outputs = try_join_all(futures).await?;
+
+        let r = validate_and_reconstruct((
+            processed_outputs[0].1,
+            processed_outputs[1].1,
+            processed_outputs[2].1,
+        ));
+
+        for i in 0..99 {
+            let x1 = original_inputs[i];
+            let x2 = original_inputs[i + 1];
+            let x1_times_x2 = validate_and_reconstruct((
+                processed_outputs[0].0[i].x(),
+                processed_outputs[1].0[i].x(),
+                processed_outputs[2].0[i].x(),
+            ));
+            let r_times_x1_times_x2 = validate_and_reconstruct((
+                processed_outputs[0].0[i].rx(),
+                processed_outputs[1].0[i].rx(),
+                processed_outputs[2].0[i].rx(),
+            ));
+
+            assert_eq!(x1 * x2, x1_times_x2);
+            assert_eq!(r * x1 * x2, r_times_x1_times_x2);
+        }
 
         Ok(())
     }
