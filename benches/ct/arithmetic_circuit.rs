@@ -1,7 +1,7 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
 };
-use raw_ipa::field::Fp31;
+use raw_ipa::ff::Fp31;
 use raw_ipa::test_fixture::circuit;
 use tokio::runtime::Builder;
 

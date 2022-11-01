@@ -30,6 +30,9 @@ jobs:
       - name: Release Build
         run: cargo build --release
 
+      - name: Build benchmarks
+        run: cargo build --benches --all-features
+
       - name: Check formatting
         if: ${{ success() || failure() }}
         run: cargo fmt --all -- --check

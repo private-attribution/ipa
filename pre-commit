@@ -44,6 +44,8 @@ error() {
    exit 1
 }
 
+cargo build --benches --all-features || error "Benchmarks compilation errors"
+
 cargo clippy --tests -- -D warnings --D clippy::pedantic || error "Clippy errors"
 
 cargo test || error "Test failures"
