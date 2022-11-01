@@ -131,7 +131,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = context;
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones

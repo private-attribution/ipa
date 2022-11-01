@@ -21,7 +21,7 @@ pub use world::{make as make_world, TestWorld};
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Fp31>; 3] {
+pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [ProtocolContext<'_, F>; 3] {
     test_world
         .gateways
         .iter()

@@ -30,7 +30,7 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
 }
 
 async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicated<Fp31>; 3] {
-    let top_ctx = make_contexts(world);
+    let top_ctx = make_contexts::<Fp31>(world);
     let mut a = share(Fp31::ONE, &mut thread_rng());
 
     for bit in 0..depth {

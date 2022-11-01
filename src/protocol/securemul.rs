@@ -81,7 +81,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
 
         assert_eq!(30, multiply_sync(&context, "1", 6, 5, &mut rand).await?);
@@ -115,7 +115,7 @@ pub mod tests {
         logging::setup();
 
         let world = make_world(QueryId);
-        let contexts = make_contexts(&world);
+        let contexts = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
 
         let mut multiplications = Vec::new();
