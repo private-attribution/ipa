@@ -95,9 +95,7 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
     pub fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
         self.prss.sequential(&self.step)
     }
-}
 
-impl<'a, F: Field> ProtocolContext<'a, F> {
     /// Get a set of communications channels to different peers.
     #[must_use]
     pub fn mesh(&self) -> Mesh<'_, '_> {
