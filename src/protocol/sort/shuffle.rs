@@ -180,7 +180,6 @@ impl<'a, F: Field> Shuffle<'a, F> {
     /// Unshuffle calls `shuffle_or_unshuffle_once` three times with 2 helpers shuffling the shares each time in the opposite order to shuffle.
     /// Order of calling `shuffle_or_unshuffle_once` is shuffle with (H1, H2), (H3, H1) and (H2, H3)
     /// ![Unshuffle steps][unshuffle]
-    #[allow(dead_code)]
     pub async fn execute_unshuffle(
         &mut self,
         ctx: ProtocolContext<'_, F>,

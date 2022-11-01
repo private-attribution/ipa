@@ -37,6 +37,7 @@ where
 mod tests {
     use super::{apply, apply_inv};
     use permutation::Permutation;
+    use rand::seq::SliceRandom;
 
     #[test]
     fn apply_shares() {
@@ -51,5 +52,36 @@ mod tests {
         let expected_output_apply_inv = ["D", "C", "A", "B"];
         apply_inv(&mut indices, &mut values);
         assert_eq!(values, expected_output_apply_inv);
+    }
+
+    #[test]
+    pub fn composing() {
+        let sigma = vec![4, 2, 0, 5, 1, 3];
+        let mut rho = vec![3, 4, 0, 5, 1, 2];
+        // Applying sigma on rho
+        apply_inv(&mut Permutation::oneline(sigma), &mut rho);
+        assert_eq!(rho, vec![1, 0, 3, 2, 4, 5]);
+    }
+
+    #[test]
+    pub fn apply_apply_inv_relation() {
+        // This test shows that apply(permutation, values) is same as apply_inv(permutation.inverse(), values)
+        let batchsize: usize = 100;
+        let mut rng = rand::thread_rng();
+
+        let mut permutation: Vec<usize> = (0..batchsize).collect();
+        permutation.shuffle(&mut rng);
+
+        let mut values: Vec<_> = (0..batchsize).collect();
+        let mut values_copy = values.clone();
+
+        apply(&mut Permutation::oneline(permutation.clone()), &mut values);
+
+        apply_inv(
+            &mut Permutation::oneline(permutation).inverse(),
+            &mut values_copy,
+        );
+
+        assert_eq!(values, values_copy);
     }
 }
