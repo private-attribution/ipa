@@ -1,6 +1,6 @@
 mod error;
 
-pub use error::MpcClientError;
+pub use error::MpcHelperClientError;
 
 use crate::{
     helpers::Role,
@@ -28,13 +28,13 @@ pub struct HttpSendMessagesArgs<'a> {
 
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
 #[derive(Clone)]
-pub struct MpcClient {
+pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>>,
     scheme: uri::Scheme,
     authority: uri::Authority,
 }
 
-impl MpcClient {
+impl MpcHelperClient {
     /// addr must have a valid scheme and authority
     /// # Panics
     /// if addr does not have scheme and authority
@@ -54,15 +54,11 @@ impl MpcClient {
     /// same as new, but first parses the addr from a [&str]
     /// # Errors
     /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, MpcClientError> {
+    pub fn with_str_addr(addr: &str) -> Result<Self, MpcHelperClientError> {
         Ok(Self::new(addr.parse()?))
     }
 
-    pub fn origin(&self) -> String {
-        format!("{}://{}", self.scheme.as_str(), self.authority.as_str())
-    }
-
-    fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcClientError>
+    fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcHelperClientError>
     where
         PathAndQuery: TryFrom<T>,
         <PathAndQuery as TryFrom<T>>::Error: Into<axum::http::Error>,
@@ -77,7 +73,7 @@ impl MpcClient {
     /// Responds with whatever input is passed to it
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
-    pub async fn echo(&self, s: &str) -> Result<Vec<u8>, MpcClientError> {
+    pub async fn echo(&self, s: &str) -> Result<Vec<u8>, MpcHelperClientError> {
         let uri = self.build_uri(format!("/echo?foo={}", s))?;
 
         let response = self.client.get(uri).await?;
@@ -93,9 +89,9 @@ impl MpcClient {
     pub async fn send_messages(
         &self,
         args: HttpSendMessagesArgs<'_>,
-    ) -> Result<(), MpcClientError> {
+    ) -> Result<(), MpcHelperClientError> {
         let uri = self.build_uri(format!(
-            "/mul/query-id/{}/step/{}?role={}",
+            "/messages/query-id/{}/step/{}?role={}",
             args.query_id.as_ref(),
             args.step.as_ref(),
             args.role.as_ref(),
@@ -114,7 +110,7 @@ impl MpcClient {
         if status.is_success() {
             Ok(())
         } else {
-            Err(MpcClientError::from_failed_resp(response).await)
+            Err(MpcHelperClientError::from_failed_resp(response).await)
         }
     }
 }
@@ -124,11 +120,11 @@ mod tests {
     use super::*;
     use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
     use crate::helpers::Role;
-    use crate::net::{BindTarget, MpcServer};
+    use crate::net::{BindTarget, MpcHelperServer};
     use hyper_tls::native_tls::TlsConnector;
     use tokio::sync::mpsc;
 
-    async fn mul_req(client: MpcClient, mut rx: mpsc::Receiver<MessageChunks>) {
+    async fn mul_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
         const DATA_SIZE: u32 = 4;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
@@ -164,7 +160,7 @@ mod tests {
     #[tokio::test]
     async fn mul_req_http() {
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
         // setup server
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -172,7 +168,7 @@ mod tests {
 
         // setup client
         let client =
-            MpcClient::with_str_addr(&format!("http://localhost:{}", addr.port())).unwrap();
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", addr.port())).unwrap();
 
         // test
         mul_req(client, rx).await;
@@ -182,7 +178,7 @@ mod tests {
     async fn mul_req_https() {
         // setup server
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
@@ -200,7 +196,7 @@ mod tests {
         http.enforce_http(false);
         let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
         let hyper_client = hyper::Client::builder().build(https);
-        let client = MpcClient {
+        let client = MpcHelperClient {
             client: hyper_client,
             scheme: uri::Scheme::HTTPS,
             authority: uri::Authority::try_from(format!("localhost:{}", addr.port())).unwrap(),

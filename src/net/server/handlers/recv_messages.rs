@@ -1,6 +1,6 @@
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Role;
-use crate::net::server::MpcServerError;
+use crate::net::server::MpcHelperServerError;
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, RecordId, UniqueStepId};
 use async_trait::async_trait;
@@ -16,7 +16,7 @@ pub struct Path(QueryId, UniqueStepId);
 
 #[async_trait]
 impl<B: Send> FromRequest<B> for Path {
-    type Rejection = MpcServerError;
+    type Rejection = MpcHelperServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let extract::Path((query_id, step)) =
@@ -67,7 +67,7 @@ pub async fn obtain_permit_mw<T: Send + 'static, B>(
     sender: mpsc::Sender<T>,
     mut req: Request<B>,
     next: Next<B>,
-) -> Result<Response, MpcServerError> {
+) -> Result<Response, MpcHelperServerError> {
     let permit = sender.reserve_owned().await?;
     req.extensions_mut().insert(ReservedPermit::new(permit));
     Ok(next.run(req).await)
@@ -84,7 +84,7 @@ pub async fn handler(
     query: Query<RoleQuery>,
     headers: RecordHeaders,
     mut req: Request<Body>,
-) -> Result<(), MpcServerError> {
+) -> Result<(), MpcHelperServerError> {
     // prepare data
     let Path(_query_id, step) = path;
     let channel_id = ChannelId {
@@ -120,7 +120,7 @@ pub async fn handler(
 mod tests {
     use super::*;
     use crate::net::{
-        BindTarget, MpcServer, CONTENT_LENGTH_HEADER_NAME, DATA_SIZE_HEADER_NAME,
+        BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME, DATA_SIZE_HEADER_NAME,
         OFFSET_HEADER_NAME,
     };
     use axum::body::Bytes;
@@ -139,7 +139,7 @@ mod tests {
 
     async fn init_server() -> (u16, mpsc::Receiver<MessageChunks>) {
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
@@ -161,7 +161,7 @@ mod tests {
             "body len must align with data_size"
         );
         let uri = format!(
-            "http://127.0.0.1:{}/mul/query-id/{}/step/{}?role={}",
+            "http://127.0.0.1:{}/messages/query-id/{}/step/{}?role={}",
             port,
             query_id.as_ref(),
             step.as_ref(),
@@ -248,7 +248,7 @@ mod tests {
     impl OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
-                "http://127.0.0.1:{}/mul/query-id/{}/step/{}?role={}",
+                "http://127.0.0.1:{}/messages/query-id/{}/step/{}?role={}",
                 port, self.query_id, self.step, self.role
             );
             let mut req = Request::post(uri);
@@ -357,7 +357,7 @@ mod tests {
     async fn backpressure_applied() {
         const QUEUE_DEPTH: usize = 8;
         let (tx, mut rx) = mpsc::channel(QUEUE_DEPTH);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
         let mut r = server.router();
 
         // prepare req

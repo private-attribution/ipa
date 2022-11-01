@@ -1,11 +1,11 @@
-use crate::net::client::MpcClientError::FailedRequest;
+use crate::net::client::MpcHelperClientError::FailedRequest;
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
-pub enum MpcClientError {
+pub enum MpcHelperClientError {
     #[error(transparent)]
-    InvalidHostAddress(#[from] axum::http::uri::InvalidUri),
+    InvalidUri(#[from] hyper::http::uri::InvalidUri),
 
     #[error(transparent)]
     NetworkConnection(#[from] hyper::Error),
@@ -17,14 +17,14 @@ pub enum MpcClientError {
     },
 
     #[error(transparent)]
-    AxumError(#[from] axum::http::Error),
+    HttpError(#[from] hyper::http::Error),
 }
 
-impl MpcClientError {
+impl MpcHelperClientError {
     pub async fn from_failed_resp<B>(resp: hyper::Response<B>) -> Self
     where
         B: hyper::body::HttpBody,
-        MpcClientError: From<<B as hyper::body::HttpBody>::Error>,
+        MpcHelperClientError: From<<B as hyper::body::HttpBody>::Error>,
     {
         let status = resp.status();
         assert!(status.is_client_error() || status.is_server_error()); // must be failure

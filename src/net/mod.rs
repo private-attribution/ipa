@@ -4,13 +4,13 @@
 mod client;
 mod server;
 
-pub use client::MpcClient;
+pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
-pub use server::{BindTarget, MpcServer};
+pub use server::{BindTarget, MpcHelperServer};
 use std::str::FromStr;
 
-use crate::net::server::MpcServerError;
+use crate::net::server::MpcHelperServerError;
 use crate::protocol::{QueryId, RecordId};
 use async_trait::async_trait;
 use axum::body::Bytes;
@@ -44,14 +44,14 @@ impl RecordHeaders {
     fn get_header<B, H: FromStr>(
         req: &RequestParts<B>,
         header_name: HeaderName,
-    ) -> Result<H, MpcServerError>
+    ) -> Result<H, MpcHelperServerError>
     where
-        MpcServerError: From<<H as FromStr>::Err>,
+        MpcHelperServerError: From<<H as FromStr>::Err>,
     {
         let header_name_string = header_name.to_string();
         req.headers()
             .get(header_name)
-            .ok_or(MpcServerError::MissingHeader(header_name_string))
+            .ok_or(MpcHelperServerError::MissingHeader(header_name_string))
             .and_then(|header_value| header_value.to_str().map_err(Into::into))
             .and_then(|header_value_str| header_value_str.parse().map_err(Into::into))
     }
@@ -65,7 +65,7 @@ impl RecordHeaders {
 
 #[async_trait]
 impl<B: Send> FromRequest<B> for RecordHeaders {
-    type Rejection = MpcServerError;
+    type Rejection = MpcHelperServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let content_length: u32 =
@@ -74,13 +74,13 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
         let data_size: u32 = RecordHeaders::get_header(req, DATA_SIZE_HEADER_NAME.clone())?;
         // cannot divide by 0
         if data_size == 0 {
-            Err(MpcServerError::InvalidHeader(
+            Err(MpcHelperServerError::InvalidHeader(
                 "data-size header must not be 0".into(),
             ))
         }
         // `data_size` NOT a multiple of `body_len`
         else if content_length % data_size != 0 {
-            Err(MpcServerError::InvalidHeader(
+            Err(MpcHelperServerError::InvalidHeader(
                 "data-size header does not align with body".into(),
             ))
         } else {

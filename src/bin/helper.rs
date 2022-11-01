@@ -1,7 +1,7 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
 use raw_ipa::cli::Verbosity;
-use raw_ipa::net::{BindTarget, MpcServer};
+use raw_ipa::net::{BindTarget, MpcHelperServer};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::panic;
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // start server
     let (tx, _) = mpsc::channel(1);
-    let server = MpcServer::new(tx);
+    let server = MpcHelperServer::new(tx);
     let (addr, server_handle) = server.bind(target).await;
     info!(
         "listening to {}://{}, press Enter to quit",
