@@ -248,12 +248,10 @@ pub mod tests {
                 a_ctx
                     .narrow("input")
                     .multiply(RecordId::from(0_u32))
-                    .await
                     .execute(a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
                     .multiply(RecordId::from(1_u32))
-                    .await
                     .execute(b_shares[i], r_share),
             )
             .await?;
@@ -275,7 +273,6 @@ pub mod tests {
             #[allow(clippy::similar_names)]
             let mult_result = a_ctx
                 .malicious_multiply(RecordId::from(0_u32))
-                .await
                 .execute(a_malicious, b_malicious)
                 .await?;
 
@@ -368,7 +365,6 @@ pub mod tests {
                             let rx = ctx
                                 .narrow("mult")
                                 .multiply(RecordId::from(i))
-                                .await
                                 .execute(*x, r_share)
                                 .await?;
 
@@ -398,7 +394,6 @@ pub mod tests {
                         .map(|(i, ((a_malicious, b_malicious), ctx))| async move {
                             ctx.narrow("Circuit_Step_2")
                                 .malicious_multiply(RecordId::from(i))
-                                .await
                                 .execute(*a_malicious, *b_malicious)
                                 .await
                         }),

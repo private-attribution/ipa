@@ -71,7 +71,6 @@ pub async fn check_zero<F: Field>(
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
         .multiply(record_id)
-        .await
         .execute(r_sharing, v)
         .await?;
     let rv = reveal(ctx.narrow(&Step::RevealR), record_id, rv_share).await?;
