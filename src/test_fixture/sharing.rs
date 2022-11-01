@@ -1,7 +1,9 @@
-use crate::ff::Field;
+use crate::ff::{Field, Fp31};
 use crate::secret_sharing::Replicated;
 use rand::Rng;
 use rand::RngCore;
+
+use super::ReplicatedShares;
 
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] {
@@ -33,4 +35,17 @@ pub fn validate_and_reconstruct<T: Field>(
     assert_eq!(input.2.right(), input.0.left());
 
     input.0.left() + input.1.left() + input.2.left()
+}
+
+/// Validates expected result from the secret shares obtained.
+///
+/// # Panics
+/// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
+pub fn validate_list_of_shares(expected_result: &[u128], result: &ReplicatedShares) {
+    (0..result.0.len()).for_each(|i| {
+        assert_eq!(
+            validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
+            Fp31::from(expected_result[i])
+        );
+    });
 }
