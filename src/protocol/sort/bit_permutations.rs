@@ -21,7 +21,6 @@ pub struct BitPermutations<'a, F> {
 }
 
 impl<'a, F: Field> BitPermutations<'a, F> {
-    #[allow(dead_code)]
     pub fn new(input: &'a [Replicated<F>]) -> BitPermutations<'a, F> {
         Self { input }
     }
@@ -44,7 +43,6 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     ///
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
-    #[allow(dead_code)]
     pub async fn execute(
         &self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -74,7 +72,9 @@ impl<'a, F: Field> BitPermutations<'a, F> {
         let len = mult_output.len() / 2;
         for i in 0..len {
             let val = mult_output[i + len];
-            mult_output[i] += val;
+            // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
+            // protocols expect 0-indexed permutation
+            mult_output[i] += val - share_of_one;
         }
         mult_output.truncate(len);
 
@@ -101,7 +101,7 @@ mod tests {
 
         // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
         let input: Vec<u128> = vec![1, 0, 1, 0, 0, 1, 0];
-        let expected_sort_output = [5_u128, 1, 6, 2, 3, 7, 4];
+        let expected_sort_output = [4_u128, 0, 5, 1, 2, 6, 3];
 
         let input_len = input.len();
         let mut shares = [

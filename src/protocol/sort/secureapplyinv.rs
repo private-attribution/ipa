@@ -40,7 +40,6 @@ impl SecureApplyInv {
     /// 3. Secret shared value is shuffled using the same random permutations
     /// 4. The permutation is revealed
     /// 5. All helpers call `apply` to apply the permutation locally.
-    #[allow(dead_code)]
     pub async fn execute<F: Field>(
         ctx: &ProtocolContext<'_, Replicated<F>, F>,
         input: Vec<Replicated<F>>,
