@@ -199,7 +199,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_fixture::logging;
+
     use crate::{
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
@@ -260,8 +260,6 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
-        logging::setup();
-
         let world = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = StepRng::new(100, 1);

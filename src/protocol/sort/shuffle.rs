@@ -253,8 +253,6 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle() {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
 
@@ -317,8 +315,6 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle_unshuffle() {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
 

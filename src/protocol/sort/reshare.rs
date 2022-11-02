@@ -84,7 +84,6 @@ mod tests {
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
 
-    use crate::test_fixture::logging;
     use crate::{
         ff::Fp31,
         helpers::Identity,
@@ -94,20 +93,18 @@ mod tests {
 
     #[tokio::test]
     pub async fn reshare() {
-        logging::setup();
-
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
         let mut new_reshares_atleast_once = false;
+        let world: TestWorld = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+
         for _ in 0..10 {
             let secret = rng.gen::<u128>();
 
             let input = Fp31::from(secret);
             let share = share(input, &mut rand);
             let record_id = RecordId::from(1_u32);
-
-            let world: TestWorld = make_world(QueryId);
-            let context = make_contexts::<Fp31>(&world);
 
             let reshare0 = Reshare::new(share[0]);
             let reshare1 = Reshare::new(share[1]);

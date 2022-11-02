@@ -65,7 +65,6 @@ mod tests {
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
 
-    use crate::test_fixture::logging;
     use crate::{
         ff::Fp31,
         protocol::{reveal::reveal, QueryId, RecordId},
@@ -74,10 +73,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn simple() {
-        logging::setup();
-
         let mut rand = StepRng::new(100, 1);
-
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);

@@ -69,7 +69,7 @@ pub mod tests {
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
@@ -78,8 +78,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
@@ -110,8 +108,6 @@ pub mod tests {
                 .await
                 .unwrap()
         }
-
-        logging::setup();
 
         let world = make_world(QueryId);
         let contexts = make_contexts::<Fp31>(&world);
