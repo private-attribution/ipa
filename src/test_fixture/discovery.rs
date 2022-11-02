@@ -1,5 +1,4 @@
-use crate::net::discovery::PeerDiscovery;
-use crate::net::MpcHelperClient;
+use crate::net::{discovery::PeerDiscovery, MpcHelperClient};
 
 /// returns valid [`MpcHttpConnection`]s, but not pointing to real servers; only use this if the
 /// clients will never be used. Intended for tests

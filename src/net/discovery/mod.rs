@@ -1,6 +1,4 @@
 pub mod config;
-#[cfg(test)]
-pub mod mock;
 
 use crate::net::MpcHelperClient;
 

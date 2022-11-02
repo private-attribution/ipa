@@ -9,14 +9,15 @@ use std::path::PathBuf;
 
 /// Describes just the origin of a url, i.e.: "http\[s\]://\[authority\]", minus the path and
 /// query parameters
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Origin(Scheme, Authority);
 
-impl Origin {
-    fn to_uri(&self) -> Uri {
+impl From<Origin> for Uri {
+    fn from(origin: Origin) -> Self {
+        let Origin(scheme, authority) = origin;
         Uri::builder()
-            .scheme(self.0.clone())
-            .authority(self.1.clone())
+            .scheme(scheme)
+            .authority(authority)
             .path_and_query("")
             .build()
             .unwrap()
@@ -80,9 +81,9 @@ impl Config {
 
 impl PeerDiscovery for Config {
     fn peers(&self) -> [MpcHelperClient; 3] {
-        let h1 = MpcHelperClient::new(self.h1.origin.to_uri());
-        let h2 = MpcHelperClient::new(self.h2.origin.to_uri());
-        let h3 = MpcHelperClient::new(self.h3.origin.to_uri());
+        let h1 = MpcHelperClient::new(self.h1.origin.clone().into());
+        let h2 = MpcHelperClient::new(self.h2.origin.clone().into());
+        let h3 = MpcHelperClient::new(self.h3.origin.clone().into());
         [h1, h2, h3]
     }
 }
