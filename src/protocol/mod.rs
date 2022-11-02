@@ -155,7 +155,7 @@ impl AsRef<str> for IpaProtocolStep {
 
 impl Debug for UniqueStepId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UniqueStepId(id={})", self.id)
+        write!(f, "step={}", self.id)
     }
 }
 
