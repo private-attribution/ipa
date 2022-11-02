@@ -94,15 +94,16 @@ impl ConvertShares {
 pub async fn convert_all_shares<F: Field>(
     ctx: &ProtocolContext<'_, Replicated<F>, F>,
     input: &[u64],
+    num_bits: u8,
 ) -> Result<Vec<Vec<Replicated<F>>>, BoxError> {
     let converted_shares = try_join_all(zip(repeat(ctx), input).enumerate().map(
         |(record_id, (ctx, row))| async move {
             ConvertShares::new(XorShares {
-                num_bits: 64,
+                num_bits,
                 packed_bits: *row,
             })
             .execute(
-                ctx.narrow(&ModulusConversion(record_id.try_into().unwrap())),
+                ctx.narrow(&ModulusConversion(record_id)),
                 RecordId::from(record_id),
             )
             .await
@@ -112,7 +113,7 @@ pub async fn convert_all_shares<F: Field>(
 
     //Transpose the output to return bit-wise results
     let cols = vec![Replicated::new(F::ZERO, F::ZERO); converted_shares.len()];
-    let mut output = vec![cols; converted_shares[0].len()];
+    let mut output = vec![cols; num_bits.into()];
     for (row_idx, row) in converted_shares.into_iter().enumerate() {
         for (col_idx, col) in row.into_iter().enumerate() {
             output[col_idx][row_idx] = col;

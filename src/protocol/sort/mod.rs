@@ -1,18 +1,18 @@
-pub mod bit_permutations;
-mod compose;
-mod generate_sort_permutations;
-pub mod reshare;
+use super::Step;
+use std::fmt::Debug;
 
 mod apply;
+pub mod bit_permutation;
+mod compose;
+mod generate_sort_permutation;
+pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
 
-use super::Step;
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
-    ModulusConversion(u8),
-    BitPermutation(u8),
+    ModulusConversion(usize),
+    BitPermutationStep(u8),
     ApplyInv(u8),
     ComposeStep(u8),
 }
@@ -21,6 +21,7 @@ impl Step for SortStep {}
 
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
+        // let abc = create_steps!(0..64).as_slice();
         const MODULUSCONVERSION: [&str; 64] = [
             "mc0", "mc1", "mc2", "mc3", "mc4", "mc5", "mc6", "mc7", "mc8", "mc9", "mc10", "mc11",
             "mc12", "mc13", "mc14", "mc15", "mc16", "mc17", "mc18", "mc19", "mc20", "mc21", "mc22",
@@ -56,8 +57,8 @@ impl AsRef<str> for SortStep {
             "c62", "c63",
         ];
         match self {
-            Self::ModulusConversion(i) => MODULUSCONVERSION[usize::from(*i)],
-            Self::BitPermutation(i) => BITPERMUTATIONS[usize::from(*i)],
+            Self::ModulusConversion(i) => MODULUSCONVERSION[*i],
+            Self::BitPermutationStep(i) => BITPERMUTATIONS[usize::from(*i)],
             Self::ApplyInv(i) => APPLYINV[usize::from(*i)],
             Self::ComposeStep(i) => COMPOSE[usize::from(*i)],
         }

@@ -16,16 +16,16 @@ use futures::future::try_join_all;
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
-pub struct BitPermutations<'a, F> {
+pub struct BitPermutation<'a, F> {
     input: &'a [Replicated<F>],
 }
 
-impl<'a, F: Field> BitPermutations<'a, F> {
-    pub fn new(input: &'a [Replicated<F>]) -> BitPermutations<'a, F> {
+impl<'a, F: Field> BitPermutation<'a, F> {
+    pub fn new(input: &'a [Replicated<F>]) -> BitPermutation<'a, F> {
         Self { input }
     }
 
-    #[embed_doc_image("bit_permutations", "images/sort/bit_permutations.png")]
+    #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
     /// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
     ///
     /// At a high level, the protocol works as follows:
@@ -37,7 +37,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     /// 5. Compute the final output, a vector of length `n`. Each element `i` in this output vector is the sum of
     /// the elements at index `i` and `i+n` from the vector computed in step 4.
     ///
-    /// ![Bit Permutations steps][bit_permutations]
+    /// ![Bit Permutation steps][bit_permutation]
     /// ## Panics
     /// In case the function is unable to get double size of output from multiplication step, the code will panic
     ///
@@ -89,12 +89,12 @@ mod tests {
 
     use crate::{
         ff::Fp31,
-        protocol::{sort::bit_permutations::BitPermutations, QueryId},
+        protocol::{sort::bit_permutation::BitPermutation, QueryId},
         test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
     };
 
     #[tokio::test]
-    pub async fn bit_permutations() {
+    pub async fn bit_permutation() {
         let world = make_world(QueryId);
         let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(100, 1);
@@ -116,9 +116,9 @@ mod tests {
             }
         }
 
-        let bitperms0 = BitPermutations::new(&shares[0]);
-        let bitperms1 = BitPermutations::new(&shares[1]);
-        let bitperms2 = BitPermutations::new(&shares[2]);
+        let bitperms0 = BitPermutation::new(&shares[0]);
+        let bitperms1 = BitPermutation::new(&shares[1]);
+        let bitperms2 = BitPermutation::new(&shares[2]);
         let h0_future = bitperms0.execute(ctx0);
         let h1_future = bitperms1.execute(ctx1);
         let h2_future = bitperms2.execute(ctx2);
