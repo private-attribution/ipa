@@ -3,6 +3,7 @@ mod batch;
 mod check_zero;
 pub mod context;
 pub mod malicious;
+mod maliciously_secure_mul;
 mod modulus_conversion;
 pub mod prss;
 mod reveal;

@@ -81,7 +81,7 @@ pub mod tests {
         logging::setup();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
 
         assert_eq!(30, multiply_sync(&context, "1", 6, 5, &mut rand).await?);
@@ -106,7 +106,6 @@ pub mod tests {
         async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1_u32))
-                .await
                 .execute(a, b)
                 .await
                 .unwrap()
@@ -115,7 +114,7 @@ pub mod tests {
         logging::setup();
 
         let world = make_world(QueryId);
-        let contexts = make_contexts(&world);
+        let contexts = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
 
         let mut multiplications = Vec::new();
@@ -167,17 +166,14 @@ pub mod tests {
             context[0]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[0], b[0]),
             context[1]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[1], b[1]),
             context[2]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[2], b[2]),
         )?;
 

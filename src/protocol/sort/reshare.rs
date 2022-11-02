@@ -107,7 +107,7 @@ mod tests {
             let record_id = RecordId::from(1_u32);
 
             let world: TestWorld = make_world(QueryId);
-            let context = make_contexts(&world);
+            let context = make_contexts::<Fp31>(&world);
 
             let reshare0 = Reshare::new(share[0]);
             let reshare1 = Reshare::new(share[1]);

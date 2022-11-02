@@ -1,8 +1,12 @@
+use std::iter::{repeat, zip};
+
 use crate::ff::Field;
 use crate::protocol::context::ProtocolContext;
 use crate::secret_sharing::Replicated;
 use crate::{error::BoxError, helpers::Direction, protocol::RecordId};
 use embed_doc_image::embed_doc_image;
+use futures::future::try_join_all;
+use permutation::Permutation;
 
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
@@ -36,6 +40,25 @@ pub async fn reveal<F: Field>(
     Ok(input.left() + input.right() + share)
 }
 
+/// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
+/// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
+/// from the revealed rows.
+#[allow(clippy::cast_possible_truncation, clippy::module_name_repetitions)]
+pub async fn reveal_a_permutation<F: Field>(
+    ctx: ProtocolContext<'_, F>,
+    permutation: &mut [Replicated<F>],
+) -> Result<Permutation, BoxError> {
+    let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
+        |(index, (ctx, input))| async move { reveal(ctx, RecordId::from(index), *input).await },
+    ))
+    .await?;
+    let mut perms = Vec::new();
+    for i in revealed_permutation {
+        perms.push(i.as_u128().try_into()?);
+    }
+    Ok(Permutation::oneline(perms))
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::Rng;
@@ -58,7 +81,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts(&world);
+        let ctx = make_contexts::<Fp31>(&world);
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();

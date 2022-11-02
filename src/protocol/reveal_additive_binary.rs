@@ -52,7 +52,7 @@ mod tests {
     use proptest::prelude::Rng;
 
     use crate::{
-        ff::Fp2,
+        ff::{Fp2, Fp31},
         protocol::{reveal_additive_binary::RevealAdditiveBinary, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, TestWorld},
     };
@@ -63,7 +63,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts(&world);
+        let ctx = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = ctx;
 
         let mut bools: Vec<bool> = Vec::with_capacity(40);

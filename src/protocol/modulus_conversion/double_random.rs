@@ -176,7 +176,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let ctx0 = &context[0];
         let ctx1 = &context[1];
         let ctx2 = &context[2];
