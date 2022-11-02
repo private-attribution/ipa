@@ -106,7 +106,6 @@ pub mod tests {
         async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1_u32))
-                .await
                 .execute(a, b)
                 .await
                 .unwrap()
@@ -167,17 +166,14 @@ pub mod tests {
             context[0]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[0], b[0]),
             context[1]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[1], b[1]),
             context[2]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[2], b[2]),
         )?;
 
