@@ -9,12 +9,12 @@ macro_rules! field_impl {
 
             fn add(self, rhs: Self) -> Self::Output {
                 let (result, did_overflow) = self.0.overflowing_add(rhs.0);
-                if did_overflow {
-                    println!("I overflowed! wrapped result: {}", result);
-                    Self(result + Self::PRIME_TO_INTMAX_DELTA)
-                } else {
-                    Self(result % Self::PRIME)
-                }
+                Self(
+                    (result
+                        + <Self as Field>::Integer::from(did_overflow)
+                            * Self::PRIME_TO_INTMAX_DELTA)
+                        % Self::PRIME,
+                )
             }
         }
 
@@ -68,18 +68,6 @@ macro_rules! field_impl {
             #[allow(clippy::assign_op_pattern)]
             fn mul_assign(&mut self, rhs: Self) {
                 *self = *self * rhs;
-            }
-        }
-
-        impl From<$field> for u8 {
-            fn from(v: $field) -> Self {
-                v.0.try_into().unwrap()
-            }
-        }
-
-        impl From<$field> for u32 {
-            fn from(v: $field) -> Self {
-                v.0.try_into().unwrap()
             }
         }
 
@@ -173,6 +161,12 @@ impl Not for Fp2 {
     }
 }
 
+impl From<Fp2> for u8 {
+    fn from(v: Fp2) -> Self {
+        v.0
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Fp31(<Self as Field>::Integer);
@@ -183,6 +177,12 @@ impl Field for Fp31 {
     const PRIME_TO_INTMAX_DELTA: Self::Integer = 225;
     const ZERO: Self = Fp31(0);
     const ONE: Self = Fp31(1);
+}
+
+impl From<Fp31> for u8 {
+    fn from(v: Fp31) -> Self {
+        v.0
+    }
 }
 
 field_impl! { Fp31 }
@@ -199,6 +199,12 @@ impl Field for Fp32BitPrime {
     const ONE: Self = Fp32BitPrime(1);
 }
 
+impl From<Fp32BitPrime> for u32 {
+    fn from(v: Fp32BitPrime) -> Self {
+        v.0
+    }
+}
+
 field_impl! { Fp32BitPrime }
 
 #[cfg(test)]
@@ -212,17 +218,6 @@ mod test {
         assert_eq!(F::ZERO, F::ZERO - F::ZERO);
         assert_eq!(F::from(prime - 1), F::ZERO - F::ONE);
         assert_eq!(F::ZERO, F::ZERO * F::ONE);
-    }
-
-    fn invert_test<F: Field>(prime: u128) {
-        for i in 1..prime {
-            let field_element = F::from(i);
-            assert_eq!(
-                F::ONE,
-                field_element.invert().mul(field_element),
-                "{field_element:?}*1/{field_element:?} != 1"
-            );
-        }
     }
 
     #[test]
@@ -298,45 +293,6 @@ mod test {
     #[test]
     fn zero_fp32_bit_prime() {
         zero_test::<Fp32BitPrime>(u128::from(Fp32BitPrime::PRIME));
-    }
-
-    #[test]
-    fn pow() {
-        let zero = Fp31::ZERO;
-        let one = Fp31::ONE;
-
-        assert_eq!(Fp31(2), Fp31(2).pow(1));
-        assert_eq!(one, Fp31(2).pow(0));
-        assert_eq!(one, one.pow(0));
-        assert_eq!(one, one.pow(2));
-        assert_eq!(zero, zero.pow(2));
-
-        assert_eq!(Fp31(Fp31::PRIME - 1), Fp31(Fp31::PRIME - 1).pow(1));
-        assert_eq!(one, Fp31(2).pow(Fp31::PRIME - 1));
-
-        assert_eq!(Fp31(8), Fp31(2).pow(3));
-        assert_eq!(Fp31(5), Fp31(6).pow(2));
-        assert_eq!(Fp31(16), Fp31(4).pow(2));
-        assert_eq!(Fp31(27), Fp31(3).pow(3));
-    }
-
-    #[test]
-    fn invert_fp2() {
-        invert_test::<Fp2>(u128::from(Fp2::PRIME));
-    }
-
-    #[test]
-    fn invert_fp31() {
-        invert_test::<Fp31>(u128::from(Fp31::PRIME));
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic]
-    fn invert_panics_if_called_on_zero() {
-        // assertion does not matter here, test should panic when `invert` is called.
-        // it is here to silence #must_use warning
-        assert_ne!(Fp31::ZERO, Fp31(0).invert());
     }
 
     #[test]
