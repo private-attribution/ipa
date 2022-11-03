@@ -7,13 +7,8 @@ macro_rules! field_impl {
             type Output = Self;
 
             fn add(self, rhs: Self) -> Self::Output {
-                let (result, did_overflow) = self.0.overflowing_add(rhs.0);
-                Self(
-                    (result
-                        + <Self as Field>::Integer::from(did_overflow)
-                            * Self::PRIME_TO_INTMAX_DELTA)
-                        % Self::PRIME,
-                )
+                let c = u64::from;
+                Self(((c(self.0) + c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
             }
         }
 
@@ -37,7 +32,7 @@ macro_rules! field_impl {
 
             fn sub(self, rhs: Self) -> Self::Output {
                 // TODO(mt) - constant time?
-                let c = u128::from;
+                let c = u64::from;
                 Self(
                     ((c(Self::PRIME) + c(self.0) - c(rhs.0)) % c(Self::PRIME))
                         as <Self as Field>::Integer,
@@ -57,7 +52,7 @@ macro_rules! field_impl {
 
             fn mul(self, rhs: Self) -> Self::Output {
                 // TODO(mt) - constant time?
-                let c = u128::from;
+                let c = u64::from;
                 #[allow(clippy::cast_possible_truncation)]
                 Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
             }
@@ -99,7 +94,6 @@ field_impl! { Fp2 }
 impl Field for Fp2 {
     type Integer = u8;
     const PRIME: Self::Integer = 2;
-    const PRIME_TO_INTMAX_DELTA: Self::Integer = 254;
     const ZERO: Self = Fp2(0);
     const ONE: Self = Fp2(1);
 }
@@ -171,7 +165,6 @@ pub struct Fp31(<Self as Field>::Integer);
 impl Field for Fp31 {
     type Integer = u8;
     const PRIME: Self::Integer = 31;
-    const PRIME_TO_INTMAX_DELTA: Self::Integer = 225;
     const ZERO: Self = Fp31(0);
     const ONE: Self = Fp31(1);
 }
@@ -190,7 +183,6 @@ pub struct Fp32BitPrime(<Self as Field>::Integer);
 impl Field for Fp32BitPrime {
     type Integer = u32;
     const PRIME: Self::Integer = 4_294_967_291; // 2^32 - 5
-    const PRIME_TO_INTMAX_DELTA: Self::Integer = 5;
     const ZERO: Self = Fp32BitPrime(0);
     const ONE: Self = Fp32BitPrime(1);
 }

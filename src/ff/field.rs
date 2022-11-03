@@ -51,7 +51,6 @@ pub trait Field:
     type Integer: Int;
 
     const PRIME: Self::Integer;
-    const PRIME_TO_INTMAX_DELTA: Self::Integer;
     /// Additive identity element
     const ZERO: Self;
     /// Multiplicative identity element
