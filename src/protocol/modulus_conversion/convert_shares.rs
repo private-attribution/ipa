@@ -4,7 +4,6 @@ use crate::{
     protocol::{
         context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
         reveal::reveal_malicious, RecordId,
-        sort::SortStep::ModulusConversion,
     },
     secret_sharing::Replicated,
 };
@@ -104,10 +103,11 @@ pub async fn convert_shares_for_a_bit<F: Field>(
         |(record_id, (ctx, row))| async move {
             ConvertShares::new(XorShares {
                 num_bits,
-                packed_bits: *row,
+                packed_bits_left: row.0,
+                packed_bits_right: row.1,
             })
             .execute_one_bit(
-                ctx.narrow(&ModulusConversion(record_id)),
+                ctx.narrow(&record_id.to_string()),
                 RecordId::from(record_id),
                 bit_index,
             )

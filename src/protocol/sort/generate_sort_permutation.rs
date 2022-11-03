@@ -5,7 +5,7 @@ use crate::{
         context::ProtocolContext,
         modulus_conversion::convert_shares::convert_shares_for_a_bit,
         sort::bit_permutation::BitPermutation,
-        sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep},
+        sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion},
         IpaProtocolStep::Sort,
     },
     secret_sharing::Replicated,
@@ -20,13 +20,13 @@ use embed_doc_image::embed_doc_image;
 /// <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
 pub struct GenerateSortPermutation<'a> {
-    input: &'a [u64],
+    input: &'a [(u64, u64)],
     num_bits: u8,
 }
 
 impl<'a> GenerateSortPermutation<'a> {
     #[allow(dead_code)]
-    pub fn new(input: &'a [u64], num_bits: u8) -> GenerateSortPermutation {
+    pub fn new(input: &'a [(u64, u64)], num_bits: u8) -> GenerateSortPermutation {
         Self { input, num_bits }
     }
 
@@ -48,11 +48,16 @@ impl<'a> GenerateSortPermutation<'a> {
         let mut i_minus_1_compose = Vec::with_capacity(self.input.len());
         for bit_num in 0..self.num_bits {
             let ctx = ctx.narrow(&Sort(bit_num));
-            let mut bit_value_share =
-                convert_shares_for_a_bit(&ctx, self.input, self.num_bits, bit_num).await?;
+            let mut bit_value_share = convert_shares_for_a_bit(
+                &ctx.narrow(&ModulusConversion),
+                self.input,
+                self.num_bits,
+                bit_num,
+            )
+            .await?;
             if bit_num != 0 {
                 SecureApplyInv::execute(
-                    &ctx.narrow(&ApplyInv),
+                    ctx.narrow(&ApplyInv),
                     &mut bit_value_share,
                     &mut i_minus_1_compose.clone(),
                 )
@@ -79,8 +84,10 @@ mod tests {
     use rand::Rng;
 
     use crate::{
-        protocol::{sort::{generate_sort_permutation::GenerateSortPermutation}, QueryId},
-        test_fixture::{make_contexts, make_world, validate_list_of_shares, logging}, ff::Fp31, error::BoxError,
+        error::BoxError,
+        ff::Fp31,
+        protocol::{sort::generate_sort_permutation::GenerateSortPermutation, QueryId},
+        test_fixture::{logging, make_contexts, make_world, validate_list_of_shares},
     };
 
     #[tokio::test]
