@@ -8,7 +8,13 @@ macro_rules! field_impl {
             type Output = Self;
 
             fn add(self, rhs: Self) -> Self::Output {
-                Self((self.0 + rhs.0) % Self::PRIME)
+                let (result, did_overflow) = self.0.overflowing_add(rhs.0);
+                if did_overflow {
+                    println!("I overflowed! wrapped result: {}", result);
+                    Self(result + Self::PRIME_TO_INTMAX_DELTA)
+                } else {
+                    Self(result % Self::PRIME)
+                }
             }
         }
 
@@ -67,7 +73,13 @@ macro_rules! field_impl {
 
         impl From<$field> for u8 {
             fn from(v: $field) -> Self {
-                v.0
+                v.0.try_into().unwrap()
+            }
+        }
+
+        impl From<$field> for u32 {
+            fn from(v: $field) -> Self {
+                v.0.try_into().unwrap()
             }
         }
 
@@ -101,6 +113,7 @@ field_impl! { Fp2 }
 impl Field for Fp2 {
     type Integer = u8;
     const PRIME: Self::Integer = 2;
+    const PRIME_TO_INTMAX_DELTA: Self::Integer = 254;
     const ZERO: Self = Fp2(0);
     const ONE: Self = Fp2(1);
 }
@@ -167,15 +180,30 @@ pub struct Fp31(<Self as Field>::Integer);
 impl Field for Fp31 {
     type Integer = u8;
     const PRIME: Self::Integer = 31;
+    const PRIME_TO_INTMAX_DELTA: Self::Integer = 225;
     const ZERO: Self = Fp31(0);
     const ONE: Self = Fp31(1);
 }
 
 field_impl! { Fp31 }
 
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
+pub struct Fp32BitPrime(<Self as Field>::Integer);
+
+impl Field for Fp32BitPrime {
+    type Integer = u32;
+    const PRIME: Self::Integer = 4_294_967_291; // 2^32 - 5
+    const PRIME_TO_INTMAX_DELTA: Self::Integer = 5;
+    const ZERO: Self = Fp32BitPrime(0);
+    const ONE: Self = Fp32BitPrime(1);
+}
+
+field_impl! { Fp32BitPrime }
+
 #[cfg(test)]
 mod test {
-    use super::{Field, Fp2, Fp31};
+    use super::{Field, Fp2, Fp31, Fp32BitPrime};
 
     #[allow(clippy::eq_op)]
     fn zero_test<F: Field>(prime: u128) {
@@ -268,6 +296,11 @@ mod test {
     }
 
     #[test]
+    fn zero_fp32_bit_prime() {
+        zero_test::<Fp32BitPrime>(u128::from(Fp32BitPrime::PRIME));
+    }
+
+    #[test]
     fn pow() {
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -304,5 +337,62 @@ mod test {
         // assertion does not matter here, test should panic when `invert` is called.
         // it is here to silence #must_use warning
         assert_ne!(Fp31::ZERO, Fp31(0).invert());
+    }
+
+    #[test]
+    fn thirty_two_bit_prime() {
+        let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
+        let y = Fp32BitPrime::from(4_294_967_289_u32); // PRIME - 2
+
+        assert_eq!(x - y, Fp32BitPrime::ONE);
+        assert_eq!(y - x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1));
+        assert_eq!(y + x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 3));
+
+        assert_eq!(x * y, Fp32BitPrime::from(2_u32),);
+
+        let x = Fp32BitPrime::from(3_192_725_551_u32);
+        let y = Fp32BitPrime::from(1_471_265_983_u32);
+
+        assert_eq!(x - y, Fp32BitPrime::from(1_721_459_568_u32));
+        assert_eq!(y - x, Fp32BitPrime::from(2_573_507_723_u32));
+        assert_eq!(x + y, Fp32BitPrime::from(369_024_243_u32));
+
+        assert_eq!(x * y, Fp32BitPrime::from(513_684_208_u32),);
+    }
+
+    #[test]
+    fn thirty_two_bit_additive_wrapping() {
+        // Two numbers that add up to EXACTLY u32::MAX will just barely not overflow
+        // the result is 4 larger than our prime, so the result should be 4
+        // this checks to ensure we have a `% PRIME` even in the case of no overflow
+        let x = Fp32BitPrime::from(u32::MAX - 20);
+        let y = Fp32BitPrime::from(20_u32);
+        assert_eq!(x + y, Fp32BitPrime::from(4_u32));
+
+        // Two numbers that add up to one more than u32::MAX will overflow, wrapping around to 0_32
+        // the result is 5 larger than our prime, so the result should be 5
+        // this checks to ensure we do not panic when integer overflow happens,
+        // and that we add on the difference between the prime and the integer boundary to overflowing results.
+        let x = Fp32BitPrime::from(u32::MAX - 20);
+        let y = Fp32BitPrime::from(21_u32);
+        assert_eq!(x + y, Fp32BitPrime::from(5_u32));
+
+        // Two numbers that add up to two more than u32::MAX will overflow, wrapping around to 1_32
+        // the result is 6 larger than our prime, so the result should be 6
+        // this checks to ensure we do not panic when integer overflow happens,
+        // and that we add on the difference between the prime and the integer boundary to overflowing results.
+        let x = Fp32BitPrime::from(u32::MAX - 20);
+        let y = Fp32BitPrime::from(22_u32);
+        assert_eq!(x + y, Fp32BitPrime::from(6_u32));
+
+        // Add the two largest values in the field.
+        // This is overlow as much as we possibly can.
+        // The overflowing result will be 4_294_967_284_u32
+        // Once we add the difference between the prime and the integer boundary (5), it will be
+        // 4_294_967_289_u32, which is still two less than our prime.
+        // As such, we do NOT need a `% PRIME` operation in the overflowing case
+        let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
+        let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
+        assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
     }
 }

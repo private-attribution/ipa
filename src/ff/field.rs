@@ -27,6 +27,10 @@ impl Int for u8 {
     const BITS: u32 = u8::BITS;
 }
 
+impl Int for u32 {
+    const BITS: u32 = u32::BITS;
+}
+
 pub trait Field:
     Add<Output = Self>
     + AddAssign
@@ -48,6 +52,7 @@ pub trait Field:
     type Integer: Int;
 
     const PRIME: Self::Integer;
+    const PRIME_TO_INTMAX_DELTA: Self::Integer;
     /// Additive identity element
     const ZERO: Self;
     /// Multiplicative identity element
