@@ -8,18 +8,16 @@ use crate::ff::Field;
 use crate::helpers::Identity;
 
 
-pub trait ReplicatedShare<F: Field> : Add
+pub trait SecretShare<F: Field> : Add
     + AddAssign
     + Neg
     + Sub
     + SubAssign
-    + Mul
+    + Mul<F>
     + Sized
 {
-    // fn left(&self) -> F;
-    // fn right(&self) -> F;
-    //
-    // fn one(helper_role: Identity) -> Self;
 }
+
+impl <F: Field> SecretShare<F> for Replicated<F> {}
 
 
