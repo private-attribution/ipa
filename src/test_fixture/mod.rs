@@ -13,7 +13,7 @@ use crate::secret_sharing::Replicated;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
-pub use sharing::{share, validate_and_reconstruct};
+pub use sharing::{share, validate_and_reconstruct, validate_list_of_shares};
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
 };
@@ -23,7 +23,7 @@ pub use world::{
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts(test_world: &TestWorld) -> [ProtocolContext<'_, Fp31>; 3] {
+pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [ProtocolContext<'_, F>; 3] {
     test_world
         .gateways
         .iter()

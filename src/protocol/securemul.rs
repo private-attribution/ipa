@@ -85,31 +85,31 @@ pub mod tests {
 
         assert_eq!(
             30,
-            multiply_sync(make_contexts(&world), 6, 5, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 6, 5, &mut rand).await?
         );
         assert_eq!(
             25,
-            multiply_sync(make_contexts(&world), 5, 5, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 5, 5, &mut rand).await?
         );
         assert_eq!(
             7,
-            multiply_sync(make_contexts(&world), 7, 1, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 7, 1, &mut rand).await?
         );
         assert_eq!(
             0,
-            multiply_sync(make_contexts(&world), 0, 14, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 0, 14, &mut rand).await?
         );
         assert_eq!(
             8,
-            multiply_sync(make_contexts(&world), 7, 10, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 7, 10, &mut rand).await?
         );
         assert_eq!(
             4,
-            multiply_sync(make_contexts(&world), 5, 7, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 5, 7, &mut rand).await?
         );
         assert_eq!(
             1,
-            multiply_sync(make_contexts(&world), 16, 2, &mut rand).await?
+            multiply_sync::<_, Fp31>(make_contexts(&world), 16, 2, &mut rand).await?
         );
 
         Ok(())
@@ -126,7 +126,6 @@ pub mod tests {
         async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(0_u32))
-                .await
                 .execute(a, b)
                 .await
                 .unwrap()
@@ -135,7 +134,7 @@ pub mod tests {
         logging::setup();
 
         let world = make_world(QueryId);
-        let contexts = make_contexts(&world);
+        let contexts = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
 
         let mut multiplications = Vec::new();
@@ -184,9 +183,9 @@ pub mod tests {
         let b = share(b, rng);
 
         let result_shares = tokio::try_join!(
-            context0.multiply(record_id).await.execute(a[0], b[0]),
-            context1.multiply(record_id).await.execute(a[1], b[1]),
-            context2.multiply(record_id).await.execute(a[2], b[2]),
+            context0.multiply(record_id).execute(a[0], b[0]),
+            context1.multiply(record_id).execute(a[1], b[1]),
+            context2.multiply(record_id).execute(a[2], b[2]),
         )?;
 
         Ok(validate_and_reconstruct(result_shares).as_u128())

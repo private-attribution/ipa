@@ -106,11 +106,44 @@ impl ConvertShares {
             });
         try_join_all(futures).await
     }
+
+    #[allow(dead_code)]
+    pub async fn execute_one_bit<F: Field>(
+        &self,
+        ctx: ProtocolContext<'_, F>,
+        record_id: RecordId,
+        bit_index: u8,
+    ) -> Result<Replicated<F>, BoxError> {
+        let prss = &ctx.prss();
+        let (left, right) = prss.generate_values(record_id);
+
+        let b0 = Fp2::from(left & (1 << bit_index) != 0);
+        let b1 = Fp2::from(right & (1 << bit_index) != 0);
+        let input = Fp2::from(self.input.packed_bits & (1 << bit_index) != 0);
+        let input_xor_r = input ^ b0;
+
+        let (r_big_field, revealed_output) = try_join(
+            DoubleRandom::execute(
+                ctx.narrow(&Step::DoubleRandom),
+                record_id,
+                Replicated::new(b0, b1),
+            ),
+            RevealAdditiveBinary::execute(ctx.narrow(&Step::BinaryReveal), record_id, input_xor_r),
+        )
+        .await?;
+
+        if revealed_output == Fp2::ONE {
+            Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
+        } else {
+            Ok(r_big_field)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
+        error::BoxError,
         ff::{Field, Fp31},
         protocol::{
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
@@ -120,6 +153,7 @@ mod tests {
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use std::iter::{repeat, zip};
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct ModulusConversionTestStep {
@@ -131,7 +165,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts(&world);
+        let context = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = context;
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones
@@ -176,5 +210,76 @@ mod tests {
                 assert_eq!(share_of_bit, Fp31::ZERO);
             }
         }
+    }
+
+    #[tokio::test]
+    pub async fn convert_one_bit_of_many_match_keys() -> Result<(), BoxError> {
+        let mut rng = rand::thread_rng();
+
+        let world: TestWorld = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+        let [c0, c1, c2] = context;
+
+        let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones
+        let mut match_keys = Vec::with_capacity(1000);
+        let mut shared_match_keys = Vec::with_capacity(1000);
+        for _ in 0..1000 {
+            let match_key: u64 = rng.gen::<u64>() & mask;
+            let share_0 = rng.gen::<u64>() & mask;
+            let share_1 = rng.gen::<u64>() & mask;
+            let share_2 = match_key ^ share_0 ^ share_1;
+
+            match_keys.push(match_key);
+            shared_match_keys.push((share_0, share_1, share_2));
+        }
+
+        let results = try_join_all(
+            zip(
+                repeat(c0),
+                zip(repeat(c1), zip(repeat(c2), shared_match_keys)),
+            )
+            .enumerate()
+            .map(|(i, (c0, (c1, (c2, shared_match_key))))| async move {
+                let (share_0, share_1, share_2) = shared_match_key;
+                let record_id = RecordId::from(0_u32);
+                let hack = format!("hack_{}", i);
+                try_join_all(vec![
+                    ConvertShares::new(XorShares {
+                        num_bits: 40,
+                        packed_bits: share_0,
+                    })
+                    .execute_one_bit(c0.narrow(&hack), record_id, 4),
+                    ConvertShares::new(XorShares {
+                        num_bits: 40,
+                        packed_bits: share_1,
+                    })
+                    .execute_one_bit(c1.narrow(&hack), record_id, 4),
+                    ConvertShares::new(XorShares {
+                        num_bits: 40,
+                        packed_bits: share_2,
+                    })
+                    .execute_one_bit(c2.narrow(&hack), record_id, 4),
+                ])
+                .await
+            }),
+        )
+        .await?;
+
+        for i in 0..1000 {
+            let match_key = match_keys[i];
+            let bit_of_match_key = match_key & (1 << 4) != 0;
+
+            let sh0 = results[i][0];
+            let sh1 = results[i][1];
+            let sh2 = results[i][2];
+
+            let share_of_bit: Fp31 = validate_and_reconstruct((sh0, sh1, sh2));
+            if bit_of_match_key {
+                assert_eq!(share_of_bit, Fp31::ONE);
+            } else {
+                assert_eq!(share_of_bit, Fp31::ZERO);
+            }
+        }
+        Ok(())
     }
 }

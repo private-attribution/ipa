@@ -64,7 +64,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             zip(repeat(ctx), mult_input)
                 .enumerate()
                 .map(|(i, (ctx, (x, sum)))| async move {
-                    ctx.multiply(RecordId::from(i)).await.execute(x, sum).await
+                    ctx.multiply(RecordId::from(i)).execute(x, sum).await
                 });
         let mut mult_output = try_join_all(async_multiply).await?;
 
@@ -89,13 +89,13 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{sort::bit_permutations::BitPermutations, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
+        test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
     };
 
     #[tokio::test]
     pub async fn bit_permutations() {
         let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts(&world);
+        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(100, 1);
 
         // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
@@ -128,11 +128,6 @@ mod tests {
         assert_eq!(result.1.len(), input_len);
         assert_eq!(result.2.len(), input_len);
 
-        (0..result.0.len()).for_each(|i| {
-            assert_eq!(
-                validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
-                Fp31::from(expected_sort_output[i])
-            );
-        });
+        validate_list_of_shares(&expected_sort_output, &result);
     }
 }
