@@ -306,35 +306,18 @@ mod test {
 
     #[test]
     fn thirty_two_bit_additive_wrapping() {
-        // Two numbers that add up to EXACTLY u32::MAX will just barely not overflow
-        // the result is 4 larger than our prime, so the result should be 4
-        // this checks to ensure we have a `% PRIME` even in the case of no overflow
         let x = Fp32BitPrime::from(u32::MAX - 20);
         let y = Fp32BitPrime::from(20_u32);
         assert_eq!(x + y, Fp32BitPrime::from(4_u32));
 
-        // Two numbers that add up to one more than u32::MAX will overflow, wrapping around to 0_32
-        // the result is 5 larger than our prime, so the result should be 5
-        // this checks to ensure we do not panic when integer overflow happens,
-        // and that we add on the difference between the prime and the integer boundary to overflowing results.
         let x = Fp32BitPrime::from(u32::MAX - 20);
         let y = Fp32BitPrime::from(21_u32);
         assert_eq!(x + y, Fp32BitPrime::from(5_u32));
 
-        // Two numbers that add up to two more than u32::MAX will overflow, wrapping around to 1_32
-        // the result is 6 larger than our prime, so the result should be 6
-        // this checks to ensure we do not panic when integer overflow happens,
-        // and that we add on the difference between the prime and the integer boundary to overflowing results.
         let x = Fp32BitPrime::from(u32::MAX - 20);
         let y = Fp32BitPrime::from(22_u32);
         assert_eq!(x + y, Fp32BitPrime::from(6_u32));
 
-        // Add the two largest values in the field.
-        // This is overlow as much as we possibly can.
-        // The overflowing result will be 4_294_967_284_u32
-        // Once we add the difference between the prime and the integer boundary (5), it will be
-        // 4_294_967_289_u32, which is still two less than our prime.
-        // As such, we do NOT need a `% PRIME` operation in the overflowing case
         let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
         let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
         assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
