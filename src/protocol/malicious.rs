@@ -356,11 +356,9 @@ pub mod tests {
 
                 let r_share = v.r_share();
 
-                let maliciously_secure_inputs = try_join_all(
-                    input_shares
-                        .iter()
-                        .zip(row_narrowed_contexts.iter())
-                        .map(|(x, ctx)| async move {
+                let maliciously_secure_inputs =
+                    try_join_all(input_shares.iter().zip(row_narrowed_contexts.iter()).map(
+                        |(x, ctx)| async move {
                             let rx = ctx
                                 .narrow("mult")
                                 .multiply(RecordId::from(0_u32))
@@ -368,9 +366,9 @@ pub mod tests {
                                 .await?;
 
                             Ok::<_, BoxError>(MaliciousReplicated::new(*x, rx))
-                        }),
-                )
-                .await?;
+                        },
+                    ))
+                    .await?;
 
                 let _ = maliciously_secure_inputs
                     .iter()
