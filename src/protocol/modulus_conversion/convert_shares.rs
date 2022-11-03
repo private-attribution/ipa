@@ -7,7 +7,7 @@ use crate::{
     },
     secret_sharing::Replicated,
 };
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join;
 
 pub struct XorShares {
     num_bits: u8,
@@ -20,7 +20,6 @@ pub struct ConvertShares {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    Bit(u8),
     DoubleRandom,
     BinaryReveal,
 }
@@ -29,16 +28,7 @@ impl crate::protocol::Step for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
-        const BITS: [&str; 64] = [
-            "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "b10", "b11", "b12", "b13",
-            "b14", "b15", "b16", "b17", "b18", "b19", "b20", "b21", "b22", "b23", "b24", "b25",
-            "b26", "b27", "b28", "b29", "b30", "b31", "b32", "b33", "b34", "b35", "b36", "b37",
-            "b38", "b39", "b40", "b41", "b42", "b43", "b44", "b45", "b46", "b47", "b48", "b49",
-            "b50", "b51", "b52", "b53", "b54", "b55", "b56", "b57", "b58", "b59", "b60", "b61",
-            "b62", "b63",
-        ];
         match self {
-            Self::Bit(i) => BITS[usize::from(*i)], // yes, panic on overflow
             Self::DoubleRandom => "double_random",
             Self::BinaryReveal => "binary_reveal",
         }
@@ -65,55 +55,14 @@ impl ConvertShares {
     }
 
     #[allow(dead_code)]
-    pub async fn execute<F: Field>(
-        &self,
-        ctx: ProtocolContext<'_, F>,
-        record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let prss = &ctx.prss();
-        let (left, right) = prss.generate_values(record_id);
-
-        let bits = (0..self.input.num_bits).into_iter().map(|i| {
-            let b0 = left & (1 << i) != 0;
-            let b1 = right & (1 << i) != 0;
-            let input = self.input.packed_bits & (1 << i) != 0;
-            let input_xor_r = input ^ b0;
-            (ctx.narrow(&Step::Bit(i)), b0, b1, input_xor_r)
-        });
-
-        let futures = bits
-            .into_iter()
-            .map(|(ctx, b0, b1, input_xor_r)| async move {
-                let r_binary = Replicated::new(Fp2::from(b0), Fp2::from(b1));
-
-                let gen_random_future =
-                    DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary);
-
-                let reveal_future = RevealAdditiveBinary::execute(
-                    ctx.narrow(&Step::BinaryReveal),
-                    record_id,
-                    Fp2::from(input_xor_r),
-                );
-
-                let (r_big_field, revealed_output) =
-                    try_join(gen_random_future, reveal_future).await?;
-
-                if revealed_output == Fp2::ONE {
-                    Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
-                } else {
-                    Ok(r_big_field)
-                }
-            });
-        try_join_all(futures).await
-    }
-
-    #[allow(dead_code)]
     pub async fn execute_one_bit<F: Field>(
         &self,
         ctx: ProtocolContext<'_, F>,
         record_id: RecordId,
         bit_index: u8,
     ) -> Result<Replicated<F>, BoxError> {
+        assert!(bit_index < self.input.num_bits);
+
         let prss = &ctx.prss();
         let (left, right) = prss.generate_values(record_id);
 
@@ -121,7 +70,6 @@ impl ConvertShares {
         let b1 = Fp2::from(right & (1 << bit_index) != 0);
         let input = Fp2::from(self.input.packed_bits & (1 << bit_index) != 0);
         let input_xor_r = input ^ b0;
-
         let (r_big_field, revealed_output) = try_join(
             DoubleRandom::execute(
                 ctx.narrow(&Step::DoubleRandom),
@@ -158,58 +106,6 @@ mod tests {
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct ModulusConversionTestStep {
         prss_space_number: u8,
-    }
-
-    #[tokio::test]
-    pub async fn convert_shares() {
-        let mut rng = rand::thread_rng();
-
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
-        let [c0, c1, c2] = context;
-
-        let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones
-        let match_key: u64 = rng.gen::<u64>() & mask;
-        let share_0 = rng.gen::<u64>() & mask;
-        let share_1 = rng.gen::<u64>() & mask;
-        let share_2 = match_key ^ share_0 ^ share_1;
-
-        let record_id = RecordId::from(0_u32);
-
-        let awaited_futures = try_join_all(vec![
-            ConvertShares::new(XorShares {
-                num_bits: 40,
-                packed_bits: share_0,
-            })
-            .execute(c0, record_id),
-            ConvertShares::new(XorShares {
-                num_bits: 40,
-                packed_bits: share_1,
-            })
-            .execute(c1, record_id),
-            ConvertShares::new(XorShares {
-                num_bits: 40,
-                packed_bits: share_2,
-            })
-            .execute(c2, record_id),
-        ])
-        .await
-        .unwrap();
-
-        let v0 = &awaited_futures[0];
-        let v1 = &awaited_futures[1];
-        let v2 = &awaited_futures[2];
-
-        for i in 0..40 {
-            let bit_of_match_key = match_key & (1 << i) != 0;
-
-            let share_of_bit: Fp31 = validate_and_reconstruct((v0[i], v1[i], v2[i]));
-            if bit_of_match_key {
-                assert_eq!(share_of_bit, Fp31::ONE);
-            } else {
-                assert_eq!(share_of_bit, Fp31::ZERO);
-            }
-        }
     }
 
     #[tokio::test]
