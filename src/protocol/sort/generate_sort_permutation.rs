@@ -3,9 +3,10 @@ use crate::{
     ff::Field,
     protocol::{
         context::ProtocolContext,
-        modulus_conversion::convert_shares::convert_all_shares,
+        modulus_conversion::convert_shares::convert_shares_for_a_bit,
         sort::bit_permutation::BitPermutation,
         sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep},
+        IpaProtocolStep::Sort,
     },
     secret_sharing::Replicated,
 };
@@ -31,40 +32,44 @@ impl<'a> GenerateSortPermutation<'a> {
 
     #[allow(dead_code)]
     #[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
-    /// This protocol generates permutation of a stable sort for the given inputs.
+    /// This protocol generates permutation of a stable sort for the given shares of inputs.
     /// ![Generate sort permutation steps][semi_honest_sort]
     /// Steps
-    /// 1. Obtain bit-wise shares in Field by calling modulus conversion on the input match keys.
-    /// 2. Obtain bit permutation to sort 0th input bit. This is also 0th bit composition (i.e. sigma)
-    /// 3. For 1st until n bits, following steps are repeated
-    /// 3i.  Apply inverse of i-1th bit permutation on ith input bits
-    /// 3ii. Obtain bit permutation to sort ith input bit
-    /// 3iii.Compose ith bit permutation on i-1th composition. We have now obtained ith composition
-    /// 4. Return nth composition as the permutation to sort the given inputs
+    /// For each bit of input share, following steps are executed
+    /// 1. For the current bit, get replicated shares in Field using modulus conversion
+    /// 2. 1st bit onwards, sort ith bit based on i-1th bits by applying i-1th composition on ith bit
+    /// 3  Sort ith bit by computing bit permutation
+    /// 4. 1st bit onwards, compute ith composition by composing i-1th composition on ith permutation
+    /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
     pub async fn execute<F: Field>(
         &self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mut bits = convert_all_shares(&ctx, self.input, self.num_bits).await?;
-        let mut bit_i_minus_1_compose = BitPermutation::new(&bits[0])
-            .execute(ctx.narrow(&BitPermutationStep(0)))
-            .await?;
-        for (bit_num, bit_value_share) in bits.iter_mut().enumerate().skip(1) {
-            SecureApplyInv::execute(
-                &ctx.narrow(&ApplyInv(bit_num.try_into().unwrap())),
-                bit_value_share,
-                &mut bit_i_minus_1_compose.clone(),
-            )
-            .await?;
-            let mut bit_i_permutation = BitPermutation::new(bit_value_share)
-                .execute(ctx.narrow(&BitPermutationStep(bit_num.try_into().unwrap())))
+        let mut i_minus_1_compose = Vec::with_capacity(self.input.len());
+        for bit_num in 0..self.num_bits {
+            let ctx = ctx.narrow(&Sort(bit_num));
+            let mut bit_value_share =
+                convert_shares_for_a_bit(&ctx, self.input, self.num_bits, bit_num).await?;
+            if bit_num != 0 {
+                SecureApplyInv::execute(
+                    &ctx.narrow(&ApplyInv),
+                    &mut bit_value_share,
+                    &mut i_minus_1_compose.clone(),
+                )
                 .await?;
-            Compose::new(&mut bit_i_minus_1_compose, &mut bit_i_permutation)
-                .execute(ctx.narrow(&ComposeStep(bit_num.try_into().unwrap())))
+            }
+            let mut bit_i_permutation = BitPermutation::new(&bit_value_share)
+                .execute(ctx.narrow(&BitPermutationStep))
                 .await?;
-            bit_i_minus_1_compose = bit_i_permutation;
+
+            if bit_num != 0 {
+                Compose::new(&mut i_minus_1_compose, &mut bit_i_permutation)
+                    .execute(ctx.narrow(&ComposeStep))
+                    .await?;
+            }
+            i_minus_1_compose = bit_i_permutation;
         }
-        Ok(bit_i_minus_1_compose)
+        Ok(i_minus_1_compose)
     }
 }
 
