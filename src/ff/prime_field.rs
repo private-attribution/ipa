@@ -1,5 +1,4 @@
 use super::{field::BinaryField, Field};
-use serde::{Deserialize, Serialize};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
@@ -93,7 +92,6 @@ macro_rules! field_impl {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Fp2(<Self as Field>::Integer);
 
 field_impl! { Fp2 }
@@ -168,7 +166,6 @@ impl From<Fp2> for u8 {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Fp31(<Self as Field>::Integer);
 
 impl Field for Fp31 {
@@ -188,7 +185,6 @@ impl From<Fp31> for u8 {
 field_impl! { Fp31 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct Fp32BitPrime(<Self as Field>::Integer);
 
 impl Field for Fp32BitPrime {
