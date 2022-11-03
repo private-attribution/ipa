@@ -83,11 +83,17 @@ impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
         // being clever and assuming a clean context...
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
         let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
-        let (ab, rab) = try_join(
-            SecureMul::new(self.ctx, self.record_id).execute(a.x(), b.x()),
-            SecureMul::new(duplicate_multiply_ctx, self.record_id).execute(a.rx(), b.x()),
-        )
-        .await?;
+        let (ab, rab) = {
+            // Convince compiler that neither a nor b will be used across the await point
+            // to relax the requirement for either of them to be Sync
+            let a_x = a.x();
+            let a_rx = a.rx();
+            let b_x = b.x();
+            try_join(
+                SecureMul::new(self.ctx, self.record_id).execute(a_x, b_x),
+                SecureMul::new(duplicate_multiply_ctx, self.record_id).execute(a_rx, b_x),
+            ).await?
+        };
 
         let malicious_ab = MaliciousReplicated::new(ab, rab);
 

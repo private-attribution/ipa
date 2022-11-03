@@ -14,6 +14,8 @@ use crate::{
     },
     protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
+use crate::error::BoxError;
+use crate::secret_sharing::ReplicatedShare;
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
@@ -114,5 +116,17 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
     pub fn malicious_multiply(self, record_id: RecordId) -> MaliciouslySecureMul<'a, F> {
         let accumulator = self.accumulator.as_ref().unwrap().clone();
         MaliciouslySecureMul::new(self, record_id, accumulator)
+    }
+
+    pub fn my_fancy_multiply<S: ReplicatedShare<F>> (self, record_id: RecordId) -> &'a dyn crate::protocol::mul::SecureMul<F, Share=S> {
+        todo!()
+    }
+
+    pub async fn my_fancy_multiply2<M: crate::protocol::mul::SecureMul<F, Share=S>, S: ReplicatedShare<F>>(self,
+                                                           record_id: RecordId,
+                                                           a: S,
+                                                           b: S,
+                                                           mul: M) -> Result<S, BoxError> {
+        mul.multiply(a, b).await
     }
 }
