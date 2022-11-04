@@ -1,6 +1,8 @@
 pub mod config;
 
+use crate::helpers::Role;
 use crate::net::MpcHelperClient;
+use crate::protocol::prss;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -19,4 +21,5 @@ pub enum Error {
 #[allow(clippy::module_name_repetitions)] // following standard naming convention
 pub trait PeerDiscovery {
     fn peers(&self) -> [MpcHelperClient; 3];
+    fn prss(&self, role: Role) -> prss::Endpoint;
 }

@@ -1,5 +1,4 @@
 pub mod circuit;
-pub mod discovery;
 pub mod fabric;
 pub mod logging;
 mod sharing;

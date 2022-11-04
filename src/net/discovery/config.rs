@@ -1,26 +1,43 @@
-use crate::net::{
-    discovery::{Error, PeerDiscovery},
-    MpcHelperClient,
+use crate::{
+    helpers::{Direction, Role},
+    net::{
+        discovery::{Error, PeerDiscovery},
+        MpcHelperClient,
+    },
+    protocol::prss,
 };
 use axum::http::uri::{Authority, Scheme, Uri};
-use serde::{Deserialize, Deserializer};
+use rand::thread_rng;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Formatter;
 use std::path::PathBuf;
+use x25519_dalek::PublicKey;
 
 /// Describes just the origin of a url, i.e.: "http\[s\]://\[authority\]", minus the path and
 /// query parameters
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Origin(Scheme, Authority);
+struct Origin {
+    scheme: Scheme,
+    authority: Authority,
+}
 
 impl From<Origin> for Uri {
     fn from(origin: Origin) -> Self {
-        let Origin(scheme, authority) = origin;
         Uri::builder()
-            .scheme(scheme)
-            .authority(authority)
+            .scheme(origin.scheme)
+            .authority(origin.authority)
             .path_and_query("")
             .build()
             .unwrap()
+    }
+}
+
+impl Serialize for Origin {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{}://{}", self.scheme, self.authority))
     }
 }
 
@@ -44,25 +61,24 @@ impl<'de> Deserialize<'de> for Origin {
                 let authority = parts
                     .authority
                     .ok_or_else(|| E::custom("missing authority"))?;
-                Ok(Origin(scheme, authority))
+                Ok(Origin { scheme, authority })
             }
         }
         deserializer.deserialize_str(UrlVisitor)
     }
 }
 
-/// Configuration values for a single peer helper of the MPC ring
-#[derive(Deserialize)]
-struct HelperConfig {
+/// Configuration values relevant for interacting with other helpers
+#[derive(Serialize, Deserialize)]
+struct Peer {
     origin: Origin,
+    public_key: PublicKey,
 }
 
-/// All config value necessary to discover all peer helpers of the MPC ring
-#[derive(Deserialize)]
+/// All config value necessary to discover other peer helpers of the MPC ring
+#[derive(Serialize, Deserialize)]
 struct Config {
-    h1: HelperConfig,
-    h2: HelperConfig,
-    h3: HelperConfig,
+    peers: [Peer; 3],
 }
 
 impl Config {
@@ -80,11 +96,24 @@ impl Config {
 }
 
 impl PeerDiscovery for Config {
+    /// TODO: support HTTPS
     fn peers(&self) -> [MpcHelperClient; 3] {
-        let h1 = MpcHelperClient::new(self.h1.origin.clone().into());
-        let h2 = MpcHelperClient::new(self.h2.origin.clone().into());
-        let h3 = MpcHelperClient::new(self.h3.origin.clone().into());
-        [h1, h2, h3]
+        self.peers
+            .iter()
+            .map(|peer| MpcHelperClient::new(peer.origin.clone().into()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap_or_else(|_| panic!("could not convert vec into array"))
+    }
+
+    // TODO: do we need different public key for HTTP and PRSS, or can they share?
+    fn prss(&self, role: Role) -> prss::Endpoint {
+        let mut rng = thread_rng();
+        let endpoint = prss::Endpoint::prepare(&mut rng);
+        endpoint.setup(
+            &self.peers[role.peer(Direction::Left)].public_key,
+            &self.peers[role.peer(Direction::Right)].public_key,
+        )
     }
 }
 
@@ -96,33 +125,61 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
+    #[allow(unused)] // TODO: how to test prss seed equality?
+    const ROLE: Role = Role::H2;
+    #[allow(unused)] // TODO: how to test prss seed equality?
+    const H1_PUBLIC_KEY: [u8; 32] = [
+        19, 204, 244, 38, 60, 236, 188, 48, 245, 14, 106, 139, 156, 135, 67, 148, 61, 221, 230, 32,
+        121, 88, 11, 192, 185, 1, 155, 5, 186, 143, 233, 36,
+    ];
+    #[allow(unused)] // TODO: how to test prss seed equality?
+    const H2_PUBLIC_KEY: [u8; 32] = [
+        146, 91, 249, 130, 67, 207, 112, 183, 41, 222, 29, 117, 191, 79, 230, 190, 152, 169, 134,
+        96, 131, 49, 219, 99, 144, 43, 130, 161, 105, 29, 193, 59,
+    ];
+    #[allow(unused)] // TODO: how to test prss seed equality?
+    const H3_PUBLIC_KEY: [u8; 32] = [
+        18, 192, 152, 129, 161, 199, 169, 45, 28, 112, 217, 234, 97, 157, 122, 224, 104, 75, 156,
+        180, 94, 204, 32, 123, 152, 239, 48, 236, 33, 96, 160, 116,
+    ];
     const H1_URI: &str = "http://localhost:3000";
     const H2_URI: &str = "http://localhost:3001";
     const H3_URI: &str = "http://localhost:3002";
     const EXAMPLE_CONFIG: &str = r#"
 {
-    "h1": {
-        "origin": "http://localhost:3000"
-    },
-    "h2": {
-        "origin": "http://localhost:3001"
-    },
-    "h3": {
-        "origin": "http://localhost:3002"
-    }
+    "peers": [
+        {
+            "origin": "http://localhost:3000",
+            "public_key": [19,204,244,38,60,236,188,48,245,14,106,139,156,135,67,148,61,221,230,32,
+                121,88,11,192,185,1,155,5,186,143,233,36]
+        },
+        {
+            "origin": "http://localhost:3001",
+            "public_key": [146,91,249,130,67,207,112,183,41,222,29,117,191,79,230,190,152,169,134,
+                96,131,49,219,99,144,43,130,161,105,29,193,59]
+        },
+        {
+            "origin":"http://localhost:3002",
+            "public_key":[18,192,152,129,161,199,169,45,28,112,217,234,97,157,122,224,104,75,156,
+                180,94,204,32,123,152,239,48,236,33,96,160,116]
+        }
+    ]
 }"#;
 
     fn origin_from_uri_str(uri_str: &str) -> Origin {
         let parts = uri_str.parse::<Uri>().unwrap().into_parts();
-        Origin(parts.scheme.unwrap(), parts.authority.unwrap())
+        Origin {
+            scheme: parts.scheme.unwrap(),
+            authority: parts.authority.unwrap(),
+        }
     }
 
     #[test]
     fn parse_config() {
         let conf: Config = serde_json::from_str(EXAMPLE_CONFIG).unwrap();
-        assert_eq!(conf.h1.origin, origin_from_uri_str(H1_URI));
-        assert_eq!(conf.h2.origin, origin_from_uri_str(H2_URI));
-        assert_eq!(conf.h3.origin, origin_from_uri_str(H3_URI));
+        assert_eq!(conf.peers[Role::H1].origin, origin_from_uri_str(H1_URI));
+        assert_eq!(conf.peers[Role::H2].origin, origin_from_uri_str(H2_URI));
+        assert_eq!(conf.peers[Role::H3].origin, origin_from_uri_str(H3_URI));
     }
 
     #[test]
