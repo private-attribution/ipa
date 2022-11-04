@@ -5,8 +5,8 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId},
 };
 
+use crate::secret_sharing::SecretShare;
 use futures::future::try_join;
-use crate::secret_sharing::{Replicated, SecretShare};
 
 /// This implements a reveal algorithm for an additive binary secret sharing.
 /// As this is an additive sharing, each helper has just one boolean share
@@ -53,7 +53,7 @@ mod tests {
     use proptest::prelude::Rng;
 
     use crate::{
-        ff::{Fp2, Fp31},
+        ff::Fp2,
         protocol::{reveal_additive_binary::RevealAdditiveBinary, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, TestWorld},
     };

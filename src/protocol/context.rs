@@ -1,10 +1,9 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
-use async_trait::async_trait;
 
 use super::{
     prss::{IndexedSharedRandomness, SequentialSharedRandomness},
-    RecordId, Step, UniqueStepId,
+    Step, UniqueStepId,
 };
 use crate::{
     ff::Field,
@@ -14,8 +13,7 @@ use crate::{
     },
     protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
-use crate::error::BoxError;
-use crate::protocol::mul::{MaliciouslySecureMul, SemiHonestMul};
+
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretShare};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
@@ -28,7 +26,7 @@ pub struct ProtocolContext<'a, S: SecretShare<F>, F> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: Option<SecurityValidatorAccumulator<F>>,
-    p: PhantomData<S>
+    _marker: PhantomData<S>,
 }
 
 impl<'a, F: Field, SS: SecretShare<F>> ProtocolContext<'a, SS, F> {
@@ -39,10 +37,9 @@ impl<'a, F: Field, SS: SecretShare<F>> ProtocolContext<'a, SS, F> {
             prss: participant,
             gateway,
             accumulator: None,
-            p: Default::default()
+            _marker: PhantomData::default(),
         }
     }
-
 
     /// The role of this context.
     #[must_use]
@@ -66,7 +63,7 @@ impl<'a, F: Field, SS: SecretShare<F>> ProtocolContext<'a, SS, F> {
             prss: self.prss,
             gateway: self.gateway,
             accumulator: self.accumulator.clone(),
-            p: Default::default()
+            _marker: PhantomData::default(),
         }
     }
 
@@ -101,28 +98,31 @@ impl<'a, F: Field, SS: SecretShare<F>> ProtocolContext<'a, SS, F> {
 
 /// Implementation to upgrade semi-honest context to malicious. Only works for replicated secret
 /// sharing because it is not known yet how to do it for any other type of secret sharing.
-impl <'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
+impl<'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
     #[must_use]
-    pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> ProtocolContext<'a, MaliciousReplicated<F>, F> {
+    pub fn upgrade_to_malicious(
+        self,
+        accumulator: SecurityValidatorAccumulator<F>,
+    ) -> ProtocolContext<'a, MaliciousReplicated<F>, F> {
         ProtocolContext {
             role: self.role,
             step: self.step,
             prss: self.prss,
             gateway: self.gateway,
             accumulator: Some(accumulator),
-            p: Default::default()
+            _marker: PhantomData::default(),
         }
     }
 }
 
 /// Implementation that is specific to malicious contexts operating over replicated secret sharings.
-impl <'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
-
+impl<'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
     /// Get the accumulator that collects messages MACs.
     ///
     /// ## Panics
     /// Does not panic in normal circumstances, panic here will indicate a bug in protocol context
     /// setup that left the accumulator field empty inside the malicious context.
+    #[must_use]
     pub fn accumulator(&self) -> SecurityValidatorAccumulator<F> {
         self.accumulator
             .as_ref()
@@ -137,6 +137,7 @@ impl <'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
     ///
     /// The context received will be an exact copy of malicious, so it will be tied up to the same step
     /// and prss.
+    #[must_use]
     pub fn to_semi_honest(self) -> ProtocolContext<'a, Replicated<F>, F> {
         ProtocolContext {
             role: self.role,
@@ -144,8 +145,7 @@ impl <'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
             prss: self.prss,
             gateway: self.gateway,
             accumulator: None,
-            p: Default::default()
+            _marker: PhantomData::default(),
         }
     }
 }
-

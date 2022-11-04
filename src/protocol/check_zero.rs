@@ -1,12 +1,11 @@
+use crate::protocol::mul::SecureMul;
 use crate::{
     error::BoxError,
     ff::Field,
     protocol::{context::ProtocolContext, reveal::reveal, RecordId},
     secret_sharing::Replicated,
 };
-use crate::protocol::mul::SecureMul;
 use serde::{Deserialize, Serialize};
-use crate::secret_sharing::SecretShare;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]

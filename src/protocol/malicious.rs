@@ -156,7 +156,10 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), BoxError> {
+    pub async fn validate(
+        self,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ) -> Result<(), BoxError> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -198,15 +201,17 @@ impl<F: Field> SecurityValidator<F> {
 pub mod tests {
     use crate::error::BoxError;
     use crate::ff::Fp31;
+    use crate::protocol::mul::SecureMul;
     use crate::protocol::{
         malicious::{SecurityValidator, Step},
         QueryId, RecordId,
     };
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
-    use crate::test_fixture::{logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld, make_malicious_contexts};
+    use crate::test_fixture::{
+        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+    };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
-    use crate::protocol::mul::SecureMul;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -273,7 +278,7 @@ pub mod tests {
 
             #[allow(clippy::similar_names)]
             let mult_result = a_ctx
-                .multiply(RecordId::from(0_u32),a_malicious, b_malicious)
+                .multiply(RecordId::from(0_u32), a_malicious, b_malicious)
                 .await?;
 
             v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
@@ -390,8 +395,9 @@ pub mod tests {
                         .map(|(i, ((a_malicious, b_malicious), ctx))| {
                             let acc = acc.clone();
                             async move {
-                                ctx.narrow("Circuit_Step_2").upgrade_to_malicious(acc)
-                                    .multiply(RecordId::from(i),*a_malicious, *b_malicious)
+                                ctx.narrow("Circuit_Step_2")
+                                    .upgrade_to_malicious(acc)
+                                    .multiply(RecordId::from(i), *a_malicious, *b_malicious)
                                     .await
                             }
                         }),

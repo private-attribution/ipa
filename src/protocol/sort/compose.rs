@@ -41,7 +41,10 @@ impl<'a, F: Field> Compose<'a, F> {
     /// 4. Revealed permutation is applied locally on another permutation shares (rho)
     /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
     #[allow(dead_code)]
-    pub async fn execute(&mut self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), BoxError> {
+    pub async fn execute(
+        &mut self,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ) -> Result<(), BoxError> {
         let mut random_permutations =
             get_two_of_three_random_permutations(self.rho.len(), &ctx.prss());
         let mut random_permutations_copy = random_permutations.clone();

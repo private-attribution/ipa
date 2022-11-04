@@ -9,31 +9,21 @@ use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretShare};
+use crate::secret_sharing::{Replicated, SecretShare};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
 pub use sharing::{share, validate_and_reconstruct, validate_list_of_shares};
 pub use world::{make as make_world, TestWorld};
 
-pub fn make_malicious_contexts<F: Field>(test_world: &TestWorld) -> [ProtocolContext<'_, MaliciousReplicated<F>, F>; 3] {
-    test_world
-        .gateways
-        .iter()
-        .zip(&test_world.participants)
-        .zip(Identity::all_variants())
-        .map(|((gateway, participant), role)| ProtocolContext::new(*role, participant, gateway))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
-}
-
 /// Creates protocol contexts for 3 helpers
 ///
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [ProtocolContext<'_, Replicated<F>, F>; 3] {
+pub fn make_contexts<F: Field>(
+    test_world: &TestWorld,
+) -> [ProtocolContext<'_, Replicated<F>, F>; 3] {
     test_world
         .gateways
         .iter()

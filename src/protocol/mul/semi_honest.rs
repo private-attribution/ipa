@@ -15,6 +15,7 @@ pub struct SecureMul<'a, F: Field> {
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
+    #[must_use]
     pub fn new(ctx: ProtocolContext<'a, Replicated<F>, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
@@ -43,11 +44,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
 
         // notify helper on the right that we've computed our value
         channel
-            .send(
-                role.peer(Direction::Right),
-                self.record_id,
-                right_d,
-            )
+            .send(role.peer(Direction::Right), self.record_id, right_d)
             .await?;
 
         // Sleep until helper on the left sends us their (d_i-1) value
@@ -67,6 +64,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
 pub mod tests {
     use crate::error::BoxError;
     use crate::ff::{Field, Fp31};
+    use crate::protocol::mul::SecureMul;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
@@ -76,7 +74,6 @@ pub mod tests {
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use crate::protocol::mul::SecureMul;
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -105,9 +102,11 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>)) -> Replicated<F> {
+        async fn mul<F: Field>(
+            v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>),
+        ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(1_u32), a, b).await .unwrap()
+            ctx.multiply(RecordId::from(1_u32), a, b).await.unwrap()
         }
 
         logging::setup();

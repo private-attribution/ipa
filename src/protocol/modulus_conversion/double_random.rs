@@ -11,7 +11,6 @@ use crate::{
     },
     secret_sharing::Replicated,
 };
-use crate::secret_sharing::SecretShare;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {

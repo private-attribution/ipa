@@ -1,13 +1,12 @@
 use crate::error::BoxError;
 use crate::ff::Field;
+use crate::protocol::mul::SemiHonestMul;
 use crate::protocol::{
-    context::ProtocolContext, malicious::SecurityValidatorAccumulator,
-    RecordId,
+    context::ProtocolContext, malicious::SecurityValidatorAccumulator, RecordId,
 };
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
-use crate::protocol::mul::SemiHonestMul;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -76,6 +75,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// back via the error response
     /// ## Panics
     /// Panics if the mutex is found to be poisoned
+    #[allow(clippy::similar_names)]
     pub async fn execute(
         self,
         a: MaliciousReplicated<F>,
@@ -92,8 +92,10 @@ impl<'a, F: Field> SecureMul<'a, F> {
             let b_x = b.x();
             try_join(
                 SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a_x, b_x),
-                SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id).execute(a_rx, b_x),
-            ).await?
+                SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
+                    .execute(a_rx, b_x),
+            )
+            .await?
         };
 
         let malicious_ab = MaliciousReplicated::new(ab, rab);

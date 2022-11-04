@@ -5,7 +5,6 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
-use crate::secret_sharing::SecretShare;
 
 /// A highly specialized variant of the IKHC multiplication protocol which is only valid
 /// in the case where 4 of the 6 shares are zero.

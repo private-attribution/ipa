@@ -7,10 +7,9 @@ use crate::{
     secret_sharing::Replicated,
 };
 
+use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-use crate::protocol::mul::SecureMul;
-use crate::secret_sharing::SecretShare;
 
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"

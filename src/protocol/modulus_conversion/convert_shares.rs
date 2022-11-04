@@ -8,7 +8,6 @@ use crate::{
     secret_sharing::Replicated,
 };
 use futures::future::{try_join, try_join_all};
-use crate::secret_sharing::SecretShare;
 
 pub struct XorShares {
     num_bits: u8,

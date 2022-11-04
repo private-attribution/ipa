@@ -4,11 +4,11 @@ mod check_zero;
 pub mod context;
 pub mod malicious;
 mod modulus_conversion;
+pub mod mul;
 pub mod prss;
 mod reveal;
 mod reveal_additive_binary;
 pub mod sort;
-pub mod mul;
 
 #[cfg(debug_assertions)]
 use std::{

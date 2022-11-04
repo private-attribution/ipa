@@ -10,7 +10,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 use futures::future::{try_join, try_join_all};
-use crate::secret_sharing::SecretShare;
+
 use crate::protocol::mul::SecureMul;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -170,7 +170,11 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
             .narrow(&Step::HelperBitTimesIsTriggerBit)
-            .multiply(record_id, successor.report.helper_bit, successor.report.is_trigger_bit)
+            .multiply(
+                record_id,
+                successor.report.helper_bit,
+                successor.report.is_trigger_bit,
+            )
             .await?;
 
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
@@ -181,9 +185,9 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
                 .await?;
         }
 
-        let credit_future = ctx
-            .narrow(&Step::BTimesSuccessorCredit)
-            .multiply(record_id, b, successor.credit);
+        let credit_future =
+            ctx.narrow(&Step::BTimesSuccessorCredit)
+                .multiply(record_id, b, successor.credit);
 
         // for the same reason as calculating [b], we skip the multiplication in the first iteration
         let stop_bit_future = if first_iteration {
