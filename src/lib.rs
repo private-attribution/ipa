@@ -5,6 +5,7 @@ pub mod cli;
 pub mod error;
 pub mod ff;
 pub mod helpers;
+pub mod net;
 pub mod protocol;
 pub mod secret_sharing;
 pub mod telemetry;

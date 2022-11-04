@@ -1,9 +1,7 @@
-use crate::helpers::messaging::GatewayConfig;
-use crate::test_fixture::logging;
 use crate::{
-    helpers::messaging::Gateway,
+    helpers::messaging::{Gateway, GatewayConfig},
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
-    test_fixture::{fabric::InMemoryNetwork, make_participants},
+    test_fixture::{fabric::InMemoryNetwork, logging, make_participants},
 };
 use std::{fmt::Debug, sync::Arc};
 

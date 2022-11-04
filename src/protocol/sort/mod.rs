@@ -1,12 +1,12 @@
-use super::Step;
-use std::fmt::Debug;
-
-mod apply;
 pub mod bit_permutations;
 mod compose;
 pub mod reshare;
+
+mod apply;
 mod secureapplyinv;
 mod shuffle;
+
+use super::Step;
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
