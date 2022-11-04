@@ -203,7 +203,7 @@ pub mod tests {
     };
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
@@ -224,8 +224,6 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -248,12 +246,10 @@ pub mod tests {
                 a_ctx
                     .narrow("input")
                     .multiply(RecordId::from(0_u32))
-                    .await
                     .execute(a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
                     .multiply(RecordId::from(1_u32))
-                    .await
                     .execute(b_shares[i], r_share),
             )
             .await?;
@@ -275,7 +271,6 @@ pub mod tests {
             #[allow(clippy::similar_names)]
             let mult_result = a_ctx
                 .malicious_multiply(RecordId::from(0_u32))
-                .await
                 .execute(a_malicious, b_malicious)
                 .await?;
 
@@ -323,8 +318,6 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -368,7 +361,6 @@ pub mod tests {
                             let rx = ctx
                                 .narrow("mult")
                                 .multiply(RecordId::from(i))
-                                .await
                                 .execute(*x, r_share)
                                 .await?;
 
@@ -398,7 +390,6 @@ pub mod tests {
                         .map(|(i, ((a_malicious, b_malicious), ctx))| async move {
                             ctx.narrow("Circuit_Step_2")
                                 .malicious_multiply(RecordId::from(i))
-                                .await
                                 .execute(*a_malicious, *b_malicious)
                                 .await
                         }),

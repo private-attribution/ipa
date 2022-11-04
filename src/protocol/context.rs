@@ -102,19 +102,16 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
         self.gateway.mesh(&self.step)
     }
 
-    /// Request multiplication for a given record. This function is intentionally made async
-    /// to allow backpressure if infrastructure layer cannot keep up with protocols demand.
-    /// In this case, function returns only when multiplication for this record can actually
-    /// be processed.
-    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn multiply(self, record_id: RecordId) -> SecureMul<'a, F> {
+    /// Request a multiplication for a given record.
+    #[must_use]
+    pub fn multiply(self, record_id: RecordId) -> SecureMul<'a, F> {
         SecureMul::new(self, record_id)
     }
 
     /// ## Panics
     /// If you failed to upgrade to malicious protocol context
-    #[allow(clippy::unused_async)] // eventually there will be await b/c of backpressure implementation
-    pub async fn malicious_multiply(self, record_id: RecordId) -> MaliciouslySecureMul<'a, F> {
+    #[must_use]
+    pub fn malicious_multiply(self, record_id: RecordId) -> MaliciouslySecureMul<'a, F> {
         let accumulator = self.accumulator.as_ref().unwrap().clone();
         MaliciouslySecureMul::new(self, record_id, accumulator)
     }

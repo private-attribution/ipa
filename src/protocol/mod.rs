@@ -13,8 +13,8 @@ pub mod sort;
 
 use crate::error::Error;
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hash;
-
 #[cfg(debug_assertions)]
 use std::{
     collections::HashSet,
@@ -67,7 +67,7 @@ impl Step for str {}
 /// (possible more efficient) representation.  It is probably not particularly efficient
 /// to be cloning this object all over the place.  Of course, a string is pretty useful
 /// from a debugging perspective.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Deserialize),
@@ -170,6 +170,12 @@ impl AsRef<str> for IpaProtocolStep {
             Self::Sort => "sort",
             Self::Attribution => "attribution",
         }
+    }
+}
+
+impl Debug for UniqueStepId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "step={}", self.id)
     }
 }
 

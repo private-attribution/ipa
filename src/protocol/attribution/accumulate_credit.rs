@@ -169,7 +169,6 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         let mut b = ctx
             .narrow(&Step::HelperBitTimesIsTriggerBit)
             .multiply(record_id)
-            .await
             .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
             .await?;
 
@@ -178,7 +177,6 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
             b = ctx
                 .narrow(&Step::BTimesStopBit)
                 .multiply(RecordId::from(1_u32))
-                .await
                 .execute(b, current.stop_bit)
                 .await?;
         }
@@ -186,16 +184,13 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         let credit_future = ctx
             .narrow(&Step::BTimesSuccessorCredit)
             .multiply(record_id)
-            .await
             .execute(b, successor.credit);
 
         // for the same reason as calculating [b], we skip the multiplication in the first iteration
         let stop_bit_future = if first_iteration {
             futures::future::Either::Left(futures::future::ok(b))
         } else {
-            futures::future::Either::Right(
-                ctx.multiply(record_id).await.execute(b, successor.stop_bit),
-            )
+            futures::future::Either::Right(ctx.multiply(record_id).execute(b, successor.stop_bit))
         };
 
         try_join(credit_future, stop_bit_future).await
@@ -204,6 +199,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},

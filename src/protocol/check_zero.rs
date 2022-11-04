@@ -71,7 +71,6 @@ pub async fn check_zero<F: Field>(
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
         .multiply(record_id)
-        .await
         .execute(r_sharing, v)
         .await?;
     let rv = reveal(ctx.narrow(&Step::RevealR), record_id, rv_share).await?;
@@ -84,12 +83,10 @@ pub mod tests {
     use crate::error::BoxError;
     use crate::ff::{Field, Fp31};
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
-    use crate::test_fixture::{logging, make_contexts, make_world, share, TestWorld};
+    use crate::test_fixture::{make_contexts, make_world, share, TestWorld};
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();

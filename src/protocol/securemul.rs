@@ -69,7 +69,7 @@ pub mod tests {
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
@@ -78,8 +78,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
@@ -106,13 +104,10 @@ pub mod tests {
         async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
             ctx.multiply(RecordId::from(1_u32))
-                .await
                 .execute(a, b)
                 .await
                 .unwrap()
         }
-
-        logging::setup();
 
         let world = make_world(QueryId);
         let contexts = make_contexts::<Fp31>(&world);
@@ -167,17 +162,14 @@ pub mod tests {
             context[0]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[0], b[0]),
             context[1]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[1], b[1]),
             context[2]
                 .narrow(narrowed_context_str)
                 .multiply(record_id)
-                .await
                 .execute(a[2], b[2]),
         )?;
 
