@@ -199,6 +199,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},

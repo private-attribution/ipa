@@ -209,6 +209,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
 mod tests {
     use std::collections::HashSet;
 
+    use crate::test_fixture::logging;
     use crate::{
         ff::Fp31,
         protocol::{
@@ -226,6 +227,9 @@ mod tests {
     #[test]
     fn random_sequence_generated() {
         const BATCH_SIZE: usize = 10000;
+
+        logging::setup();
+
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());

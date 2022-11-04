@@ -142,6 +142,7 @@ impl ConvertShares {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         error::BoxError,
         ff::{Field, Fp31},
