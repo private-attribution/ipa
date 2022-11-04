@@ -2,12 +2,13 @@ use super::{field::BinaryField, Field};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
-    ( $field:ty ) => {
+    ( $field:ty, $int:ty ) => {
         impl std::ops::Add for $field {
             type Output = Self;
 
             fn add(self, rhs: Self) -> Self::Output {
                 let c = u64::from;
+                debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
                 Self(((c(self.0) + c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
             }
         }
@@ -31,8 +32,9 @@ macro_rules! field_impl {
             type Output = Self;
 
             fn sub(self, rhs: Self) -> Self::Output {
-                // TODO(mt) - constant time?
                 let c = u64::from;
+                debug_assert!(c(Self::PRIME) < (u64::MAX >> 1));
+                // TODO(mt) - constant time?
                 Self(
                     ((c(Self::PRIME) + c(self.0) - c(rhs.0)) % c(Self::PRIME))
                         as <Self as Field>::Integer,
@@ -51,8 +53,9 @@ macro_rules! field_impl {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self::Output {
-                // TODO(mt) - constant time?
+                debug_assert!(u32::try_from(Self::PRIME).is_ok());
                 let c = u64::from;
+                // TODO(mt) - constant time?
                 #[allow(clippy::cast_possible_truncation)]
                 Self(((c(self.0) * c(rhs.0)) % c(Self::PRIME)) as <Self as Field>::Integer)
             }
@@ -78,6 +81,12 @@ macro_rules! field_impl {
             }
         }
 
+        impl From<$field> for $int {
+            fn from(v: $field) -> Self {
+                v.0
+            }
+        }
+
         impl std::fmt::Debug for $field {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}_mod{}", self.0, Self::PRIME)
@@ -89,7 +98,7 @@ macro_rules! field_impl {
 #[derive(Clone, Copy, PartialEq)]
 pub struct Fp2(<Self as Field>::Integer);
 
-field_impl! { Fp2 }
+field_impl! { Fp2, u8 }
 
 impl Field for Fp2 {
     type Integer = u8;
@@ -153,12 +162,6 @@ impl Not for Fp2 {
     }
 }
 
-impl From<Fp2> for u8 {
-    fn from(v: Fp2) -> Self {
-        v.0
-    }
-}
-
 #[derive(Clone, Copy, PartialEq)]
 pub struct Fp31(<Self as Field>::Integer);
 
@@ -169,13 +172,7 @@ impl Field for Fp31 {
     const ONE: Self = Fp31(1);
 }
 
-impl From<Fp31> for u8 {
-    fn from(v: Fp31) -> Self {
-        v.0
-    }
-}
-
-field_impl! { Fp31 }
+field_impl! { Fp31, u8 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Fp32BitPrime(<Self as Field>::Integer);
@@ -187,13 +184,7 @@ impl Field for Fp32BitPrime {
     const ONE: Self = Fp32BitPrime(1);
 }
 
-impl From<Fp32BitPrime> for u32 {
-    fn from(v: Fp32BitPrime) -> Self {
-        v.0
-    }
-}
-
-field_impl! { Fp32BitPrime }
+field_impl! { Fp32BitPrime, u32 }
 
 #[cfg(test)]
 mod test {
