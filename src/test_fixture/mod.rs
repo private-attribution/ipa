@@ -9,7 +9,7 @@ use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
-use crate::secret_sharing::{Replicated, SecretShare};
+use crate::secret_sharing::{Replicated, SecretSharing};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
@@ -41,7 +41,7 @@ pub fn make_contexts<F: Field>(
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<'a, F: Field, S: SecretShare<F>>(
+pub fn narrow_contexts<'a, F: Field, S: SecretSharing<F>>(
     contexts: &[ProtocolContext<'a, S, F>; 3],
     step: &impl Step,
 ) -> [ProtocolContext<'a, S, F>; 3] {

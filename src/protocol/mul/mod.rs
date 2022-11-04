@@ -2,7 +2,7 @@ use crate::error::BoxError;
 use crate::ff::Field;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::RecordId;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretShare};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
 
 mod malicious;
@@ -12,7 +12,7 @@ mod semi_honest;
 #[async_trait]
 #[allow(clippy::module_name_repetitions)]
 pub trait SecureMul<F: Field> {
-    type Share: SecretShare<F>;
+    type Share: SecretSharing<F>;
 
     /// Multiply and return the result of `a` * `b`.
     async fn multiply(

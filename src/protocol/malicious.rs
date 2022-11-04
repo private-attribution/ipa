@@ -187,7 +187,6 @@ impl<F: Field> SecurityValidator<F> {
         let t = u_share - (w_share * r);
 
         let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_3, t).await?;
-        // let is_valid = false;
 
         if is_valid {
             Ok(())

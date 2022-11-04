@@ -14,13 +14,13 @@ use crate::{
     protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
 
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretShare};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, S: SecretShare<F>, F> {
+pub struct ProtocolContext<'a, S: SecretSharing<F>, F> {
     role: Identity,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
@@ -29,7 +29,7 @@ pub struct ProtocolContext<'a, S: SecretShare<F>, F> {
     _marker: PhantomData<S>,
 }
 
-impl<'a, F: Field, SS: SecretShare<F>> ProtocolContext<'a, SS, F> {
+impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,

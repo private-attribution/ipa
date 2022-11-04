@@ -5,7 +5,7 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId},
 };
 
-use crate::secret_sharing::SecretShare;
+use crate::secret_sharing::SecretSharing;
 use futures::future::try_join;
 
 /// This implements a reveal algorithm for an additive binary secret sharing.
@@ -20,7 +20,7 @@ pub struct RevealAdditiveBinary {}
 
 impl RevealAdditiveBinary {
     #[allow(dead_code)]
-    pub async fn execute<S: SecretShare<F>, F: Field>(
+    pub async fn execute<S: SecretSharing<F>, F: Field>(
         ctx: ProtocolContext<'_, S, F>,
         record_id: RecordId,
         input: Fp2,
@@ -53,7 +53,7 @@ mod tests {
     use proptest::prelude::Rng;
 
     use crate::{
-        ff::Fp2,
+        ff::{Fp2, Fp31},
         protocol::{reveal_additive_binary::RevealAdditiveBinary, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, TestWorld},
     };
@@ -64,7 +64,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp2>(&world);
+        let ctx = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = ctx;
 
         let mut bools: Vec<bool> = Vec::with_capacity(40);
