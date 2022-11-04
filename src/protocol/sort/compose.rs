@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, reveal::reveal_a_permutation},
+    protocol::{context::ProtocolContext, reveal::reveal_permutation},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -50,7 +50,7 @@ impl<'a, F: Field> Compose<'a, F> {
             .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
             .await?;
 
-        let mut perms = reveal_a_permutation(ctx.narrow(&RevealPermutation), self.sigma).await?;
+        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), self.sigma).await?;
 
         apply_inv(&mut perms, &mut self.rho);
 
