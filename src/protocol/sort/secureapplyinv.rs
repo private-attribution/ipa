@@ -71,6 +71,7 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
+        ff::Fp31,
         protocol::{sort::apply::apply, QueryId},
         test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
     };
@@ -97,8 +98,8 @@ mod tests {
 
             let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
 
-            let mut perm_shares = generate_shares(permutation);
-            let mut input_shares = generate_shares(input);
+            let mut perm_shares = generate_shares::<Fp31>(permutation);
+            let mut input_shares = generate_shares::<Fp31>(input);
 
             let world = make_world(QueryId);
             let context = make_contexts(&world);
