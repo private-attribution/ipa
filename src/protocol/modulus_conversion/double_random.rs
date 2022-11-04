@@ -158,6 +158,7 @@ impl DoubleRandom {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         error::BoxError,
         ff::{Field, Fp2, Fp31},

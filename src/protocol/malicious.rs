@@ -208,7 +208,7 @@ pub mod tests {
     };
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
@@ -229,8 +229,6 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -325,8 +323,6 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();

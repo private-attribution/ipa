@@ -74,7 +74,6 @@ mod tests {
     #[tokio::test]
     pub async fn simple() {
         let mut rand = StepRng::new(100, 1);
-
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
