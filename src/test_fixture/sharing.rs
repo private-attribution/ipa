@@ -22,9 +22,9 @@ pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] 
 ///
 /// # Panics
 /// Panics if the given input is not a valid replicated secret share.
-pub fn validate_and_reconstruct<T: Field>(
-    input: (Replicated<T>, Replicated<T>, Replicated<T>),
-) -> T {
+pub fn validate_and_reconstruct<F: Field>(
+    input: (Replicated<F>, Replicated<F>, Replicated<F>),
+) -> F {
     assert_eq!(
         input.0.left() + input.1.left() + input.2.left(),
         input.0.right() + input.1.right() + input.2.right()
@@ -41,11 +41,11 @@ pub fn validate_and_reconstruct<T: Field>(
 ///
 /// # Panics
 /// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
-pub fn validate_list_of_shares<T: Field>(expected_result: &[u128], result: &ReplicatedShares<T>) {
+pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &ReplicatedShares<F>) {
     (0..result.0.len()).for_each(|i| {
         assert_eq!(
             validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
-            T::from(expected_result[i])
+            F::from(expected_result[i])
         );
     });
 }
