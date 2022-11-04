@@ -162,16 +162,13 @@ impl<'a, F: Field> Shuffle<'a, F> {
     {
         *self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step1, permutations)
-            .await
-            .unwrap();
+            .await?;
         *self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step2, permutations)
-            .await
-            .unwrap();
+            .await?;
         *self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step3, permutations)
-            .await
-            .unwrap();
+            .await?;
 
         Ok(())
     }

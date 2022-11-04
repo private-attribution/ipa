@@ -73,15 +73,11 @@ pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
     (p1, p2, p3)
 }
 
-pub type ReplicatedShares = (
-    Vec<Replicated<Fp31>>,
-    Vec<Replicated<Fp31>>,
-    Vec<Replicated<Fp31>>,
-);
+pub type ReplicatedShares<T> = (Vec<Replicated<T>>, Vec<Replicated<T>>, Vec<Replicated<T>>);
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]
-pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
+pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
     let mut rand = StepRng::new(100, 1);
 
     let len = input.len();
@@ -90,7 +86,7 @@ pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
     let mut shares2 = Vec::with_capacity(len);
 
     for iter in input {
-        let share = share(Fp31::from(iter), &mut rand);
+        let share = share(T::from(iter), &mut rand);
         shares0.push(share[0]);
         shares1.push(share[1]);
         shares2.push(share[2]);

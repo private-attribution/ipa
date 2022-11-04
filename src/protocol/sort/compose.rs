@@ -73,6 +73,7 @@ mod tests {
 
     use crate::{
         error::BoxError,
+        ff::Fp31,
         protocol::{
             sort::{apply::apply_inv, compose::Compose},
             QueryId,
@@ -101,8 +102,8 @@ mod tests {
             let mut rho_composed = rho_u128.clone();
             apply_inv(&mut Permutation::oneline(sigma.clone()), &mut rho_composed);
 
-            let mut sigma_shares = generate_shares(sigma_u128);
-            let mut rho_shares = generate_shares(rho_u128);
+            let mut sigma_shares = generate_shares::<Fp31>(sigma_u128);
+            let mut rho_shares = generate_shares::<Fp31>(rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
