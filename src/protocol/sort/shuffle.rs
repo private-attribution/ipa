@@ -98,7 +98,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     #[allow(clippy::cast_possible_truncation)]
     async fn reshare_all_shares(
         &self,
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         to_helper: Identity,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let reshares = self
@@ -121,7 +121,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     async fn shuffle_or_unshuffle_once(
         &mut self,
         shuffle_or_unshuffle: ShuffleOrUnshuffle,
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         which_step: ShuffleStep,
         permutations: &mut (Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError> {
@@ -154,7 +154,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &mut self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         permutations: &mut (Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
@@ -182,7 +182,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     /// ![Unshuffle steps][unshuffle]
     pub async fn execute_unshuffle(
         &mut self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         permutations: &mut (Permutation, Permutation),
     ) -> Result<(), BoxError>
     where

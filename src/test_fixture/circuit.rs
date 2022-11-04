@@ -6,6 +6,7 @@ use crate::test_fixture::{
 };
 use futures_util::future::join_all;
 use rand::thread_rng;
+use crate::protocol::mul::SecureMul;
 
 /// Creates an arithmetic circuit with the given width and depth.
 ///
@@ -39,8 +40,8 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {
-                let mul = ctx.narrow(&"mult".to_string()).multiply(record_id);
-                coll.push(mul.execute(a[i], b[i]));
+                let mul = ctx.narrow(&"mult".to_string()).multiply(record_id, a[i], b[i]);
+                coll.push(mul);
             }
 
             join_all(coll)

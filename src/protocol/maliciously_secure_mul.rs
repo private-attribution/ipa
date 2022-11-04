@@ -46,8 +46,8 @@ impl AsRef<str> for Step {
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
-pub struct MaliciouslySecureMul<'a, F> {
-    ctx: ProtocolContext<'a, F>,
+pub struct MaliciouslySecureMul<'a, F: Field> {
+    ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
     record_id: RecordId,
     accumulator: SecurityValidatorAccumulator<F>,
 }
@@ -55,7 +55,7 @@ pub struct MaliciouslySecureMul<'a, F> {
 impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
     #[must_use]
     pub fn new(
-        ctx: ProtocolContext<'a, F>,
+        ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
         record_id: RecordId,
         accumulator: SecurityValidatorAccumulator<F>,
     ) -> Self {
@@ -90,8 +90,8 @@ impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
             let a_rx = a.rx();
             let b_x = b.x();
             try_join(
-                SecureMul::new(self.ctx, self.record_id).execute(a_x, b_x),
-                SecureMul::new(duplicate_multiply_ctx, self.record_id).execute(a_rx, b_x),
+                SecureMul::new(self.ctx.downgrade_to_semi_honest(), self.record_id).execute(a_x, b_x),
+                SecureMul::new(duplicate_multiply_ctx.downgrade_to_semi_honest(), self.record_id).execute(a_rx, b_x),
             ).await?
         };
 

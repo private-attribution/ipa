@@ -8,6 +8,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 use futures::future::{try_join, try_join_all};
+use crate::secret_sharing::SecretShare;
 
 pub struct XorShares {
     num_bits: u8,
@@ -67,7 +68,7 @@ impl ConvertShares {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let prss = &ctx.prss();

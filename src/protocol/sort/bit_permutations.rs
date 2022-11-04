@@ -9,6 +9,8 @@ use crate::{
 
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
+use crate::protocol::mul::SecureMul;
+use crate::secret_sharing::SecretShare;
 
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -46,7 +48,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let share_of_one = Replicated::one(ctx.role());
 
@@ -64,7 +66,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             zip(repeat(ctx), mult_input)
                 .enumerate()
                 .map(|(i, (ctx, (x, sum)))| async move {
-                    ctx.multiply(RecordId::from(i)).execute(x, sum).await
+                    ctx.multiply(RecordId::from(i), x, sum).await
                 });
         let mut mult_output = try_join_all(async_multiply).await?;
 

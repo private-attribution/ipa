@@ -36,7 +36,7 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
     pub async fn execute(
         self,
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         to_helper: Identity,
     ) -> Result<Replicated<F>, BoxError> {

@@ -10,5 +10,5 @@ use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretShare};
 pub trait SecureMul<F: Field> {
     type Share: SecretShare<F>;
 
-    async fn multiply(record_id: RecordId, a: Self::Share, b: Self::Share) -> Result<Self::Share, BoxError>;
+    async fn multiply(self, record_id: RecordId, a: Self::Share, b: Self::Share) -> Result<Self::Share, BoxError>;
 }

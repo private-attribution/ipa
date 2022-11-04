@@ -10,6 +10,7 @@ use crate::{
 };
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
+use crate::protocol::maliciously_secure_mul::MaliciouslySecureMul;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -121,7 +122,7 @@ pub struct SecurityValidator<F> {
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: ProtocolContext<'_, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: ProtocolContext<'_, Replicated<F>, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RECORD_0);
@@ -156,7 +157,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(self, ctx: ProtocolContext<'_, F>) -> Result<(), BoxError> {
+    pub async fn validate(self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), BoxError> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -184,6 +185,7 @@ impl<F: Field> SecurityValidator<F> {
         let t = u_share - (w_share * r);
 
         let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_3, t).await?;
+        // let is_valid = false;
 
         if is_valid {
             Ok(())
@@ -202,11 +204,10 @@ pub mod tests {
         QueryId, RecordId,
     };
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
-    use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
-    };
+    use crate::test_fixture::{logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld, make_malicious_contexts};
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
+    use crate::protocol::mul::SecureMul;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -241,20 +242,21 @@ pub mod tests {
             let acc = v.accumulator();
             let r_share = v.r_share();
 
-            let a_ctx = ctx.narrow("1").upgrade_to_malicious(acc.clone());
-            let b_ctx = ctx.narrow("2").upgrade_to_malicious(acc.clone());
+            let a_ctx = ctx.narrow("1");
+            let b_ctx = ctx.narrow("2");
 
             let (ra, rb) = try_join(
                 a_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(0_u32))
-                    .execute(a_shares[i], r_share),
+                    .multiply(RecordId::from(0_u32), a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(1_u32))
-                    .execute(b_shares[i], r_share),
+                    .multiply(RecordId::from(1_u32), b_shares[i], r_share),
             )
             .await?;
+
+            let a_ctx = a_ctx.upgrade_to_malicious(acc.clone());
+            let b_ctx = b_ctx.upgrade_to_malicious(acc.clone());
 
             let a_malicious = MaliciousReplicated::new(a_shares[i], ra);
             let b_malicious = MaliciousReplicated::new(b_shares[i], rb);
@@ -272,8 +274,7 @@ pub mod tests {
 
             #[allow(clippy::similar_names)]
             let mult_result = a_ctx
-                .malicious_multiply(RecordId::from(0_u32))
-                .execute(a_malicious, b_malicious)
+                .multiply(RecordId::from(0_u32),a_malicious, b_malicious)
                 .await?;
 
             v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
@@ -348,10 +349,7 @@ pub mod tests {
 
                 let mut row_narrowed_contexts = Vec::with_capacity(100);
                 for i in 0..100 {
-                    row_narrowed_contexts.push(
-                        ctx.narrow(&format!("row {}", i))
-                            .upgrade_to_malicious(acc.clone()),
-                    );
+                    row_narrowed_contexts.push(ctx.narrow(&format!("row {}", i)));
                 }
 
                 let r_share = v.r_share();
@@ -364,8 +362,7 @@ pub mod tests {
                         .map(|(i, (x, ctx))| async move {
                             let rx = ctx
                                 .narrow("mult")
-                                .multiply(RecordId::from(i))
-                                .execute(*x, r_share)
+                                .multiply(RecordId::from(i), *x, r_share)
                                 .await?;
 
                             Ok::<_, BoxError>(MaliciousReplicated::new(*x, rx))
@@ -391,11 +388,13 @@ pub mod tests {
                         .zip(maliciously_secure_inputs.iter().skip(1))
                         .zip(row_narrowed_contexts.iter())
                         .enumerate()
-                        .map(|(i, ((a_malicious, b_malicious), ctx))| async move {
-                            ctx.narrow("Circuit_Step_2")
-                                .malicious_multiply(RecordId::from(i))
-                                .execute(*a_malicious, *b_malicious)
-                                .await
+                        .map(|(i, ((a_malicious, b_malicious), ctx))| {
+                            let acc = acc.clone();
+                            async move {
+                                ctx.narrow("Circuit_Step_2").upgrade_to_malicious(acc)
+                                    .multiply(RecordId::from(i),*a_malicious, *b_malicious)
+                                    .await
+                            }
                         }),
                 )
                 .await?;

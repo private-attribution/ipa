@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 use async_trait::async_trait;
 
@@ -16,21 +17,22 @@ use crate::{
     protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
 use crate::error::BoxError;
-use crate::secret_sharing::{Replicated, SecretShare};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretShare};
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, F> {
+pub struct ProtocolContext<'a, S: SecretShare<F>, F> {
     role: Identity,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: Option<SecurityValidatorAccumulator<F>>,
+    p: PhantomData<S>
 }
 
-impl<'a, F: Field> ProtocolContext<'a, F> {
+impl<'a, F: Field, SS: SecretShare<F>> ProtocolContext<'a, SS, F> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
@@ -38,19 +40,10 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
             prss: participant,
             gateway,
             accumulator: None,
+            p: Default::default()
         }
     }
 
-    #[must_use]
-    pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> Self {
-        ProtocolContext {
-            role: self.role,
-            step: self.step,
-            prss: self.prss,
-            gateway: self.gateway,
-            accumulator: Some(accumulator),
-        }
-    }
 
     /// The role of this context.
     #[must_use]
@@ -74,6 +67,7 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
             prss: self.prss,
             gateway: self.gateway,
             accumulator: self.accumulator.clone(),
+            p: Default::default()
         }
     }
 
@@ -104,27 +98,55 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
     pub fn mesh(&self) -> Mesh<'_, '_> {
         self.gateway.mesh(&self.step)
     }
+}
 
-    /// Request a multiplication for a given record.
+impl <'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
+
     #[must_use]
-    pub fn multiply(self, record_id: RecordId) -> SecureMul<'a, F> {
-        SecureMul::new(self, record_id)
+    pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> ProtocolContext<'a, MaliciousReplicated<F>, F> {
+        ProtocolContext {
+            role: self.role,
+            step: self.step,
+            prss: self.prss,
+            gateway: self.gateway,
+            accumulator: Some(accumulator),
+            p: Default::default()
+        }
     }
 
-    /// ## Panics
-    /// If you failed to upgrade to malicious protocol context
-    #[must_use]
-    pub fn malicious_multiply(self, record_id: RecordId) -> MaliciouslySecureMul<'a, F> {
-        let accumulator = self.accumulator.as_ref().unwrap().clone();
-        MaliciouslySecureMul::new(self, record_id, accumulator)
+}
+
+impl <'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
+    pub fn downgrade_to_semi_honest(self) -> ProtocolContext<'a, Replicated<F>, F> {
+        ProtocolContext {
+            role: self.role,
+            step: self.step,
+            prss: self.prss,
+            gateway: self.gateway,
+            accumulator: None,
+            p: Default::default()
+        }
     }
 }
 
 #[async_trait]
-impl <F: Field> crate::protocol::mul::SecureMul<F> for ProtocolContext<'_, F> {
+impl <F: Field> crate::protocol::mul::SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
     type Share = Replicated<F>;
 
-    async fn multiply(record_id: RecordId, a: Self::Share, b: Self::Share) -> Result<Self::Share, BoxError> {
-        todo!()
+    async fn multiply(self, record_id: RecordId, a: Self::Share, b: Self::Share) -> Result<Self::Share, BoxError> {
+        SecureMul::new(self, record_id).execute(a, b).await
+    }
+}
+
+#[async_trait]
+impl <F: Field> crate::protocol::mul::SecureMul<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
+    type Share = MaliciousReplicated<F>;
+
+    async fn multiply(self, record_id: RecordId, a: Self::Share, b: Self::Share) -> Result<Self::Share, BoxError> {
+        let acc = self.accumulator
+            .as_ref()
+            .expect("Accumulator must be set in the context in order to perform maliciously secure multiplication")
+            .clone();
+        MaliciouslySecureMul::new(self, record_id, acc).execute(a, b).await
     }
 }

@@ -6,6 +6,7 @@ use crate::{
 };
 
 use futures::future::try_join;
+use crate::secret_sharing::{Replicated, SecretShare};
 
 /// This implements a reveal algorithm for an additive binary secret sharing.
 /// As this is an additive sharing, each helper has just one boolean share
@@ -19,8 +20,8 @@ pub struct RevealAdditiveBinary {}
 
 impl RevealAdditiveBinary {
     #[allow(dead_code)]
-    pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, F>,
+    pub async fn execute<S: SecretShare<F>, F: Field>(
+        ctx: ProtocolContext<'_, S, F>,
         record_id: RecordId,
         input: Fp2,
     ) -> Result<Fp2, BoxError> {
@@ -63,7 +64,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
+        let ctx = make_contexts::<Fp2>(&world);
         let [c0, c1, c2] = ctx;
 
         let mut bools: Vec<bool> = Vec::with_capacity(40);

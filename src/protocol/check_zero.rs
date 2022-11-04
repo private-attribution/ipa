@@ -4,8 +4,9 @@ use crate::{
     protocol::{context::ProtocolContext, reveal::reveal, RecordId},
     secret_sharing::Replicated,
 };
-
+use crate::protocol::mul::SecureMul;
 use serde::{Deserialize, Serialize};
+use crate::secret_sharing::SecretShare;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -61,7 +62,7 @@ impl AsRef<str> for Step {
 /// back via the error response
 #[allow(dead_code)]
 pub async fn check_zero<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     v: Replicated<F>,
 ) -> Result<bool, BoxError> {
@@ -70,8 +71,7 @@ pub async fn check_zero<F: Field>(
 
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
-        .multiply(record_id)
-        .execute(r_sharing, v)
+        .multiply(record_id, r_sharing, v)
         .await?;
     let rv = reveal(ctx.narrow(&Step::RevealR), record_id, rv_share).await?;
 

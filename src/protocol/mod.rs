@@ -10,7 +10,7 @@ mod reveal;
 mod reveal_additive_binary;
 mod securemul;
 pub mod sort;
-mod mul;
+pub(crate) mod mul;
 
 #[cfg(debug_assertions)]
 use std::{

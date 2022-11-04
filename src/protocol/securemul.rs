@@ -9,13 +9,13 @@ use std::fmt::Debug;
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, F> {
-    ctx: ProtocolContext<'a, F>,
+pub struct SecureMul<'a, F: Field> {
+    ctx: ProtocolContext<'a, Replicated<F>, F>,
     record_id: RecordId,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
-    pub fn new(ctx: ProtocolContext<'a, F>, record_id: RecordId) -> Self {
+    pub fn new(ctx: ProtocolContext<'a, Replicated<F>, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -36,6 +36,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
         // generate shared randomness.
         let prss = self.ctx.prss();
         let (s0, s1) = prss.generate_fields(self.record_id);
+        let role = self.ctx.role();
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
@@ -43,7 +44,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
         // notify helper on the right that we've computed our value
         channel
             .send(
-                self.ctx.role().peer(Direction::Right),
+                role.peer(Direction::Right),
                 self.record_id,
                 right_d,
             )
@@ -51,7 +52,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
 
         // Sleep until helper on the left sends us their (d_i-1) value
         let left_d = channel
-            .receive(self.ctx.role().peer(Direction::Left), self.record_id)
+            .receive(role.peer(Direction::Left), self.record_id)
             .await?;
 
         // now we are ready to construct the result - 2/3 secret shares of a * b.
@@ -75,6 +76,7 @@ pub mod tests {
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use crate::protocol::mul::SecureMul;
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
@@ -103,12 +105,9 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
+        async fn mul<F: Field>(v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>)) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(1_u32))
-                .execute(a, b)
-                .await
-                .unwrap()
+            ctx.multiply(RecordId::from(1_u32), a, b).await .unwrap()
         }
 
         logging::setup();
@@ -144,7 +143,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore, F: Field>(
-        context: &[ProtocolContext<'_, F>; 3],
+        context: &[ProtocolContext<'_, Replicated<F>, F>; 3],
         narrowed_context_str: &str,
         a: u8,
         b: u8,
@@ -165,16 +164,13 @@ pub mod tests {
         let result_shares = tokio::try_join!(
             context[0]
                 .narrow(narrowed_context_str)
-                .multiply(record_id)
-                .execute(a[0], b[0]),
+                .multiply(record_id, a[0], b[0]),
             context[1]
                 .narrow(narrowed_context_str)
-                .multiply(record_id)
-                .execute(a[1], b[1]),
+                .multiply(record_id, a[1], b[1]),
             context[2]
                 .narrow(narrowed_context_str)
-                .multiply(record_id)
-                .execute(a[2], b[2]),
+                .multiply(record_id, a[2], b[2]),
         )?;
 
         Ok(validate_and_reconstruct(result_shares).as_u128())
