@@ -10,7 +10,6 @@ use crate::{
 };
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
-use crate::protocol::maliciously_secure_mul::MaliciouslySecureMul;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {

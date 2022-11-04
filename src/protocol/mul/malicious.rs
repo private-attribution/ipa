@@ -1,12 +1,13 @@
 use crate::error::BoxError;
 use crate::ff::Field;
 use crate::protocol::{
-    context::ProtocolContext, malicious::SecurityValidatorAccumulator, securemul::SecureMul,
+    context::ProtocolContext, malicious::SecurityValidatorAccumulator,
     RecordId,
 };
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
+use crate::protocol::mul::SemiHonestMul;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -46,13 +47,13 @@ impl AsRef<str> for Step {
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
-pub struct MaliciouslySecureMul<'a, F: Field> {
+pub struct SecureMul<'a, F: Field> {
     ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
     record_id: RecordId,
     accumulator: SecurityValidatorAccumulator<F>,
 }
 
-impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
+impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
     pub fn new(
         ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
@@ -90,8 +91,8 @@ impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
             let a_rx = a.rx();
             let b_x = b.x();
             try_join(
-                SecureMul::new(self.ctx.downgrade_to_semi_honest(), self.record_id).execute(a_x, b_x),
-                SecureMul::new(duplicate_multiply_ctx.downgrade_to_semi_honest(), self.record_id).execute(a_rx, b_x),
+                SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a_x, b_x),
+                SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id).execute(a_rx, b_x),
             ).await?
         };
 
