@@ -9,10 +9,8 @@ use crate::{
     protocol::RecordId,
 };
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join_all;
+use futures::future::{try_join, try_join_all};
 use permutation::Permutation;
-
-use futures::future::try_join;
 
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
@@ -99,6 +97,11 @@ pub async fn reveal_permutation<F: Field>(
 
 #[cfg(test)]
 mod tests {
+    use futures::future::{try_join, try_join_all};
+    use proptest::prelude::Rng;
+    use rand::rngs::mock::StepRng;
+    use tokio::try_join;
+
     use crate::{
         error::BoxError,
         ff::{Field, Fp31},
@@ -111,11 +114,6 @@ mod tests {
         secret_sharing::Replicated,
         test_fixture::{make_contexts, make_world, share, TestWorld},
     };
-    use futures::future::{try_join, try_join_all};
-    use proptest::prelude::Rng;
-    use rand::rngs::mock::StepRng;
-    use tokio::try_join;
-
     #[tokio::test]
     pub async fn simple() -> Result<(), BoxError> {
         let mut rand = StepRng::new(100, 1);
@@ -137,37 +135,6 @@ mod tests {
                 reveal(ctx[0].narrow(&iteration), record_id, share[0]),
                 reveal(ctx[1].narrow(&iteration), record_id, share[1]),
                 reveal(ctx[2].narrow(&iteration), record_id, share[2]),
-            ])
-            .await?;
-
-            assert_eq!(input, results[0]);
-            assert_eq!(input, results[1]);
-            assert_eq!(input, results[2]);
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    pub async fn malicious() -> Result<(), BoxError> {
-        let mut rand = StepRng::new(100, 1);
-        let mut rng = rand::thread_rng();
-
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
-
-        for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-
-            let input = Fp31::from(secret);
-            let share = share(input, &mut rand);
-
-            let record_id = RecordId::from(i);
-            let iteration = format!("{}", i);
-
-            let results = try_join_all(vec![
-                reveal_malicious(ctx[0].narrow(&iteration), record_id, share[0]),
-                reveal_malicious(ctx[1].narrow(&iteration), record_id, share[1]),
-                reveal_malicious(ctx[2].narrow(&iteration), record_id, share[2]),
             ])
             .await?;
 
@@ -204,6 +171,37 @@ mod tests {
         .await?;
 
         Ok(input.left() + input.right() + share_from_left)
+    }
+
+    #[tokio::test]
+    pub async fn malicious() -> Result<(), BoxError> {
+        let mut rand = StepRng::new(100, 1);
+        let mut rng = rand::thread_rng();
+
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts::<Fp31>(&world);
+
+        for i in 0..10_u32 {
+            let secret = rng.gen::<u128>();
+
+            let input = Fp31::from(secret);
+            let share = share(input, &mut rand);
+
+            let record_id = RecordId::from(i);
+            let iteration = format!("{}", i);
+
+            let results = try_join_all(vec![
+                reveal_malicious(ctx[0].narrow(&iteration), record_id, share[0]),
+                reveal_malicious(ctx[1].narrow(&iteration), record_id, share[1]),
+                reveal_malicious(ctx[2].narrow(&iteration), record_id, share[2]),
+            ])
+            .await?;
+
+            assert_eq!(input, results[0]);
+            assert_eq!(input, results[1]);
+            assert_eq!(input, results[2]);
+        }
+        Ok(())
     }
 
     #[tokio::test]
