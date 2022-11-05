@@ -23,6 +23,8 @@ pub enum Error {
     ParseError(BoxError),
     #[error("malicious security check failed")]
     MaliciousSecurityCheckFailed,
+    #[error("malicious reveal failed")]
+    MaliciousRevealFailed,
     #[error("failed to decode hex: {0}")]
     #[cfg(feature = "cli")]
     Hex(#[from] hex::FromHexError),
