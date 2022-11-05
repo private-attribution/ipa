@@ -43,20 +43,23 @@ pub async fn reveal<F: Field>(
 /// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
-#[allow(clippy::cast_possible_truncation, clippy::module_name_repetitions)]
-pub async fn reveal_a_permutation<F: Field>(
+#[allow(clippy::module_name_repetitions)]
+pub async fn reveal_permutation<F: Field>(
     ctx: ProtocolContext<'_, F>,
-    permutation: &mut [Replicated<F>],
+    permutation: &[Replicated<F>],
 ) -> Result<Permutation, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
-        |(index, (ctx, input))| async move { reveal(ctx, RecordId::from(index), *input).await },
+        |(index, (ctx, input))| async move {
+            let reveal_value = reveal(ctx, RecordId::from(index), *input).await;
+
+            // safety: we wouldn't use fields larger than 64 bits and there are checks that enforce it
+            // in the field module
+            reveal_value.map(|val| val.as_u128().try_into().unwrap())
+        },
     ))
     .await?;
-    let mut perms = Vec::new();
-    for i in revealed_permutation {
-        perms.push(i.as_u128().try_into()?);
-    }
-    Ok(Permutation::oneline(perms))
+
+    Ok(Permutation::oneline(revealed_permutation))
 }
 
 #[cfg(test)]

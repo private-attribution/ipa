@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::ProtocolContext,
-        reveal::reveal_a_permutation,
+        reveal::reveal_permutation,
         sort::ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
     },
     secret_sharing::Replicated,
@@ -56,7 +56,7 @@ impl SecureApplyInv {
         )
         .await?;
         let mut permutation =
-            reveal_a_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
+            reveal_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
         // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
         // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
         apply(&mut permutation, input);
