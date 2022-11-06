@@ -2,7 +2,6 @@ use crate::secret_sharing::Replicated;
 
 mod accumulate_credit;
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Copy, Clone)]
 pub struct AttributionInputRow<F> {
     is_trigger_bit: Replicated<F>,

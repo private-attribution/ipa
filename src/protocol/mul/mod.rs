@@ -10,7 +10,6 @@ mod semi_honest;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-#[allow(clippy::module_name_repetitions)]
 pub trait SecureMul<F: Field> {
     type Share: SecretSharing<F>;
 
@@ -24,7 +23,6 @@ pub trait SecureMul<F: Field> {
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
-#[allow(clippy::module_name_repetitions, clippy::useless_attribute)]
 pub use {malicious::SecureMul as MaliciouslySecureMul, semi_honest::SecureMul as SemiHonestMul};
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.

@@ -273,7 +273,6 @@ pub mod tests {
                 b_malicious,
             );
 
-            #[allow(clippy::similar_names)]
             let mult_result = a_ctx
                 .multiply(RecordId::from(0_u32), a_malicious, b_malicious)
                 .await?;
