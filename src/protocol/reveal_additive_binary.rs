@@ -27,22 +27,18 @@ impl RevealAdditiveBinary {
     ) -> Result<Fp2, BoxError> {
         let channel = ctx.mesh();
 
-        // Send share to helper to the left
-        let future_left = channel.send(ctx.role().peer(Direction::Left), record_id, input);
+        // Send share to helpers to the right and left
+        try_join(
+            channel.send(ctx.role().peer(Direction::Left), record_id, input),
+            channel.send(ctx.role().peer(Direction::Right), record_id, input),
+        )
+        .await?;
 
-        // Send share to helper to the right
-        let future_right = channel.send(ctx.role().peer(Direction::Right), record_id, input);
-
-        try_join(future_left, future_right).await?;
-
-        // Sleep until `helper's left` sends their share
-        let future_left = channel.receive(ctx.role().peer(Direction::Left), record_id);
-
-        // Sleep until `helper's right` sends their share
-        let future_right = channel.receive(ctx.role().peer(Direction::Right), record_id);
-
-        let (share_from_left, share_from_right): (Fp2, Fp2) =
-            try_join(future_left, future_right).await?;
+        let (share_from_left, share_from_right): (Fp2, Fp2) = try_join(
+            channel.receive(ctx.role().peer(Direction::Left), record_id),
+            channel.receive(ctx.role().peer(Direction::Right), record_id),
+        )
+        .await?;
 
         Ok(input ^ share_from_left ^ share_from_right)
     }
