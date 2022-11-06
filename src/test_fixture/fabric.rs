@@ -6,9 +6,8 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 
 use crate::helpers;
-use crate::helpers::error::Error;
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
-use crate::helpers::{error, Identity};
+use crate::helpers::{Error, Identity};
 use crate::protocol::UniqueStepId;
 use async_trait::async_trait;
 use futures::Sink;
@@ -237,7 +236,7 @@ impl InMemorySink {
 }
 
 impl Sink<MessageChunks> for InMemorySink {
-    type Error = error::Error;
+    type Error = Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let this = self.project();

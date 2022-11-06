@@ -1,13 +1,13 @@
 use std::ops::{Index, IndexMut};
 
 mod buffers;
-pub mod error;
+mod error;
 pub mod fabric;
 pub mod messaging;
 
-use crate::error::Error;
 use crate::helpers::Direction::{Left, Right};
 use crate::helpers::Identity::{H1, H2, H3};
+pub use error::Error;
 pub use error::Result;
 
 /// Represents a unique identity of each helper running MPC computation.
@@ -53,14 +53,14 @@ impl Identity {
 }
 
 impl TryFrom<&str> for Identity {
-    type Error = Error;
+    type Error = crate::error::Error;
 
     fn try_from(id: &str) -> std::result::Result<Self, Self::Error> {
         match id {
             Identity::H1_STR => Ok(H1),
             Identity::H2_STR => Ok(H2),
             Identity::H3_STR => Ok(H3),
-            other => Err(Error::path_parse_error(other)),
+            other => Err(crate::error::Error::path_parse_error(other)),
         }
     }
 }
