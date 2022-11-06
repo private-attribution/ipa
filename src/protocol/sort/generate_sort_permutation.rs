@@ -121,9 +121,9 @@ mod tests {
             let share_1 = rng.gen::<u64>();
             let share_2 = match_key ^ share_0 ^ share_1;
 
-            shares[0].push(share_0);
-            shares[1].push(share_1);
-            shares[2].push(share_2);
+            shares[0].push((share_0, share_1));
+            shares[1].push((share_1, share_2));
+            shares[2].push((share_2, share_0));
         }
 
         let mut result = try_join_all(vec![
