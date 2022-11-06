@@ -30,7 +30,7 @@ use crate::{
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
@@ -114,7 +114,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,

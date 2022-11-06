@@ -15,6 +15,7 @@ use super::{
     shuffle::{get_two_of_three_random_permutations, Shuffle},
 };
 use futures::future::try_join;
+
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -41,7 +42,7 @@ impl SecureApplyInv {
     /// 5. All helpers call `apply` to apply the permutation locally.
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         input: &'_ mut Vec<Replicated<F>>,
         sort_permutation: &'_ mut Vec<Replicated<F>>,
     ) -> Result<(), BoxError> {

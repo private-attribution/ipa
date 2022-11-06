@@ -7,6 +7,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 
+use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
@@ -46,7 +47,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let share_of_one = Replicated::one(ctx.role());
 
@@ -64,7 +65,7 @@ impl<'a, F: Field> BitPermutations<'a, F> {
             zip(repeat(ctx), mult_input)
                 .enumerate()
                 .map(|(i, (ctx, (x, sum)))| async move {
-                    ctx.multiply(RecordId::from(i)).execute(x, sum).await
+                    ctx.multiply(RecordId::from(i), x, sum).await
                 });
         let mut mult_output = try_join_all(async_multiply).await?;
 

@@ -22,7 +22,7 @@ use permutation::Permutation;
 #[embed_doc_image("reveal", "images/reveal.png")]
 #[allow(dead_code)]
 pub async fn reveal<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     input: Replicated<F>,
 ) -> Result<F, BoxError> {
@@ -45,7 +45,7 @@ pub async fn reveal<F: Field>(
 /// from the revealed rows.
 #[allow(clippy::module_name_repetitions)]
 pub async fn reveal_permutation<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     permutation: &[Replicated<F>],
 ) -> Result<Permutation, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(

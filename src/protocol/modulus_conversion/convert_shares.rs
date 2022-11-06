@@ -57,7 +57,7 @@ impl ConvertShares {
     #[allow(dead_code)]
     pub async fn execute_one_bit<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         bit_index: u8,
     ) -> Result<Replicated<F>, BoxError> {

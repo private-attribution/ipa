@@ -34,12 +34,10 @@ impl<F: Field> MaliciousReplicated<F> {
         Self { x, rx }
     }
 
-    #[allow(dead_code)]
     pub fn x(&self) -> Replicated<F> {
         self.x
     }
 
-    #[allow(dead_code)]
     pub fn rx(&self) -> Replicated<F> {
         self.rx
     }

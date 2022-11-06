@@ -1,10 +1,9 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use super::{
-    maliciously_secure_mul::MaliciouslySecureMul,
     prss::{IndexedSharedRandomness, SequentialSharedRandomness},
-    securemul::SecureMul,
-    RecordId, Step, UniqueStepId,
+    Step, UniqueStepId,
 };
 use crate::{
     ff::Field,
@@ -15,19 +14,22 @@ use crate::{
     protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
 
+use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, F> {
+pub struct ProtocolContext<'a, S: SecretSharing<F>, F> {
     role: Identity,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: Option<SecurityValidatorAccumulator<F>>,
+    _marker: PhantomData<S>,
 }
 
-impl<'a, F: Field> ProtocolContext<'a, F> {
+impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
     pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
@@ -35,17 +37,7 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
             prss: participant,
             gateway,
             accumulator: None,
-        }
-    }
-
-    #[must_use]
-    pub fn upgrade_to_malicious(self, accumulator: SecurityValidatorAccumulator<F>) -> Self {
-        ProtocolContext {
-            role: self.role,
-            step: self.step,
-            prss: self.prss,
-            gateway: self.gateway,
-            accumulator: Some(accumulator),
+            _marker: PhantomData::default(),
         }
     }
 
@@ -71,6 +63,7 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
             prss: self.prss,
             gateway: self.gateway,
             accumulator: self.accumulator.clone(),
+            _marker: PhantomData::default(),
         }
     }
 
@@ -101,18 +94,58 @@ impl<'a, F: Field> ProtocolContext<'a, F> {
     pub fn mesh(&self) -> Mesh<'_, '_> {
         self.gateway.mesh(&self.step)
     }
+}
 
-    /// Request a multiplication for a given record.
+/// Implementation to upgrade semi-honest context to malicious. Only works for replicated secret
+/// sharing because it is not known yet how to do it for any other type of secret sharing.
+impl<'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
     #[must_use]
-    pub fn multiply(self, record_id: RecordId) -> SecureMul<'a, F> {
-        SecureMul::new(self, record_id)
+    pub fn upgrade_to_malicious(
+        self,
+        accumulator: SecurityValidatorAccumulator<F>,
+    ) -> ProtocolContext<'a, MaliciousReplicated<F>, F> {
+        ProtocolContext {
+            role: self.role,
+            step: self.step,
+            prss: self.prss,
+            gateway: self.gateway,
+            accumulator: Some(accumulator),
+            _marker: PhantomData::default(),
+        }
+    }
+}
+
+/// Implementation that is specific to malicious contexts operating over replicated secret sharings.
+impl<'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
+    /// Get the accumulator that collects messages MACs.
+    ///
+    /// ## Panics
+    /// Does not panic in normal circumstances, panic here will indicate a bug in protocol context
+    /// setup that left the accumulator field empty inside the malicious context.
+    #[must_use]
+    pub fn accumulator(&self) -> SecurityValidatorAccumulator<F> {
+        self.accumulator
+            .as_ref()
+            .expect("Accumulator must be set in the context in order to perform maliciously secure multiplication")
+            .clone()
     }
 
-    /// ## Panics
-    /// If you failed to upgrade to malicious protocol context
+    /// In some occasions it is required to reinterpret malicious context as semi-honest. Ideally
+    /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
+    /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
+    /// this implementation makes it easier to reinterpret the context as semi-honest.
+    ///
+    /// The context received will be an exact copy of malicious, so it will be tied up to the same step
+    /// and prss.
     #[must_use]
-    pub fn malicious_multiply(self, record_id: RecordId) -> MaliciouslySecureMul<'a, F> {
-        let accumulator = self.accumulator.as_ref().unwrap().clone();
-        MaliciouslySecureMul::new(self, record_id, accumulator)
+    pub fn to_semi_honest(self) -> ProtocolContext<'a, Replicated<F>, F> {
+        ProtocolContext {
+            role: self.role,
+            step: self.step,
+            prss: self.prss,
+            gateway: self.gateway,
+            accumulator: None,
+            _marker: PhantomData::default(),
+        }
     }
 }

@@ -5,6 +5,7 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId},
 };
 
+use crate::secret_sharing::SecretSharing;
 use futures::future::try_join;
 
 /// This implements a reveal algorithm for an additive binary secret sharing.
@@ -19,8 +20,8 @@ pub struct RevealAdditiveBinary {}
 
 impl RevealAdditiveBinary {
     #[allow(dead_code)]
-    pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, F>,
+    pub async fn execute<S: SecretSharing<F>, F: Field>(
+        ctx: ProtocolContext<'_, S, F>,
         record_id: RecordId,
         input: Fp2,
     ) -> Result<Fp2, BoxError> {

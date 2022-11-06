@@ -1,4 +1,5 @@
 use crate::ff::Field;
+use crate::protocol::mul::SecureMul;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
 use crate::test_fixture::{
@@ -39,8 +40,10 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {
-                let mul = ctx.narrow(&"mult".to_string()).multiply(record_id);
-                coll.push(mul.execute(a[i], b[i]));
+                let mul = ctx
+                    .narrow(&"mult".to_string())
+                    .multiply(record_id, a[i], b[i]);
+                coll.push(mul);
             }
 
             join_all(coll)
