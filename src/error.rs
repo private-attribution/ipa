@@ -33,6 +33,8 @@ pub enum Error {
     #[error("failed to parse json: {0}")]
     #[cfg(feature = "enable-serde")]
     Serde(#[from] serde_json::Error),
+    #[error("Infrastructure error: {0}")]
+    InfraError(#[from] crate::helpers::Error),
 }
 
 impl Error {
