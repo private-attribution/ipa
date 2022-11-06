@@ -101,16 +101,13 @@ pub async fn convert_shares_for_a_bit<F: Field>(
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let converted_shares = try_join_all(zip(repeat(ctx), input).enumerate().map(
         |(record_id, (ctx, row))| async move {
+            let record_id = RecordId::from(record_id);
             ConvertShares::new(XorShares {
                 num_bits,
                 packed_bits_left: row.0,
                 packed_bits_right: row.1,
             })
-            .execute_one_bit(
-                ctx.narrow(&record_id.to_string()),
-                RecordId::from(record_id),
-                bit_index,
-            )
+            .execute_one_bit(ctx.bind(record_id), record_id, bit_index)
             .await
         },
     ))

@@ -94,6 +94,15 @@ impl PartialEq for UniqueStepId {
 impl Eq for UniqueStepId {}
 
 impl UniqueStepId {
+    #[must_use]
+    pub fn from_step_id(step: &Self) -> Self {
+        Self {
+            id: step.id.clone(),
+            #[cfg(debug_assertions)]
+            used: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
