@@ -25,11 +25,11 @@ use permutation::Permutation;
 /// i.e. their own shares and received share.
 #[embed_doc_image("reveal", "images/reveal.png")]
 #[allow(dead_code)]
-pub async fn reveal<F: Field>(
+pub async fn reveal<F: Field, G: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
-    input: Replicated<F>,
-) -> Result<F, BoxError> {
+    input: Replicated<G>,
+) -> Result<G, BoxError> {
     let channel = ctx.mesh();
 
     channel
@@ -46,11 +46,11 @@ pub async fn reveal<F: Field>(
 
 #[allow(dead_code)]
 #[allow(clippy::module_name_repetitions)]
-pub async fn reveal_malicious<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+pub async fn reveal_malicious<F: Field, G: Field>(
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
-    input: Replicated<F>,
-) -> Result<F, BoxError> {
+    input: Replicated<G>,
+) -> Result<G, BoxError> {
     let channel = ctx.mesh();
 
     // Send share to helpers to the right and left
@@ -60,7 +60,7 @@ pub async fn reveal_malicious<F: Field>(
     )
     .await?;
 
-    let (share_from_left, share_from_right): (F, F) = try_join(
+    let (share_from_left, share_from_right) = try_join(
         channel.receive(ctx.role().peer(Direction::Left), record_id),
         channel.receive(ctx.role().peer(Direction::Right), record_id),
     )
@@ -190,7 +190,7 @@ mod tests {
     }
 
     pub async fn reveal_with_additive_attack<F: Field>(
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         input: Replicated<F>,
         additive_error: F,

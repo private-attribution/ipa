@@ -3,7 +3,7 @@ use crate::{
     ff::{Field, Fp2},
     protocol::{
         context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
-        reveal_additive_binary::RevealAdditiveBinary, RecordId,
+        reveal::reveal_malicious, RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -11,7 +11,8 @@ use futures::future::try_join;
 
 pub struct XorShares {
     num_bits: u8,
-    packed_bits: u64,
+    packed_bits_left: u64,
+    packed_bits_right: u64,
 }
 
 pub struct ConvertShares {
@@ -66,17 +67,18 @@ impl ConvertShares {
         let prss = &ctx.prss();
         let (left, right) = prss.generate_values(record_id);
 
-        let b0 = Fp2::from(left & (1 << bit_index) != 0);
-        let b1 = Fp2::from(right & (1 << bit_index) != 0);
-        let input = Fp2::from(self.input.packed_bits & (1 << bit_index) != 0);
-        let input_xor_r = input ^ b0;
+        let r_binary = Replicated::new(
+            Fp2::from(left & (1 << bit_index) != 0),
+            Fp2::from(right & (1 << bit_index) != 0),
+        );
+        let input = Replicated::new(
+            Fp2::from(self.input.packed_bits_left & (1 << bit_index) != 0),
+            Fp2::from(self.input.packed_bits_right & (1 << bit_index) != 0),
+        );
+        let input_xor_r = input + r_binary;
         let (r_big_field, revealed_output) = try_join(
-            DoubleRandom::execute(
-                ctx.narrow(&Step::DoubleRandom),
-                record_id,
-                Replicated::new(b0, b1),
-            ),
-            RevealAdditiveBinary::execute(ctx.narrow(&Step::BinaryReveal), record_id, input_xor_r),
+            DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary),
+            reveal_malicious::<F, Fp2>(ctx.narrow(&Step::BinaryReveal), record_id, input_xor_r),
         )
         .await?;
 
@@ -143,17 +145,20 @@ mod tests {
                 try_join_all(vec![
                     ConvertShares::new(XorShares {
                         num_bits: 40,
-                        packed_bits: share_0,
+                        packed_bits_left: share_0,
+                        packed_bits_right: share_1,
                     })
                     .execute_one_bit(c0.narrow(&hack), record_id, 4),
                     ConvertShares::new(XorShares {
                         num_bits: 40,
-                        packed_bits: share_1,
+                        packed_bits_left: share_1,
+                        packed_bits_right: share_2,
                     })
                     .execute_one_bit(c1.narrow(&hack), record_id, 4),
                     ConvertShares::new(XorShares {
                         num_bits: 40,
-                        packed_bits: share_2,
+                        packed_bits_left: share_2,
+                        packed_bits_right: share_0,
                     })
                     .execute_one_bit(c2.narrow(&hack), record_id, 4),
                 ])
