@@ -1,9 +1,8 @@
-use crate::helpers::messaging::GatewayConfig;
 use crate::helpers::SendBufferConfig;
 use crate::{
-    helpers::messaging::Gateway,
+    helpers::messaging::{Gateway, GatewayConfig},
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
-    test_fixture::{fabric::InMemoryNetwork, make_participants},
+    test_fixture::{fabric::InMemoryNetwork, logging, make_participants},
 };
 use std::{fmt::Debug, sync::Arc};
 
@@ -52,6 +51,8 @@ impl Default for TestWorldConfig {
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
 pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
+    logging::setup();
+
     let participants = make_participants();
     let participants = [participants.0, participants.1, participants.2];
     let network = InMemoryNetwork::new();

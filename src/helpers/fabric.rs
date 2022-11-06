@@ -12,7 +12,7 @@ pub struct ChannelId {
     pub step: UniqueStepId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
     pub payload: Box<[u8]>,

@@ -9,7 +9,7 @@ use crate::helpers::Identity;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
@@ -23,7 +23,9 @@ pub use world::{
 /// # Panics
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
-pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [ProtocolContext<'_, F>; 3] {
+pub fn make_contexts<F: Field>(
+    test_world: &TestWorld,
+) -> [ProtocolContext<'_, Replicated<F>, F>; 3] {
     test_world
         .gateways
         .iter()
@@ -41,10 +43,10 @@ pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [ProtocolContext<'_, F
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<'a, F: Field>(
-    contexts: &[ProtocolContext<'a, F>; 3],
+pub fn narrow_contexts<'a, F: Field, S: SecretSharing<F>>(
+    contexts: &[ProtocolContext<'a, S, F>; 3],
     step: &impl Step,
-) -> [ProtocolContext<'a, F>; 3] {
+) -> [ProtocolContext<'a, S, F>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()
@@ -73,15 +75,11 @@ pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
     (p1, p2, p3)
 }
 
-pub type ReplicatedShares = (
-    Vec<Replicated<Fp31>>,
-    Vec<Replicated<Fp31>>,
-    Vec<Replicated<Fp31>>,
-);
+pub type ReplicatedShares<T> = (Vec<Replicated<T>>, Vec<Replicated<T>>, Vec<Replicated<T>>);
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]
-pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
+pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
     let mut rand = StepRng::new(100, 1);
 
     let len = input.len();
@@ -90,7 +88,7 @@ pub fn generate_shares(input: Vec<u128>) -> ReplicatedShares {
     let mut shares2 = Vec::with_capacity(len);
 
     for iter in input {
-        let share = share(Fp31::from(iter), &mut rand);
+        let share = share(T::from(iter), &mut rand);
         shares0.push(share[0]);
         shares1.push(share[1]);
         shares2.push(share[2]);

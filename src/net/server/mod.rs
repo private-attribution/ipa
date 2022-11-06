@@ -1,16 +1,20 @@
-use ::metrics::increment_counter;
-use std::net::SocketAddr;
-
+use crate::error::BoxError;
+use crate::helpers::fabric::MessageChunks;
 use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
+use ::metrics::increment_counter;
 use axum::{
-    extract::rejection::QueryRejection,
+    extract::rejection::{PathRejection, QueryRejection},
+    middleware,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
+use std::fmt::Debug;
+use std::net::SocketAddr;
 use thiserror::Error;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
@@ -21,22 +25,66 @@ pub mod handlers;
 pub enum MpcServerError {
     #[error(transparent)]
     BadQueryString(#[from] QueryRejection),
+    #[error("header not found: {0}")]
+    MissingHeader(String),
+    #[error("invalid header: {0}")]
+    InvalidHeader(BoxError),
+    #[error(transparent)]
+    BadPathString(#[from] PathRejection),
+    #[error(transparent)]
+    BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
+    #[error(transparent)]
+    HyperError(#[from] hyper::Error),
+    #[error("parse error: {0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("could not forward messages: {0}")]
+    SendError(BoxError),
+}
+
+/// [`From`] implementation for [`MpcServerError::SendError`].
+/// first call `to_string` so as to drop `T` from the [`MpcServerError`]
+impl<T> From<mpsc::error::SendError<T>> for MpcServerError {
+    fn from(err: mpsc::error::SendError<T>) -> Self {
+        Self::SendError(err.to_string().into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::SendError`].
+/// first call `to_string` to as to drop `T` from the [`MpcServerError`]
+impl<T> From<tokio_util::sync::PollSendError<T>> for MpcServerError {
+    fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
+        Self::SendError(err.to_string().into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
+impl From<std::num::ParseIntError> for MpcServerError {
+    fn from(err: std::num::ParseIntError) -> Self {
+        Self::InvalidHeader(err.into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
+impl From<axum::http::header::ToStrError> for MpcServerError {
+    fn from(err: axum::http::header::ToStrError) -> Self {
+        Self::InvalidHeader(err.into())
+    }
 }
 
 impl IntoResponse for MpcServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
-            MpcServerError::BadQueryString(_) => StatusCode::BAD_REQUEST,
+            Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+            Self::SerdeError(_) | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
+            Self::HyperError(_) | Self::SendError(_) | Self::BodyAlreadyExtracted(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         };
 
         (status_code, self.to_string()).into_response()
     }
-}
-
-/// Axum router definition for MPC helper endpoint
-#[must_use]
-pub fn router() -> Router {
-    Router::new().route("/echo", get(handlers::echo_handler))
 }
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
@@ -46,49 +94,82 @@ pub enum BindTarget {
     Https(SocketAddr, RustlsConfig),
 }
 
-/// Starts a new instance of MPC helper and binds it to a given target.
-/// Returns a socket it is listening to and the join handle of the web server running.
-pub async fn bind(target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
-    let svc = router()
-        .layer(
-            TraceLayer::new_for_http().on_request(|request: &Request<Body>, _span: &Span| {
-                increment_counter!(RequestProtocolVersion::from(request.version()));
-                increment_counter!(REQUESTS_RECEIVED);
+/// Contains all of the state needed to start the MPC server.
+/// For now, stub out gateway with simple send/receive
+/// TODO (ts): replace stub with real thing when [`Network`] is implemented
+#[allow(clippy::module_name_repetitions)] // standard naming convention
+pub struct MpcServer {
+    tx: mpsc::Sender<MessageChunks>,
+}
+
+impl MpcServer {
+    #[must_use]
+    pub fn new(tx: mpsc::Sender<MessageChunks>) -> Self {
+        MpcServer { tx }
+    }
+
+    /// Axum router definition for MPC helper endpoint
+    #[must_use]
+    pub(crate) fn router(&self) -> Router {
+        Router::new()
+            .route(
+                "/mul/query-id/:query_id/step/*step",
+                post(handlers::mul_handler),
+            )
+            .layer({
+                let tx = self.tx.clone();
+                middleware::from_fn(move |req, next| {
+                    handlers::obtain_permit_mw(tx.clone(), req, next)
+                })
+            })
+            .route("/echo", get(handlers::echo_handler))
+    }
+
+    /// Starts a new instance of MPC helper and binds it to a given target.
+    /// Returns a socket it is listening to and the join handle of the web server running.
+    pub async fn bind(&self, target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
+        let svc = self
+            .router()
+            .layer(TraceLayer::new_for_http().on_request(
+                |request: &Request<Body>, _span: &Span| {
+                    increment_counter!(RequestProtocolVersion::from(request.version()));
+                    increment_counter!(REQUESTS_RECEIVED);
+                },
+            ))
+            .into_make_service();
+        let handle = Handle::new();
+
+        let task_handle = match target {
+            BindTarget::Http(addr) => tokio::spawn({
+                let handle = handle.clone();
+                async move {
+                    axum_server::bind(addr)
+                        .handle(handle)
+                        .serve(svc)
+                        .await
+                        .expect("Failed to serve");
+                }
             }),
+            BindTarget::Https(addr, tls_config) => tokio::spawn({
+                let handle = handle.clone();
+                async move {
+                    axum_server::bind_rustls(addr, tls_config)
+                        .handle(handle)
+                        .serve(svc)
+                        .await
+                        .expect("Failed to serve");
+                }
+            }),
+        };
+
+        (
+            handle
+                .listening()
+                .await
+                .expect("Failed to bind server to a port"),
+            task_handle,
         )
-        .into_make_service();
-    let handle = Handle::new();
-
-    let task_handle = match target {
-        BindTarget::Http(addr) => tokio::spawn({
-            let handle = handle.clone();
-            async move {
-                axum_server::bind(addr)
-                    .handle(handle)
-                    .serve(svc)
-                    .await
-                    .expect("Failed to serve");
-            }
-        }),
-        BindTarget::Https(addr, tls_config) => tokio::spawn({
-            let handle = handle.clone();
-            async move {
-                axum_server::bind_rustls(addr, tls_config)
-                    .handle(handle)
-                    .serve(svc)
-                    .await
-                    .expect("Failed to serve");
-            }
-        }),
-    };
-
-    (
-        handle
-            .listening()
-            .await
-            .expect("Failed to bind server to a port"),
-        task_handle,
-    )
+    }
 }
 
 /// Returns `RustTlsConfig` instance configured with self-signed cert and key. Not intended to
@@ -155,22 +236,21 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 
 #[cfg(test)]
 mod e2e_tests {
-    use crate::cli::net::server::handlers::EchoData;
-    use crate::cli::net::server::{bind, BindTarget};
-    use hyper::header::HeaderName;
-    use hyper::header::HeaderValue;
+    use crate::net::server::handlers::EchoData;
+    use crate::net::server::{BindTarget, MpcServer};
+    use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
     use hyper::{
-        body, client::HttpConnector, http::uri::Scheme, Body, Request, Response, StatusCode,
-        Version,
+        body,
+        client::HttpConnector,
+        header::{HeaderName, HeaderValue},
+        http::uri::Scheme,
+        Body, Request, Response, StatusCode, Version,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
+    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
-
-    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
-
-    use crate::telemetry::metrics::REQUESTS_RECEIVED;
-    use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion};
+    use tokio::sync::mpsc;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -205,7 +285,11 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
 
         let expected = EchoData {
             query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
@@ -228,10 +312,14 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        let config = crate::cli::net::server::tls_config_from_self_signed_cert()
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
+        let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) = bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
+        let (addr, _) = server
+            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
+            .await;
 
         let mut expected = EchoData::default();
         // self-signed cert CN is "localhost", therefore request uri must not use the ip address
@@ -269,7 +357,12 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
+
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
         let client = hyper::Client::new();
         let mut echo_data = EchoData::default();
         echo_data.headers.insert("host".into(), addr.to_string());
@@ -298,8 +391,12 @@ mod e2e_tests {
     #[tokio::test]
     async fn request_version_metric() {
         DebuggingRecorder::per_thread().install().unwrap_or(());
+        let (tx, _) = mpsc::channel(1);
+        let server = MpcServer::new(tx);
 
-        let (addr, _) = bind(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
         let mut echo_data = EchoData::default();
         let client = hyper::Client::new();
         echo_data.headers.insert("host".into(), addr.to_string());

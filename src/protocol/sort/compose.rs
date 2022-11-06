@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, reveal::reveal_a_permutation},
+    protocol::{context::ProtocolContext, reveal::reveal_permutation},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -41,7 +41,10 @@ impl<'a, F: Field> Compose<'a, F> {
     /// 4. Revealed permutation is applied locally on another permutation shares (rho)
     /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
     #[allow(dead_code)]
-    pub async fn execute(&mut self, ctx: ProtocolContext<'_, F>) -> Result<(), BoxError> {
+    pub async fn execute(
+        &mut self,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ) -> Result<(), BoxError> {
         let mut random_permutations =
             get_two_of_three_random_permutations(self.rho.len(), &ctx.prss());
         let mut random_permutations_copy = random_permutations.clone();
@@ -50,7 +53,7 @@ impl<'a, F: Field> Compose<'a, F> {
             .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
             .await?;
 
-        let mut perms = reveal_a_permutation(ctx.narrow(&RevealPermutation), self.sigma).await?;
+        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), self.sigma).await?;
 
         apply_inv(&mut perms, &mut self.rho);
 
@@ -70,6 +73,7 @@ mod tests {
 
     use crate::{
         error::BoxError,
+        ff::Fp31,
         protocol::{
             sort::{apply::apply_inv, compose::Compose},
             QueryId,
@@ -98,8 +102,8 @@ mod tests {
             let mut rho_composed = rho_u128.clone();
             apply_inv(&mut Permutation::oneline(sigma.clone()), &mut rho_composed);
 
-            let mut sigma_shares = generate_shares(sigma_u128);
-            let mut rho_shares = generate_shares(rho_u128);
+            let mut sigma_shares = generate_shares::<Fp31>(sigma_u128);
+            let mut rho_shares = generate_shares::<Fp31>(rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 

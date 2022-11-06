@@ -30,7 +30,7 @@ use crate::{
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
@@ -114,7 +114,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
@@ -194,15 +194,13 @@ pub mod tests {
     };
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
     #[tokio::test]
     async fn specialized_1_sequence() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -246,8 +244,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn specialized_1_parallel() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -303,8 +299,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn specialized_2_sequence() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -351,8 +345,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn specialized_2_parallel() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();

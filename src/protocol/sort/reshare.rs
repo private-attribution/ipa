@@ -36,7 +36,7 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
     pub async fn execute(
         self,
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         to_helper: Identity,
     ) -> Result<Replicated<F>, BoxError> {
@@ -96,15 +96,15 @@ mod tests {
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
         let mut new_reshares_atleast_once = false;
+        let world: TestWorld = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+
         for _ in 0..10 {
             let secret = rng.gen::<u128>();
 
             let input = Fp31::from(secret);
             let share = share(input, &mut rand);
             let record_id = RecordId::from(0_u32);
-
-            let world: TestWorld = make_world(QueryId);
-            let context = make_contexts::<Fp31>(&world);
 
             let reshare0 = Reshare::new(share[0]);
             let reshare1 = Reshare::new(share[1]);

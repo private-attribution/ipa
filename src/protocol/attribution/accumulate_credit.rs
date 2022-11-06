@@ -11,6 +11,8 @@ use crate::{
 };
 use futures::future::{try_join, try_join_all};
 
+use crate::protocol::mul::SecureMul;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     HelperBitTimesIsTriggerBit,
@@ -52,7 +54,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -154,7 +156,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     }
 
     async fn get_accumulated_credit(
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
@@ -168,29 +170,30 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // first, calculate [successor.helper_bit * successor.trigger_bit]
         let mut b = ctx
             .narrow(&Step::HelperBitTimesIsTriggerBit)
-            .multiply(record_id)
-            .execute(successor.report.helper_bit, successor.report.is_trigger_bit)
+            .multiply(
+                record_id,
+                successor.report.helper_bit,
+                successor.report.is_trigger_bit,
+            )
             .await?;
 
         // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
         if !first_iteration {
             b = ctx
                 .narrow(&Step::BTimesStopBit)
-                .multiply(record_id)
-                .execute(b, current.stop_bit)
+                .multiply(record_id, b, current.stop_bit)
                 .await?;
         }
 
-        let credit_future = ctx
-            .narrow(&Step::BTimesSuccessorCredit)
-            .multiply(record_id)
-            .execute(b, successor.credit);
+        let credit_future =
+            ctx.narrow(&Step::BTimesSuccessorCredit)
+                .multiply(record_id, b, successor.credit);
 
         // for the same reason as calculating [b], we skip the multiplication in the first iteration
         let stop_bit_future = if first_iteration {
             futures::future::Either::Left(futures::future::ok(b))
         } else {
-            futures::future::Either::Right(ctx.multiply(record_id).execute(b, successor.stop_bit))
+            futures::future::Either::Right(ctx.multiply(record_id, b, successor.stop_bit))
         };
 
         try_join(credit_future, stop_bit_future).await
@@ -199,7 +202,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_fixture::logging;
+
     use crate::{
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
@@ -260,8 +263,6 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
-        logging::setup();
-
         let world = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = StepRng::new(100, 1);

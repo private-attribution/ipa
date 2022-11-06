@@ -1,3 +1,4 @@
+use crate::net::server::MpcServerError;
 use axum::{
     extract::{FromRequest, Query, RequestParts},
     Json,
@@ -5,8 +6,6 @@ use axum::{
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-use crate::cli::net::server::MpcServerError;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Payload {
@@ -36,10 +35,8 @@ pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcServerError
 
 #[cfg(test)]
 mod tests {
-
+    use crate::net::server::handlers::echo::handler;
     use hyper::{Body, Request};
-
-    use crate::cli::net::server::handlers::echo::handler;
 
     #[tokio::test]
     async fn happy_case() {

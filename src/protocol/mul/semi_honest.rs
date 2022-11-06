@@ -9,13 +9,14 @@ use std::fmt::Debug;
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, F> {
-    ctx: ProtocolContext<'a, F>,
+pub struct SecureMul<'a, F: Field> {
+    ctx: ProtocolContext<'a, Replicated<F>, F>,
     record_id: RecordId,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
-    pub fn new(ctx: ProtocolContext<'a, F>, record_id: RecordId) -> Self {
+    #[must_use]
+    pub fn new(ctx: ProtocolContext<'a, Replicated<F>, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -36,22 +37,19 @@ impl<'a, F: Field> SecureMul<'a, F> {
         // generate shared randomness.
         let prss = self.ctx.prss();
         let (s0, s1) = prss.generate_fields(self.record_id);
+        let role = self.ctx.role();
 
         // compute the value (d_i) we want to send to the right helper (i+1)
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
         // notify helper on the right that we've computed our value
         channel
-            .send(
-                self.ctx.role().peer(Direction::Right),
-                self.record_id,
-                right_d,
-            )
+            .send(role.peer(Direction::Right), self.record_id, right_d)
             .await?;
 
         // Sleep until helper on the left sends us their (d_i-1) value
         let left_d = channel
-            .receive(self.ctx.role().peer(Direction::Left), self.record_id)
+            .receive(role.peer(Direction::Left), self.record_id)
             .await?;
 
         // now we are ready to construct the result - 2/3 secret shares of a * b.
@@ -66,10 +64,11 @@ impl<'a, F: Field> SecureMul<'a, F> {
 pub mod tests {
     use crate::error::BoxError;
     use crate::ff::{Field, Fp31};
+    use crate::protocol::mul::SecureMul;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
     use rand::rngs::mock::StepRng;
@@ -78,8 +77,6 @@ pub mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), BoxError> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let mut rand = StepRng::new(1, 1);
 
@@ -123,15 +120,12 @@ pub mod tests {
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(v: (ProtocolContext<'_, F>, MulArgs<F>)) -> Replicated<F> {
+        async fn mul<F: Field>(
+            v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>),
+        ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(0_u32))
-                .execute(a, b)
-                .await
-                .unwrap()
+            ctx.multiply(RecordId::from(0_u32), a, b).await.unwrap()
         }
-
-        logging::setup();
 
         let world = make_world(QueryId);
         let contexts = make_contexts::<Fp31>(&world);
@@ -164,7 +158,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore, F: Field>(
-        context: [ProtocolContext<'_, F>; 3],
+        context: [ProtocolContext<'_, Replicated<F>, F>; 3],
         a: u8,
         b: u8,
         rng: &mut R,
@@ -183,9 +177,9 @@ pub mod tests {
         let b = share(b, rng);
 
         let result_shares = tokio::try_join!(
-            context0.multiply(record_id).execute(a[0], b[0]),
-            context1.multiply(record_id).execute(a[1], b[1]),
-            context2.multiply(record_id).execute(a[2], b[2]),
+            context0.multiply(record_id, a[0], b[0]),
+            context1.multiply(record_id, a[1], b[1]),
+            context2.multiply(record_id, a[2], b[2]),
         )?;
 
         Ok(validate_and_reconstruct(result_shares).as_u128())

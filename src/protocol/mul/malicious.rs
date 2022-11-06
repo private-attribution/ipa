@@ -1,8 +1,8 @@
 use crate::error::BoxError;
 use crate::ff::Field;
+use crate::protocol::mul::SemiHonestMul;
 use crate::protocol::{
-    context::ProtocolContext, malicious::SecurityValidatorAccumulator, securemul::SecureMul,
-    RecordId,
+    context::ProtocolContext, malicious::SecurityValidatorAccumulator, RecordId,
 };
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
@@ -46,16 +46,16 @@ impl AsRef<str> for Step {
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
-pub struct MaliciouslySecureMul<'a, F> {
-    ctx: ProtocolContext<'a, F>,
+pub struct SecureMul<'a, F: Field> {
+    ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
     record_id: RecordId,
     accumulator: SecurityValidatorAccumulator<F>,
 }
 
-impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
+impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
     pub fn new(
-        ctx: ProtocolContext<'a, F>,
+        ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
         record_id: RecordId,
         accumulator: SecurityValidatorAccumulator<F>,
     ) -> Self {
@@ -75,6 +75,7 @@ impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
     /// back via the error response
     /// ## Panics
     /// Panics if the mutex is found to be poisoned
+    #[allow(clippy::similar_names)]
     pub async fn execute(
         self,
         a: MaliciousReplicated<F>,
@@ -83,11 +84,19 @@ impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
         // being clever and assuming a clean context...
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
         let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
-        let (ab, rab) = try_join(
-            SecureMul::new(self.ctx, self.record_id).execute(a.x(), b.x()),
-            SecureMul::new(duplicate_multiply_ctx, self.record_id).execute(a.rx(), b.x()),
-        )
-        .await?;
+        let (ab, rab) = {
+            // Convince compiler that neither a nor b will be used across the await point
+            // to relax the requirement for either of them to be Sync
+            let a_x = a.x();
+            let a_rx = a.rx();
+            let b_x = b.x();
+            try_join(
+                SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a_x, b_x),
+                SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
+                    .execute(a_rx, b_x),
+            )
+            .await?
+        };
 
         let malicious_ab = MaliciousReplicated::new(ab, rab);
 

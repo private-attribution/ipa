@@ -98,7 +98,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     #[allow(clippy::cast_possible_truncation)]
     async fn reshare_all_shares(
         &self,
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         to_helper: Identity,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let reshares = self
@@ -121,7 +121,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     async fn shuffle_or_unshuffle_once(
         &mut self,
         shuffle_or_unshuffle: ShuffleOrUnshuffle,
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         which_step: ShuffleStep,
         permutations: &mut (Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError> {
@@ -154,7 +154,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &mut self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         permutations: &mut (Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
@@ -162,16 +162,13 @@ impl<'a, F: Field> Shuffle<'a, F> {
     {
         *self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step1, permutations)
-            .await
-            .unwrap();
+            .await?;
         *self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step2, permutations)
-            .await
-            .unwrap();
+            .await?;
         *self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step3, permutations)
-            .await
-            .unwrap();
+            .await?;
 
         Ok(())
     }
@@ -182,7 +179,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     /// ![Unshuffle steps][unshuffle]
     pub async fn execute_unshuffle(
         &mut self,
-        ctx: ProtocolContext<'_, F>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         permutations: &mut (Permutation, Permutation),
     ) -> Result<(), BoxError>
     where
@@ -209,6 +206,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
 mod tests {
     use std::collections::HashSet;
 
+    use crate::test_fixture::logging;
     use crate::{
         ff::Fp31,
         protocol::{
@@ -226,6 +224,9 @@ mod tests {
     #[test]
     fn random_sequence_generated() {
         const BATCH_SIZE: usize = 10000;
+
+        logging::setup();
+
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());

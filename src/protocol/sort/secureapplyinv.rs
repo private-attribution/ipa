@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::ProtocolContext,
-        reveal::reveal_a_permutation,
+        reveal::reveal_permutation,
         sort::ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
     },
     secret_sharing::Replicated,
@@ -15,6 +15,7 @@ use super::{
     shuffle::{get_two_of_three_random_permutations, Shuffle},
 };
 use futures::future::try_join;
+
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -41,7 +42,7 @@ impl SecureApplyInv {
     /// 5. All helpers call `apply` to apply the permutation locally.
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
-        ctx: &ProtocolContext<'_, F>,
+        ctx: &ProtocolContext<'_, Replicated<F>, F>,
         input: &'_ mut Vec<Replicated<F>>,
         sort_permutation: &'_ mut Vec<Replicated<F>>,
     ) -> Result<(), BoxError> {
@@ -56,7 +57,7 @@ impl SecureApplyInv {
         )
         .await?;
         let mut permutation =
-            reveal_a_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
+            reveal_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
         // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
         // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
         apply(&mut permutation, input);
@@ -71,6 +72,7 @@ mod tests {
     use tokio::try_join;
 
     use crate::{
+        ff::Fp31,
         protocol::{sort::apply::apply, QueryId},
         test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
     };
@@ -97,8 +99,8 @@ mod tests {
 
             let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
 
-            let mut perm_shares = generate_shares(permutation);
-            let mut input_shares = generate_shares(input);
+            let mut perm_shares = generate_shares::<Fp31>(permutation);
+            let mut input_shares = generate_shares::<Fp31>(input);
 
             let world = make_world(QueryId);
             let context = make_contexts(&world);

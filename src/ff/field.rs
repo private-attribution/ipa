@@ -15,7 +15,6 @@ pub trait Int:
     + Ord
     + Sub<Output = Self>
     + Into<u128>
-    + From<u8>
     + Shr<u32, Output = Self>
     + BitAnd<Self, Output = Self>
     + PartialEq
@@ -25,6 +24,10 @@ pub trait Int:
 
 impl Int for u8 {
     const BITS: u32 = u8::BITS;
+}
+
+impl Int for u32 {
+    const BITS: u32 = u32::BITS;
 }
 
 pub trait Field:
@@ -55,36 +58,6 @@ pub trait Field:
     /// Derived from the size of the backing field, this constant indicates how much
     /// space is required to store this field value
     const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
-
-    /// computes the multiplicative inverse of `self`. It is UB if `self` is 0.
-    #[must_use]
-    fn invert(&self) -> Self {
-        debug_assert!(
-            self != &Self::ZERO,
-            "Multiplicative inverse is not defined for 0"
-        );
-
-        self.pow(Self::PRIME - Self::ONE.into() - Self::ONE.into())
-    }
-
-    /// Computes modular exponentiation, self^exp (mod PRIME)
-    #[must_use]
-    fn pow(&self, exp: Self::Integer) -> Self {
-        let mut term = Self::ONE;
-        // compute: x^exp
-        // binary representation of exp: a_k*2^k + a_k-1*2^k-1 + ... + a_0*2^0
-        // x^exp = x^a_0 + (x^2)^a_1 + ... + (x^(2^k))^a_k
-        // * start at 0 and each time square the term.
-        // * term contributes to the result iff a_k bit is 1 (as (x^a)^0 == 1)
-        for i in (0..Self::Integer::BITS).rev() {
-            term *= term;
-            if (exp >> i) & Self::Integer::from(1) != Self::Integer::from(0) {
-                term *= *self;
-            }
-        }
-
-        term
-    }
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
