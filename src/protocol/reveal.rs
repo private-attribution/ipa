@@ -29,7 +29,7 @@ pub async fn reveal<F: Field, G: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     input: Replicated<G>,
-) -> Result<G, BoxError> {
+) -> Result<G, Error> {
     let channel = ctx.mesh();
 
     channel
@@ -50,7 +50,7 @@ pub async fn reveal_malicious<F: Field, G: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     input: Replicated<G>,
-) -> Result<G, BoxError> {
+) -> Result<G, Error> {
     let channel = ctx.mesh();
 
     // Send share to helpers to the right and left
@@ -69,7 +69,7 @@ pub async fn reveal_malicious<F: Field, G: Field>(
     if share_from_left == share_from_right {
         Ok(input.left() + input.right() + share_from_left)
     } else {
-        Err(Box::new(Error::MaliciousRevealFailed))
+        Err(Error::MaliciousRevealFailed)
     }
 }
 
@@ -101,6 +101,7 @@ mod tests {
     use proptest::prelude::Rng;
     use tokio::try_join;
 
+    use crate::error::Error;
     use crate::{
         error::BoxError,
         ff::{Field, Fp31},
@@ -181,10 +182,7 @@ mod tests {
                 reveal_with_additive_attack(ctx[2].clone(), record_id, share[2], Fp31::ONE),
             );
 
-            match result {
-                Ok(_) => panic!("should not work"),
-                Err(e) => assert_eq!(format!("{}", e), "malicious reveal failed"),
-            }
+            assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
         }
         Ok(())
     }
@@ -194,7 +192,7 @@ mod tests {
         record_id: RecordId,
         input: Replicated<F>,
         additive_error: F,
-    ) -> Result<F, BoxError> {
+    ) -> Result<F, Error> {
         let channel = ctx.mesh();
 
         // Send share to helpers to the right and left

@@ -1,5 +1,5 @@
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::{BinaryField, Field},
     helpers::Identity,
     protocol::{
@@ -106,7 +106,7 @@ impl DoubleRandom {
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
@@ -132,7 +132,7 @@ impl DoubleRandom {
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
@@ -147,7 +147,7 @@ impl DoubleRandom {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         random_sharing: Replicated<B>,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let (sh0, sh1, sh2) = Self::local_secret_share(random_sharing, ctx.role());
 
         let sh0_xor_sh1 =
