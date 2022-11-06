@@ -2,6 +2,7 @@
 *.swp
 */db
 *~
+/.idea/
 /.venv/
 /.vscode/
 /Cargo.lock

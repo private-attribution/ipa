@@ -259,8 +259,6 @@ impl EndpointSetup {
 
     /// Provide the left and right public keys to construct a functioning
     /// participant instance.
-    /// This is generic over `SpaceIndex` so that it can construct the
-    /// appropriate number of spaces for use by a protocol participant.
     #[must_use]
     pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
         let fl = self.left.key_exchange(left_pk);

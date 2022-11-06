@@ -10,13 +10,15 @@ mod reveal;
 mod reveal_additive_binary;
 pub mod sort;
 
+use crate::error::Error;
+use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::hash::Hash;
 #[cfg(debug_assertions)]
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
-use std::{fmt::Debug, hash::Hash};
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -37,6 +39,7 @@ pub trait Step: AsRef<str> {}
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for String {}
+
 #[cfg(any(feature = "test-fixture", debug_assertions))]
 impl Step for str {}
 
@@ -64,6 +67,11 @@ impl Step for str {}
 /// to be cloning this object all over the place.  Of course, a string is pretty useful
 /// from a debugging perspective.
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Deserialize),
+    serde(from = "&str")
+)]
 pub struct UniqueStepId {
     id: String,
     /// This tracks the different values that have been provided to `narrow()`.
@@ -82,6 +90,7 @@ impl PartialEq for UniqueStepId {
         self.id == other.id
     }
 }
+
 impl Eq for UniqueStepId {}
 
 impl UniqueStepId {
@@ -129,6 +138,17 @@ impl AsRef<str> for UniqueStepId {
     }
 }
 
+impl From<&str> for UniqueStepId {
+    fn from(id: &str) -> Self {
+        let id = id.strip_prefix('/').unwrap_or(id);
+        UniqueStepId {
+            id: id.to_owned(),
+            #[cfg(debug_assertions)]
+            used: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+}
+
 /// Set of steps that define the IPA protocol.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum IpaProtocolStep {
@@ -164,11 +184,35 @@ impl Debug for UniqueStepId {
 /// so for now it is just an empty struct. Once we know more about it, we will make necessary
 /// amendments to it
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize),
+    serde(try_from = "&str")
+)]
 pub struct QueryId;
+
+impl AsRef<str> for QueryId {
+    fn as_ref(&self) -> &str {
+        "0"
+    }
+}
+
+impl TryFrom<&str> for QueryId {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value == "0" {
+            Ok(QueryId)
+        } else {
+            Err(Error::path_parse_error(value))
+        }
+    }
+}
 
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
 pub const RECORD_0: RecordId = RecordId(0);
