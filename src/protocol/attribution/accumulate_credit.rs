@@ -87,7 +87,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // iteration, and the interaction do not depend on the calculation results
         // of other elements, allowing the algorithm to be executed in parallel.
 
-        let mut iteration_step = IterStep::new("iteration");
+        let mut iteration_step = IterStep::new("iteration", 0);
 
         // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
         for step_size in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
@@ -97,7 +97,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
             let mut accumulation_futures = Vec::with_capacity(end as usize);
 
             let ctx = ctx.narrow(iteration_step.next());
-            let mut multiply_step = IterStep::new("multiply");
+            let mut multiply_step = IterStep::new("multiply", 0);
 
             // for each input row, create a future to execute secure multiplications
             for i in 0..end {

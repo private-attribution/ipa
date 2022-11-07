@@ -1,6 +1,6 @@
 use crate::error::BoxError;
 use crate::ff::BinaryField;
-use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::{attribution::IterStep, context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -34,10 +34,10 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     async fn bit_or(
         a: Replicated<B>,
         b: Replicated<B>,
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
         record_id: RecordId,
     ) -> Result<Replicated<B>, BoxError> {
-        let a_and_b = ctx.multiply(record_id).execute(a, b).await?;
+        let a_and_b = ctx.multiply(record_id, a, b).await?;
         Ok(a + b + a_and_b)
     }
 
@@ -45,12 +45,14 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     async fn block_or(
         a: &[Replicated<B>],
         k: usize,
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Replicated<B>, BoxError> {
+        #[allow(clippy::cast_possible_truncation)]
+        let mut step = IterStep::new("bit", k as u32);
         let mut v = Replicated::new(B::ZERO, B::ZERO);
-        for (i, &bit) in a.iter().enumerate() {
-            let c = ctx.clone();
-            v = Self::bit_or(v, bit, c, RecordId::from(i + k)).await?;
+        for &bit in a {
+            v = Self::bit_or(v, bit, ctx.narrow(step.next()), record_id).await?;
         }
         Ok(v)
     }
@@ -70,13 +72,14 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     async fn step1(
         a: &[Replicated<B>],
         lambda: usize,
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
-        let mut block_or = Vec::with_capacity(lambda);
-        (0..a.len())
-            .step_by(lambda)
-            .for_each(|i| block_or.push(Self::block_or(&a[i..i + lambda], i, ctx.clone())));
-        try_join_all(block_or).await
+        let mut futures = Vec::with_capacity(lambda);
+        (0..a.len()).step_by(lambda).for_each(|i| {
+            futures.push(Self::block_or(&a[i..i + lambda], i, ctx.clone(), record_id));
+        });
+        try_join_all(futures).await
     }
 
     /// Step 2. `for i=1..λ, [y_i] = ∨ [x_k] where k=1..i`
@@ -90,12 +93,18 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     /// ```
     async fn step2(
         x: &[Replicated<B>],
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
+        let mut step = IterStep::new("bit", 0);
         let lambda = x.len();
-        let mut block_or = Vec::with_capacity(lambda);
-        (0..lambda).for_each(|i| block_or.push(Self::block_or(&x[0..=i], i, ctx.clone())));
-        try_join_all(block_or).await
+        let mut y = Vec::with_capacity(lambda);
+        y.push(x[0]);
+        for i in 1..lambda {
+            let result = Self::bit_or(y[i - 1], x[i], ctx.narrow(step.next()), record_id).await?;
+            y.push(result);
+        }
+        Ok(y)
     }
 
     /// Step 3. `[f_1] = [x_1]`
@@ -127,12 +136,15 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     async fn step5(
         f: &[Replicated<B>],
         a: &[Replicated<B>],
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
+        let mut step = IterStep::new("bit", 0);
         let lambda = f.len();
         let mul = zip(repeat(ctx), a).enumerate().map(|(i, (ctx, &a_bit))| {
             let f_bit = f[i / lambda];
-            async move { ctx.multiply(RecordId::from(i)).execute(f_bit, a_bit).await }
+            let c = ctx.narrow(step.next());
+            async move { c.multiply(record_id, f_bit, a_bit).await }
         });
         try_join_all(mul).await
     }
@@ -169,12 +181,18 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     /// ```
     async fn step7(
         c: &[Replicated<B>],
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
+        let mut step = IterStep::new("bit", 0);
         let lambda = c.len();
-        let mut block_or = Vec::with_capacity(lambda);
-        (0..lambda).for_each(|j| block_or.push(Self::block_or(&c[0..=j], j, ctx.clone())));
-        try_join_all(block_or).await
+        let mut b = Vec::with_capacity(lambda);
+        b.push(c[0]);
+        for j in 1..lambda {
+            let result = Self::bit_or(b[j - 1], c[j], ctx.narrow(step.next()), record_id).await?;
+            b.push(result);
+        }
+        Ok(b)
     }
 
     /// Step 8. `for i,j=1..λ, [s_(i,j)] = MULT([f_i], [b_(,j)])`
@@ -190,17 +208,15 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     async fn step8(
         f: &[Replicated<B>],
         b: &[Replicated<B>],
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
-        let lambda = f.len();
+        let mut step = IterStep::new("bit", 0);
         let mut mul = Vec::new();
-        for (i, &f_bit) in f.iter().enumerate().take(lambda) {
-            for (j, &b_bit) in b.iter().enumerate().take(lambda) {
-                let c = ctx.clone();
-                mul.push(
-                    c.multiply(RecordId::from(lambda * i + j))
-                        .execute(f_bit, b_bit),
-                );
+        for &f_bit in f {
+            for &b_bit in b {
+                let c = ctx.narrow(step.next());
+                mul.push(c.multiply(record_id, f_bit, b_bit));
             }
         }
         try_join_all(mul).await
@@ -226,12 +242,18 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
             .collect::<Vec<_>>()
     }
 
-    /// Execute `PrefixOr`
+    /// Execute `PrefixOr`.
+    ///
+    /// It takes `ctx` which should have been `narrow`'ed for this protocol,
+    /// and a `record_id`. Every time we want to do a bit-decomposition, or
+    /// comparison, `PrefixOr` gets called. For example of the attribution,
+    /// we want to compare a secret shared
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, B>,
+        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
         // The paper assumes `l = λ^2`, where `l` is the bit length of the input
         // share. Then the input is split into `λ` blocks each holding `λ` bits.
@@ -244,35 +266,48 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
         // regardless of the dummy bits, but may affect the performance if
         // `λ^2 - l` becomes large. We should revisit this protocol once the
         // prototype is complete, and optimize if necessary.
-        // TODO(taikiy): Prefix-Or optimization
+        // TODO(taikiy): Prefix-Or dummy-bits optimization
 
-        // It should be safe to cast from `usize` to `u32` and back cast since
-        // the input we expect to operate on are 40-bit < `u8` << `u32`.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let lambda = f64::from(self.input.len() as u32).sqrt().ceil() as usize;
-        let dummy = vec![Replicated::new(B::ZERO, B::ZERO); lambda * lambda - self.input.len()];
-
-        let a = [self.input, &dummy].concat();
-        let x = Self::step1(&a, lambda, ctx.narrow(&Step::BlockOr1)).await?;
-        let y = Self::step2(&x, ctx.narrow(&Step::BlockOr2)).await?;
+        let (a, lambda) = Self::add_dummy_bits(self.input);
+        let x = Self::step1(&a, lambda, ctx.narrow(&Step::BitwiseOrPerBlock), record_id).await?;
+        let y = Self::step2(&x, ctx.narrow(&Step::BlockWisePrefixOr), record_id).await?;
         let f = Self::step3_4(&x, &y);
-        let g = Self::step5(&f, &a, ctx.narrow(&Step::Mult1)).await?;
+        let g = Self::step5(&f, &a, ctx.narrow(&Step::GetFirstBlockWithOne), record_id).await?;
         let c = Self::step6(&g, lambda);
-        let b = Self::step7(&c, ctx.narrow(&Step::BlockOr3)).await?;
-        let s = Self::step8(&f, &b, ctx.narrow(&Step::Mult2)).await?;
+        let b = Self::step7(&c, ctx.narrow(&Step::InnerProduct), record_id).await?;
+        let s = Self::step8(&f, &b, ctx.narrow(&Step::SetFirstBlockWithOne), record_id).await?;
         let b = Self::step9(&s, &y, &f);
 
         Ok(b[0..self.input.len()].to_vec())
+    }
+
+    /// This method takes a slice of bits of the length `l`, add `m` dummy
+    /// bits to the end of the slice, and returns it as a new vector. The
+    /// output vector's length is `λ^2` where `λ = sqrt(l + m) ∈ Z`.
+    fn add_dummy_bits(a: &[Replicated<B>]) -> (Vec<Replicated<B>>, usize) {
+        // We plan to use u32, which we'll add 4 dummy bits to get λ = 6.
+        // Since we don't want to compute sqrt() each time this protocol
+        // is called, we'll assume that the input is 32-bit long.
+        // We can modify this function if we need to support other lengths.
+        let l = a.len();
+        let lambda: usize = match l {
+            8 => 3,
+            16 => 4,
+            32 => 6,
+            _ => panic!("bit length must 8, 16 or 32"),
+        };
+        let dummy = vec![Replicated::new(B::ZERO, B::ZERO); lambda * lambda - l];
+        ([a, &dummy].concat(), lambda)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    BlockOr1,
-    BlockOr2,
-    BlockOr3,
-    Mult1,
-    Mult2,
+    BitwiseOrPerBlock,
+    BlockWisePrefixOr,
+    InnerProduct,
+    GetFirstBlockWithOne,
+    SetFirstBlockWithOne,
 }
 
 impl crate::protocol::Step for Step {}
@@ -280,11 +315,11 @@ impl crate::protocol::Step for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BlockOr1 => "block_or_1",
-            Self::BlockOr2 => "block_or_2",
-            Self::BlockOr3 => "block_or_3",
-            Self::Mult1 => "mult_1",
-            Self::Mult2 => "mult_2",
+            Self::BitwiseOrPerBlock => "bitwise_or_per_block",
+            Self::BlockWisePrefixOr => "block_wise_prefix_or",
+            Self::InnerProduct => "inner_product",
+            Self::GetFirstBlockWithOne => "get_first_block_with_one",
+            Self::SetFirstBlockWithOne => "set_first_block_with_one",
         }
     }
 }
@@ -296,7 +331,7 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp2},
-        protocol::QueryId,
+        protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
@@ -305,14 +340,14 @@ mod tests {
 
     #[tokio::test]
     pub async fn prefix_or() {
-        const BITS: usize = 10;
+        const BITS: usize = 32;
         const TEST_TRIES: usize = 100;
         let world: TestWorld = make_world(QueryId);
         let ctx = make_contexts::<Fp2>(&world);
         let mut rand = StepRng::new(1, 1);
         let mut rng = rand::thread_rng();
 
-        // Test 10-bit bitwise shares with randomly distributed bits, for 100 times.
+        // Test 32-bit bitwise shares with randomly distributed bits, for 100 times.
         // The probability of i'th bit being 0 is 1/2^i, so this test covers inputs
         // that have all 0's in 6-7 first bits.
         for i in 0..TEST_TRIES {
@@ -345,9 +380,9 @@ mod tests {
             let pre2 = PrefixOr::new(&s2);
             let iteration = format!("{}", i);
             let result = try_join_all(vec![
-                pre0.execute(ctx[0].narrow(&iteration)),
-                pre1.execute(ctx[1].narrow(&iteration)),
-                pre2.execute(ctx[2].narrow(&iteration)),
+                pre0.execute(ctx[0].narrow(&iteration), RecordId::from(i)),
+                pre1.execute(ctx[1].narrow(&iteration), RecordId::from(i)),
+                pre2.execute(ctx[2].narrow(&iteration), RecordId::from(i)),
             ])
             .await
             .unwrap();
