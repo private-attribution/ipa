@@ -118,7 +118,6 @@ pub trait Field:
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub trait BinaryField:
     Field
     + BitAnd<Output = Self>

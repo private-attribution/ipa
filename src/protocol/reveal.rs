@@ -45,7 +45,6 @@ pub async fn reveal<F: Field, G: Field>(
 }
 
 #[allow(dead_code)]
-#[allow(clippy::module_name_repetitions)]
 pub async fn reveal_malicious<F: Field, G: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
@@ -76,7 +75,6 @@ pub async fn reveal_malicious<F: Field, G: Field>(
 /// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
-#[allow(clippy::module_name_repetitions)]
 pub async fn reveal_permutation<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     permutation: &[Replicated<F>],

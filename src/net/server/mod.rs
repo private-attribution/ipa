@@ -97,7 +97,6 @@ pub enum BindTarget {
 /// Contains all of the state needed to start the MPC server.
 /// For now, stub out gateway with simple send/receive
 /// TODO (ts): replace stub with real thing when [`Network`] is implemented
-#[allow(clippy::module_name_repetitions)] // standard naming convention
 pub struct MpcServer {
     tx: mpsc::Sender<MessageChunks>,
 }
