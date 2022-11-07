@@ -132,19 +132,19 @@ pub struct HttpMulArgs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
+    use crate::helpers::fabric::{ChannelId, MessageChunks};
     use crate::net::{BindTarget, MpcServer};
     use hyper_tls::native_tls::TlsConnector;
     use tokio::sync::mpsc;
 
     async fn mul_req(client: MpcHttpConnection, mut rx: mpsc::Receiver<MessageChunks>) {
-        const DATA_SIZE: u32 = 4;
+        const DATA_SIZE: u32 = 8;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = UniqueStepId::default().narrow("mul_test");
         let identity = Identity::H1;
         let offset = 0;
-        let messages = &[0; (DATA_SIZE * DATA_LEN) as usize];
+        let body = &[123; (DATA_SIZE * DATA_LEN) as usize];
 
         let res = client
             .mul(HttpMulArgs {
@@ -153,21 +153,14 @@ mod tests {
                 identity,
                 offset,
                 data_size: DATA_SIZE,
-                messages: Bytes::from_static(messages),
+                messages: Bytes::from_static(body),
             })
             .await;
         assert!(res.is_ok(), "{}", res.unwrap_err());
 
         let channel_id = ChannelId { identity, step };
-        let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
-        let envs = (0..DATA_LEN)
-            .map(|i| MessageEnvelope {
-                record_id: i.into(),
-                payload: env.clone(),
-            })
-            .collect::<Vec<_>>();
         let server_recvd = rx.try_recv().unwrap(); // should already have been received
-        assert_eq!(server_recvd, (channel_id, envs));
+        assert_eq!(server_recvd, (channel_id, body.to_vec()));
     }
 
     #[tokio::test]
