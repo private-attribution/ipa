@@ -1,7 +1,6 @@
 use crate::helpers::buffers::fsv::FixedSizeByteVec;
 use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 use crate::protocol::RecordId;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -73,7 +72,7 @@ impl SendBuffer {
     #[allow(clippy::needless_pass_by_value)] // will be fixed when tiny/smallvec is used
     pub fn push(
         &mut self,
-        channel_id: ChannelId,
+        channel_id: &ChannelId,
         msg: MessageEnvelope,
     ) -> Result<Option<Vec<MessageEnvelope>>, PushError> {
         assert!(
@@ -81,11 +80,12 @@ impl SendBuffer {
             "Message payload exceeds the maximum allowed size"
         );
 
-        let buf = match self.inner.entry(channel_id.clone()) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                entry.insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
-            }
+        let buf = if let Some(buf) = self.inner.get_mut(channel_id) {
+            buf
+        } else {
+            self.inner
+                .entry(channel_id.clone())
+                .or_insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
         };
 
         // Make sure record id is within the accepted range and reject the request if it is not
@@ -94,7 +94,7 @@ impl SendBuffer {
 
         if !(start..end).contains(&msg.record_id) {
             return Err(PushError::OutOfRange {
-                channel_id,
+                channel_id: channel_id.clone(),
                 record_id: msg.record_id,
                 accepted_range: (start..end),
             });
@@ -109,7 +109,7 @@ impl SendBuffer {
         if let Some(v) = buf.insert(index as usize, payload) {
             return Err(PushError::Duplicate {
                 record_id: msg.record_id,
-                channel_id,
+                channel_id: channel_id.clone(),
                 previous_value: Box::new(v),
             });
         }
@@ -183,7 +183,7 @@ mod tests {
         let msg = empty_msg(record_id);
 
         assert!(matches!(
-            buf.push(ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
+            buf.push(&ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
             Err(PushError::OutOfRange { .. }),
         ));
     }
@@ -199,7 +199,7 @@ mod tests {
                     record_id: RecordId::from(u32::from(i)),
                     payload: i.to_le_bytes().to_vec().into_boxed_slice(),
                 };
-                buf.push(c1.clone(), msg).ok().flatten()
+                buf.push(&c1, msg).ok().flatten()
             })
             .unwrap();
 
@@ -223,11 +223,11 @@ mod tests {
         let m1 = empty_msg(0);
         let m2 = empty_msg(1);
 
-        buf.push(c1.clone(), m1).unwrap();
-        buf.push(c1, m2.clone()).unwrap();
+        buf.push(&c1, m1).unwrap();
+        buf.push(&c1, m2.clone()).unwrap();
 
         assert!(matches!(
-            buf.push(c2, m2),
+            buf.push(&c2, m2),
             Err(PushError::OutOfRange { .. }),
         ));
     }
@@ -240,9 +240,9 @@ mod tests {
         let m1 = empty_msg(record_id);
         let m2 = empty_msg(record_id);
 
-        assert!(matches!(buf.push(channel.clone(), m1), Ok(None)));
+        assert!(matches!(buf.push(&channel, m1), Ok(None)));
         assert!(matches!(
-            buf.push(channel, m2),
+            buf.push(&channel, m2),
             Err(PushError::Duplicate { .. })
         ));
     }
@@ -253,7 +253,7 @@ mod tests {
         let msg = empty_msg(5);
 
         assert!(matches!(
-            buf.push(ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
+            buf.push(&ChannelId::new(Identity::H1, UniqueStepId::default()), msg),
             Ok(None)
         ));
     }
@@ -266,9 +266,9 @@ mod tests {
         let this_msg = empty_msg(0);
 
         // this_msg belongs to current range, should be accepted
-        assert!(matches!(buf.push(channel.clone(), this_msg), Ok(Some(_))));
+        assert!(matches!(buf.push(&channel, this_msg), Ok(Some(_))));
         // this_msg belongs to next valid range that must be set as current by now
-        assert!(matches!(buf.push(channel, next_msg), Ok(Some(_))));
+        assert!(matches!(buf.push(&channel, next_msg), Ok(Some(_))));
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
         for record in record_ids {
             let msg = empty_msg(record);
 
-            if let Some(batch) = buf.push(channel.clone(), msg).ok().flatten() {
+            if let Some(batch) = buf.push(&channel, msg).ok().flatten() {
                 // todo: use https://doc.rust-lang.org/std/vec/struct.Vec.html#method.is_sorted_by
                 // or https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.is_sorted when stable
                 let is_sorted = batch
