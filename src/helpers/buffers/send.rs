@@ -85,7 +85,7 @@ impl SendBuffer {
         } else {
             self.inner
                 .entry(channel_id.clone())
-                .or_insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
+                .or_insert_with(|| FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
         };
 
         // Make sure record id is within the accepted range and reject the request if it is not
