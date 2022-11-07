@@ -2,7 +2,6 @@ use crate::helpers::buffers::fsv::FixedSizeByteVec;
 use crate::helpers::fabric::{ChannelId, MessageEnvelope};
 use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
 use crate::protocol::RecordId;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -79,11 +78,12 @@ impl SendBuffer {
             "Message payload exceeds the maximum allowed size"
         );
 
-        let buf = match self.inner.entry(channel_id.clone()) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                entry.insert(FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
-            }
+        let buf = if let Some(buf) = self.inner.get_mut(channel_id) {
+            buf
+        } else {
+            self.inner
+                .entry(channel_id.clone())
+                .or_insert_with(|| FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
         };
 
         // Make sure record id is within the accepted range and reject the request if it is not
@@ -112,7 +112,7 @@ impl SendBuffer {
             });
         }
 
-        Ok(if buf.ready() { Some(buf.drain()) } else { None })
+        Ok(buf.take())
     }
 }
 

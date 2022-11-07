@@ -75,7 +75,6 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// back via the error response
     /// ## Panics
     /// Panics if the mutex is found to be poisoned
-    #[allow(clippy::similar_names)]
     pub async fn execute(
         self,
         a: MaliciousReplicated<F>,

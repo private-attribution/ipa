@@ -27,9 +27,9 @@ use std::ops::Range;
 #[derive(Debug)]
 pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
-    region_size: usize,
     added: BitVec,
     elements_drained: usize,
+    region_size: usize,
 }
 
 impl<const N: usize> FixedSizeByteVec<N> {
@@ -67,29 +67,26 @@ impl<const N: usize> FixedSizeByteVec<N> {
         }
     }
 
-    /// Checks whether the first region of elements is ready to be drained.
-    pub fn ready(&self) -> bool {
-        self.added[..self.region_size].all()
-    }
-
     /// Drains the elements from the beginning of the vector. If all of the first `self.region_size`
     /// elements have been inserted, returns them in order. `self.ready()` should indicate that.
     ///
     /// ## Panic
     /// Panics if `ready()` is false before calling `drain()`.
-    pub fn drain(&mut self) -> Vec<u8> {
-        let all_ones = self.added.drain(..self.region_size).all(|bit| bit);
-        assert!(all_ones, "drain() called when ready() was false");
+    pub fn take(&mut self) -> Option<Vec<u8>> {
+        if self.added[..self.region_size].all() {
+            self.added.drain(..self.region_size).for_each(drop);
+            let r = self.data.drain(..self.region_size * N).collect();
+            self.elements_drained += self.region_size;
 
-        let r = self.data.drain(..self.region_size * N).collect();
-        self.elements_drained += self.region_size;
+            // clear out last `region_size` elements in the buffer
+            self.data.resize(self.data.len() + self.region_size * N, 0);
+            self.added
+                .resize(self.added.len() + self.region_size, false);
 
-        // clear out last `region_size` elements in the buffer
-        self.data.resize(self.data.len() + self.region_size * N, 0);
-        self.added
-            .resize(self.added.len() + self.region_size, false);
-
-        r
+            Some(r)
+        } else {
+            None
+        }
     }
 
     /// Returns total number of elements evicted from this buffer since the creation.
@@ -140,14 +137,12 @@ mod tests {
         v.insert_test_data(0);
         v.insert_test_data(1);
 
-        assert!(v.ready());
-        assert_eq!(v.drain(), test_data_at(0).to_vec());
+        assert_eq!(v.take(), Some(test_data_at(0).to_vec()));
 
         // element already present should be returned
         assert_eq!(v.insert(0, [10; ELEMENT_SIZE]), Some(test_data_at(1)));
 
-        assert!(v.ready());
-        assert_eq!(v.drain(), vec![10; ELEMENT_SIZE]);
+        assert_eq!(v.take(), Some(vec![10; ELEMENT_SIZE]));
     }
 
     #[test]
@@ -156,11 +151,10 @@ mod tests {
         v.insert_test_data(0);
 
         // drain the first region
-        assert!(v.ready());
-        assert_eq!(v.drain(), test_data_at(0).to_vec());
+        assert_eq!(v.take(), Some(test_data_at(0).to_vec()));
 
         // second region became first because of shift but it is not ready to drain
-        assert!(!v.ready());
+        assert_eq!(v.take(), None);
 
         // However there should be no elements in the second region because of the shift
         assert_eq!(v.insert_test_data(1), None);
@@ -175,40 +169,42 @@ mod tests {
         v.insert_test_data(2);
         v.insert_test_data(3);
 
-        assert!(!v.ready());
+        assert_eq!(v.take(), None);
 
         v.insert_test_data(1);
 
         // still not ready (element at 0 is missing)
-        assert!(!v.ready());
+        assert_eq!(v.take(), None);
 
         v.insert_test_data(0);
 
         // now it is ready
-        assert!(v.ready());
         assert_eq!(
-            v.drain(),
-            vec![test_data_at(0), test_data_at(1)]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
+            v.take(),
+            Some(
+                vec![test_data_at(0), test_data_at(1)]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+            )
         );
 
         // next region should be ready too as it was at capacity even earlier
-        assert!(v.ready());
         assert_eq!(
-            v.drain(),
-            vec![test_data_at(2), test_data_at(3)]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
+            v.take(),
+            Some(
+                vec![test_data_at(2), test_data_at(3)]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+            )
         );
 
         // in total, 4 elements left the buffer
         assert_eq!(4, v.elements_drained());
 
         // buffer should be empty by now
-        assert!(!v.ready());
+        assert_eq!(v.take(), None);
     }
 
     #[test]

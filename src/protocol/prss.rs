@@ -107,7 +107,6 @@ impl IndexedSharedRandomness {
 /// An implementation of `RngCore` that uses the same underlying `Generator`.
 /// For use in place of `PrssSpace` where indexing cannot be used, such as
 /// in APIs that expect `Rng`.
-#[allow(clippy::module_name_repetitions)]
 pub struct SequentialSharedRandomness {
     generator: Generator,
     counter: u128,
