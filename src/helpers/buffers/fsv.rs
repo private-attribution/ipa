@@ -27,9 +27,9 @@ use std::ops::Range;
 #[derive(Debug)]
 pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
-    region_size: usize,
     added: BitVec,
     elements_drained: usize,
+    region_size: usize,
 }
 
 impl<const N: usize> FixedSizeByteVec<N> {
