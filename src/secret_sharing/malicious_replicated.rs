@@ -114,7 +114,7 @@ mod tests {
     use proptest::prelude::Rng;
 
     #[test]
-    #[allow(clippy::similar_names, clippy::many_single_char_names)]
+    #[allow(clippy::many_single_char_names)]
     fn test_local_operations() {
         let mut rng = rand::thread_rng();
 

@@ -10,7 +10,6 @@ use std::{fmt::Debug, sync::Arc};
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
 pub struct TestWorld {
     pub query_id: QueryId,
     pub gateways: [Gateway; 3],

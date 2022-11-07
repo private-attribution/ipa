@@ -39,7 +39,6 @@ pub enum Error {
 
 impl Error {
     #[must_use]
-    #[allow(clippy::module_name_repetitions)] // follows convention of `Error::ParseError`
     pub fn path_parse_error(source: &str) -> Error {
         Error::ParseError(format!("unexpected value \"{source}\" in path").into())
     }
@@ -51,7 +50,6 @@ impl From<std::num::ParseIntError> for Error {
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub type Res<T> = Result<T, Error>;

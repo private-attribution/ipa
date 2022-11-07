@@ -8,7 +8,6 @@ mod shuffle;
 
 use super::Step;
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
     BitPermutations,
