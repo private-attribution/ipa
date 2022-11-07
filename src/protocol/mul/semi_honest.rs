@@ -79,35 +79,15 @@ pub mod tests {
     async fn basic() -> Result<(), BoxError> {
         let world: TestWorld = make_world(QueryId);
         let mut rand = StepRng::new(1, 1);
+        let contexts = make_contexts::<Fp31>(&world);
 
-        assert_eq!(
-            30,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 6, 5, &mut rand).await?
-        );
-        assert_eq!(
-            25,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 5, 5, &mut rand).await?
-        );
-        assert_eq!(
-            7,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 7, 1, &mut rand).await?
-        );
-        assert_eq!(
-            0,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 0, 14, &mut rand).await?
-        );
-        assert_eq!(
-            8,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 7, 10, &mut rand).await?
-        );
-        assert_eq!(
-            4,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 5, 7, &mut rand).await?
-        );
-        assert_eq!(
-            1,
-            multiply_sync::<_, Fp31>(make_contexts(&world), 16, 2, &mut rand).await?
-        );
+        assert_eq!(30, multiply_sync(contexts.clone(), 6, 5, &mut rand).await?);
+        assert_eq!(25, multiply_sync(contexts.clone(), 5, 5, &mut rand).await?);
+        assert_eq!(7, multiply_sync(contexts.clone(), 7, 1, &mut rand).await?);
+        assert_eq!(0, multiply_sync(contexts.clone(), 0, 14, &mut rand).await?);
+        assert_eq!(8, multiply_sync(contexts.clone(), 7, 10, &mut rand).await?);
+        assert_eq!(4, multiply_sync(contexts.clone(), 5, 7, &mut rand).await?);
+        assert_eq!(1, multiply_sync(contexts.clone(), 16, 2, &mut rand).await?);
 
         Ok(())
     }
