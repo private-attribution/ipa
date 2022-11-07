@@ -114,16 +114,13 @@ impl SendBuffer {
             });
         }
 
-        Ok(if buf.ready() {
+        Ok(if let Some(data) = buf.take() {
             // The next chunk is ready to be drained as byte vec has accumulated enough elements
             // in its first region. Drain it and move the elements to the caller.
             // TODO: get rid of `Vec<MessageEnvelope>` and move `Vec<u8>` instead.
-            let start_record_id = buf.elements_drained();
+            let start_record_id = buf.elements_drained() - data.len() / ByteBuf::ELEMENT_SIZE_BYTES;
 
-            // Safety: drain shouldn't panic because it is called after `ready()` check.
-            let buf = buf.drain();
-
-            let envs = buf
+            let envs = data
                 .chunks(ByteBuf::ELEMENT_SIZE_BYTES)
                 .enumerate()
                 .map(|(i, chunk)| {
