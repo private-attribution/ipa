@@ -334,7 +334,6 @@ pub mod tests {
                 ),
             )?;
 
-            println!("A: {:#?}, B: {:#?}, A*B: {:#?}", a_shares, b, result_shares);
             let result = validate_and_reconstruct(result_shares);
 
             assert_eq!(result, a * b);
