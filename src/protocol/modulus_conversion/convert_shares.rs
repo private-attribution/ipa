@@ -94,7 +94,7 @@ impl ConvertShares {
 /// For a given vector of input shares, this returns a vector of modulus converted replicated shares of
 /// `bit_index` of each input.
 pub async fn convert_shares_for_a_bit<F: Field>(
-    ctx: &ProtocolContext<'_, Replicated<F>, F>,
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
     input: &[(u64, u64)],
     num_bits: u8,
     bit_index: u8,

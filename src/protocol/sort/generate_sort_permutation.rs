@@ -35,56 +35,61 @@ impl<'a> GenerateSortPermutation<'a> {
     /// This protocol generates permutation of a stable sort for the given shares of inputs.
     /// ![Generate sort permutation steps][semi_honest_sort]
     /// Steps
-    /// For each bit of input share, following steps are executed
     /// For the 0th bit
-    /// 1. For the current bit, get replicated shares in Field using modulus conversion
-    /// 2. 1st bit onwards, sort ith bit based on i-1th bits by applying i-1th composition on ith bit
-    /// 3  Sort ith bit by computing bit permutation
-    /// 4. 1st bit onwards, compute ith composition by composing i-1th composition on ith permutation
+    /// 1. Get replicated shares in Field using modulus conversion
+    /// 2. Compute bit permutation that sorts 0th bit
+    /// For 1st to N-1th bit of input share
+    /// 1. Get replicated shares in Field using modulus conversion
+    /// 2. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
+    /// 3  Compute bit permutation that sorts ith bit
+    /// 4. Compute ith composition by composing i-1th composition on ith permutation
     /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
     pub async fn execute<F: Field>(
         &self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let ctx_0 = ctx.narrow(&Sort(0));
-        let mut bit = convert_shares_for_a_bit(
-            &ctx_0.narrow(&ModulusConversion),
+        let bit_0 = convert_shares_for_a_bit(
+            ctx_0.narrow(&ModulusConversion),
             self.input,
             self.num_bits,
             0,
         )
         .await?;
-        let mut composed_permutation = BitPermutation::new(&bit)
+        let bit_0_permutation = BitPermutation::new(&bit_0)
             .execute(ctx_0.narrow(&BitPermutationStep))
             .await?;
 
+        let mut composed_less_significant_bits_permutation = bit_0_permutation;
         for bit_num in 1..self.num_bits {
             let ctx_bit = ctx.narrow(&Sort(bit_num));
-            bit = convert_shares_for_a_bit(
-                &ctx_bit.narrow(&ModulusConversion),
+            let bit_i = convert_shares_for_a_bit(
+                ctx_bit.narrow(&ModulusConversion),
                 self.input,
                 self.num_bits,
                 bit_num,
             )
             .await?;
-            bit = SecureApplyInv::execute(
+            let bit_i_sorted_by_less_significant_bits = SecureApplyInv::execute(
                 ctx_bit.narrow(&ApplyInv),
-                &mut bit,
-                &mut composed_permutation.clone(),
+                bit_i,
+                composed_less_significant_bits_permutation.clone(),
             )
-            .await?
-            .to_vec();
+            .await?;
 
-            let mut bit_permutation = BitPermutation::new(&bit)
+            let bit_i_permutation = BitPermutation::new(&bit_i_sorted_by_less_significant_bits)
                 .execute(ctx_bit.narrow(&BitPermutationStep))
                 .await?;
 
-            Compose::new(&mut composed_permutation, &mut bit_permutation)
-                .execute(ctx_bit.narrow(&ComposeStep))
-                .await?;
-            composed_permutation = bit_permutation;
+            let composed_i_permutation = Compose::execute(
+                ctx_bit.narrow(&ComposeStep),
+                composed_less_significant_bits_permutation,
+                bit_i_permutation,
+            )
+            .await?;
+            composed_less_significant_bits_permutation = composed_i_permutation;
         }
-        Ok(composed_permutation)
+        Ok(composed_less_significant_bits_permutation)
     }
 }
 
