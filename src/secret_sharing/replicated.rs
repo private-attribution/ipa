@@ -1,5 +1,5 @@
 use crate::ff::Field;
-use crate::helpers::Identity;
+use crate::helpers::Role;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
@@ -38,11 +38,11 @@ impl<F: Field> Replicated<F> {
 
     /// Returns share of value one.
     #[must_use]
-    pub fn one(helper_identity: Identity) -> Self {
-        match helper_identity {
-            Identity::H1 => Self::new(F::ONE, F::ZERO),
-            Identity::H2 => Self::new(F::ZERO, F::ZERO),
-            Identity::H3 => Self::new(F::ZERO, F::ONE),
+    pub fn one(helper_role: Role) -> Self {
+        match helper_role {
+            Role::H1 => Self::new(F::ONE, F::ZERO),
+            Role::H2 => Self::new(F::ZERO, F::ZERO),
+            Role::H3 => Self::new(F::ZERO, F::ONE),
         }
     }
 }
