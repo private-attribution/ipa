@@ -9,7 +9,7 @@ use crate::{
     ff::Field,
     helpers::{
         messaging::{Gateway, Mesh},
-        Identity,
+        Role,
     },
     protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
 };
@@ -20,7 +20,7 @@ use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[derive(Clone, Debug)]
 pub struct ProtocolContext<'a, S: SecretSharing<F>, F> {
-    role: Identity,
+    role: Role,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
@@ -29,7 +29,7 @@ pub struct ProtocolContext<'a, S: SecretSharing<F>, F> {
 }
 
 impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
-    pub fn new(role: Identity, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+    pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
             step: UniqueStepId::default(),
@@ -42,7 +42,7 @@ impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
 
     /// The role of this context.
     #[must_use]
-    pub fn role(&self) -> Identity {
+    pub fn role(&self) -> Role {
         self.role
     }
 

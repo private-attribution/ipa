@@ -8,7 +8,7 @@ use rand_chacha::ChaCha8Rng;
 use crate::{
     error::BoxError,
     ff::Field,
-    helpers::{Direction, Identity},
+    helpers::{Direction, Role},
     protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Step},
     secret_sharing::Replicated,
 };
@@ -87,11 +87,11 @@ impl<'a, F: Field> Shuffle<'a, F> {
 
     // We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
     // H1, H2 and H3 respectively (since they do not participate in the step) and hence are the recipients of the shuffle.
-    fn shuffle_for_helper(which_step: ShuffleStep) -> Identity {
+    fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
         match which_step {
-            Step1 => Identity::H1,
-            Step2 => Identity::H2,
-            Step3 => Identity::H3,
+            Step1 => Role::H1,
+            Step2 => Role::H2,
+            Step3 => Role::H3,
         }
     }
 
@@ -99,7 +99,7 @@ impl<'a, F: Field> Shuffle<'a, F> {
     async fn reshare_all_shares(
         &self,
         ctx: &ProtocolContext<'_, Replicated<F>, F>,
-        to_helper: Identity,
+        to_helper: Role,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let reshares = self
             .input

@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::{BinaryField, Field},
-    helpers::Identity,
+    helpers::Role,
     protocol::{
         context::ProtocolContext,
         modulus_conversion::specialized_mul::{
@@ -64,21 +64,21 @@ impl DoubleRandom {
     ///
     fn local_secret_share<B: BinaryField, F: Field>(
         input: Replicated<B>,
-        channel_identity: Identity,
+        helper_role: Role,
     ) -> (Replicated<F>, Replicated<F>, Replicated<F>) {
         let (left, right) = input.as_tuple();
-        match channel_identity {
-            Identity::H1 => (
+        match helper_role {
+            Role::H1 => (
                 Replicated::new(F::from(left.as_u128()), F::ZERO),
                 Replicated::new(F::ZERO, F::from(right.as_u128())),
                 Replicated::new(F::ZERO, F::ZERO),
             ),
-            Identity::H2 => (
+            Role::H2 => (
                 Replicated::new(F::ZERO, F::ZERO),
                 Replicated::new(F::from(left.as_u128()), F::ZERO),
                 Replicated::new(F::ZERO, F::from(right.as_u128())),
             ),
-            Identity::H3 => (
+            Role::H3 => (
                 Replicated::new(F::ZERO, F::from(right.as_u128())),
                 Replicated::new(F::ZERO, F::ZERO),
                 Replicated::new(F::from(left.as_u128()), F::ZERO),

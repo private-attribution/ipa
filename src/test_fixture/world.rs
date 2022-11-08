@@ -47,7 +47,7 @@ pub fn make(query_id: QueryId) -> TestWorld {
     let gateways = network
         .endpoints
         .iter()
-        .map(|endpoint| Gateway::new(endpoint.identity, endpoint, config.gateway_config))
+        .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

@@ -1,5 +1,5 @@
 use crate::error::BoxError;
-use crate::helpers::Identity;
+use crate::helpers::Role;
 use crate::protocol::{RecordId, UniqueStepId};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -11,14 +11,14 @@ use crate::helpers::messaging::ReceiveRequest;
 pub enum Error {
     #[error("An error occurred while sending data to {dest:?}")]
     SendError {
-        dest: Identity,
+        dest: Role,
 
         #[source]
         inner: BoxError,
     },
     #[error("An error occurred while receiving data from {source:?}")]
     ReceiveError {
-        source: Identity,
+        source: Role,
         #[source]
         inner: BoxError,
     },
@@ -38,7 +38,7 @@ pub enum Error {
 
 impl Error {
     pub fn send_error<E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>>(
-        dest: Identity,
+        dest: Role,
         inner: E,
     ) -> Error {
         Self::SendError {
@@ -48,7 +48,7 @@ impl Error {
     }
 
     pub fn receive_error<E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>>(
-        source: Identity,
+        source: Role,
         inner: E,
     ) -> Error {
         Self::ReceiveError {
@@ -74,7 +74,7 @@ impl Error {
 impl From<SendError<ReceiveRequest>> for Error {
     fn from(source: SendError<ReceiveRequest>) -> Self {
         Self::SendError {
-            dest: source.0.channel_id.identity,
+            dest: source.0.channel_id.role,
             inner: source.to_string().into(),
         }
     }
@@ -83,7 +83,7 @@ impl From<SendError<ReceiveRequest>> for Error {
 impl From<SendError<(ChannelId, MessageEnvelope)>> for Error {
     fn from(source: SendError<(ChannelId, MessageEnvelope)>) -> Self {
         Self::SendError {
-            dest: source.0 .0.identity,
+            dest: source.0 .0.role,
             inner: source.to_string().into(),
         }
     }
