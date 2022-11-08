@@ -1,9 +1,9 @@
-pub mod config;
+pub mod conf;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    ParseError(#[from] serde_json::Error),
+    ParseError(#[from] config::ConfigError),
     #[error(transparent)]
     IOError(#[from] std::io::Error),
 }

@@ -21,6 +21,7 @@ axum-server = { version = "0.4.2", optional = true, features = ["rustls", "rustl
 byteorder = "1.4.3"
 clap = { version = "4.0.10", optional = true, features = ["derive"] }
 comfy-table = { version = "6.0.0", optional = true }
+config = "0.13.2"
 embed-doc-image = "0.1.4"
 futures = "0.3.24"
 futures-util = "0.3.24"
