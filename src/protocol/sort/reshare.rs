@@ -1,7 +1,7 @@
 use crate::ff::Field;
 use crate::{
     error::BoxError,
-    helpers::{Direction, Identity},
+    helpers::{Direction, Role},
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
@@ -38,7 +38,7 @@ impl<F: Field> Reshare<F> {
         self,
         ctx: &ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-        to_helper: Identity,
+        to_helper: Role,
     ) -> Result<Replicated<F>, BoxError> {
         let channel = ctx.mesh();
         let prss = ctx.prss();
@@ -86,7 +86,7 @@ mod tests {
 
     use crate::{
         ff::Fp31,
-        helpers::Identity,
+        helpers::Role,
         protocol::{sort::reshare::Reshare, QueryId, RecordId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
@@ -110,9 +110,9 @@ mod tests {
             let reshare1 = Reshare::new(share[1]);
             let reshare2 = Reshare::new(share[2]);
 
-            let h0_future = reshare0.execute(&context[0], record_id, Identity::H2);
-            let h1_future = reshare1.execute(&context[1], record_id, Identity::H2);
-            let h2_future = reshare2.execute(&context[2], record_id, Identity::H2);
+            let h0_future = reshare0.execute(&context[0], record_id, Role::H2);
+            let h1_future = reshare1.execute(&context[1], record_id, Role::H2);
+            let h2_future = reshare2.execute(&context[2], record_id, Role::H2);
 
             let f = try_join!(h0_future, h1_future, h2_future).unwrap();
             let output_share = validate_and_reconstruct(f);

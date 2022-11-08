@@ -7,7 +7,7 @@ use std::pin::Pin;
 
 use crate::helpers;
 use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
-use crate::helpers::{Error, Identity};
+use crate::helpers::{Error, Role};
 use crate::protocol::UniqueStepId;
 use async_trait::async_trait;
 use futures::Sink;
@@ -38,7 +38,7 @@ pub struct InMemoryNetwork {
 /// messages it receives from them until someone requests them.
 #[derive(Debug)]
 pub struct InMemoryEndpoint {
-    pub identity: Identity,
+    pub role: Role,
     /// Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
     /// For each peer there are multiple channels open, one per query + step.
     channels: Arc<Mutex<Vec<HashMap<UniqueStepId, InMemoryChannel>>>>,
@@ -51,7 +51,7 @@ pub struct InMemoryEndpoint {
 /// In memory channel is just a standard mpsc channel.
 #[derive(Debug, Clone)]
 pub struct InMemoryChannel {
-    dest: Identity,
+    dest: Role,
     tx: Sender<Vec<MessageEnvelope>>,
 }
 
@@ -65,8 +65,7 @@ impl InMemoryNetwork {
     #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new_cyclic(|weak_ptr| {
-            let endpoints =
-                Identity::all_variants().map(|i| InMemoryEndpoint::new(i, Weak::clone(weak_ptr)));
+            let endpoints = Role::all().map(|i| InMemoryEndpoint::new(i, Weak::clone(weak_ptr)));
 
             Self { endpoints }
         })
@@ -74,16 +73,16 @@ impl InMemoryNetwork {
 }
 
 impl InMemoryEndpoint {
-    /// Creates new instance for a given helper identity.
+    /// Creates new instance for a given helper role.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn new(id: Identity, world: Weak<InMemoryNetwork>) -> Arc<Self> {
+    pub fn new(id: Role, world: Weak<InMemoryNetwork>) -> Arc<Self> {
         let (tx, mut open_channel_rx) = mpsc::channel(1);
         let (message_stream_tx, message_stream_rx) = mpsc::channel(1);
         let (chunks_sender, mut chunks_receiver) = mpsc::channel(1);
 
         let this = Arc::new(Self {
-            identity: id,
+            role: id,
             channels: Arc::new(Mutex::new(vec![
                 HashMap::default(),
                 HashMap::default(),
@@ -137,7 +136,7 @@ impl InMemoryEndpoint {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("in_memory_helper_event_loop", identity=?id)));
+        }.instrument(tracing::info_span!("in_memory_helper_event_loop", role=?id)));
 
         this
     }
@@ -154,14 +153,14 @@ impl InMemoryEndpoint {
 
         let channel = {
             let mut channels = self.channels.lock().unwrap();
-            let peer_channel = &mut channels[addr.identity];
+            let peer_channel = &mut channels[addr.role];
 
             match peer_channel.entry(addr.step.clone()) {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
                     let (tx, rx) = mpsc::channel(1);
                     let tx = InMemoryChannel {
-                        dest: addr.identity,
+                        dest: addr.role,
                         tx,
                     };
                     entry.insert(tx.clone());
@@ -173,10 +172,10 @@ impl InMemoryEndpoint {
         };
 
         if let Some(rx) = new_rx {
-            self.network.upgrade().unwrap().endpoints[addr.identity]
+            self.network.upgrade().unwrap().endpoints[addr.role]
                 .tx
                 .send(ControlMessage::ConnectionRequest(
-                    ChannelId::new(self.identity, addr.step),
+                    ChannelId::new(self.role, addr.step),
                     rx,
                 ))
                 .await

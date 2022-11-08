@@ -5,7 +5,7 @@ mod sharing;
 mod world;
 
 use crate::ff::{Field, Fp31};
-use crate::helpers::Identity;
+use crate::helpers::Role;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
@@ -30,7 +30,7 @@ pub fn make_contexts<F: Field>(
         .gateways
         .iter()
         .zip(&test_world.participants)
-        .zip(Identity::all_variants())
+        .zip(Role::all())
         .map(|((gateway, participant), role)| ProtocolContext::new(*role, participant, gateway))
         .collect::<Vec<_>>()
         .try_into()
