@@ -85,7 +85,7 @@ mod tests {
 
     use crate::{
         error::BoxError,
-        ff::Fp31,
+        ff::Fp32BitPrime,
         protocol::{sort::generate_sort_permutation::GenerateSortPermutation, QueryId},
         test_fixture::{logging, make_contexts, make_world, validate_list_of_shares},
     };
@@ -94,11 +94,11 @@ mod tests {
     pub async fn generate_sort_permutation() -> Result<(), BoxError> {
         logging::setup();
         let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
+        let [ctx0, ctx1, ctx2] = make_contexts::<Fp32BitPrime>(&world);
         let num_bits = 64;
         let mut rng = rand::thread_rng();
 
-        let batchsize = 30;
+        let batchsize = 100;
 
         let mut match_keys: Vec<u64> = Vec::new();
         for _ in 0..batchsize {
