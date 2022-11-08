@@ -1,3 +1,5 @@
+use std::mem::take;
+
 use crate::{
     error::BoxError,
     ff::Field,
@@ -20,14 +22,14 @@ use super::{
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
 #[derive(Debug)]
-pub struct Compose<'a, F> {
-    sigma: &'a mut Vec<Replicated<F>>,
-    rho: &'a mut Vec<Replicated<F>>,
+pub struct Compose<F> {
+    sigma: Vec<Replicated<F>>,
+    rho: Vec<Replicated<F>>,
 }
 
-impl<'a, F: Field> Compose<'a, F> {
+impl<F: Field> Compose<F> {
     #[allow(dead_code)]
-    pub fn new(sigma: &'a mut Vec<Replicated<F>>, rho: &'a mut Vec<Replicated<F>>) -> Self {
+    pub fn new(sigma: Vec<Replicated<F>>, rho: Vec<Replicated<F>>) -> Self {
         Self { sigma, rho }
     }
     #[embed_doc_image("compose", "images/sort/compose.png")]
@@ -44,24 +46,24 @@ impl<'a, F: Field> Compose<'a, F> {
     pub async fn execute(
         &mut self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<(), BoxError> {
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mut random_permutations =
             get_two_of_three_random_permutations(self.rho.len(), &ctx.prss());
         let mut random_permutations_copy = random_permutations.clone();
 
-        Shuffle::new(self.sigma)
+        self.sigma = Shuffle::new(take(&mut self.sigma))
             .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
             .await?;
 
-        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), self.sigma).await?;
+        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), &self.sigma).await?;
 
         apply_inv(&mut perms, &mut self.rho);
 
-        Shuffle::new(self.rho)
+        self.rho = Shuffle::new(take(&mut self.rho))
             .execute_unshuffle(ctx.narrow(&UnshuffleRho), &mut random_permutations_copy)
             .await?;
 
-        Ok(())
+        Ok(take(&mut self.rho))
     }
 }
 
@@ -102,20 +104,20 @@ mod tests {
             let mut rho_composed = rho_u128.clone();
             apply_inv(&mut Permutation::oneline(sigma.clone()), &mut rho_composed);
 
-            let mut sigma_shares = generate_shares::<Fp31>(sigma_u128);
+            let sigma_shares = generate_shares::<Fp31>(sigma_u128);
             let mut rho_shares = generate_shares::<Fp31>(rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let mut compose0 = Compose::new(&mut sigma_shares.0, &mut rho_shares.0);
-            let mut compose1 = Compose::new(&mut sigma_shares.1, &mut rho_shares.1);
-            let mut compose2 = Compose::new(&mut sigma_shares.2, &mut rho_shares.2);
+            let mut compose0 = Compose::new(sigma_shares.0, rho_shares.0);
+            let mut compose1 = Compose::new(sigma_shares.1, rho_shares.1);
+            let mut compose2 = Compose::new(sigma_shares.2, rho_shares.2);
 
             let h0_future = compose0.execute(ctx0);
             let h1_future = compose1.execute(ctx1);
             let h2_future = compose2.execute(ctx2);
 
-            try_join!(h0_future, h1_future, h2_future)?;
+            rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 
             assert_eq!(rho_shares.0.len(), BATCHSIZE);
             assert_eq!(rho_shares.1.len(), BATCHSIZE);

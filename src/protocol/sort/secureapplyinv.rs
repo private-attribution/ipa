@@ -43,13 +43,13 @@ impl SecureApplyInv {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         ctx: &ProtocolContext<'_, Replicated<F>, F>,
-        input: &'_ mut Vec<Replicated<F>>,
-        sort_permutation: &'_ mut Vec<Replicated<F>>,
-    ) -> Result<(), BoxError> {
+        input: Vec<Replicated<F>>,
+        sort_permutation: Vec<Replicated<F>>,
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mut random_permutations =
             get_two_of_three_random_permutations(input.len(), &ctx.prss());
 
-        let (_, _) = try_join(
+        let (mut shuffled_input, sort_permutation) = try_join(
             Shuffle::new(input)
                 .execute(ctx.narrow(&ShuffleInputs), &mut random_permutations.clone()),
             Shuffle::new(sort_permutation)
@@ -57,11 +57,11 @@ impl SecureApplyInv {
         )
         .await?;
         let mut permutation =
-            reveal_permutation(ctx.narrow(&RevealPermutation), sort_permutation).await?;
+            reveal_permutation(ctx.narrow(&RevealPermutation), &sort_permutation).await?;
         // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
         // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
-        apply(&mut permutation, input);
-        Ok(())
+        apply(&mut permutation, &mut shuffled_input);
+        Ok(shuffled_input)
     }
 }
 
@@ -99,20 +99,17 @@ mod tests {
 
             let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
 
-            let mut perm_shares = generate_shares::<Fp31>(permutation);
+            let perm_shares = generate_shares::<Fp31>(permutation);
             let mut input_shares = generate_shares::<Fp31>(input);
 
             let world = make_world(QueryId);
             let context = make_contexts(&world);
 
-            let h0_future =
-                SecureApplyInv::execute(&context[0], &mut input_shares.0, &mut perm_shares.0);
-            let h1_future =
-                SecureApplyInv::execute(&context[1], &mut input_shares.1, &mut perm_shares.1);
-            let h2_future =
-                SecureApplyInv::execute(&context[2], &mut input_shares.2, &mut perm_shares.2);
+            let h0_future = SecureApplyInv::execute(&context[0], input_shares.0, perm_shares.0);
+            let h1_future = SecureApplyInv::execute(&context[1], input_shares.1, perm_shares.1);
+            let h2_future = SecureApplyInv::execute(&context[2], input_shares.2, perm_shares.2);
 
-            try_join!(h0_future, h1_future, h2_future).unwrap();
+            input_shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
             assert_eq!(input_shares.0.len(), BATCHSIZE);
             assert_eq!(input_shares.1.len(), BATCHSIZE);
