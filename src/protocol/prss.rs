@@ -9,10 +9,12 @@ use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Debug, Formatter},
+    collections::HashMap,
+    fmt::Debug,
     sync::{Arc, Mutex},
 };
+#[cfg(debug_assertions)]
+use std::{collections::HashSet, fmt::Formatter};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use super::UniqueStepId;
@@ -27,6 +29,7 @@ struct UsedSet {
     used: Arc<Mutex<HashSet<usize>>>,
 }
 
+#[cfg(debug_assertions)]
 impl UsedSet {
     fn new(key: String) -> Self {
         Self {
@@ -55,6 +58,7 @@ impl UsedSet {
     }
 }
 
+#[cfg(debug_assertions)]
 impl Debug for UsedSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "IndicesSet(key={})", self.key)
@@ -81,9 +85,11 @@ impl IndexedSharedRandomness {
     #[must_use]
     pub fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
         let index = index.into();
-        if cfg!(debug_assertions) {
+        #[cfg(debug_assertions)]
+        {
             self.used.insert(index);
         }
+
         (self.left.generate(index), self.right.generate(index))
     }
 
