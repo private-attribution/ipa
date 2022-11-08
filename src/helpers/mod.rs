@@ -45,7 +45,7 @@ impl Role {
         VARIANTS
     }
 
-    /// Returns the identity of a peer that is located at the specified direction
+    /// Returns the role of a peer that is located at the specified direction
     #[must_use]
     pub fn peer(&self, direction: Direction) -> Role {
         match (self, direction) {
