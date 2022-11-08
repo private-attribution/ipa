@@ -27,7 +27,7 @@ impl<B: Send> FromRequest<B> for Path {
 
 /// Used in the axum handler to extract the peer role from the query params of the request
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-pub struct RoleQuery {
+pub struct RoleQueryParam {
     role: Role,
 }
 
@@ -81,7 +81,7 @@ pub async fn handler(
     path: Path,
     // TODO: we shouldn't trust the client to tell us their role.
     //       revisit when we have figured out discovery/handshake
-    query: Query<RoleQuery>,
+    query: Query<RoleQueryParam>,
     headers: RecordHeaders,
     mut req: Request<Body>,
 ) -> Result<(), MpcHelperServerError> {
@@ -161,7 +161,7 @@ mod tests {
             "body len must align with data_size"
         );
         let uri = format!(
-            "http://127.0.0.1:{}/messages/query-id/{}/step/{}?role={}",
+            "http://127.0.0.1:{}/query/{}/step/{}?role={}",
             port,
             query_id.as_ref(),
             step.as_ref(),
@@ -248,7 +248,7 @@ mod tests {
     impl OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
-                "http://127.0.0.1:{}/messages/query-id/{}/step/{}?role={}",
+                "http://127.0.0.1:{}/query/{}/step/{}?role={}",
                 port, self.query_id, self.step, self.role
             );
             let mut req = Request::post(uri);

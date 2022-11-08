@@ -111,10 +111,7 @@ impl MpcHelperServer {
     #[must_use]
     pub(crate) fn router(&self) -> Router {
         Router::new()
-            .route(
-                "/messages/query-id/:query_id/step/*step",
-                post(handlers::recv_handler),
-            )
+            .route("/query/:query_id/step/*step", post(handlers::query_handler))
             .layer({
                 let tx = self.tx.clone();
                 middleware::from_fn(move |req, next| {

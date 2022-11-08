@@ -18,7 +18,7 @@ use hyper::{client::HttpConnector, Body, Client, Uri};
 use hyper_tls::HttpsConnector;
 
 pub struct HttpSendMessagesArgs<'a> {
-    pub query_id: &'a QueryId,
+    pub query_id: QueryId,
     pub step: &'a UniqueStepId,
     pub role: Role,
     pub offset: u32,
@@ -91,7 +91,7 @@ impl MpcHelperClient {
         args: HttpSendMessagesArgs<'_>,
     ) -> Result<(), MpcHelperClientError> {
         let uri = self.build_uri(format!(
-            "/messages/query-id/{}/step/{}?role={}",
+            "/query/{}/step/{}?role={}",
             args.query_id.as_ref(),
             args.step.as_ref(),
             args.role.as_ref(),
@@ -135,7 +135,7 @@ mod tests {
 
         client
             .send_messages(HttpSendMessagesArgs {
-                query_id: &query_id,
+                query_id,
                 step: &step,
                 role,
                 offset,

@@ -1,5 +1,5 @@
 mod echo;
-mod recv_messages;
+mod query;
 
 pub use echo::{handler as echo_handler, Payload as EchoData};
-pub use recv_messages::{handler as recv_handler, obtain_permit_mw};
+pub use query::{handler as query_handler, obtain_permit_mw};
