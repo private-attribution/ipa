@@ -1,4 +1,4 @@
-use crate::ff::Field;
+use crate::ff::{BinaryField, Field, Int};
 use crate::secret_sharing::Replicated;
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
@@ -8,6 +8,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
+use std::iter::zip;
 use std::{
     collections::HashMap,
     fmt::Debug,
@@ -101,6 +102,25 @@ impl IndexedSharedRandomness {
         (F::from(l), F::from(r))
     }
 
+    /// Generate two vectors of bits, `(a_0,...,a_l)` and `(b_0,...,b_l)`,
+    /// from two random field values `(a, b)` such that `a = Σ(2^i)(a_i)`
+    /// and `b = Σ(2^i)(b_i)`.
+    #[must_use]
+    pub fn generate_bitwise_fields<F: Field, B: BinaryField, I: Into<u128>>(
+        &self,
+        index: I,
+    ) -> (Vec<B>, Vec<B>) {
+        let r = self.generate_fields::<F, I>(index);
+        (0..F::Integer::BITS)
+            .map(|i| {
+                (
+                    B::from(r.0.as_u128() >> i & 1),
+                    B::from(r.1.as_u128() >> i & 1),
+                )
+            })
+            .unzip()
+    }
+
     ///
     /// Generate a replicated secret sharing of a random value, which none
     /// of the helpers knows. This is an implementation of the functionality 2.1 `F_rand`
@@ -113,6 +133,17 @@ impl IndexedSharedRandomness {
     pub fn generate_replicated<F: Field, I: Into<u128>>(&self, index: I) -> Replicated<F> {
         let (l, r) = self.generate_fields(index);
         Replicated::new(l, r)
+    }
+
+    #[must_use]
+    pub fn generate_replicated_bitwise_fields<F: Field, B: BinaryField, I: Into<u128>>(
+        &self,
+        index: I,
+    ) -> Vec<Replicated<B>> {
+        let (l_bits, r_bits) = self.generate_bitwise_fields::<F, B, I>(index);
+        zip(l_bits, r_bits)
+            .map(|(lb, rb)| Replicated::new(lb, rb))
+            .collect::<Vec<_>>()
     }
 
     /// Generate an additive share of zero.
@@ -396,7 +427,11 @@ impl Generator {
 #[cfg(test)]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
-    use crate::{ff::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
+    use crate::{
+        ff::{Field, Fp2, Fp31},
+        protocol::UniqueStepId,
+        test_fixture::make_participants,
+    };
     use rand::prelude::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::mem::drop;
@@ -528,6 +563,42 @@ pub mod test {
         let (r2_l, r2_r) = p2.indexed(&step).generate_fields(IDX);
         let (r3_l, r3_r) = p3.indexed(&step).generate_fields(IDX);
 
+        assert_eq!(r1_l, r3_r);
+        assert_eq!(r2_l, r1_r);
+        assert_eq!(r3_l, r2_r);
+    }
+
+    #[test]
+    fn three_party_bitwise_fields() {
+        fn b2_to_b10(a: &[Fp2]) -> u128 {
+            let mut v = 0;
+            #[allow(clippy::cast_possible_truncation)]
+            for (i, &b) in a.iter().enumerate() {
+                v += 2_u128.pow(i as u32) * b.as_u128();
+            }
+            v
+        }
+
+        const IDX: u128 = 7;
+        let (p1, p2, p3) = make_participants();
+        let step = UniqueStepId::default();
+
+        // These tests do not check that left != right because
+        // the field might not be large enough.
+        let (rb1_l, rb1_r) = p1
+            .indexed(&step)
+            .generate_bitwise_fields::<Fp31, Fp2, u128>(IDX);
+        let (r1_l, r1_r) = (b2_to_b10(&rb1_l), b2_to_b10(&rb1_r));
+        let (rb2_l, rb2_r) = p2
+            .indexed(&step)
+            .generate_bitwise_fields::<Fp31, Fp2, u128>(IDX);
+        let (r2_l, r2_r) = (b2_to_b10(&rb2_l), b2_to_b10(&rb2_r));
+        let (rb3_l, rb3_r) = p3
+            .indexed(&step)
+            .generate_bitwise_fields::<Fp31, Fp2, u128>(IDX);
+        let (r3_l, r3_r) = (b2_to_b10(&rb3_l), b2_to_b10(&rb3_r));
+
+        // Verify for each party i, l_i == r_(i-1)
         assert_eq!(r1_l, r3_r);
         assert_eq!(r2_l, r1_r);
         assert_eq!(r3_l, r2_r);
