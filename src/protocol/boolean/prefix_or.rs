@@ -50,8 +50,8 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
     ) -> Result<Replicated<B>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
         let mut step = IterStep::new("bit", k as u32);
-        let mut v = Replicated::new(B::ZERO, B::ZERO);
-        for &bit in a {
+        let mut v = a[0];
+        for &bit in a[1..].iter() {
             v = Self::bit_or(v, bit, ctx.narrow(step.next()), record_id).await?;
         }
         Ok(v)
