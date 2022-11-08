@@ -36,6 +36,7 @@ impl<'a> GenerateSortPermutation<'a> {
     /// ![Generate sort permutation steps][semi_honest_sort]
     /// Steps
     /// For each bit of input share, following steps are executed
+    /// For the 0th bit
     /// 1. For the current bit, get replicated shares in Field using modulus conversion
     /// 2. 1st bit onwards, sort ith bit based on i-1th bits by applying i-1th composition on ith bit
     /// 3  Sort ith bit by computing bit permutation
@@ -45,36 +46,45 @@ impl<'a> GenerateSortPermutation<'a> {
         &self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mut i_minus_1_compose = Vec::with_capacity(self.input.len());
-        for bit_num in 0..self.num_bits {
-            let ctx = ctx.narrow(&Sort(bit_num));
-            let mut bit_value_share = convert_shares_for_a_bit(
-                &ctx.narrow(&ModulusConversion),
+        let ctx_0 = ctx.narrow(&Sort(0));
+        let mut bit = convert_shares_for_a_bit(
+            &ctx_0.narrow(&ModulusConversion),
+            self.input,
+            self.num_bits,
+            0,
+        )
+        .await?;
+        let mut composed_permutation = BitPermutation::new(&bit)
+            .execute(ctx_0.narrow(&BitPermutationStep))
+            .await?;
+
+        for bit_num in 1..self.num_bits {
+            let ctx_bit = ctx.narrow(&Sort(bit_num));
+            bit = convert_shares_for_a_bit(
+                &ctx_bit.narrow(&ModulusConversion),
                 self.input,
                 self.num_bits,
                 bit_num,
             )
             .await?;
-            if bit_num != 0 {
-                SecureApplyInv::execute(
-                    ctx.narrow(&ApplyInv),
-                    &mut bit_value_share,
-                    &mut i_minus_1_compose.clone(),
-                )
-                .await?;
-            }
-            let mut bit_i_permutation = BitPermutation::new(&bit_value_share)
-                .execute(ctx.narrow(&BitPermutationStep))
+            bit = SecureApplyInv::execute(
+                ctx_bit.narrow(&ApplyInv),
+                &mut bit,
+                &mut composed_permutation.clone(),
+            )
+            .await?
+            .to_vec();
+
+            let mut bit_permutation = BitPermutation::new(&bit)
+                .execute(ctx_bit.narrow(&BitPermutationStep))
                 .await?;
 
-            if bit_num != 0 {
-                Compose::new(&mut i_minus_1_compose, &mut bit_i_permutation)
-                    .execute(ctx.narrow(&ComposeStep))
-                    .await?;
-            }
-            i_minus_1_compose = bit_i_permutation;
+            Compose::new(&mut composed_permutation, &mut bit_permutation)
+                .execute(ctx_bit.narrow(&ComposeStep))
+                .await?;
+            composed_permutation = bit_permutation;
         }
-        Ok(i_minus_1_compose)
+        Ok(composed_permutation)
     }
 }
 
