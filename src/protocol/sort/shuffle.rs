@@ -158,7 +158,6 @@ impl<F: Field> Shuffle<F> {
     /// For this, we have three shuffle steps one per `shuffle_or_unshuffle_once` i.e. Step1, Step2 and Step3.
     /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
     /// ![Shuffle steps][shuffle]
-    #[allow(dead_code)]
     pub async fn execute(
         &mut self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,

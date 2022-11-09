@@ -57,6 +57,7 @@ mod tests {
     pub fn composing() {
         let sigma = vec![4, 2, 0, 5, 1, 3];
         let mut rho = vec![3, 4, 0, 5, 1, 2];
+
         // Applying sigma on rho
         apply_inv(Permutation::oneline(sigma), &mut rho);
         assert_eq!(rho, vec![1, 0, 3, 2, 4, 5]);

@@ -6,4 +6,4 @@ mod field;
 mod prime_field;
 
 pub use field::{BinaryField, Field, Int};
-pub use prime_field::{Fp2, Fp31};
+pub use prime_field::{Fp2, Fp31, Fp32BitPrime};

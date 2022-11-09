@@ -7,7 +7,9 @@ use crate::{
     },
     secret_sharing::Replicated,
 };
-use futures::future::try_join;
+
+use futures::future::{try_join, try_join_all};
+use std::iter::{repeat, zip};
 
 pub struct XorShares {
     num_bits: u8,
@@ -50,12 +52,10 @@ impl AsRef<str> for Step {
 /// If the revealed result is a `1`, that indicates that `r` was different than
 /// the secret input, so a sharing of `1 - r` is returned.
 impl ConvertShares {
-    #[allow(dead_code)]
     pub fn new(input: XorShares) -> Self {
         Self { input }
     }
 
-    #[allow(dead_code)]
     pub async fn execute_one_bit<F: Field>(
         &self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -88,6 +88,31 @@ impl ConvertShares {
             Ok(r_big_field)
         }
     }
+}
+
+#[allow(clippy::module_name_repetitions)]
+/// For a given vector of input shares, this returns a vector of modulus converted replicated shares of
+/// `bit_index` of each input.
+pub async fn convert_shares_for_a_bit<F: Field>(
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    input: &[(u64, u64)],
+    num_bits: u8,
+    bit_index: u8,
+) -> Result<Vec<Replicated<F>>, BoxError> {
+    let converted_shares = try_join_all(zip(repeat(ctx), input).enumerate().map(
+        |(record_id, (ctx, row))| async move {
+            let record_id = RecordId::from(record_id);
+            ConvertShares::new(XorShares {
+                num_bits,
+                packed_bits_left: row.0,
+                packed_bits_right: row.1,
+            })
+            .execute_one_bit(ctx.bind(record_id), record_id, bit_index)
+            .await
+        },
+    ))
+    .await?;
+    Ok(converted_shares)
 }
 
 #[cfg(test)]
