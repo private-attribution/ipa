@@ -14,7 +14,9 @@ use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
 pub use sharing::{share, validate_and_reconstruct, validate_list_of_shares};
-pub use world::{make as make_world, TestWorld};
+pub use world::{
+    make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
+};
 
 /// Creates protocol contexts for 3 helpers
 ///

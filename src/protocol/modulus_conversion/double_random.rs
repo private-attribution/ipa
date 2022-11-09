@@ -172,7 +172,6 @@ mod tests {
     #[tokio::test]
     pub async fn gen_random() -> Result<(), BoxError> {
         let mut rng = rand::thread_rng();
-
         let world = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let ctx0 = &context[0];
@@ -190,7 +189,7 @@ mod tests {
 
             let bit_number = format!("bit{}", i);
 
-            let record_id = RecordId::from(i);
+            let record_id = RecordId::from(0_u32);
 
             futures.push(try_join_all(vec![
                 DoubleRandom::execute(

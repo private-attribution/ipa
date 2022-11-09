@@ -20,16 +20,9 @@ use super::{
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
 #[derive(Debug)]
-pub struct Compose<'a, F> {
-    sigma: &'a mut Vec<Replicated<F>>,
-    rho: &'a mut Vec<Replicated<F>>,
-}
+pub struct Compose {}
 
-impl<'a, F: Field> Compose<'a, F> {
-    #[allow(dead_code)]
-    pub fn new(sigma: &'a mut Vec<Replicated<F>>, rho: &'a mut Vec<Replicated<F>>) -> Self {
-        Self { sigma, rho }
-    }
+impl Compose {
     #[embed_doc_image("compose", "images/sort/compose.png")]
     /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
     /// and none of the helpers should learn it through this protocol.
@@ -41,27 +34,27 @@ impl<'a, F: Field> Compose<'a, F> {
     /// 4. Revealed permutation is applied locally on another permutation shares (rho)
     /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
     #[allow(dead_code)]
-    pub async fn execute(
-        &mut self,
+    pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<(), BoxError> {
-        let mut random_permutations =
-            get_two_of_three_random_permutations(self.rho.len(), &ctx.prss());
-        let mut random_permutations_copy = random_permutations.clone();
+        sigma: Vec<Replicated<F>>,
+        rho: Vec<Replicated<F>>,
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
+        let random_permutations = get_two_of_three_random_permutations(rho.len(), &ctx.prss());
 
-        Shuffle::new(self.sigma)
-            .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
+        let shuffled_sigma = Shuffle::new(sigma, random_permutations.clone())
+            .execute(ctx.narrow(&ShuffleSigma))
             .await?;
 
-        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), self.sigma).await?;
+        let revealed_permutation =
+            reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
+        let mut applied_rho = rho;
+        apply_inv(revealed_permutation, &mut applied_rho);
 
-        apply_inv(&mut perms, &mut self.rho);
-
-        Shuffle::new(self.rho)
-            .execute_unshuffle(ctx.narrow(&UnshuffleRho), &mut random_permutations_copy)
+        let unshuffled_rho = Shuffle::new(applied_rho, random_permutations)
+            .execute_unshuffle(ctx.narrow(&UnshuffleRho))
             .await?;
 
-        Ok(())
+        Ok(unshuffled_rho)
     }
 }
 
@@ -100,22 +93,18 @@ mod tests {
             let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
 
             let mut rho_composed = rho_u128.clone();
-            apply_inv(&mut Permutation::oneline(sigma.clone()), &mut rho_composed);
+            apply_inv(Permutation::oneline(sigma.clone()), &mut rho_composed);
 
-            let mut sigma_shares = generate_shares::<Fp31>(sigma_u128);
+            let sigma_shares = generate_shares::<Fp31>(sigma_u128);
             let mut rho_shares = generate_shares::<Fp31>(rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let mut compose0 = Compose::new(&mut sigma_shares.0, &mut rho_shares.0);
-            let mut compose1 = Compose::new(&mut sigma_shares.1, &mut rho_shares.1);
-            let mut compose2 = Compose::new(&mut sigma_shares.2, &mut rho_shares.2);
+            let h0_future = Compose::execute(ctx0, sigma_shares.0, rho_shares.0);
+            let h1_future = Compose::execute(ctx1, sigma_shares.1, rho_shares.1);
+            let h2_future = Compose::execute(ctx2, sigma_shares.2, rho_shares.2);
 
-            let h0_future = compose0.execute(ctx0);
-            let h1_future = compose1.execute(ctx1);
-            let h2_future = compose2.execute(ctx2);
-
-            try_join!(h0_future, h1_future, h2_future)?;
+            rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 
             assert_eq!(rho_shares.0.len(), BATCHSIZE);
             assert_eq!(rho_shares.1.len(), BATCHSIZE);
