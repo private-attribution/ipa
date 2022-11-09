@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 /// All config value necessary to discover other peer helpers of the MPC ring
 #[derive(Serialize, Deserialize)]
 struct Conf {
-    peers: [peer::Config; 3],
+    h1: peer::Config,
+    h2: peer::Config,
+    h3: peer::Config,
 }
 
 impl Conf {
@@ -27,7 +29,7 @@ impl Conf {
 
 impl PeerDiscovery for Conf {
     fn peers(&self) -> [peer::Config; 3] {
-        self.peers.clone()
+        [self.h1.clone(), self.h2.clone(), self.h3.clone()]
     }
 }
 
@@ -43,50 +45,84 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    const H1_PUBLIC_KEY: [u8; 32] = [
-        19, 204, 244, 38, 60, 236, 188, 48, 245, 14, 106, 139, 156, 135, 67, 148, 61, 221, 230, 32,
-        121, 88, 11, 192, 185, 1, 155, 5, 186, 143, 233, 36,
-    ];
-    const H2_PUBLIC_KEY: [u8; 32] = [
-        146, 91, 249, 130, 67, 207, 112, 183, 41, 222, 29, 117, 191, 79, 230, 190, 152, 169, 134,
-        96, 131, 49, 219, 99, 144, 43, 130, 161, 105, 29, 193, 59,
-    ];
-    const H3_PUBLIC_KEY: [u8; 32] = [
-        18, 192, 152, 129, 161, 199, 169, 45, 28, 112, 217, 234, 97, 157, 122, 224, 104, 75, 156,
-        180, 94, 204, 32, 123, 152, 239, 48, 236, 33, 96, 160, 116,
-    ];
+    const H1_PUBLIC_KEY: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
+    const H2_PUBLIC_KEY: &str = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b";
+    const H3_PUBLIC_KEY: &str = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074";
     const H1_URI: &str = "http://localhost:3000";
     const H2_URI: &str = "http://localhost:3001";
     const H3_URI: &str = "http://localhost:3002";
     const EXAMPLE_CONFIG: &str = r#"
-# H1
-[[peers]]
-    [peers.http]
+[h1]
+    [h1.http]
         origin = "http://localhost:3000"
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
-    [peers.prss]
+    [h1.prss]
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
 
-# H2
-[[peers]]   
-    [peers.http]
+[h2]
+    [h2.http]
         origin = "http://localhost:3001"
         public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
-    [peers.prss]
+    [h2.prss]
         public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
 
-# H3
-[[peers]]
-    [peers.http]
+[h3]
+    [h3.http]
         origin = "http://localhost:3002"
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
-    [peers.prss]
+    [h3.prss]
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
+
+    fn origin_from_uri_str(uri_str: &str) -> peer::Origin {
+        let parts = uri_str.parse::<Uri>().unwrap().into_parts();
+        peer::Origin::new(parts.scheme.unwrap(), parts.authority.unwrap())
+    }
 
     fn origin_to_string(origin: &peer::Origin) -> String {
         let uri = Uri::from(origin.clone());
         format!("{}://{}", uri.scheme().unwrap(), uri.authority().unwrap())
+    }
+
+    fn hex_str_to_public_key(hex_str: &str) -> PublicKey {
+        let pk_bytes: [u8; 32] = hex::decode(hex_str)
+            .expect("valid hex string")
+            .try_into()
+            .expect("hex should be exactly 32 bytes");
+        pk_bytes.into()
+    }
+
+    #[test]
+    fn parse_config() {
+        use config::{Config, File, FileFormat};
+
+        let conf: Conf = Config::builder()
+            .add_source(File::from_str(EXAMPLE_CONFIG, FileFormat::Toml))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .expect("config should be valid");
+
+        // H1
+        assert_eq!(conf.h1.http.origin, origin_from_uri_str(H1_URI));
+        assert_eq!(
+            conf.h1.http.public_key,
+            hex_str_to_public_key(H1_PUBLIC_KEY)
+        );
+
+        // H2
+        assert_eq!(conf.h2.http.origin, origin_from_uri_str(H2_URI));
+        assert_eq!(
+            conf.h2.http.public_key,
+            hex_str_to_public_key(H2_PUBLIC_KEY)
+        );
+
+        // H3
+        assert_eq!(conf.h3.http.origin, origin_from_uri_str(H3_URI));
+        assert_eq!(
+            conf.h3.http.public_key,
+            hex_str_to_public_key(H3_PUBLIC_KEY)
+        );
     }
 
     #[test]
@@ -107,12 +143,21 @@ mod tests {
         let peers = conf.peers();
         // H1
         assert_eq!(origin_to_string(&peers[0].http.origin), H1_URI);
-        assert_eq!(peers[0].http.public_key, PublicKey::from(H1_PUBLIC_KEY));
+        assert_eq!(
+            peers[0].http.public_key,
+            hex_str_to_public_key(H1_PUBLIC_KEY)
+        );
         // H2
         assert_eq!(origin_to_string(&peers[1].http.origin), H2_URI);
-        assert_eq!(peers[1].http.public_key, PublicKey::from(H2_PUBLIC_KEY));
+        assert_eq!(
+            peers[1].http.public_key,
+            hex_str_to_public_key(H2_PUBLIC_KEY)
+        );
         // H3
         assert_eq!(origin_to_string(&peers[2].http.origin), H3_URI);
-        assert_eq!(peers[2].http.public_key, PublicKey::from(H3_PUBLIC_KEY));
+        assert_eq!(
+            peers[2].http.public_key,
+            hex_str_to_public_key(H3_PUBLIC_KEY)
+        );
     }
 }
