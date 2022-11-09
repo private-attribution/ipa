@@ -655,6 +655,7 @@ pub mod test {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic]
     fn indexed_rejects_the_same_index() {
         let (p1, _p2, _p3) = make_participants();
