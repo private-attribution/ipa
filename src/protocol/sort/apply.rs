@@ -14,11 +14,10 @@ use permutation::Permutation;
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
 /// ![Apply steps][apply]
-pub fn apply<T: Copy + Default, S>(permutation: Permutation, values: &mut S)
+pub fn apply<T: Copy + Default, S>(mut permutation: Permutation, values: &mut S)
 where
     S: AsMut<[T]>,
 {
-    let mut permutation = permutation;
     permutation.apply_slice_in_place(values);
 }
 
@@ -26,11 +25,10 @@ where
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
 /// ![Apply inv steps][apply_inv]
-pub fn apply_inv<T: Copy + Default, S>(permutation: Permutation, values: &mut S)
+pub fn apply_inv<T: Copy + Default, S>(mut permutation: Permutation, values: &mut S)
 where
     S: AsMut<[T]>,
 {
-    let mut permutation = permutation;
     permutation.apply_inv_slice_in_place(values);
 }
 
