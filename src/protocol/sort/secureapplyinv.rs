@@ -49,18 +49,18 @@ impl SecureApplyInv {
         let mut random_permutations =
             get_two_of_three_random_permutations(input.len(), &ctx.prss());
 
-        let (mut shuffled_input, sort_permutation) = try_join(
+        let (mut shuffled_input, shuffled_sort_permutation) = try_join(
             Shuffle::new(input)
                 .execute(ctx.narrow(&ShuffleInputs), &mut random_permutations.clone()),
             Shuffle::new(sort_permutation)
                 .execute(ctx.narrow(&ShufflePermutation), &mut random_permutations),
         )
         .await?;
-        let mut permutation =
-            reveal_permutation(ctx.narrow(&RevealPermutation), &sort_permutation).await?;
+        let mut revealed_permutation =
+            reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sort_permutation).await?;
         // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
         // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
-        apply(&mut permutation, &mut shuffled_input);
+        apply(&mut revealed_permutation, &mut shuffled_input);
         Ok(shuffled_input)
     }
 }

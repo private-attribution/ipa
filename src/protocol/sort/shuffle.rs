@@ -1,5 +1,3 @@
-use std::mem::take;
-
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 use permutation::Permutation;
@@ -168,11 +166,8 @@ impl<F: Field> Shuffle<F> {
         self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step2, permutations)
             .await?;
-        self.input = self
-            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step3, permutations)
-            .await?;
-
-        Ok(take(&mut self.input))
+        self.shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step3, permutations)
+            .await
     }
 
     #[embed_doc_image("unshuffle", "images/sort/unshuffle.png")]
@@ -193,11 +188,8 @@ impl<F: Field> Shuffle<F> {
         self.input = self
             .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step2, permutations)
             .await?;
-        self.input = self
-            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step1, permutations)
-            .await?;
-
-        Ok(take(&mut self.input))
+        self.shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step1, permutations)
+            .await
     }
 }
 

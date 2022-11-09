@@ -1,5 +1,3 @@
-use std::mem::take;
-
 use crate::{
     error::BoxError,
     ff::Field,
@@ -22,16 +20,9 @@ use super::{
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
 #[derive(Debug)]
-pub struct Compose<F> {
-    sigma: Vec<Replicated<F>>,
-    rho: Vec<Replicated<F>>,
-}
+pub struct Compose {}
 
-impl<F: Field> Compose<F> {
-    #[allow(dead_code)]
-    pub fn new(sigma: Vec<Replicated<F>>, rho: Vec<Replicated<F>>) -> Self {
-        Self { sigma, rho }
-    }
+impl Compose {
     #[embed_doc_image("compose", "images/sort/compose.png")]
     /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
     /// and none of the helpers should learn it through this protocol.
@@ -43,27 +34,27 @@ impl<F: Field> Compose<F> {
     /// 4. Revealed permutation is applied locally on another permutation shares (rho)
     /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
     #[allow(dead_code)]
-    pub async fn execute(
-        &mut self,
+    pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
+        sigma: Vec<Replicated<F>>,
+        rho: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mut random_permutations =
-            get_two_of_three_random_permutations(self.rho.len(), &ctx.prss());
+        let mut random_permutations = get_two_of_three_random_permutations(rho.len(), &ctx.prss());
         let mut random_permutations_copy = random_permutations.clone();
 
-        self.sigma = Shuffle::new(take(&mut self.sigma))
+        let shuffled_sigma = Shuffle::new(sigma)
             .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
             .await?;
 
-        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), &self.sigma).await?;
+        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
+        let mut applied_rho = rho;
+        apply_inv(&mut perms, &mut applied_rho);
 
-        apply_inv(&mut perms, &mut self.rho);
-
-        self.rho = Shuffle::new(take(&mut self.rho))
+        let unshuffled_rho = Shuffle::new(applied_rho)
             .execute_unshuffle(ctx.narrow(&UnshuffleRho), &mut random_permutations_copy)
             .await?;
 
-        Ok(take(&mut self.rho))
+        Ok(unshuffled_rho)
     }
 }
 
@@ -109,13 +100,9 @@ mod tests {
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let mut compose0 = Compose::new(sigma_shares.0, rho_shares.0);
-            let mut compose1 = Compose::new(sigma_shares.1, rho_shares.1);
-            let mut compose2 = Compose::new(sigma_shares.2, rho_shares.2);
-
-            let h0_future = compose0.execute(ctx0);
-            let h1_future = compose1.execute(ctx1);
-            let h2_future = compose2.execute(ctx2);
+            let h0_future = Compose::execute(ctx0, sigma_shares.0, rho_shares.0);
+            let h1_future = Compose::execute(ctx1, sigma_shares.1, rho_shares.1);
+            let h2_future = Compose::execute(ctx2, sigma_shares.2, rho_shares.2);
 
             rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 
