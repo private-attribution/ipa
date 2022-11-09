@@ -18,6 +18,7 @@ aes = "0.8"
 async-trait = "0.1.57"
 axum = { version = "0.5.16", optional = true, features = ["http2"] }
 axum-server = { version = "0.4.2", optional = true, features = ["rustls", "rustls-pemfile", "tls-rustls"] }
+bitvec = "1.0.1"
 byteorder = "1.4.3"
 clap = { version = "4.0.10", optional = true, features = ["derive"] }
 comfy-table = { version = "6.0.0", optional = true }

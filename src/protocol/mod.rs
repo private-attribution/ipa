@@ -210,14 +210,14 @@ impl TryFrom<&str> for QueryId {
 
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
 pub const RECORD_0: RecordId = RecordId(0);
-pub const RECORD_1: RecordId = RecordId(0);
-pub const RECORD_2: RecordId = RecordId(0);
-pub const RECORD_3: RecordId = RecordId(0);
+pub const RECORD_1: RecordId = RecordId(1);
+pub const RECORD_2: RecordId = RecordId(2);
+pub const RECORD_3: RecordId = RecordId(3);
 
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {
@@ -234,5 +234,11 @@ impl From<usize> for RecordId {
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()
+    }
+}
+
+impl From<RecordId> for u32 {
+    fn from(v: RecordId) -> Self {
+        v.0
     }
 }

@@ -140,7 +140,7 @@ mod tests {
             .enumerate()
             .map(|(i, (c0, (c1, (c2, shared_match_key))))| async move {
                 let (share_0, share_1, share_2) = shared_match_key;
-                let record_id = RecordId::from(i);
+                let record_id = RecordId::from(0_u32);
                 let hack = format!("hack_{}", i);
                 try_join_all(vec![
                     ConvertShares::new(XorShares {

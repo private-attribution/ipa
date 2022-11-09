@@ -114,7 +114,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
                 accumulation_futures.push(Self::get_accumulated_credit(
                     ctx.narrow(multiply_step.next()),
-                    RecordId::from(i),
+                    RecordId::from(0_u32),
                     current,
                     successor,
                     iteration_step.is_first_iteration(),
@@ -181,7 +181,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         if !first_iteration {
             b = ctx
                 .narrow(&Step::BTimesStopBit)
-                .multiply(RecordId::from(1_u32), b, current.stop_bit)
+                .multiply(record_id, b, current.stop_bit)
                 .await?;
         }
 

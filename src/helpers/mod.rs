@@ -7,8 +7,10 @@ pub mod messaging;
 
 use crate::helpers::Direction::{Left, Right};
 use crate::helpers::Role::{H1, H2, H3};
+pub use buffers::SendBufferConfig;
 pub use error::Error;
 pub use error::Result;
+pub use messaging::GatewayConfig;
 
 /// Represents a unique role of the helper inside the MPC circuit. Each helper may have different
 /// roles in queries it processes in parallel. For some queries it can be `H1` and for others it

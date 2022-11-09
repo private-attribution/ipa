@@ -7,7 +7,7 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
-    helpers::buffers::{ReceiveBuffer, SendBuffer},
+    helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Role,
@@ -15,14 +15,13 @@ use crate::{
 };
 
 use crate::ff::{Field, Int};
+use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::io;
-use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
 use tracing::Instrument;
 
 /// Trait for messages sent between helpers
@@ -136,10 +135,19 @@ impl Mesh<'_, '_> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    /// Maximum number of items to keep inside the buffer before flushing it to network.
-    /// Note that this buffer is per channel, so setting it to 10 does not imply that every
-    /// 10 messages sent trigger a network request.
-    pub send_buffer_capacity: u32,
+    /// Configuration for send buffers. See `SendBufferConfig` for more details
+    pub send_buffer_config: SendBufferConfig,
+    // ///
+    // pub items_in_batch: u32,
+    //
+    // /// How many messages can be sent in parallel. This value is picked arbitrarily as
+    // /// most unit tests don't send more than this value, so the setup does not have to
+    // /// be annoying. `items_in_batch` * `batch_count` defines the total capacity for
+    // /// send buffer. Increasing this value does not really impact the latency for tests
+    // /// because they flush the data to network once they've accumulated at least
+    // /// `items_in_batch` elements. Ofc setting it to some absurdly large value is going
+    // /// to be problematic from memory perspective.
+    // pub batch_count: u32,
 }
 
 impl Gateway {
@@ -150,24 +158,14 @@ impl Gateway {
         let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
-            // to make forward progress, we periodically check if the system is stalled
-            // if nothing happens for long period of time, we try to unblock it by flushing
-            // the data that remains inside buffers. Note that the interval picked here is somewhat
-            // random - waiting for too long will result in elevated latencies. On the other hand,
-            // sending buffers that are half-full will lead to underutilizing the network
-            const INTERVAL: Duration = Duration::from_millis(200);
-
             let mut receive_buf = ReceiveBuffer::default();
-            let mut send_buf = SendBuffer::new(config.send_buffer_capacity);
-
-            let sleep = tokio::time::sleep(INTERVAL);
-            tokio::pin!(sleep);
+            let mut send_buf = SendBuffer::new(config.send_buffer_config);
 
             loop {
                 // Make a random choice what to process next:
                 // * Receive a message from another helper
                 // * Handle the request to receive a message from another helper
-                // * If send buffer is full, send it down
+                // * Send a message
                 tokio::select! {
                     Some(receive_request) = receive_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
@@ -178,26 +176,17 @@ impl Gateway {
                         receive_buf.receive_messages(&channel_id, messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
-                        if let Some(buf_to_send) = send_buf.push(channel_id.clone(), msg) {
+                        if let Some(buf_to_send) = send_buf.push(&channel_id, msg).expect("Failed to append data to the send buffer") {
                             tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
                                 .expect("Failed to send data to the network");
                         }
-                    }
-                    _ = &mut sleep, if send_buf.len() > 0 => {
-                        let (channel_id, buf_to_send) = send_buf.remove_random();
-                        tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), channel_id);
-                        network_sink.send((channel_id, buf_to_send)).await
-                            .expect("Failed to send data to the network");
                     }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;
                     }
                 }
-
-                // reset the timer as we processed something
-                sleep.as_mut().reset(Instant::now() + INTERVAL);
             }
         }.instrument(tracing::info_span!("gateway_loop", role=?role)));
 
