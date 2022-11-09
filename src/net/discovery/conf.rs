@@ -1,12 +1,37 @@
 use crate::net::discovery::{peer, Error, PeerDiscovery};
 use serde::{Deserialize, Serialize};
 
-/// All config value necessary to discover other peer helpers of the MPC ring
 #[derive(Serialize, Deserialize)]
-struct Conf {
-    h1: peer::Config,
-    h2: peer::Config,
-    h3: peer::Config,
+struct ToPeerHttpConfig {
+    origin: String,
+    #[serde(with = "hex")]
+    public_key: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize)]
+struct ToPeerPrssConfig {
+    #[serde(with = "hex")]
+    public_key: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize)]
+struct ToPeerConfig {
+    http: ToPeerHttpConfig,
+    prss: ToPeerPrssConfig,
+}
+
+/// Values that are serializable and read from config. May need further processing when translating
+/// to [`peer::Config`].
+#[derive(Serialize, Deserialize)]
+struct ToConf {
+    h1: ToPeerConfig,
+    h2: ToPeerConfig,
+    h3: ToPeerConfig,
+}
+
+/// All config value necessary to discover other peer helpers of the MPC ring
+pub struct Conf {
+    peers: [peer::Config; 3],
 }
 
 impl Conf {
@@ -14,29 +39,50 @@ impl Conf {
     /// # Errors
     /// if the file does not exist, or is in an invalid format
     #[allow(dead_code)] // TODO: will use in upcoming PR
-    pub fn new(file_location: &str) -> Result<Self, Error> {
+    pub fn from_file(file_location: &str) -> Result<Self, Error> {
         use config::{Config, File, FileFormat};
-        // use std::{fs::File, io::BufReader};
 
-        // let contents = File::open(file_location)?;
-        // let buffered = BufReader::new(contents);
-        Ok(Config::builder()
+        let to_conf: ToConf = Config::builder()
             .add_source(File::new(file_location, FileFormat::Toml))
             .build()?
-            .try_deserialize()?)
+            .try_deserialize()?;
+
+        Self::from_file_conf(&to_conf)
+    }
+
+    fn from_file_conf(to_conf: &ToConf) -> Result<Self, Error> {
+        Ok(Self {
+            peers: [
+                Self::peer_config(&to_conf.h1)?,
+                Self::peer_config(&to_conf.h2)?,
+                Self::peer_config(&to_conf.h3)?,
+            ],
+        })
+    }
+
+    fn peer_config(to_peer_config: &ToPeerConfig) -> Result<peer::Config, Error> {
+        Ok(peer::Config {
+            http: peer::HttpConfig {
+                origin: to_peer_config.http.origin.parse()?,
+                public_key: to_peer_config.http.public_key.into(),
+            },
+            prss: peer::PrssConfig {
+                public_key: to_peer_config.prss.public_key.into(),
+            },
+        })
     }
 }
 
 impl PeerDiscovery for Conf {
     fn peers(&self) -> [peer::Config; 3] {
-        [self.h1.clone(), self.h2.clone(), self.h3.clone()]
+        self.peers.clone()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::discovery::peer::PublicKey;
+    use crate::helpers::Role;
     use hyper::Uri;
     use rand::{
         distributions::Alphanumeric,
@@ -74,17 +120,11 @@ mod tests {
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
 
-    fn origin_from_uri_str(uri_str: &str) -> peer::Origin {
-        let parts = uri_str.parse::<Uri>().unwrap().into_parts();
-        peer::Origin::new(parts.scheme.unwrap(), parts.authority.unwrap())
-    }
-
-    fn origin_to_string(origin: &peer::Origin) -> String {
-        let uri = Uri::from(origin.clone());
+    fn origin_to_string(uri: &Uri) -> String {
         format!("{}://{}", uri.scheme().unwrap(), uri.authority().unwrap())
     }
 
-    fn hex_str_to_public_key(hex_str: &str) -> PublicKey {
+    fn hex_str_to_public_key(hex_str: &str) -> x25519_dalek::PublicKey {
         let pk_bytes: [u8; 32] = hex::decode(hex_str)
             .expect("valid hex string")
             .try_into()
@@ -96,31 +136,41 @@ mod tests {
     fn parse_config() {
         use config::{Config, File, FileFormat};
 
-        let conf: Conf = Config::builder()
+        let to_conf: ToConf = Config::builder()
             .add_source(File::from_str(EXAMPLE_CONFIG, FileFormat::Toml))
             .build()
             .unwrap()
             .try_deserialize()
             .expect("config should be valid");
+        let conf = Conf::from_file_conf(&to_conf).expect("file should contain valid values");
 
         // H1
-        assert_eq!(conf.h1.http.origin, origin_from_uri_str(H1_URI));
         assert_eq!(
-            conf.h1.http.public_key,
+            conf.peers[Role::H1].http.origin,
+            H1_URI.parse::<Uri>().unwrap()
+        );
+        assert_eq!(
+            conf.peers[Role::H1].http.public_key,
             hex_str_to_public_key(H1_PUBLIC_KEY)
         );
 
         // H2
-        assert_eq!(conf.h2.http.origin, origin_from_uri_str(H2_URI));
         assert_eq!(
-            conf.h2.http.public_key,
+            conf.peers[Role::H2].http.origin,
+            H2_URI.parse::<Uri>().unwrap()
+        );
+        assert_eq!(
+            conf.peers[Role::H2].http.public_key,
             hex_str_to_public_key(H2_PUBLIC_KEY)
         );
 
         // H3
-        assert_eq!(conf.h3.http.origin, origin_from_uri_str(H3_URI));
         assert_eq!(
-            conf.h3.http.public_key,
+            conf.peers[Role::H3].http.origin,
+            H3_URI.parse::<Uri>().unwrap()
+        );
+        assert_eq!(
+            conf.peers[Role::H3].http.public_key,
             hex_str_to_public_key(H3_PUBLIC_KEY)
         );
     }
@@ -138,8 +188,8 @@ mod tests {
         let mut file = File::create(&filepath).unwrap();
         file.write_all(EXAMPLE_CONFIG.as_bytes()).unwrap();
 
-        let conf =
-            Conf::new(filepath.to_str().unwrap()).expect("config should successfully be parsed");
+        let conf = Conf::from_file(filepath.to_str().unwrap())
+            .expect("config should successfully be parsed");
         let peers = conf.peers();
         // H1
         assert_eq!(origin_to_string(&peers[0].http.origin), H1_URI);
