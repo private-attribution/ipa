@@ -31,10 +31,10 @@ struct IterStep {
 }
 
 impl IterStep {
-    pub fn new(name: &'static str, start: u32) -> Self {
+    pub fn new(name: &'static str) -> Self {
         Self {
             name,
-            count: start,
+            count: 0,
             id: String::from(name),
         }
     }
