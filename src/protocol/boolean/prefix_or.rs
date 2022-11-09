@@ -1,9 +1,11 @@
 use crate::error::BoxError;
 use crate::ff::BinaryField;
-use crate::protocol::{attribution::IterStep, context::ProtocolContext, mul::SecureMul, RecordId};
+use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
+
+use super::BitOpStep;
 
 /// This is an implementation of Prefix-Or on bitwise-shared numbers.
 ///
@@ -49,7 +51,7 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
         record_id: RecordId,
     ) -> Result<Replicated<B>, BoxError> {
         #[allow(clippy::cast_possible_truncation)]
-        let mut step = IterStep::new("bit", k as u32);
+        let mut step = BitOpStep::new(k as u8);
         let mut v = a[0];
         for &bit in a[1..].iter() {
             v = Self::bit_or(v, bit, ctx.narrow(step.next()), record_id).await?;
@@ -96,7 +98,7 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
         ctx: ProtocolContext<'_, Replicated<B>, B>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
-        let mut step = IterStep::new("bit", 0);
+        let mut step = BitOpStep::new(0);
         let lambda = x.len();
         let mut y = Vec::with_capacity(lambda);
         y.push(x[0]);
@@ -139,7 +141,7 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
         ctx: ProtocolContext<'_, Replicated<B>, B>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
-        let mut step = IterStep::new("bit", 0);
+        let mut step = BitOpStep::new(0);
         let lambda = f.len();
         let mul = zip(repeat(ctx), a).enumerate().map(|(i, (ctx, &a_bit))| {
             let f_bit = f[i / lambda];
@@ -184,7 +186,7 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
         ctx: ProtocolContext<'_, Replicated<B>, B>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
-        let mut step = IterStep::new("bit", 0);
+        let mut step = BitOpStep::new(0);
         let lambda = c.len();
         let mut b = Vec::with_capacity(lambda);
         b.push(c[0]);
@@ -211,7 +213,7 @@ impl<'a, B: BinaryField> PrefixOr<'a, B> {
         ctx: ProtocolContext<'_, Replicated<B>, B>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<B>>, BoxError> {
-        let mut step = IterStep::new("bit", 0);
+        let mut step = BitOpStep::new(0);
         let mut mul = Vec::new();
         for &f_bit in f {
             for &b_bit in b {

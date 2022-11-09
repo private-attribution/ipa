@@ -24,7 +24,7 @@ pub struct AccumulateCreditOutputRow<F> {
     aggregation_bit: Replicated<F>,
 }
 
-pub struct IterStep {
+struct IterStep {
     name: &'static str,
     count: u32,
     id: String,
@@ -39,7 +39,7 @@ impl IterStep {
         }
     }
 
-    pub fn next(&mut self) -> &Self {
+    fn next(&mut self) -> &Self {
         self.count += 1;
         self.id = format!("{}_{}", self.name, self.count);
         self
