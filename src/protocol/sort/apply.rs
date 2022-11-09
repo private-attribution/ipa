@@ -14,10 +14,11 @@ use permutation::Permutation;
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
 /// ![Apply steps][apply]
-pub fn apply<T: Copy + Default, S>(permutation: &mut Permutation, values: &mut S)
+pub fn apply<T: Copy + Default, S>(permutation: Permutation, values: &mut S)
 where
     S: AsMut<[T]>,
 {
+    let mut permutation = permutation;
     permutation.apply_slice_in_place(values);
 }
 
@@ -25,10 +26,11 @@ where
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
 /// ![Apply inv steps][apply_inv]
-pub fn apply_inv<T: Copy + Default, S>(permutation: &mut Permutation, values: &mut S)
+pub fn apply_inv<T: Copy + Default, S>(permutation: Permutation, values: &mut S)
 where
     S: AsMut<[T]>,
 {
+    let mut permutation = permutation;
     permutation.apply_inv_slice_in_place(values);
 }
 
@@ -41,15 +43,15 @@ mod tests {
     #[test]
     fn apply_shares() {
         let mut values = ["A", "B", "C", "D"];
-        let mut indices = Permutation::oneline([2, 3, 1, 0]).inverse();
+        let indices = Permutation::oneline([2, 3, 1, 0]).inverse();
         let expected_output_apply = ["C", "D", "B", "A"];
-        apply(&mut indices, &mut values);
+        apply(indices, &mut values);
         assert_eq!(values, expected_output_apply);
 
         let mut values = ["A", "B", "C", "D"];
-        let mut indices = Permutation::oneline([2, 3, 1, 0]).inverse();
+        let indices = Permutation::oneline([2, 3, 1, 0]).inverse();
         let expected_output_apply_inv = ["D", "C", "A", "B"];
-        apply_inv(&mut indices, &mut values);
+        apply_inv(indices, &mut values);
         assert_eq!(values, expected_output_apply_inv);
     }
 
@@ -58,7 +60,7 @@ mod tests {
         let sigma = vec![4, 2, 0, 5, 1, 3];
         let mut rho = vec![3, 4, 0, 5, 1, 2];
         // Applying sigma on rho
-        apply_inv(&mut Permutation::oneline(sigma), &mut rho);
+        apply_inv(Permutation::oneline(sigma), &mut rho);
         assert_eq!(rho, vec![1, 0, 3, 2, 4, 5]);
     }
 
@@ -74,10 +76,10 @@ mod tests {
         let mut values: Vec<_> = (0..batchsize).collect();
         let mut values_copy = values.clone();
 
-        apply(&mut Permutation::oneline(permutation.clone()), &mut values);
+        apply(Permutation::oneline(permutation.clone()), &mut values);
 
         apply_inv(
-            &mut Permutation::oneline(permutation).inverse(),
+            Permutation::oneline(permutation).inverse(),
             &mut values_copy,
         );
 
