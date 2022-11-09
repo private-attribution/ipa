@@ -4,7 +4,7 @@ use crate::{
     helpers::Direction,
     protocol::{
         check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
-        reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2, RECORD_3,
+        reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::{MaliciousReplicated, Replicated},
 };
@@ -183,10 +183,10 @@ impl<F: Field> SecurityValidator<F> {
         let w_share = Replicated::new(w_left, state.w);
 
         // This should probably be done in parallel with the futures above
-        let r = reveal(ctx.narrow(&Step::RevealR), RECORD_2, self.r_share).await?;
+        let r = reveal(ctx.narrow(&Step::RevealR), RECORD_0, self.r_share).await?;
         let t = u_share - (w_share * r);
 
-        let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_3, t).await?;
+        let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_0, t).await?;
 
         if is_valid {
             Ok(())
@@ -252,7 +252,7 @@ pub mod tests {
                     .multiply(RecordId::from(0_u32), a_shares[i], r_share),
                 b_ctx
                     .narrow("input")
-                    .multiply(RecordId::from(1_u32), b_shares[i], r_share),
+                    .multiply(RecordId::from(0_u32), b_shares[i], r_share),
             )
             .await?;
 
@@ -269,7 +269,7 @@ pub mod tests {
             );
             acc.accumulate_macs(
                 &b_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(1_u32),
+                RecordId::from(0_u32),
                 b_malicious,
             );
 
@@ -352,30 +352,26 @@ pub mod tests {
 
                 let r_share = v.r_share();
 
-                let maliciously_secure_inputs = try_join_all(
-                    input_shares
-                        .iter()
-                        .zip(row_narrowed_contexts.iter())
-                        .enumerate()
-                        .map(|(i, (x, ctx))| async move {
+                let maliciously_secure_inputs =
+                    try_join_all(input_shares.iter().zip(row_narrowed_contexts.iter()).map(
+                        |(x, ctx)| async move {
                             let rx = ctx
                                 .narrow("mult")
-                                .multiply(RecordId::from(i), *x, r_share)
+                                .multiply(RecordId::from(0_u32), *x, r_share)
                                 .await?;
 
                             Ok::<_, BoxError>(MaliciousReplicated::new(*x, rx))
-                        }),
-                )
-                .await?;
+                        },
+                    ))
+                    .await?;
 
                 let _ = maliciously_secure_inputs
                     .iter()
                     .zip(row_narrowed_contexts.iter())
-                    .enumerate()
-                    .map(|(i, (maliciously_secure_input, ctx))| {
+                    .map(|(maliciously_secure_input, ctx)| {
                         acc.accumulate_macs(
                             &ctx.narrow(&Step::ValidateInput).prss(),
-                            RecordId::from(i),
+                            RecordId::from(0_u32),
                             *maliciously_secure_input,
                         );
                     });
@@ -385,13 +381,12 @@ pub mod tests {
                         .iter()
                         .zip(maliciously_secure_inputs.iter().skip(1))
                         .zip(row_narrowed_contexts.iter())
-                        .enumerate()
-                        .map(|(i, ((a_malicious, b_malicious), ctx))| {
+                        .map(|((a_malicious, b_malicious), ctx)| {
                             let acc = acc.clone();
                             async move {
                                 ctx.narrow("Circuit_Step_2")
                                     .upgrade_to_malicious(acc)
-                                    .multiply(RecordId::from(i), *a_malicious, *b_malicious)
+                                    .multiply(RecordId::from(0_u32), *a_malicious, *b_malicious)
                                     .await
                             }
                         }),

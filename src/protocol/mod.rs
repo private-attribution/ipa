@@ -1,5 +1,6 @@
 mod attribution;
 mod batch;
+mod boolean;
 mod check_zero;
 pub mod context;
 pub mod malicious;
@@ -93,6 +94,15 @@ impl PartialEq for UniqueStepId {
 impl Eq for UniqueStepId {}
 
 impl UniqueStepId {
+    #[must_use]
+    pub fn from_step_id(step: &Self) -> Self {
+        Self {
+            id: step.id.clone(),
+            #[cfg(debug_assertions)]
+            used: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
@@ -154,7 +164,7 @@ pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
     /// Sort shares by the match key
-    Sort,
+    Sort(u8),
     /// Perform attribution.
     Attribution,
 }
@@ -163,9 +173,19 @@ impl Step for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
+        const SORT: [&str; 64] = [
+            "sort0", "sort1", "sort2", "sort3", "sort4", "sort5", "sort6", "sort7", "sort8",
+            "sort9", "sort10", "sort11", "sort12", "sort13", "sort14", "sort15", "sort16",
+            "sort17", "sort18", "sort19", "sort20", "sort21", "sort22", "sort23", "sort24",
+            "sort25", "sort26", "sort27", "sort28", "sort29", "sort30", "sort31", "sort32",
+            "sort33", "sort34", "sort35", "sort36", "sort37", "sort38", "sort39", "sort40",
+            "sort41", "sort42", "sort43", "sort44", "sort45", "sort46", "sort47", "sort48",
+            "sort49", "sort50", "sort51", "sort52", "sort53", "sort54", "sort55", "sort56",
+            "sort57", "sort58", "sort59", "sort60", "sort61", "sort62", "sort63",
+        ];
         match self {
             Self::ConvertShares => "convert",
-            Self::Sort => "sort",
+            Self::Sort(i) => SORT[usize::from(*i)],
             Self::Attribution => "attribution",
         }
     }
@@ -210,14 +230,14 @@ impl TryFrom<&str> for QueryId {
 
 /// Unique identifier of the record inside the query. Support up to `$2^32$` max records because
 /// of the assumption that the maximum input is 1B records per query.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordId(u32);
 
 pub const RECORD_0: RecordId = RecordId(0);
-pub const RECORD_1: RecordId = RecordId(0);
-pub const RECORD_2: RecordId = RecordId(0);
-pub const RECORD_3: RecordId = RecordId(0);
+pub const RECORD_1: RecordId = RecordId(1);
+pub const RECORD_2: RecordId = RecordId(2);
+pub const RECORD_3: RecordId = RecordId(3);
 
 impl From<u32> for RecordId {
     fn from(v: u32) -> Self {
@@ -234,5 +254,11 @@ impl From<usize> for RecordId {
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()
+    }
+}
+
+impl From<RecordId> for u32 {
+    fn from(v: RecordId) -> Self {
+        v.0
     }
 }

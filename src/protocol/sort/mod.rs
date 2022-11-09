@@ -1,16 +1,20 @@
-pub mod bit_permutations;
-mod compose;
-pub mod reshare;
+use super::Step;
+use std::fmt::Debug;
 
 mod apply;
+pub mod bit_permutation;
+mod compose;
+mod generate_sort_permutation;
+pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
 
-use super::Step;
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
-    BitPermutations,
+    ModulusConversion,
+    BitPermutationStep,
+    ApplyInv,
+    ComposeStep,
 }
 
 impl Step for SortStep {}
@@ -18,7 +22,10 @@ impl Step for SortStep {}
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BitPermutations => "permute",
+            Self::ModulusConversion => "mod_conv",
+            Self::BitPermutationStep => "bit_permute",
+            Self::ApplyInv => "apply_inv",
+            Self::ComposeStep => "compose",
         }
     }
 }

@@ -1,5 +1,6 @@
+mod fsv;
 mod receive;
 mod send;
 
-pub(in crate::helpers) use receive::ReceiveBuffer;
-pub(in crate::helpers) use send::SendBuffer;
+pub use receive::ReceiveBuffer;
+pub use {send::Config as SendBufferConfig, send::SendBuffer};

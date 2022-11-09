@@ -96,7 +96,7 @@ pub mod tests {
             let mut num_false_positives = 0;
             for _ in 0..10 {
                 let v_shares = share(v, &mut rng);
-                let record_id = RecordId::from(counter);
+                let record_id = RecordId::from(0_u32);
                 let iteration = format!("{}", counter);
                 counter += 1;
 
