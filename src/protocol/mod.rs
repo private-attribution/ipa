@@ -10,11 +10,11 @@ pub mod prss;
 mod reveal;
 pub mod sort;
 
-use std::ops::AddAssign;
 use crate::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::ops::AddAssign;
 #[cfg(debug_assertions)]
 use std::{
     collections::HashSet,

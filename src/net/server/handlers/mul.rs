@@ -108,6 +108,7 @@ pub async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
     use crate::net::{
         BindTarget, MpcServer, CONTENT_LENGTH_HEADER_NAME, DATA_SIZE_HEADER_NAME,
         OFFSET_HEADER_NAME,
@@ -122,7 +123,6 @@ mod tests {
     use std::task::{Context, Poll};
     use tokio::sync::mpsc;
     use tower::ServiceExt;
-    use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
 
     const DATA_LEN: usize = 3;
 
@@ -250,7 +250,10 @@ mod tests {
                 step: UniqueStepId::default().narrow("test").as_ref().to_owned(),
                 role: Role::H2.as_ref().to_owned(),
                 offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
-                data_size_header: (DATA_SIZE_HEADER_NAME.clone(), MESSAGE_PAYLOAD_SIZE_BYTES.into()),
+                data_size_header: (
+                    DATA_SIZE_HEADER_NAME.clone(),
+                    MESSAGE_PAYLOAD_SIZE_BYTES.into(),
+                ),
                 body: &[34; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize],
             }
         }
@@ -304,7 +307,10 @@ mod tests {
     #[tokio::test]
     async fn malformed_data_size_header_name_fails() {
         let req = OverrideReq {
-            data_size_header: (HeaderName::from_static("datasize"), MESSAGE_PAYLOAD_SIZE_BYTES.into()),
+            data_size_header: (
+                HeaderName::from_static("datasize"),
+                MESSAGE_PAYLOAD_SIZE_BYTES.into(),
+            ),
             ..Default::default()
         };
         resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
