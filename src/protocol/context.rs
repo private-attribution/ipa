@@ -193,3 +193,71 @@ impl<'a, F: Field> ProtocolContext<'a, MaliciousReplicated<F>, F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ff::Fp31,
+        protocol::QueryId,
+        test_fixture::{make_contexts, make_world},
+    };
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestStep;
+
+    impl Substep for TestStep {}
+
+    impl AsRef<str> for TestStep {
+        fn as_ref(&self) -> &str {
+            "test"
+        }
+    }
+
+    #[tokio::test]
+    pub async fn narrow() {
+        let world = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+
+        let _ctx = context[0].narrow(&TestStep);
+    }
+
+    // In debug builds, we should panic if we try to reuse a step in the same context.
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    #[should_panic]
+    pub async fn narrow_twice() {
+        let world = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+
+        let _ctx = context[0].narrow(&TestStep);
+        let _ctx = context[0].narrow(&TestStep);
+    }
+
+    // When a context is narrowed inside a loop, that should not be reported as a
+    // duplicate usage. Note, however, that care must be taken when writing protocols
+    // or this exception may let things through that are not okay. For example, the
+    // following is okay:
+    //
+    // ```
+    // for i in 0..2 {
+    //  // do something for RecordId i
+    // }
+    // ```
+    //
+    // ```
+    // for i in 0..2 {
+    //  // do something *without* narrowing context by `i` or using it as RecordId
+    // }
+    // ```
+    #[ignore] // broken, see #135
+    #[tokio::test]
+    pub async fn narrow_in_loop() {
+        let world = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+
+        for _ in 0..2 {
+            let _ctx = context[0].narrow(&TestStep);
+        }
+    }
+}
