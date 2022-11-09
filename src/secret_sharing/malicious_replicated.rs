@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::ff::Field;
-use crate::helpers::Identity;
+use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,8 +44,8 @@ impl<F: Field> MaliciousReplicated<F> {
 
     /// Returns a pair of replicated secret sharings. One of "one", one of "r"
     #[allow(dead_code)]
-    pub fn one(helper_identity: Identity, r_share: Replicated<F>) -> Self {
-        Self::new(Replicated::one(helper_identity), r_share)
+    pub fn one(helper_role: Role, r_share: Replicated<F>) -> Self {
+        Self::new(Replicated::one(helper_role), r_share)
     }
 }
 
@@ -109,7 +109,7 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
 mod tests {
     use super::MaliciousReplicated;
     use crate::ff::{Field, Fp31};
-    use crate::helpers::Identity;
+    use crate::helpers::Role;
     use crate::test_fixture::{share, validate_and_reconstruct};
     use proptest::prelude::Rng;
 
@@ -150,11 +150,11 @@ mod tests {
         let re_shared = share(re, &mut rng);
         let rf_shared = share(rf, &mut rng);
 
-        let identities = [Identity::H1, Identity::H2, Identity::H3];
+        let roles = [Role::H1, Role::H2, Role::H3];
         let mut results = Vec::with_capacity(3);
 
         for i in 0..3 {
-            let identity = identities[i];
+            let helper_role = roles[i];
 
             let malicious_a = MaliciousReplicated::new(a_shared[i], ra_shared[i]);
             let malicious_b = MaliciousReplicated::new(b_shared[i], rb_shared[i]);
@@ -165,7 +165,8 @@ mod tests {
 
             let malicious_a_plus_b = malicious_a + malicious_b;
             let malicious_c_minus_d = malicious_c - malicious_d;
-            let malicious_1_minus_e = MaliciousReplicated::one(identity, r_shared[i]) - malicious_e;
+            let malicious_1_minus_e =
+                MaliciousReplicated::one(helper_role, r_shared[i]) - malicious_e;
             let malicious_2f = malicious_f * Fp31::from(2_u128);
 
             let mut temp = -malicious_a_plus_b;

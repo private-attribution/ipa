@@ -10,7 +10,7 @@ use crate::{
     helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
-    helpers::Identity,
+    helpers::Role,
     protocol::{RecordId, UniqueStepId},
 };
 
@@ -102,7 +102,7 @@ impl Mesh<'_, '_> {
     /// Returns an error if it fails to send the message or if there is a serialization error.
     pub async fn send<T: Message>(
         &self,
-        dest: Identity,
+        dest: Role,
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
@@ -128,11 +128,7 @@ impl Mesh<'_, '_> {
     ///
     /// # Errors
     /// Returns an error if it fails to receive the message or if a deserialization error occurred
-    pub async fn receive<T: Message>(
-        &self,
-        source: Identity,
-        record_id: RecordId,
-    ) -> Result<T, Error> {
+    pub async fn receive<T: Message>(&self, source: Role, record_id: RecordId) -> Result<T, Error> {
         let mut payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
@@ -152,7 +148,7 @@ pub struct GatewayConfig {
 }
 
 impl Gateway {
-    pub fn new<N: Network>(role: Identity, network: &N, config: GatewayConfig) -> Self {
+    pub fn new<N: Network>(role: Role, network: &N, config: GatewayConfig) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
         let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
         let mut message_stream = network.recv_stream();
@@ -189,7 +185,7 @@ impl Gateway {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("gateway_loop", identity=?role)));
+        }.instrument(tracing::info_span!("gateway_loop", role=?role)));
 
         Self {
             tx,
@@ -227,7 +223,7 @@ impl Gateway {
             .await?;
 
         rx.await
-            .map_err(|e| Error::receive_error(channel_id.identity, e))
+            .map_err(|e| Error::receive_error(channel_id.role, e))
     }
 
     async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {

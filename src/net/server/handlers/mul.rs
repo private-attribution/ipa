@@ -1,5 +1,5 @@
 use crate::helpers::fabric::{ChannelId, MessageChunks};
-use crate::helpers::{Identity};
+use crate::helpers::Role;
 use crate::net::server::MpcServerError;
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, UniqueStepId};
@@ -26,10 +26,10 @@ impl<B: Send> FromRequest<B> for Path {
     }
 }
 
-/// Used in the axum handler to extract the identity from the query params of the request
+/// Used in the axum handler to extract the peer role from the query params of the request
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-pub struct IdentityQuery {
-    identity: Identity,
+pub struct RoleQuery {
+    role: Role,
 }
 
 /// After an [`OwnedPermit`] has been reserved, it can be used once to send an item on the channel.
@@ -80,16 +80,16 @@ pub async fn obtain_permit_mw<T: Send + 'static, B>(
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
 pub async fn handler(
     path: Path,
-    // TODO: we shouldn't trust the client to tell us their identity.
+    // TODO: we shouldn't trust the client to tell us their role.
     //       revisit when we have figured out discovery/handshake
-    query: Query<IdentityQuery>,
+    query: Query<RoleQuery>,
     _headers: RecordHeaders,
     mut req: Request<Body>,
 ) -> Result<(), MpcServerError> {
     // prepare data
     let Path(_query_id, step) = path;
     let channel_id = ChannelId {
-        identity: query.identity,
+        role: query.role,
         step,
     };
 
@@ -140,7 +140,7 @@ mod tests {
         port: u16,
         query_id: QueryId,
         step: &UniqueStepId,
-        identity: Identity,
+        role: Role,
         offset: u32,
         body: &'static [u8],
     ) -> Request<Body> {
@@ -150,11 +150,11 @@ mod tests {
             "body len must align with data_size"
         );
         let uri = format!(
-            "http://127.0.0.1:{}/mul/query-id/{}/step/{}?identity={}",
+            "http://127.0.0.1:{}/mul/query-id/{}/step/{}?role={}",
             port,
             query_id.as_ref(),
             step.as_ref(),
-            identity.as_ref(),
+            role.as_ref(),
         );
         #[allow(clippy::cast_possible_truncation)] // `body.len()` known to be less than u32
         let headers = RecordHeaders {
@@ -173,12 +173,12 @@ mod tests {
         port: u16,
         query_id: QueryId,
         step: &UniqueStepId,
-        identity: Identity,
+        helper_role: Role,
         offset: u32,
         body: &'static [u8],
     ) -> Response<Body> {
         // build req
-        let req = build_req(port, query_id, step, identity, offset, body);
+        let req = build_req(port, query_id, step, helper_role, offset, body);
 
         let client = Client::default();
         client
@@ -193,7 +193,7 @@ mod tests {
 
         // prepare req
         let query_id = QueryId;
-        let target_helper = Identity::H2;
+        let target_helper = Role::H2;
         let step = UniqueStepId::default().narrow("test");
         let offset = 0;
         let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
@@ -208,7 +208,7 @@ mod tests {
 
             // response comparison
             let channel_id = ChannelId {
-                identity: target_helper,
+                role: target_helper,
                 step: step.clone(),
             };
 
@@ -221,7 +221,7 @@ mod tests {
     struct OverrideReq {
         query_id: String,
         step: String,
-        identity: String,
+        role: String,
         offset_header: (HeaderName, HeaderValue),
         data_size_header: (HeaderName, HeaderValue),
         body: &'static [u8],
@@ -230,8 +230,8 @@ mod tests {
     impl OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
-                "http://127.0.0.1:{}/mul/query-id/{}/step/{}?identity={}",
-                port, self.query_id, self.step, self.identity
+                "http://127.0.0.1:{}/mul/query-id/{}/step/{}?role={}",
+                port, self.query_id, self.step, self.role
             );
             let mut req = Request::post(uri);
             let req_headers = req.headers_mut().unwrap();
@@ -248,7 +248,7 @@ mod tests {
             Self {
                 query_id: QueryId.as_ref().to_owned(),
                 step: UniqueStepId::default().narrow("test").as_ref().to_owned(),
-                identity: Identity::H2.as_ref().to_owned(),
+                role: Role::H2.as_ref().to_owned(),
                 offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
                 data_size_header: (DATA_SIZE_HEADER_NAME.clone(), MESSAGE_PAYLOAD_SIZE_BYTES.into()),
                 body: &[34; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize],
@@ -275,9 +275,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_identity_fails() {
+    async fn malformed_role_fails() {
         let req = OverrideReq {
-            identity: "h4".into(),
+            role: "h4".into(),
             ..Default::default()
         };
         resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
@@ -345,7 +345,7 @@ mod tests {
         // prepare req
         let query_id = QueryId;
         let step = UniqueStepId::default().narrow("test");
-        let target_helper = Identity::H2;
+        let target_helper = Role::H2;
         let offset = 0;
         let body = &[0; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 

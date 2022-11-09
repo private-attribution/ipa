@@ -58,7 +58,7 @@ pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld
     let gateways = network
         .endpoints
         .iter()
-        .map(|endpoint| Gateway::new(endpoint.identity, endpoint, config.gateway_config))
+        .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();

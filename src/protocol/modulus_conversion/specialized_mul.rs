@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     ff::Field,
-    helpers::{Direction, Identity},
+    helpers::{Direction, Role},
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
@@ -36,7 +36,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
     b: Replicated<F>,
 ) -> Result<Replicated<F>, BoxError> {
     match ctx.role() {
-        Identity::H1 => {
+        Role::H1 => {
             let prss = &ctx.prss();
             let (s_3_1, _) = prss.generate_fields(record_id);
 
@@ -57,7 +57,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 
             Ok(Replicated::new(s_3_1, d_1))
         }
-        Identity::H2 => {
+        Role::H2 => {
             // d_2 = a_2 * b_3 + a_3 * b_2 - s_1,2
             // d_2 = 0 * 0 + 0 * b - s_1,2
             // d_2 = s_1,2
@@ -72,7 +72,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 
             Ok(Replicated::new(d_1, F::ZERO))
         }
-        Identity::H3 => {
+        Role::H3 => {
             // d_3 = a_3 * b_1 + a_1 * b_3 - s_2,3
             // d_3 = 0 * 0 + a * 0 - s_2,3
             // d_3 = s_2,3
@@ -123,7 +123,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
     let (s_left, s_right) = prss.generate_fields(record_id);
 
     match ctx.role() {
-        Identity::H1 => {
+        Role::H1 => {
             // d_1 = a_1 * b_2 + a_2 * b_1 - s_3,1
             // d_1 = a_1 * 0 + a_2 * 0 - s_3,1
             // d_1 = - s_3,1
@@ -138,7 +138,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
 
             Ok(Replicated::new(d_3, s_right))
         }
-        Identity::H2 => {
+        Role::H2 => {
             // d_2 = a_2 * b_3 + a_3 * b_2 - s_1,2
             // d_2 = a_2 * b_3 + a_3 * 0 - s_1,2
             // d_2 = a_2 * b_3 - s_1,2
@@ -156,7 +156,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
 
             Ok(Replicated::new(s_left, a_3 * b_3 + d_2 + s_right))
         }
-        Identity::H3 => {
+        Role::H3 => {
             // d_3 = a_3 * b_1 + a_1 * b_3 - s_2,3
             // d_3 = a_3 * 0 + a_1 * b_3 - s_2,3
             // d_3 = a_1 * b_3 - s_2,3

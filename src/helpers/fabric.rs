@@ -1,14 +1,14 @@
-use crate::helpers::{error::Error, Identity, MessagePayload};
+use crate::helpers::{error::Error, Role, MessagePayload};
 use crate::protocol::{RecordId, UniqueStepId};
 use async_trait::async_trait;
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
 
-/// Combination of helper identity and step that uniquely identifies a single channel of communication
+/// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId {
-    pub identity: Identity,
+    pub role: Role,
     pub step: UniqueStepId,
 }
 
@@ -37,13 +37,13 @@ pub trait Network: Sync {
 
 impl ChannelId {
     #[must_use]
-    pub fn new(identity: Identity, step: UniqueStepId) -> Self {
-        Self { identity, step }
+    pub fn new(role: Role, step: UniqueStepId) -> Self {
+        Self { role, step }
     }
 }
 
 impl Debug for ChannelId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[peer={:?},step={:?}]", self.identity, self.step)
+        write!(f, "channel[peer={:?},step={:?}]", self.role, self.step)
     }
 }

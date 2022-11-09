@@ -1,5 +1,5 @@
 use super::Command;
-use crate::helpers::Identity;
+use crate::helpers::Role;
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, UniqueStepId};
 use async_trait::async_trait;
@@ -97,10 +97,10 @@ impl MpcHttpConnection {
 
     async fn mul(&self, args: HttpMulArgs<'_>) -> Result<(), MpcClientError> {
         let uri = self.build_uri(format!(
-            "/mul/query-id/{}/step/{}?identity={}",
+            "/mul/query-id/{}/step/{}?role={}",
             args.query_id.as_ref(),
             args.step.as_ref(),
-            args.identity.as_ref(),
+            args.role.as_ref(),
         ))?;
         #[allow(clippy::cast_possible_truncation)] // `messages.len` is known to be smaller than u32
         let headers = RecordHeaders {
@@ -123,7 +123,7 @@ impl MpcHttpConnection {
 pub struct HttpMulArgs<'a> {
     pub query_id: &'a QueryId,
     pub step: &'a UniqueStepId,
-    pub identity: Identity,
+    pub role: Role,
     pub offset: u32,
     pub data_size: u32,
     pub messages: Bytes,
@@ -142,7 +142,7 @@ mod tests {
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = UniqueStepId::default().narrow("mul_test");
-        let identity = Identity::H1;
+        let role = Role::H1;
         let offset = 0;
         let body = &[123; (DATA_SIZE * DATA_LEN) as usize];
 
@@ -150,7 +150,7 @@ mod tests {
             .mul(HttpMulArgs {
                 query_id: &query_id,
                 step: &step,
-                identity,
+                role,
                 offset,
                 data_size: DATA_SIZE,
                 messages: Bytes::from_static(body),
@@ -158,7 +158,7 @@ mod tests {
             .await;
         assert!(res.is_ok(), "{}", res.unwrap_err());
 
-        let channel_id = ChannelId { identity, step };
+        let channel_id = ChannelId { role, step };
         let server_recvd = rx.try_recv().unwrap(); // should already have been received
         assert_eq!(server_recvd, (channel_id, body.to_vec()));
     }
