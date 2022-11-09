@@ -382,9 +382,9 @@ mod tests {
             let pre2 = PrefixOr::new(&s2);
             let iteration = format!("{}", i);
             let result = try_join_all(vec![
-                pre0.execute(ctx[0].narrow(&iteration), RecordId::from(i)),
-                pre1.execute(ctx[1].narrow(&iteration), RecordId::from(i)),
-                pre2.execute(ctx[2].narrow(&iteration), RecordId::from(i)),
+                pre0.execute(ctx[0].narrow(&iteration), RecordId::from(0_u32)),
+                pre1.execute(ctx[1].narrow(&iteration), RecordId::from(0_u32)),
+                pre2.execute(ctx[2].narrow(&iteration), RecordId::from(0_u32)),
             ])
             .await
             .unwrap();
