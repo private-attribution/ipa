@@ -1,4 +1,4 @@
-use crate::net::server::MpcServerError;
+use crate::net::server::MpcHelperServerError;
 use axum::{
     extract::{FromRequest, Query, RequestParts},
     Json,
@@ -14,7 +14,7 @@ pub struct Payload {
 }
 
 #[allow(dead_code)]
-pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcServerError> {
+pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcHelperServerError> {
     let mut parts = RequestParts::new(req);
 
     let query: Query<HashMap<String, String>> = Query::from_request(&mut parts).await?;
