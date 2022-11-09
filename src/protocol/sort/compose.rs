@@ -39,19 +39,19 @@ impl Compose {
         sigma: Vec<Replicated<F>>,
         rho: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mut random_permutations = get_two_of_three_random_permutations(rho.len(), &ctx.prss());
-        let mut random_permutations_copy = random_permutations.clone();
+        let random_permutations = get_two_of_three_random_permutations(rho.len(), &ctx.prss());
 
-        let shuffled_sigma = Shuffle::new(sigma)
-            .execute(ctx.narrow(&ShuffleSigma), &mut random_permutations)
+        let shuffled_sigma = Shuffle::new(sigma, random_permutations.clone())
+            .execute(ctx.narrow(&ShuffleSigma))
             .await?;
 
-        let mut perms = reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
+        let revealed_permutation =
+            reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
         let mut applied_rho = rho;
-        apply_inv(&mut perms, &mut applied_rho);
+        apply_inv(revealed_permutation, &mut applied_rho);
 
-        let unshuffled_rho = Shuffle::new(applied_rho)
-            .execute_unshuffle(ctx.narrow(&UnshuffleRho), &mut random_permutations_copy)
+        let unshuffled_rho = Shuffle::new(applied_rho, random_permutations)
+            .execute_unshuffle(ctx.narrow(&UnshuffleRho))
             .await?;
 
         Ok(unshuffled_rho)
@@ -93,7 +93,7 @@ mod tests {
             let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
 
             let mut rho_composed = rho_u128.clone();
-            apply_inv(&mut Permutation::oneline(sigma.clone()), &mut rho_composed);
+            apply_inv(Permutation::oneline(sigma.clone()), &mut rho_composed);
 
             let sigma_shares = generate_shares::<Fp31>(sigma_u128);
             let mut rho_shares = generate_shares::<Fp31>(rho_u128);

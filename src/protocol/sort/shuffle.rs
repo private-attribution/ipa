@@ -21,6 +21,8 @@ use super::{
 
 pub struct Shuffle<F> {
     input: Vec<Replicated<F>>,
+    permutation_left: Permutation,
+    permutation_right: Permutation,
 }
 
 #[derive(Debug)]
@@ -81,8 +83,12 @@ pub fn get_two_of_three_random_permutations(
 /// This is SHUFFLE(Algorithm 1) described in <https://eprint.iacr.org/2019/695.pdf>.
 /// This protocol shuffles the given inputs across 3 helpers making them indistinguishable to the helpers
 impl<F: Field> Shuffle<F> {
-    pub fn new(input: Vec<Replicated<F>>) -> Self {
-        Self { input }
+    pub fn new(input: Vec<Replicated<F>>, permutations: (Permutation, Permutation)) -> Self {
+        Self {
+            input,
+            permutation_left: permutations.0,
+            permutation_right: permutations.1,
+        }
     }
 
     // We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
@@ -123,21 +129,22 @@ impl<F: Field> Shuffle<F> {
         shuffle_or_unshuffle: ShuffleOrUnshuffle,
         ctx: &ProtocolContext<'_, Replicated<F>, F>,
         which_step: ShuffleStep,
-        permutations: &mut (Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let to_helper = Self::shuffle_for_helper(which_step);
         let ctx = ctx.narrow(&which_step);
-
+        let mut permutation_to_apply = Permutation::oneline(vec![]);
         if to_helper != ctx.role() {
-            let permute = if to_helper.peer(Direction::Left) == ctx.role() {
-                &mut permutations.0
+            if to_helper.peer(Direction::Left) == ctx.role() {
+                std::mem::swap(&mut permutation_to_apply, &mut self.permutation_left);
             } else {
-                &mut permutations.1
+                std::mem::swap(&mut permutation_to_apply, &mut self.permutation_right);
             };
+            // at this point, permutation_to_apply should have a legit permutation
+            assert_ne!(permutation_to_apply.len(), 0);
 
             match shuffle_or_unshuffle {
-                ShuffleOrUnshuffle::Shuffle => apply_inv(permute, &mut self.input),
-                ShuffleOrUnshuffle::Unshuffle => apply(permute, &mut self.input),
+                ShuffleOrUnshuffle::Shuffle => apply_inv(permutation_to_apply, &mut self.input),
+                ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut self.input),
             }
         }
         self.reshare_all_shares(&ctx, to_helper).await
@@ -155,18 +162,17 @@ impl<F: Field> Shuffle<F> {
     pub async fn execute(
         &mut self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-        permutations: &mut (Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError>
     where
         F: Field,
     {
         self.input = self
-            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step1, permutations)
+            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step1)
             .await?;
         self.input = self
-            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step2, permutations)
+            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step2)
             .await?;
-        self.shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step3, permutations)
+        self.shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Shuffle, &ctx, Step3)
             .await
     }
 
@@ -177,18 +183,17 @@ impl<F: Field> Shuffle<F> {
     pub async fn execute_unshuffle(
         &mut self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-        permutations: &mut (Permutation, Permutation),
     ) -> Result<Vec<Replicated<F>>, BoxError>
     where
         F: Field,
     {
         self.input = self
-            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step3, permutations)
+            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step3)
             .await?;
         self.input = self
-            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step2, permutations)
+            .shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step2)
             .await?;
-        self.shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step1, permutations)
+        self.shuffle_or_unshuffle_once(ShuffleOrUnshuffle::Unshuffle, &ctx, Step1)
             .await
     }
 }
@@ -256,18 +261,18 @@ mod tests {
         let input1 = shares.1.clone();
         let input2 = shares.2.clone();
 
-        let mut perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
-        let mut perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
-        let mut perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
+        let perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
+        let perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
+        let perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
 
         let [c0, c1, c2] = context;
-        let mut shuffle0 = Shuffle::new(shares.0);
-        let mut shuffle1 = Shuffle::new(shares.1);
-        let mut shuffle2 = Shuffle::new(shares.2);
+        let mut shuffle0 = Shuffle::new(shares.0, perm1);
+        let mut shuffle1 = Shuffle::new(shares.1, perm2);
+        let mut shuffle2 = Shuffle::new(shares.2, perm3);
 
-        let h0_future = shuffle0.execute(c0, &mut perm1);
-        let h1_future = shuffle1.execute(c1, &mut perm2);
-        let h2_future = shuffle2.execute(c2, &mut perm3);
+        let h0_future = shuffle0.execute(c0);
+        let h1_future = shuffle1.execute(c1);
+        let h2_future = shuffle2.execute(c2);
 
         shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
@@ -309,32 +314,31 @@ mod tests {
 
         let mut shares = generate_shares(input);
 
-        let mut perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
-        let mut perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
-        let mut perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
+        let perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
+        let perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
+        let perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
 
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);
-            let mut shuffle0 = Shuffle::new(shares.0);
-            let mut shuffle1 = Shuffle::new(shares.1);
-            let mut shuffle2 = Shuffle::new(shares.2);
-
-            let h0_future = shuffle0.execute(ctx0, &mut perm1);
-            let h1_future = shuffle1.execute(ctx1, &mut perm2);
-            let h2_future = shuffle2.execute(ctx2, &mut perm3);
+            let mut shuffle0 = Shuffle::new(shares.0, perm1.clone());
+            let mut shuffle1 = Shuffle::new(shares.1, perm2.clone());
+            let mut shuffle2 = Shuffle::new(shares.2, perm3.clone());
+            let h0_future = shuffle0.execute(ctx0);
+            let h1_future = shuffle1.execute(ctx1);
+            let h2_future = shuffle2.execute(ctx2);
 
             shares = try_join!(h0_future, h1_future, h2_future).unwrap();
         }
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Unshuffle);
-            let mut unshuffle0 = Shuffle::new(shares.0);
-            let mut unshuffle1 = Shuffle::new(shares.1);
-            let mut unshuffle2 = Shuffle::new(shares.2);
+            let mut unshuffle0 = Shuffle::new(shares.0, perm1);
+            let mut unshuffle1 = Shuffle::new(shares.1, perm2);
+            let mut unshuffle2 = Shuffle::new(shares.2, perm3);
 
             // When unshuffle and shuffle are called with same step, they undo each other's effect
-            let h0_future = unshuffle0.execute_unshuffle(ctx0, &mut perm1);
-            let h1_future = unshuffle1.execute_unshuffle(ctx1, &mut perm2);
-            let h2_future = unshuffle2.execute_unshuffle(ctx2, &mut perm3);
+            let h0_future = unshuffle0.execute_unshuffle(ctx0);
+            let h1_future = unshuffle1.execute_unshuffle(ctx1);
+            let h2_future = unshuffle2.execute_unshuffle(ctx2);
 
             shares = try_join!(h0_future, h1_future, h2_future).unwrap();
         }

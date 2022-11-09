@@ -46,21 +46,19 @@ impl SecureApplyInv {
         input: Vec<Replicated<F>>,
         sort_permutation: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let mut random_permutations =
-            get_two_of_three_random_permutations(input.len(), &ctx.prss());
+        let random_permutations = get_two_of_three_random_permutations(input.len(), &ctx.prss());
 
         let (mut shuffled_input, shuffled_sort_permutation) = try_join(
-            Shuffle::new(input)
-                .execute(ctx.narrow(&ShuffleInputs), &mut random_permutations.clone()),
-            Shuffle::new(sort_permutation)
-                .execute(ctx.narrow(&ShufflePermutation), &mut random_permutations),
+            Shuffle::new(input, random_permutations.clone()).execute(ctx.narrow(&ShuffleInputs)),
+            Shuffle::new(sort_permutation, random_permutations)
+                .execute(ctx.narrow(&ShufflePermutation)),
         )
         .await?;
-        let mut revealed_permutation =
+        let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sort_permutation).await?;
         // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
         // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
-        apply(&mut revealed_permutation, &mut shuffled_input);
+        apply(revealed_permutation, &mut shuffled_input);
         Ok(shuffled_input)
     }
 }
@@ -90,12 +88,12 @@ mod tests {
             permutation.shuffle(&mut rng);
 
             let mut expected_result = input.clone();
-            let mut cloned_perm = Permutation::oneline(permutation.clone());
+            let cloned_perm = Permutation::oneline(permutation.clone());
             // The actual paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(perm.inverse(), input))
             // Since this is same as apply(perm, input), we are doing that instead both in the code and in the test.
 
             // Applying permutation on the input in clear to get the expected result
-            apply(&mut cloned_perm, &mut expected_result);
+            apply(cloned_perm, &mut expected_result);
 
             let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
 
