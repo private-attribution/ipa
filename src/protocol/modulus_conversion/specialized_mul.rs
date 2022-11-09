@@ -1,5 +1,5 @@
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     helpers::{Direction, Role},
     protocol::{context::ProtocolContext, RecordId},
@@ -34,7 +34,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
-) -> Result<Replicated<F>, BoxError> {
+) -> Result<Replicated<F>, Error> {
     match ctx.role() {
         Role::H1 => {
             let prss = &ctx.prss();
@@ -118,7 +118,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
     record_id: RecordId,
     a: Replicated<F>,
     b: Replicated<F>,
-) -> Result<Replicated<F>, BoxError> {
+) -> Result<Replicated<F>, Error> {
     let prss = &ctx.prss();
     let (s_left, s_right) = prss.generate_fields(record_id);
 
@@ -334,7 +334,6 @@ pub mod tests {
                 ),
             )?;
 
-            println!("A: {:#?}, B: {:#?}, A*B: {:#?}", a_shares, b, result_shares);
             let result = validate_and_reconstruct(result_shares);
 
             assert_eq!(result, a * b);

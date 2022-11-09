@@ -13,15 +13,65 @@ use std::{
     fmt::Debug,
     sync::{Arc, Mutex},
 };
+#[cfg(debug_assertions)]
+use std::{collections::HashSet, fmt::Formatter};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use super::UniqueStepId;
+
+/// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
+/// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
+/// As PRSS instance is unique per step, this only constrains randomness generated within
+/// a given step.
+#[cfg(debug_assertions)]
+struct UsedSet {
+    key: String,
+    used: Arc<Mutex<HashSet<usize>>>,
+}
+
+#[cfg(debug_assertions)]
+impl UsedSet {
+    fn new(key: String) -> Self {
+        Self {
+            key,
+            used: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    /// Adds a given index to the list of used indices.
+    ///
+    /// ## Panics
+    /// Panic if this index has been used before.
+    fn insert(&self, index: u128) {
+        if index > usize::MAX as u128 {
+            tracing::warn!(
+                "PRSS verification can validate values not exceeding {}, index {index} is greater.",
+                usize::MAX
+            );
+        } else {
+            assert!(
+                self.used.lock().unwrap().insert(index as usize),
+                "Generated randomness for index '{index}' twice using the same key '{}'",
+                self.key
+            );
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Debug for UsedSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IndicesSet(key={})", self.key)
+    }
+}
 
 /// A participant in a 2-of-N replicated secret sharing.
 #[derive(Debug)] // TODO(mt) custom debug implementation
 pub struct IndexedSharedRandomness {
     left: Generator,
     right: Generator,
+    #[cfg(debug_assertions)]
+    used: UsedSet,
 }
 
 /// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
@@ -35,6 +85,11 @@ impl IndexedSharedRandomness {
     #[must_use]
     pub fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
         let index = index.into();
+        #[cfg(debug_assertions)]
+        {
+            self.used.insert(index);
+        }
+
         (self.left.generate(index), self.right.generate(index))
     }
 
@@ -215,6 +270,8 @@ impl EndpointInner {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
                     left: self.left.generator(k.as_bytes()),
                     right: self.right.generator(k.as_bytes()),
+                    #[cfg(debug_assertions)]
+                    used: UsedSet::new(key.to_owned()),
                 }))
             })
         };
@@ -340,6 +397,7 @@ impl Generator {
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{ff::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
+    use rand::prelude::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::mem::drop;
 
@@ -581,5 +639,29 @@ pub mod test {
         #[allow(clippy::let_underscore_drop)]
         let _ = p1.sequential(&step);
         drop(p1.indexed(&step));
+    }
+
+    #[test]
+    fn indexed_accepts_unique_index() {
+        let (_, p2, _p3) = make_participants();
+        let step = UniqueStepId::default().narrow("test");
+        let mut indices = (1..100_u128).collect::<Vec<_>>();
+        indices.shuffle(&mut thread_rng());
+        let indexed_prss = p2.indexed(&step);
+
+        for index in indices {
+            let _ = indexed_prss.random_u128(index);
+        }
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic]
+    fn indexed_rejects_the_same_index() {
+        let (p1, _p2, _p3) = make_participants();
+        let step = UniqueStepId::default().narrow("test");
+
+        let _ = p1.indexed(&step).random_u128(100_u128);
+        let _ = p1.indexed(&step).random_u128(100_u128);
     }
 }
