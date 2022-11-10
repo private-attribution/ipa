@@ -7,8 +7,8 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 
 use super::{
-    apply::apply_inv,
-    shuffle::{get_two_of_three_random_permutations, Shuffle},
+    apply::apply,
+    shuffle::{get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares},
     ComposeStep::{RevealPermutation, ShuffleSigma, UnshuffleRho},
 };
 
@@ -36,23 +36,31 @@ impl Compose {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-        sigma: Vec<Replicated<F>>,
-        rho: Vec<Replicated<F>>,
+        sigma: &mut [Replicated<F>],
+        rho: &mut [Replicated<F>],
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let random_permutations = get_two_of_three_random_permutations(rho.len(), &ctx.prss());
+        let (left_random_permutation, right_random_permutation) =
+            get_two_of_three_random_permutations(rho.len(), &ctx.prss());
 
-        let shuffled_sigma = Shuffle::new(sigma, random_permutations.clone())
-            .execute(ctx.narrow(&ShuffleSigma))
-            .await?;
+        let shuffled_sigma = shuffle_shares(
+            sigma,
+            &left_random_permutation,
+            &right_random_permutation,
+            ctx.narrow(&ShuffleSigma),
+        )
+        .await?;
 
         let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
-        let mut applied_rho = rho;
-        apply_inv(revealed_permutation, &mut applied_rho);
+        apply(&revealed_permutation, rho);
 
-        let unshuffled_rho = Shuffle::new(applied_rho, random_permutations)
-            .execute_unshuffle(ctx.narrow(&UnshuffleRho))
-            .await?;
+        let unshuffled_rho = unshuffle_shares(
+            rho,
+            &left_random_permutation,
+            &right_random_permutation,
+            ctx.narrow(&UnshuffleRho),
+        )
+        .await?;
 
         Ok(unshuffled_rho)
     }
@@ -60,7 +68,6 @@ impl Compose {
 
 #[cfg(test)]
 mod tests {
-    use permutation::Permutation;
     use rand::seq::SliceRandom;
     use tokio::try_join;
 
@@ -68,7 +75,7 @@ mod tests {
         error::BoxError,
         ff::Fp31,
         protocol::{
-            sort::{apply::apply_inv, compose::Compose},
+            sort::{apply::apply, compose::Compose},
             QueryId,
         },
         test_fixture::{
@@ -93,16 +100,16 @@ mod tests {
             let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
 
             let mut rho_composed = rho_u128.clone();
-            apply_inv(Permutation::oneline(sigma.clone()), &mut rho_composed);
+            apply(&sigma, &mut rho_composed);
 
-            let sigma_shares = generate_shares::<Fp31>(sigma_u128);
+            let mut sigma_shares = generate_shares::<Fp31>(sigma_u128);
             let mut rho_shares = generate_shares::<Fp31>(rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = Compose::execute(ctx0, sigma_shares.0, rho_shares.0);
-            let h1_future = Compose::execute(ctx1, sigma_shares.1, rho_shares.1);
-            let h2_future = Compose::execute(ctx2, sigma_shares.2, rho_shares.2);
+            let h0_future = Compose::execute(ctx0, &mut sigma_shares.0, &mut rho_shares.0);
+            let h1_future = Compose::execute(ctx1, &mut sigma_shares.1, &mut rho_shares.1);
+            let h2_future = Compose::execute(ctx2, &mut sigma_shares.2, &mut rho_shares.2);
 
             rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 

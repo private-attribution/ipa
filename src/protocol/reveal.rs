@@ -10,7 +10,6 @@ use crate::{
 };
 use embed_doc_image::embed_doc_image;
 use futures::future::{try_join, try_join_all};
-use permutation::Permutation;
 
 /// This implements a reveal algorithm
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
@@ -78,7 +77,7 @@ pub async fn reveal_malicious<F: Field, G: Field>(
 pub async fn reveal_permutation<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     permutation: &[Replicated<F>],
-) -> Result<Permutation, BoxError> {
+) -> Result<Vec<usize>, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
         |(index, (ctx, input))| async move {
             let reveal_value = reveal(ctx, RecordId::from(index), *input).await;
@@ -90,7 +89,7 @@ pub async fn reveal_permutation<F: Field>(
     ))
     .await?;
 
-    Ok(Permutation::oneline(revealed_permutation))
+    Ok(revealed_permutation)
 }
 
 #[cfg(test)]

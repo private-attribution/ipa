@@ -11,8 +11,8 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 
 use super::{
-    apply::apply,
-    shuffle::{get_two_of_three_random_permutations, Shuffle},
+    apply::apply_inv,
+    shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
 use futures::future::try_join;
 
@@ -42,35 +42,45 @@ impl SecureApplyInv {
     /// 5. All helpers call `apply` to apply the permutation locally.
     pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-        input: Vec<Replicated<F>>,
-        sort_permutation: Vec<Replicated<F>>,
+        input: &mut [Replicated<F>],
+        sort_permutation: &mut [Replicated<F>],
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let random_permutations = get_two_of_three_random_permutations(input.len(), &ctx.prss());
+        let (left_random_permutation, right_random_permutation) =
+            get_two_of_three_random_permutations(input.len(), &ctx.prss());
 
         let (mut shuffled_input, shuffled_sort_permutation) = try_join(
-            Shuffle::new(input, random_permutations.clone()).execute(ctx.narrow(&ShuffleInputs)),
-            Shuffle::new(sort_permutation, random_permutations)
-                .execute(ctx.narrow(&ShufflePermutation)),
+            shuffle_shares(
+                input,
+                &left_random_permutation,
+                &right_random_permutation,
+                ctx.narrow(&ShuffleInputs),
+            ),
+            shuffle_shares(
+                sort_permutation,
+                &left_random_permutation,
+                &right_random_permutation,
+                ctx.narrow(&ShufflePermutation),
+            ),
         )
         .await?;
         let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sort_permutation).await?;
         // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
         // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
-        apply(revealed_permutation, &mut shuffled_input);
+        apply_inv(&revealed_permutation, &mut shuffled_input);
         Ok(shuffled_input)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use permutation::Permutation;
+    use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
     use tokio::try_join;
 
     use crate::{
         ff::Fp31,
-        protocol::{sort::apply::apply, QueryId},
+        protocol::{sort::apply::apply_inv, QueryId},
         test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
     };
 
@@ -81,30 +91,32 @@ mod tests {
         const BATCHSIZE: usize = 25;
         for _ in 0..10 {
             let mut rng = rand::thread_rng();
-            let input: Vec<u128> = (0..(BATCHSIZE as u128)).collect();
+            let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE);
+            for _ in 0..BATCHSIZE {
+                input.push(rng.gen::<u128>() % 31_u128);
+            }
 
             let mut permutation: Vec<usize> = (0..BATCHSIZE).collect();
             permutation.shuffle(&mut rng);
 
             let mut expected_result = input.clone();
-            let cloned_perm = Permutation::oneline(permutation.clone());
             // The actual paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(perm.inverse(), input))
             // Since this is same as apply(perm, input), we are doing that instead both in the code and in the test.
 
             // Applying permutation on the input in clear to get the expected result
-            apply(cloned_perm, &mut expected_result);
+            apply_inv(&permutation, &mut expected_result);
 
             let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
 
-            let perm_shares = generate_shares::<Fp31>(permutation);
+            let mut perm_shares = generate_shares::<Fp31>(permutation);
             let mut input_shares = generate_shares::<Fp31>(input);
 
             let world = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = SecureApplyInv::execute(ctx0, input_shares.0, perm_shares.0);
-            let h1_future = SecureApplyInv::execute(ctx1, input_shares.1, perm_shares.1);
-            let h2_future = SecureApplyInv::execute(ctx2, input_shares.2, perm_shares.2);
+            let h0_future = SecureApplyInv::execute(ctx0, &mut input_shares.0, &mut perm_shares.0);
+            let h1_future = SecureApplyInv::execute(ctx1, &mut input_shares.1, &mut perm_shares.1);
+            let h2_future = SecureApplyInv::execute(ctx2, &mut input_shares.2, &mut perm_shares.2);
 
             input_shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
