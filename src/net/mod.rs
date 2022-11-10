@@ -2,6 +2,7 @@
 #![allow(clippy::type_repetition_in_bounds)]
 
 mod client;
+mod http_network;
 mod server;
 
 pub mod discovery;
