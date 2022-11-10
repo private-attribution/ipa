@@ -1,5 +1,5 @@
 use crate::ff::Field;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use rand::Rng;
 use rand::RngCore;
 
@@ -16,6 +16,24 @@ pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] 
         Replicated::new(x2, x3),
         Replicated::new(x3, x1),
     ]
+}
+
+/// Shares `input` into 3 maliciously secure replicated secret shares using the provided `rng` implementation
+///
+#[allow(clippy::missing_panics_doc)]
+pub fn share_malicious<F: Field, R: RngCore>(
+    input: F,
+    r: [Replicated<F>; 3],
+    rng: &mut R,
+) -> [MaliciousReplicated<F>; 3] {
+    share(input, rng)
+        .iter()
+        .enumerate()
+        .map(|(i, share)| MaliciousReplicated::new(*share, r[i]))
+        // TODO: each_ref when stable
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
 }
 
 /// Validates correctness of the secret sharing scheme.

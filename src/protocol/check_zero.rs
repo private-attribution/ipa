@@ -1,8 +1,9 @@
 use crate::protocol::mul::SecureMul;
+use crate::protocol::reveal::Reveal;
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, reveal::reveal, RecordId},
+    protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 use serde::{Deserialize, Serialize};
@@ -72,7 +73,10 @@ pub async fn check_zero<F: Field>(
         .narrow(&Step::MultiplyWithR)
         .multiply(record_id, r_sharing, v)
         .await?;
-    let rv = reveal(ctx.narrow(&Step::RevealR), record_id, rv_share).await?;
+    let rv = ctx
+        .narrow(&Step::RevealR)
+        .reveal(record_id, rv_share)
+        .await?;
 
     Ok(rv == F::ZERO)
 }

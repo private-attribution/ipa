@@ -19,7 +19,7 @@ use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, S: SecretSharing<F>, F> {
+pub struct ProtocolContext<'a, S, F> {
     role: Role,
     step: UniqueStepId,
     prss: &'a PrssEndpoint,
