@@ -1,6 +1,6 @@
 use crate::helpers::network::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Role;
-use crate::net::server::MpcHelperServerError;
+use crate::net::server::{MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, RecordId, UniqueStepId};
 use async_trait::async_trait;
@@ -63,13 +63,22 @@ impl<T> Clone for ReservedPermit<T> {
 
 /// Middleware that first reserves a permit on the channel to send messages to the messaging layer.
 /// Once reserved, adds the permit to the extension for retrieval from the handler.
-pub async fn obtain_permit_mw<T: Send + 'static, B>(
-    sender: mpsc::Sender<T>,
-    mut req: Request<B>,
+pub async fn obtain_permit_mw<B: Send>(
+    message_send_map: MessageSendMap,
+    req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, MpcHelperServerError> {
+    let mut req_parts = RequestParts::new(req);
+    let Path(query_id, _) = Path::from_request(&mut req_parts).await?;
+
+    let sender = message_send_map.get(query_id)?;
     let permit = sender.reserve_owned().await?;
-    req.extensions_mut().insert(ReservedPermit::new(permit));
+    req_parts
+        .extensions_mut()
+        .insert(ReservedPermit::new(permit));
+    let req = req_parts
+        .try_into_request()
+        .expect("request body should not have been modified");
     Ok(next.run(req).await)
 }
 
@@ -86,7 +95,7 @@ pub async fn handler(
     mut req: Request<Body>,
 ) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let Path(_query_id, step) = path;
+    let Path(_, step) = path;
     let channel_id = ChannelId {
         role: query.role,
         step,
@@ -120,8 +129,8 @@ pub async fn handler(
 mod tests {
     use super::*;
     use crate::net::{
-        BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME, DATA_SIZE_HEADER_NAME,
-        OFFSET_HEADER_NAME,
+        server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
+        DATA_SIZE_HEADER_NAME, OFFSET_HEADER_NAME,
     };
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
@@ -139,7 +148,8 @@ mod tests {
 
     async fn init_server() -> (u16, mpsc::Receiver<MessageChunks>) {
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
@@ -357,7 +367,8 @@ mod tests {
     async fn backpressure_applied() {
         const QUEUE_DEPTH: usize = 8;
         let (tx, mut rx) = mpsc::channel(QUEUE_DEPTH);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let mut r = server.router();
 
         // prepare req

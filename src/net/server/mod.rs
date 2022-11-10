@@ -1,10 +1,11 @@
 use crate::{
     error::BoxError,
     helpers::network::MessageChunks,
+    protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
 use axum::{
-    extract::rejection::{PathRejection, QueryRejection},
+    extract::rejection::QueryRejection,
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -13,11 +14,12 @@ use axum::{
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
 use metrics::increment_counter;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
@@ -31,8 +33,8 @@ pub enum MpcHelperServerError {
     MissingHeader(String),
     #[error("invalid header: {0}")]
     InvalidHeader(BoxError),
-    #[error(transparent)]
-    BadPathString(#[from] PathRejection),
+    #[error("bad path: {0}")]
+    BadPathString(#[source] BoxError),
     #[error(transparent)]
     BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
     #[error(transparent)]
@@ -41,6 +43,32 @@ pub enum MpcHelperServerError {
     SerdeError(#[from] serde_json::Error),
     #[error("could not forward messages: {0}")]
     SendError(BoxError),
+}
+
+impl MpcHelperServerError {
+    pub fn query_id_not_found(query_id: QueryId) -> MpcHelperServerError {
+        Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
+impl From<std::num::ParseIntError> for MpcHelperServerError {
+    fn from(err: std::num::ParseIntError) -> Self {
+        Self::InvalidHeader(err.into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
+impl From<axum::http::header::ToStrError> for MpcHelperServerError {
+    fn from(err: axum::http::header::ToStrError) -> Self {
+        Self::InvalidHeader(err.into())
+    }
+}
+
+impl From<axum::extract::rejection::PathRejection> for MpcHelperServerError {
+    fn from(err: axum::extract::rejection::PathRejection) -> Self {
+        Self::BadPathString(err.into())
+    }
 }
 
 /// [`From`] implementation for [`MpcServerError::SendError`].
@@ -56,20 +84,6 @@ impl<T> From<mpsc::error::SendError<T>> for MpcHelperServerError {
 impl<T> From<tokio_util::sync::PollSendError<T>> for MpcHelperServerError {
     fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
         Self::SendError(err.to_string().into())
-    }
-}
-
-/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
-impl From<std::num::ParseIntError> for MpcHelperServerError {
-    fn from(err: std::num::ParseIntError) -> Self {
-        Self::InvalidHeader(err.into())
-    }
-}
-
-/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
-impl From<axum::http::header::ToStrError> for MpcHelperServerError {
-    fn from(err: axum::http::header::ToStrError) -> Self {
-        Self::InvalidHeader(err.into())
     }
 }
 
@@ -89,6 +103,68 @@ impl IntoResponse for MpcHelperServerError {
     }
 }
 
+/// Provides a mapping of [`QueryId`]s to senders that forward data to a [`Network`]. Every time a
+/// new query is started, a [`Network`] is created to handle communication for that query. When the
+/// server receives a request, it must know which [`Network`] to forward that request to, so it
+/// holds this mapping to accomplish that.
+///
+/// Is shareable by `clone()`ing.
+#[derive(Clone)]
+pub struct MessageSendMap {
+    m: Arc<Mutex<HashMap<QueryId, mpsc::Sender<MessageChunks>>>>,
+}
+
+impl MessageSendMap {
+    /// returns the sender for a given query
+    /// # Errors
+    /// if sender does not exist
+    /// # Panics
+    /// if lock is already held by current thread
+    pub fn get(
+        &self,
+        query_id: QueryId,
+    ) -> Result<mpsc::Sender<MessageChunks>, MpcHelperServerError> {
+        self.m.lock().unwrap().get(&query_id).map_or_else(
+            || Err(MpcHelperServerError::query_id_not_found(query_id)),
+            |sender| Ok(sender.clone()),
+        )
+    }
+
+    /// adds a sender for a given query
+    /// # Panics
+    /// if lock is already held by current thread
+    pub fn insert(&self, query_id: QueryId, sender: mpsc::Sender<MessageChunks>) {
+        self.m.lock().unwrap().insert(query_id, sender);
+    }
+
+    /// removes a sender for a given query
+    /// # Panics
+    /// if lock is already held by current thread
+    pub fn remove(&self, query_id: QueryId) {
+        self.m.lock().unwrap().remove(&query_id);
+    }
+
+    /// initialize with a [`QueryId`] already inserted.
+    /// Intended to be used only in tests
+    #[cfg(test)]
+    #[must_use]
+    pub fn filled(tx: mpsc::Sender<MessageChunks>) -> MessageSendMap {
+        let mut map = HashMap::new();
+        map.insert(QueryId, tx);
+        MessageSendMap {
+            m: Arc::new(Mutex::new(map)),
+        }
+    }
+}
+
+impl Default for MessageSendMap {
+    fn default() -> Self {
+        Self {
+            m: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
 pub enum BindTarget {
@@ -100,13 +176,13 @@ pub enum BindTarget {
 /// For now, stub out gateway with simple send/receive
 /// TODO (ts): replace stub with real thing when [`Network`] is implemented
 pub struct MpcHelperServer {
-    tx: mpsc::Sender<MessageChunks>,
+    message_send_map: MessageSendMap,
 }
 
 impl MpcHelperServer {
     #[must_use]
-    pub fn new(tx: mpsc::Sender<MessageChunks>) -> Self {
-        MpcHelperServer { tx }
+    pub fn new(message_send_map: MessageSendMap) -> Self {
+        MpcHelperServer { message_send_map }
     }
 
     /// Axum router definition for MPC helper endpoint
@@ -115,9 +191,9 @@ impl MpcHelperServer {
         Router::new()
             .route("/query/:query_id/step/*step", post(handlers::query_handler))
             .layer({
-                let tx = self.tx.clone();
+                let message_send_map = self.message_send_map.clone();
                 middleware::from_fn(move |req, next| {
-                    handlers::obtain_permit_mw(tx.clone(), req, next)
+                    handlers::obtain_permit_mw(message_send_map.clone(), req, next)
                 })
             })
             .route("/echo", get(handlers::echo_handler))
@@ -172,6 +248,8 @@ impl MpcHelperServer {
 
 /// Returns `RustTlsConfig` instance configured with self-signed cert and key. Not intended to
 /// use in production, therefore it is hidden behind a feature flag.
+/// # Errors
+/// if cert is invalid
 #[cfg(any(test, feature = "self-signed-certs"))]
 pub async fn tls_config_from_self_signed_cert() -> std::io::Result<RustlsConfig> {
     let cert: &'static str = r#"
@@ -235,7 +313,7 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 #[cfg(test)]
 mod e2e_tests {
     use crate::net::server::handlers::EchoData;
-    use crate::net::server::{BindTarget, MpcHelperServer};
+    use crate::net::server::{BindTarget, MessageSendMap, MpcHelperServer};
     use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
     use hyper::{
         body,
@@ -284,7 +362,8 @@ mod e2e_tests {
     #[tokio::test]
     async fn can_do_http() {
         let (tx, _) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
@@ -311,7 +390,8 @@ mod e2e_tests {
     #[tokio::test]
     async fn can_do_https() {
         let (tx, _) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
@@ -356,7 +436,8 @@ mod e2e_tests {
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
         let (tx, _) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
 
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -381,7 +462,7 @@ mod e2e_tests {
             Some(request_count),
             get_counter_value(
                 Snapshotter::current_thread_snapshot().unwrap(),
-                REQUESTS_RECEIVED
+                REQUESTS_RECEIVED,
             )
         );
     }
@@ -390,7 +471,8 @@ mod e2e_tests {
     async fn request_version_metric() {
         DebuggingRecorder::per_thread().install().unwrap_or(());
         let (tx, _) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
 
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -418,21 +500,21 @@ mod e2e_tests {
             Some(1),
             get_counter_value(
                 Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_11)
+                RequestProtocolVersion::from(Version::HTTP_11),
             )
         );
         assert_eq!(
             Some(1),
             get_counter_value(
                 Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_2)
+                RequestProtocolVersion::from(Version::HTTP_2),
             )
         );
         assert_eq!(
             None,
             get_counter_value(
                 Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_3)
+                RequestProtocolVersion::from(Version::HTTP_3),
             )
         );
     }

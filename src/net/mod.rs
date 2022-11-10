@@ -10,7 +10,7 @@ pub mod http_network;
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
-pub use server::{BindTarget, MpcHelperServer};
+pub use server::{BindTarget, MessageSendMap, MpcHelperServer};
 use std::str::FromStr;
 
 use crate::net::server::MpcHelperServerError;
