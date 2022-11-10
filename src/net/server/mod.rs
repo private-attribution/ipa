@@ -22,7 +22,7 @@ use tracing::Span;
 pub mod handlers;
 
 #[derive(Error, Debug)]
-pub enum MpcServerError {
+pub enum MpcHelperServerError {
     #[error(transparent)]
     BadQueryString(#[from] QueryRejection),
     #[error("header not found: {0}")]
@@ -47,7 +47,7 @@ pub enum MpcServerError {
 
 /// [`From`] implementation for [`MpcServerError::SendError`].
 /// first call `to_string` so as to drop `T` from the [`MpcServerError`]
-impl<T> From<mpsc::error::SendError<T>> for MpcServerError {
+impl<T> From<mpsc::error::SendError<T>> for MpcHelperServerError {
     fn from(err: mpsc::error::SendError<T>) -> Self {
         Self::SendError(err.to_string().into())
     }
@@ -55,27 +55,27 @@ impl<T> From<mpsc::error::SendError<T>> for MpcServerError {
 
 /// [`From`] implementation for [`MpcServerError::SendError`].
 /// first call `to_string` to as to drop `T` from the [`MpcServerError`]
-impl<T> From<tokio_util::sync::PollSendError<T>> for MpcServerError {
+impl<T> From<tokio_util::sync::PollSendError<T>> for MpcHelperServerError {
     fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
         Self::SendError(err.to_string().into())
     }
 }
 
 /// [`From`] implementation for [`MpcServerError::InvalidHeader`]
-impl From<std::num::ParseIntError> for MpcServerError {
+impl From<std::num::ParseIntError> for MpcHelperServerError {
     fn from(err: std::num::ParseIntError) -> Self {
         Self::InvalidHeader(err.into())
     }
 }
 
 /// [`From`] implementation for [`MpcServerError::InvalidHeader`]
-impl From<axum::http::header::ToStrError> for MpcServerError {
+impl From<axum::http::header::ToStrError> for MpcHelperServerError {
     fn from(err: axum::http::header::ToStrError) -> Self {
         Self::InvalidHeader(err.into())
     }
 }
 
-impl IntoResponse for MpcServerError {
+impl IntoResponse for MpcHelperServerError {
     fn into_response(self) -> Response {
         let status_code = match &self {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
@@ -103,24 +103,21 @@ pub enum BindTarget {
 /// Contains all of the state needed to start the MPC server.
 /// For now, stub out gateway with simple send/receive
 /// TODO (ts): replace stub with real thing when [`Network`] is implemented
-pub struct MpcServer {
+pub struct MpcHelperServer {
     tx: mpsc::Sender<MessageChunks>,
 }
 
-impl MpcServer {
+impl MpcHelperServer {
     #[must_use]
     pub fn new(tx: mpsc::Sender<MessageChunks>) -> Self {
-        MpcServer { tx }
+        MpcHelperServer { tx }
     }
 
     /// Axum router definition for MPC helper endpoint
     #[must_use]
     pub(crate) fn router(&self) -> Router {
         Router::new()
-            .route(
-                "/mul/query-id/:query_id/step/*step",
-                post(handlers::mul_handler),
-            )
+            .route("/query/:query_id/step/*step", post(handlers::query_handler))
             .layer({
                 let tx = self.tx.clone();
                 middleware::from_fn(move |req, next| {
@@ -242,7 +239,7 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 #[cfg(test)]
 mod e2e_tests {
     use crate::net::server::handlers::EchoData;
-    use crate::net::server::{BindTarget, MpcServer};
+    use crate::net::server::{BindTarget, MpcHelperServer};
     use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
     use hyper::{
         body,
@@ -291,7 +288,7 @@ mod e2e_tests {
     #[tokio::test]
     async fn can_do_http() {
         let (tx, _) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
@@ -318,7 +315,7 @@ mod e2e_tests {
     #[tokio::test]
     async fn can_do_https() {
         let (tx, _) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
@@ -363,7 +360,7 @@ mod e2e_tests {
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
         let (tx, _) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
 
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -397,7 +394,7 @@ mod e2e_tests {
     async fn request_version_metric() {
         DebuggingRecorder::per_thread().install().unwrap_or(());
         let (tx, _) = mpsc::channel(1);
-        let server = MpcServer::new(tx);
+        let server = MpcHelperServer::new(tx);
 
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))

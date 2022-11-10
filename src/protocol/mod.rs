@@ -95,6 +95,15 @@ impl PartialEq for UniqueStepId {
 impl Eq for UniqueStepId {}
 
 impl UniqueStepId {
+    #[must_use]
+    pub fn from_step_id(step: &Self) -> Self {
+        Self {
+            id: step.id.clone(),
+            #[cfg(debug_assertions)]
+            used: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
@@ -156,7 +165,7 @@ pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
     /// Sort shares by the match key
-    Sort,
+    Sort(u8),
     /// Perform attribution.
     Attribution,
 }
@@ -165,9 +174,19 @@ impl Step for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
+        const SORT: [&str; 64] = [
+            "sort0", "sort1", "sort2", "sort3", "sort4", "sort5", "sort6", "sort7", "sort8",
+            "sort9", "sort10", "sort11", "sort12", "sort13", "sort14", "sort15", "sort16",
+            "sort17", "sort18", "sort19", "sort20", "sort21", "sort22", "sort23", "sort24",
+            "sort25", "sort26", "sort27", "sort28", "sort29", "sort30", "sort31", "sort32",
+            "sort33", "sort34", "sort35", "sort36", "sort37", "sort38", "sort39", "sort40",
+            "sort41", "sort42", "sort43", "sort44", "sort45", "sort46", "sort47", "sort48",
+            "sort49", "sort50", "sort51", "sort52", "sort53", "sort54", "sort55", "sort56",
+            "sort57", "sort58", "sort59", "sort60", "sort61", "sort62", "sort63",
+        ];
         match self {
             Self::ConvertShares => "convert",
-            Self::Sort => "sort",
+            Self::Sort(i) => SORT[usize::from(*i)],
             Self::Attribution => "attribution",
         }
     }
