@@ -1,20 +1,19 @@
 use crate::net::discovery::{peer, Error, PeerDiscovery};
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToPeerHttpConfig {
     origin: String,
     #[serde(with = "hex")]
     public_key: [u8; 32],
 }
 
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToPeerPrssConfig {
     #[serde(with = "hex")]
     public_key: [u8; 32],
 }
 
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToPeerConfig {
     http: ToPeerHttpConfig,
     prss: ToPeerPrssConfig,
@@ -22,7 +21,7 @@ struct ToPeerConfig {
 
 /// Values that are serializable and read from config. May need further processing when translating
 /// to [`peer::Config`].
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToConf {
     h1: ToPeerConfig,
     h2: ToPeerConfig,
@@ -74,8 +73,8 @@ impl Conf {
 }
 
 impl PeerDiscovery for Conf {
-    fn peers(&self) -> [peer::Config; 3] {
-        self.peers.clone()
+    fn peers(&self) -> &[peer::Config; 3] {
+        &self.peers
     }
 }
 
@@ -94,9 +93,9 @@ mod tests {
     const H1_PUBLIC_KEY: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
     const H2_PUBLIC_KEY: &str = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b";
     const H3_PUBLIC_KEY: &str = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074";
-    const H1_URI: &str = "http://localhost:3000";
-    const H2_URI: &str = "http://localhost:3001";
-    const H3_URI: &str = "http://localhost:3002";
+    const H1_URI: &str = "http://localhost:3000/";
+    const H2_URI: &str = "http://localhost:3001/";
+    const H3_URI: &str = "http://localhost:3002/";
     const EXAMPLE_CONFIG: &str = r#"
 [h1]
     [h1.http]
@@ -119,10 +118,6 @@ mod tests {
     [h3.prss]
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
-
-    fn origin_to_string(uri: &Uri) -> String {
-        format!("{}://{}", uri.scheme().unwrap(), uri.authority().unwrap())
-    }
 
     fn hex_str_to_public_key(hex_str: &str) -> x25519_dalek::PublicKey {
         let pk_bytes: [u8; 32] = hex::decode(hex_str)
@@ -192,19 +187,19 @@ mod tests {
             .expect("config should successfully be parsed");
         let peers = conf.peers();
         // H1
-        assert_eq!(origin_to_string(&peers[0].http.origin), H1_URI);
+        assert_eq!(peers[0].http.origin.to_string(), H1_URI);
         assert_eq!(
             peers[0].http.public_key,
             hex_str_to_public_key(H1_PUBLIC_KEY)
         );
         // H2
-        assert_eq!(origin_to_string(&peers[1].http.origin), H2_URI);
+        assert_eq!(peers[1].http.origin.to_string(), H2_URI);
         assert_eq!(
             peers[1].http.public_key,
             hex_str_to_public_key(H2_PUBLIC_KEY)
         );
         // H3
-        assert_eq!(origin_to_string(&peers[2].http.origin), H3_URI);
+        assert_eq!(peers[2].http.origin.to_string(), H3_URI);
         assert_eq!(
             peers[2].http.public_key,
             hex_str_to_public_key(H3_PUBLIC_KEY)
