@@ -109,10 +109,7 @@ pub async fn handler(
 mod tests {
     use super::*;
     use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
-    use crate::net::{
-        BindTarget, MpcServer, CONTENT_LENGTH_HEADER_NAME, DATA_SIZE_HEADER_NAME,
-        OFFSET_HEADER_NAME,
-    };
+    use crate::net::{BindTarget, MpcServer, CONTENT_LENGTH_HEADER_NAME, OFFSET_HEADER_NAME};
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
     use futures_util::FutureExt;
@@ -160,7 +157,6 @@ mod tests {
         let headers = RecordHeaders {
             content_length: body.len() as u32,
             offset,
-            data_size: MESSAGE_PAYLOAD_SIZE_BYTES as u32,
         };
         let body = Body::from(Bytes::from_static(body));
         headers
@@ -223,7 +219,6 @@ mod tests {
         step: String,
         role: String,
         offset_header: (HeaderName, HeaderValue),
-        data_size_header: (HeaderName, HeaderValue),
         body: &'static [u8],
     }
 
@@ -237,7 +232,6 @@ mod tests {
             let req_headers = req.headers_mut().unwrap();
             req_headers.insert(CONTENT_LENGTH_HEADER_NAME.clone(), self.body.len().into());
             req_headers.insert(self.offset_header.0, self.offset_header.1);
-            req_headers.insert(self.data_size_header.0, self.data_size_header.1);
 
             req.body(self.body.into()).unwrap()
         }
@@ -250,10 +244,6 @@ mod tests {
                 step: UniqueStepId::default().narrow("test").as_ref().to_owned(),
                 role: Role::H2.as_ref().to_owned(),
                 offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
-                data_size_header: (
-                    DATA_SIZE_HEADER_NAME.clone(),
-                    MESSAGE_PAYLOAD_SIZE_BYTES.into(),
-                ),
                 body: &[34; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize],
             }
         }
@@ -305,21 +295,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_data_size_header_name_fails() {
+    async fn wrong_body_size_is_rejected() {
         let req = OverrideReq {
-            data_size_header: (
-                HeaderName::from_static("datasize"),
-                MESSAGE_PAYLOAD_SIZE_BYTES.into(),
-            ),
-            ..Default::default()
-        };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_data_size_header_value_fails() {
-        let req = OverrideReq {
-            data_size_header: (DATA_SIZE_HEADER_NAME.clone(), 7.into()),
+            body: &[0; MESSAGE_PAYLOAD_SIZE_BYTES + 1],
             ..Default::default()
         };
         resp_eq(req, StatusCode::BAD_REQUEST).await;

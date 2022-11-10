@@ -106,7 +106,6 @@ impl MpcHttpConnection {
         let headers = RecordHeaders {
             content_length: args.messages.len() as u32,
             offset: args.offset,
-            data_size: args.data_size,
         };
         let req = headers
             .add_to(Request::post(uri))
