@@ -4,6 +4,8 @@
 mod client;
 mod server;
 
+pub mod discovery;
+
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
