@@ -1,4 +1,5 @@
 use crate::net::discovery::{peer, Error, PeerDiscovery};
+use std::str::FromStr;
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToPeerHttpConfig {
@@ -34,21 +35,6 @@ pub struct Conf {
 }
 
 impl Conf {
-    /// Reads config from `file_location`. Expects file to be json format
-    /// # Errors
-    /// if the file does not exist, or is in an invalid format
-    #[allow(dead_code)] // TODO: will use in upcoming PR
-    pub fn from_file(file_location: &str) -> Result<Self, Error> {
-        use config::{Config, File, FileFormat};
-
-        let to_conf: ToConf = Config::builder()
-            .add_source(File::new(file_location, FileFormat::Toml))
-            .build()?
-            .try_deserialize()?;
-
-        Self::from_file_conf(&to_conf)
-    }
-
     fn from_file_conf(to_conf: &ToConf) -> Result<Self, Error> {
         Ok(Self {
             peers: [
@@ -72,6 +58,24 @@ impl Conf {
     }
 }
 
+impl FromStr for Conf {
+    type Err = Error;
+
+    /// Reads config from `file_location`. Expects file to be json format
+    /// # Errors
+    /// if the file does not exist, or is in an invalid format
+    fn from_str(config_str: &str) -> Result<Self, Self::Err> {
+        use config::{Config, File, FileFormat};
+
+        let to_conf: ToConf = Config::builder()
+            .add_source(File::from_str(config_str, FileFormat::Toml))
+            .build()?
+            .try_deserialize()?;
+
+        Self::from_file_conf(&to_conf)
+    }
+}
+
 impl PeerDiscovery for Conf {
     fn peers(&self) -> &[peer::Config; 3] {
         &self.peers
@@ -83,12 +87,6 @@ mod tests {
     use super::*;
     use crate::helpers::Role;
     use hyper::Uri;
-    use rand::{
-        distributions::Alphanumeric,
-        {thread_rng, Rng},
-    };
-    use std::fs::File;
-    use std::io::Write;
 
     const H1_PUBLIC_KEY: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
     const H2_PUBLIC_KEY: &str = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b";
@@ -166,42 +164,6 @@ mod tests {
         );
         assert_eq!(
             conf.peers[Role::H3].http.public_key,
-            hex_str_to_public_key(H3_PUBLIC_KEY)
-        );
-    }
-
-    #[test]
-    fn config_from_file() {
-        let filename = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(20)
-            .map(char::from)
-            .collect::<String>();
-        let mut filepath = std::env::temp_dir();
-        filepath.push(format!("{filename}.toml"));
-
-        let mut file = File::create(&filepath).unwrap();
-        file.write_all(EXAMPLE_CONFIG.as_bytes()).unwrap();
-
-        let conf = Conf::from_file(filepath.to_str().unwrap())
-            .expect("config should successfully be parsed");
-        let peers = conf.peers();
-        // H1
-        assert_eq!(peers[0].http.origin.to_string(), H1_URI);
-        assert_eq!(
-            peers[0].http.public_key,
-            hex_str_to_public_key(H1_PUBLIC_KEY)
-        );
-        // H2
-        assert_eq!(peers[1].http.origin.to_string(), H2_URI);
-        assert_eq!(
-            peers[1].http.public_key,
-            hex_str_to_public_key(H2_PUBLIC_KEY)
-        );
-        // H3
-        assert_eq!(peers[2].http.origin.to_string(), H3_URI);
-        assert_eq!(
-            peers[2].http.public_key,
             hex_str_to_public_key(H3_PUBLIC_KEY)
         );
     }
