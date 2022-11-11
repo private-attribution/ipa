@@ -1,4 +1,4 @@
-use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
+use crate::helpers::network::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Role;
 use crate::net::server::MpcHelperServerError;
 use crate::net::RecordHeaders;

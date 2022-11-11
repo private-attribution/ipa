@@ -118,7 +118,7 @@ impl MpcHelperClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
+    use crate::helpers::network::{ChannelId, MessageChunks, MessageEnvelope};
     use crate::helpers::Role;
     use crate::net::{BindTarget, MpcHelperServer};
     use hyper_tls::native_tls::TlsConnector;

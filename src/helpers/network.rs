@@ -1,8 +1,15 @@
-use crate::helpers::{error::Error, Role};
-use crate::protocol::{RecordId, UniqueStepId};
+use crate::{
+    helpers::{error::Error, Role},
+    protocol::{RecordId, UniqueStepId},
+};
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{ready, Stream};
+use pin_project::pin_project;
 use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::sync::mpsc;
+use tokio_util::sync::{PollSendError, PollSender};
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.

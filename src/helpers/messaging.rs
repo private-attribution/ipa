@@ -9,7 +9,7 @@
 use crate::{
     helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
-    helpers::fabric::{ChannelId, MessageEnvelope, Network},
+    helpers::network::{ChannelId, MessageEnvelope, Network},
     helpers::Role,
     protocol::{RecordId, UniqueStepId},
 };

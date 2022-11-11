@@ -2,7 +2,7 @@ use crate::helpers::SendBufferConfig;
 use crate::{
     helpers::messaging::{Gateway, GatewayConfig},
     protocol::{prss::Endpoint as PrssEndpoint, QueryId},
-    test_fixture::{fabric::InMemoryNetwork, logging, make_participants},
+    test_fixture::{logging, make_participants, network::InMemoryNetwork},
 };
 use std::{fmt::Debug, sync::Arc};
 

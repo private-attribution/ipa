@@ -1,5 +1,5 @@
 use crate::helpers::buffers::fsv::FixedSizeByteVec;
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+use crate::helpers::network::{ChannelId, MessageEnvelope};
 use crate::protocol::RecordId;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -165,7 +165,7 @@ mod tests {
     use rand::thread_rng;
     use std::cmp::Ordering;
 
-    use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+    use crate::helpers::network::{ChannelId, MessageEnvelope};
 
     impl Clone for MessageEnvelope {
         fn clone(&self) -> Self {

@@ -1,12 +1,15 @@
-use crate::error::BoxError;
-use crate::helpers::Role;
-use crate::protocol::{RecordId, UniqueStepId};
+use crate::{
+    error::BoxError,
+    helpers::{
+        messaging::ReceiveRequest,
+        network::{ChannelId, MessageChunks, MessageEnvelope},
+        Role,
+    },
+    protocol::{RecordId, UniqueStepId},
+};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio_util::sync::PollSendError;
-
-use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope};
-use crate::helpers::messaging::ReceiveRequest;
 
 #[derive(Error, Debug)]
 pub enum Error {

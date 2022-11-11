@@ -2,10 +2,10 @@
 #![allow(clippy::type_repetition_in_bounds)]
 
 mod client;
-mod http_network;
 mod server;
 
 pub mod discovery;
+pub mod http_network;
 
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]

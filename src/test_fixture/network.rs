@@ -1,25 +1,19 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-
-use std::fmt::{Debug, Formatter};
-
-use std::pin::Pin;
-
-use crate::helpers;
-use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
-use crate::helpers::{Error, Role};
-use crate::protocol::UniqueStepId;
+use crate::{
+    helpers::{
+        self,
+        network::{ChannelId, MessageChunks, MessageEnvelope, Network, NetworkSink},
+        Error, Role,
+    },
+    protocol::UniqueStepId,
+};
 use async_trait::async_trait;
-use futures::Sink;
 use futures::StreamExt;
 use futures_util::stream::{FuturesUnordered, SelectAll};
-use pin_project::pin_project;
+use std::collections::{hash_map::Entry, HashMap};
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex, Weak};
-use std::task::{Context, Poll};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::PollSender;
 use tracing::Instrument;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
@@ -53,12 +47,6 @@ pub struct InMemoryEndpoint {
 pub struct InMemoryChannel {
     dest: Role,
     tx: Sender<Vec<MessageEnvelope>>,
-}
-
-#[pin_project]
-pub struct InMemorySink {
-    #[pin]
-    sender: PollSender<MessageChunks>,
 }
 
 impl InMemoryNetwork {
@@ -188,12 +176,12 @@ impl InMemoryEndpoint {
 
 #[async_trait]
 impl Network for Arc<InMemoryEndpoint> {
-    type Sink = InMemorySink;
+    type Sink = NetworkSink<MessageChunks>;
     type MessageStream = ReceiverStream<MessageChunks>;
 
     fn sink(&self) -> Self::Sink {
         let x = self.chunks_sender.clone();
-        InMemorySink::new(x)
+        Self::Sink::new(x)
     }
 
     fn recv_stream(&self) -> Self::MessageStream {
@@ -222,48 +210,5 @@ impl Debug for ControlMessage {
                 write!(f, "ConnectionRequest(from={:?}, step={:?})", channel, step)
             }
         }
-    }
-}
-
-impl InMemorySink {
-    #[must_use]
-    pub fn new(sender: Sender<MessageChunks>) -> Self {
-        Self {
-            sender: PollSender::new(sender),
-        }
-    }
-}
-
-impl Sink<MessageChunks> for InMemorySink {
-    type Error = Error;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let this = self.project();
-        this.sender.poll_ready(cx).map_err(|e| Error::NetworkError {
-            inner: e.to_string().into(),
-        })
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: MessageChunks) -> Result<(), Self::Error> {
-        let this = self.project();
-        this.sender
-            .start_send(item)
-            .map_err(|e| Error::NetworkError {
-                inner: e.to_string().into(),
-            })
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let this = self.project();
-        this.sender.poll_flush(cx).map_err(|e| Error::NetworkError {
-            inner: e.to_string().into(),
-        })
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        let this = self.project();
-        this.sender.poll_close(cx).map_err(|e| Error::NetworkError {
-            inner: e.to_string().into(),
-        })
     }
 }

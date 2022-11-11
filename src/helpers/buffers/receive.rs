@@ -1,4 +1,4 @@
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+use crate::helpers::network::{ChannelId, MessageEnvelope};
 use crate::protocol::RecordId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
