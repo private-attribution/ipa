@@ -9,12 +9,12 @@ use std::fmt::Debug;
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
-pub struct SecureMul<'a, F: Field> {
+pub struct SemiHonestMul<'a, F: Field> {
     ctx: ProtocolContext<'a, Replicated<F>, F>,
     record_id: RecordId,
 }
 
-impl<'a, F: Field> SecureMul<'a, F> {
+impl<'a, F: Field> SemiHonestMul<'a, F> {
     #[must_use]
     pub fn new(ctx: ProtocolContext<'a, Replicated<F>, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }

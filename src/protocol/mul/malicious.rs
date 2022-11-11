@@ -46,13 +46,13 @@ impl AsRef<str> for Step {
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
-pub struct SecureMul<'a, F: Field> {
+pub struct MaliciouslySecureMul<'a, F: Field> {
     ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
     record_id: RecordId,
     accumulator: SecurityValidatorAccumulator<F>,
 }
 
-impl<'a, F: Field> SecureMul<'a, F> {
+impl<'a, F: Field> MaliciouslySecureMul<'a, F> {
     #[must_use]
     pub fn new(
         ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,

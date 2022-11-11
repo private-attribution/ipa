@@ -23,7 +23,7 @@ pub trait SecureMul<F: Field> {
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
-pub use {malicious::SecureMul as MaliciouslySecureMul, semi_honest::SecureMul as SemiHonestMul};
+pub use {malicious::MaliciouslySecureMul, semi_honest::SemiHonestMul};
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
