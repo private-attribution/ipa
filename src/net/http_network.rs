@@ -1,11 +1,13 @@
 use crate::{
     helpers::network::{MessageChunks, Network, NetworkSink},
     net::{
+        client::HttpSendMessagesArgs,
         discovery::{peer, PeerDiscovery},
         MpcHelperClient,
     },
     protocol::QueryId,
 };
+use axum::body::Bytes;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -19,39 +21,69 @@ pub struct HttpNetwork<'a> {
     peers: &'a [peer::Config; 3],
     query_id: QueryId,
     sink_sender: mpsc::Sender<MessageChunks>,
-    sink_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
     message_stream_sender: mpsc::Sender<MessageChunks>,
     message_stream_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
 }
 
 impl<'a> HttpNetwork<'a> {
+    /// * Creates an [`HttpNetwork`]
+    /// * spawns a task that consumes incoming data from the infra layer intended for other helpers
     #[must_use]
     #[allow(unused)]
     pub fn new<'b: 'a, D: PeerDiscovery>(peer_discovery: &'b D, query_id: QueryId) -> Self {
-        let (stx, srx) = mpsc::channel(1);
+        let (stx, mut srx) = mpsc::channel(1);
         let (mstx, msrx) = mpsc::channel(1);
-        HttpNetwork {
+        let network = HttpNetwork {
             peers: peer_discovery.peers(),
             query_id,
             sink_sender: stx,
-            sink_receiver: Arc::new(Mutex::new(Some(srx))),
             message_stream_sender: mstx,
             message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
-        }
-    }
+        };
 
-    /// TODO: implement event loop for receiving.
-    ///       this function will be removed when that loop exists
-    /// # Panics
-    /// if called more than once
-    #[must_use]
-    #[allow(unused)] // See TODO
-    pub fn recv_messages(&self) -> mpsc::Receiver<MessageChunks> {
-        self.sink_receiver
-            .lock()
-            .unwrap()
-            .take()
-            .expect("recv_messages called more than once")
+        let clients = network.clients();
+        tokio::spawn(async move {
+            while let Some((channel_id, messages)) = srx.recv().await {
+                let offset = if let Some(message) = messages.get(0) {
+                    message.record_id
+                } else {
+                    tracing::error!(
+                        "message chunk from channel id {}/{} should have at least 1 element, but had none",
+                        channel_id.role.as_ref(),
+                        channel_id.step.as_ref()
+                    );
+                    continue;
+                };
+                // TODO: obsolete value to be removed
+                let data_size = messages[0].payload.len();
+
+                let messages = messages.iter().fold(
+                    Vec::with_capacity(messages.len() * data_size),
+                    |mut acc, x| {
+                        acc.append(&mut x.payload.to_vec());
+                        acc
+                    },
+                );
+
+                #[allow(clippy::cast_possible_truncation)] // data_size is known to be small
+                let args = HttpSendMessagesArgs {
+                    query_id,
+                    step: &channel_id.step,
+                    role: channel_id.role,
+                    offset: offset.into(),
+                    data_size: data_size as u32,
+                    messages: Bytes::from(messages),
+                };
+
+                clients[channel_id.role]
+                    .send_messages(args)
+                    .await
+                    .unwrap_or_else(|err| {
+                        tracing::error!("could not send message to client: {err}");
+                    });
+            }
+        });
+        network
     }
 
     #[must_use]
