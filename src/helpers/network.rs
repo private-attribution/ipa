@@ -54,3 +54,48 @@ impl Debug for ChannelId {
         write!(f, "channel[peer={:?},step={:?}]", self.role, self.step)
     }
 }
+
+/// Wrapper around a [`PollSender`] to modify the error message to match what the [`Network`] trait
+/// requires. The only error that [`PollSender`] will generate is "channel closed", and thus is the
+/// only error message forwarded from this [`Sink`].
+#[pin_project]
+pub struct NetworkSink<T> {
+    #[pin]
+    inner: PollSender<T>,
+}
+
+impl<T: Send + 'static> NetworkSink<T> {
+    #[must_use]
+    pub fn new(sender: mpsc::Sender<T>) -> Self {
+        Self {
+            inner: PollSender::new(sender),
+        }
+    }
+}
+
+impl<T: Send + 'static> futures::Sink<T> for NetworkSink<T>
+where
+    Error: From<PollSendError<T>>,
+{
+    type Error = Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        ready!(self.project().inner.poll_ready(cx)?);
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        self.project().inner.start_send(item)?;
+        Ok(())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        ready!(self.project().inner.poll_flush(cx)?);
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        ready!(self.project().inner.poll_close(cx))?;
+        Poll::Ready(Ok(()))
+    }
+}
