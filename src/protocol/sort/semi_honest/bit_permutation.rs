@@ -84,14 +84,14 @@ impl<'a, F: Field> BitPermutation<'a, F> {
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::mock::StepRng;
-    use tokio::try_join;
-
+    use super::BitPermutation;
     use crate::{
         ff::Fp31,
-        protocol::{sort::bit_permutation::BitPermutation, QueryId},
+        protocol::QueryId,
         test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
     };
+    use rand::rngs::mock::StepRng;
+    use tokio::try_join;
 
     #[tokio::test]
     pub async fn bit_permutation() {

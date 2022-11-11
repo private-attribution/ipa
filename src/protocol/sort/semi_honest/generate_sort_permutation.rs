@@ -2,16 +2,18 @@ use crate::{
     error::BoxError,
     ff::Field,
     protocol::{
-        context::ProtocolContext,
-        modulus_conversion::convert_shares::convert_shares_for_a_bit,
-        sort::bit_permutation::BitPermutation,
-        sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion},
+        context::ProtocolContext, modulus_conversion::convert_shares::convert_shares_for_a_bit,
         IpaProtocolStep::Sort,
     },
     secret_sharing::Replicated,
 };
 
-use super::{compose::Compose, secureapplyinv::SecureApplyInv};
+use super::{
+    bit_permutation::BitPermutation,
+    compose::Compose,
+    secureapplyinv::SecureApplyInv,
+    SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion},
+};
 use embed_doc_image::embed_doc_image;
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
@@ -95,15 +97,15 @@ impl<'a> GenerateSortPermutation<'a> {
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
-    use rand::Rng;
-
+    use super::GenerateSortPermutation;
     use crate::{
         error::BoxError,
         ff::Fp32BitPrime,
-        protocol::{sort::generate_sort_permutation::GenerateSortPermutation, QueryId},
+        protocol::QueryId,
         test_fixture::{logging, make_contexts, make_world, validate_list_of_shares},
     };
+    use futures::future::try_join_all;
+    use rand::Rng;
 
     #[tokio::test]
     pub async fn generate_sort_permutation() -> Result<(), BoxError> {

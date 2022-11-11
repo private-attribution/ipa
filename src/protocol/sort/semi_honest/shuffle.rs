@@ -9,12 +9,16 @@ use crate::{
     error::BoxError,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Step},
+    protocol::{
+        context::ProtocolContext,
+        prss::IndexedSharedRandomness,
+        sort::apply::{apply, apply_inv},
+        RecordId, Step,
+    },
     secret_sharing::Replicated,
 };
 
 use super::{
-    apply::{apply, apply_inv},
     reshare::Reshare,
     ShuffleStep::{self, Step1, Step2, Step3},
 };
@@ -199,21 +203,18 @@ impl<F: Field> Shuffle<F> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
+    use super::{get_two_of_three_random_permutations, Shuffle, ShuffleOrUnshuffle};
     use crate::test_fixture::logging;
     use crate::{
         ff::Fp31,
-        protocol::{
-            sort::shuffle::{get_two_of_three_random_permutations, Shuffle, ShuffleOrUnshuffle},
-            QueryId, UniqueStepId,
-        },
+        protocol::{QueryId, UniqueStepId},
         test_fixture::{
             generate_shares, make_contexts, make_participants, make_world, narrow_contexts,
             validate_and_reconstruct, TestWorld,
         },
     };
     use permutation::Permutation;
+    use std::collections::HashSet;
     use tokio::try_join;
 
     #[test]

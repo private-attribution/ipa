@@ -1,18 +1,14 @@
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{
-        context::ProtocolContext,
-        reveal::reveal_permutation,
-        sort::ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
-    },
+    protocol::{context::ProtocolContext, reveal::reveal_permutation, sort::apply::apply},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 
 use super::{
-    apply::apply,
     shuffle::{get_two_of_three_random_permutations, Shuffle},
+    ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
 };
 use futures::future::try_join;
 

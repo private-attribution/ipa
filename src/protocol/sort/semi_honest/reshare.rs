@@ -80,16 +80,16 @@ impl<F: Field> Reshare<F> {
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::Rng;
-    use rand::rngs::mock::StepRng;
-    use tokio::try_join;
-
+    use super::Reshare;
     use crate::{
         ff::Fp31,
         helpers::Role,
-        protocol::{sort::reshare::Reshare, QueryId, RecordId},
+        protocol::{QueryId, RecordId},
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
+    use proptest::prelude::Rng;
+    use rand::rngs::mock::StepRng;
+    use tokio::try_join;
 
     #[tokio::test]
     pub async fn reshare() {

@@ -1,13 +1,12 @@
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, reveal::reveal_permutation},
+    protocol::{context::ProtocolContext, reveal::reveal_permutation, sort::apply::apply_inv},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 
 use super::{
-    apply::apply_inv,
     shuffle::{get_two_of_three_random_permutations, Shuffle},
     ComposeStep::{RevealPermutation, ShuffleSigma, UnshuffleRho},
 };
@@ -60,21 +59,18 @@ impl Compose {
 
 #[cfg(test)]
 mod tests {
-    use permutation::Permutation;
-    use rand::seq::SliceRandom;
-    use tokio::try_join;
-
+    use super::Compose;
     use crate::{
         error::BoxError,
         ff::Fp31,
-        protocol::{
-            sort::{apply::apply_inv, compose::Compose},
-            QueryId,
-        },
+        protocol::{sort::apply::apply_inv, QueryId},
         test_fixture::{
             generate_shares, make_contexts, make_world, validate_list_of_shares, TestWorld,
         },
     };
+    use permutation::Permutation;
+    use rand::seq::SliceRandom;
+    use tokio::try_join;
 
     #[tokio::test]
     pub async fn compose() -> Result<(), BoxError> {
