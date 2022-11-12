@@ -9,11 +9,10 @@ use crate::helpers::Role;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Step;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{Replicated, SecretSharing};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
-use crate::protocol::malicious::SecurityValidator;
 pub use sharing::{share, share_malicious, validate_and_reconstruct, validate_list_of_shares};
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
@@ -36,18 +35,6 @@ pub fn make_contexts<F: Field>(
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
-}
-
-/// Creates malicious protocol contexts for 3 helpers
-pub fn make_malicious_contexts<F: Field>(
-    test_world: &TestWorld,
-) -> [ProtocolContext<'_, MaliciousReplicated<F>, F>; 3] {
-    make_contexts(test_world).map(|ctx| {
-        let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
-        let acc = v.accumulator();
-
-        ctx.upgrade_to_malicious(acc)
-    })
 }
 
 /// Narrows a set of contexts all at once.

@@ -128,6 +128,7 @@ mod tests {
     use proptest::prelude::Rng;
     use tokio::try_join;
 
+    use crate::protocol::malicious::SecurityValidator;
     use crate::{
         error::BoxError,
         error::Error,
@@ -136,8 +137,7 @@ mod tests {
         protocol::reveal::Reveal,
         protocol::{context::ProtocolContext, QueryId, RecordId},
         secret_sharing::MaliciousReplicated,
-        test_fixture::{make_contexts, make_world, share, TestWorld},
-        test_fixture::{make_malicious_contexts, share_malicious},
+        test_fixture::{make_contexts, make_world, share, share_malicious, TestWorld},
     };
 
     #[tokio::test]
@@ -242,5 +242,18 @@ mod tests {
         .await?;
 
         Ok(left + right + share_from_left)
+    }
+
+    /// Creates malicious protocol contexts for 3 helpers. We drop security validator because
+    /// it is not used
+    fn make_malicious_contexts<F: Field>(
+        test_world: &TestWorld,
+    ) -> [ProtocolContext<'_, MaliciousReplicated<F>, F>; 3] {
+        make_contexts(test_world).map(|ctx| {
+            let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
+            let acc = v.accumulator();
+
+            ctx.upgrade_to_malicious(acc)
+        })
     }
 }
