@@ -13,6 +13,7 @@ pub use server::tls_config_from_self_signed_cert;
 pub use server::{BindTarget, MpcHelperServer};
 use std::str::FromStr;
 
+use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
 use crate::net::server::MpcHelperServerError;
 use crate::protocol::{QueryId, RecordId};
 use async_trait::async_trait;
@@ -22,25 +23,19 @@ use axum::http::header::HeaderName;
 
 /// name of the `offset` header to use for [`RecordHeaders`]
 static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
-/// name of the `data-size` header to use for [`RecordHeaders`]
-static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 /// name of the `content-type` header used to get the length of the body, to verify valid `data-size`
 static CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
 
 /// Headers that are expected on requests involving a batch of records.
 /// # `content_length`
-/// standard HTTP header representing length of entire body
+/// standard HTTP header representing length of entire body. Body length must be a multiple of
+/// `MESSAGE_PAYLOAD_SIZE_BYTES`
 /// # `offset`
 /// For any given batch, their `record_id`s must be known. The first record in the batch will have id
 /// `offset`, and subsequent records will be in-order from there.
-/// # `data_size`
-/// the batch will be transmitted as a single `Bytes` block, and the receiver will need to know how
-/// to divide up the block into individual records. `data_size` represents the number of bytes each
-/// record consists of
 pub struct RecordHeaders {
     content_length: u32,
     offset: u32,
-    data_size: u32,
 }
 
 impl RecordHeaders {
@@ -62,7 +57,6 @@ impl RecordHeaders {
     pub(crate) fn add_to(&self, req: axum::http::request::Builder) -> axum::http::request::Builder {
         req.header(CONTENT_LENGTH_HEADER_NAME.clone(), self.content_length)
             .header(OFFSET_HEADER_NAME.clone(), self.offset)
-            .header(DATA_SIZE_HEADER_NAME.clone(), self.data_size)
     }
 }
 
@@ -74,23 +68,16 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
         let content_length: u32 =
             RecordHeaders::get_header(req, CONTENT_LENGTH_HEADER_NAME.clone())?;
         let offset: u32 = RecordHeaders::get_header(req, OFFSET_HEADER_NAME.clone())?;
-        let data_size: u32 = RecordHeaders::get_header(req, DATA_SIZE_HEADER_NAME.clone())?;
-        // cannot divide by 0
-        if data_size == 0 {
-            Err(MpcHelperServerError::InvalidHeader(
-                "data-size header must not be 0".into(),
-            ))
-        }
-        // `data_size` NOT a multiple of `body_len`
-        else if content_length % data_size != 0 {
-            Err(MpcHelperServerError::InvalidHeader(
-                "data-size header does not align with body".into(),
-            ))
-        } else {
+        // content_length must be aligned with the size of an element
+        if content_length as usize % MESSAGE_PAYLOAD_SIZE_BYTES == 0 {
             Ok(RecordHeaders {
                 content_length,
                 offset,
-                data_size,
+            })
+        } else {
+            Err(MpcHelperServerError::WrongBodyLen {
+                body_len: content_length,
+                element_size: MESSAGE_PAYLOAD_SIZE_BYTES,
             })
         }
     }
