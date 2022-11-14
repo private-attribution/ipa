@@ -21,7 +21,6 @@ pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
                 pos_i = pos_j;
                 pos_j = permutation[pos_i] as usize;
             }
-            permuted.set(i, true);
         }
     }
 }
@@ -41,7 +40,6 @@ pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
                 permuted.set(destination, true);
                 destination = permutation[destination] as usize;
             }
-            permuted.set(i, true);
         }
     }
 }
