@@ -46,9 +46,6 @@ pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &Repl
         .map(|i| validate_and_reconstruct((result.0[i], result.1[i], result.2[i])))
         .collect();
 
-    println!("expected results: {:#?}", expected_result);
-    println!("revealed values: {:#?}", revealed_values);
-
     for i in 0..revealed_values.len() {
         assert_eq!(revealed_values[i], F::from(expected_result[i]));
     }
