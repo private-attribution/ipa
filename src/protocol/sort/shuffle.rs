@@ -226,18 +226,15 @@ mod tests {
 
     #[test]
     fn random_sequence_generated() {
-        const BATCH_SIZE: u32 = 10000;
+        const BATCH_SIZE: usize = 10000;
 
         logging::setup();
 
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
-        let perm1 =
-            get_two_of_three_random_permutations(BATCH_SIZE as usize, p1.indexed(&step).as_ref());
-        let perm2 =
-            get_two_of_three_random_permutations(BATCH_SIZE as usize, p2.indexed(&step).as_ref());
-        let perm3 =
-            get_two_of_three_random_permutations(BATCH_SIZE as usize, p3.indexed(&step).as_ref());
+        let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
+        let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
+        let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.indexed(&step).as_ref());
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
