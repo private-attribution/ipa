@@ -65,8 +65,7 @@ impl SecureApplyInv {
         .await?;
         let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sort_permutation).await?;
-        // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
-        // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
+
         apply_inv(&revealed_permutation, &mut shuffled_input);
         Ok(shuffled_input)
     }
@@ -88,20 +87,18 @@ mod tests {
 
     #[tokio::test]
     pub async fn secureapplyinv() {
-        const BATCHSIZE: usize = 25;
+        const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng = rand::thread_rng();
-            let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE);
+            let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE as usize);
             for _ in 0..BATCHSIZE {
                 input.push(rng.gen::<u128>() % 31_u128);
             }
 
-            let mut permutation: Vec<usize> = (0..BATCHSIZE).collect();
+            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
             permutation.shuffle(&mut rng);
 
             let mut expected_result = input.clone();
-            // The actual paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(perm.inverse(), input))
-            // Since this is same as apply(perm, input), we are doing that instead both in the code and in the test.
 
             // Applying permutation on the input in clear to get the expected result
             apply_inv(&permutation, &mut expected_result);
@@ -120,9 +117,9 @@ mod tests {
 
             input_shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
-            assert_eq!(input_shares.0.len(), BATCHSIZE);
-            assert_eq!(input_shares.1.len(), BATCHSIZE);
-            assert_eq!(input_shares.2.len(), BATCHSIZE);
+            assert_eq!(input_shares.0.len(), BATCHSIZE as usize);
+            assert_eq!(input_shares.1.len(), BATCHSIZE as usize);
+            assert_eq!(input_shares.2.len(), BATCHSIZE as usize);
 
             // We should get the same result of applying inverse as what we get when applying in clear
             validate_list_of_shares(&expected_result, &input_shares);

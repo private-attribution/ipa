@@ -85,17 +85,17 @@ mod tests {
 
     #[tokio::test]
     pub async fn compose() -> Result<(), BoxError> {
-        const BATCHSIZE: usize = 25;
+        const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
             let mut rng_rho = rand::thread_rng();
 
-            let mut sigma: Vec<usize> = (0..BATCHSIZE).collect();
+            let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
             sigma.shuffle(&mut rng_sigma);
 
             let sigma_u128: Vec<u128> = sigma.iter().map(|x| *x as u128).collect();
 
-            let mut rho: Vec<usize> = (0..BATCHSIZE).collect();
+            let mut rho: Vec<u32> = (0..BATCHSIZE).collect();
             rho.shuffle(&mut rng_rho);
             let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
 
@@ -113,9 +113,9 @@ mod tests {
 
             rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 
-            assert_eq!(rho_shares.0.len(), BATCHSIZE);
-            assert_eq!(rho_shares.1.len(), BATCHSIZE);
-            assert_eq!(rho_shares.2.len(), BATCHSIZE);
+            assert_eq!(rho_shares.0.len(), BATCHSIZE as usize);
+            assert_eq!(rho_shares.1.len(), BATCHSIZE as usize);
+            assert_eq!(rho_shares.2.len(), BATCHSIZE as usize);
 
             // We should get the same result of applying inverse of sigma on rho as in clear
             validate_list_of_shares(&rho_composed, &rho_shares);

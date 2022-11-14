@@ -39,7 +39,7 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 pub fn get_two_of_three_random_permutations(
     batchsize: usize,
     prss: &IndexedSharedRandomness,
-) -> (Vec<usize>, Vec<usize>) {
+) -> (Vec<u32>, Vec<u32>) {
     // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
     // We are using two seeds from prss to generate a seed for shuffle and concatenating them
     // Since reshare uses indexes 0..batchsize to generate random numbers from prss, we are using
@@ -57,8 +57,10 @@ pub fn get_two_of_three_random_permutations(
     seed_right.extend_from_slice(&randoms.0 .1.to_le_bytes());
     seed_right.extend_from_slice(&randoms.1 .1.to_le_bytes());
 
-    let mut permutations: (Vec<usize>, Vec<usize>) =
-        ((0..batchsize).collect(), (0..batchsize).collect());
+    let max_index: u32 = batchsize.try_into().unwrap();
+
+    let mut permutations: (Vec<u32>, Vec<u32>) =
+        ((0..max_index).collect(), (0..max_index).collect());
     // shuffle 0..N based on seed
     permutations
         .0
@@ -104,8 +106,8 @@ async fn reshare_all_shares<F: Field>(
 #[allow(clippy::cast_possible_truncation)]
 async fn shuffle_or_unshuffle_once<F: Field>(
     input: &mut [Replicated<F>],
-    permutation_left: &[usize],
-    permutation_right: &[usize],
+    permutation_left: &[u32],
+    permutation_right: &[u32],
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
     ctx: &ProtocolContext<'_, Replicated<F>, F>,
     which_step: ShuffleStep,
@@ -138,8 +140,8 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 /// ![Shuffle steps][shuffle]
 pub async fn shuffle_shares<F: Field>(
     input: &mut [Replicated<F>],
-    permutation_left: &[usize],
-    permutation_right: &[usize],
+    permutation_left: &[u32],
+    permutation_right: &[u32],
     ctx: ProtocolContext<'_, Replicated<F>, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let mut once_shuffled = shuffle_or_unshuffle_once(
@@ -177,8 +179,8 @@ pub async fn shuffle_shares<F: Field>(
 /// ![Unshuffle steps][unshuffle]
 pub async fn unshuffle_shares<F: Field>(
     input: &mut [Replicated<F>],
-    permutation_left: &[usize],
-    permutation_right: &[usize],
+    permutation_left: &[u32],
+    permutation_right: &[u32],
     ctx: ProtocolContext<'_, Replicated<F>, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let mut once_shuffled = shuffle_or_unshuffle_once(
@@ -233,15 +235,18 @@ mod tests {
 
     #[test]
     fn random_sequence_generated() {
-        const BATCH_SIZE: usize = 10000;
+        const BATCH_SIZE: u32 = 10000;
 
         logging::setup();
 
         let (p1, p2, p3) = make_participants();
         let step = UniqueStepId::default();
-        let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
-        let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
-        let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.indexed(&step).as_ref());
+        let perm1 =
+            get_two_of_three_random_permutations(BATCH_SIZE as usize, p1.indexed(&step).as_ref());
+        let perm2 =
+            get_two_of_three_random_permutations(BATCH_SIZE as usize, p2.indexed(&step).as_ref());
+        let perm3 =
+            get_two_of_three_random_permutations(BATCH_SIZE as usize, p3.indexed(&step).as_ref());
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);

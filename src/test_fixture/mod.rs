@@ -96,11 +96,11 @@ pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
     (shares0, shares1, shares2)
 }
 
-pub fn permutation_valid(permutation: &[usize]) -> bool {
+pub fn permutation_valid(permutation: &[u32]) -> bool {
     let mut c = permutation.to_vec();
     c.sort();
     for i in 0..c.len() {
-        assert_eq!(c[i], i);
+        assert_eq!(c[i] as usize, i);
     }
     true
 }

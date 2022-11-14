@@ -2,23 +2,14 @@ use bitvec::bitvec;
 use embed_doc_image::embed_doc_image;
 use std::mem;
 
-// TODO #OptimizeLater
-// For now, we are using Permutation crate to implement `apply_inv` and `apply` functions.
-// However this uses usize which is either 32-bit or 64-bit depending on the architecture we are using.
-// In our case, if we are sorting less than 2^32 elements (over 4 billion) 32-bits is sufficient.
-// We probably never need a 64-bit number and is not optimal.
-// It would even be cool to use a u16 if you're sorting less than 65,000 items
-// In future, we should plan to change this code to use u32 or u16 based on number of items
-
-#[embed_doc_image("apply", "images/sort/apply.png")]
-#[embed_doc_image("apply_inv", "images/sort/apply_inv.png")]
 #[embed_doc_image("apply", "images/sort/apply.png")]
 #[embed_doc_image("apply_inv", "images/sort/apply_inv.png")]
 
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
 /// ![Apply steps][apply]
-pub fn apply<T: Copy + Default>(permutation: &[usize], values: &mut [T]) {
+pub fn apply<T: Copy + Default>(permutation: &[u32], values: &mut [T]) {
+    debug_assert!(permutation.len() == values.len());
     let mut permuted = bitvec![0; permutation.len()];
     let mut tmp: T = T::default();
 
@@ -26,11 +17,11 @@ pub fn apply<T: Copy + Default>(permutation: &[usize], values: &mut [T]) {
         if permuted[i] == false {
             mem::swap(&mut tmp, &mut values[i]);
             let mut pos_i = i;
-            let mut pos_j = permutation[pos_i];
+            let mut pos_j: usize = permutation[pos_i] as usize;
             while pos_j != i {
                 values[pos_i] = values[pos_j];
                 pos_i = pos_j;
-                pos_j = permutation[pos_i];
+                pos_j = permutation[pos_i] as usize;
                 permuted.set(pos_i, true);
             }
             mem::swap(&mut values[pos_i], &mut tmp);
@@ -43,18 +34,18 @@ pub fn apply<T: Copy + Default>(permutation: &[usize], values: &mut [T]) {
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
 /// ![Apply inv steps][apply_inv]
-pub fn apply_inv<T: Copy + Default>(permutation: &[usize], values: &mut [T]) {
+pub fn apply_inv<T: Copy + Default>(permutation: &[u32], values: &mut [T]) {
     let mut permuted = bitvec![0; permutation.len()];
     let mut tmp: T;
 
     for i in 0..permutation.len() {
         if permuted[i] == false {
-            let mut destination = permutation[i];
+            let mut destination: usize = permutation[i] as usize;
             tmp = values[i];
             while destination != i {
                 mem::swap(&mut tmp, &mut values[destination]);
                 permuted.set(destination, true);
-                destination = permutation[destination];
+                destination = permutation[destination] as usize;
             }
             mem::swap(&mut values[i], &mut tmp);
             permuted.set(i, true);
