@@ -100,7 +100,6 @@ impl MpcHelperClient {
         let headers = RecordHeaders {
             content_length: args.messages.len() as u32,
             offset: args.offset,
-            data_size: args.data_size,
         };
         let req = headers
             .add_to(Request::post(uri))
@@ -118,21 +117,24 @@ impl MpcHelperClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers::network::{ChannelId, MessageChunks, MessageEnvelope};
-    use crate::helpers::Role;
-    use crate::net::server::MessageSendMap;
-    use crate::net::{BindTarget, MpcHelperServer};
+    use crate::{
+        helpers::{
+            network::{ChannelId, MessageChunks},
+            Role,
+        },
+        net::{server::MessageSendMap, BindTarget, MpcHelperServer},
+    };
     use hyper_tls::native_tls::TlsConnector;
     use tokio::sync::mpsc;
 
     async fn mul_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
-        const DATA_SIZE: u32 = 4;
+        const DATA_SIZE: u32 = 8;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = UniqueStepId::default().narrow("mul_test");
         let role = Role::H1;
         let offset = 0;
-        let messages = &[0; (DATA_SIZE * DATA_LEN) as usize];
+        let body = &[123; (DATA_SIZE * DATA_LEN) as usize];
 
         client
             .send_messages(HttpSendMessagesArgs {
@@ -141,21 +143,14 @@ mod tests {
                 role,
                 offset,
                 data_size: DATA_SIZE,
-                messages: Bytes::from_static(messages),
+                messages: Bytes::from_static(body),
             })
             .await
             .expect("send should succeed");
 
         let channel_id = ChannelId { role, step };
-        let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
-        let envs = (0..DATA_LEN)
-            .map(|i| MessageEnvelope {
-                record_id: i.into(),
-                payload: env.clone(),
-            })
-            .collect::<Vec<_>>();
         let server_recvd = rx.try_recv().unwrap(); // should already have been received
-        assert_eq!(server_recvd, (channel_id, envs));
+        assert_eq!(server_recvd, (channel_id, body.to_vec()));
     }
 
     #[tokio::test]

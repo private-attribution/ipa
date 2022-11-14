@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{error::Error, Role},
+    helpers::{error::Error, MessagePayload, Role},
     protocol::{RecordId, UniqueStepId},
 };
 use async_trait::async_trait;
@@ -22,10 +22,10 @@ pub struct ChannelId {
 #[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
-    pub payload: Box<[u8]>,
+    pub payload: MessagePayload,
 }
 
-pub type MessageChunks = (ChannelId, Vec<MessageEnvelope>);
+pub type MessageChunks = (ChannelId, Vec<u8>);
 
 /// Network interface for components that require communication.
 #[async_trait]

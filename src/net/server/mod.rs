@@ -33,6 +33,10 @@ pub enum MpcHelperServerError {
     MissingHeader(String),
     #[error("invalid header: {0}")]
     InvalidHeader(BoxError),
+    #[error(
+        "Request body length {body_len} is not aligned with size of the element {element_size}"
+    )]
+    WrongBodyLen { body_len: u32, element_size: usize },
     #[error("bad path: {0}")]
     BadPathString(#[source] BoxError),
     #[error(transparent)]
@@ -93,7 +97,9 @@ impl IntoResponse for MpcHelperServerError {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            Self::SerdeError(_) | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
+            Self::SerdeError(_) | Self::InvalidHeader(_) | Self::WrongBodyLen { .. } => {
+                StatusCode::BAD_REQUEST
+            }
             Self::HyperError(_) | Self::SendError(_) | Self::BodyAlreadyExtracted(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
