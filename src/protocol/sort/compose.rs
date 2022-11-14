@@ -93,11 +93,11 @@ mod tests {
             let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
             sigma.shuffle(&mut rng_sigma);
 
-            let sigma_u128: Vec<u128> = sigma.iter().map(|x| *x as u128).collect();
+            let sigma_u128: Vec<u128> = sigma.iter().map(|x| u128::from(*x)).collect();
 
             let mut rho: Vec<u32> = (0..BATCHSIZE).collect();
             rho.shuffle(&mut rng_rho);
-            let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
+            let rho_u128: Vec<u128> = rho.iter().map(|x| u128::from(*x)).collect();
 
             let mut rho_composed = rho_u128.clone();
             apply(&sigma, &mut rho_composed);

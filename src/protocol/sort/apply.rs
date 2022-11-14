@@ -14,7 +14,7 @@ pub fn apply<T: Copy + Default>(permutation: &[u32], values: &mut [T]) {
     let mut tmp: T = T::default();
 
     for i in 0..permutation.len() {
-        if permuted[i] == false {
+        if !permuted[i] {
             mem::swap(&mut tmp, &mut values[i]);
             let mut pos_i = i;
             let mut pos_j: usize = permutation[pos_i] as usize;
@@ -39,7 +39,7 @@ pub fn apply_inv<T: Copy + Default>(permutation: &[u32], values: &mut [T]) {
     let mut tmp: T;
 
     for i in 0..permutation.len() {
-        if permuted[i] == false {
+        if !permuted[i] {
             let mut destination: usize = permutation[i] as usize;
             tmp = values[i];
             while destination != i {

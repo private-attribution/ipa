@@ -103,7 +103,7 @@ mod tests {
             // Applying permutation on the input in clear to get the expected result
             apply_inv(&permutation, &mut expected_result);
 
-            let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
+            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
             let mut perm_shares = generate_shares::<Fp31>(permutation);
             let mut input_shares = generate_shares::<Fp31>(input);

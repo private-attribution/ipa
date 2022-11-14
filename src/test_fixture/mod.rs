@@ -96,11 +96,15 @@ pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
     (shares0, shares1, shares2)
 }
 
+/// # Panics
+/// Panics if the permutation is not a valid one.
+/// Here "valid" means it contains all the numbers in the range 0..length, and each only appears once.
+#[must_use]
 pub fn permutation_valid(permutation: &[u32]) -> bool {
     let mut c = permutation.to_vec();
-    c.sort();
-    for i in 0..c.len() {
-        assert_eq!(c[i] as usize, i);
+    c.sort_unstable();
+    for (i, position) in c.iter().enumerate() {
+        assert_eq!(*position as usize, i);
     }
     true
 }

@@ -148,15 +148,15 @@ mod tests {
         assert_eq!(result[2].len(), input_len);
 
         let mut mpc_sorted_list: Vec<u128> = (0..input_len).map(|i| i as u128).collect();
-        for i in 0..input_len {
+        for (i, match_key) in match_keys.iter().enumerate() {
             let index = validate_and_reconstruct((result[0][i], result[1][i], result[2][i]));
-            mpc_sorted_list[index.as_u128() as usize] = match_keys[i] as u128;
+            mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
         }
 
         let mut sorted_match_keys = match_keys.clone();
-        sorted_match_keys.sort();
+        sorted_match_keys.sort_unstable();
         for i in 0..input_len {
-            assert_eq!(sorted_match_keys[i] as u128, mpc_sorted_list[i]);
+            assert_eq!(u128::from(sorted_match_keys[i]), mpc_sorted_list[i]);
         }
 
         Ok(())
