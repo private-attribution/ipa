@@ -45,20 +45,18 @@ impl SecureApplyInv {
         input: Vec<Replicated<F>>,
         sort_permutation: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let (left_random_permutation, right_random_permutation) =
-            get_two_of_three_random_permutations(input.len(), &ctx.prss());
+        let prss = &ctx.prss();
+        let random_permutations = get_two_of_three_random_permutations(input.len(), prss);
 
         let (mut shuffled_input, shuffled_sort_permutation) = try_join(
             shuffle_shares(
                 input,
-                &left_random_permutation,
-                &right_random_permutation,
+                (&random_permutations.0, &random_permutations.1),
                 ctx.narrow(&ShuffleInputs),
             ),
             shuffle_shares(
                 sort_permutation,
-                &left_random_permutation,
-                &right_random_permutation,
+                (&random_permutations.0, &random_permutations.1),
                 ctx.narrow(&ShufflePermutation),
             ),
         )

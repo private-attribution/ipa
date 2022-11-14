@@ -39,13 +39,12 @@ impl Compose {
         sigma: Vec<Replicated<F>>,
         mut rho: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let (left_random_permutation, right_random_permutation) =
-            get_two_of_three_random_permutations(rho.len(), &ctx.prss());
+        let prss = &ctx.prss();
+        let random_permutations = get_two_of_three_random_permutations(rho.len(), prss);
 
         let shuffled_sigma = shuffle_shares(
             sigma,
-            &left_random_permutation,
-            &right_random_permutation,
+            (&random_permutations.0, &random_permutations.1),
             ctx.narrow(&ShuffleSigma),
         )
         .await?;
@@ -56,8 +55,7 @@ impl Compose {
 
         let unshuffled_rho = unshuffle_shares(
             rho,
-            &left_random_permutation,
-            &right_random_permutation,
+            (&random_permutations.0, &random_permutations.1),
             ctx.narrow(&UnshuffleRho),
         )
         .await?;
