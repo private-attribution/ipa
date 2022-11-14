@@ -1,5 +1,8 @@
 use crate::{
-    helpers::network::{MessageChunks, Network, NetworkSink},
+    helpers::{
+        network::{MessageChunks, Network, NetworkSink},
+        Role,
+    },
     net::{
         client::HttpSendMessagesArgs,
         discovery::{peer, PeerDiscovery},
@@ -30,7 +33,11 @@ impl<'a> HttpNetwork<'a> {
     /// * spawns a task that consumes incoming data from the infra layer intended for other helpers
     #[must_use]
     #[allow(unused)]
-    pub fn new<'b: 'a, D: PeerDiscovery>(peer_discovery: &'b D, query_id: QueryId) -> Self {
+    pub fn new<'b: 'a, D: PeerDiscovery>(
+        role: Role,
+        peer_discovery: &'b D,
+        query_id: QueryId,
+    ) -> Self {
         let (stx, mut srx) = mpsc::channel(1);
         let (mstx, msrx) = mpsc::channel(1);
         let network = HttpNetwork {
@@ -41,7 +48,7 @@ impl<'a> HttpNetwork<'a> {
             message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
         };
 
-        let clients = network.clients();
+        let clients = network.clients(role);
         tokio::spawn(async move {
             while let Some((channel_id, messages)) = srx.recv().await {
                 let offset = if let Some(message) = messages.get(0) {
@@ -69,7 +76,6 @@ impl<'a> HttpNetwork<'a> {
                 let args = HttpSendMessagesArgs {
                     query_id,
                     step: &channel_id.step,
-                    role: channel_id.role,
                     offset: offset.into(),
                     data_size: data_size as u32,
                     messages: Bytes::from(messages),
@@ -93,12 +99,12 @@ impl<'a> HttpNetwork<'a> {
     }
 
     #[allow(unused)]
-    fn clients(&self) -> [MpcHelperClient; 3] {
+    fn clients(&self, role: Role) -> [MpcHelperClient; 3] {
         self.peers
             .iter()
             .map(|peer_conf| {
                 // no https for now
-                MpcHelperClient::new(peer_conf.http.origin.clone())
+                MpcHelperClient::new(peer_conf.http.origin.clone(), role)
             })
             .collect::<Vec<_>>()
             .try_into()

@@ -20,7 +20,6 @@ use hyper_tls::HttpsConnector;
 pub struct HttpSendMessagesArgs<'a> {
     pub query_id: QueryId,
     pub step: &'a UniqueStepId,
-    pub role: Role,
     pub offset: u32,
     pub data_size: u32,
     pub messages: Bytes,
@@ -29,6 +28,7 @@ pub struct HttpSendMessagesArgs<'a> {
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
 #[derive(Clone)]
 pub struct MpcHelperClient {
+    role: Role,
     client: Client<HttpsConnector<HttpConnector>>,
     scheme: uri::Scheme,
     authority: uri::Authority,
@@ -39,12 +39,13 @@ impl MpcHelperClient {
     /// # Panics
     /// if addr does not have scheme and authority
     #[must_use]
-    pub fn new(addr: Uri) -> Self {
+    pub fn new(addr: Uri, role: Role) -> Self {
         // this works for both http and https
         let https = HttpsConnector::new();
         let client = Client::builder().build::<_, Body>(https);
         let parts = addr.into_parts();
         Self {
+            role,
             client,
             scheme: parts.scheme.unwrap(),
             authority: parts.authority.unwrap(),
@@ -54,8 +55,8 @@ impl MpcHelperClient {
     /// same as new, but first parses the addr from a [&str]
     /// # Errors
     /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, MpcHelperClientError> {
-        Ok(Self::new(addr.parse()?))
+    pub fn with_str_addr(addr: &str, role: Role) -> Result<Self, MpcHelperClientError> {
+        Ok(Self::new(addr.parse()?, role))
     }
 
     fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcHelperClientError>
@@ -94,7 +95,7 @@ impl MpcHelperClient {
             "/query/{}/step/{}?role={}",
             args.query_id.as_ref(),
             args.step.as_ref(),
-            args.role.as_ref(),
+            self.role.as_ref(),
         ))?;
         #[allow(clippy::cast_possible_truncation)] // `messages.len` is known to be smaller than u32
         let headers = RecordHeaders {
@@ -137,7 +138,6 @@ mod tests {
             .send_messages(HttpSendMessagesArgs {
                 query_id,
                 step: &step,
-                role,
                 offset,
                 data_size: DATA_SIZE,
                 messages: Bytes::from_static(messages),
@@ -168,7 +168,8 @@ mod tests {
 
         // setup client
         let client =
-            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", addr.port())).unwrap();
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", addr.port()), Role::H1)
+                .unwrap();
 
         // test
         mul_req(client, rx).await;
@@ -197,6 +198,7 @@ mod tests {
         let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
         let hyper_client = hyper::Client::builder().build(https);
         let client = MpcHelperClient {
+            role: Role::H1,
             client: hyper_client,
             scheme: uri::Scheme::HTTPS,
             authority: uri::Authority::try_from(format!("localhost:{}", addr.port())).unwrap(),
