@@ -27,7 +27,7 @@ pub struct HttpSendMessagesArgs<'a> {
 }
 
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>>,
     scheme: uri::Scheme,
