@@ -16,10 +16,12 @@ use crate::{
 
 use crate::ff::{Field, Int};
 use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
+use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::io;
+use tinyvec::array_vec;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
@@ -89,7 +91,7 @@ pub struct Mesh<'a, 'b> {
 pub(super) struct ReceiveRequest {
     pub channel_id: ChannelId,
     pub record_id: RecordId,
-    pub sender: oneshot::Sender<Box<[u8]>>,
+    pub sender: oneshot::Sender<MessagePayload>,
 }
 
 impl Mesh<'_, '_> {
@@ -104,11 +106,17 @@ impl Mesh<'_, '_> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        let mut buf = vec![0; T::SIZE_IN_BYTES as usize];
-        msg.serialize(&mut buf)
+        if T::SIZE_IN_BYTES as usize > MESSAGE_PAYLOAD_SIZE_BYTES {
+            Err(Error::serialization_error::<String>(record_id,
+                                      self.step,
+                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
+            )?;
+        }
+
+        let mut payload = array_vec![0; MESSAGE_PAYLOAD_SIZE_BYTES];
+        msg.serialize(&mut payload)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
-        let payload = buf.into_boxed_slice();
         let envelope = MessageEnvelope { record_id, payload };
 
         self.gateway
@@ -137,17 +145,6 @@ impl Mesh<'_, '_> {
 pub struct GatewayConfig {
     /// Configuration for send buffers. See `SendBufferConfig` for more details
     pub send_buffer_config: SendBufferConfig,
-    // ///
-    // pub items_in_batch: u32,
-    //
-    // /// How many messages can be sent in parallel. This value is picked arbitrarily as
-    // /// most unit tests don't send more than this value, so the setup does not have to
-    // /// be annoying. `items_in_batch` * `batch_count` defines the total capacity for
-    // /// send buffer. Increasing this value does not really impact the latency for tests
-    // /// because they flush the data to network once they've accumulated at least
-    // /// `items_in_batch` elements. Ofc setting it to some absurdly large value is going
-    // /// to be problematic from memory perspective.
-    // pub batch_count: u32,
 }
 
 impl Gateway {
@@ -173,11 +170,11 @@ impl Gateway {
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
                         tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
-                        receive_buf.receive_messages(&channel_id, messages);
+                        receive_buf.receive_messages(&channel_id, &messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
-                        if let Some(buf_to_send) = send_buf.push(&channel_id, msg).expect("Failed to append data to the send buffer") {
-                            tracing::trace!("sending {} message(s) to {:?}", buf_to_send.len(), &channel_id);
+                        if let Some(buf_to_send) = send_buf.push(&channel_id, &msg).expect("Failed to append data to the send buffer") {
+                            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await
                                 .expect("Failed to send data to the network");
                         }
@@ -215,7 +212,7 @@ impl Gateway {
         &self,
         channel_id: ChannelId,
         record_id: RecordId,
-    ) -> Result<Box<[u8]>, Error> {
+    ) -> Result<MessagePayload, Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(ReceiveRequest {
