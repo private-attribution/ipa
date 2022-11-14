@@ -36,8 +36,8 @@ impl Compose {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-        sigma: &mut [Replicated<F>],
-        rho: &mut [Replicated<F>],
+        sigma: Vec<Replicated<F>>,
+        mut rho: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let (left_random_permutation, right_random_permutation) =
             get_two_of_three_random_permutations(rho.len(), &ctx.prss());
@@ -52,7 +52,7 @@ impl Compose {
 
         let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
-        apply(&revealed_permutation, rho);
+        apply(&revealed_permutation, &mut rho);
 
         let unshuffled_rho = unshuffle_shares(
             rho,
@@ -102,14 +102,14 @@ mod tests {
             let mut rho_composed = rho_u128.clone();
             apply(&sigma, &mut rho_composed);
 
-            let mut sigma_shares = generate_shares::<Fp31>(sigma_u128);
+            let sigma_shares = generate_shares::<Fp31>(sigma_u128);
             let mut rho_shares = generate_shares::<Fp31>(rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = Compose::execute(ctx0, &mut sigma_shares.0, &mut rho_shares.0);
-            let h1_future = Compose::execute(ctx1, &mut sigma_shares.1, &mut rho_shares.1);
-            let h2_future = Compose::execute(ctx2, &mut sigma_shares.2, &mut rho_shares.2);
+            let h0_future = Compose::execute(ctx0, sigma_shares.0, rho_shares.0);
+            let h1_future = Compose::execute(ctx1, sigma_shares.1, rho_shares.1);
+            let h2_future = Compose::execute(ctx2, sigma_shares.2, rho_shares.2);
 
             rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 

@@ -63,7 +63,7 @@ impl<'a> GenerateSortPermutation<'a> {
         let mut composed_less_significant_bits_permutation = bit_0_permutation;
         for bit_num in 1..self.num_bits {
             let ctx_bit = ctx.narrow(&Sort(bit_num));
-            let mut bit_i = convert_shares_for_a_bit(
+            let bit_i = convert_shares_for_a_bit(
                 ctx_bit.narrow(&ModulusConversion),
                 self.input,
                 self.num_bits,
@@ -72,19 +72,19 @@ impl<'a> GenerateSortPermutation<'a> {
             .await?;
             let bit_i_sorted_by_less_significant_bits = SecureApplyInv::execute(
                 ctx_bit.narrow(&ApplyInv),
-                &mut bit_i,
-                &mut composed_less_significant_bits_permutation.clone(),
+                bit_i,
+                composed_less_significant_bits_permutation.clone(),
             )
             .await?;
 
-            let mut bit_i_permutation = BitPermutation::new(&bit_i_sorted_by_less_significant_bits)
+            let bit_i_permutation = BitPermutation::new(&bit_i_sorted_by_less_significant_bits)
                 .execute(ctx_bit.narrow(&BitPermutationStep))
                 .await?;
 
             let composed_i_permutation = Compose::execute(
                 ctx_bit.narrow(&ComposeStep),
-                &mut composed_less_significant_bits_permutation,
-                &mut bit_i_permutation,
+                composed_less_significant_bits_permutation,
+                bit_i_permutation,
             )
             .await?;
             composed_less_significant_bits_permutation = composed_i_permutation;

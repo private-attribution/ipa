@@ -87,7 +87,7 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
 
 #[allow(clippy::cast_possible_truncation)]
 async fn reshare_all_shares<F: Field>(
-    input: &mut [Replicated<F>],
+    input: Vec<Replicated<F>>,
     ctx: &ProtocolContext<'_, Replicated<F>, F>,
     to_helper: Role,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
@@ -105,7 +105,7 @@ async fn reshare_all_shares<F: Field>(
 /// iii) reshare to `to_helper`
 #[allow(clippy::cast_possible_truncation)]
 async fn shuffle_or_unshuffle_once<F: Field>(
-    input: &mut [Replicated<F>],
+    mut input: Vec<Replicated<F>>,
     permutation_left: &[u32],
     permutation_right: &[u32],
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
@@ -123,8 +123,8 @@ async fn shuffle_or_unshuffle_once<F: Field>(
         };
 
         match shuffle_or_unshuffle {
-            ShuffleOrUnshuffle::Shuffle => apply_inv(permutation_to_apply, input),
-            ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, input),
+            ShuffleOrUnshuffle::Shuffle => apply_inv(permutation_to_apply, &mut input),
+            ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut input),
         }
     }
     reshare_all_shares(input, &ctx, to_helper).await
@@ -139,12 +139,12 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
 /// ![Shuffle steps][shuffle]
 pub async fn shuffle_shares<F: Field>(
-    input: &mut [Replicated<F>],
+    input: Vec<Replicated<F>>,
     permutation_left: &[u32],
     permutation_right: &[u32],
     ctx: ProtocolContext<'_, Replicated<F>, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
-    let mut once_shuffled = shuffle_or_unshuffle_once(
+    let input = shuffle_or_unshuffle_once(
         input,
         permutation_left,
         permutation_right,
@@ -153,8 +153,8 @@ pub async fn shuffle_shares<F: Field>(
         Step1,
     )
     .await?;
-    let mut twice_shuffled = shuffle_or_unshuffle_once(
-        &mut once_shuffled,
+    let input = shuffle_or_unshuffle_once(
+        input,
         permutation_left,
         permutation_right,
         ShuffleOrUnshuffle::Shuffle,
@@ -163,7 +163,7 @@ pub async fn shuffle_shares<F: Field>(
     )
     .await?;
     shuffle_or_unshuffle_once(
-        &mut twice_shuffled,
+        input,
         permutation_left,
         permutation_right,
         ShuffleOrUnshuffle::Shuffle,
@@ -178,12 +178,12 @@ pub async fn shuffle_shares<F: Field>(
 /// Order of calling `shuffle_or_unshuffle_once` is shuffle with (H1, H2), (H3, H1) and (H2, H3)
 /// ![Unshuffle steps][unshuffle]
 pub async fn unshuffle_shares<F: Field>(
-    input: &mut [Replicated<F>],
+    input: Vec<Replicated<F>>,
     permutation_left: &[u32],
     permutation_right: &[u32],
     ctx: ProtocolContext<'_, Replicated<F>, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
-    let mut once_shuffled = shuffle_or_unshuffle_once(
+    let input = shuffle_or_unshuffle_once(
         input,
         permutation_left,
         permutation_right,
@@ -192,8 +192,8 @@ pub async fn unshuffle_shares<F: Field>(
         Step3,
     )
     .await?;
-    let mut twice_shuffled = shuffle_or_unshuffle_once(
-        &mut once_shuffled,
+    let input = shuffle_or_unshuffle_once(
+        input,
         permutation_left,
         permutation_right,
         ShuffleOrUnshuffle::Unshuffle,
@@ -202,7 +202,7 @@ pub async fn unshuffle_shares<F: Field>(
     )
     .await?;
     shuffle_or_unshuffle_once(
-        &mut twice_shuffled,
+        input,
         permutation_left,
         permutation_right,
         ShuffleOrUnshuffle::Unshuffle,
@@ -286,9 +286,9 @@ mod tests {
 
         let [c0, c1, c2] = context;
 
-        let h0_future = shuffle_shares(&mut shares.0, &perm1.0, &perm1.1, c0);
-        let h1_future = shuffle_shares(&mut shares.1, &perm2.0, &perm2.1, c1);
-        let h2_future = shuffle_shares(&mut shares.2, &perm3.0, &perm3.1, c2);
+        let h0_future = shuffle_shares(shares.0, &perm1.0, &perm1.1, c0);
+        let h1_future = shuffle_shares(shares.1, &perm2.0, &perm2.1, c1);
+        let h2_future = shuffle_shares(shares.2, &perm3.0, &perm3.1, c2);
 
         shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
@@ -336,17 +336,17 @@ mod tests {
 
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);
-            let h0_future = shuffle_shares(&mut shares.0, &perm1.0, &perm1.1, ctx0);
-            let h1_future = shuffle_shares(&mut shares.1, &perm2.0, &perm2.1, ctx1);
-            let h2_future = shuffle_shares(&mut shares.2, &perm3.0, &perm3.1, ctx2);
+            let h0_future = shuffle_shares(shares.0, &perm1.0, &perm1.1, ctx0);
+            let h1_future = shuffle_shares(shares.1, &perm2.0, &perm2.1, ctx1);
+            let h2_future = shuffle_shares(shares.2, &perm3.0, &perm3.1, ctx2);
 
             shares = try_join!(h0_future, h1_future, h2_future).unwrap();
         }
         {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Unshuffle);
-            let h0_future = unshuffle_shares(&mut shares.0, &perm1.0, &perm1.1, ctx0);
-            let h1_future = unshuffle_shares(&mut shares.1, &perm2.0, &perm2.1, ctx1);
-            let h2_future = unshuffle_shares(&mut shares.2, &perm3.0, &perm3.1, ctx2);
+            let h0_future = unshuffle_shares(shares.0, &perm1.0, &perm1.1, ctx0);
+            let h1_future = unshuffle_shares(shares.1, &perm2.0, &perm2.1, ctx1);
+            let h2_future = unshuffle_shares(shares.2, &perm3.0, &perm3.1, ctx2);
 
             // When unshuffle and shuffle are called with same step, they undo each other's effect
             shares = try_join!(h0_future, h1_future, h2_future).unwrap();

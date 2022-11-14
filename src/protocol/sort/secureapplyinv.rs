@@ -42,8 +42,8 @@ impl SecureApplyInv {
     /// 5. All helpers call `apply` to apply the permutation locally.
     pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-        input: &mut [Replicated<F>],
-        sort_permutation: &mut [Replicated<F>],
+        input: Vec<Replicated<F>>,
+        sort_permutation: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let (left_random_permutation, right_random_permutation) =
             get_two_of_three_random_permutations(input.len(), &ctx.prss());
@@ -105,15 +105,15 @@ mod tests {
 
             let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
-            let mut perm_shares = generate_shares::<Fp31>(permutation);
+            let perm_shares = generate_shares::<Fp31>(permutation);
             let mut input_shares = generate_shares::<Fp31>(input);
 
             let world = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = SecureApplyInv::execute(ctx0, &mut input_shares.0, &mut perm_shares.0);
-            let h1_future = SecureApplyInv::execute(ctx1, &mut input_shares.1, &mut perm_shares.1);
-            let h2_future = SecureApplyInv::execute(ctx2, &mut input_shares.2, &mut perm_shares.2);
+            let h0_future = SecureApplyInv::execute(ctx0, input_shares.0, perm_shares.0);
+            let h1_future = SecureApplyInv::execute(ctx1, input_shares.1, perm_shares.1);
+            let h2_future = SecureApplyInv::execute(ctx2, input_shares.2, perm_shares.2);
 
             input_shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
