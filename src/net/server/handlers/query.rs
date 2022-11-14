@@ -78,7 +78,7 @@ pub async fn obtain_permit_mw<B: Send>(
     let Extension(last_seen_messages) =
         Extension::<LastSeenMessages>::from_request(&mut req_parts).await?;
     // PANIC if messages arrive out of order
-    /// TODO (ts): remove this when streaming solution is complete
+    // TODO (ts): remove this when streaming solution is complete
     last_seen_messages
         .update_in_place(ChannelId::new(role, step), record_headers)
         .unwrap();
