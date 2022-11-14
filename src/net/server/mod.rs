@@ -1,6 +1,7 @@
 use crate::{
     error::BoxError,
-    helpers::network::MessageChunks,
+    helpers::network::{ChannelId, MessageChunks},
+    net::RecordHeaders,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -9,7 +10,7 @@ use axum::{
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
@@ -38,6 +39,10 @@ pub enum MpcHelperServerError {
     #[error(transparent)]
     BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
     #[error(transparent)]
+    MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
+    #[error("out-of-order delivery of data: expected index {last_seen}, but found {next_seen}")]
+    OutOfOrder { last_seen: u32, next_seen: u32 },
+    #[error(transparent)]
     HyperError(#[from] hyper::Error),
     #[error("parse error: {0}")]
     SerdeError(#[from] serde_json::Error),
@@ -48,6 +53,13 @@ pub enum MpcHelperServerError {
 impl MpcHelperServerError {
     pub fn query_id_not_found(query_id: QueryId) -> MpcHelperServerError {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
+    }
+
+    pub fn out_of_order(last_seen: u32, next_seen: u32) -> Self {
+        Self::OutOfOrder {
+            last_seen,
+            next_seen,
+        }
     }
 }
 
@@ -93,10 +105,13 @@ impl IntoResponse for MpcHelperServerError {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            Self::SerdeError(_) | Self::InvalidHeader(_) => StatusCode::BAD_REQUEST,
-            Self::HyperError(_) | Self::SendError(_) | Self::BodyAlreadyExtracted(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
+            Self::SerdeError(_) | Self::InvalidHeader(_) | Self::OutOfOrder { .. } => {
+                StatusCode::BAD_REQUEST
             }
+            Self::HyperError(_)
+            | Self::SendError(_)
+            | Self::BodyAlreadyExtracted(_)
+            | Self::MissingExtension(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status_code, self.to_string()).into_response()
@@ -165,6 +180,43 @@ impl Default for MessageSendMap {
     }
 }
 
+/// Keeps track of the last seen message for every [`ChannelId`]. This enables the server to ensure
+/// that messages arrive in-order. This solution is a temporary one intended to be removed once
+/// messages arrive in one stream, where ordering will be handled by http.
+/// TODO (ts): remove this when streaming solution is complete
+#[derive(Clone)]
+pub(crate) struct LastSeenMessages {
+    m: Arc<Mutex<HashMap<ChannelId, u32>>>,
+}
+
+impl LastSeenMessages {
+    pub fn update_in_place(
+        &self,
+        channel_id: ChannelId,
+        headers: RecordHeaders,
+    ) -> Result<(), MpcHelperServerError> {
+        let mut m = self.m.lock().unwrap();
+        let last_seen = m.entry(channel_id).or_default();
+        if *last_seen == headers.offset {
+            *last_seen += headers.content_length / headers.data_size;
+            Ok(())
+        } else {
+            Err(MpcHelperServerError::out_of_order(
+                *last_seen,
+                headers.offset,
+            ))
+        }
+    }
+}
+
+impl Default for LastSeenMessages {
+    fn default() -> Self {
+        Self {
+            m: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
 pub enum BindTarget {
@@ -177,12 +229,16 @@ pub enum BindTarget {
 /// TODO (ts): replace stub with real thing when [`Network`] is implemented
 pub struct MpcHelperServer {
     message_send_map: MessageSendMap,
+    last_seen_messages: LastSeenMessages,
 }
 
 impl MpcHelperServer {
     #[must_use]
     pub fn new(message_send_map: MessageSendMap) -> Self {
-        MpcHelperServer { message_send_map }
+        MpcHelperServer {
+            message_send_map,
+            last_seen_messages: LastSeenMessages::default(),
+        }
     }
 
     /// Axum router definition for MPC helper endpoint
@@ -190,12 +246,9 @@ impl MpcHelperServer {
     pub(crate) fn router(&self) -> Router {
         Router::new()
             .route("/query/:query_id/step/*step", post(handlers::query_handler))
-            .layer({
-                let message_send_map = self.message_send_map.clone();
-                middleware::from_fn(move |req, next| {
-                    handlers::obtain_permit_mw(message_send_map.clone(), req, next)
-                })
-            })
+            .layer(middleware::from_fn(handlers::obtain_permit_mw))
+            .layer(Extension(self.last_seen_messages.clone()))
+            .layer(Extension(self.message_send_map.clone()))
             .route("/echo", get(handlers::echo_handler))
     }
 

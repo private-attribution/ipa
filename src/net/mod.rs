@@ -37,6 +37,7 @@ static CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content
 /// the batch will be transmitted as a single `Bytes` block, and the receiver will need to know how
 /// to divide up the block into individual records. `data_size` represents the number of bytes each
 /// record consists of
+#[derive(Copy, Clone)]
 pub struct RecordHeaders {
     content_length: u32,
     offset: u32,

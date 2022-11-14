@@ -1,6 +1,6 @@
 use crate::helpers::network::{ChannelId, MessageChunks, MessageEnvelope};
 use crate::helpers::Role;
-use crate::net::server::{MessageSendMap, MpcHelperServerError};
+use crate::net::server::{LastSeenMessages, MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, RecordId, UniqueStepId};
 use async_trait::async_trait;
@@ -8,6 +8,7 @@ use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use axum::Extension;
 use hyper::Body;
 use tokio::sync::mpsc;
 
@@ -63,13 +64,27 @@ impl<T> Clone for ReservedPermit<T> {
 
 /// Middleware that first reserves a permit on the channel to send messages to the messaging layer.
 /// Once reserved, adds the permit to the extension for retrieval from the handler.
+/// # Panics
+/// if messages arrive out of order
 pub async fn obtain_permit_mw<B: Send>(
-    message_send_map: MessageSendMap,
     req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, MpcHelperServerError> {
     let mut req_parts = RequestParts::new(req);
-    let Path(query_id, _) = Path::from_request(&mut req_parts).await?;
+    let Path(query_id, step) = Path::from_request(&mut req_parts).await?;
+    let Query(RoleQueryParam { role }) =
+        Query::<RoleQueryParam>::from_request(&mut req_parts).await?;
+    let record_headers = RecordHeaders::from_request(&mut req_parts).await?;
+    let Extension(last_seen_messages) =
+        Extension::<LastSeenMessages>::from_request(&mut req_parts).await?;
+    // PANIC if messages arrive out of order
+    /// TODO (ts): remove this when streaming solution is complete
+    last_seen_messages
+        .update_in_place(ChannelId::new(role, step), record_headers)
+        .unwrap();
+
+    let Extension(message_send_map) =
+        Extension::<MessageSendMap>::from_request(&mut req_parts).await?;
 
     let sender = message_send_map.get(query_id)?;
     let permit = sender.reserve_owned().await?;
@@ -216,7 +231,7 @@ mod tests {
         let query_id = QueryId;
         let target_helper = Role::H2;
         let step = UniqueStepId::default().narrow("test");
-        let offset = 0;
+        let mut offset = 0;
         let body = &[0; (DATA_LEN * DATA_SIZE) as usize];
 
         // try a request 10 times
@@ -235,7 +250,7 @@ mod tests {
             let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
             let envs = (0..DATA_LEN)
                 .map(|i| MessageEnvelope {
-                    record_id: i.into(),
+                    record_id: (i + offset).into(),
                     payload: env.clone(),
                 })
                 .collect::<Vec<_>>();
@@ -243,6 +258,8 @@ mod tests {
             assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
             let messages = rx.try_recv().expect("should have already received value");
             assert_eq!(messages, (channel_id, envs));
+
+            offset += DATA_LEN;
         }
     }
 
@@ -375,10 +392,14 @@ mod tests {
         let query_id = QueryId;
         let step = UniqueStepId::default().narrow("test");
         let target_helper = Role::H2;
-        let offset = 0;
+        let mut offset = 0;
         let body = &[0; (DATA_LEN * DATA_SIZE) as usize];
 
-        let new_req = || build_req(0, query_id, &step, target_helper, offset, body);
+        let mut new_req = || {
+            let req = build_req(0, query_id, &step, target_helper, offset, body);
+            offset += DATA_LEN;
+            req
+        };
 
         // fill channel
         for _ in 0..QUEUE_DEPTH {
