@@ -81,7 +81,7 @@ pub async fn obtain_permit_mw<B: Send>(
     // PANIC if messages arrive out of order
     // TODO (ts): remove this when streaming solution is complete
     last_seen_messages
-        .update_in_place(ChannelId::new(role, step), record_headers.offset)
+        .compare_and_increment(ChannelId::new(role, step), record_headers.offset)
         .unwrap();
 
     let Extension(message_send_map) =

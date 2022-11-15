@@ -98,7 +98,10 @@ pub(crate) struct LastSeenMessages {
 }
 
 impl LastSeenMessages {
-    pub fn update_in_place(
+    /// compares the `next_seen` value with the `last_seen`.
+    /// If they are the same, increment `last_seen`.
+    /// If they are different, return an [`OutOfOrder`] error.
+    pub fn compare_and_increment(
         &self,
         channel_id: ChannelId,
         next_seen: u32,

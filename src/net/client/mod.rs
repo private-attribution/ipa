@@ -127,7 +127,16 @@ mod tests {
     use hyper_tls::native_tls::TlsConnector;
     use tokio::sync::mpsc;
 
-    async fn mul_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
+    async fn setup_server(bind_target: BindTarget) -> (u16, mpsc::Receiver<MessageChunks>) {
+        let (tx, rx) = mpsc::channel(1);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
+        // setup server
+        let (addr, _) = server.bind(bind_target).await;
+        (addr.port(), rx)
+    }
+
+    async fn send_messages_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = Step::default().narrow("mul_test");
@@ -151,36 +160,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mul_req_http() {
-        let (tx, rx) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
-        let server = MpcHelperServer::new(message_send_map);
-        // setup server
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
+    async fn send_messages_req_http() {
+        let (port, rx) = setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
 
         // setup client
         let client =
-            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", addr.port()), Role::H1)
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", port), Role::H1)
                 .unwrap();
 
         // test
-        mul_req(client, rx).await;
+        send_messages_req(client, rx).await;
     }
 
     #[tokio::test]
-    async fn mul_req_https() {
-        // setup server
-        let (tx, rx) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
-        let server = MpcHelperServer::new(message_send_map);
+    async fn send_messages_req_https() {
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) = server
-            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
-            .await;
+        let (port, rx) =
+            setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
 
         // setup client
         // requires custom client to use self signed certs
@@ -196,10 +194,10 @@ mod tests {
             role: Role::H1,
             client: hyper_client,
             scheme: uri::Scheme::HTTPS,
-            authority: uri::Authority::try_from(format!("localhost:{}", addr.port())).unwrap(),
+            authority: uri::Authority::try_from(format!("localhost:{}", port)).unwrap(),
         };
 
         // test
-        mul_req(client, rx).await;
+        send_messages_req(client, rx).await;
     }
 }
