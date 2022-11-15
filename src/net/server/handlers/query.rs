@@ -1,6 +1,6 @@
 use crate::helpers::network::{ChannelId, MessageChunks};
 use crate::helpers::Role;
-use crate::net::server::MpcHelperServerError;
+use crate::net::server::{LastSeenMessages, MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
@@ -8,6 +8,7 @@ use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use axum::Extension;
 use hyper::Body;
 
 use tokio::sync::mpsc;
@@ -64,13 +65,36 @@ impl<T> Clone for ReservedPermit<T> {
 
 /// Middleware that first reserves a permit on the channel to send messages to the messaging layer.
 /// Once reserved, adds the permit to the extension for retrieval from the handler.
-pub async fn obtain_permit_mw<T: Send + 'static, B>(
-    sender: mpsc::Sender<T>,
-    mut req: Request<B>,
+/// # Panics
+/// if messages arrive out of order
+pub async fn obtain_permit_mw<B: Send>(
+    req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, MpcHelperServerError> {
+    let mut req_parts = RequestParts::new(req);
+    let Path(query_id, step) = Path::from_request(&mut req_parts).await?;
+    let Query(RoleQueryParam { role }) =
+        Query::<RoleQueryParam>::from_request(&mut req_parts).await?;
+    let record_headers = RecordHeaders::from_request(&mut req_parts).await?;
+    let Extension(last_seen_messages) =
+        Extension::<LastSeenMessages>::from_request(&mut req_parts).await?;
+    // PANIC if messages arrive out of order
+    // TODO (ts): remove this when streaming solution is complete
+    last_seen_messages
+        .update_in_place(ChannelId::new(role, step), record_headers.offset)
+        .unwrap();
+
+    let Extension(message_send_map) =
+        Extension::<MessageSendMap>::from_request(&mut req_parts).await?;
+
+    let sender = message_send_map.get(query_id)?;
     let permit = sender.reserve_owned().await?;
-    req.extensions_mut().insert(ReservedPermit::new(permit));
+    req_parts
+        .extensions_mut()
+        .insert(ReservedPermit::new(permit));
+    let req = req_parts
+        .try_into_request()
+        .expect("request body should not have been modified");
     Ok(next.run(req).await)
 }
 
@@ -87,7 +111,7 @@ pub async fn handler(
     mut req: Request<Body>,
 ) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let Path(_query_id, step) = path;
+    let Path(_, step) = path;
     let channel_id = ChannelId {
         role: query.role,
         step,
@@ -108,8 +132,13 @@ pub async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
-    use crate::net::{BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME, OFFSET_HEADER_NAME};
+    use crate::{
+        helpers::MESSAGE_PAYLOAD_SIZE_BYTES,
+        net::{
+            server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
+            OFFSET_HEADER_NAME,
+        },
+    };
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
     use futures_util::FutureExt;
@@ -125,7 +154,8 @@ mod tests {
 
     async fn init_server() -> (u16, mpsc::Receiver<MessageChunks>) {
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
@@ -191,11 +221,10 @@ mod tests {
         let query_id = QueryId;
         let target_helper = Role::H2;
         let step = Step::default().narrow("test");
-        let offset = 0;
         let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
         // try a request 10 times
-        for _ in 0..10 {
+        for offset in 0..10 {
             let resp = send_req(port, query_id, &step, target_helper, offset, body).await;
 
             let status = resp.status();
@@ -323,17 +352,22 @@ mod tests {
     async fn backpressure_applied() {
         const QUEUE_DEPTH: usize = 8;
         let (tx, mut rx) = mpsc::channel(QUEUE_DEPTH);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let mut r = server.router();
 
         // prepare req
         let query_id = QueryId;
         let step = Step::default().narrow("test");
         let target_helper = Role::H2;
-        let offset = 0;
+        let mut offset = 0;
         let body = &[0; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
-        let new_req = || build_req(0, query_id, &step, target_helper, offset, body);
+        let mut new_req = || {
+            let req = build_req(0, query_id, &step, target_helper, offset, body);
+            offset += 1;
+            req
+        };
 
         // fill channel
         for _ in 0..QUEUE_DEPTH {

@@ -122,7 +122,7 @@ mod tests {
             network::{ChannelId, MessageChunks},
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
-        net::{BindTarget, MpcHelperServer},
+        net::{server::MessageSendMap, BindTarget, MpcHelperServer},
     };
     use hyper_tls::native_tls::TlsConnector;
     use tokio::sync::mpsc;
@@ -153,7 +153,8 @@ mod tests {
     #[tokio::test]
     async fn mul_req_http() {
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         // setup server
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -172,7 +173,8 @@ mod tests {
     async fn mul_req_https() {
         // setup server
         let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let message_send_map = MessageSendMap::filled(tx);
+        let server = MpcHelperServer::new(message_send_map);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
