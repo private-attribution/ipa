@@ -1,14 +1,19 @@
 use crate::ff::Field;
 use crate::secret_sharing::Replicated;
-use rand::Rng;
-use rand::RngCore;
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng, RngCore,
+};
 
 use super::ReplicatedShares;
 
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] {
-    let x1 = F::from(rng.gen::<u128>());
-    let x2 = F::from(rng.gen::<u128>());
+pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]
+where
+    Standard: Distribution<F>,
+{
+    let x1 = rng.gen::<F>();
+    let x2 = rng.gen::<F>();
     let x3 = input - (x1 + x2);
 
     [
