@@ -1,7 +1,7 @@
 use crate::error::BoxError;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -39,7 +39,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Replicated<F>, BoxError> {
-        let one = Replicated::one(ctx.role());
+        let one = Replicated::one(ctx.role(), Replicated::default());
         let result = ctx.multiply(record_id, one - a, one - b).await?;
         Ok(one - result)
     }

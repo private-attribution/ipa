@@ -86,3 +86,18 @@ impl AsRef<str> for ComposeStep {
         }
     }
 }
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum BitPermutationStep {
+    ShareOfOne,
+}
+
+impl Substep for BitPermutationStep {}
+
+impl AsRef<str> for BitPermutationStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::ShareOfOne => "share_of_one",
+        }
+    }
+}

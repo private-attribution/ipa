@@ -1,10 +1,15 @@
-use std::iter::{repeat, zip};
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId},
-    secret_sharing::Replicated,
+    protocol::{
+        context::ProtocolContext, sort::BitPermutationStep::ShareOfOne, RecordId, RECORD_0,
+    },
+    secret_sharing::SecretSharing,
 };
 
 use crate::protocol::mul::SecureMul;
@@ -16,13 +21,17 @@ use futures::future::try_join_all;
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
-pub struct BitPermutation<'a, F> {
-    input: &'a [Replicated<F>],
+pub struct BitPermutation<'a, F, S> {
+    input: &'a [S],
+    _marker: PhantomData<F>,
 }
 
-impl<'a, F: Field> BitPermutation<'a, F> {
-    pub fn new(input: &'a [Replicated<F>]) -> BitPermutation<'a, F> {
-        Self { input }
+impl<'a, S: SecretSharing<F> + Copy, F: Field> BitPermutation<'a, F, S> {
+    pub fn new(input: &'a [S]) -> BitPermutation<'a, F, S> {
+        Self {
+            input,
+            _marker: PhantomData,
+        }
     }
 
     #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
@@ -43,18 +52,21 @@ impl<'a, F: Field> BitPermutation<'a, F> {
     ///
     /// ## Errors
     /// It will propagate errors from multiplication protocol.
-    pub async fn execute(
-        &self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let share_of_one = Replicated::one(ctx.role());
+    pub async fn execute(&self, ctx: ProtocolContext<'a, S, F>) -> Result<Vec<S>, BoxError>
+    where
+        ProtocolContext<'a, S, F>: SecureMul<F, Share = S>,
+    {
+        let share_of_one = S::one(
+            ctx.role(),
+            ctx.narrow(&ShareOfOne).prss().generate_replicated(RECORD_0),
+        );
 
         let mult_input = self
             .input
             .iter()
-            .map(move |x: &Replicated<F>| share_of_one - *x)
+            .map(move |x: &S| share_of_one - *x)
             .chain(self.input.iter().copied())
-            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
+            .scan(S::default(), |sum, x| {
                 *sum += x;
                 Some((x, *sum))
             });

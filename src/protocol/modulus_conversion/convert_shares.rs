@@ -4,7 +4,7 @@ use crate::{
     protocol::{
         context::ProtocolContext, modulus_conversion::double_random::DoubleRandom, RecordId,
     },
-    secret_sharing::Replicated,
+    secret_sharing::{Replicated, SecretSharing},
 };
 
 use crate::protocol::reveal::Reveal;
@@ -84,7 +84,7 @@ impl ConvertShares {
         .await?;
 
         if revealed_output == Fp2::ONE {
-            Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
+            Ok(Replicated::<F>::one(ctx.role(), Replicated::default()) - r_big_field)
         } else {
             Ok(r_big_field)
         }

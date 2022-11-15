@@ -7,7 +7,6 @@ use std::{
 };
 
 use crate::ff::Field;
-use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,12 +39,6 @@ impl<F: Field> MaliciousReplicated<F> {
 
     pub fn rx(&self) -> Replicated<F> {
         self.rx
-    }
-
-    /// Returns a pair of replicated secret sharings. One of "one", one of "r"
-    #[allow(dead_code)]
-    pub fn one(helper_role: Role, r_share: Replicated<F>) -> Self {
-        Self::new(Replicated::one(helper_role), r_share)
     }
 }
 
@@ -110,6 +103,7 @@ mod tests {
     use super::MaliciousReplicated;
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
+    use crate::secret_sharing::SecretSharing;
     use crate::test_fixture::{share, validate_and_reconstruct};
     use proptest::prelude::Rng;
 

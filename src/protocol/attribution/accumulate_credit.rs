@@ -7,7 +7,7 @@ use crate::{
         context::ProtocolContext,
         RecordId,
     },
-    secret_sharing::Replicated,
+    secret_sharing::{Replicated, SecretSharing},
 };
 use futures::future::{try_join, try_join_all};
 
@@ -62,7 +62,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // 1. Create credit and stop_bit vectors
         // These vectors are updated in each iteration to help accumulate values and determine when to stop accumulating.
 
-        let one = Replicated::one(ctx.role());
+        let one = Replicated::one(ctx.role(), Replicated::default());
         let mut stop_bits: Batch<Replicated<F>> = vec![one; num_rows as usize].try_into().unwrap();
 
         let mut credits: Batch<Replicated<F>> = self
