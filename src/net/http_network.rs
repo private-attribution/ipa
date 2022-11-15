@@ -51,36 +51,13 @@ impl<'a> HttpNetwork<'a> {
         let clients = network.clients(role);
         tokio::spawn(async move {
             while let Some((channel_id, messages)) = srx.recv().await {
-                let offset = if let Some(message) = messages.get(0) {
-                    message.record_id
-                } else {
-                    tracing::error!(
-                        "message chunk from channel id {}/{} should have at least 1 element, but had none",
-                        channel_id.role.as_ref(),
-                        channel_id.step.as_ref()
-                    );
-                    continue;
-                };
-                // TODO: obsolete value to be removed
-                let data_size = messages[0].payload.len();
-
-                let messages = messages.iter().fold(
-                    Vec::with_capacity(messages.len() * data_size),
-                    |mut acc, x| {
-                        acc.append(&mut x.payload.to_vec());
-                        acc
-                    },
-                );
-
-                #[allow(clippy::cast_possible_truncation)] // data_size is known to be small
                 let args = HttpSendMessagesArgs {
                     query_id,
                     step: &channel_id.step,
-                    offset: offset.into(),
-                    data_size: data_size as u32,
+                    // TODO: fix offset
+                    offset: 0,
                     messages: Bytes::from(messages),
                 };
-
                 clients[channel_id.role]
                     .send_messages(args)
                     .await

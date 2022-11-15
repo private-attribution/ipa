@@ -21,7 +21,6 @@ pub struct HttpSendMessagesArgs<'a> {
     pub query_id: QueryId,
     pub step: &'a Step,
     pub offset: u32,
-    pub data_size: u32,
     pub messages: Bytes,
 }
 
@@ -121,7 +120,7 @@ mod tests {
     use crate::{
         helpers::{
             network::{ChannelId, MessageChunks},
-            Role,
+            Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{BindTarget, MpcHelperServer},
     };
@@ -129,20 +128,18 @@ mod tests {
     use tokio::sync::mpsc;
 
     async fn mul_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
-        const DATA_SIZE: u32 = 8;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = Step::default().narrow("mul_test");
         let role = Role::H1;
         let offset = 0;
-        let body = &[123; (DATA_SIZE * DATA_LEN) as usize];
+        let body = &[123; MESSAGE_PAYLOAD_SIZE_BYTES * (DATA_LEN as usize)];
 
         client
             .send_messages(HttpSendMessagesArgs {
                 query_id,
                 step: &step,
                 offset,
-                data_size: DATA_SIZE,
                 messages: Bytes::from_static(body),
             })
             .await
