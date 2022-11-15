@@ -1,5 +1,5 @@
 use super::prefix_or::PrefixOr;
-use super::xor::Xor;
+use super::xor::xor;
 use super::BitOpStep;
 use crate::error::BoxError;
 use crate::ff::Field;
@@ -23,18 +23,9 @@ use std::iter::{repeat, zip};
 /// 5.3 Bitwise Less-Than
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-pub struct BitwiseLessThan<'a, F: Field> {
-    a: &'a [Replicated<F>],
-    b: &'a [Replicated<F>],
-}
+pub struct BitwiseLessThan {}
 
-impl<'a, F: Field> BitwiseLessThan<'a, F> {
-    #[allow(dead_code)]
-    pub fn new(a: &'a [Replicated<F>], b: &'a [Replicated<F>]) -> Self {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
-        Self { a, b }
-    }
-
+impl BitwiseLessThan {
     /// Step 1. `for i=0..l-1, [e_i] = XOR([a_i], [b_i])`
     ///
     /// # Example
@@ -45,7 +36,7 @@ impl<'a, F: Field> BitwiseLessThan<'a, F> {
     ///   [b] = 0 1 1 1 1 0 0 0   // 30 in little-endian
     ///   [e] = 1 1 0 1 0 0 0 0
     /// ```
-    async fn step1(
+    async fn step1<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -53,7 +44,7 @@ impl<'a, F: Field> BitwiseLessThan<'a, F> {
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let xor = zip(a, b).enumerate().map(|(i, (&a_bit, &b_bit))| {
             let c = ctx.narrow(&BitOpStep::Step(i));
-            async move { Xor::new(a_bit, b_bit).execute(c, record_id).await }
+            async move { xor(c, record_id, a_bit, b_bit).await }
         });
         try_join_all(xor).await
     }
@@ -74,13 +65,13 @@ impl<'a, F: Field> BitwiseLessThan<'a, F> {
     ///   [e] = 1 1 0 1 0 0 0 0
     ///   [f] = 0 0 0 0 1 1 1 1
     /// ```
-    async fn step2(
+    async fn step2<F: Field>(
         e: &mut [Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         e.reverse();
-        let mut f = PrefixOr::new(e).execute(ctx, record_id).await?;
+        let mut f = PrefixOr::execute(ctx, record_id, e).await?;
         f.reverse();
         Ok(f)
     }
@@ -95,7 +86,7 @@ impl<'a, F: Field> BitwiseLessThan<'a, F> {
     ///   [f] = 0 0 0 0 1 1 1 1
     ///   [g] = 0 0 0 1 0 0 0 0
     /// ```
-    fn step3_4(f: &[Replicated<F>]) -> Vec<Replicated<F>> {
+    fn step3_4<F: Field>(f: &[Replicated<F>]) -> Vec<Replicated<F>> {
         let l = f.len();
         (0..l - 1)
             .map(|i| f[i] - f[i + 1])
@@ -113,7 +104,7 @@ impl<'a, F: Field> BitwiseLessThan<'a, F> {
     ///   [b] = 0 1 1 1 1 0 0 0
     ///   [h] = 0 0 0 1 0 0 0 0
     /// ```
-    async fn step5(
+    async fn step5<F: Field>(
         g: &[Replicated<F>],
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -131,21 +122,24 @@ impl<'a, F: Field> BitwiseLessThan<'a, F> {
     /// Step 6. `[h] = Σ [h_i] where i=0..l-1`
     ///
     /// The interpretations is, `h` is 1 iff `a < b`
-    fn step6(h: &[Replicated<F>]) -> Replicated<F> {
+    fn step6<F: Field>(h: &[Replicated<F>]) -> Replicated<F> {
         h.iter()
             .fold(Replicated::new(F::ZERO, F::ZERO), |acc, &x| acc + x)
     }
 
     #[allow(dead_code)]
-    pub async fn execute(
-        &self,
+    #[allow(clippy::many_single_char_names)]
+    pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
+        a: &[Replicated<F>],
+        b: &[Replicated<F>],
     ) -> Result<Replicated<F>, BoxError> {
-        let mut e = Self::step1(self.a, self.b, ctx.narrow(&Step::AXorB), record_id).await?;
+        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
+        let mut e = Self::step1(a, b, ctx.narrow(&Step::AXorB), record_id).await?;
         let f = Self::step2(&mut e, ctx.narrow(&Step::PrefixOr), record_id).await?;
         let g = Self::step3_4(&f);
-        let h = Self::step5(&g, self.b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
+        let h = Self::step5(&g, b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
         let result = Self::step6(&h);
         Ok(result)
     }
@@ -175,7 +169,7 @@ mod tests {
     use super::BitwiseLessThan;
     use crate::{
         error::BoxError,
-        ff::{Field, Fp2, Fp31},
+        ff::{Field, Fp31},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
@@ -185,18 +179,18 @@ mod tests {
     use std::iter::zip;
 
     type BitwiseShares = (
-        Vec<Replicated<Fp2>>,
-        (Vec<Replicated<Fp2>>, Vec<Replicated<Fp2>>),
+        Vec<Replicated<Fp31>>,
+        (Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>),
     );
 
-    fn fp31_to_bits(x: Fp31) -> Vec<Fp2> {
+    fn fp31_to_bits(x: Fp31) -> Vec<Fp31> {
         let x = u8::from(x);
-        (0..u8::BITS).map(|i| Fp2::from(x >> i & 1)).collect()
+        (0..u8::BITS).map(|i| Fp31::from(x >> i & 1)).collect()
     }
 
-    async fn bitwise_lt(a: Fp31, b: Fp31) -> Result<Fp2, BoxError> {
+    async fn bitwise_lt(a: Fp31, b: Fp31) -> Result<Fp31, BoxError> {
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp2>(&world);
+        let ctx = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(1, 1);
 
         let a_bits = fp31_to_bits(a);
@@ -215,9 +209,9 @@ mod tests {
         // Execute
         let step = "BitwiseLT_Test";
         let result = try_join_all(vec![
-            BitwiseLessThan::new(&a0, &b0).execute(ctx[0].narrow(step), RecordId::from(0_u32)),
-            BitwiseLessThan::new(&a1, &b1).execute(ctx[1].narrow(step), RecordId::from(0_u32)),
-            BitwiseLessThan::new(&a2, &b2).execute(ctx[2].narrow(step), RecordId::from(0_u32)),
+            BitwiseLessThan::execute(ctx[0].narrow(step), RecordId::from(0_u32), &a0, &b0),
+            BitwiseLessThan::execute(ctx[1].narrow(step), RecordId::from(0_u32), &a1, &b1),
+            BitwiseLessThan::execute(ctx[2].narrow(step), RecordId::from(0_u32), &a2, &b2),
         ])
         .await
         .unwrap();
@@ -229,17 +223,17 @@ mod tests {
     pub async fn basic() -> Result<(), BoxError> {
         let fp31 = Fp31::from;
 
-        assert_eq!(Fp2::ONE, bitwise_lt(Fp31::ZERO, Fp31::ONE).await?);
-        assert_eq!(Fp2::ZERO, bitwise_lt(Fp31::ONE, Fp31::ZERO).await?);
-        assert_eq!(Fp2::ZERO, bitwise_lt(Fp31::ZERO, Fp31::ZERO).await?);
-        assert_eq!(Fp2::ZERO, bitwise_lt(Fp31::ONE, Fp31::ONE).await?);
+        assert_eq!(Fp31::ONE, bitwise_lt(Fp31::ZERO, Fp31::ONE).await?);
+        assert_eq!(Fp31::ZERO, bitwise_lt(Fp31::ONE, Fp31::ZERO).await?);
+        assert_eq!(Fp31::ZERO, bitwise_lt(Fp31::ZERO, Fp31::ZERO).await?);
+        assert_eq!(Fp31::ZERO, bitwise_lt(Fp31::ONE, Fp31::ONE).await?);
 
-        assert_eq!(Fp2::ONE, bitwise_lt(fp31(3_u32), fp31(7)).await?);
-        assert_eq!(Fp2::ZERO, bitwise_lt(fp31(21), fp31(20)).await?);
-        assert_eq!(Fp2::ZERO, bitwise_lt(fp31(9), fp31(9)).await?);
+        assert_eq!(Fp31::ONE, bitwise_lt(fp31(3_u32), fp31(7)).await?);
+        assert_eq!(Fp31::ZERO, bitwise_lt(fp31(21), fp31(20)).await?);
+        assert_eq!(Fp31::ZERO, bitwise_lt(fp31(9), fp31(9)).await?);
 
         assert_eq!(
-            Fp2::ZERO,
+            Fp31::ZERO,
             bitwise_lt(Fp31::ZERO, Fp31::from(Fp31::PRIME)).await?
         );
 
@@ -253,7 +247,7 @@ mod tests {
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(
-                    Fp2::from(a < b),
+                    Fp31::from(a < b),
                     bitwise_lt(Fp31::from(a), Fp31::from(b)).await?
                 );
             }
