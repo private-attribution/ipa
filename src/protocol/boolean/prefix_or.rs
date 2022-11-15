@@ -333,7 +333,7 @@ mod tests {
     use rand::{rngs::mock::StepRng, Rng};
     use std::iter::zip;
 
-    const BITS: usize = 32;
+    const BITS: [usize; 2] = [16, 32];
     const TEST_TRIES: usize = 16;
 
     async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, BoxError> {
@@ -373,25 +373,26 @@ mod tests {
     pub async fn fp2() -> Result<(), BoxError> {
         let mut rng = rand::thread_rng();
 
-        // Test 32-bit bitwise shares with randomly distributed bits, for 16 times.
-        // The probability of i'th bit being 0 is 1/2^i, so this test covers inputs
-        // that have all 0's in 5 first bits.
-        for _ in 0..TEST_TRIES {
-            let len = BITS;
-            let input: Vec<Fp2> = (0..len).map(|_| Fp2::from(rng.gen::<bool>())).collect();
-            let mut expected: Vec<Fp2> = Vec::with_capacity(len);
+        // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
+        // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
+        // so this test covers inputs that have all 0's in 5 first bits.
+        for len in BITS {
+            for _ in 0..TEST_TRIES {
+                let input: Vec<Fp2> = (0..len).map(|_| Fp2::from(rng.gen::<bool>())).collect();
+                let mut expected: Vec<Fp2> = Vec::with_capacity(len);
 
-            // Calculate Prefix-Or of the secret number
-            input.iter().fold(Fp2::ZERO, |acc, &x| {
-                expected.push(acc | x);
-                acc | x
-            });
+                // Calculate Prefix-Or of the secret number
+                input.iter().fold(Fp2::ZERO, |acc, &x| {
+                    expected.push(acc | x);
+                    acc | x
+                });
 
-            let result = prefix_or(&input).await?;
+                let result = prefix_or(&input).await?;
 
-            // Verify
-            assert_eq!(expected.len(), result.len());
-            zip(expected, result).for_each(|(e, r)| assert_eq!(e, r));
+                // Verify
+                assert_eq!(expected.len(), result.len());
+                zip(expected, result).for_each(|(e, r)| assert_eq!(e, r));
+            }
         }
 
         Ok(())
@@ -402,29 +403,30 @@ mod tests {
     pub async fn fp31() -> Result<(), BoxError> {
         let mut rng = rand::thread_rng();
 
-        // Test 32-bit bitwise shares with randomly distributed bits, for 16 times.
-        // The probability of i'th bit being 0 is 1/2^i, so this test covers inputs
-        // that have all 0's in 5 first bits.
-        for _ in 0..TEST_TRIES {
-            let len = BITS;
-            // Generate a vector of Fp31::ZERO or Fp31::ONE from randomly picked bool values
-            let input: Vec<Fp31> = (0..len)
-                .map(|_| Fp31::from(u128::from(rng.gen::<bool>())))
-                .collect();
-            let mut expected: Vec<Fp31> = Vec::with_capacity(len);
+        // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
+        // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
+        // so this test covers inputs that have all 0's in 5 first bits.
+        for len in BITS {
+            for _ in 0..TEST_TRIES {
+                // Generate a vector of Fp31::ZERO or Fp31::ONE from randomly picked bool values
+                let input: Vec<Fp31> = (0..len)
+                    .map(|_| Fp31::from(u128::from(rng.gen::<bool>())))
+                    .collect();
+                let mut expected: Vec<Fp31> = Vec::with_capacity(len);
 
-            // Calculate Prefix-Or of the secret number
-            input.iter().fold(0, |acc, &x| {
-                let sum = acc + x.as_u128();
-                expected.push(Fp31::from(sum > 0));
-                sum
-            });
+                // Calculate Prefix-Or of the secret number
+                input.iter().fold(0, |acc, &x| {
+                    let sum = acc + x.as_u128();
+                    expected.push(Fp31::from(sum > 0));
+                    sum
+                });
 
-            let result = prefix_or(&input).await?;
+                let result = prefix_or(&input).await?;
 
-            // Verify
-            assert_eq!(expected.len(), result.len());
-            zip(expected, result).for_each(|(e, r)| assert_eq!(e, r));
+                // Verify
+                assert_eq!(expected.len(), result.len());
+                zip(expected, result).for_each(|(e, r)| assert_eq!(e, r));
+            }
         }
 
         Ok(())
