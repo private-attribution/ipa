@@ -119,8 +119,7 @@ mod tests {
         let ctx = make_contexts::<Fp31>(&world);
 
         for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
+            let input = rng.gen::<Fp31>();
             let share = share(input, &mut rng);
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
@@ -144,8 +143,7 @@ mod tests {
         let ctx = make_contexts::<Fp31>(&world);
 
         for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
+            let input = rng.gen::<Fp31>();
             let share = share(input, &mut rng);
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
@@ -169,8 +167,7 @@ mod tests {
         let ctx = make_contexts::<Fp31>(&world);
 
         for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
+            let input = rng.gen::<Fp31>();
             let share = share(input, &mut rng);
             let record_id = RecordId::from(i);
             let result = try_join!(

@@ -10,6 +10,8 @@ use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::secret_sharing::{Replicated, SecretSharing};
+use rand::distributions::Standard;
+use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
@@ -79,7 +81,10 @@ pub type ReplicatedShares<T> = (Vec<Replicated<T>>, Vec<Replicated<T>>, Vec<Repl
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]
-pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
+pub fn generate_shares<F: Field>(input: Vec<u128>) -> ReplicatedShares<F>
+where
+    Standard: Distribution<F>,
+{
     let mut rand = StepRng::new(100, 1);
 
     let len = input.len();
@@ -88,7 +93,7 @@ pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
     let mut shares2 = Vec::with_capacity(len);
 
     for iter in input {
-        let share = share(T::from(iter), &mut rand);
+        let share = share(F::from(iter), &mut rand);
         shares0.push(share[0]);
         shares1.push(share[1]);
         shares2.push(share[2]);

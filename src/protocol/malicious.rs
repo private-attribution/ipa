@@ -232,8 +232,8 @@ pub mod tests {
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
-        let a = Fp31::from(rng.gen::<u128>());
-        let b = Fp31::from(rng.gen::<u128>());
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
 
         let a_shares = share(a, &mut rng);
         let b_shares = share(b, &mut rng);
@@ -327,7 +327,7 @@ pub mod tests {
 
         let mut original_inputs = Vec::with_capacity(100);
         for _ in 0..100 {
-            let x = Fp31::from(rng.gen::<u128>());
+            let x = rng.gen::<Fp31>();
             original_inputs.push(x);
         }
         let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
