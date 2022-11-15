@@ -330,13 +330,17 @@ mod tests {
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
+    use rand::distributions::{Distribution, Standard};
     use rand::{rngs::mock::StepRng, Rng};
     use std::iter::zip;
 
     const BITS: [usize; 2] = [16, 32];
     const TEST_TRIES: usize = 16;
 
-    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, BoxError> {
+    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, BoxError>
+    where
+        Standard: Distribution<F>,
+    {
         let world: TestWorld = make_world(QueryId);
         let ctx = make_contexts::<F>(&world);
         let mut rand = StepRng::new(1, 1);

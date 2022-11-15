@@ -1,10 +1,11 @@
+use crate::protocol::reveal::Reveal;
 use crate::{
     error::{BoxError, Error},
     ff::Field,
     helpers::Direction,
     protocol::{
-        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
-        reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2,
+        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness, RecordId,
+        RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::{MaliciousReplicated, Replicated},
 };
@@ -183,7 +184,10 @@ impl<F: Field> SecurityValidator<F> {
         let w_share = Replicated::new(w_left, state.w);
 
         // This should probably be done in parallel with the futures above
-        let r = reveal(ctx.narrow(&Step::RevealR), RECORD_0, self.r_share).await?;
+        let r = ctx
+            .narrow(&Step::RevealR)
+            .reveal(RECORD_0, self.r_share)
+            .await?;
         let t = u_share - (w_share * r);
 
         let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_0, t).await?;
