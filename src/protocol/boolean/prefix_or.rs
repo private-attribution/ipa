@@ -21,19 +21,12 @@ use super::BitOpStep;
 /// 5.2 Prefix-Or
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-pub struct PrefixOr<'a, F: Field> {
-    input: &'a [Replicated<F>],
-}
+pub struct PrefixOr {}
 
-impl<'a, F: Field> PrefixOr<'a, F> {
-    #[allow(dead_code)]
-    pub fn new(input: &'a [Replicated<F>]) -> Self {
-        Self { input }
-    }
-
+impl PrefixOr {
     /// Securely computes `[a] | [b] where a, b ∈ {0, 1} ⊆ F_p`
     /// OR can be computed as: `!MULT(![a], ![b])`
-    async fn bit_or(
+    async fn bit_or<F: Field>(
         a: Replicated<F>,
         b: Replicated<F>,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -45,7 +38,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     }
 
     /// Securely computes `∨ [a_1],...[a_n]`
-    async fn block_or(
+    async fn block_or<F: Field>(
         a: &[Replicated<F>],
         k: usize,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -71,7 +64,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [a] = 0 0 0 0  0 0 1 0  0 1 0 1  0 0 0 0
     ///   [x] = 0 1 1 0
     /// ```
-    async fn step1(
+    async fn step1<F: Field>(
         a: &[Replicated<F>],
         lambda: usize,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -93,7 +86,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [x] = 0 1 1 0
     ///   [y] = 0 1 1 1
     /// ```
-    async fn step2(
+    async fn step2<F: Field>(
         x: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
@@ -119,7 +112,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [x] = 0 1 1 0, [y] = 0 1 1 1
     ///   [f] = 0 1 0 0
     /// ```
-    fn step3_4(x: &[Replicated<F>], y: &[Replicated<F>]) -> Vec<Replicated<F>> {
+    fn step3_4<F: Field>(x: &[Replicated<F>], y: &[Replicated<F>]) -> Vec<Replicated<F>> {
         [x[0]]
             .into_iter()
             .chain((1..x.len()).map(|i| y[i] - y[i - 1]))
@@ -135,7 +128,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [a] = 0 0 0 0  0 0 1 0  0 1 0 1  0 0 0 0,   [f] = 0 1 0 0
     ///   [g] = 0 0 0 0  0 0 1 0  0 0 0 0  0 0 0 0
     /// ```
-    async fn step5(
+    async fn step5<F: Field>(
         f: &[Replicated<F>],
         a: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -159,7 +152,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [g] = 0 0 0 0  0 0 1 0  0 0 0 0  0 0 0 0
     ///   [c] = 0 0 1 0
     /// ```
-    fn step6(g: &[Replicated<F>], lambda: usize) -> Vec<Replicated<F>> {
+    fn step6<F: Field>(g: &[Replicated<F>], lambda: usize) -> Vec<Replicated<F>> {
         (0..lambda)
             .map(|j| {
                 let mut v = Replicated::new(F::ZERO, F::ZERO);
@@ -180,7 +173,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [c] = 0 0 1 0
     ///   [b] = 0 0 1 1
     /// ```
-    async fn step7(
+    async fn step7<F: Field>(
         c: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
@@ -206,7 +199,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [b] = 0 0 1 1
     ///   [s] = 0 0 0 0  0 0 1 1  0 0 0 0  0 0 0 0
     /// ```
-    async fn step8(
+    async fn step8<F: Field>(
         f: &[Replicated<F>],
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
@@ -232,7 +225,11 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     ///   [f] = 0 1 0 0
     ///   [b] = 0 0 0 0  0 0 1 1  1 1 1 1  1 1 1 1   // <- PrefixOr([a])
     /// ```
-    fn step9(s: &[Replicated<F>], y: &[Replicated<F>], f: &[Replicated<F>]) -> Vec<Replicated<F>> {
+    fn step9<F: Field>(
+        s: &[Replicated<F>],
+        y: &[Replicated<F>],
+        f: &[Replicated<F>],
+    ) -> Vec<Replicated<F>> {
         let lambda = f.len();
         (0..lambda)
             .flat_map(|i| {
@@ -245,10 +242,10 @@ impl<'a, F: Field> PrefixOr<'a, F> {
 
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
-    pub async fn execute(
-        &self,
+    pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
+        input: &[Replicated<F>],
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         // The paper assumes `l = λ^2`, where `l` is the bit length of the input
         // share. Then the input is split into `λ` blocks each holding `λ` bits.
@@ -263,7 +260,7 @@ impl<'a, F: Field> PrefixOr<'a, F> {
         // prototype is complete, and optimize if necessary.
         // TODO(taikiy): Prefix-Or dummy-bits optimization
 
-        let (a, lambda) = Self::add_dummy_bits(self.input);
+        let (a, lambda) = Self::add_dummy_bits(input);
         let x = Self::step1(&a, lambda, ctx.narrow(&Step::BitwiseOrPerBlock), record_id).await?;
         let y = Self::step2(&x, ctx.narrow(&Step::BlockWisePrefixOr), record_id).await?;
         let f = Self::step3_4(&x, &y);
@@ -273,13 +270,13 @@ impl<'a, F: Field> PrefixOr<'a, F> {
         let s = Self::step8(&f, &b, ctx.narrow(&Step::SetFirstBlockWithOne), record_id).await?;
         let b = Self::step9(&s, &y, &f);
 
-        Ok(b[0..self.input.len()].to_vec())
+        Ok(b[0..input.len()].to_vec())
     }
 
     /// This method takes a slice of bits of the length `l`, add `m` dummy
     /// bits to the end of the slice, and returns it as a new vector. The
     /// output vector's length is `λ^2` where `λ = sqrt(l + m) ∈ Z`.
-    fn add_dummy_bits(a: &[Replicated<F>]) -> (Vec<Replicated<F>>, usize) {
+    fn add_dummy_bits<F: Field>(a: &[Replicated<F>]) -> (Vec<Replicated<F>>, usize) {
         // We plan to use u32, which we'll add 4 dummy bits to get λ = 6.
         // Since we don't want to compute sqrt() each time this protocol
         // is called, we'll assume that the input is 32-bit long.
@@ -358,9 +355,9 @@ mod tests {
         // Execute
         let step = "PrefixOr_Test";
         let result = try_join_all(vec![
-            PrefixOr::new(&s0).execute(ctx[0].narrow(step), RecordId::from(0_u32)),
-            PrefixOr::new(&s1).execute(ctx[1].narrow(step), RecordId::from(0_u32)),
-            PrefixOr::new(&s2).execute(ctx[2].narrow(step), RecordId::from(0_u32)),
+            PrefixOr::execute(ctx[0].narrow(step), RecordId::from(0_u32), &s0),
+            PrefixOr::execute(ctx[1].narrow(step), RecordId::from(0_u32), &s1),
+            PrefixOr::execute(ctx[2].narrow(step), RecordId::from(0_u32), &s2),
         ])
         .await
         .unwrap();
