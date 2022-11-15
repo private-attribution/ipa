@@ -1,8 +1,8 @@
-use crate::helpers::network::{ChannelId, MessageChunks, MessageEnvelope};
+use crate::helpers::network::{ChannelId, MessageChunks};
 use crate::helpers::Role;
 use crate::net::server::{LastSeenMessages, MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;
-use crate::protocol::{QueryId, RecordId, UniqueStepId};
+use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
 use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
@@ -10,10 +10,11 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::Extension;
 use hyper::Body;
+
 use tokio::sync::mpsc;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request
-pub struct Path(QueryId, UniqueStepId);
+pub struct Path(QueryId, Step);
 
 #[async_trait]
 impl<B: Send> FromRequest<B> for Path {
@@ -21,7 +22,7 @@ impl<B: Send> FromRequest<B> for Path {
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let extract::Path((query_id, step)) =
-            extract::Path::<(QueryId, UniqueStepId)>::from_request(req).await?;
+            extract::Path::<(QueryId, Step)>::from_request(req).await?;
         Ok(Path(query_id, step))
     }
 }
@@ -80,7 +81,7 @@ pub async fn obtain_permit_mw<B: Send>(
     // PANIC if messages arrive out of order
     // TODO (ts): remove this when streaming solution is complete
     last_seen_messages
-        .update_in_place(ChannelId::new(role, step), record_headers)
+        .update_in_place(ChannelId::new(role, step), record_headers.offset)
         .unwrap();
 
     let Extension(message_send_map) =
@@ -106,7 +107,7 @@ pub async fn handler(
     // TODO: we shouldn't trust the client to tell us their role.
     //       revisit when we have figured out discovery/handshake
     query: Query<RoleQueryParam>,
-    headers: RecordHeaders,
+    _headers: RecordHeaders,
     mut req: Request<Body>,
 ) -> Result<(), MpcHelperServerError> {
     // prepare data
@@ -116,19 +117,7 @@ pub async fn handler(
         step,
     };
 
-    let body = hyper::body::to_bytes(req.body_mut()).await?;
-    let envelopes = body
-        .as_ref()
-        .chunks(headers.data_size as usize)
-        .enumerate()
-        .map(
-            #[allow(clippy::cast_possible_truncation)] // record_id is known to be < u32
-            |(record_id, chunk)| MessageEnvelope {
-                record_id: RecordId::from(headers.offset + record_id as u32),
-                payload: chunk.to_vec().into_boxed_slice(),
-            },
-        )
-        .collect::<Vec<_>>();
+    let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();
 
     // send data
     let permit = req
@@ -136,16 +125,19 @@ pub async fn handler(
         .get_mut::<ReservedPermit<MessageChunks>>()
         .unwrap();
 
-    permit.send((channel_id, envelopes));
+    permit.send((channel_id, body));
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::{
-        server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
-        DATA_SIZE_HEADER_NAME, OFFSET_HEADER_NAME,
+    use crate::{
+        helpers::MESSAGE_PAYLOAD_SIZE_BYTES,
+        net::{
+            server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
+            OFFSET_HEADER_NAME,
+        },
     };
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
@@ -158,8 +150,7 @@ mod tests {
     use tokio::sync::mpsc;
     use tower::ServiceExt;
 
-    const DATA_SIZE: u32 = 4;
-    const DATA_LEN: u32 = 3;
+    const DATA_LEN: usize = 3;
 
     async fn init_server() -> (u16, mpsc::Receiver<MessageChunks>) {
         let (tx, rx) = mpsc::channel(1);
@@ -175,13 +166,13 @@ mod tests {
     fn build_req(
         port: u16,
         query_id: QueryId,
-        step: &UniqueStepId,
+        step: &Step,
         role: Role,
         offset: u32,
         body: &'static [u8],
     ) -> Request<Body> {
         assert_eq!(
-            body.len() % (DATA_SIZE as usize),
+            body.len() % (MESSAGE_PAYLOAD_SIZE_BYTES as usize),
             0,
             "body len must align with data_size"
         );
@@ -196,7 +187,6 @@ mod tests {
         let headers = RecordHeaders {
             content_length: body.len() as u32,
             offset,
-            data_size: DATA_SIZE,
         };
         let body = Body::from(Bytes::from_static(body));
         headers
@@ -208,7 +198,7 @@ mod tests {
     async fn send_req(
         port: u16,
         query_id: QueryId,
-        step: &UniqueStepId,
+        step: &Step,
         helper_role: Role,
         offset: u32,
         body: &'static [u8],
@@ -230,12 +220,11 @@ mod tests {
         // prepare req
         let query_id = QueryId;
         let target_helper = Role::H2;
-        let step = UniqueStepId::default().narrow("test");
-        let mut offset = 0;
-        let body = &[0; (DATA_LEN * DATA_SIZE) as usize];
+        let step = Step::default().narrow("test");
+        let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
         // try a request 10 times
-        for _ in 0..10 {
+        for offset in 0..10 {
             let resp = send_req(port, query_id, &step, target_helper, offset, body).await;
 
             let status = resp.status();
@@ -247,19 +236,10 @@ mod tests {
                 role: target_helper,
                 step: step.clone(),
             };
-            let env = [0; DATA_SIZE as usize].to_vec().into_boxed_slice();
-            let envs = (0..DATA_LEN)
-                .map(|i| MessageEnvelope {
-                    record_id: (i + offset).into(),
-                    payload: env.clone(),
-                })
-                .collect::<Vec<_>>();
 
             assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
             let messages = rx.try_recv().expect("should have already received value");
-            assert_eq!(messages, (channel_id, envs));
-
-            offset += DATA_LEN;
+            assert_eq!(messages, (channel_id, body.to_vec()));
         }
     }
 
@@ -268,7 +248,6 @@ mod tests {
         step: String,
         role: String,
         offset_header: (HeaderName, HeaderValue),
-        data_size_header: (HeaderName, HeaderValue),
         body: &'static [u8],
     }
 
@@ -282,7 +261,6 @@ mod tests {
             let req_headers = req.headers_mut().unwrap();
             req_headers.insert(CONTENT_LENGTH_HEADER_NAME.clone(), self.body.len().into());
             req_headers.insert(self.offset_header.0, self.offset_header.1);
-            req_headers.insert(self.data_size_header.0, self.data_size_header.1);
 
             req.body(self.body.into()).unwrap()
         }
@@ -292,11 +270,10 @@ mod tests {
         fn default() -> Self {
             Self {
                 query_id: QueryId.as_ref().to_owned(),
-                step: UniqueStepId::default().narrow("test").as_ref().to_owned(),
+                step: Step::default().narrow("test").as_ref().to_owned(),
                 role: Role::H2.as_ref().to_owned(),
                 offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
-                data_size_header: (DATA_SIZE_HEADER_NAME.clone(), DATA_SIZE.into()),
-                body: &[0; (DATA_LEN * DATA_SIZE) as usize],
+                body: &[34; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize],
             }
         }
     }
@@ -347,18 +324,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_data_size_header_name_fails() {
+    async fn wrong_body_size_is_rejected() {
         let req = OverrideReq {
-            data_size_header: (HeaderName::from_static("datasize"), DATA_SIZE.into()),
-            ..Default::default()
-        };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
-
-    #[tokio::test]
-    async fn malformed_data_size_header_value_fails() {
-        let req = OverrideReq {
-            data_size_header: (DATA_SIZE_HEADER_NAME.clone(), 7.into()),
+            body: &[0; MESSAGE_PAYLOAD_SIZE_BYTES + 1],
             ..Default::default()
         };
         resp_eq(req, StatusCode::BAD_REQUEST).await;
@@ -390,14 +358,14 @@ mod tests {
 
         // prepare req
         let query_id = QueryId;
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
         let target_helper = Role::H2;
         let mut offset = 0;
-        let body = &[0; (DATA_LEN * DATA_SIZE) as usize];
+        let body = &[0; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
         let mut new_req = || {
             let req = build_req(0, query_id, &step, target_helper, offset, body);
-            offset += DATA_LEN;
+            offset += 1;
             req
         };
 

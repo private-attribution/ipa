@@ -1,14 +1,19 @@
 use crate::ff::Field;
-use crate::secret_sharing::Replicated;
-use rand::Rng;
-use rand::RngCore;
+use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng, RngCore,
+};
 
 use super::ReplicatedShares;
 
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] {
-    let x1 = F::from(rng.gen::<u128>());
-    let x2 = F::from(rng.gen::<u128>());
+pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]
+where
+    Standard: Distribution<F>,
+{
+    let x1 = rng.gen::<F>();
+    let x2 = rng.gen::<F>();
     let x3 = input - (x1 + x2);
 
     [
@@ -16,6 +21,24 @@ pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] 
         Replicated::new(x2, x3),
         Replicated::new(x3, x1),
     ]
+}
+
+/// Shares `input` into 3 maliciously secure replicated secret shares using the provided `rng` implementation
+///
+#[allow(clippy::missing_panics_doc)]
+pub fn share_malicious<F: Field, R: RngCore>(x: F, rng: &mut R) -> [MaliciousReplicated<F>; 3]
+where
+    Standard: Distribution<F>,
+{
+    let rx = rng.gen::<F>() * x;
+    share(x, rng)
+        // TODO: array::zip/each_ref when stable
+        .iter()
+        .zip(share(rx, rng))
+        .map(|(x, rx)| MaliciousReplicated::new(*x, rx))
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
 }
 
 /// Validates correctness of the secret sharing scheme.
@@ -42,10 +65,11 @@ pub fn validate_and_reconstruct<F: Field>(
 /// # Panics
 /// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
 pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &ReplicatedShares<F>) {
-    (0..result.0.len()).for_each(|i| {
-        assert_eq!(
-            validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
-            F::from(expected_result[i])
-        );
-    });
+    let revealed_values: Vec<F> = (0..result.0.len())
+        .map(|i| validate_and_reconstruct((result.0[i], result.1[i], result.2[i])))
+        .collect();
+
+    for i in 0..revealed_values.len() {
+        assert_eq!(revealed_values[i], F::from(expected_result[i]));
+    }
 }

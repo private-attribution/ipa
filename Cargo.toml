@@ -33,7 +33,6 @@ hyper-tls = { version = "0.5.0", optional = true }
 metrics = "0.20.1"
 metrics-tracing-context = { version = "0.12.0", optional = true }
 metrics-util = { version = "0.14.0", optional = true }
-permutation = "0.4.1"
 pin-project = "1.0.12"
 rand = "0.8"
 rand_chacha = "0.3.1"
@@ -44,6 +43,7 @@ serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 sha2 = "0.10.6"
 thiserror = "1.0"
+tinyvec = { version = "1.6.0" }
 tokio = { version = "1.21.2", optional = true, features = ["rt", "rt-multi-thread", "macros"] }
 tokio-stream = { version = "0.1.10", optional = true }
 tokio-util = { version = "0.7.4", optional = true }

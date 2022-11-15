@@ -11,8 +11,8 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 
 use super::{
-    apply::apply,
-    shuffle::{get_two_of_three_random_permutations, Shuffle},
+    apply::apply_inv,
+    shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
 use futures::future::try_join;
 
@@ -45,32 +45,39 @@ impl SecureApplyInv {
         input: Vec<Replicated<F>>,
         sort_permutation: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let random_permutations = get_two_of_three_random_permutations(input.len(), &ctx.prss());
+        let prss = &ctx.prss();
+        let random_permutations = get_two_of_three_random_permutations(input.len(), prss);
 
         let (mut shuffled_input, shuffled_sort_permutation) = try_join(
-            Shuffle::new(input, random_permutations.clone()).execute(ctx.narrow(&ShuffleInputs)),
-            Shuffle::new(sort_permutation, random_permutations)
-                .execute(ctx.narrow(&ShufflePermutation)),
+            shuffle_shares(
+                input,
+                (&random_permutations.0, &random_permutations.1),
+                ctx.narrow(&ShuffleInputs),
+            ),
+            shuffle_shares(
+                sort_permutation,
+                (&random_permutations.0, &random_permutations.1),
+                ctx.narrow(&ShufflePermutation),
+            ),
         )
         .await?;
         let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sort_permutation).await?;
-        // The paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(permutation.inverse(), input))
-        // Since this is same as apply(permutation, input), we are doing that instead to save on compute.
-        apply(revealed_permutation, &mut shuffled_input);
+
+        apply_inv(&revealed_permutation, &mut shuffled_input);
         Ok(shuffled_input)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use permutation::Permutation;
+    use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
     use tokio::try_join;
 
     use crate::{
         ff::Fp31,
-        protocol::{sort::apply::apply, QueryId},
+        protocol::{sort::apply::apply_inv, QueryId},
         test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
     };
 
@@ -78,23 +85,23 @@ mod tests {
 
     #[tokio::test]
     pub async fn secureapplyinv() {
-        const BATCHSIZE: usize = 25;
+        const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng = rand::thread_rng();
-            let input: Vec<u128> = (0..(BATCHSIZE as u128)).collect();
+            let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE as usize);
+            for _ in 0..BATCHSIZE {
+                input.push(rng.gen::<u128>() % 31_u128);
+            }
 
-            let mut permutation: Vec<usize> = (0..BATCHSIZE).collect();
+            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
             permutation.shuffle(&mut rng);
 
             let mut expected_result = input.clone();
-            let cloned_perm = Permutation::oneline(permutation.clone());
-            // The actual paper expects us to apply an inverse on the inverted Permutation (i.e. apply_inv(perm.inverse(), input))
-            // Since this is same as apply(perm, input), we are doing that instead both in the code and in the test.
 
             // Applying permutation on the input in clear to get the expected result
-            apply(cloned_perm, &mut expected_result);
+            apply_inv(&permutation, &mut expected_result);
 
-            let permutation: Vec<u128> = permutation.iter().map(|x| *x as u128).collect();
+            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
             let perm_shares = generate_shares::<Fp31>(permutation);
             let mut input_shares = generate_shares::<Fp31>(input);
@@ -108,9 +115,9 @@ mod tests {
 
             input_shares = try_join!(h0_future, h1_future, h2_future).unwrap();
 
-            assert_eq!(input_shares.0.len(), BATCHSIZE);
-            assert_eq!(input_shares.1.len(), BATCHSIZE);
-            assert_eq!(input_shares.2.len(), BATCHSIZE);
+            assert_eq!(input_shares.0.len(), BATCHSIZE as usize);
+            assert_eq!(input_shares.1.len(), BATCHSIZE as usize);
+            assert_eq!(input_shares.2.len(), BATCHSIZE as usize);
 
             // We should get the same result of applying inverse as what we get when applying in clear
             validate_list_of_shares(&expected_result, &input_shares);

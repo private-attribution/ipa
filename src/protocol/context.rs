@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::{
     prss::{IndexedSharedRandomness, SequentialSharedRandomness},
-    RecordId, Step, UniqueStepId,
+    RecordId, Step, Substep,
 };
 use crate::{
     ff::Field,
@@ -19,9 +19,9 @@ use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
 #[derive(Clone, Debug)]
-pub struct ProtocolContext<'a, S: SecretSharing<F>, F> {
+pub struct ProtocolContext<'a, S, F> {
     role: Role,
-    step: UniqueStepId,
+    step: Step,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     accumulator: Option<SecurityValidatorAccumulator<F>>,
@@ -33,7 +33,7 @@ impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
     pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             role,
-            step: UniqueStepId::default(),
+            step: Step::default(),
             prss: participant,
             gateway,
             accumulator: None,
@@ -50,14 +50,14 @@ impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
 
     /// A unique identifier for this stage of the protocol execution.
     #[must_use]
-    pub fn step(&self) -> &UniqueStepId {
+    pub fn step(&self) -> &Step {
         &self.step
     }
 
     /// Make a sub-context.
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
-    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
+    pub fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         ProtocolContext {
             role: self.role,
             step: self.step.narrow(step),
@@ -84,7 +84,7 @@ impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
             role: self.role,
             // create a unique step that allows narrowing this context to the same step
             // if it is bound to a different record id
-            step: UniqueStepId::from_step_id(&self.step),
+            step: Step::from_step_id(&self.step),
             prss: self.prss,
             gateway: self.gateway,
             accumulator: self.accumulator.clone(),

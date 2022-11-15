@@ -9,12 +9,14 @@ use crate::ff::{Field, Fp31};
 use crate::helpers::Role;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::Step;
+use crate::protocol::Substep;
 use crate::secret_sharing::{Replicated, SecretSharing};
+use rand::distributions::Standard;
+use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
-pub use sharing::{share, validate_and_reconstruct, validate_list_of_shares};
+pub use sharing::{share, share_malicious, validate_and_reconstruct, validate_list_of_shares};
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
 };
@@ -46,7 +48,7 @@ pub fn make_contexts<F: Field>(
 #[must_use]
 pub fn narrow_contexts<'a, F: Field, S: SecretSharing<F>>(
     contexts: &[ProtocolContext<'a, S, F>; 3],
-    step: &impl Step,
+    step: &impl Substep,
 ) -> [ProtocolContext<'a, S, F>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
@@ -80,7 +82,10 @@ pub type ReplicatedShares<T> = (Vec<Replicated<T>>, Vec<Replicated<T>>, Vec<Repl
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]
-pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
+pub fn generate_shares<F: Field>(input: Vec<u128>) -> ReplicatedShares<F>
+where
+    Standard: Distribution<F>,
+{
     let mut rand = StepRng::new(100, 1);
 
     let len = input.len();
@@ -89,10 +94,23 @@ pub fn generate_shares<T: Field>(input: Vec<u128>) -> ReplicatedShares<T> {
     let mut shares2 = Vec::with_capacity(len);
 
     for iter in input {
-        let share = share(T::from(iter), &mut rand);
+        let share = share(F::from(iter), &mut rand);
         shares0.push(share[0]);
         shares1.push(share[1]);
         shares2.push(share[2]);
     }
     (shares0, shares1, shares2)
+}
+
+/// # Panics
+/// Panics if the permutation is not a valid one.
+/// Here "valid" means it contains all the numbers in the range 0..length, and each only appears once.
+#[must_use]
+pub fn permutation_valid(permutation: &[u32]) -> bool {
+    let mut c = permutation.to_vec();
+    c.sort_unstable();
+    for (i, position) in c.iter().enumerate() {
+        assert_eq!(*position as usize, i);
+    }
+    true
 }

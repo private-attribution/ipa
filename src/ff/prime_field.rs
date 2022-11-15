@@ -87,6 +87,12 @@ macro_rules! field_impl {
             }
         }
 
+        impl rand::distributions::Distribution<$field> for rand::distributions::Standard {
+            fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
+                <$field>::from(rng.gen::<u128>())
+            }
+        }
+
         impl std::fmt::Debug for $field {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}_mod{}", self.0, Self::PRIME)

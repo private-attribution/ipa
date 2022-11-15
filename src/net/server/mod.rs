@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
-    helpers::network::{ChannelId, MessageChunks},
-    net::RecordHeaders,
+    helpers::network::MessageChunks,
+    net::LastSeenMessages,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -34,6 +34,10 @@ pub enum MpcHelperServerError {
     MissingHeader(String),
     #[error("invalid header: {0}")]
     InvalidHeader(BoxError),
+    #[error(
+        "Request body length {body_len} is not aligned with size of the element {element_size}"
+    )]
+    WrongBodyLen { body_len: u32, element_size: usize },
     #[error("bad path: {0}")]
     BadPathString(#[source] BoxError),
     #[error(transparent)]
@@ -105,9 +109,10 @@ impl IntoResponse for MpcHelperServerError {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            Self::SerdeError(_) | Self::InvalidHeader(_) | Self::OutOfOrder { .. } => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::SerdeError(_)
+            | Self::InvalidHeader(_)
+            | Self::WrongBodyLen { .. }
+            | Self::OutOfOrder { .. } => StatusCode::BAD_REQUEST,
             Self::HyperError(_)
             | Self::SendError(_)
             | Self::BodyAlreadyExtracted(_)
@@ -173,43 +178,6 @@ impl MessageSendMap {
 }
 
 impl Default for MessageSendMap {
-    fn default() -> Self {
-        Self {
-            m: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-}
-
-/// Keeps track of the last seen message for every [`ChannelId`]. This enables the server to ensure
-/// that messages arrive in-order. This solution is a temporary one intended to be removed once
-/// messages arrive in one stream, where ordering will be handled by http.
-/// TODO (ts): remove this when streaming solution is complete
-#[derive(Clone)]
-pub(crate) struct LastSeenMessages {
-    m: Arc<Mutex<HashMap<ChannelId, u32>>>,
-}
-
-impl LastSeenMessages {
-    pub fn update_in_place(
-        &self,
-        channel_id: ChannelId,
-        headers: RecordHeaders,
-    ) -> Result<(), MpcHelperServerError> {
-        let mut m = self.m.lock().unwrap();
-        let last_seen = m.entry(channel_id).or_default();
-        if *last_seen == headers.offset {
-            *last_seen += headers.content_length / headers.data_size;
-            Ok(())
-        } else {
-            Err(MpcHelperServerError::out_of_order(
-                *last_seen,
-                headers.offset,
-            ))
-        }
-    }
-}
-
-impl Default for LastSeenMessages {
     fn default() -> Self {
         Self {
             m: Arc::new(Mutex::new(HashMap::new())),

@@ -14,6 +14,7 @@ use crate::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::ops::AddAssign;
 #[cfg(debug_assertions)]
 use std::{
     collections::HashSet,
@@ -34,14 +35,14 @@ use std::{
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Step: AsRef<str> {}
+pub trait Substep: AsRef<str> {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl Step for String {}
+impl Substep for String {}
 
 #[cfg(any(feature = "test-fixture", debug_assertions))]
-impl Step for str {}
+impl Substep for str {}
 
 /// The representation of a unique step in protocol execution.
 ///
@@ -72,28 +73,28 @@ impl Step for str {}
     derive(serde::Deserialize),
     serde(from = "&str")
 )]
-pub struct UniqueStepId {
+pub struct Step {
     id: String,
     /// This tracks the different values that have been provided to `narrow()`.
     #[cfg(debug_assertions)]
     used: Arc<Mutex<HashSet<String>>>,
 }
 
-impl Hash for UniqueStepId {
+impl Hash for Step {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write(self.id.as_bytes());
     }
 }
 
-impl PartialEq for UniqueStepId {
+impl PartialEq for Step {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl Eq for UniqueStepId {}
+impl Eq for Step {}
 
-impl UniqueStepId {
+impl Step {
     #[must_use]
     pub fn from_step_id(step: &Self) -> Self {
         Self {
@@ -108,7 +109,7 @@ impl UniqueStepId {
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
     #[must_use]
-    pub fn narrow<S: Step + ?Sized>(&self, step: &S) -> Self {
+    pub fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         #[cfg(debug_assertions)]
         {
             let s = String::from(step.as_ref());
@@ -129,7 +130,7 @@ impl UniqueStepId {
     }
 }
 
-impl Default for UniqueStepId {
+impl Default for Step {
     // TODO(mt): this should might be better if it were to be constructed from
     // a QueryId rather than using a default.
     fn default() -> Self {
@@ -141,16 +142,16 @@ impl Default for UniqueStepId {
     }
 }
 
-impl AsRef<str> for UniqueStepId {
+impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         self.id.as_str()
     }
 }
 
-impl From<&str> for UniqueStepId {
+impl From<&str> for Step {
     fn from(id: &str) -> Self {
         let id = id.strip_prefix('/').unwrap_or(id);
-        UniqueStepId {
+        Step {
             id: id.to_owned(),
             #[cfg(debug_assertions)]
             used: Arc::new(Mutex::new(HashSet::new())),
@@ -169,7 +170,7 @@ pub enum IpaProtocolStep {
     Attribution,
 }
 
-impl Step for IpaProtocolStep {}
+impl Substep for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
@@ -191,7 +192,7 @@ impl AsRef<str> for IpaProtocolStep {
     }
 }
 
-impl Debug for UniqueStepId {
+impl Debug for Step {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "step={}", self.id)
     }
@@ -260,5 +261,17 @@ impl From<RecordId> for u128 {
 impl From<RecordId> for u32 {
     fn from(v: RecordId) -> Self {
         v.0
+    }
+}
+
+impl From<RecordId> for usize {
+    fn from(r: RecordId) -> Self {
+        r.0 as usize
+    }
+}
+
+impl AddAssign<usize> for RecordId {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += u32::try_from(rhs).unwrap();
     }
 }

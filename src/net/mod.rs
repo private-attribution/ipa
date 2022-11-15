@@ -11,37 +11,36 @@ pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
 pub use server::{BindTarget, MessageSendMap, MpcHelperServer};
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
-use crate::net::server::MpcHelperServerError;
-use crate::protocol::{QueryId, RecordId};
+use crate::{
+    helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
+    net::server::MpcHelperServerError,
+};
 use async_trait::async_trait;
-use axum::body::Bytes;
-use axum::extract::{FromRequest, RequestParts};
-use axum::http::header::HeaderName;
+use axum::{
+    extract::{FromRequest, RequestParts},
+    http::header::HeaderName,
+};
 
 /// name of the `offset` header to use for [`RecordHeaders`]
 static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
-/// name of the `data-size` header to use for [`RecordHeaders`]
-static DATA_SIZE_HEADER_NAME: HeaderName = HeaderName::from_static("data-size");
 /// name of the `content-type` header used to get the length of the body, to verify valid `data-size`
 static CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content-length");
 
 /// Headers that are expected on requests involving a batch of records.
 /// # `content_length`
-/// standard HTTP header representing length of entire body
+/// standard HTTP header representing length of entire body. Body length must be a multiple of
+/// `MESSAGE_PAYLOAD_SIZE_BYTES`
 /// # `offset`
 /// For any given batch, their `record_id`s must be known. The first record in the batch will have id
 /// `offset`, and subsequent records will be in-order from there.
-/// # `data_size`
-/// the batch will be transmitted as a single `Bytes` block, and the receiver will need to know how
-/// to divide up the block into individual records. `data_size` represents the number of bytes each
-/// record consists of
 #[derive(Copy, Clone)]
 pub struct RecordHeaders {
     content_length: u32,
     offset: u32,
-    data_size: u32,
 }
 
 impl RecordHeaders {
@@ -60,10 +59,9 @@ impl RecordHeaders {
             .and_then(|header_value_str| header_value_str.parse().map_err(Into::into))
     }
 
-    pub(crate) fn add_to(&self, req: axum::http::request::Builder) -> axum::http::request::Builder {
+    pub(crate) fn add_to(self, req: axum::http::request::Builder) -> axum::http::request::Builder {
         req.header(CONTENT_LENGTH_HEADER_NAME.clone(), self.content_length)
             .header(OFFSET_HEADER_NAME.clone(), self.offset)
-            .header(DATA_SIZE_HEADER_NAME.clone(), self.data_size)
     }
 }
 
@@ -75,42 +73,51 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
         let content_length: u32 =
             RecordHeaders::get_header(req, CONTENT_LENGTH_HEADER_NAME.clone())?;
         let offset: u32 = RecordHeaders::get_header(req, OFFSET_HEADER_NAME.clone())?;
-        let data_size: u32 = RecordHeaders::get_header(req, DATA_SIZE_HEADER_NAME.clone())?;
-        // cannot divide by 0
-        if data_size == 0 {
-            Err(MpcHelperServerError::InvalidHeader(
-                "data-size header must not be 0".into(),
-            ))
-        }
-        // `data_size` NOT a multiple of `body_len`
-        else if content_length % data_size != 0 {
-            Err(MpcHelperServerError::InvalidHeader(
-                "data-size header does not align with body".into(),
-            ))
-        } else {
+        // content_length must be aligned with the size of an element
+        if content_length as usize % MESSAGE_PAYLOAD_SIZE_BYTES == 0 {
             Ok(RecordHeaders {
                 content_length,
                 offset,
-                data_size,
+            })
+        } else {
+            Err(MpcHelperServerError::WrongBodyLen {
+                body_len: content_length,
+                element_size: MESSAGE_PAYLOAD_SIZE_BYTES,
             })
         }
     }
 }
 
-/// After receiving a batch of records from the network, package it into this [`BufferedMessages`]
-/// and pass it to the network layer for processing, and to pass on to the messaging layer
-#[derive(Debug, PartialEq, Eq)]
-pub struct BufferedMessages<S> {
-    query_id: QueryId,
-    step: S,
-    offset: u32,
-    data_size: u32,
-    body: Bytes,
+/// Keeps track of the last seen message for every [`ChannelId`]. This enables the server to ensure
+/// that messages arrive in-order. This solution is a temporary one intended to be removed once
+/// messages arrive in one stream, where ordering will be handled by http.
+/// TODO (ts): remove this when streaming solution is complete
+#[derive(Clone)]
+pub(crate) struct LastSeenMessages {
+    m: Arc<Mutex<HashMap<ChannelId, u32>>>,
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct MessageEnvelope {
-    record_id: RecordId,
-    message: Box<u8>,
+impl LastSeenMessages {
+    pub fn update_in_place(
+        &self,
+        channel_id: ChannelId,
+        next_seen: u32,
+    ) -> Result<(), MpcHelperServerError> {
+        let mut m = self.m.lock().unwrap();
+        let last_seen = m.entry(channel_id).or_default();
+        if *last_seen == next_seen {
+            *last_seen += 1;
+            Ok(())
+        } else {
+            Err(MpcHelperServerError::out_of_order(*last_seen, next_seen))
+        }
+    }
+}
+
+impl Default for LastSeenMessages {
+    fn default() -> Self {
+        Self {
+            m: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
 }
