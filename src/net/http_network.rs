@@ -63,7 +63,7 @@ impl<'a> HttpNetwork<'a> {
                     messages: Bytes::from(messages),
                 };
                 *offset += 1;
-                
+
                 clients[channel_id.role]
                     .send_messages(args)
                     .await
