@@ -127,6 +127,6 @@ pub trait BinaryField:
     + BitOrAssign
     + BitXor<Output = Self>
     + BitXorAssign
-    + Not
+    + Not<Output = Self>
 {
 }

@@ -45,6 +45,9 @@ impl<F: Field> Replicated<F> {
             Role::H3 => Self::new(F::ZERO, F::ONE),
         }
     }
+
+    /// Replicated secret share where both left and right values are `F::ZERO`
+    pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
 }
 
 impl<F: Field> Add<Self> for &Replicated<F> {
