@@ -1,4 +1,5 @@
 mod bitwise_lt;
+mod bitwise_sum;
 mod carries;
 mod or;
 mod prefix_or;
