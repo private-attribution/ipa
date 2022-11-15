@@ -32,27 +32,16 @@ impl<'a, F: Field> PrefixOr<'a, F> {
     }
 
     /// Securely computes `[a] | [b] where a, b ∈ {0, 1} ⊆ F_p`
-    ///
-    /// * OR can be computed as: `[a] ^ [b] ^ MULT([a], [b])`
-    /// * XOR([a], [b]) is: `[a] + [b] - 2([a] * [b])`
-    ///
-    /// Therefore,
-    ///
-    /// let [c] = [a] ^ [b]
-    /// [c] + [ab] - 2([c] * [ab])
+    /// OR can be computed as: `!MULT(![a], ![b])`
     async fn bit_or(
         a: Replicated<F>,
         b: Replicated<F>,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Replicated<F>, BoxError> {
-        let ab = ctx.narrow(&Step::AMultB).multiply(record_id, a, b).await?;
-        let c = a + b - (ab * F::from(2));
-        let cab = ctx
-            .narrow(&Step::ABMultC)
-            .multiply(record_id, c, ab)
-            .await?;
-        Ok(c + ab - (cab * F::from(2)))
+        let one = Replicated::one(ctx.role());
+        let result = ctx.multiply(record_id, one - a, one - b).await?;
+        Ok(one - result)
     }
 
     /// Securely computes `∨ [a_1],...[a_n]`
@@ -310,8 +299,6 @@ impl<'a, F: Field> PrefixOr<'a, F> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     BitwiseOrPerBlock,
-    AMultB,
-    ABMultC,
     BlockWisePrefixOr,
     InnerProduct,
     GetFirstBlockWithOne,
@@ -323,8 +310,6 @@ impl crate::protocol::Step for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::AMultB => "a_mult_b",
-            Self::ABMultC => "ab_mult_c",
             Self::BitwiseOrPerBlock => "bitwise_or_per_block",
             Self::BlockWisePrefixOr => "block_wise_prefix_or",
             Self::InnerProduct => "inner_product",
