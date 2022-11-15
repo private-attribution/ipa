@@ -13,7 +13,7 @@ enum BitOpStep {
     Step(usize),
 }
 
-impl crate::protocol::Step for BitOpStep {}
+impl crate::protocol::Substep for BitOpStep {}
 
 impl AsRef<str> for BitOpStep {
     fn as_ref(&self) -> &str {

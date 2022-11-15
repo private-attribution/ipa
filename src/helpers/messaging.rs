@@ -11,7 +11,7 @@ use crate::{
     helpers::error::Error,
     helpers::fabric::{ChannelId, MessageEnvelope, Network},
     helpers::Role,
-    protocol::{RecordId, UniqueStepId},
+    protocol::{RecordId, Step},
 };
 
 use crate::ff::{Field, Int};
@@ -85,7 +85,7 @@ pub struct Gateway {
 #[derive(Debug)]
 pub struct Mesh<'a, 'b> {
     gateway: &'a Gateway,
-    step: &'b UniqueStepId,
+    step: &'b Step,
 }
 
 pub(super) struct ReceiveRequest {
@@ -201,7 +201,7 @@ impl Gateway {
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
     #[must_use]
-    pub fn mesh<'a, 'b>(&'a self, step: &'b UniqueStepId) -> Mesh<'a, 'b> {
+    pub fn mesh<'a, 'b>(&'a self, step: &'b Step) -> Mesh<'a, 'b> {
         Mesh {
             gateway: self,
             step,

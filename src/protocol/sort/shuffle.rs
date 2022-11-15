@@ -8,7 +8,7 @@ use crate::{
     error::BoxError,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Step},
+    protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Substep},
     secret_sharing::Replicated,
 };
 
@@ -24,7 +24,7 @@ enum ShuffleOrUnshuffle {
     Unshuffle,
 }
 
-impl Step for ShuffleOrUnshuffle {}
+impl Substep for ShuffleOrUnshuffle {}
 impl AsRef<str> for ShuffleOrUnshuffle {
     fn as_ref(&self) -> &str {
         match self {
@@ -215,7 +215,7 @@ mod tests {
                 get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
                 ShuffleOrUnshuffle,
             },
-            QueryId, UniqueStepId,
+            QueryId, Step,
         },
         test_fixture::{
             generate_shares, make_contexts, make_participants, make_world, narrow_contexts,
@@ -231,7 +231,7 @@ mod tests {
         logging::setup();
 
         let (p1, p2, p3) = make_participants();
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
         let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
         let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.indexed(&step).as_ref());

@@ -8,7 +8,7 @@ use crate::ff::{Field, Fp31};
 use crate::helpers::Role;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::Step;
+use crate::protocol::Substep;
 use crate::secret_sharing::{Replicated, SecretSharing};
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
@@ -45,7 +45,7 @@ pub fn make_contexts<F: Field>(
 #[must_use]
 pub fn narrow_contexts<'a, F: Field, S: SecretSharing<F>>(
     contexts: &[ProtocolContext<'a, S, F>; 3],
-    step: &impl Step,
+    step: &impl Substep,
 ) -> [ProtocolContext<'a, S, F>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
