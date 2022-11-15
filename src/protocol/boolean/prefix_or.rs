@@ -352,14 +352,11 @@ mod tests {
             .unzip();
 
         // Execute
-        let pre0 = PrefixOr::new(&s0);
-        let pre1 = PrefixOr::new(&s1);
-        let pre2 = PrefixOr::new(&s2);
         let step = "PrefixOr_Test";
         let result = try_join_all(vec![
-            pre0.execute(ctx[0].narrow(step), RecordId::from(0_u32)),
-            pre1.execute(ctx[1].narrow(step), RecordId::from(0_u32)),
-            pre2.execute(ctx[2].narrow(step), RecordId::from(0_u32)),
+            PrefixOr::new(&s0).execute(ctx[0].narrow(step), RecordId::from(0_u32)),
+            PrefixOr::new(&s1).execute(ctx[1].narrow(step), RecordId::from(0_u32)),
+            PrefixOr::new(&s2).execute(ctx[2].narrow(step), RecordId::from(0_u32)),
         ])
         .await
         .unwrap();
