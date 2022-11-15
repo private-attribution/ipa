@@ -175,7 +175,7 @@ mod tests {
             let secret = rng.gen::<u128>();
             let input = Fp31::from(secret);
             // r*x value is not used inside malicious reveal, so it can be set to any value
-            let share = share_malicious(input, share(Fp31::ZERO, &mut rng), &mut rng);
+            let share = share_malicious(input, &mut rng);
 
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
@@ -202,7 +202,7 @@ mod tests {
             let secret = rng.gen::<u128>();
             let input = Fp31::from(secret);
             // r*x value is not used inside malicious reveal, so it can be set to any value
-            let share = share_malicious(input, share(Fp31::ZERO, &mut rng), &mut rng);
+            let share = share_malicious(input, &mut rng);
             let record_id = RecordId::from(i);
             let result = try_join!(
                 ctx[0].clone().reveal(record_id, share[0]),

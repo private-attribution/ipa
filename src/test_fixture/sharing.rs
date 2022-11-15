@@ -21,16 +21,13 @@ pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3] 
 /// Shares `input` into 3 maliciously secure replicated secret shares using the provided `rng` implementation
 ///
 #[allow(clippy::missing_panics_doc)]
-pub fn share_malicious<F: Field, R: RngCore>(
-    input: F,
-    r: [Replicated<F>; 3],
-    rng: &mut R,
-) -> [MaliciousReplicated<F>; 3] {
-    share(input, rng)
+pub fn share_malicious<F: Field, R: RngCore>(x: F, rng: &mut R) -> [MaliciousReplicated<F>; 3] {
+    let rx = F::from(rng.gen::<u128>()) * x;
+    share(x, rng)
+        // TODO: array::zip/each_ref when stable
         .iter()
-        .enumerate()
-        .map(|(i, share)| MaliciousReplicated::new(*share, r[i]))
-        // TODO: each_ref when stable
+        .zip(share(rx, rng))
+        .map(|(x, rx)| MaliciousReplicated::new(*x, rx))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
