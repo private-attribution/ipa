@@ -131,7 +131,7 @@ impl IntoResponse for MpcHelperServerError {
 /// Is shareable by `clone()`ing.
 #[derive(Clone)]
 pub struct MessageSendMap {
-    m: Arc<Mutex<HashMap<QueryId, mpsc::Sender<MessageChunks>>>>,
+    senders: Arc<Mutex<HashMap<QueryId, mpsc::Sender<MessageChunks>>>>,
 }
 
 impl MessageSendMap {
@@ -144,7 +144,7 @@ impl MessageSendMap {
         &self,
         query_id: QueryId,
     ) -> Result<mpsc::Sender<MessageChunks>, MpcHelperServerError> {
-        self.m.lock().unwrap().get(&query_id).map_or_else(
+        self.senders.lock().unwrap().get(&query_id).map_or_else(
             || Err(MpcHelperServerError::query_id_not_found(query_id)),
             |sender| Ok(sender.clone()),
         )
@@ -154,14 +154,14 @@ impl MessageSendMap {
     /// # Panics
     /// if lock is already held by current thread
     pub fn insert(&self, query_id: QueryId, sender: mpsc::Sender<MessageChunks>) {
-        self.m.lock().unwrap().insert(query_id, sender);
+        self.senders.lock().unwrap().insert(query_id, sender);
     }
 
     /// removes a sender for a given query
     /// # Panics
     /// if lock is already held by current thread
     pub fn remove(&self, query_id: QueryId) {
-        self.m.lock().unwrap().remove(&query_id);
+        self.senders.lock().unwrap().remove(&query_id);
     }
 
     /// initialize with a [`QueryId`] already inserted.
@@ -172,7 +172,7 @@ impl MessageSendMap {
         let mut map = HashMap::new();
         map.insert(QueryId, tx);
         MessageSendMap {
-            m: Arc::new(Mutex::new(map)),
+            senders: Arc::new(Mutex::new(map)),
         }
     }
 }
@@ -180,7 +180,7 @@ impl MessageSendMap {
 impl Default for MessageSendMap {
     fn default() -> Self {
         Self {
-            m: Arc::new(Mutex::new(HashMap::new())),
+            senders: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

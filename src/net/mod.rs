@@ -94,7 +94,7 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
 /// TODO (ts): remove this when streaming solution is complete
 #[derive(Clone)]
 pub(crate) struct LastSeenMessages {
-    m: Arc<Mutex<HashMap<ChannelId, u32>>>,
+    messages: Arc<Mutex<HashMap<ChannelId, u32>>>,
 }
 
 impl LastSeenMessages {
@@ -103,8 +103,8 @@ impl LastSeenMessages {
         channel_id: ChannelId,
         next_seen: u32,
     ) -> Result<(), MpcHelperServerError> {
-        let mut m = self.m.lock().unwrap();
-        let last_seen = m.entry(channel_id).or_default();
+        let mut messages = self.messages.lock().unwrap();
+        let last_seen = messages.entry(channel_id).or_default();
         if *last_seen == next_seen {
             *last_seen += 1;
             Ok(())
@@ -117,7 +117,7 @@ impl LastSeenMessages {
 impl Default for LastSeenMessages {
     fn default() -> Self {
         Self {
-            m: Arc::new(Mutex::new(HashMap::new())),
+            messages: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
