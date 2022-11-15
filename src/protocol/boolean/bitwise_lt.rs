@@ -1,7 +1,8 @@
 use super::prefix_or::PrefixOr;
+use super::xor::Xor;
 use super::BitOpStep;
 use crate::error::BoxError;
-use crate::ff::BinaryField;
+use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
@@ -22,21 +23,19 @@ use std::iter::{repeat, zip};
 /// 5.3 Bitwise Less-Than
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-pub struct BitwiseLessThan<'a, B: BinaryField> {
-    a: &'a [Replicated<B>],
-    b: &'a [Replicated<B>],
+pub struct BitwiseLessThan<'a, F: Field> {
+    a: &'a [Replicated<F>],
+    b: &'a [Replicated<F>],
 }
 
-impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
+impl<'a, F: Field> BitwiseLessThan<'a, F> {
     #[allow(dead_code)]
-    pub fn new(a: &'a [Replicated<B>], b: &'a [Replicated<B>]) -> Self {
+    pub fn new(a: &'a [Replicated<F>], b: &'a [Replicated<F>]) -> Self {
         debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
         Self { a, b }
     }
 
     /// Step 1. `for i=0..l-1, [e_i] = XOR([a_i], [b_i])`
-    ///
-    /// We can compute `[a] ⊕ [b], a,b ∈ Z_2` as `[a + b]` locally.
     ///
     /// # Example
     /// ```ignore
@@ -46,10 +45,17 @@ impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
     ///   [b] = 0 1 1 1 1 0 0 0   // 30 in little-endian
     ///   [e] = 1 1 0 1 0 0 0 0
     /// ```
-    fn step1(a: &[Replicated<B>], b: &[Replicated<B>]) -> Vec<Replicated<B>> {
-        zip(a, b)
-            .map(|(&a_bit, &b_bit)| a_bit + b_bit)
-            .collect::<Vec<_>>()
+    async fn step1(
+        a: &[Replicated<F>],
+        b: &[Replicated<F>],
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        record_id: RecordId,
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
+        let xor = zip(a, b).enumerate().map(|(i, (&a_bit, &b_bit))| {
+            let c = ctx.narrow(&BitOpStep::Step(i));
+            async move { Xor::new(a_bit, b_bit).execute(c, record_id).await }
+        });
+        try_join_all(xor).await
     }
 
     /// Step 2. `([f_(l-1)]..[f_0]) = PrefixOr([e_(l-1)]..[e_0])`
@@ -69,10 +75,10 @@ impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
     ///   [f] = 0 0 0 0 1 1 1 1
     /// ```
     async fn step2(
-        e: &mut [Replicated<B>],
-        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        e: &mut [Replicated<F>],
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<B>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         e.reverse();
         let mut f = PrefixOr::new(e).execute(ctx, record_id).await?;
         f.reverse();
@@ -89,7 +95,7 @@ impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
     ///   [f] = 0 0 0 0 1 1 1 1
     ///   [g] = 0 0 0 1 0 0 0 0
     /// ```
-    fn step3_4(f: &[Replicated<B>]) -> Vec<Replicated<B>> {
+    fn step3_4(f: &[Replicated<F>]) -> Vec<Replicated<F>> {
         let l = f.len();
         (0..l - 1)
             .map(|i| f[i] - f[i + 1])
@@ -108,11 +114,11 @@ impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
     ///   [h] = 0 0 0 1 0 0 0 0
     /// ```
     async fn step5(
-        g: &[Replicated<B>],
-        b: &[Replicated<B>],
-        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        g: &[Replicated<F>],
+        b: &[Replicated<F>],
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<B>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mul = zip(repeat(ctx), zip(g, b))
             .enumerate()
             .map(|(i, (ctx, (&g_bit, &b_bit)))| {
@@ -125,18 +131,18 @@ impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
     /// Step 6. `[h] = Σ [h_i] where i=0..l-1`
     ///
     /// The interpretations is, `h` is 1 iff `a < b`
-    fn step6(h: &[Replicated<B>]) -> Replicated<B> {
+    fn step6(h: &[Replicated<F>]) -> Replicated<F> {
         h.iter()
-            .fold(Replicated::new(B::ZERO, B::ZERO), |acc, &x| acc + x)
+            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, &x| acc + x)
     }
 
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, Replicated<B>, B>,
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Replicated<B>, BoxError> {
-        let mut e = Self::step1(self.a, self.b);
+    ) -> Result<Replicated<F>, BoxError> {
+        let mut e = Self::step1(self.a, self.b, ctx.narrow(&Step::AXorB), record_id).await?;
         let f = Self::step2(&mut e, ctx.narrow(&Step::PrefixOr), record_id).await?;
         let g = Self::step3_4(&f);
         let h = Self::step5(&g, self.b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
@@ -147,15 +153,17 @@ impl<'a, B: BinaryField> BitwiseLessThan<'a, B> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
+    AXorB,
     PrefixOr,
     MaskLessThanBit,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::Substep for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
+            Self::AXorB => "a_xor_b",
             Self::PrefixOr => "prefix_or",
             Self::MaskLessThanBit => "mask_less_than_bit",
         }
@@ -205,14 +213,11 @@ mod tests {
             .unzip();
 
         // Execute
-        let pre0 = BitwiseLessThan::new(&a0, &b0);
-        let pre1 = BitwiseLessThan::new(&a1, &b1);
-        let pre2 = BitwiseLessThan::new(&a2, &b2);
         let step = "BitwiseLT_Test";
         let result = try_join_all(vec![
-            pre0.execute(ctx[0].narrow(step), RecordId::from(0_u32)),
-            pre1.execute(ctx[1].narrow(step), RecordId::from(0_u32)),
-            pre2.execute(ctx[2].narrow(step), RecordId::from(0_u32)),
+            BitwiseLessThan::new(&a0, &b0).execute(ctx[0].narrow(step), RecordId::from(0_u32)),
+            BitwiseLessThan::new(&a1, &b1).execute(ctx[1].narrow(step), RecordId::from(0_u32)),
+            BitwiseLessThan::new(&a2, &b2).execute(ctx[2].narrow(step), RecordId::from(0_u32)),
         ])
         .await
         .unwrap();
