@@ -1,4 +1,4 @@
-#![deny(clippy::clone_on_ref_ptr)]
+#![deny(warnings, clippy::pedantic)]
 // The following warnings are too noisy for us and having them enabled leads to polluting the
 // code with allow annotations. Disabling them once per project here
 #![allow(clippy::similar_names)]

@@ -39,7 +39,7 @@ jobs:
 
       - name: Clippy
         if: ${{ success() || failure() }}
-        run: cargo clippy --tests -- -D warnings -D clippy::pedantic
+        run: cargo clippy --tests
 
       - name: Run Tests
         run: cargo test
