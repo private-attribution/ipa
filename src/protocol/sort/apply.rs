@@ -104,11 +104,11 @@ mod tests {
     }
 
     #[test]
-    fn permutations_a_million_long() {
-        const SUPER_LONG: usize = 16 * 16 * 16 * 16 * 16; // 1,048,576, a bit over a million
+    fn permutations_super_long() {
+        const SUPER_LONG: usize = 16 * 16 * 16 * 16; // 65,536
         let mut original_values = Vec::with_capacity(SUPER_LONG);
         for i in 0..SUPER_LONG {
-            original_values.push(format!("{:#07x}", i));
+            original_values.push(format!("{:#06x}", i));
         }
         let mut permutation: Vec<u32> = (0..SUPER_LONG)
             .map(|i| usize::try_into(i).unwrap())
