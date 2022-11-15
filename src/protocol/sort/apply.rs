@@ -1,56 +1,132 @@
+use bitvec::bitvec;
 use embed_doc_image::embed_doc_image;
-use permutation::Permutation;
-
-// TODO #OptimizeLater
-// For now, we are using Permutation crate to implement `apply_inv` and `apply` functions.
-// However this uses usize which is either 32-bit or 64-bit depending on the architecture we are using.
-// In our case, if we are sorting less than 2^32 elements (over 4 billion) 32-bits is sufficient.
-// We probably never need a 64-bit number and is not optimal.
-// It would even be cool to use a u16 if you're sorting less than 65,000 items
-// In future, we should plan to change this code to use u32 or u16 based on number of items
 
 #[embed_doc_image("apply", "images/sort/apply.png")]
 #[embed_doc_image("apply_inv", "images/sort/apply_inv.png")]
+
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
 /// ![Apply steps][apply]
-pub fn apply<T: Copy + Default, S>(mut permutation: Permutation, values: &mut S)
-where
-    S: AsMut<[T]>,
-{
-    permutation.apply_slice_in_place(values);
+pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
+    debug_assert!(permutation.len() == values.len());
+    let mut permuted = bitvec![0; permutation.len()];
+
+    for i in 0..permutation.len() {
+        if !permuted[i] {
+            let mut pos_i = i;
+            let mut pos_j = permutation[pos_i] as usize;
+            while pos_j != i {
+                values.swap(pos_i, pos_j);
+                permuted.set(pos_j, true);
+                pos_i = pos_j;
+                pos_j = permutation[pos_i] as usize;
+            }
+        }
+    }
 }
 
 /// To compute `apply_inv` on values, permutation(i) can be regarded as the destination of i, i.e., the i-th item
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
 /// ![Apply inv steps][apply_inv]
-pub fn apply_inv<T: Copy + Default, S>(mut permutation: Permutation, values: &mut S)
-where
-    S: AsMut<[T]>,
-{
-    permutation.apply_inv_slice_in_place(values);
+pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
+    let mut permuted = bitvec![0; permutation.len()];
+
+    for i in 0..permutation.len() {
+        if !permuted[i] {
+            let mut destination = permutation[i] as usize;
+            while destination != i {
+                values.swap(i, destination);
+                permuted.set(destination, true);
+                destination = permutation[destination] as usize;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{apply, apply_inv};
-    use permutation::Permutation;
     use rand::seq::SliceRandom;
 
     #[test]
-    fn apply_shares() {
+    fn apply_just_one_cycle() {
         let mut values = ["A", "B", "C", "D"];
-        let indices = Permutation::oneline([2, 3, 1, 0]).inverse();
+        let permutation = [2, 3, 1, 0];
         let expected_output_apply = ["C", "D", "B", "A"];
-        apply(indices, &mut values);
+        apply(&permutation, &mut values);
         assert_eq!(values, expected_output_apply);
+    }
 
+    #[test]
+    fn apply_just_two_cycles() {
+        let mut values = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+        let permutation = [3, 4, 6, 7, 0, 9, 10, 1, 2, 8, 5];
+        let expected_output_apply = ["D", "E", "G", "H", "A", "J", "K", "B", "C", "I", "F"];
+        apply(&permutation, &mut values);
+        assert_eq!(values, expected_output_apply);
+    }
+
+    #[test]
+    fn apply_complex() {
+        let mut values = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+        let permutation = [1, 0, 2, 5, 6, 7, 8, 9, 10, 3, 4];
+        let expected_output_apply = ["B", "A", "C", "F", "G", "H", "I", "J", "K", "D", "E"];
+        apply(&permutation, &mut values);
+        assert_eq!(values, expected_output_apply);
+    }
+
+    #[test]
+    fn apply_inv_just_one_cycle() {
         let mut values = ["A", "B", "C", "D"];
-        let indices = Permutation::oneline([2, 3, 1, 0]).inverse();
-        let expected_output_apply_inv = ["D", "C", "A", "B"];
-        apply_inv(indices, &mut values);
-        assert_eq!(values, expected_output_apply_inv);
+        let permutation = [2, 3, 1, 0];
+        let expected_output_apply = ["D", "C", "A", "B"];
+        apply_inv(&permutation, &mut values);
+        assert_eq!(values, expected_output_apply);
+    }
+
+    #[test]
+    fn apply_inv_just_two_cycles() {
+        let mut values = ["A", "B", "C", "D", "E"];
+        let permutation = [3, 4, 1, 0, 2];
+        let expected_output_apply = ["D", "C", "E", "A", "B"];
+        apply_inv(&permutation, &mut values);
+        assert_eq!(values, expected_output_apply);
+    }
+
+    #[test]
+    fn apply_inv_complex() {
+        let mut values = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+        let permutation = [1, 0, 2, 5, 6, 7, 8, 9, 10, 3, 4];
+        let expected_output_apply = ["B", "A", "C", "J", "K", "D", "E", "F", "G", "H", "I"];
+        apply_inv(&permutation, &mut values);
+        assert_eq!(values, expected_output_apply);
+    }
+
+    #[test]
+    fn permutations_super_long() {
+        const SUPER_LONG: usize = 16 * 16 * 16 * 16; // 65,536
+        let mut original_values = Vec::with_capacity(SUPER_LONG);
+        for i in 0..SUPER_LONG {
+            original_values.push(format!("{:#06x}", i));
+        }
+        let mut permutation: Vec<u32> = (0..SUPER_LONG)
+            .map(|i| usize::try_into(i).unwrap())
+            .collect();
+        let mut rng = rand::thread_rng();
+        permutation.shuffle(&mut rng);
+
+        let mut after_apply = original_values.clone();
+        apply(&permutation, &mut after_apply);
+        for i in 0..SUPER_LONG {
+            assert_eq!(after_apply[i], original_values[permutation[i] as usize]);
+        }
+
+        let mut after_apply_inv = original_values.clone();
+        apply_inv(&permutation, &mut after_apply_inv);
+        for i in 0..SUPER_LONG {
+            assert_eq!(original_values[i], after_apply_inv[permutation[i] as usize]);
+        }
     }
 
     #[test]
@@ -59,29 +135,7 @@ mod tests {
         let mut rho = vec![3, 4, 0, 5, 1, 2];
 
         // Applying sigma on rho
-        apply_inv(Permutation::oneline(sigma), &mut rho);
+        apply(&sigma, &mut rho);
         assert_eq!(rho, vec![1, 0, 3, 2, 4, 5]);
-    }
-
-    #[test]
-    pub fn apply_apply_inv_relation() {
-        // This test shows that apply(permutation, values) is same as apply_inv(permutation.inverse(), values)
-        let batchsize: usize = 100;
-        let mut rng = rand::thread_rng();
-
-        let mut permutation: Vec<usize> = (0..batchsize).collect();
-        permutation.shuffle(&mut rng);
-
-        let mut values: Vec<_> = (0..batchsize).collect();
-        let mut values_copy = values.clone();
-
-        apply(Permutation::oneline(permutation.clone()), &mut values);
-
-        apply_inv(
-            Permutation::oneline(permutation).inverse(),
-            &mut values_copy,
-        );
-
-        assert_eq!(values, values_copy);
     }
 }

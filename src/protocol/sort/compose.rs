@@ -7,8 +7,8 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 
 use super::{
-    apply::apply_inv,
-    shuffle::{get_two_of_three_random_permutations, Shuffle},
+    apply::apply,
+    shuffle::{get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares},
     ComposeStep::{RevealPermutation, ShuffleSigma, UnshuffleRho},
 };
 
@@ -37,22 +37,28 @@ impl Compose {
     pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         sigma: Vec<Replicated<F>>,
-        rho: Vec<Replicated<F>>,
+        mut rho: Vec<Replicated<F>>,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let random_permutations = get_two_of_three_random_permutations(rho.len(), &ctx.prss());
+        let prss = &ctx.prss();
+        let random_permutations = get_two_of_three_random_permutations(rho.len(), prss);
 
-        let shuffled_sigma = Shuffle::new(sigma, random_permutations.clone())
-            .execute(ctx.narrow(&ShuffleSigma))
-            .await?;
+        let shuffled_sigma = shuffle_shares(
+            sigma,
+            (&random_permutations.0, &random_permutations.1),
+            ctx.narrow(&ShuffleSigma),
+        )
+        .await?;
 
         let revealed_permutation =
             reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
-        let mut applied_rho = rho;
-        apply_inv(revealed_permutation, &mut applied_rho);
+        apply(&revealed_permutation, &mut rho);
 
-        let unshuffled_rho = Shuffle::new(applied_rho, random_permutations)
-            .execute_unshuffle(ctx.narrow(&UnshuffleRho))
-            .await?;
+        let unshuffled_rho = unshuffle_shares(
+            rho,
+            (&random_permutations.0, &random_permutations.1),
+            ctx.narrow(&UnshuffleRho),
+        )
+        .await?;
 
         Ok(unshuffled_rho)
     }
@@ -60,7 +66,6 @@ impl Compose {
 
 #[cfg(test)]
 mod tests {
-    use permutation::Permutation;
     use rand::seq::SliceRandom;
     use tokio::try_join;
 
@@ -68,7 +73,7 @@ mod tests {
         error::BoxError,
         ff::Fp31,
         protocol::{
-            sort::{apply::apply_inv, compose::Compose},
+            sort::{apply::apply, compose::Compose},
             QueryId,
         },
         test_fixture::{
@@ -78,22 +83,22 @@ mod tests {
 
     #[tokio::test]
     pub async fn compose() -> Result<(), BoxError> {
-        const BATCHSIZE: usize = 25;
+        const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
             let mut rng_rho = rand::thread_rng();
 
-            let mut sigma: Vec<usize> = (0..BATCHSIZE).collect();
+            let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
             sigma.shuffle(&mut rng_sigma);
 
-            let sigma_u128: Vec<u128> = sigma.iter().map(|x| *x as u128).collect();
+            let sigma_u128: Vec<u128> = sigma.iter().map(|x| u128::from(*x)).collect();
 
-            let mut rho: Vec<usize> = (0..BATCHSIZE).collect();
+            let mut rho: Vec<u32> = (0..BATCHSIZE).collect();
             rho.shuffle(&mut rng_rho);
-            let rho_u128: Vec<u128> = rho.iter().map(|x| *x as u128).collect();
+            let rho_u128: Vec<u128> = rho.iter().map(|x| u128::from(*x)).collect();
 
             let mut rho_composed = rho_u128.clone();
-            apply_inv(Permutation::oneline(sigma.clone()), &mut rho_composed);
+            apply(&sigma, &mut rho_composed);
 
             let sigma_shares = generate_shares::<Fp31>(sigma_u128);
             let mut rho_shares = generate_shares::<Fp31>(rho_u128);
@@ -106,9 +111,9 @@ mod tests {
 
             rho_shares = try_join!(h0_future, h1_future, h2_future)?;
 
-            assert_eq!(rho_shares.0.len(), BATCHSIZE);
-            assert_eq!(rho_shares.1.len(), BATCHSIZE);
-            assert_eq!(rho_shares.2.len(), BATCHSIZE);
+            assert_eq!(rho_shares.0.len(), BATCHSIZE as usize);
+            assert_eq!(rho_shares.1.len(), BATCHSIZE as usize);
+            assert_eq!(rho_shares.2.len(), BATCHSIZE as usize);
 
             // We should get the same result of applying inverse of sigma on rho as in clear
             validate_list_of_shares(&rho_composed, &rho_shares);

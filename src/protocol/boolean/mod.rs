@@ -1,4 +1,6 @@
+mod bitwise_lt;
 mod prefix_or;
+mod xor;
 
 /// A step generator for bitwise secure operations.
 ///
@@ -13,7 +15,7 @@ enum BitOpStep {
     Step(usize),
 }
 
-impl crate::protocol::Step for BitOpStep {}
+impl crate::protocol::Substep for BitOpStep {}
 
 impl AsRef<str> for BitOpStep {
     fn as_ref(&self) -> &str {

@@ -46,7 +46,7 @@ impl Role {
 
     #[must_use]
     pub fn all() -> &'static [Role; 3] {
-        static VARIANTS: &[Role; 3] = &[Role::H1, Role::H2, Role::H3];
+        const VARIANTS: &[Role; 3] = &[Role::H1, Role::H2, Role::H3];
 
         VARIANTS
     }
