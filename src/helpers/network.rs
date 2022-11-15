@@ -1,6 +1,6 @@
 use crate::{
     helpers::{error::Error, MessagePayload, Role},
-    protocol::{RecordId, UniqueStepId},
+    protocol::{RecordId, Step},
 };
 use async_trait::async_trait;
 use futures::{ready, Stream};
@@ -16,7 +16,7 @@ use tokio_util::sync::{PollSendError, PollSender};
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId {
     pub role: Role,
-    pub step: UniqueStepId,
+    pub step: Step,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub trait Network: Sync {
 
 impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, step: UniqueStepId) -> Self {
+    pub fn new(role: Role, step: Step) -> Self {
         Self { role, step }
     }
 }

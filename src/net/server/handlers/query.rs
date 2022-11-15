@@ -2,7 +2,7 @@ use crate::helpers::network::{ChannelId, MessageChunks};
 use crate::helpers::Role;
 use crate::net::server::MpcHelperServerError;
 use crate::net::RecordHeaders;
-use crate::protocol::{QueryId, UniqueStepId};
+use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
 use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
@@ -13,7 +13,7 @@ use hyper::Body;
 use tokio::sync::mpsc;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request
-pub struct Path(QueryId, UniqueStepId);
+pub struct Path(QueryId, Step);
 
 #[async_trait]
 impl<B: Send> FromRequest<B> for Path {
@@ -21,7 +21,7 @@ impl<B: Send> FromRequest<B> for Path {
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let extract::Path((query_id, step)) =
-            extract::Path::<(QueryId, UniqueStepId)>::from_request(req).await?;
+            extract::Path::<(QueryId, Step)>::from_request(req).await?;
         Ok(Path(query_id, step))
     }
 }
@@ -136,7 +136,7 @@ mod tests {
     fn build_req(
         port: u16,
         query_id: QueryId,
-        step: &UniqueStepId,
+        step: &Step,
         role: Role,
         offset: u32,
         body: &'static [u8],
@@ -168,7 +168,7 @@ mod tests {
     async fn send_req(
         port: u16,
         query_id: QueryId,
-        step: &UniqueStepId,
+        step: &Step,
         helper_role: Role,
         offset: u32,
         body: &'static [u8],
@@ -190,7 +190,7 @@ mod tests {
         // prepare req
         let query_id = QueryId;
         let target_helper = Role::H2;
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
         let offset = 0;
         let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
@@ -241,7 +241,7 @@ mod tests {
         fn default() -> Self {
             Self {
                 query_id: QueryId.as_ref().to_owned(),
-                step: UniqueStepId::default().narrow("test").as_ref().to_owned(),
+                step: Step::default().narrow("test").as_ref().to_owned(),
                 role: Role::H2.as_ref().to_owned(),
                 offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
                 body: &[34; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize],
@@ -328,7 +328,7 @@ mod tests {
 
         // prepare req
         let query_id = QueryId;
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
         let target_helper = Role::H2;
         let offset = 0;
         let body = &[0; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];

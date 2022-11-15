@@ -17,7 +17,7 @@ use std::{
 use std::{collections::HashSet, fmt::Formatter};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-use super::UniqueStepId;
+use super::Step;
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
 /// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
@@ -225,7 +225,7 @@ impl Endpoint {
     /// # Panics
     /// When used incorrectly.  For instance, if you ask for an RNG and then ask
     /// for a PRSS using the same key.
-    pub fn indexed(&self, key: &UniqueStepId) -> Arc<IndexedSharedRandomness> {
+    pub fn indexed(&self, key: &Step) -> Arc<IndexedSharedRandomness> {
         self.inner.lock().unwrap().indexed(key.as_ref())
     }
 
@@ -235,7 +235,7 @@ impl Endpoint {
     /// This can only be called once.  After that, calls to this function or `indexed` will panic.
     pub fn sequential(
         &self,
-        key: &UniqueStepId,
+        key: &Step,
     ) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
         self.inner.lock().unwrap().sequential(key.as_ref())
     }
@@ -396,7 +396,7 @@ impl Generator {
 #[cfg(test)]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
-    use crate::{ff::Fp31, protocol::UniqueStepId, test_fixture::make_participants};
+    use crate::{ff::Fp31, protocol::Step, test_fixture::make_participants};
     use rand::prelude::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::mem::drop;
@@ -455,7 +455,7 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
         assert_ne!(r1_l, r1_r);
         let (r2_l, r2_r) = p2.indexed(&step).generate_values(IDX);
@@ -473,7 +473,7 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let z1 = p1.indexed(&step).zero_u128(IDX);
         let z2 = p2.indexed(&step).zero_u128(IDX);
         let z3 = p3.indexed(&step).zero_u128(IDX);
@@ -486,7 +486,7 @@ pub mod test {
         const IDX: u128 = 7;
         let (p1, p2, p3) = make_participants();
 
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let z1 = p1.indexed(&step).zero_xor(IDX);
         let z2 = p2.indexed(&step).zero_xor(IDX);
         let z3 = p3.indexed(&step).zero_xor(IDX);
@@ -500,7 +500,7 @@ pub mod test {
         const IDX2: u128 = 21362;
         let (p1, p2, p3) = make_participants();
 
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let r1 = p1.indexed(&step).random_u128(IDX1);
         let r2 = p2.indexed(&step).random_u128(IDX1);
         let r3 = p3.indexed(&step).random_u128(IDX1);
@@ -523,7 +523,7 @@ pub mod test {
 
         // These tests do not check that left != right because
         // the field might not be large enough.
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let (r1_l, r1_r): (Fp31, Fp31) = p1.indexed(&step).generate_fields(IDX);
         let (r2_l, r2_r) = p2.indexed(&step).generate_fields(IDX);
         let (r3_l, r3_r) = p3.indexed(&step).generate_fields(IDX);
@@ -538,7 +538,7 @@ pub mod test {
         const IDX: u128 = 72;
         let (p1, p2, p3) = make_participants();
 
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let z1: Fp31 = p1.indexed(&step).zero(IDX);
         let z2 = p2.indexed(&step).zero(IDX);
         let z3 = p3.indexed(&step).zero(IDX);
@@ -552,7 +552,7 @@ pub mod test {
         const IDX2: u128 = 12634;
         let (p1, p2, p3) = make_participants();
 
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let s1 = p1.indexed(&step);
         let s2 = p2.indexed(&step);
         let s3 = p3.indexed(&step);
@@ -588,7 +588,7 @@ pub mod test {
         }
 
         let (p1, p2, p3) = make_participants();
-        let step = UniqueStepId::default();
+        let step = Step::default();
         let (rng1_l, rng1_r) = p1.sequential(&step);
         let (rng2_l, rng2_r) = p2.sequential(&step);
         let (rng3_l, rng3_r) = p3.sequential(&step);
@@ -602,7 +602,7 @@ pub mod test {
     fn indexed_and_sequential() {
         let (p1, _p2, _p3) = make_participants();
 
-        let base = UniqueStepId::default();
+        let base = Step::default();
         let idx = p1.indexed(&base.narrow("indexed"));
         let (mut s_left, mut s_right) = p1.sequential(&base.narrow("sequential"));
         let (i_left, i_right) = idx.generate_values(0_u128);
@@ -621,7 +621,7 @@ pub mod test {
     fn indexed_then_sequential() {
         let (p1, _p2, _p3) = make_participants();
 
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
         drop(p1.indexed(&step));
         // TODO(alex): remove after clippy stops aggroing with no reason
         // https://github.com/private-attribution/ipa/actions/runs/3340348412/jobs/5530341996
@@ -634,7 +634,7 @@ pub mod test {
     fn sequential_then_indexed() {
         let (p1, _p2, _p3) = make_participants();
 
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
         // TODO(alex): remove after clippy is fixed
         #[allow(clippy::let_underscore_drop)]
         let _ = p1.sequential(&step);
@@ -644,7 +644,7 @@ pub mod test {
     #[test]
     fn indexed_accepts_unique_index() {
         let (_, p2, _p3) = make_participants();
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
         let mut indices = (1..100_u128).collect::<Vec<_>>();
         indices.shuffle(&mut thread_rng());
         let indexed_prss = p2.indexed(&step);
@@ -659,7 +659,7 @@ pub mod test {
     #[should_panic]
     fn indexed_rejects_the_same_index() {
         let (p1, _p2, _p3) = make_participants();
-        let step = UniqueStepId::default().narrow("test");
+        let step = Step::default().narrow("test");
 
         let _ = p1.indexed(&step).random_u128(100_u128);
         let _ = p1.indexed(&step).random_u128(100_u128);

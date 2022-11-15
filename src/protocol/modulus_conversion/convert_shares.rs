@@ -2,12 +2,12 @@ use crate::{
     error::BoxError,
     ff::{Field, Fp2},
     protocol::{
-        context::ProtocolContext, modulus_conversion::double_random::DoubleRandom,
-        reveal::reveal_malicious, RecordId,
+        context::ProtocolContext, modulus_conversion::double_random::DoubleRandom, RecordId,
     },
     secret_sharing::Replicated,
 };
 
+use crate::protocol::reveal::Reveal;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
@@ -27,7 +27,7 @@ enum Step {
     BinaryReveal,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::Substep for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -78,7 +78,8 @@ impl ConvertShares {
         let input_xor_r = input + r_binary;
         let (r_big_field, revealed_output) = try_join(
             DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary),
-            reveal_malicious::<F, Fp2>(ctx.narrow(&Step::BinaryReveal), record_id, input_xor_r),
+            ctx.narrow(&Step::BinaryReveal)
+                .reveal(record_id, input_xor_r),
         )
         .await?;
 

@@ -143,7 +143,7 @@ mod tests {
     use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
     use crate::helpers::buffers::SendBuffer;
     use crate::helpers::Role;
-    use crate::protocol::{RecordId, UniqueStepId};
+    use crate::protocol::{RecordId, Step};
 
     use tinyvec::array_vec;
 
@@ -166,14 +166,14 @@ mod tests {
         let msg = empty_msg(record_id);
 
         assert!(matches!(
-            buf.push(&ChannelId::new(Role::H1, UniqueStepId::default()), &msg),
+            buf.push(&ChannelId::new(Role::H1, Step::default()), &msg),
             Err(PushError::OutOfRange { .. }),
         ));
     }
 
     #[test]
     fn does_not_corrupt_messages() {
-        let c1 = ChannelId::new(Role::H1, UniqueStepId::default());
+        let c1 = ChannelId::new(Role::H1, Step::default());
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
 
         let batch = (0u8..10)
@@ -197,8 +197,8 @@ mod tests {
     #[test]
     fn offset_is_per_channel() {
         let mut buf = SendBuffer::new(Config::default());
-        let c1 = ChannelId::new(Role::H1, UniqueStepId::default());
-        let c2 = ChannelId::new(Role::H2, UniqueStepId::default());
+        let c1 = ChannelId::new(Role::H1, Step::default());
+        let c2 = ChannelId::new(Role::H2, Step::default());
 
         let m1 = empty_msg(0);
         let m2 = empty_msg(1);
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn rejects_duplicates() {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
-        let channel = ChannelId::new(Role::H1, UniqueStepId::default());
+        let channel = ChannelId::new(Role::H1, Step::default());
         let record_id = RecordId::from(3_u32);
         let m1 = empty_msg(record_id);
         let m2 = empty_msg(record_id);
@@ -233,7 +233,7 @@ mod tests {
         let msg = empty_msg(5);
 
         assert!(matches!(
-            buf.push(&ChannelId::new(Role::H1, UniqueStepId::default()), &msg),
+            buf.push(&ChannelId::new(Role::H1, Step::default()), &msg),
             Ok(None)
         ));
     }
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn accepts_records_from_next_range_after_flushing() {
         let mut buf = SendBuffer::new(Config::default());
-        let channel = ChannelId::new(Role::H1, UniqueStepId::default());
+        let channel = ChannelId::new(Role::H1, Step::default());
         let next_msg = empty_msg(1);
         let this_msg = empty_msg(0);
 
