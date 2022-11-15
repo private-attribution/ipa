@@ -11,7 +11,6 @@ use crate::{
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::{try_join, try_join_all};
-use permutation::Permutation;
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
@@ -107,7 +106,7 @@ impl<G: Field> Reveal for ProtocolContext<'_, MaliciousReplicated<G>, G> {
 pub async fn reveal_permutation<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     permutation: &[Replicated<F>],
-) -> Result<Permutation, BoxError> {
+) -> Result<Vec<u32>, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
         |(index, (ctx, input))| async move {
             let reveal_value = ctx.reveal(RecordId::from(index), *input).await;
@@ -119,7 +118,7 @@ pub async fn reveal_permutation<F: Field>(
     ))
     .await?;
 
-    Ok(Permutation::oneline(revealed_permutation))
+    Ok(revealed_permutation)
 }
 
 #[cfg(test)]

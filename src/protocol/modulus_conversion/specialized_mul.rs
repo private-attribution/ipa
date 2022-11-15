@@ -206,8 +206,8 @@ pub mod tests {
         let mut rng = rand::thread_rng();
 
         for i in 0..10_u32 {
-            let a = Fp31::from(rng.gen::<u128>());
-            let b = Fp31::from(rng.gen::<u128>());
+            let a = rng.gen::<Fp31>();
+            let b = rng.gen::<Fp31>();
 
             let record_id = RecordId::from(0_u32);
 
@@ -252,8 +252,8 @@ pub mod tests {
         let mut futures = Vec::with_capacity(10);
 
         for i in 0..10_u32 {
-            let a = Fp31::from(rng.gen::<u128>());
-            let b = Fp31::from(rng.gen::<u128>());
+            let a = rng.gen::<Fp31>();
+            let b = rng.gen::<Fp31>();
 
             inputs.push((a, b));
 
@@ -304,8 +304,8 @@ pub mod tests {
         let mut rng = rand::thread_rng();
 
         for i in 0..10_u32 {
-            let a = Fp31::from(rng.gen::<u128>());
-            let b = Fp31::from(rng.gen::<u128>());
+            let a = rng.gen::<Fp31>();
+            let b = rng.gen::<Fp31>();
 
             let a_shares = share(a, &mut rng);
 
@@ -352,8 +352,8 @@ pub mod tests {
         let mut futures = Vec::with_capacity(10);
 
         for i in 0..10_u32 {
-            let a = Fp31::from(rng.gen::<u128>());
-            let b = Fp31::from(rng.gen::<u128>());
+            let a = rng.gen::<Fp31>();
+            let b = rng.gen::<Fp31>();
 
             inputs.push((a, b));
 

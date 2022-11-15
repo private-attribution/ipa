@@ -27,7 +27,7 @@ enum Step {
     BinaryReveal,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::Substep for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {

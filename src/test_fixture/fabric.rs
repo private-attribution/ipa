@@ -6,9 +6,9 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 
 use crate::helpers;
-use crate::helpers::fabric::{ChannelId, MessageChunks, MessageEnvelope, Network};
+use crate::helpers::fabric::{ChannelId, MessageChunks, Network};
 use crate::helpers::{Error, Role};
-use crate::protocol::UniqueStepId;
+use crate::protocol::Step;
 use async_trait::async_trait;
 use futures::Sink;
 use futures::StreamExt;
@@ -25,7 +25,7 @@ use tracing::Instrument;
 /// Represents control messages sent between helpers to handle infrastructure requests.
 pub(super) enum ControlMessage {
     /// Connection for a step is requested by the peer.
-    ConnectionRequest(ChannelId, Receiver<Vec<MessageEnvelope>>),
+    ConnectionRequest(ChannelId, Receiver<Vec<u8>>),
 }
 
 /// Container for all active helper endpoints
@@ -41,7 +41,7 @@ pub struct InMemoryEndpoint {
     pub role: Role,
     /// Channels that this endpoint is listening to. There are two helper peers for 3 party setting.
     /// For each peer there are multiple channels open, one per query + step.
-    channels: Arc<Mutex<Vec<HashMap<UniqueStepId, InMemoryChannel>>>>,
+    channels: Arc<Mutex<Vec<HashMap<Step, InMemoryChannel>>>>,
     tx: Sender<ControlMessage>,
     rx: Arc<Mutex<Option<Receiver<MessageChunks>>>>,
     network: Weak<InMemoryNetwork>,
@@ -52,7 +52,7 @@ pub struct InMemoryEndpoint {
 #[derive(Debug, Clone)]
 pub struct InMemoryChannel {
     dest: Role,
-    tx: Sender<Vec<MessageEnvelope>>,
+    tx: Sender<Vec<u8>>,
 }
 
 #[pin_project]
@@ -99,7 +99,7 @@ impl InMemoryEndpoint {
             async move {
                 let mut peer_channels = SelectAll::new();
                 let mut pending_sends = FuturesUnordered::new();
-                let mut buf = HashMap::<ChannelId, Vec<MessageEnvelope>>::new();
+                let mut buf = HashMap::<ChannelId, Vec<u8>>::new();
 
                 loop {
                     tokio::select! {
@@ -207,7 +207,7 @@ impl Network for Arc<InMemoryEndpoint> {
 }
 
 impl InMemoryChannel {
-    async fn send(&self, msg: Vec<MessageEnvelope>) -> helpers::Result<()> {
+    async fn send(&self, msg: Vec<u8>) -> helpers::Result<()> {
         self.tx
             .send(msg)
             .await

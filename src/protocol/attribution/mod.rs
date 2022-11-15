@@ -50,7 +50,7 @@ impl IterStep {
     }
 }
 
-impl crate::protocol::Step for IterStep {}
+impl crate::protocol::Substep for IterStep {}
 
 impl AsRef<str> for IterStep {
     fn as_ref(&self) -> &str {

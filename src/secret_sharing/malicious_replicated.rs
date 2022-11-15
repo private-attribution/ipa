@@ -118,14 +118,14 @@ mod tests {
     fn test_local_operations() {
         let mut rng = rand::thread_rng();
 
-        let a = Fp31::from(rng.gen::<u128>());
-        let b = Fp31::from(rng.gen::<u128>());
-        let c = Fp31::from(rng.gen::<u128>());
-        let d = Fp31::from(rng.gen::<u128>());
-        let e = Fp31::from(rng.gen::<u128>());
-        let f = Fp31::from(rng.gen::<u128>());
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+        let c = rng.gen::<Fp31>();
+        let d = rng.gen::<Fp31>();
+        let e = rng.gen::<Fp31>();
+        let f = rng.gen::<Fp31>();
         // Randomization constant
-        let r = Fp31::from(rng.gen::<u128>());
+        let r = rng.gen::<Fp31>();
 
         let a_shared = share(a, &mut rng);
         let b_shared = share(b, &mut rng);
