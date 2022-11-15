@@ -1,7 +1,8 @@
-use crate::error::BoxError;
-use crate::helpers::fabric::MessageChunks;
-use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
-use ::metrics::increment_counter;
+use crate::{
+    error::BoxError,
+    helpers::network::MessageChunks,
+    telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
+};
 use axum::{
     extract::rejection::{PathRejection, QueryRejection},
     middleware,
@@ -11,6 +12,7 @@ use axum::{
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
+use metrics::increment_counter;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use thiserror::Error;

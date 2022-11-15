@@ -27,7 +27,7 @@ pub struct HttpSendMessagesArgs<'a> {
 }
 
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>>,
     scheme: uri::Scheme,
@@ -117,9 +117,13 @@ impl MpcHelperClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers::fabric::{ChannelId, MessageChunks};
-    use crate::helpers::Role;
-    use crate::net::{BindTarget, MpcHelperServer};
+    use crate::{
+        helpers::{
+            network::{ChannelId, MessageChunks},
+            Role,
+        },
+        net::{BindTarget, MpcHelperServer},
+    };
     use hyper_tls::native_tls::TlsConnector;
     use tokio::sync::mpsc;
 

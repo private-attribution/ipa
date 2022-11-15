@@ -1,6 +1,7 @@
-use crate::helpers::fabric::ChannelId;
-use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
-use crate::protocol::RecordId;
+use crate::{
+    helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
+    protocol::RecordId,
+};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use tokio::sync::oneshot;

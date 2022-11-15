@@ -1,11 +1,15 @@
-use crate::error::BoxError;
-use crate::helpers::Role;
-use crate::protocol::{RecordId, Step};
+use crate::{
+    error::BoxError,
+    helpers::{
+        messaging::ReceiveRequest,
+        network::{ChannelId, MessageChunks, MessageEnvelope},
+        Role,
+    },
+    protocol::{RecordId, Step},
+};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
-
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
-use crate::helpers::messaging::ReceiveRequest;
+use tokio_util::sync::PollSendError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -13,6 +17,11 @@ pub enum Error {
     SendError {
         dest: Role,
 
+        #[source]
+        inner: BoxError,
+    },
+    #[error("An error occurred while sending data to unknown helper")]
+    PollSendError {
         #[source]
         inner: BoxError,
     },
@@ -85,6 +94,21 @@ impl From<SendError<(ChannelId, MessageEnvelope)>> for Error {
         Self::SendError {
             dest: source.0 .0.role,
             inner: source.to_string().into(),
+        }
+    }
+}
+
+impl From<PollSendError<MessageChunks>> for Error {
+    fn from(source: PollSendError<MessageChunks>) -> Self {
+        let err_msg = source.to_string();
+        match source.into_inner() {
+            Some(inner) => Self::SendError {
+                dest: inner.0.role,
+                inner: err_msg.into(),
+            },
+            None => Self::PollSendError {
+                inner: err_msg.into(),
+            },
         }
     }
 }

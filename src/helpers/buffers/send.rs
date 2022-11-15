@@ -1,7 +1,11 @@
-use crate::helpers::buffers::fsv::FixedSizeByteVec;
-use crate::helpers::fabric::{ChannelId, MessageEnvelope};
-use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
-use crate::protocol::RecordId;
+use crate::{
+    helpers::{
+        buffers::fsv::FixedSizeByteVec,
+        network::{ChannelId, MessageEnvelope},
+        MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES,
+    },
+    protocol::RecordId,
+};
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -143,7 +147,7 @@ mod tests {
 
     use tinyvec::array_vec;
 
-    use crate::helpers::fabric::{ChannelId, MessageEnvelope};
+    use crate::helpers::network::{ChannelId, MessageEnvelope};
 
     impl Clone for MessageEnvelope {
         fn clone(&self) -> Self {

@@ -5,6 +5,7 @@ mod client;
 mod server;
 
 pub mod discovery;
+pub mod http_network;
 
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]

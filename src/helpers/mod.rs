@@ -3,8 +3,8 @@ use tinyvec::ArrayVec;
 
 mod buffers;
 mod error;
-pub mod fabric;
 pub mod messaging;
+pub mod network;
 
 use crate::helpers::Direction::{Left, Right};
 use crate::helpers::Role::{H1, H2, H3};
