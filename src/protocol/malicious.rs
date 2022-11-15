@@ -1,10 +1,11 @@
+use crate::protocol::reveal::Reveal;
 use crate::{
     error::{BoxError, Error},
     ff::Field,
     helpers::Direction,
     protocol::{
-        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness,
-        reveal::reveal, RecordId, RECORD_0, RECORD_1, RECORD_2,
+        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness, RecordId,
+        RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::{MaliciousReplicated, Replicated},
 };
@@ -21,7 +22,7 @@ enum Step {
     CheckZero,
 }
 
-impl crate::protocol::Step for Step {}
+impl crate::protocol::Substep for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -183,7 +184,10 @@ impl<F: Field> SecurityValidator<F> {
         let w_share = Replicated::new(w_left, state.w);
 
         // This should probably be done in parallel with the futures above
-        let r = reveal(ctx.narrow(&Step::RevealR), RECORD_0, self.r_share).await?;
+        let r = ctx
+            .narrow(&Step::RevealR)
+            .reveal(RECORD_0, self.r_share)
+            .await?;
         let t = u_share - (w_share * r);
 
         let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_0, t).await?;
@@ -232,8 +236,8 @@ pub mod tests {
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
 
-        let a = Fp31::from(rng.gen::<u128>());
-        let b = Fp31::from(rng.gen::<u128>());
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
 
         let a_shares = share(a, &mut rng);
         let b_shares = share(b, &mut rng);
@@ -327,7 +331,7 @@ pub mod tests {
 
         let mut original_inputs = Vec::with_capacity(100);
         for _ in 0..100 {
-            let x = Fp31::from(rng.gen::<u128>());
+            let x = rng.gen::<Fp31>();
             original_inputs.push(x);
         }
         let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs

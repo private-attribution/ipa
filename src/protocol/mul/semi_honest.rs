@@ -71,6 +71,8 @@ pub mod tests {
         make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures_util::future::join_all;
+    use rand::distributions::Standard;
+    use rand::prelude::Distribution;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -142,7 +144,10 @@ pub mod tests {
         a: u8,
         b: u8,
         rng: &mut R,
-    ) -> Result<u128, BoxError> {
+    ) -> Result<u128, BoxError>
+    where
+        Standard: Distribution<F>,
+    {
         let a = F::from(u128::from(a));
         let b = F::from(u128::from(b));
 

@@ -1,4 +1,4 @@
-use super::Step;
+use super::Substep;
 use std::fmt::Debug;
 
 mod apply;
@@ -17,7 +17,7 @@ pub enum SortStep {
     ComposeStep,
 }
 
-impl Step for SortStep {}
+impl Substep for SortStep {}
 
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
@@ -37,7 +37,7 @@ pub enum ShuffleStep {
     Step3,
 }
 
-impl Step for ShuffleStep {}
+impl Substep for ShuffleStep {}
 
 impl AsRef<str> for ShuffleStep {
     fn as_ref(&self) -> &str {
@@ -56,7 +56,7 @@ pub enum ApplyInvStep {
     RevealPermutation,
 }
 
-impl Step for ApplyInvStep {}
+impl Substep for ApplyInvStep {}
 
 impl AsRef<str> for ApplyInvStep {
     fn as_ref(&self) -> &str {
@@ -75,7 +75,7 @@ pub enum ComposeStep {
     UnshuffleRho,
 }
 
-impl Step for ComposeStep {}
+impl Substep for ComposeStep {}
 
 impl AsRef<str> for ComposeStep {
     fn as_ref(&self) -> &str {

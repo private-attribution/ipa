@@ -100,9 +100,9 @@ mod tests {
 
     use crate::{
         error::BoxError,
-        ff::Fp32BitPrime,
+        ff::{Field, Fp32BitPrime},
         protocol::{sort::generate_sort_permutation::GenerateSortPermutation, QueryId},
-        test_fixture::{logging, make_contexts, make_world, validate_list_of_shares},
+        test_fixture::{logging, make_contexts, make_world, validate_and_reconstruct},
     };
 
     #[tokio::test]
@@ -120,18 +120,13 @@ mod tests {
             match_keys.push(rng.gen::<u64>());
         }
 
-        let mut expected_sort_output: Vec<u128> = (0..batchsize).collect();
-
-        let mut permutation = permutation::sort(match_keys.clone());
-        permutation.apply_inv_slice_in_place(&mut expected_sort_output);
-
         let input_len = match_keys.len();
         let mut shares = [
             Vec::with_capacity(input_len),
             Vec::with_capacity(input_len),
             Vec::with_capacity(input_len),
         ];
-        for match_key in match_keys {
+        for match_key in match_keys.clone() {
             let share_0 = rng.gen::<u64>();
             let share_1 = rng.gen::<u64>();
             let share_2 = match_key ^ share_0 ^ share_1;
@@ -141,7 +136,7 @@ mod tests {
             shares[2].push((share_2, share_0));
         }
 
-        let mut result = try_join_all(vec![
+        let result = try_join_all(vec![
             GenerateSortPermutation::new(&shares[0], num_bits).execute(ctx0),
             GenerateSortPermutation::new(&shares[1], num_bits).execute(ctx1),
             GenerateSortPermutation::new(&shares[2], num_bits).execute(ctx2),
@@ -152,10 +147,18 @@ mod tests {
         assert_eq!(result[1].len(), input_len);
         assert_eq!(result[2].len(), input_len);
 
-        validate_list_of_shares(
-            &expected_sort_output,
-            &(result.remove(0), result.remove(0), result.remove(0)),
-        );
+        let mut mpc_sorted_list: Vec<u128> = (0..input_len).map(|i| i as u128).collect();
+        for (i, match_key) in match_keys.iter().enumerate() {
+            let index = validate_and_reconstruct((result[0][i], result[1][i], result[2][i]));
+            mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
+        }
+
+        let mut sorted_match_keys = match_keys.clone();
+        sorted_match_keys.sort_unstable();
+        for i in 0..input_len {
+            assert_eq!(u128::from(sorted_match_keys[i]), mpc_sorted_list[i]);
+        }
+
         Ok(())
     }
 }

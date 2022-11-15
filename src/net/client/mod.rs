@@ -5,7 +5,7 @@ pub use error::MpcHelperClientError;
 use crate::{
     helpers::Role,
     net::RecordHeaders,
-    protocol::{QueryId, UniqueStepId},
+    protocol::{QueryId, Step},
 };
 use axum::{
     body::Bytes,
@@ -19,14 +19,14 @@ use hyper_tls::HttpsConnector;
 
 pub struct HttpSendMessagesArgs<'a> {
     pub query_id: QueryId,
-    pub step: &'a UniqueStepId,
+    pub step: &'a Step,
     pub offset: u32,
     pub data_size: u32,
     pub messages: Bytes,
 }
 
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MpcHelperClient {
     role: Role,
     client: Client<HttpsConnector<HttpConnector>>,
@@ -132,7 +132,7 @@ mod tests {
         const DATA_SIZE: u32 = 8;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
-        let step = UniqueStepId::default().narrow("mul_test");
+        let step = Step::default().narrow("mul_test");
         let role = Role::H1;
         let offset = 0;
         let body = &[123; (DATA_SIZE * DATA_LEN) as usize];

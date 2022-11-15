@@ -108,9 +108,7 @@ impl<'a> HttpNetwork<'a> {
             })
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap_or_else(|arr: Vec<_>| {
-                panic!("unexpected change in array length: {}", arr.len())
-            })
+            .unwrap()
     }
 }
 
