@@ -42,10 +42,11 @@ pub fn validate_and_reconstruct<F: Field>(
 /// # Panics
 /// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
 pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &ReplicatedShares<F>) {
-    (0..result.0.len()).for_each(|i| {
-        assert_eq!(
-            validate_and_reconstruct((result.0[i], result.1[i], result.2[i])),
-            F::from(expected_result[i])
-        );
-    });
+    let revealed_values: Vec<F> = (0..result.0.len())
+        .map(|i| validate_and_reconstruct((result.0[i], result.1[i], result.2[i])))
+        .collect();
+
+    for i in 0..revealed_values.len() {
+        assert_eq!(revealed_values[i], F::from(expected_result[i]));
+    }
 }
