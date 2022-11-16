@@ -77,8 +77,8 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// Panics if the mutex is found to be poisoned
     pub async fn execute(
         self,
-        a: MaliciousReplicated<F>,
-        b: MaliciousReplicated<F>,
+        a: &MaliciousReplicated<F>,
+        b: &MaliciousReplicated<F>,
     ) -> Result<MaliciousReplicated<F>, BoxError> {
         // being clever and assuming a clean context...
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
@@ -100,7 +100,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
         let malicious_ab = MaliciousReplicated::new(ab, rab);
 
         self.accumulator
-            .accumulate_macs(&random_constant_prss, self.record_id, malicious_ab);
+            .accumulate_macs(&random_constant_prss, self.record_id, &malicious_ab);
 
         Ok(malicious_ab)
     }

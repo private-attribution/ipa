@@ -75,16 +75,16 @@ impl ConvertShares {
             Fp2::from(self.input.packed_bits_left & (1 << bit_index) != 0),
             Fp2::from(self.input.packed_bits_right & (1 << bit_index) != 0),
         );
-        let input_xor_r = input + r_binary;
+        let input_xor_r = input + &r_binary;
         let (r_big_field, revealed_output) = try_join(
-            DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary),
+            DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, &r_binary),
             ctx.narrow(&Step::BinaryReveal)
-                .reveal(record_id, input_xor_r),
+                .reveal(record_id, &input_xor_r),
         )
         .await?;
 
         if revealed_output == Fp2::ONE {
-            Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
+            Ok(Replicated::<F>::one(ctx.role()) - &r_big_field)
         } else {
             Ok(r_big_field)
         }
@@ -193,15 +193,10 @@ mod tests {
         )
         .await?;
 
-        for i in 0..1000 {
-            let match_key = match_keys[i];
+        for (match_key, result) in zip(match_keys, results) {
             let bit_of_match_key = match_key & (1 << 4) != 0;
 
-            let sh0 = results[i][0];
-            let sh1 = results[i][1];
-            let sh2 = results[i][2];
-
-            let share_of_bit: Fp31 = validate_and_reconstruct((sh0, sh1, sh2));
+            let share_of_bit = validate_and_reconstruct(&result[0], &result[1], &result[2]);
             if bit_of_match_key {
                 assert_eq!(share_of_bit, Fp31::ONE);
             } else {

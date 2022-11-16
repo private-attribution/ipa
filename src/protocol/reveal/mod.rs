@@ -22,8 +22,7 @@ pub trait Reveal {
     /// reveal the secret to all helpers in MPC circuit. Note that after method is called,
     /// it must be assumed that the secret value has been revealed to at least one of the helpers.
     /// Even in case when method never terminates, returns an error, etc.
-    async fn reveal<F: Field>(self, record_id: RecordId, input: Self::Share<F>)
-        -> Result<F, Error>;
+    async fn reveal<F: Field>(self, record: RecordId, input: &Self::Share<F>) -> Result<F, Error>;
 }
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
@@ -45,7 +44,7 @@ impl<G: Field> Reveal for ProtocolContext<'_, Replicated<G>, G> {
     async fn reveal<F: Field>(
         self,
         record_id: RecordId,
-        input: Self::Share<F>,
+        input: &Self::Share<F>,
     ) -> Result<F, Error> {
         let (role, channel) = (self.role(), self.mesh());
         let (left, right) = input.as_tuple();
@@ -74,7 +73,7 @@ impl<G: Field> Reveal for ProtocolContext<'_, MaliciousReplicated<G>, G> {
     async fn reveal<F: Field>(
         self,
         record_id: RecordId,
-        input: Self::Share<F>,
+        input: &Self::Share<F>,
     ) -> Result<F, Error> {
         let (role, channel) = (self.role(), self.mesh());
         let (left, right) = input.x().as_tuple();
@@ -109,7 +108,7 @@ pub async fn reveal_permutation<F: Field>(
 ) -> Result<Vec<u32>, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
         |(index, (ctx, input))| async move {
-            let reveal_value = ctx.reveal(RecordId::from(index), *input).await;
+            let reveal_value = ctx.reveal(RecordId::from(index), input).await;
 
             // safety: we wouldn't use fields larger than 64 bits and there are checks that enforce it
             // in the field module
@@ -151,9 +150,9 @@ mod tests {
             let share = share(input, &mut rng);
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
-                ctx[0].clone().reveal(record_id, share[0]),
-                ctx[1].clone().reveal(record_id, share[1]),
-                ctx[2].clone().reveal(record_id, share[2]),
+                ctx[0].clone().reveal(record_id, &share[0]),
+                ctx[1].clone().reveal(record_id, &share[1]),
+                ctx[2].clone().reveal(record_id, &share[2]),
             ])
             .await?;
 
@@ -178,9 +177,9 @@ mod tests {
 
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
-                ctx[0].clone().reveal(record_id, share[0]),
-                ctx[1].clone().reveal(record_id, share[1]),
-                ctx[2].clone().reveal(record_id, share[2]),
+                ctx[0].clone().reveal(record_id, &share[0]),
+                ctx[1].clone().reveal(record_id, &share[1]),
+                ctx[2].clone().reveal(record_id, &share[2]),
             ])
             .await?;
 
@@ -204,9 +203,9 @@ mod tests {
             let share = share_malicious(input, &mut rng);
             let record_id = RecordId::from(i);
             let result = try_join!(
-                ctx[0].clone().reveal(record_id, share[0]),
-                ctx[1].clone().reveal(record_id, share[1]),
-                reveal_with_additive_attack(ctx[2].clone(), record_id, share[2], Fp31::ONE),
+                ctx[0].clone().reveal(record_id, &share[0]),
+                ctx[1].clone().reveal(record_id, &share[1]),
+                reveal_with_additive_attack(ctx[2].clone(), record_id, &share[2], Fp31::ONE),
             );
 
             assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
@@ -217,7 +216,7 @@ mod tests {
     pub async fn reveal_with_additive_attack<F: Field>(
         ctx: ProtocolContext<'_, MaliciousReplicated<F>, F>,
         record_id: RecordId,
-        input: MaliciousReplicated<F>,
+        input: &MaliciousReplicated<F>,
         additive_error: F,
     ) -> Result<F, Error> {
         let channel = ctx.mesh();

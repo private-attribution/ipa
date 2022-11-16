@@ -1,3 +1,5 @@
+use std::iter::zip;
+
 use crate::ff::Field;
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use rand::{
@@ -31,11 +33,9 @@ where
     Standard: Distribution<F>,
 {
     let rx = rng.gen::<F>() * x;
-    share(x, rng)
+    zip(share(x, rng), share(rx, rng))
+        .map(|(x, rx)| MaliciousReplicated::new(x, rx))
         // TODO: array::zip/each_ref when stable
-        .iter()
-        .zip(share(rx, rng))
-        .map(|(x, rx)| MaliciousReplicated::new(*x, rx))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
@@ -46,18 +46,20 @@ where
 /// # Panics
 /// Panics if the given input is not a valid replicated secret share.
 pub fn validate_and_reconstruct<F: Field>(
-    input: (Replicated<F>, Replicated<F>, Replicated<F>),
+    s0: &Replicated<F>,
+    s1: &Replicated<F>,
+    s2: &Replicated<F>,
 ) -> F {
     assert_eq!(
-        input.0.left() + input.1.left() + input.2.left(),
-        input.0.right() + input.1.right() + input.2.right()
+        s0.left() + s1.left() + s2.left(),
+        s0.right() + s1.right() + s2.right()
     );
 
-    assert_eq!(input.0.right(), input.1.left());
-    assert_eq!(input.1.right(), input.2.left());
-    assert_eq!(input.2.right(), input.0.left());
+    assert_eq!(s0.right(), s1.left());
+    assert_eq!(s1.right(), s2.left());
+    assert_eq!(s2.right(), s0.left());
 
-    input.0.left() + input.1.left() + input.2.left()
+    s0.left() + s1.left() + s2.left()
 }
 
 /// Validates expected result from the secret shares obtained.
@@ -65,11 +67,11 @@ pub fn validate_and_reconstruct<F: Field>(
 /// # Panics
 /// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
 pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &ReplicatedShares<F>) {
-    let revealed_values: Vec<F> = (0..result.0.len())
-        .map(|i| validate_and_reconstruct((result.0[i], result.1[i], result.2[i])))
-        .collect();
-
-    for i in 0..revealed_values.len() {
-        assert_eq!(revealed_values[i], F::from(expected_result[i]));
+    assert_eq!(expected_result.len(), result[0].len());
+    assert_eq!(expected_result.len(), result[1].len());
+    assert_eq!(expected_result.len(), result[2].len());
+    for (i, expected) in expected_result.iter().enumerate() {
+        let revealed = validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]);
+        assert_eq!(revealed, F::from(*expected));
     }
 }

@@ -17,8 +17,8 @@ pub trait SecureMul<F: Field> {
     async fn multiply(
         self,
         record_id: RecordId,
-        a: Self::Share,
-        b: Self::Share,
+        a: &Self::Share,
+        b: &Self::Share,
     ) -> Result<Self::Share, BoxError>;
 }
 
@@ -33,8 +33,8 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
     async fn multiply(
         self,
         record_id: RecordId,
-        a: Self::Share,
-        b: Self::Share,
+        a: &Self::Share,
+        b: &Self::Share,
     ) -> Result<Self::Share, BoxError> {
         SemiHonestMul::new(self, record_id).execute(a, b).await
     }
@@ -48,8 +48,8 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
     async fn multiply(
         self,
         record_id: RecordId,
-        a: Self::Share,
-        b: Self::Share,
+        a: &Self::Share,
+        b: &Self::Share,
     ) -> Result<Self::Share, BoxError> {
         let acc = self.accumulator();
         MaliciouslySecureMul::new(self, record_id, acc)

@@ -42,7 +42,7 @@ impl BitwiseLessThan {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let xor = zip(a, b).enumerate().map(|(i, (&a_bit, &b_bit))| {
+        let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::Step(i));
             async move { xor(c, record_id, a_bit, b_bit).await }
         });
@@ -89,8 +89,8 @@ impl BitwiseLessThan {
     fn step3_4<F: Field>(f: &[Replicated<F>]) -> Vec<Replicated<F>> {
         let l = f.len();
         (0..l - 1)
-            .map(|i| f[i] - f[i + 1])
-            .chain([f[l - 1]])
+            .map(|i| &f[i] - &f[i + 1])
+            .chain([f[l - 1].clone()])
             .collect()
     }
 
@@ -112,7 +112,7 @@ impl BitwiseLessThan {
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mul = zip(repeat(ctx), zip(g, b))
             .enumerate()
-            .map(|(i, (ctx, (&g_bit, &b_bit)))| {
+            .map(|(i, (ctx, (g_bit, b_bit)))| {
                 let c = ctx.narrow(&BitOpStep::Step(i));
                 async move { c.multiply(record_id, g_bit, b_bit).await }
             });
@@ -124,7 +124,7 @@ impl BitwiseLessThan {
     /// The interpretations is, `h` is 1 iff `a < b`
     fn step6<F: Field>(h: &[Replicated<F>]) -> Replicated<F> {
         h.iter()
-            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, &x| acc + x)
+            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, x| acc + x)
     }
 
     #[allow(dead_code)]
@@ -200,15 +200,15 @@ mod tests {
         #[allow(clippy::type_complexity)]
         let ((a0, (a1, a2)), (b0, (b1, b2))): (BitwiseShares, BitwiseShares) = zip(a_bits, b_bits)
             .map(|(a_i, b_i)| {
-                let x = share(a_i, &mut rand);
-                let y = share(b_i, &mut rand);
-                ((x[0], (x[1], x[2])), (y[0], (y[1], y[2])))
+                let [x0, x1, x2] = share(a_i, &mut rand);
+                let [y0, y1, y2] = share(b_i, &mut rand);
+                ((x0, (x1, x2)), (y0, (y1, y2)))
             })
             .unzip();
 
         // Execute
         let step = "BitwiseLT_Test";
-        let result = try_join_all(vec![
+        let result = try_join_all([
             BitwiseLessThan::execute(ctx[0].narrow(step), RecordId::from(0_u32), &a0, &b0),
             BitwiseLessThan::execute(ctx[1].narrow(step), RecordId::from(0_u32), &a1, &b1),
             BitwiseLessThan::execute(ctx[2].narrow(step), RecordId::from(0_u32), &a2, &b2),
@@ -216,7 +216,7 @@ mod tests {
         .await
         .unwrap();
 
-        Ok(validate_and_reconstruct((result[0], result[1], result[2])))
+        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]))
     }
 
     #[tokio::test]
