@@ -1,5 +1,3 @@
-use super::or::or;
-use super::xor::xor;
 use super::BitOpStep;
 use crate::error::BoxError;
 use crate::ff::Field;
@@ -47,7 +45,7 @@ impl Carries {
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
         let s = Self::step1(a, b, ctx.narrow(&Step::AMultB), record_id).await?;
-        let e = Self::step2(a, b, &s, ctx.clone(), record_id).await?;
+        let e = Self::step2(a, b, &s, Replicated::one(ctx.role()));
         let f = Self::step3(&e, ctx.narrow(&Step::CarryPropagation), record_id).await?;
         let s = f.iter().map(|&x| x.s).collect::<Vec<_>>();
         Ok(s)
@@ -88,8 +86,6 @@ impl Carries {
     ///   * `p_i = 1` iff carry would be propagated at position `i` (i.e. `a_i + b_i = 1`)
     ///   * `k_i = 1` iff a carry would be killed at position `i` (i.e. `a_i + b_i = 0`)
     ///
-    /// Therefore, we compute `p_i = XOR(a_i, b_i)`, and `k_i = !OR(a_i, b_i)`
-    ///
     /// # Example
     /// ```ignore
     /// // Input
@@ -102,39 +98,23 @@ impl Carries {
     ///   [k] = 0 0 1 0 0 0 0 1   // `!(a_i | b_i)`
     /// ```
     #[allow(clippy::many_single_char_names)]
-    async fn step2<F: Field>(
+    fn step2<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
         s: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-        record_id: RecordId,
-    ) -> Result<Vec<CarryPropagationShares<F>>, BoxError> {
-        let xor_ctx = ctx.narrow(&Step::AXorB);
-        let or_ctx = ctx.narrow(&Step::AOrB);
-        let (p_futures, k_futures): (Vec<_>, Vec<_>) = zip(a, b)
-            .enumerate()
-            .map(|(i, (&a_bit, &b_bit))| {
-                let c1 = xor_ctx.narrow(&BitOpStep::Step(i));
-                let c2 = or_ctx.narrow(&BitOpStep::Step(i));
-                (
-                    async move { xor(c1, record_id, a_bit, b_bit).await },
-                    async move { or(c2, record_id, a_bit, b_bit).await },
-                )
-            })
-            .unzip();
-
-        //TODO(taikiy): These two futures are independent. How can we run them at once?
-        let p = try_join_all(p_futures).await?;
-        let k = try_join_all(k_futures).await?;
-
-        Ok(zip(p, k)
+        one: Replicated<F>,
+    ) -> Vec<CarryPropagationShares<F>> {
+        zip(a, b)
             .zip(s)
-            .map(|((p_bit, k_bit), &s_bit)| CarryPropagationShares {
-                s: s_bit,
-                p: p_bit,
-                k: Replicated::one(ctx.role()) - k_bit,
+            .map(|((&a_bit, &b_bit), &s_bit)| {
+                let p_bit = a_bit + b_bit - (s_bit * F::from(2));
+                CarryPropagationShares {
+                    s: s_bit,
+                    p: p_bit,
+                    k: one - s_bit - p_bit,
+                }
             })
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>()
     }
 
     /// Step 3. Prefix Carry-Propagation
@@ -225,8 +205,6 @@ impl Carries {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    AXorB,
-    AOrB,
     AMultB,
     CarryPropagation,
     FanInAndP,
@@ -239,8 +217,6 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::AXorB => "a_xor_b",
-            Self::AOrB => "a_or_b",
             Self::AMultB => "a_mult_b",
             Self::CarryPropagation => "carry_propagation",
             Self::FanInAndP => "fan_in_and_p",
@@ -349,6 +325,11 @@ mod tests {
             vec![zero, zero, zero, zero, zero, zero, zero, zero],
             carries(c(2), c(1)).await?
         );
+        // 10 + 10 -> carry at i=1
+        assert_eq!(
+            vec![zero, one, zero, zero, zero, zero, zero, zero],
+            carries(c(2), c(2)).await?
+        );
         // 11 + 01 -> carries at i=0,1
         assert_eq!(
             vec![one, one, zero, zero, zero, zero, zero, zero],
@@ -389,10 +370,32 @@ mod tests {
         );
         assert_eq!(
             vec![
+                one, zero, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
+                one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, zero,
+            ],
+            carries(c(2_147_483_645), c(2_147_483_645)).await?
+        );
+        assert_eq!(
+            vec![
                 one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
                 one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, zero,
             ],
             carries(c(2_147_483_647), c(1)).await?
+        );
+        assert_eq!(
+            vec![
+                zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
+                zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
+                zero, zero, zero, one,
+            ],
+            carries(c(2_147_483_648), c(2_147_483_648)).await?
+        );
+        assert_eq!(
+            vec![
+                zero, zero, zero, one, one, one, one, one, one, one, one, one, one, one, one, one,
+                one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
+            ],
+            carries(c(4_294_967_290), c(8)).await?
         );
 
         Ok(())
