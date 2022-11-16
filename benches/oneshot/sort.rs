@@ -1,12 +1,14 @@
-use std::time::Instant;
 use futures_util::future::try_join_all;
 use rand::Rng;
 use raw_ipa::error::BoxError;
-use raw_ipa::ff::Fp32BitPrime;
-use raw_ipa::protocol::QueryId;
-use raw_ipa::test_fixture::{make_contexts, make_world_with_config, TestWorldConfig, validate_and_reconstruct};
-use raw_ipa::protocol::sort::generate_sort_permutation::GenerateSortPermutation;
 use raw_ipa::ff::Field;
+use raw_ipa::ff::Fp32BitPrime;
+use raw_ipa::protocol::sort::generate_sort_permutation::GenerateSortPermutation;
+use raw_ipa::protocol::QueryId;
+use raw_ipa::test_fixture::{
+    make_contexts, make_world_with_config, validate_and_reconstruct, TestWorldConfig,
+};
+use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), BoxError> {
@@ -46,7 +48,8 @@ async fn main() -> Result<(), BoxError> {
         GenerateSortPermutation::new(&shares[0], num_bits).execute(ctx0),
         GenerateSortPermutation::new(&shares[1], num_bits).execute(ctx1),
         GenerateSortPermutation::new(&shares[2], num_bits).execute(ctx2),
-    ]).await?;
+    ])
+    .await?;
     let duration = start.elapsed().as_secs_f32();
     println!("benchmark complete after {duration}s");
 
