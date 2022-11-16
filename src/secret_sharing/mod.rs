@@ -16,6 +16,7 @@ pub trait SecretSharing<F>:
     + for<'a> SubAssign<&'a Self>
     + Mul<F>
     + Debug
+    + Default
     + Sized
     + Sync
 {

@@ -3,13 +3,33 @@ use std::iter::{repeat, zip};
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId},
-    secret_sharing::Replicated,
+    protocol::{context::ProtocolContext, RecordId, RECORD_0}, secret_sharing::{SecretSharing, MaliciousReplicated, Replicated},
 };
 
 use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
+
+pub trait ShareOfOne<F: Field> {
+    type Share: SecretSharing<F>;
+    fn share_of_one(&self) -> Self::Share;
+}
+
+impl<F: Field> ShareOfOne<F> for ProtocolContext<'_, Replicated<F>, F> {
+    type Share = Replicated<F>;
+
+    fn share_of_one(&self) -> Self::Share {
+        Replicated::one(self.role())
+    }
+}
+
+impl<F: Field> ShareOfOne<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
+    type Share = MaliciousReplicated<F>;
+
+    fn share_of_one(&self) -> Self::Share {
+        MaliciousReplicated::one(self.role(), self.prss().generate_replicated(RECORD_0))
+    }
+}
 
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -33,17 +53,18 @@ use futures::future::try_join_all;
 ///
 /// ## Errors
 /// It will propagate errors from multiplication protocol.
-pub async fn bit_permutation<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
-    input: &[Replicated<F>],
-) -> Result<Vec<Replicated<F>>, BoxError> {
-    let share_of_one = Replicated::one(ctx.role());
+pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F> + Clone>(
+    ctx: ProtocolContext<'a, S, F>,
+    input: &[S],
+) -> Result<Vec<S>, BoxError> 
+where ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>{
+    let share_of_one = ctx.share_of_one();
 
     let mult_input = input
         .iter()
-        .map(|x: &Replicated<F>| &share_of_one - x)
+        .map(|x: &S| &share_of_one - x)
         .chain(input.iter().cloned())
-        .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
+        .scan(S::default(), |sum, x| {
             *sum = &*sum + &x;
             Some((x, sum.clone()))
         });
