@@ -59,7 +59,7 @@ async fn main() -> Result<(), BoxError> {
 
     let mut mpc_sorted_list: Vec<u128> = (0..input_len).map(|i| i as u128).collect();
     for (i, match_key) in match_keys.iter().enumerate() {
-        let index = validate_and_reconstruct((result[0][i], result[1][i], result[2][i]));
+        let index = validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]);
         mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
     }
 
