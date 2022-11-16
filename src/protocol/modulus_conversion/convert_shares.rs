@@ -1,14 +1,13 @@
+use super::specialized_mul::{multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes};
 use crate::{
     error::BoxError,
-    ff::{Field, Fp2},
-    protocol::{
-        context::ProtocolContext, modulus_conversion::double_random::DoubleRandom, RecordId,
-    },
+    ff::{BinaryField, Field, Fp2},
+    helpers::Role,
+    protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
 
-use crate::protocol::reveal::Reveal;
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 pub struct XorShares {
@@ -23,8 +22,8 @@ pub struct ConvertShares {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    DoubleRandom,
-    BinaryReveal,
+    Xor1,
+    Xor2,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -32,28 +31,116 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::DoubleRandom => "double_random",
-            Self::BinaryReveal => "binary_reveal",
+            Self::Xor1 => "xor1",
+            Self::Xor2 => "xor2",
         }
     }
 }
 
 ///
-/// This is an implementation of
-/// Protocol 5.2 Modulus-conversion protocol from `Z_2^u` to `Z_p`
-/// from the paper <https://eprint.iacr.org/2018/387.pdf>
+/// This takes a replicated secret sharing of a sequence of bits (in a packed format)
+/// and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
 ///
-/// It works by generating two secret-sharings of a random number `r`,
-/// one in `Z_2`, the other in `Z_p`. The sharing in `Z_2` is subtracted
-/// from the input and the result is revealed.
+/// This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
+/// "Efficient generation of a pair of random shares for small number of parties"
 ///
-/// If the revealed result is `0`, that indicates that `r` had the same value
-/// as the secret input, so the sharing in `Z_p` is returned.
-/// If the revealed result is a `1`, that indicates that `r` was different than
-/// the secret input, so a sharing of `1 - r` is returned.
+/// This protocol takes as input such a 3-way random binary replicated secret-sharing,
+/// and produces a 3-party replicated secret-sharing of the same value in a target field
+/// of the caller's choosing.
+/// Example:
+/// For input binary sharing: (0, 1, 1) -> which is a sharing of 0 in `Z_2`
+/// sample output in `Z_31` could be: (22, 19, 21) -> also a sharing of 0 in `Z_31`
+/// This transformation is simple:
+/// The original can be conceived of as r = b0 ⊕ b1 ⊕ b2
+/// Each of the 3 bits can be trivially converted into a 3-way secret sharing in `Z_p`
+/// So if the second bit is a '1', we can make a 3-way secret sharing of '1' in `Z_p`
+/// as (0, 1, 0).
+/// Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
+/// we know the secret-shared values are all either 0, or 1. As such, the XOR operation
+/// is equivalent to fn xor(a, b) { a + b - 2*a*b }
 impl ConvertShares {
     pub fn new(input: XorShares) -> Self {
         Self { input }
+    }
+
+    ///
+    /// Internal use only.
+    /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
+    ///
+    fn local_secret_share<B: BinaryField, F: Field>(
+        input: &Replicated<B>,
+        helper_role: Role,
+    ) -> [Replicated<F>; 3] {
+        let (left, right) = input.as_tuple();
+        match helper_role {
+            Role::H1 => [
+                Replicated::new(F::from(left.as_u128()), F::ZERO),
+                Replicated::new(F::ZERO, F::from(right.as_u128())),
+                Replicated::new(F::ZERO, F::ZERO),
+            ],
+            Role::H2 => [
+                Replicated::new(F::ZERO, F::ZERO),
+                Replicated::new(F::from(left.as_u128()), F::ZERO),
+                Replicated::new(F::ZERO, F::from(right.as_u128())),
+            ],
+            Role::H3 => [
+                Replicated::new(F::ZERO, F::from(right.as_u128())),
+                Replicated::new(F::ZERO, F::ZERO),
+                Replicated::new(F::from(left.as_u128()), F::ZERO),
+            ],
+        }
+    }
+
+    ///
+    /// Internal use only
+    /// When both inputs are known to be secret shares of either '1' or '0',
+    /// XOR can be computed as:
+    /// a + b - 2*a*b
+    ///
+    /// This variant is only to be used for the first XOR
+    /// Where helper 1 has shares:
+    /// a: (x1, 0) and b: (0, x2)
+    ///
+    /// And helper 2 has shares:
+    /// a: (0, 0) and b: (x2, 0)
+    ///
+    /// And helper 3 has shares:
+    /// a: (0, x1) and b: (0, 0)
+    async fn xor_specialized_1<F: Field>(
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        record_id: RecordId,
+        a: &Replicated<F>,
+        b: &Replicated<F>,
+    ) -> Result<Replicated<F>, BoxError> {
+        let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
+
+        Ok(a + b - &(result * F::from(2)))
+    }
+
+    ///
+    /// Internal use only
+    /// When both inputs are known to be secret share of either '1' or '0',
+    /// XOR can be computed as:
+    /// a + b - 2*a*b
+    ///
+    /// This variant is only to be used for the second XOR
+    /// Where helper 1 has shares:
+    /// b: (0, 0)
+    ///
+    /// And helper 2 has shares:
+    /// (0, x3)
+    ///
+    /// And helper 3 has shares:
+    /// (x3, 0)
+    async fn xor_specialized_2<F: Field>(
+        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        record_id: RecordId,
+        a: &Replicated<F>,
+        b: &Replicated<F>,
+    ) -> Result<Replicated<F>, BoxError> {
+        let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
+
+        Ok(a + b - &(result * F::from(2)))
     }
 
     pub async fn execute_one_bit<F: Field>(
@@ -64,30 +151,16 @@ impl ConvertShares {
     ) -> Result<Replicated<F>, BoxError> {
         assert!(bit_index < self.input.num_bits);
 
-        let prss = &ctx.prss();
-        let (left, right) = prss.generate_values(record_id);
-
-        let r_binary = Replicated::new(
-            Fp2::from(left & (1 << bit_index) != 0),
-            Fp2::from(right & (1 << bit_index) != 0),
-        );
         let input = Replicated::new(
             Fp2::from(self.input.packed_bits_left & (1 << bit_index) != 0),
             Fp2::from(self.input.packed_bits_right & (1 << bit_index) != 0),
         );
-        let input_xor_r = input + &r_binary;
-        let (r_big_field, revealed_output) = try_join(
-            DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, &r_binary),
-            ctx.narrow(&Step::BinaryReveal)
-                .reveal(record_id, &input_xor_r),
-        )
-        .await?;
 
-        if revealed_output == Fp2::ONE {
-            Ok(Replicated::<F>::one(ctx.role()) - &r_big_field)
-        } else {
-            Ok(r_big_field)
-        }
+        let [sh0, sh1, sh2] = Self::local_secret_share(&input, ctx.role());
+
+        let sh0_xor_sh1 =
+            Self::xor_specialized_1(ctx.narrow(&Step::Xor1), record_id, &sh0, &sh1).await?;
+        Self::xor_specialized_2(ctx.narrow(&Step::Xor2), record_id, &sh0_xor_sh1, &sh2).await
     }
 }
 
@@ -166,27 +239,26 @@ mod tests {
             .enumerate()
             .map(|(i, (c0, (c1, (c2, shared_match_key))))| async move {
                 let (share_0, share_1, share_2) = shared_match_key;
-                let record_id = RecordId::from(0_u32);
-                let hack = format!("hack_{}", i);
+                let record_id = RecordId::from(i);
                 try_join_all(vec![
                     ConvertShares::new(XorShares {
                         num_bits: 40,
                         packed_bits_left: share_0,
                         packed_bits_right: share_1,
                     })
-                    .execute_one_bit(c0.narrow(&hack), record_id, 4),
+                    .execute_one_bit(c0.bind(record_id), record_id, 4),
                     ConvertShares::new(XorShares {
                         num_bits: 40,
                         packed_bits_left: share_1,
                         packed_bits_right: share_2,
                     })
-                    .execute_one_bit(c1.narrow(&hack), record_id, 4),
+                    .execute_one_bit(c1.bind(record_id), record_id, 4),
                     ConvertShares::new(XorShares {
                         num_bits: 40,
                         packed_bits_left: share_2,
                         packed_bits_right: share_0,
                     })
-                    .execute_one_bit(c2.narrow(&hack), record_id, 4),
+                    .execute_one_bit(c2.bind(record_id), record_id, 4),
                 ])
                 .await
             }),
