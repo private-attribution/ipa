@@ -7,8 +7,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 
-use crate::protocol::reveal::Reveal;
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 pub struct XorShares {
@@ -24,7 +23,6 @@ pub struct ConvertShares {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     DoubleRandom,
-    BinaryReveal,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -33,24 +31,13 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::DoubleRandom => "double_random",
-            Self::BinaryReveal => "binary_reveal",
         }
     }
 }
 
 ///
-/// This is an implementation of
-/// Protocol 5.2 Modulus-conversion protocol from `Z_2^u` to `Z_p`
-/// from the paper <https://eprint.iacr.org/2018/387.pdf>
-///
-/// It works by generating two secret-sharings of a random number `r`,
-/// one in `Z_2`, the other in `Z_p`. The sharing in `Z_2` is subtracted
-/// from the input and the result is revealed.
-///
-/// If the revealed result is `0`, that indicates that `r` had the same value
-/// as the secret input, so the sharing in `Z_p` is returned.
-/// If the revealed result is a `1`, that indicates that `r` was different than
-/// the secret input, so a sharing of `1 - r` is returned.
+/// This takes a replicated secret sharing of a sequence of bits (in a packed format)
+/// and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
 impl ConvertShares {
     pub fn new(input: XorShares) -> Self {
         Self { input }
@@ -64,30 +51,11 @@ impl ConvertShares {
     ) -> Result<Replicated<F>, BoxError> {
         assert!(bit_index < self.input.num_bits);
 
-        let prss = &ctx.prss();
-        let (left, right) = prss.generate_values(record_id);
-
-        let r_binary = Replicated::new(
-            Fp2::from(left & (1 << bit_index) != 0),
-            Fp2::from(right & (1 << bit_index) != 0),
-        );
         let input = Replicated::new(
             Fp2::from(self.input.packed_bits_left & (1 << bit_index) != 0),
             Fp2::from(self.input.packed_bits_right & (1 << bit_index) != 0),
         );
-        let input_xor_r = input + r_binary;
-        let (r_big_field, revealed_output) = try_join(
-            DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, r_binary),
-            ctx.narrow(&Step::BinaryReveal)
-                .reveal(record_id, input_xor_r),
-        )
-        .await?;
-
-        if revealed_output == Fp2::ONE {
-            Ok(Replicated::<F>::one(ctx.role()) - r_big_field)
-        } else {
-            Ok(r_big_field)
-        }
+        DoubleRandom::execute(ctx.narrow(&Step::DoubleRandom), record_id, input).await
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    error::Error,
+    error::BoxError,
     ff::{BinaryField, Field},
     helpers::Role,
     protocol::{
@@ -30,15 +30,8 @@ impl AsRef<str> for Step {
 }
 
 ///
-/// This file is an implementation of Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
+/// This file is somewhat inspired by Algorithm D.3 from <https://eprint.iacr.org/2018/387.pdf>
 /// "Efficient generation of a pair of random shares for small number of parties"
-///
-/// In order to convert from a 3-party secret sharing in `Z_2`, to a 3-party replicated
-/// secret sharing in `Z_p` (where p > 2), we need to generate two secret sharings of
-/// a random value `r` ∈ {0, 1}, where none of the helper parties know the value of `r`.
-/// With Psuedo-random secret-sharing (PRSS), we can generate a 3-party replicated
-/// secret-sharing of unknown value 'r' without any interaction between the helpers.
-/// We just generate 3 random binary inputs, where each helper is aware of just two.
 ///
 /// This `DoubleRandom` protocol takes as input such a 3-way random binary replicated secret-sharing,
 /// and produces a 3-party replicated secret-sharing of the same value in a target field
@@ -88,7 +81,7 @@ impl DoubleRandom {
 
     ///
     /// Internal use only
-    /// When both inputs are known to be secret share of either '1' or '0',
+    /// When both inputs are known to be secret shares of either '1' or '0',
     /// XOR can be computed as:
     /// a + b - 2*a*b
     ///
@@ -106,7 +99,7 @@ impl DoubleRandom {
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
-    ) -> Result<Replicated<F>, Error> {
+    ) -> Result<Replicated<F>, BoxError> {
         let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
@@ -132,7 +125,7 @@ impl DoubleRandom {
         record_id: RecordId,
         a: Replicated<F>,
         b: Replicated<F>,
-    ) -> Result<Replicated<F>, Error> {
+    ) -> Result<Replicated<F>, BoxError> {
         let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - (result * F::from(2)))
@@ -147,7 +140,7 @@ impl DoubleRandom {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         random_sharing: Replicated<B>,
-    ) -> Result<Replicated<F>, Error> {
+    ) -> Result<Replicated<F>, BoxError> {
         let (sh0, sh1, sh2) = Self::local_secret_share(random_sharing, ctx.role());
 
         let sh0_xor_sh1 =
@@ -158,7 +151,6 @@ impl DoubleRandom {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         error::BoxError,
         ff::{Field, Fp2, Fp31},
