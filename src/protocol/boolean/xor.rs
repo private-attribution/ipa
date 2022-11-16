@@ -42,19 +42,19 @@ mod tests {
         let result = try_join_all(vec![
             xor(
                 ctx[0].narrow(step),
-                RecordId::from(0_u32),
+                RecordId::from(0),
                 a_shares[0],
                 b_shares[0],
             ),
             xor(
                 ctx[1].narrow(step),
-                RecordId::from(0_u32),
+                RecordId::from(0),
                 a_shares[1],
                 b_shares[1],
             ),
             xor(
                 ctx[2].narrow(step),
-                RecordId::from(0_u32),
+                RecordId::from(0),
                 a_shares[2],
                 b_shares[2],
             ),

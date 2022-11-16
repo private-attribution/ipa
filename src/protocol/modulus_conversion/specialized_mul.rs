@@ -209,7 +209,7 @@ pub mod tests {
             let a = rng.gen::<Fp31>();
             let b = rng.gen::<Fp31>();
 
-            let record_id = RecordId::from(0_u32);
+            let record_id = RecordId::from(0);
 
             let iteration = format!("{}", i);
 
@@ -257,7 +257,7 @@ pub mod tests {
 
             inputs.push((a, b));
 
-            let record_id = RecordId::from(0_u32);
+            let record_id = RecordId::from(0);
 
             let iteration = format!("{}", i);
 
@@ -309,7 +309,7 @@ pub mod tests {
 
             let a_shares = share(a, &mut rng);
 
-            let record_id = RecordId::from(0_u32);
+            let record_id = RecordId::from(0);
 
             let iteration = format!("{}", i);
 
@@ -359,7 +359,7 @@ pub mod tests {
 
             let a_shares = share(a, &mut rng);
 
-            let record_id = RecordId::from(0_u32);
+            let record_id = RecordId::from(0);
 
             let iteration = format!("{}", i);
 

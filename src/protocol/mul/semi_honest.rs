@@ -106,7 +106,7 @@ pub mod tests {
             v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>),
         ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(0_u32), a, b).await.unwrap()
+            ctx.multiply(RecordId::from(0), a, b).await.unwrap()
         }
 
         let world = make_world(QueryId);

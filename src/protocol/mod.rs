@@ -252,6 +252,17 @@ impl From<usize> for RecordId {
     }
 }
 
+/// This implementation exists because I am tired of typing `RecordId::from(0_u32)` in tests.
+/// I simply want to be able to say `RecordId::from(0)` there.
+#[cfg(test)]
+impl From<i32> for RecordId {
+    fn from(v: i32) -> Self {
+        assert!(v >= 0, "Record identifier must be a non-negative number");
+
+        RecordId::from(u32::try_from(v).unwrap())
+    }
+}
+
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()

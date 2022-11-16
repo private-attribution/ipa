@@ -104,7 +104,7 @@ mod tests {
 
             let input = Fp31::from(secret);
             let share = share(input, &mut rand);
-            let record_id = RecordId::from(0_u32);
+            let record_id = RecordId::from(0);
 
             let reshare0 = Reshare::new(share[0]);
             let reshare1 = Reshare::new(share[1]);
