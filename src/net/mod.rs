@@ -98,21 +98,16 @@ pub(crate) struct LastSeenMessages {
 }
 
 impl LastSeenMessages {
-    /// compares the `next_seen` value with the `last_seen`.
-    /// If they are the same, increment `last_seen`.
-    /// If they are different, return an [`OutOfOrder`] error.
-    pub fn compare_and_increment(
-        &self,
-        channel_id: ChannelId,
-        next_seen: u32,
-    ) -> Result<(), MpcHelperServerError> {
+    /// ensures that incoming message follows last seen message
+    /// # Panics
+    /// if messages arrive out of order
+    pub fn ensure_ordering(&self, channel_id: &ChannelId, next_seen: u32) {
         let mut messages = self.messages.lock().unwrap();
-        let last_seen = messages.entry(channel_id).or_default();
+        let last_seen = messages.entry(channel_id.clone()).or_default();
         if *last_seen == next_seen {
             *last_seen += 1;
-            Ok(())
         } else {
-            Err(MpcHelperServerError::out_of_order(*last_seen, next_seen))
+            panic!("out-of-order delivery of data for role:{}, step:{}: expected index {last_seen}, but found {next_seen}", channel_id.role.as_ref(), channel_id.step.as_ref());
         }
     }
 }

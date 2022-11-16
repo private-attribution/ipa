@@ -15,7 +15,7 @@ use axum::{
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
 use metrics::increment_counter;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -44,8 +44,6 @@ pub enum MpcHelperServerError {
     BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
     #[error(transparent)]
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
-    #[error("out-of-order delivery of data: expected index {last_seen}, but found {next_seen}")]
-    OutOfOrder { last_seen: u32, next_seen: u32 },
     #[error(transparent)]
     HyperError(#[from] hyper::Error),
     #[error("parse error: {0}")]
@@ -55,15 +53,18 @@ pub enum MpcHelperServerError {
 }
 
 impl MpcHelperServerError {
-    pub fn query_id_not_found(query_id: QueryId) -> MpcHelperServerError {
+    pub fn query_id_not_found(query_id: QueryId) -> Self {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
     }
 
-    pub fn out_of_order(last_seen: u32, next_seen: u32) -> Self {
-        Self::OutOfOrder {
-            last_seen,
-            next_seen,
-        }
+    pub fn sender_already_exists(query_id: QueryId) -> Self {
+        Self::SendError(
+            format!(
+                "tried to associated sender with query_id: {}, but sender already exists",
+                query_id.as_ref()
+            )
+            .into(),
+        )
     }
 }
 
@@ -109,10 +110,9 @@ impl IntoResponse for MpcHelperServerError {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            Self::SerdeError(_)
-            | Self::InvalidHeader(_)
-            | Self::WrongBodyLen { .. }
-            | Self::OutOfOrder { .. } => StatusCode::BAD_REQUEST,
+            Self::SerdeError(_) | Self::InvalidHeader(_) | Self::WrongBodyLen { .. } => {
+                StatusCode::BAD_REQUEST
+            }
             Self::HyperError(_)
             | Self::SendError(_)
             | Self::BodyAlreadyExtracted(_)
@@ -139,7 +139,7 @@ impl MessageSendMap {
     /// # Errors
     /// if sender does not exist
     /// # Panics
-    /// if lock is already held by current thread
+    /// if mutex is poisoned
     pub fn get(
         &self,
         query_id: QueryId,
@@ -151,15 +151,27 @@ impl MessageSendMap {
     }
 
     /// adds a sender for a given query
+    /// # Errors
+    /// if entry already exists
     /// # Panics
-    /// if lock is already held by current thread
-    pub fn insert(&self, query_id: QueryId, sender: mpsc::Sender<MessageChunks>) {
-        self.senders.lock().unwrap().insert(query_id, sender);
+    /// if mutex is poisoned
+    pub fn insert_if_not_present(
+        &self,
+        query_id: QueryId,
+        sender: mpsc::Sender<MessageChunks>,
+    ) -> Result<(), MpcHelperServerError> {
+        match self.senders.lock().unwrap().entry(query_id) {
+            Entry::Occupied(_) => Err(MpcHelperServerError::sender_already_exists(query_id)),
+            Entry::Vacant(entry) => {
+                entry.insert(sender);
+                Ok(())
+            }
+        }
     }
 
     /// removes a sender for a given query
     /// # Panics
-    /// if lock is already held by current thread
+    /// if mutex is poisoned
     pub fn remove(&self, query_id: QueryId) {
         self.senders.lock().unwrap().remove(&query_id);
     }
@@ -169,10 +181,8 @@ impl MessageSendMap {
     #[cfg(test)]
     #[must_use]
     pub fn filled(tx: mpsc::Sender<MessageChunks>) -> MessageSendMap {
-        let mut map = HashMap::new();
-        map.insert(QueryId, tx);
         MessageSendMap {
-            senders: Arc::new(Mutex::new(map)),
+            senders: Arc::new(Mutex::new([(QueryId, tx)].into())),
         }
     }
 }
@@ -329,6 +339,52 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
     .trim();
 
     RustlsConfig::from_pem(cert.as_bytes().to_vec(), key.as_bytes().to_vec()).await
+}
+
+/// [`MessageSendMap`] tests are limited right now due to the fact that they key, [`QueryId`], is
+/// an empty struct, and so there can only ever be 1 entry in the map. When we fully define a
+/// [`QueryId`], these tests can be expanded to handle more cases
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_send_map_stores_sender() {
+        let message_send_map = MessageSendMap::default();
+        assert!(matches!(
+            message_send_map.get(QueryId),
+            Err(MpcHelperServerError::BadPathString(_))
+        ));
+        let (tx, _) = mpsc::channel(1);
+        message_send_map.insert_if_not_present(QueryId, tx).unwrap();
+        assert!(message_send_map.get(QueryId).is_ok());
+    }
+
+    #[test]
+    fn message_send_map_errors_on_double_add() {
+        let message_send_map = MessageSendMap::default();
+        let (tx, _) = mpsc::channel(1);
+        message_send_map
+            .insert_if_not_present(QueryId, tx.clone())
+            .unwrap();
+        assert!(matches!(
+            message_send_map.insert_if_not_present(QueryId, tx),
+            Err(MpcHelperServerError::SendError(_))
+        ));
+    }
+
+    #[test]
+    fn message_send_map_removes_sender() {
+        let (tx, _) = mpsc::channel(1);
+        let message_send_map = MessageSendMap::default();
+        message_send_map.insert_if_not_present(QueryId, tx).unwrap();
+        assert!(message_send_map.get(QueryId).is_ok());
+        message_send_map.remove(QueryId);
+        assert!(matches!(
+            message_send_map.get(QueryId),
+            Err(MpcHelperServerError::BadPathString(_))
+        ));
+    }
 }
 
 #[cfg(test)]
