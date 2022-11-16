@@ -22,8 +22,13 @@ use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
 pub use sharing::{
+<<<<<<< HEAD
     share, share_malicious, validate_and_reconstruct, validate_list_of_shares,
     validate_list_of_shares_malicious,
+=======
+    share, share_malicious, validate_and_reconstruct, validate_and_reconstruct_xor,
+    validate_list_of_shares,
+>>>>>>> 1e92abc (Random bit shares)
 };
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,

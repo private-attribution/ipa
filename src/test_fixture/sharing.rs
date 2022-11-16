@@ -61,6 +61,25 @@ pub fn validate_and_reconstruct<F: Field>(
     s0.left() + s1.left() + s2.left()
 }
 
+/// Validates correctness of the XOR secret sharing scheme.
+///
+/// # Panics
+/// Panics if the given input is not a valid replicated XOR secret share.
+pub fn validate_and_reconstruct_xor<F: Field>(
+    input: (Replicated<F>, Replicated<F>, Replicated<F>),
+) -> F {
+    assert_eq!(
+        input.0.left().as_u128() ^ input.1.left().as_u128() ^ input.2.left().as_u128(),
+        input.0.right().as_u128() ^ input.1.right().as_u128() ^ input.2.right().as_u128()
+    );
+
+    assert_eq!(input.0.right(), input.1.left());
+    assert_eq!(input.1.right(), input.2.left());
+    assert_eq!(input.2.right(), input.0.left());
+
+    F::from(input.0.left().as_u128() ^ input.1.left().as_u128() ^ input.2.left().as_u128())
+}
+
 /// Validates expected result from the secret shares obtained.
 ///
 /// # Panics

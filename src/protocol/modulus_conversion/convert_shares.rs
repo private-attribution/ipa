@@ -11,9 +11,9 @@ use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 pub struct XorShares {
-    num_bits: u8,
-    packed_bits_left: u64,
-    packed_bits_right: u64,
+    pub num_bits: u8,
+    pub packed_bits_left: u64,
+    pub packed_bits_right: u64,
 }
 
 pub struct ConvertShares {
