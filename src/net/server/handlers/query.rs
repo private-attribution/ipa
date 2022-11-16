@@ -80,9 +80,7 @@ pub async fn obtain_permit_mw<B: Send>(
         Extension::<LastSeenMessages>::from_request(&mut req_parts).await?;
     // PANIC if messages arrive out of order; pretty print the error
     // TODO (ts): remove this when streaming solution is complete
-    last_seen_messages
-        .update_in_place(ChannelId::new(role, step), record_headers.offset)
-        .unwrap_or_else(|err| panic!("{err}"));
+    last_seen_messages.update_in_place(&ChannelId::new(role, step), record_headers.offset);
 
     let Extension(message_send_map) =
         Extension::<MessageSendMap>::from_request(&mut req_parts).await?;
@@ -241,6 +239,37 @@ mod tests {
             let messages = rx.try_recv().expect("should have already received value");
             assert_eq!(messages, (channel_id, body.to_vec()));
         }
+    }
+
+    #[tokio::test]
+    async fn ensure_ordering() {
+        let (port, _rx) = init_server().await;
+
+        // prepare req
+        let query_id = QueryId;
+        let target_helper = Role::H2;
+        let step = Step::default().narrow("test");
+        let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
+
+        // offset == 0; this is correct
+        let resp = send_req(port, query_id, &step, target_helper, 0, body).await;
+        let resp_status = resp.status();
+        let body_bytes = body::to_bytes(resp.into_body()).await.unwrap();
+        assert!(
+            resp_status.is_success(),
+            "{}",
+            String::from_utf8_lossy(&body_bytes).as_ref()
+        );
+
+        // offset == 0; this is invalid
+        let req = build_req(port, query_id, &step, target_helper, 0, body);
+        let client = Client::default();
+        let resp = client.request(req).await;
+        let resp_err_msg = format!("{}", resp.unwrap_err());
+        assert_eq!(
+            resp_err_msg.as_str(),
+            "connection closed before message completed"
+        );
     }
 
     struct OverrideReq {

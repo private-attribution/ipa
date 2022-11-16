@@ -98,20 +98,16 @@ pub(crate) struct LastSeenMessages {
 }
 
 impl LastSeenMessages {
-    pub fn update_in_place(
-        &self,
-        channel_id: ChannelId,
-        next_seen: u32,
-    ) -> Result<(), MpcHelperServerError> {
+    /// ensures that incoming message follows last seen message
+    /// # Panics
+    /// if messages arrive out of order
+    pub fn update_in_place(&self, channel_id: &ChannelId, next_seen: u32) {
         let mut messages = self.messages.lock().unwrap();
         let last_seen = messages.entry(channel_id.clone()).or_default();
         if *last_seen == next_seen {
             *last_seen += 1;
-            Ok(())
         } else {
-            Err(MpcHelperServerError::out_of_order(
-                channel_id, *last_seen, next_seen,
-            ))
+            panic!("out-of-order delivery of data for role:{}, step:{}: expected index {last_seen}, but found {next_seen}", channel_id.role.as_ref(), channel_id.step.as_ref());
         }
     }
 }

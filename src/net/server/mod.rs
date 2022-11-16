@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    helpers::network::{ChannelId, MessageChunks},
+    helpers::network::MessageChunks,
     net::LastSeenMessages,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -44,12 +44,6 @@ pub enum MpcHelperServerError {
     BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
     #[error(transparent)]
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
-    #[error("out-of-order delivery of data for role:{}, step:{}: expected index {last_seen}, but found {next_seen}", .channel_id.role.as_ref(), .channel_id.step.as_ref())]
-    OutOfOrder {
-        channel_id: ChannelId,
-        last_seen: u32,
-        next_seen: u32,
-    },
     #[error(transparent)]
     HyperError(#[from] hyper::Error),
     #[error("parse error: {0}")]
@@ -61,14 +55,6 @@ pub enum MpcHelperServerError {
 impl MpcHelperServerError {
     pub fn query_id_not_found(query_id: QueryId) -> Self {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
-    }
-
-    pub fn out_of_order(channel_id: ChannelId, last_seen: u32, next_seen: u32) -> Self {
-        Self::OutOfOrder {
-            channel_id,
-            last_seen,
-            next_seen,
-        }
     }
 
     pub fn sender_already_exists(query_id: QueryId) -> Self {
@@ -124,10 +110,9 @@ impl IntoResponse for MpcHelperServerError {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            Self::SerdeError(_)
-            | Self::InvalidHeader(_)
-            | Self::WrongBodyLen { .. }
-            | Self::OutOfOrder { .. } => StatusCode::BAD_REQUEST,
+            Self::SerdeError(_) | Self::InvalidHeader(_) | Self::WrongBodyLen { .. } => {
+                StatusCode::BAD_REQUEST
+            }
             Self::HyperError(_)
             | Self::SendError(_)
             | Self::BodyAlreadyExtracted(_)
