@@ -78,9 +78,7 @@ impl<'a> GenerateSortPermutation<'a> {
             let bit_i_permutation = bit_permutation(
                 ctx_bit.narrow(&BitPermutationStep),
                 &bit_i_sorted_by_less_significant_bits,
-            )
-            .await?;
-
+            ).await?;
             let composed_i_permutation = compose(
                 ctx_bit.narrow(&ComposeStep),
                 composed_less_significant_bits_permutation,
