@@ -25,7 +25,7 @@ pub struct GenerateSortPermutation<'a> {
 }
 
 impl<'a> GenerateSortPermutation<'a> {
-    #[allow(dead_code)]
+    #[must_use]
     pub fn new(input: &'a [(u64, u64)], num_bits: u8) -> GenerateSortPermutation {
         Self { input, num_bits }
     }
