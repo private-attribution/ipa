@@ -4,7 +4,7 @@ use crate::{
     protocol::{
         context::ProtocolContext,
         modulus_conversion::convert_shares::convert_shares_for_a_bit,
-        sort::bit_permutation::BitPermutation,
+        sort::bit_permutation::bit_permutation,
         sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion},
         IpaProtocolStep::Sort,
     },
@@ -56,9 +56,7 @@ impl<'a> GenerateSortPermutation<'a> {
             0,
         )
         .await?;
-        let bit_0_permutation = BitPermutation::new(&bit_0)
-            .execute(ctx_0.narrow(&BitPermutationStep))
-            .await?;
+        let bit_0_permutation = bit_permutation(ctx_0.narrow(&BitPermutationStep), bit_0).await?;
 
         let mut composed_less_significant_bits_permutation = bit_0_permutation;
         for bit_num in 1..self.num_bits {
@@ -77,9 +75,11 @@ impl<'a> GenerateSortPermutation<'a> {
             )
             .await?;
 
-            let bit_i_permutation = BitPermutation::new(&bit_i_sorted_by_less_significant_bits)
-                .execute(ctx_bit.narrow(&BitPermutationStep))
-                .await?;
+            let bit_i_permutation = bit_permutation(
+                ctx_bit.narrow(&BitPermutationStep),
+                bit_i_sorted_by_less_significant_bits,
+            )
+            .await?;
 
             let composed_i_permutation = Compose::execute(
                 ctx_bit.narrow(&ComposeStep),
