@@ -78,11 +78,11 @@ pub async fn obtain_permit_mw<B: Send>(
     let record_headers = RecordHeaders::from_request(&mut req_parts).await?;
     let Extension(last_seen_messages) =
         Extension::<LastSeenMessages>::from_request(&mut req_parts).await?;
-    // PANIC if messages arrive out of order
+    // PANIC if messages arrive out of order; pretty print the error
     // TODO (ts): remove this when streaming solution is complete
     last_seen_messages
         .update_in_place(ChannelId::new(role, step), record_headers.offset)
-        .unwrap();
+        .unwrap_or_else(|err| panic!("{err}"));
 
     let Extension(message_send_map) =
         Extension::<MessageSendMap>::from_request(&mut req_parts).await?;

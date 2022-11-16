@@ -104,12 +104,14 @@ impl LastSeenMessages {
         next_seen: u32,
     ) -> Result<(), MpcHelperServerError> {
         let mut messages = self.messages.lock().unwrap();
-        let last_seen = messages.entry(channel_id).or_default();
+        let last_seen = messages.entry(channel_id.clone()).or_default();
         if *last_seen == next_seen {
             *last_seen += 1;
             Ok(())
         } else {
-            Err(MpcHelperServerError::out_of_order(*last_seen, next_seen))
+            Err(MpcHelperServerError::out_of_order(
+                channel_id, *last_seen, next_seen,
+            ))
         }
     }
 }
