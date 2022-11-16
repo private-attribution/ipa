@@ -301,9 +301,8 @@ pub mod tests {
         let results = try_join_all(futures).await?;
 
         for (input, result) in zip(inputs, results) {
-            let result_shares = <[_; 3]>::try_from(result).unwrap();
             let multiplication_output =
-                validate_and_reconstruct(&result_shares[0], &result_shares[1], &result_shares[2]);
+                validate_and_reconstruct(&result[0], &result[1], &result[2]);
 
             assert_eq!(multiplication_output, input.0 * input.1);
         }

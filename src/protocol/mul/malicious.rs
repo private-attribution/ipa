@@ -86,13 +86,10 @@ impl<'a, F: Field> SecureMul<'a, F> {
         let (ab, rab) = {
             // Convince compiler that neither a nor b will be used across the await point
             // to relax the requirement for either of them to be Sync
-            let a_x = a.x();
-            let a_rx = a.rx();
-            let b_x = b.x();
             try_join(
-                SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a_x, b_x),
+                SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a.x(), b.x()),
                 SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
-                    .execute(a_rx, b_x),
+                    .execute(a.rx(), b.x()),
             )
             .await?
         };
