@@ -1,6 +1,6 @@
 use super::specialized_mul::{multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes};
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::{BinaryField, Field, Fp2},
     helpers::Role,
     protocol::{context::ProtocolContext, RecordId},
@@ -111,7 +111,7 @@ impl ConvertShares {
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - &(result * F::from(2)))
@@ -137,7 +137,7 @@ impl ConvertShares {
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
 
         Ok(a + b - &(result * F::from(2)))
@@ -148,7 +148,7 @@ impl ConvertShares {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         bit_index: u8,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         assert!(bit_index < self.input.num_bits);
 
         let input = Replicated::new(
@@ -172,7 +172,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
     input: &[(u64, u64)],
     num_bits: u8,
     bit_index: u8,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let converted_shares = try_join_all(zip(repeat(ctx), input).enumerate().map(
         |(record_id, (ctx, row))| async move {
             let record_id = RecordId::from(record_id);
@@ -193,7 +193,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
 mod tests {
 
     use crate::{
-        error::BoxError,
+        error::Error,
         ff::{Field, Fp31},
         protocol::{
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn convert_one_bit_of_many_match_keys() -> Result<(), BoxError> {
+    pub async fn convert_one_bit_of_many_match_keys() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
         let world: TestWorld = make_world(QueryId);

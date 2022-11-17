@@ -1,6 +1,6 @@
 use crate::protocol::reveal::Reveal;
 use crate::{
-    error::{BoxError, Error},
+    error::Error,
     ff::Field,
     helpers::Direction,
     protocol::{
@@ -157,10 +157,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(
-        self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<(), BoxError> {
+    pub async fn validate(self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), Error> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -195,7 +192,7 @@ impl<F: Field> SecurityValidator<F> {
         if is_valid {
             Ok(())
         } else {
-            Err(Box::new(Error::MaliciousSecurityCheckFailed))
+            Err(Error::MaliciousSecurityCheckFailed)
         }
     }
 }
@@ -204,7 +201,7 @@ impl<F: Field> SecurityValidator<F> {
 pub mod tests {
     use std::iter::zip;
 
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::ff::Fp31;
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{
@@ -233,7 +230,7 @@ pub mod tests {
     /// MACs are compared. If any helper deviated from the protocol, chances are that the MACs will not match up.
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
-    async fn simplest_circuit() -> Result<(), BoxError> {
+    async fn simplest_circuit() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -286,7 +283,7 @@ pub mod tests {
 
                 let r_share = v.r_share().clone();
                 v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
-                Ok::<_, BoxError>((mult_result, r_share))
+                Ok::<_, Error>((mult_result, r_share))
             });
 
         let [ab0, ab1, ab2] = <[_; 3]>::try_from(try_join_all(futures).await?).unwrap();
@@ -322,7 +319,7 @@ pub mod tests {
     /// MACs are compared. If any helper deviated from the protocol, chances are that the MACs will not match up.
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
-    async fn complex_circuit() -> Result<(), BoxError> {
+    async fn complex_circuit() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -362,7 +359,7 @@ pub mod tests {
                                 .multiply(RecordId::from(0), x, r_share)
                                 .await?;
 
-                            Ok::<_, BoxError>(MaliciousReplicated::new(x.clone(), rx))
+                            Ok::<_, Error>(MaliciousReplicated::new(x.clone(), rx))
                         },
                     ))
                     .await?;
@@ -397,7 +394,7 @@ pub mod tests {
 
                 let r_share = v.r_share().clone();
                 v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
-                Ok::<_, BoxError>((mult_results, r_share))
+                Ok::<_, Error>((mult_results, r_share))
             });
 
         let processed_outputs = try_join_all(futures).await?;

@@ -1,4 +1,4 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
@@ -31,7 +31,7 @@ impl PrefixOr {
         b: &Replicated<F>,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let one = Replicated::one(ctx.role());
         let result = ctx
             .multiply(record_id, &(one.clone() - a), &(one.clone() - b))
@@ -45,7 +45,7 @@ impl PrefixOr {
         k: usize,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         #[allow(clippy::cast_possible_truncation)]
         let mut v = a[0].clone();
         for (i, bit) in a[1..].iter().enumerate() {
@@ -71,7 +71,7 @@ impl PrefixOr {
         lambda: usize,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let mut futures = Vec::with_capacity(lambda);
         (0..a.len()).step_by(lambda).for_each(|i| {
             futures.push(Self::block_or(&a[i..i + lambda], i, ctx.clone(), record_id));
@@ -92,7 +92,7 @@ impl PrefixOr {
         x: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = x.len();
         let mut y = Vec::with_capacity(lambda);
         y.push(x[0].clone());
@@ -135,7 +135,7 @@ impl PrefixOr {
         a: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = f.len();
         let mul = zip(repeat(ctx), a).enumerate().map(|(i, (ctx, a_bit))| {
             let f_bit = &f[i / lambda];
@@ -179,7 +179,7 @@ impl PrefixOr {
         c: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = c.len();
         let mut b = Vec::with_capacity(lambda);
         b.push(c[0].clone());
@@ -206,7 +206,7 @@ impl PrefixOr {
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = f.len();
         let mut mul = Vec::new();
         for (i, f_bit) in f.iter().enumerate() {
@@ -248,7 +248,7 @@ impl PrefixOr {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
         input: &[Replicated<F>],
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         // The paper assumes `l = λ^2`, where `l` is the bit length of the input
         // share. Then the input is split into `λ` blocks each holding `λ` bits.
         // Or operations are executed in parallel by running the blocks in
@@ -322,7 +322,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::PrefixOr;
     use crate::{
-        error::BoxError,
+        error::Error,
         ff::{Field, Fp2, Fp31},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
@@ -336,7 +336,7 @@ mod tests {
     const BITS: [usize; 2] = [16, 32];
     const TEST_TRIES: usize = 16;
 
-    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, BoxError>
+    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, Error>
     where
         Standard: Distribution<F>,
     {
@@ -375,7 +375,7 @@ mod tests {
 
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_2
-    pub async fn fp2() -> Result<(), BoxError> {
+    pub async fn fp2() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
@@ -405,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_p (i.e. Fp31)
-    pub async fn fp31() -> Result<(), BoxError> {
+    pub async fn fp31() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed

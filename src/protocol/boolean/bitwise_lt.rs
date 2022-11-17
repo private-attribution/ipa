@@ -1,7 +1,7 @@
 use super::prefix_or::PrefixOr;
 use super::xor::xor;
 use super::BitOpStep;
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
@@ -41,7 +41,7 @@ impl BitwiseLessThan {
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::Step(i));
             async move { xor(c, record_id, a_bit, b_bit).await }
@@ -69,7 +69,7 @@ impl BitwiseLessThan {
         e: &mut [Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         e.reverse();
         let mut f = PrefixOr::execute(ctx, record_id, e).await?;
         f.reverse();
@@ -109,7 +109,7 @@ impl BitwiseLessThan {
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let mul = zip(repeat(ctx), zip(g, b))
             .enumerate()
             .map(|(i, (ctx, (g_bit, b_bit)))| {
@@ -134,7 +134,7 @@ impl BitwiseLessThan {
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
         let mut e = Self::step1(a, b, ctx.narrow(&Step::AXorB), record_id).await?;
         let f = Self::step2(&mut e, ctx.narrow(&Step::PrefixOr), record_id).await?;
@@ -168,7 +168,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitwiseLessThan;
     use crate::{
-        error::BoxError,
+        error::Error,
         ff::{Field, Fp31, Fp32BitPrime, Int},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
@@ -193,7 +193,7 @@ mod tests {
             .collect::<Vec<_>>()
     }
 
-    async fn bitwise_lt<F: Field>(a: F, b: F) -> Result<F, BoxError>
+    async fn bitwise_lt<F: Field>(a: F, b: F) -> Result<F, Error>
     where
         Standard: Distribution<F>,
     {
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn fp31() -> Result<(), BoxError> {
+    pub async fn fp31() -> Result<(), Error> {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime() -> Result<(), BoxError> {
+    pub async fn fp_32bit_prime() -> Result<(), Error> {
         let c = Fp32BitPrime::from;
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
@@ -284,7 +284,7 @@ mod tests {
     // this test is for manual execution only
     #[ignore]
     #[tokio::test]
-    pub async fn cmp_all_fp31() -> Result<(), BoxError> {
+    pub async fn cmp_all_fp31() -> Result<(), Error> {
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(

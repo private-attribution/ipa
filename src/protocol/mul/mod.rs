@@ -1,4 +1,4 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::ProtocolContext;
 use crate::protocol::RecordId;
@@ -19,7 +19,7 @@ pub trait SecureMul<F: Field> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-    ) -> Result<Self::Share, BoxError>;
+    ) -> Result<Self::Share, Error>;
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
@@ -35,7 +35,7 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-    ) -> Result<Self::Share, BoxError> {
+    ) -> Result<Self::Share, Error> {
         SemiHonestMul::new(self, record_id).execute(a, b).await
     }
 }
@@ -50,7 +50,7 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-    ) -> Result<Self::Share, BoxError> {
+    ) -> Result<Self::Share, Error> {
         let acc = self.accumulator();
         MaliciouslySecureMul::new(self, record_id, acc)
             .execute(a, b)

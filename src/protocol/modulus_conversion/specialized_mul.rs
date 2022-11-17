@@ -186,7 +186,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
 pub mod tests {
     use std::iter::zip;
 
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::{
         modulus_conversion::specialized_mul::{
@@ -202,7 +202,7 @@ pub mod tests {
     use proptest::prelude::Rng;
 
     #[tokio::test]
-    async fn specialized_1_sequence() -> Result<(), BoxError> {
+    async fn specialized_1_sequence() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -246,7 +246,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn specialized_1_parallel() -> Result<(), BoxError> {
+    async fn specialized_1_parallel() -> Result<(), Error> {
         const ROUNDS: usize = 10;
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
@@ -311,7 +311,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn specialized_2_sequence() -> Result<(), BoxError> {
+    async fn specialized_2_sequence() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();
@@ -356,7 +356,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn specialized_2_parallel() -> Result<(), BoxError> {
+    async fn specialized_2_parallel() -> Result<(), Error> {
         const ROUNDS: usize = 10;
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);

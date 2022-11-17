@@ -1,7 +1,7 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
 use crate::protocol::mul::SecureMul;
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{
         batch::{Batch, RecordIndex},
@@ -55,7 +55,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     pub async fn execute(
         &self,
         ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<Batch<AccumulateCreditOutputRow<F>>, BoxError> {
+    ) -> Result<Batch<AccumulateCreditOutputRow<F>>, Error> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
 
@@ -165,7 +165,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
         first_iteration: bool,
-    ) -> Result<(Replicated<F>, Replicated<F>), BoxError> {
+    ) -> Result<(Replicated<F>, Replicated<F>), Error> {
         // For each input row, we execute the accumulation logic in this method
         // `log2(input.len())` times. Each accumulation logic is executed with
         // the unique iteration/row pair sub-context. There are 2~4 multiplications
