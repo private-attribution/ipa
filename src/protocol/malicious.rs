@@ -256,10 +256,10 @@ pub mod tests {
                 let (ra, rb) = try_join(
                     a_ctx
                         .narrow("input")
-                        .multiply(RecordId::from(0_u32), &a_share, r_share),
+                        .multiply(RecordId::from(0), &a_share, r_share),
                     b_ctx
                         .narrow("input")
-                        .multiply(RecordId::from(0_u32), &b_share, r_share),
+                        .multiply(RecordId::from(0), &b_share, r_share),
                 )
                 .await?;
 
@@ -271,17 +271,17 @@ pub mod tests {
 
                 acc.accumulate_macs(
                     &a_ctx.narrow(&Step::ValidateInput).prss(),
-                    RecordId::from(0_u32),
+                    RecordId::from(0),
                     &a_malicious,
                 );
                 acc.accumulate_macs(
                     &b_ctx.narrow(&Step::ValidateInput).prss(),
-                    RecordId::from(0_u32),
+                    RecordId::from(0),
                     &b_malicious,
                 );
 
                 let mult_result = a_ctx
-                    .multiply(RecordId::from(0_u32), &a_malicious, &b_malicious)
+                    .multiply(RecordId::from(0), &a_malicious, &b_malicious)
                     .await?;
 
                 let r_share = v.r_share().clone();
@@ -359,7 +359,7 @@ pub mod tests {
                         |(x, ctx)| async move {
                             let rx = ctx
                                 .narrow("mult")
-                                .multiply(RecordId::from(0_u32), x, r_share)
+                                .multiply(RecordId::from(0), x, r_share)
                                 .await?;
 
                             Ok::<_, BoxError>(MaliciousReplicated::new(x.clone(), rx))
@@ -373,7 +373,7 @@ pub mod tests {
                     .map(|(maliciously_secure_input, ctx)| {
                         acc.accumulate_macs(
                             &ctx.narrow(&Step::ValidateInput).prss(),
-                            RecordId::from(0_u32),
+                            RecordId::from(0),
                             maliciously_secure_input,
                         );
                     });
@@ -388,7 +388,7 @@ pub mod tests {
                             async move {
                                 ctx.narrow("Circuit_Step_2")
                                     .upgrade_to_malicious(acc)
-                                    .multiply(RecordId::from(0_u32), a_malicious, b_malicious)
+                                    .multiply(RecordId::from(0), a_malicious, b_malicious)
                                     .await
                             }
                         }),

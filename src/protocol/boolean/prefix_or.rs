@@ -357,9 +357,9 @@ mod tests {
         // Execute
         let step = "PrefixOr_Test";
         let result = try_join_all([
-            PrefixOr::execute(ctx[0].narrow(step), RecordId::from(0_u32), &s0),
-            PrefixOr::execute(ctx[1].narrow(step), RecordId::from(0_u32), &s1),
-            PrefixOr::execute(ctx[2].narrow(step), RecordId::from(0_u32), &s2),
+            PrefixOr::execute(ctx[0].narrow(step), RecordId::from(0), &s0),
+            PrefixOr::execute(ctx[1].narrow(step), RecordId::from(0), &s1),
+            PrefixOr::execute(ctx[2].narrow(step), RecordId::from(0), &s2),
         ])
         .await
         .unwrap();

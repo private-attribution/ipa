@@ -210,19 +210,19 @@ mod tests {
         let result = try_join_all([
             BitwiseLessThan::execute(
                 ctx[0].narrow(step),
-                RecordId::from(0_u32),
+                RecordId::from(0),
                 &transpose(&a_bits, 0),
                 &transpose(&b_bits, 0),
             ),
             BitwiseLessThan::execute(
                 ctx[1].narrow(step),
-                RecordId::from(0_u32),
+                RecordId::from(0),
                 &transpose(&a_bits, 1),
                 &transpose(&b_bits, 1),
             ),
             BitwiseLessThan::execute(
                 ctx[2].narrow(step),
-                RecordId::from(0_u32),
+                RecordId::from(0),
                 &transpose(&a_bits, 2),
                 &transpose(&b_bits, 2),
             ),

@@ -211,7 +211,7 @@ pub mod tests {
             let a = rng.gen::<Fp31>();
             let b = rng.gen::<Fp31>();
 
-            let record_id = RecordId::from(0_u32);
+            let record_id = RecordId::from(0);
 
             let iteration = format!("{}", i);
 
