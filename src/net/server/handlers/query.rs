@@ -65,21 +65,22 @@ impl<T> Clone for ReservedPermit<T> {
 /// Middleware that first reserves a permit on the channel to send messages to the messaging layer.
 /// Once reserved, adds the permit to the extension for retrieval from the handler.
 pub async fn obtain_permit_mw<B: Send>(
-    message_send_map: MessageSendMap,
     req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, MpcHelperServerError> {
     let mut req_parts = RequestParts::new(req);
-    let Path(query_id, _) = Path::from_request(&mut req_parts).await?;
+    let Path(query_id, step) = req_parts.extract::<Path>().await?;
+    let message_send_map: &MessageSendMap = req_parts.extensions_mut().get().unwrap();
 
     let sender = message_send_map.get(query_id)?;
     let permit = sender.reserve_owned().await?;
+
+    // insert path as extension so that handler doesn't need to extract again
+    req_parts.extensions_mut().insert(Path(query_id, step));
     req_parts
         .extensions_mut()
         .insert(ReservedPermit::new(permit));
-    let req = req_parts
-        .try_into_request()
-        .expect("request body should not have been modified");
+    let req = req_parts.try_into_request().unwrap();
     Ok(next.run(req).await)
 }
 
@@ -88,7 +89,6 @@ pub async fn obtain_permit_mw<B: Send>(
 /// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
 pub async fn handler(
-    path: Path,
     // TODO: we shouldn't trust the client to tell us their role.
     //       revisit when we have figured out discovery/handshake
     query: Query<RoleQueryParam>,
@@ -96,10 +96,10 @@ pub async fn handler(
     mut req: Request<Body>,
 ) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let Path(_, step) = path;
+    let Path(_, step) = req.extensions().get().unwrap();
     let channel_id = ChannelId {
         role: query.role,
-        step,
+        step: step.clone(),
     };
 
     let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();

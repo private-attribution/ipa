@@ -1,3 +1,5 @@
+pub mod handlers;
+
 use crate::{
     error::BoxError,
     helpers::network::MessageChunks,
@@ -9,7 +11,7 @@ use axum::{
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request, StatusCode};
@@ -22,8 +24,6 @@ use thiserror::Error;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
-
-pub mod handlers;
 
 #[derive(Error, Debug)]
 pub enum MpcHelperServerError {
@@ -196,12 +196,8 @@ impl MpcHelperServer {
     pub(crate) fn router(&self) -> Router {
         Router::new()
             .route("/query/:query_id/step/*step", post(handlers::query_handler))
-            .layer({
-                let message_send_map = self.message_send_map.clone();
-                middleware::from_fn(move |req, next| {
-                    handlers::obtain_permit_mw(message_send_map.clone(), req, next)
-                })
-            })
+            .layer(middleware::from_fn(handlers::obtain_permit_mw))
+            .layer(Extension(self.message_send_map.clone()))
             .route("/echo", get(handlers::echo_handler))
     }
 
