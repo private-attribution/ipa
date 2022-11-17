@@ -9,7 +9,15 @@ use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 /// Secret share of a secret has additive and multiplicative properties.
 pub trait SecretSharing<F>:
-    Add + AddAssign + Neg + Sub + SubAssign + Mul<F> + Debug + Sized
+    for<'a> Add<&'a Self>
+    + for<'a> AddAssign<&'a Self>
+    + Neg
+    + for<'a> Sub<&'a Self>
+    + for<'a> SubAssign<&'a Self>
+    + Mul<F>
+    + Debug
+    + Sized
+    + Sync
 {
 }
 

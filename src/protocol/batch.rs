@@ -37,6 +37,15 @@ impl<T> From<Batch<T>> for Vec<T> {
     }
 }
 
+impl<T> IntoIterator for Batch<T> {
+    type Item = T;
+    type IntoIter = <Vec<T> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<T> Index<RecordIndex> for Batch<T> {
     type Output = T;
     fn index(&self, index: RecordIndex) -> &Self::Output {

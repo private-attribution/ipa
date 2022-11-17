@@ -173,6 +173,7 @@ impl Gateway {
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
+                        tracing::trace!("new SendRequest({channel_id:?}, {:?}", msg.record_id);
                         if let Some(buf_to_send) = send_buf.push(&channel_id, &msg).expect("Failed to append data to the send buffer") {
                             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
                             network_sink.send((channel_id, buf_to_send)).await

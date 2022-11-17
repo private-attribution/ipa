@@ -64,18 +64,18 @@ impl AsRef<str> for Step {
 pub async fn check_zero<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
-    v: Replicated<F>,
+    v: &Replicated<F>,
 ) -> Result<bool, BoxError> {
     let prss = &ctx.prss();
     let r_sharing = prss.generate_replicated(record_id);
 
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
-        .multiply(record_id, r_sharing, v)
+        .multiply(record_id, &r_sharing, v)
         .await?;
     let rv = ctx
         .narrow(&Step::RevealR)
-        .reveal(record_id, rv_share)
+        .reveal(record_id, &rv_share)
         .await?;
 
     Ok(rv == F::ZERO)
@@ -105,9 +105,9 @@ pub mod tests {
                 counter += 1;
 
                 let protocol_output = tokio::try_join!(
-                    check_zero(context[0].narrow(&iteration), record_id, v_shares[0],),
-                    check_zero(context[1].narrow(&iteration), record_id, v_shares[1],),
-                    check_zero(context[2].narrow(&iteration), record_id, v_shares[2],),
+                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0],),
+                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1],),
+                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2],),
                 )?;
 
                 // All three helpers should always get the same result

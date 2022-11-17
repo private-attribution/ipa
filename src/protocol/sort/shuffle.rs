@@ -91,11 +91,15 @@ async fn reshare_all_shares<F: Field>(
     ctx: &ProtocolContext<'_, Replicated<F>, F>,
     to_helper: Role,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
-    let reshares = input.iter().enumerate().map(|(index, input)| async move {
-        Reshare::new(*input)
-            .execute(ctx, RecordId::from(index), to_helper)
-            .await
-    });
+    let reshares = input
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, input)| async move {
+            Reshare::new(input)
+                .execute(ctx, RecordId::from(index), to_helper)
+                .await
+        });
     try_join_all(reshares).await
 }
 
@@ -206,8 +210,9 @@ pub async fn unshuffle_shares<F: Field>(
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::iter::zip;
 
-    use crate::test_fixture::logging;
+    use crate::test_fixture::{logging, validate_list_of_shares};
     use crate::{
         ff::Fp31,
         protocol::{
@@ -222,7 +227,7 @@ mod tests {
             permutation_valid, validate_and_reconstruct, TestWorld,
         },
     };
-    use tokio::try_join;
+    use futures::future::try_join_all;
 
     #[test]
     fn random_sequence_generated() {
@@ -262,11 +267,9 @@ mod tests {
         let input_len = input.len();
 
         let input_u128: Vec<u128> = input.iter().map(|x| u128::from(*x)).collect();
-        let mut shares = generate_shares(input_u128);
+        let shares = generate_shares(&input_u128);
 
-        let input0 = shares.0.clone();
-        let input1 = shares.1.clone();
-        let input2 = shares.2.clone();
+        let original = shares.clone();
 
         let perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
         let perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
@@ -274,30 +277,27 @@ mod tests {
 
         let [c0, c1, c2] = context;
 
-        let h0_future = shuffle_shares(shares.0, (&perm1.0, &perm1.1), c0);
-        let h1_future = shuffle_shares(shares.1, (&perm2.0, &perm2.1), c1);
-        let h2_future = shuffle_shares(shares.2, (&perm3.0, &perm3.1), c2);
+        let [shares0, shares1, shares2] = shares;
+        let h0_future = shuffle_shares(shares0, (&perm1.0, &perm1.1), c0);
+        let h1_future = shuffle_shares(shares1, (&perm2.0, &perm2.1), c1);
+        let h2_future = shuffle_shares(shares2, (&perm3.0, &perm3.1), c2);
 
-        shares = try_join!(h0_future, h1_future, h2_future).unwrap();
-
-        let mut result0 = Vec::with_capacity(input_len);
-        let mut result1 = Vec::with_capacity(input_len);
-        let mut result2 = Vec::with_capacity(input_len);
+        let results: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+            .await
+            .unwrap()
+            .try_into()
+            .unwrap();
 
         let mut hashed_output_secret = HashSet::new();
         let mut output_secret = Vec::new();
-        (0..input_len).for_each(|i| {
-            let val = validate_and_reconstruct((shares.0[i], shares.1[i], shares.2[i]));
+        for (r0, (r1, r2)) in zip(results[0].iter(), zip(results[1].iter(), results[2].iter())) {
+            let val = validate_and_reconstruct(r0, r1, r2);
             output_secret.push(u8::from(val));
             hashed_output_secret.insert(u8::from(val));
-
-            result0.push(shares.0[i]);
-            result1.push(shares.1[i]);
-            result2.push(shares.2[i]);
-        });
+        }
 
         // Order of shares should now be different from original
-        assert!(result0 != input0 || result1 != input1 || result2 != input2);
+        assert_ne!(results, original);
         // Secrets should be shuffled also
         assert_ne!(output_secret, input);
 
@@ -307,49 +307,47 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle_unshuffle() {
+        const BATCHSIZE: usize = 5;
+
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
 
-        let batchsize = 5;
-        let input: Vec<u128> = (0..batchsize).collect();
+        let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 
-        let input_fielded: Vec<Fp31> = input.iter().map(|x| Fp31::from(*x)).collect();
-        let input_len = input.len();
+        let shares = generate_shares(&input);
 
-        let mut shares = generate_shares(input);
+        let perm1 = get_two_of_three_random_permutations(BATCHSIZE, context[0].prss().as_ref());
+        let perm2 = get_two_of_three_random_permutations(BATCHSIZE, context[1].prss().as_ref());
+        let perm3 = get_two_of_three_random_permutations(BATCHSIZE, context[2].prss().as_ref());
 
-        let perm1 = get_two_of_three_random_permutations(input_len, context[0].prss().as_ref());
-        let perm2 = get_two_of_three_random_permutations(input_len, context[1].prss().as_ref());
-        let perm3 = get_two_of_three_random_permutations(input_len, context[2].prss().as_ref());
-
-        {
+        let shuffled: [_; 3] = {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);
-            let h0_future = shuffle_shares(shares.0, (&perm1.0, &perm1.1), ctx0);
-            let h1_future = shuffle_shares(shares.1, (&perm2.0, &perm2.1), ctx1);
-            let h2_future = shuffle_shares(shares.2, (&perm3.0, &perm3.1), ctx2);
+            let [shares0, shares1, shares2] = shares;
+            let h0_future = shuffle_shares(shares0, (&perm1.0, &perm1.1), ctx0);
+            let h1_future = shuffle_shares(shares1, (&perm2.0, &perm2.1), ctx1);
+            let h2_future = shuffle_shares(shares2, (&perm3.0, &perm3.1), ctx2);
 
-            shares = try_join!(h0_future, h1_future, h2_future).unwrap();
-        }
-        {
+            try_join_all([h0_future, h1_future, h2_future])
+                .await
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        let unshuffled: [_; 3] = {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Unshuffle);
-            let h0_future = unshuffle_shares(shares.0, (&perm1.0, &perm1.1), ctx0);
-            let h1_future = unshuffle_shares(shares.1, (&perm2.0, &perm2.1), ctx1);
-            let h2_future = unshuffle_shares(shares.2, (&perm3.0, &perm3.1), ctx2);
+            let [shuffled0, shuffled1, shuffled2] = shuffled;
+            let h0_future = unshuffle_shares(shuffled0, (&perm1.0, &perm1.1), ctx0);
+            let h1_future = unshuffle_shares(shuffled1, (&perm2.0, &perm2.1), ctx1);
+            let h2_future = unshuffle_shares(shuffled2, (&perm3.0, &perm3.1), ctx2);
 
             // When unshuffle and shuffle are called with same step, they undo each other's effect
-            shares = try_join!(h0_future, h1_future, h2_future).unwrap();
-        }
+            try_join_all([h0_future, h1_future, h2_future])
+                .await
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
 
-        let mut result = Vec::with_capacity(input_len);
-
-        (0..input_len).for_each(|i| {
-            result.push(validate_and_reconstruct((
-                shares.0[i],
-                shares.1[i],
-                shares.2[i],
-            )));
-        });
-
-        assert_eq!(result, input_fielded);
+        validate_list_of_shares(&input[..], &unshuffled);
     }
 }

@@ -68,26 +68,26 @@ impl ConvertShares {
     /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
     ///
     fn local_secret_share<B: BinaryField, F: Field>(
-        input: Replicated<B>,
+        input: &Replicated<B>,
         helper_role: Role,
-    ) -> (Replicated<F>, Replicated<F>, Replicated<F>) {
+    ) -> [Replicated<F>; 3] {
         let (left, right) = input.as_tuple();
         match helper_role {
-            Role::H1 => (
+            Role::H1 => [
                 Replicated::new(F::from(left.as_u128()), F::ZERO),
                 Replicated::new(F::ZERO, F::from(right.as_u128())),
                 Replicated::new(F::ZERO, F::ZERO),
-            ),
-            Role::H2 => (
+            ],
+            Role::H2 => [
                 Replicated::new(F::ZERO, F::ZERO),
                 Replicated::new(F::from(left.as_u128()), F::ZERO),
                 Replicated::new(F::ZERO, F::from(right.as_u128())),
-            ),
-            Role::H3 => (
+            ],
+            Role::H3 => [
                 Replicated::new(F::ZERO, F::from(right.as_u128())),
                 Replicated::new(F::ZERO, F::ZERO),
                 Replicated::new(F::from(left.as_u128()), F::ZERO),
-            ),
+            ],
         }
     }
 
@@ -109,12 +109,12 @@ impl ConvertShares {
     async fn xor_specialized_1<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-        a: Replicated<F>,
-        b: Replicated<F>,
+        a: &Replicated<F>,
+        b: &Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
         let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
 
-        Ok(a + b - (result * F::from(2)))
+        Ok(a + b - &(result * F::from(2)))
     }
 
     ///
@@ -135,12 +135,12 @@ impl ConvertShares {
     async fn xor_specialized_2<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-        a: Replicated<F>,
-        b: Replicated<F>,
+        a: &Replicated<F>,
+        b: &Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
         let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
 
-        Ok(a + b - (result * F::from(2)))
+        Ok(a + b - &(result * F::from(2)))
     }
 
     pub async fn execute_one_bit<F: Field>(
@@ -156,11 +156,11 @@ impl ConvertShares {
             Fp2::from(self.input.packed_bits_right & (1 << bit_index) != 0),
         );
 
-        let (sh0, sh1, sh2) = Self::local_secret_share(input, ctx.role());
+        let [sh0, sh1, sh2] = Self::local_secret_share(&input, ctx.role());
 
         let sh0_xor_sh1 =
-            Self::xor_specialized_1(ctx.narrow(&Step::Xor1), record_id, sh0, sh1).await?;
-        Self::xor_specialized_2(ctx.narrow(&Step::Xor2), record_id, sh0_xor_sh1, sh2).await
+            Self::xor_specialized_1(ctx.narrow(&Step::Xor1), record_id, &sh0, &sh1).await?;
+        Self::xor_specialized_2(ctx.narrow(&Step::Xor2), record_id, &sh0_xor_sh1, &sh2).await
     }
 }
 
@@ -265,15 +265,10 @@ mod tests {
         )
         .await?;
 
-        for i in 0..1000 {
-            let match_key = match_keys[i];
+        for (match_key, result) in zip(match_keys, results) {
             let bit_of_match_key = match_key & (1 << 4) != 0;
 
-            let sh0 = results[i][0];
-            let sh1 = results[i][1];
-            let sh2 = results[i][2];
-
-            let share_of_bit: Fp31 = validate_and_reconstruct((sh0, sh1, sh2));
+            let share_of_bit = validate_and_reconstruct(&result[0], &result[1], &result[2]);
             if bit_of_match_key {
                 assert_eq!(share_of_bit, Fp31::ONE);
             } else {

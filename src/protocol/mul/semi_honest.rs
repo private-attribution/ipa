@@ -29,8 +29,8 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// back via the error response
     pub async fn execute(
         self,
-        a: Replicated<F>,
-        b: Replicated<F>,
+        a: &Replicated<F>,
+        b: &Replicated<F>,
     ) -> Result<Replicated<F>, BoxError> {
         let channel = self.ctx.mesh();
 
@@ -70,11 +70,13 @@ pub mod tests {
     use crate::test_fixture::{
         make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
+    use futures::future::try_join_all;
     use futures_util::future::join_all;
     use rand::distributions::Standard;
     use rand::prelude::Distribution;
     use rand::rngs::mock::StepRng;
     use rand::RngCore;
+    use std::iter::zip;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
@@ -106,7 +108,7 @@ pub mod tests {
             v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>),
         ) -> Replicated<F> {
             let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(0), a, b).await.unwrap()
+            ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
         }
 
         let world = make_world(QueryId);
@@ -124,7 +126,7 @@ pub mod tests {
                 contexts
                     .iter()
                     .map(|ctx| ctx.narrow(&step_name))
-                    .zip(std::iter::zip(a, b))
+                    .zip(zip(a, b))
                     .map(mul),
             );
             multiplications.push(f);
@@ -134,7 +136,7 @@ pub mod tests {
         for shares in results {
             assert_eq!(
                 Fp31::from(12_u128),
-                validate_and_reconstruct((shares[0], shares[1], shares[2]))
+                validate_and_reconstruct(&shares[0], &shares[1], &shares[2])
             );
         }
     }
@@ -161,12 +163,13 @@ pub mod tests {
         let a = share(a, rng);
         let b = share(b, rng);
 
-        let result_shares = tokio::try_join!(
-            context0.multiply(record_id, a[0], b[0]),
-            context1.multiply(record_id, a[1], b[1]),
-            context2.multiply(record_id, a[2], b[2]),
-        )?;
+        let result = try_join_all([
+            context0.multiply(record_id, &a[0], &b[0]),
+            context1.multiply(record_id, &a[1], &b[1]),
+            context2.multiply(record_id, &a[2], &b[2]),
+        ])
+        .await?;
 
-        Ok(validate_and_reconstruct(result_shares).as_u128())
+        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]).as_u128())
     }
 }
