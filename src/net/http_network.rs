@@ -135,12 +135,12 @@ mod tests {
     use futures_util::SinkExt;
     use std::str::FromStr;
 
-    fn h2_peer_valid(h2_port: u16) -> Conf {
+    fn localhost_peers(h1_port: u16, h2_port: u16, h3_port: u16) -> Conf {
         let peer_discovery_str = format!(
             r#"
 [h1]
     [h1.http]
-        origin = "http://localhost:3000"
+        origin = "http://localhost:{}"
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
     [h1.prss]
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
@@ -154,12 +154,12 @@ mod tests {
 
 [h3]
     [h3.http]
-        origin = "http://localhost:3002"
+        origin = "http://localhost:{}"
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
     [h3.prss]
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#,
-            h2_port
+            h1_port, h2_port, h3_port
         );
         Conf::from_str(&peer_discovery_str).unwrap()
     }
@@ -175,7 +175,8 @@ mod tests {
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
 
-        let peer_discovery = h2_peer_valid(addr.port());
+        // only H2 is valid
+        let peer_discovery = localhost_peers(0, addr.port(), 0);
 
         (Role::H2, peer_discovery, rx_stream)
     }
