@@ -131,34 +131,35 @@ pub async fn handler(
 mod tests {
     use super::*;
     use crate::{
-        helpers::MESSAGE_PAYLOAD_SIZE_BYTES,
+        helpers::{network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
-            server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
-            OFFSET_HEADER_NAME,
+            http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer,
+            CONTENT_LENGTH_HEADER_NAME, OFFSET_HEADER_NAME,
         },
     };
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
+    use futures::{Stream, StreamExt};
     use futures_util::FutureExt;
     use hyper::header::HeaderName;
     use hyper::service::Service;
     use hyper::{body, Body, Client, Response};
     use std::future::Future;
     use std::task::{Context, Poll};
-    use tokio::sync::mpsc;
     use tower::ServiceExt;
 
     const DATA_LEN: usize = 3;
 
-    async fn init_server() -> (u16, mpsc::Receiver<MessageChunks>) {
-        let (tx, rx) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+    async fn init_server() -> (u16, impl Stream<Item = MessageChunks>) {
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
         let port = addr.port();
-        (port, rx)
+        (port, rx_stream)
     }
 
     fn build_req(
@@ -213,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn collect_req() {
-        let (port, mut rx) = init_server().await;
+        let (port, mut rx_stream) = init_server().await;
 
         // prepare req
         let query_id = QueryId;
@@ -236,7 +237,10 @@ mod tests {
             };
 
             assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
-            let messages = rx.try_recv().expect("should have already received value");
+            let messages = rx_stream
+                .next()
+                .await
+                .expect("should have already received value");
             assert_eq!(messages, (channel_id, body.to_vec()));
         }
     }
@@ -380,8 +384,9 @@ mod tests {
     #[tokio::test]
     async fn backpressure_applied() {
         const QUEUE_DEPTH: usize = 8;
-        let (tx, mut rx) = mpsc::channel(QUEUE_DEPTH);
-        let message_send_map = MessageSendMap::filled(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, Some(QUEUE_DEPTH));
+        let mut rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
         let mut r = server.router();
 
@@ -417,14 +422,14 @@ mod tests {
         );
 
         // take 1 message from channel
-        rx.recv().await;
+        rx_stream.next().await;
 
         // channel should now have capacity
         assert!(poll(&mut resp_when_full).is_ready());
 
         // take 3 messages from channel
         for _ in 0..3 {
-            rx.recv().await;
+            rx_stream.next().await;
         }
 
         // channel should now have capacity for 3 more reqs
