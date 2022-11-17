@@ -135,7 +135,9 @@ mod tests {
         protocol::reveal::Reveal,
         protocol::{context::ProtocolContext, QueryId, RecordId},
         secret_sharing::MaliciousReplicated,
-        test_fixture::{make_contexts, make_world, share, share_malicious, TestWorld},
+        test_fixture::{
+            make_contexts, make_world, share, share_malicious, validate_and_reconstruct, TestWorld,
+        },
     };
 
     #[tokio::test]
@@ -168,12 +170,13 @@ mod tests {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
         let ctx = make_malicious_contexts::<Fp31>(&world);
+        let r = rng.gen::<Fp31>();
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
             let input = Fp31::from(secret);
             // r*x value is not used inside malicious reveal, so it can be set to any value
-            let share = share_malicious(input, &mut rng);
+            let share = share_malicious(input, r, &mut rng);
 
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
@@ -194,18 +197,24 @@ mod tests {
     pub async fn malicious_validation_fail() -> Result<(), BoxError> {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
-        let ctx = make_malicious_contexts(&world);
+        let [mc0, mc1, mc2] = make_malicious_contexts(&world);
+
+        let r = validate_and_reconstruct(
+            mc0.validator.r_share(),
+            mc1.validator.r_share(),
+            mc2.validator.r_share(),
+        );
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
             let input = Fp31::from(secret);
             // r*x value is not used inside malicious reveal, so it can be set to any value
-            let share = share_malicious(input, &mut rng);
+            let share = share_malicious(input, r, &mut rng);
             let record_id = RecordId::from(i);
             let result = try_join!(
-                ctx[0].ctx.clone().reveal(record_id, &share[0]),
-                ctx[1].ctx.clone().reveal(record_id, &share[1]),
-                reveal_with_additive_attack(ctx[2].ctx.clone(), record_id, &share[2], Fp31::ONE),
+                mc0.ctx.clone().reveal(record_id, &share[0]),
+                mc1.ctx.clone().reveal(record_id, &share[1]),
+                reveal_with_additive_attack(mc2.ctx.clone(), record_id, &share[2], Fp31::ONE),
             );
 
             assert!(matches!(result, Err(Error::MaliciousRevealFailed)));

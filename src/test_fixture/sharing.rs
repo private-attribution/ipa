@@ -28,12 +28,11 @@ where
 /// Shares `input` into 3 maliciously secure replicated secret shares using the provided `rng` implementation
 ///
 #[allow(clippy::missing_panics_doc)]
-pub fn share_malicious<F: Field, R: RngCore>(x: F, rng: &mut R) -> [MaliciousReplicated<F>; 3]
+pub fn share_malicious<F: Field, R: RngCore>(x: F, r: F, rng: &mut R) -> [MaliciousReplicated<F>; 3]
 where
     Standard: Distribution<F>,
 {
-    let rx = rng.gen::<F>() * x;
-    zip(share(x, rng), share(rx, rng))
+    zip(share(x, rng), share(r * x, rng))
         .map(|(x, rx)| MaliciousReplicated::new(x, rx))
         // TODO: array::zip/each_ref when stable
         .collect::<Vec<_>>()
