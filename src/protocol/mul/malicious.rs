@@ -80,12 +80,10 @@ impl<'a, F: Field> SecureMul<'a, F> {
         a: &MaliciousReplicated<F>,
         b: &MaliciousReplicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        // being clever and assuming a clean context...
-        let ctx = self.ctx.bind(self.record_id);
-        let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
-        let random_constant_prss = ctx.narrow(&Step::RandomnessForValidation).prss();
+        let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
+        let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
         let (ab, rab) = try_join(
-            SemiHonestMul::new(ctx.to_semi_honest(), self.record_id).execute(a.x(), b.x()),
+            SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a.x(), b.x()),
             SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
                 .execute(a.rx(), b.x()),
         )
