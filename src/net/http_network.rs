@@ -15,8 +15,7 @@ use tokio_stream::wrappers::ReceiverStream;
 /// # Panics
 /// if `recv_stream` or `recv_messages` called more than once.
 #[allow(dead_code)] // TODO: WIP
-pub struct HttpNetwork<'a> {
-    peers: &'a [peer::Config; 3],
+pub struct HttpNetwork {
     query_id: QueryId,
     sink_sender: mpsc::Sender<MessageChunks>,
     sink_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
@@ -24,14 +23,35 @@ pub struct HttpNetwork<'a> {
     message_stream_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
 }
 
-impl<'a> HttpNetwork<'a> {
+impl HttpNetwork {
     #[must_use]
     #[allow(unused)]
-    pub fn new<'b: 'a, D: PeerDiscovery>(peer_discovery: &'b D, query_id: QueryId) -> Self {
+    pub fn new<D: PeerDiscovery>(peer_discovery: &D, query_id: QueryId) -> Self {
         let (stx, srx) = mpsc::channel(1);
         let (mstx, msrx) = mpsc::channel(1);
+        let network = HttpNetwork {
+            query_id,
+            sink_sender: stx,
+            sink_receiver: Arc::new(Mutex::new(Some(srx))),
+            message_stream_sender: mstx,
+            message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
+        };
+
+        // TODO: use the clients
+        let peers_config = peer_discovery.peers();
+        let _clients = Self::clients(peers_config);
+
+        network
+    }
+
+    /// as this does not initialize the clients, it does not initialize the read-side of the
+    /// [`Sink`]. This allows tests to grab the read-side directly, bypassing the HTTP layer.
+    #[must_use]
+    #[cfg(test)]
+    pub fn new_without_clients(query_id: QueryId, buffer_size: Option<usize>) -> Self {
+        let (stx, srx) = mpsc::channel(buffer_size.unwrap_or(1));
+        let (mstx, msrx) = mpsc::channel(buffer_size.unwrap_or(1));
         HttpNetwork {
-            peers: peer_discovery.peers(),
             query_id,
             sink_sender: stx,
             sink_receiver: Arc::new(Mutex::new(Some(srx))),
@@ -60,9 +80,8 @@ impl<'a> HttpNetwork<'a> {
         self.message_stream_sender.clone()
     }
 
-    #[allow(unused)]
-    fn clients(&self) -> [MpcHelperClient; 3] {
-        self.peers
+    fn clients(peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+        peers_conf
             .iter()
             .map(|peer_conf| {
                 // no https for now
@@ -74,7 +93,7 @@ impl<'a> HttpNetwork<'a> {
     }
 }
 
-impl<'a> Network for HttpNetwork<'a> {
+impl Network for HttpNetwork {
     type Sink = NetworkSink<MessageChunks>;
 
     type MessageStream = ReceiverStream<MessageChunks>;
