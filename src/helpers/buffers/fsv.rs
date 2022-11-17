@@ -15,11 +15,12 @@ use std::ops::Range;
 /// vector has 3 regions and `X` indicates that space at that element is occupied.
 ///
 ///  region1  region2  region3
-/// [X,_,_,_][_,_,X,_][_,X,_,X]
+/// [X,_,_,_][X,_,X,_][_,X,_,X]
 ///
-/// Once `region1` is completely filled up, it is possible to drain the vector
+/// Once `region1` is completely filled up, it is possible to drain the vector. Draining will cause
+/// **all** elements from the head of the queue to be removed
 ///
-/// [X,X,X,X][_,_,X,_][_,X,_,X] -> `drain` -> [_,_,X,_][_,X,_,X][_,_,_,_]
+/// [X,X,X,X][X,_,X,_][_,X,_,X] -> `take` -> [_,X,_,_][X,_,X,_][_,_,_,_]
 ///
 /// This vector is used inside the send buffer to keep track of messages added to it. Once first
 /// batch of messages is ready (region1 is full), it drains this vector and send those messages
@@ -73,15 +74,16 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// ## Panic
     /// Panics if `ready()` is false before calling `drain()`.
     pub fn take(&mut self) -> Option<Vec<u8>> {
-        if self.added[..self.region_size].all() {
-            self.added.drain(..self.region_size).for_each(drop);
-            let r = self.data.drain(..self.region_size * N).collect();
-            self.elements_drained += self.region_size;
+        let last_inserted = self.added.leading_ones();
 
-            // clear out last `region_size` elements in the buffer
-            self.data.resize(self.data.len() + self.region_size * N, 0);
-            self.added
-                .resize(self.added.len() + self.region_size, false);
+        if last_inserted >= self.region_size {
+            self.added.drain(..last_inserted).for_each(drop);
+            let r = self.data.drain(..last_inserted * N).collect();
+            self.elements_drained += last_inserted;
+
+            // clear out last `region_of_ones` elements in the buffer
+            self.data.resize(self.data.len() + last_inserted * N, 0);
+            self.added.resize(self.added.len() + last_inserted, false);
 
             Some(r)
         } else {
@@ -133,20 +135,25 @@ mod tests {
 
     #[test]
     fn insert() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 1);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3, 1);
         v.insert_test_data(0);
-        v.insert_test_data(1);
+        v.insert_test_data(2);
 
         assert_eq!(v.take(), Some(test_data_at(0).to_vec()));
 
         // element already present should be returned
-        assert_eq!(v.insert(0, [10; ELEMENT_SIZE]), Some(test_data_at(1)));
+        assert_eq!(v.insert(1, [10; ELEMENT_SIZE]), Some(test_data_at(2)));
 
-        assert_eq!(v.take(), Some(vec![10; ELEMENT_SIZE]));
+        // inserting element at index 0 triggers a flush that carries both 0 and 1
+        v.insert_test_data(0);
+        assert_eq!(
+            v.take(),
+            Some([test_data_at(0).to_vec(), vec![10; ELEMENT_SIZE]].concat())
+        );
     }
 
     #[test]
-    fn drain() {
+    fn take() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 1);
         v.insert_test_data(0);
 
@@ -162,12 +169,14 @@ mod tests {
     }
 
     #[test]
-    fn drain_touches_first_region_only() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 2);
-        assert_eq!(4, v.capacity());
+    fn take_is_greedy() {
+        // Insert elements X,X,X,_,X,_,_
+        // first take should remove first 3 elements leaving the element at index 4 intact
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3, 2);
+        assert_eq!(6, v.capacity());
 
         v.insert_test_data(2);
-        v.insert_test_data(3);
+        v.insert_test_data(4);
 
         assert_eq!(v.take(), None);
 
@@ -181,27 +190,14 @@ mod tests {
         // now it is ready
         assert_eq!(
             v.take(),
-            Some(
-                vec![test_data_at(0), test_data_at(1)]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-            )
+            Some([test_data_at(0), test_data_at(1), test_data_at(2)].concat())
         );
+        assert_eq!(3, v.elements_drained());
 
-        // next region should be ready too as it was at capacity even earlier
-        assert_eq!(
-            v.take(),
-            Some(
-                vec![test_data_at(2), test_data_at(3)]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-            )
-        );
+        v.insert_test_data(0);
 
-        // in total, 4 elements left the buffer
-        assert_eq!(4, v.elements_drained());
+        assert_eq!(v.take(), Some([test_data_at(0), test_data_at(4)].concat()));
+        assert_eq!(5, v.elements_drained());
 
         // buffer should be empty by now
         assert_eq!(v.take(), None);
