@@ -1,4 +1,4 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::mul::SemiHonestMul;
 use crate::protocol::{
@@ -79,7 +79,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
         self,
         a: &MaliciousReplicated<F>,
         b: &MaliciousReplicated<F>,
-    ) -> Result<MaliciousReplicated<F>, BoxError> {
+    ) -> Result<MaliciousReplicated<F>, Error> {
         // being clever and assuming a clean context...
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
         let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();

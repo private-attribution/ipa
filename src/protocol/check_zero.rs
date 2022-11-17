@@ -1,7 +1,7 @@
 use crate::protocol::mul::SecureMul;
 use crate::protocol::reveal::Reveal;
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
@@ -65,7 +65,7 @@ pub async fn check_zero<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
     v: &Replicated<F>,
-) -> Result<bool, BoxError> {
+) -> Result<bool, Error> {
     let prss = &ctx.prss();
     let r_sharing = prss.generate_replicated(record_id);
 
@@ -83,13 +83,13 @@ pub async fn check_zero<F: Field>(
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
     use crate::test_fixture::{make_contexts, make_world, share, TestWorld};
 
     #[tokio::test]
-    async fn basic() -> Result<(), BoxError> {
+    async fn basic() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
         let context = make_contexts::<Fp31>(&world);
         let mut rng = rand::thread_rng();

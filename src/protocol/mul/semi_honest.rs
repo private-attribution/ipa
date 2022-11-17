@@ -1,4 +1,4 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
 use crate::protocol::{context::ProtocolContext, RecordId};
@@ -31,7 +31,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
         self,
         a: &Replicated<F>,
         b: &Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let channel = self.ctx.mesh();
 
         // generate shared randomness.
@@ -62,7 +62,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
@@ -80,7 +80,7 @@ pub mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
-    async fn basic() -> Result<(), BoxError> {
+    async fn basic() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
         let mut rand = StepRng::new(1, 1);
         let contexts = make_contexts::<Fp31>(&world);
@@ -146,7 +146,7 @@ pub mod tests {
         a: u8,
         b: u8,
         rng: &mut R,
-    ) -> Result<u128, BoxError>
+    ) -> Result<u128, Error>
     where
         Standard: Distribution<F>,
     {
