@@ -71,12 +71,9 @@ pub mod tests {
         make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures::future::try_join_all;
-    use futures_util::future::join_all;
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
-    use rand::rngs::mock::StepRng;
-    use rand::RngCore;
-    use std::iter::zip;
+    use proptest::prelude::Rng;
+    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
+    use std::iter::{repeat, zip};
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[tokio::test]
@@ -103,40 +100,46 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
-        type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(
-            v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>),
-        ) -> Replicated<F> {
-            let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
-        }
-
         let world = make_world(QueryId);
         let contexts = make_contexts::<Fp31>(&world);
-        let mut rand = StepRng::new(1, 1);
+        let mut rng = rand::thread_rng();
 
-        let mut multiplications = Vec::new();
+        let mut expected_outputs = Vec::with_capacity(10);
 
-        for step in 1..10_u8 {
-            let a = share(Fp31::from(4_u128), &mut rand);
-            let b = share(Fp31::from(3_u128), &mut rand);
+        let futures: Vec<_> = zip(repeat(contexts), 0..10)
+            .map(|(ctx, i)| {
+                let a = rng.gen::<Fp31>();
+                let b = rng.gen::<Fp31>();
+                expected_outputs.push(a * b);
 
-            let step_name = format!("step{}", step);
-            let f = join_all(
-                contexts
-                    .iter()
-                    .map(|ctx| ctx.narrow(&step_name))
-                    .zip(zip(a, b))
-                    .map(mul),
-            );
-            multiplications.push(f);
-        }
+                let a_shares: [Replicated<Fp31>; 3] = share(a, &mut rng);
+                let b_shares: [Replicated<Fp31>; 3] = share(b, &mut rng);
 
-        let results = join_all(multiplications).await;
-        for shares in results {
+                let record_id = RecordId::from(i);
+
+                async move {
+                    try_join_all([
+                        ctx[0]
+                            .bind(record_id)
+                            .multiply(record_id, &a_shares[0], &b_shares[0]),
+                        ctx[1]
+                            .bind(record_id)
+                            .multiply(record_id, &a_shares[1], &b_shares[1]),
+                        ctx[2]
+                            .bind(record_id)
+                            .multiply(record_id, &a_shares[2], &b_shares[2]),
+                    ])
+                    .await
+                }
+            })
+            .collect();
+
+        let results = try_join_all(futures).await.unwrap();
+
+        for (i, result) in results.iter().enumerate() {
             assert_eq!(
-                Fp31::from(12_u128),
-                validate_and_reconstruct(&shares[0], &shares[1], &shares[2])
+                expected_outputs[i],
+                validate_and_reconstruct(&result[0], &result[1], &result[2])
             );
         }
     }
