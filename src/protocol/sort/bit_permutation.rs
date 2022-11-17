@@ -3,7 +3,8 @@ use std::iter::{repeat, zip};
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId, RECORD_0}, secret_sharing::{SecretSharing, MaliciousReplicated, Replicated},
+    protocol::{context::ProtocolContext, RecordId, RECORD_0},
+    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
 };
 
 use crate::protocol::mul::SecureMul;
@@ -53,18 +54,20 @@ impl<F: Field> ShareOfOne<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> 
 ///
 /// ## Errors
 /// It will propagate errors from multiplication protocol.
-pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F> + Clone>(
+pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>>(
     ctx: ProtocolContext<'a, S, F>,
     input: &[S],
-) -> Result<Vec<S>, BoxError> 
-where ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>{
+) -> Result<Vec<S>, BoxError>
+where
+    ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>,
+{
     let share_of_one = ctx.share_of_one();
 
-    let mult_input = zip(repeat(share_of_one), input)
-        .map(|(one, x)| share_of_one - x)
+    let mult_input = zip(repeat(share_of_one.clone()), input)
+        .map(|(one, x)| one - x)
         .chain(input.iter().cloned())
         .scan(S::default(), |sum, x| {
-            *sum = &*sum + &x;
+            *sum += &x;
             Some((x, sum.clone()))
         });
 
@@ -79,7 +82,7 @@ where ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share =
     for i in 0..len {
         // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
         // protocols expect 0-indexed permutation
-        let less_one = &mult_output[i + len] - &share_of_one;
+        let less_one = mult_output[i + len].clone() - &share_of_one;
         mult_output[i] = less_one + &mult_output[i];
     }
     mult_output.truncate(len);
