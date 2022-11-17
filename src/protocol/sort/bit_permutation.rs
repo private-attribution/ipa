@@ -50,9 +50,13 @@ where
             Some((x, sum.clone()))
         });
 
-    let async_multiply = zip(repeat(ctx), mult_input)
-        .enumerate()
-        .map(|(i, (ctx, (x, sum)))| async move { ctx.multiply(RecordId::from(i), &x, &sum).await });
+    let async_multiply =
+        zip(repeat(ctx), mult_input)
+            .enumerate()
+            .map(|(i, (ctx, (x, sum)))| async move {
+                let record_id = RecordId::from(i);
+                ctx.bind(record_id).multiply(record_id, &x, &sum).await
+            });
     let mut mult_output = try_join_all(async_multiply).await?;
 
     debug_assert!(mult_output.len() == input.len() * 2);
