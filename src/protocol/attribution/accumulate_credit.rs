@@ -1,5 +1,6 @@
-use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
+use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow};
 use crate::protocol::mul::SecureMul;
+use crate::protocol::IterStep;
 use crate::{
     error::Error,
     ff::Field,

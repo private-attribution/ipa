@@ -3,7 +3,7 @@ mod bitwise_sum;
 mod carries;
 mod or;
 mod prefix_or;
-mod random_bits;
+mod solved_bits;
 mod xor;
 
 /// A step generator for bitwise secure operations.

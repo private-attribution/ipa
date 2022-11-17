@@ -22,13 +22,8 @@ use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
 pub use sharing::{
-<<<<<<< HEAD
-    share, share_malicious, validate_and_reconstruct, validate_list_of_shares,
+    share, share_malicious, shared_bits, validate_and_reconstruct, validate_list_of_shares,
     validate_list_of_shares_malicious,
-=======
-    share, share_malicious, validate_and_reconstruct, validate_and_reconstruct_xor,
-    validate_list_of_shares,
->>>>>>> 1e92abc (Random bit shares)
 };
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
@@ -175,4 +170,24 @@ where
     let res = join3(it.next().unwrap(), it.next().unwrap(), it.next().unwrap()).await;
     assert!(it.next().is_none());
     res
+}
+
+/// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `F_p`
+pub fn bits_to_field<F: Field>(x: &[F]) -> F {
+    #[allow(clippy::cast_possible_truncation)]
+    let v = x
+        .iter()
+        .enumerate()
+        .fold(0, |acc, (i, &b)| acc + (b.as_u128() << i));
+    F::from(v)
+}
+
+/// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `Z`
+pub fn bits_to_value<F: Field>(x: &[F]) -> u128 {
+    #[allow(clippy::cast_possible_truncation)]
+    let v = x
+        .iter()
+        .enumerate()
+        .fold(0, |acc, (i, &b)| acc + (b.as_u128() << i));
+    v
 }

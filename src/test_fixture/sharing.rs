@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use crate::ff::Field;
+use crate::ff::{Field, Int};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use rand::{
     distributions::{Distribution, Standard},
@@ -40,6 +40,17 @@ where
         .unwrap()
 }
 
+/// Take a field value `x` and turn them into replicated bitwise sharings of three
+pub fn shared_bits<F: Field, R: RngCore>(x: F, rand: &mut R) -> Vec<[Replicated<F>; 3]>
+where
+    Standard: Distribution<F>,
+{
+    let x = x.as_u128();
+    (0..F::Integer::BITS)
+        .map(|i| share(F::from((x >> i) & 1), rand))
+        .collect::<Vec<_>>()
+}
+
 /// Validates correctness of the secret sharing scheme.
 ///
 /// # Panics
@@ -59,25 +70,6 @@ pub fn validate_and_reconstruct<F: Field>(
     assert_eq!(s2.right(), s0.left());
 
     s0.left() + s1.left() + s2.left()
-}
-
-/// Validates correctness of the XOR secret sharing scheme.
-///
-/// # Panics
-/// Panics if the given input is not a valid replicated XOR secret share.
-pub fn validate_and_reconstruct_xor<F: Field>(
-    input: (Replicated<F>, Replicated<F>, Replicated<F>),
-) -> F {
-    assert_eq!(
-        input.0.left().as_u128() ^ input.1.left().as_u128() ^ input.2.left().as_u128(),
-        input.0.right().as_u128() ^ input.1.right().as_u128() ^ input.2.right().as_u128()
-    );
-
-    assert_eq!(input.0.right(), input.1.left());
-    assert_eq!(input.1.right(), input.2.left());
-    assert_eq!(input.2.right(), input.0.left());
-
-    F::from(input.0.left().as_u128() ^ input.1.left().as_u128() ^ input.2.left().as_u128())
 }
 
 /// Validates expected result from the secret shares obtained.
