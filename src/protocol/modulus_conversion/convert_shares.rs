@@ -1,12 +1,10 @@
-use super::specialized_mul::{multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes};
 use crate::{
     error::Error,
     ff::{BinaryField, Field, Fp2},
     helpers::Role,
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::ProtocolContext, mul::SecureMul, RecordId},
     secret_sharing::Replicated,
 };
-
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -112,7 +110,9 @@ impl ConvertShares {
         a: &Replicated<F>,
         b: &Replicated<F>,
     ) -> Result<Replicated<F>, Error> {
-        let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
+        let result = ctx
+            .multiply_two_shares_mostly_zeroes(record_id, a, b)
+            .await?;
 
         Ok(a + b - &(result * F::from(2)))
     }
@@ -138,7 +138,9 @@ impl ConvertShares {
         a: &Replicated<F>,
         b: &Replicated<F>,
     ) -> Result<Replicated<F>, Error> {
-        let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
+        let result = ctx
+            .multiply_one_share_mostly_zeroes(record_id, a, b)
+            .await?;
 
         Ok(a + b - &(result * F::from(2)))
     }

@@ -20,6 +20,20 @@ pub trait SecureMul<F: Field> {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error>;
+
+    async fn multiply_two_shares_mostly_zeroes(
+        self,
+        record_id: RecordId,
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error>;
+
+    async fn multiply_one_share_mostly_zeroes(
+        self,
+        record_id: RecordId,
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error>;
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
@@ -38,6 +52,28 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
     ) -> Result<Self::Share, Error> {
         SemiHonestMul::new(self, record_id).execute(a, b).await
     }
+
+    async fn multiply_two_shares_mostly_zeroes(
+        self,
+        record_id: RecordId,
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error> {
+        SemiHonestMul::new(self, record_id)
+            .multiply_two_shares_mostly_zeroes(a, b)
+            .await
+    }
+
+    async fn multiply_one_share_mostly_zeroes(
+        self,
+        record_id: RecordId,
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error> {
+        SemiHonestMul::new(self, record_id)
+            .multiply_one_share_mostly_zeroes(a, b)
+            .await
+    }
 }
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
@@ -54,6 +90,30 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
         let acc = self.accumulator();
         MaliciouslySecureMul::new(self, record_id, acc)
             .execute(a, b)
+            .await
+    }
+
+    async fn multiply_two_shares_mostly_zeroes(
+        self,
+        record_id: RecordId,
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error> {
+        let acc = self.accumulator();
+        MaliciouslySecureMul::new(self, record_id, acc)
+            .multiply_two_shares_mostly_zeroes(a, b)
+            .await
+    }
+
+    async fn multiply_one_share_mostly_zeroes(
+        self,
+        record_id: RecordId,
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error> {
+        let acc = self.accumulator();
+        MaliciouslySecureMul::new(self, record_id, acc)
+            .multiply_one_share_mostly_zeroes(a, b)
             .await
     }
 }

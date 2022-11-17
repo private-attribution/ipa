@@ -96,4 +96,56 @@ impl<'a, F: Field> SecureMul<'a, F> {
 
         Ok(malicious_ab)
     }
+
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
+    pub async fn multiply_two_shares_mostly_zeroes(
+        self,
+        a: &MaliciousReplicated<F>,
+        b: &MaliciousReplicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
+        let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
+        let (ab, rab) = try_join(
+            SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id)
+                .multiply_two_shares_mostly_zeroes(a.x(), b.x()),
+            SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
+                .multiply_two_shares_mostly_zeroes(a.rx(), b.x()),
+        )
+        .await?;
+
+        let malicious_ab = MaliciousReplicated::new(ab, rab);
+
+        self.accumulator
+            .accumulate_macs(&random_constant_prss, self.record_id, &malicious_ab);
+
+        Ok(malicious_ab)
+    }
+
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
+    pub async fn multiply_one_share_mostly_zeroes(
+        self,
+        a: &MaliciousReplicated<F>,
+        b: &MaliciousReplicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
+        let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
+        let (ab, rab) = try_join(
+            SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id)
+                .multiply_one_share_mostly_zeroes(a.x(), b.x()),
+            SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
+                .multiply_one_share_mostly_zeroes(a.rx(), b.x()),
+        )
+        .await?;
+
+        let malicious_ab = MaliciousReplicated::new(ab, rab);
+
+        self.accumulator
+            .accumulate_macs(&random_constant_prss, self.record_id, &malicious_ab);
+
+        Ok(malicious_ab)
+    }
 }
