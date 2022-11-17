@@ -35,7 +35,7 @@ use futures::future::try_join_all;
 /// It will propagate errors from multiplication protocol.
 pub async fn bit_permutation<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
-    input: Vec<Replicated<F>>,
+    input: &[Replicated<F>],
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let share_of_one = Replicated::one(ctx.role());
 
@@ -103,9 +103,9 @@ mod tests {
             }
         }
 
-        let h0_future = bit_permutation(ctx0, shares[0]);
-        let h1_future = bit_permutation(ctx1, shares[1]);
-        let h2_future = bit_permutation(ctx2, shares[2]);
+        let h0_future = bit_permutation(ctx0, shares[0].as_slice());
+        let h1_future = bit_permutation(ctx1, shares[1].as_slice());
+        let h2_future = bit_permutation(ctx2, shares[2].as_slice());
 
         let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
             .await

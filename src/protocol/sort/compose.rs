@@ -19,49 +19,44 @@ use super::{
 /// This protocol composes two permutations by applying one secret-shared permutation(sigma) to another secret-shared permutation(rho)
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
-#[derive(Debug)]
-pub struct Compose {}
 
-impl Compose {
-    #[embed_doc_image("compose", "images/sort/compose.png")]
-    /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
-    /// and none of the helpers should learn it through this protocol.
-    /// Steps
-    /// ![Compose steps][compose]
-    /// 1. Generate random permutations using prss
-    /// 2. First permutation (sigma) is shuffled with random permutations
-    /// 3. Reveal the permutation
-    /// 4. Revealed permutation is applied locally on another permutation shares (rho)
-    /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
-    #[allow(dead_code)]
-    pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-        sigma: Vec<Replicated<F>>,
-        mut rho: Vec<Replicated<F>>,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let prss = &ctx.prss();
-        let random_permutations = get_two_of_three_random_permutations(rho.len(), prss);
+#[embed_doc_image("compose", "images/sort/compose.png")]
+/// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
+/// and none of the helpers should learn it through this protocol.
+/// Steps
+/// ![Compose steps][compose]
+/// 1. Generate random permutations using prss
+/// 2. First permutation (sigma) is shuffled with random permutations
+/// 3. Reveal the permutation
+/// 4. Revealed permutation is applied locally on another permutation shares (rho)
+/// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
+pub async fn compose<F: Field>(
+    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    sigma: Vec<Replicated<F>>,
+    mut rho: Vec<Replicated<F>>,
+) -> Result<Vec<Replicated<F>>, BoxError> {
+    let prss = &ctx.prss();
+    let random_permutations = get_two_of_three_random_permutations(rho.len(), prss);
 
-        let shuffled_sigma = shuffle_shares(
-            sigma,
-            (&random_permutations.0, &random_permutations.1),
-            ctx.narrow(&ShuffleSigma),
-        )
-        .await?;
+    let shuffled_sigma = shuffle_shares(
+        sigma,
+        (&random_permutations.0, &random_permutations.1),
+        ctx.narrow(&ShuffleSigma),
+    )
+    .await?;
 
-        let revealed_permutation =
-            reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
-        apply(&revealed_permutation, &mut rho);
+    let revealed_permutation =
+        reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
+    apply(&revealed_permutation, &mut rho);
 
-        let unshuffled_rho = unshuffle_shares(
-            rho,
-            (&random_permutations.0, &random_permutations.1),
-            ctx.narrow(&UnshuffleRho),
-        )
-        .await?;
+    let unshuffled_rho = unshuffle_shares(
+        rho,
+        (&random_permutations.0, &random_permutations.1),
+        ctx.narrow(&UnshuffleRho),
+    )
+    .await?;
 
-        Ok(unshuffled_rho)
-    }
+    Ok(unshuffled_rho)
 }
 
 #[cfg(test)]
@@ -72,7 +67,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            sort::{apply::apply, compose::Compose},
+            sort::{apply::apply, compose::compose},
             QueryId,
         },
         test_fixture::{
@@ -81,7 +76,7 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn compose() {
+    pub async fn test_compose() {
         const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
@@ -104,9 +99,9 @@ mod tests {
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = Compose::execute(ctx0, sigma0, rho0);
-            let h1_future = Compose::execute(ctx1, sigma1, rho1);
-            let h2_future = Compose::execute(ctx2, sigma2, rho2);
+            let h0_future = compose(ctx0, sigma0, rho0);
+            let h1_future = compose(ctx1, sigma1, rho1);
+            let h2_future = compose(ctx2, sigma2, rho2);
 
             let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
                 .await

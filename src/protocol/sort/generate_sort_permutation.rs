@@ -11,7 +11,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 
-use super::{compose::Compose, secureapplyinv::SecureApplyInv};
+use super::{compose::compose, secureapplyinv::secureapplyinv};
 use embed_doc_image::embed_doc_image;
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
@@ -56,7 +56,7 @@ impl<'a> GenerateSortPermutation<'a> {
             0,
         )
         .await?;
-        let bit_0_permutation = bit_permutation(ctx_0.narrow(&BitPermutationStep), bit_0).await?;
+        let bit_0_permutation = bit_permutation(ctx_0.narrow(&BitPermutationStep), &bit_0).await?;
 
         let mut composed_less_significant_bits_permutation = bit_0_permutation;
         for bit_num in 1..self.num_bits {
@@ -68,7 +68,7 @@ impl<'a> GenerateSortPermutation<'a> {
                 bit_num,
             )
             .await?;
-            let bit_i_sorted_by_less_significant_bits = SecureApplyInv::execute(
+            let bit_i_sorted_by_less_significant_bits = secureapplyinv(
                 ctx_bit.narrow(&ApplyInv),
                 bit_i,
                 composed_less_significant_bits_permutation.clone(),
@@ -77,11 +77,11 @@ impl<'a> GenerateSortPermutation<'a> {
 
             let bit_i_permutation = bit_permutation(
                 ctx_bit.narrow(&BitPermutationStep),
-                bit_i_sorted_by_less_significant_bits,
+                &bit_i_sorted_by_less_significant_bits,
             )
             .await?;
 
-            let composed_i_permutation = Compose::execute(
+            let composed_i_permutation = compose(
                 ctx_bit.narrow(&ComposeStep),
                 composed_less_significant_bits_permutation,
                 bit_i_permutation,
