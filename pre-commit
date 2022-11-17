@@ -46,6 +46,10 @@ error() {
 
 cargo build --benches --all-features || error "Benchmarks compilation errors"
 
-cargo clippy --tests || error "Clippy errors"
+<<<<<<< Updated upstream
+cargo clippy --tests -- -D warnings --D clippy::pedantic || error "Clippy errors"
+=======
+cargo clippy --tests -- -D warnings || error "Clippy errors"
+>>>>>>> Stashed changes
 
 cargo test || error "Test failures"
