@@ -60,9 +60,8 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F> + Clone>(
 where ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>{
     let share_of_one = ctx.share_of_one();
 
-    let mult_input = input
-        .iter()
-        .map(|x: &S| &share_of_one - x)
+    let mult_input = zip(repeat(share_of_one), input)
+        .map(|(one, x)| share_of_one - x)
         .chain(input.iter().cloned())
         .scan(S::default(), |sum, x| {
             *sum = &*sum + &x;
