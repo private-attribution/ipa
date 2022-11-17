@@ -106,7 +106,7 @@ pub async fn obtain_permit_mw<B: Send>(
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
 pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let channel_id = req.extensions().get::<ChannelId>().unwrap();
+    let channel_id = req.extensions().get::<ChannelId>().unwrap().clone();
     let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();
 
     // send data
@@ -115,7 +115,7 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
         .get_mut::<ReservedPermit<MessageChunks>>()
         .unwrap();
 
-    permit.send((channel_id.clone(), body));
+    permit.send((channel_id, body));
     Ok(())
 }
 
