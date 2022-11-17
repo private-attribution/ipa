@@ -82,7 +82,7 @@ mod tests {
         protocol::{sort::bit_permutation::bit_permutation, QueryId},
         test_fixture::{
             make_contexts, make_malicious_contexts, make_world, share, share_malicious,
-            validate_list_of_shares, validate_list_of_shares_malicious,
+            validate_and_reconstruct, validate_list_of_shares, validate_list_of_shares_malicious,
         },
     };
 
@@ -130,7 +130,13 @@ mod tests {
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
         let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_malicious_contexts::<Fp31>(&world);
+        let [mc0, mc1, mc2] = make_malicious_contexts::<Fp31>(&world);
+        let r = validate_and_reconstruct(
+            mc0.validator.r_share(),
+            mc1.validator.r_share(),
+            mc2.validator.r_share(),
+        );
+
         let mut rand = StepRng::new(100, 1);
 
         let mut shares = [
@@ -139,15 +145,15 @@ mod tests {
             Vec::with_capacity(INPUT.len()),
         ];
         for i in INPUT {
-            let share = share_malicious(Fp31::from(*i), &mut rand);
+            let share = share_malicious(Fp31::from(*i), r, &mut rand);
             for (i, share) in share.into_iter().enumerate() {
                 shares[i].push(share);
             }
         }
 
-        let h0_future = bit_permutation(ctx0.ctx, shares[0].as_slice());
-        let h1_future = bit_permutation(ctx1.ctx, shares[1].as_slice());
-        let h2_future = bit_permutation(ctx2.ctx, shares[2].as_slice());
+        let h0_future = bit_permutation(mc0.ctx, shares[0].as_slice());
+        let h1_future = bit_permutation(mc1.ctx, shares[1].as_slice());
+        let h2_future = bit_permutation(mc2.ctx, shares[2].as_slice());
 
         let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
             .await
