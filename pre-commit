@@ -46,6 +46,6 @@ error() {
 
 cargo build --benches --all-features || error "Benchmarks compilation errors"
 
-cargo clippy --tests || error "Clippy errors"
+cargo clippy --tests -- -D warnings || error "Clippy errors"
 
 cargo test || error "Test failures"
