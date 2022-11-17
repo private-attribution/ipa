@@ -112,8 +112,8 @@ pub mod tests {
                 let b = rng.gen::<Fp31>();
                 expected_outputs.push(a * b);
 
-                let a_shares: [Replicated<Fp31>; 3] = share(a, &mut rng);
-                let b_shares: [Replicated<Fp31>; 3] = share(b, &mut rng);
+                let a_shares = share(a, &mut rng);
+                let b_shares = share(b, &mut rng);
 
                 let record_id = RecordId::from(i);
 
@@ -136,10 +136,10 @@ pub mod tests {
 
         let results = try_join_all(futures).await.unwrap();
 
-        for (i, result) in results.iter().enumerate() {
+        for (i, shares) in results.iter().enumerate() {
             assert_eq!(
                 expected_outputs[i],
-                validate_and_reconstruct(&result[0], &result[1], &result[2])
+                validate_and_reconstruct(&shares[0], &shares[1], &shares[2])
             );
         }
     }
