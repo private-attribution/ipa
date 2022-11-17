@@ -40,21 +40,18 @@ pub async fn bit_permutation<F: Field>(
     let share_of_one = Replicated::one(ctx.role());
 
     let mult_input = input
-            .iter()
-            .map(|x: &Replicated<F>| &share_of_one - x)
-            .chain(input.iter().cloned())
-            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
-                *sum = &*sum + &x;
-                Some((x, sum.clone()))
-            });
+        .iter()
+        .map(|x: &Replicated<F>| &share_of_one - x)
+        .chain(input.iter().cloned())
+        .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
+            *sum = &*sum + &x;
+            Some((x, sum.clone()))
+        });
 
-            let async_multiply =
-            zip(repeat(ctx), mult_input)
-                .enumerate()
-                .map(|(i, (ctx, (x, sum)))| async move {
-                    ctx.multiply(RecordId::from(i), &x, &sum).await
-                });
-                let mut mult_output = try_join_all(async_multiply).await?;
+    let async_multiply = zip(repeat(ctx), mult_input)
+        .enumerate()
+        .map(|(i, (ctx, (x, sum)))| async move { ctx.multiply(RecordId::from(i), &x, &sum).await });
+    let mut mult_output = try_join_all(async_multiply).await?;
 
     assert_eq!(mult_output.len(), input.len() * 2);
     // Generate permutation location
