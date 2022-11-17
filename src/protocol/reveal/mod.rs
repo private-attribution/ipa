@@ -126,7 +126,7 @@ mod tests {
     use proptest::prelude::Rng;
     use tokio::try_join;
 
-    use crate::protocol::malicious::SecurityValidator;
+    use crate::test_fixture::make_malicious_contexts;
     use crate::{
         error::BoxError,
         error::Error,
@@ -177,9 +177,9 @@ mod tests {
 
             let record_id = RecordId::from(i);
             let results = try_join_all(vec![
-                ctx[0].clone().reveal(record_id, &share[0]),
-                ctx[1].clone().reveal(record_id, &share[1]),
-                ctx[2].clone().reveal(record_id, &share[2]),
+                ctx[0].ctx.clone().reveal(record_id, &share[0]),
+                ctx[1].ctx.clone().reveal(record_id, &share[1]),
+                ctx[2].ctx.clone().reveal(record_id, &share[2]),
             ])
             .await?;
 
@@ -203,9 +203,9 @@ mod tests {
             let share = share_malicious(input, &mut rng);
             let record_id = RecordId::from(i);
             let result = try_join!(
-                ctx[0].clone().reveal(record_id, &share[0]),
-                ctx[1].clone().reveal(record_id, &share[1]),
-                reveal_with_additive_attack(ctx[2].clone(), record_id, &share[2], Fp31::ONE),
+                ctx[0].ctx.clone().reveal(record_id, &share[0]),
+                ctx[1].ctx.clone().reveal(record_id, &share[1]),
+                reveal_with_additive_attack(ctx[2].ctx.clone(), record_id, &share[2], Fp31::ONE),
             );
 
             assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
@@ -240,18 +240,5 @@ mod tests {
         .await?;
 
         Ok(left + right + share_from_left)
-    }
-
-    /// Creates malicious protocol contexts for 3 helpers. We drop security validator because
-    /// it is not used
-    fn make_malicious_contexts<F: Field>(
-        test_world: &TestWorld,
-    ) -> [ProtocolContext<'_, MaliciousReplicated<F>, F>; 3] {
-        make_contexts(test_world).map(|ctx| {
-            let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
-            let acc = v.accumulator();
-
-            ctx.upgrade_to_malicious(acc, v.r_share().clone())
-        })
     }
 }

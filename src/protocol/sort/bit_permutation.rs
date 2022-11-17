@@ -76,7 +76,10 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{sort::bit_permutation::bit_permutation, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
+        test_fixture::{
+            make_contexts, make_malicious_contexts, make_world, share, share_malicious,
+            validate_list_of_shares, validate_list_of_shares_malicious,
+        },
     };
 
     #[tokio::test]
@@ -113,5 +116,41 @@ mod tests {
             .unwrap();
 
         validate_list_of_shares(EXPECTED, &result);
+    }
+
+    #[tokio::test]
+    pub async fn test_bit_permutation_malicious() {
+        // With this input, for stable sort we expect all 0's to line up before 1's.
+        // The expected sort order is same as expected_sort_output.
+        const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
+        const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
+
+        let world = make_world(QueryId);
+        let [ctx0, ctx1, ctx2] = make_malicious_contexts::<Fp31>(&world);
+        let mut rand = StepRng::new(100, 1);
+
+        let mut shares = [
+            Vec::with_capacity(INPUT.len()),
+            Vec::with_capacity(INPUT.len()),
+            Vec::with_capacity(INPUT.len()),
+        ];
+        for i in INPUT {
+            let share = share_malicious(Fp31::from(*i), &mut rand);
+            for (i, share) in share.into_iter().enumerate() {
+                shares[i].push(share);
+            }
+        }
+
+        let h0_future = bit_permutation(ctx0.ctx, shares[0].as_slice());
+        let h1_future = bit_permutation(ctx1.ctx, shares[1].as_slice());
+        let h2_future = bit_permutation(ctx2.ctx, shares[2].as_slice());
+
+        let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+            .await
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        validate_list_of_shares_malicious(EXPECTED, &result);
     }
 }
