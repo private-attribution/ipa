@@ -251,7 +251,7 @@ mod tests {
             let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
             let acc = v.accumulator();
 
-            ctx.upgrade_to_malicious(acc)
+            ctx.upgrade_to_malicious(acc, v.r_share().clone())
         })
     }
 }

@@ -260,8 +260,8 @@ pub mod tests {
                 )
                 .await?;
 
-                let a_ctx = a_ctx.upgrade_to_malicious(acc.clone());
-                let b_ctx = b_ctx.upgrade_to_malicious(acc.clone());
+                let a_ctx = a_ctx.upgrade_to_malicious(acc.clone(), r_share.clone());
+                let b_ctx = b_ctx.upgrade_to_malicious(acc.clone(), r_share.clone());
 
                 let a_malicious = MaliciousReplicated::new(a_share, ra);
                 let b_malicious = MaliciousReplicated::new(b_share, rb);
@@ -384,7 +384,7 @@ pub mod tests {
                             let acc = acc.clone();
                             async move {
                                 ctx.narrow("Circuit_Step_2")
-                                    .upgrade_to_malicious(acc)
+                                    .upgrade_to_malicious(acc, r_share.clone())
                                     .multiply(RecordId::from(0), a_malicious, b_malicious)
                                     .await
                             }

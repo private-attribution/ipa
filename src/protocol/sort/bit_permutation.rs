@@ -3,34 +3,13 @@ use std::iter::{repeat, zip};
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId, RECORD_0},
-    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
+    protocol::{context::ProtocolContext, context_traits::ShareOfOne, RecordId},
+    secret_sharing::SecretSharing,
 };
 
 use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-
-pub trait ShareOfOne<F: Field> {
-    type Share: SecretSharing<F>;
-    fn share_of_one(&self) -> Self::Share;
-}
-
-impl<F: Field> ShareOfOne<F> for ProtocolContext<'_, Replicated<F>, F> {
-    type Share = Replicated<F>;
-
-    fn share_of_one(&self) -> Self::Share {
-        Replicated::one(self.role())
-    }
-}
-
-impl<F: Field> ShareOfOne<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
-    type Share = MaliciousReplicated<F>;
-
-    fn share_of_one(&self) -> Self::Share {
-        MaliciousReplicated::one(self.role(), self.prss().generate_replicated(RECORD_0))
-    }
-}
 
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -76,7 +55,7 @@ where
         .map(|(i, (ctx, (x, sum)))| async move { ctx.multiply(RecordId::from(i), &x, &sum).await });
     let mut mult_output = try_join_all(async_multiply).await?;
 
-    assert_eq!(mult_output.len(), input.len() * 2);
+    debug_assert!(mult_output.len() == input.len() * 2);
     // Generate permutation location
     let len = mult_output.len() / 2;
     for i in 0..len {
