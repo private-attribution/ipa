@@ -76,14 +76,14 @@ pub async fn obtain_permit_mw<B: Send>(
     let Path(query_id, step) = req_parts.extract().await?;
     // TODO: we shouldn't trust the client to tell us their role.
     //       revisit when we have figured out discovery/handshake
-    let Query::<RoleQueryParam>(role_query_param) = req_parts.extract().await?;
+    let Query(RoleQueryParam { role }) = req_parts.extract().await?;
     let record_headers = req_parts.extract::<RecordHeaders>().await?;
     let Extension::<LastSeenMessages>(last_seen_messages) = req_parts.extract().await?;
     let Extension::<MessageSendMap>(message_send_map) = req_parts.extract().await?;
 
     // PANIC if messages arrive out of order; pretty print the error
     // TODO (ts): remove this when streaming solution is complete
-    let channel_id = ChannelId::new(role_query_param.role, step);
+    let channel_id = ChannelId::new(role, step);
     last_seen_messages.update_in_place(&channel_id, record_headers.offset);
 
     // get sender to correct network
@@ -91,10 +91,7 @@ pub async fn obtain_permit_mw<B: Send>(
     let permit = sender.reserve_owned().await?;
 
     // insert different parts as extensions so that handler doesn't need to extract again
-    req_parts
-        .extensions_mut()
-        .insert(Path(query_id, channel_id.step));
-    req_parts.extensions_mut().insert(role_query_param);
+    req_parts.extensions_mut().insert(channel_id);
     req_parts
         .extensions_mut()
         .insert(ReservedPermit::new(permit));
@@ -109,13 +106,7 @@ pub async fn obtain_permit_mw<B: Send>(
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
 pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let Path(_, step) = req.extensions().get().unwrap();
-    let RoleQueryParam { role } = req.extensions().get().unwrap();
-    let channel_id = ChannelId {
-        role: *role,
-        step: step.clone(),
-    };
-
+    let channel_id = req.extensions().get::<ChannelId>().unwrap();
     let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();
 
     // send data
@@ -124,7 +115,7 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
         .get_mut::<ReservedPermit<MessageChunks>>()
         .unwrap();
 
-    permit.send((channel_id, body));
+    permit.send((channel_id.clone(), body));
     Ok(())
 }
 
