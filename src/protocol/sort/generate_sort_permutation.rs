@@ -95,6 +95,8 @@ impl<'a> GenerateSortPermutation<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::zip;
+
     use futures::future::try_join_all;
     use rand::Rng;
 
@@ -107,28 +109,28 @@ mod tests {
 
     #[tokio::test]
     pub async fn generate_sort_permutation() -> Result<(), BoxError> {
+        const ROUNDS: usize = 50;
+        const NUM_BITS: u8 = 24;
+        const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
+
         logging::setup();
         let world = make_world(QueryId);
         let [ctx0, ctx1, ctx2] = make_contexts::<Fp32BitPrime>(&world);
-        let num_bits = 64;
         let mut rng = rand::thread_rng();
 
-        let batchsize = 100;
-
         let mut match_keys: Vec<u64> = Vec::new();
-        for _ in 0..batchsize {
-            match_keys.push(rng.gen::<u64>());
+        for _ in 0..ROUNDS {
+            match_keys.push(rng.gen::<u64>() & MASK);
         }
 
-        let input_len = match_keys.len();
         let mut shares = [
-            Vec::with_capacity(input_len),
-            Vec::with_capacity(input_len),
-            Vec::with_capacity(input_len),
+            Vec::with_capacity(ROUNDS),
+            Vec::with_capacity(ROUNDS),
+            Vec::with_capacity(ROUNDS),
         ];
         for match_key in match_keys.clone() {
-            let share_0 = rng.gen::<u64>();
-            let share_1 = rng.gen::<u64>();
+            let share_0 = rng.gen::<u64>() & MASK;
+            let share_1 = rng.gen::<u64>() & MASK;
             let share_2 = match_key ^ share_0 ^ share_1;
 
             shares[0].push((share_0, share_1));
@@ -136,26 +138,31 @@ mod tests {
             shares[2].push((share_2, share_0));
         }
 
-        let result = try_join_all(vec![
-            GenerateSortPermutation::new(&shares[0], num_bits).execute(ctx0),
-            GenerateSortPermutation::new(&shares[1], num_bits).execute(ctx1),
-            GenerateSortPermutation::new(&shares[2], num_bits).execute(ctx2),
-        ])
-        .await?;
+        let [result0, result1, result2] = <[_; 3]>::try_from(
+            try_join_all([
+                GenerateSortPermutation::new(&shares[0], NUM_BITS).execute(ctx0),
+                GenerateSortPermutation::new(&shares[1], NUM_BITS).execute(ctx1),
+                GenerateSortPermutation::new(&shares[2], NUM_BITS).execute(ctx2),
+            ])
+            .await?,
+        )
+        .unwrap();
 
-        assert_eq!(result[0].len(), input_len);
-        assert_eq!(result[1].len(), input_len);
-        assert_eq!(result[2].len(), input_len);
+        assert_eq!(result0.len(), ROUNDS);
+        assert_eq!(result1.len(), ROUNDS);
+        assert_eq!(result2.len(), ROUNDS);
 
-        let mut mpc_sorted_list: Vec<u128> = (0..input_len).map(|i| i as u128).collect();
-        for (i, match_key) in match_keys.iter().enumerate() {
-            let index = validate_and_reconstruct((result[0][i], result[1][i], result[2][i]));
+        let mut mpc_sorted_list: Vec<u128> = (0..ROUNDS).map(|i| i as u128).collect();
+        for (match_key, (r0, (r1, r2))) in
+            zip(match_keys.iter(), zip(result0, zip(result1, result2)))
+        {
+            let index = validate_and_reconstruct(&r0, &r1, &r2);
             mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
         }
 
         let mut sorted_match_keys = match_keys.clone();
         sorted_match_keys.sort_unstable();
-        for i in 0..input_len {
+        for i in 0..ROUNDS {
             assert_eq!(u128::from(sorted_match_keys[i]), mpc_sorted_list[i]);
         }
 

@@ -45,6 +45,7 @@ pub trait Field:
     + PartialEq
     + Debug
     + Send
+    + Sync
     + Sized
     + 'static
 {

@@ -12,7 +12,7 @@ use embed_doc_image::embed_doc_image;
 // Input: Pi-1 and Pi+1 know their secret shares
 // Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 #[derive(Debug)]
-pub struct Reshare<F> {
+pub struct Reshare<F: Field> {
     input: Replicated<F>,
 }
 
@@ -80,9 +80,9 @@ impl<F: Field> Reshare<F> {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::rngs::mock::StepRng;
-    use tokio::try_join;
 
     use crate::{
         ff::Fp31,
@@ -103,22 +103,25 @@ mod tests {
             let secret = rng.gen::<u128>();
 
             let input = Fp31::from(secret);
-            let share = share(input, &mut rand);
+            let shares = share(input, &mut rand);
             let record_id = RecordId::from(0_u32);
 
-            let reshare0 = Reshare::new(share[0]);
-            let reshare1 = Reshare::new(share[1]);
-            let reshare2 = Reshare::new(share[2]);
+            let [share0, share1, share2] = shares.clone();
+            let reshare0 = Reshare::new(share0);
+            let reshare1 = Reshare::new(share1);
+            let reshare2 = Reshare::new(share2);
 
             let h0_future = reshare0.execute(&context[0], record_id, Role::H2);
             let h1_future = reshare1.execute(&context[1], record_id, Role::H2);
             let h2_future = reshare2.execute(&context[2], record_id, Role::H2);
 
-            let f = try_join!(h0_future, h1_future, h2_future).unwrap();
-            let output_share = validate_and_reconstruct(f);
+            let f = try_join_all([h0_future, h1_future, h2_future])
+                .await
+                .unwrap();
+            let output_share = validate_and_reconstruct(&f[0], &f[1], &f[2]);
             assert_eq!(output_share, input);
 
-            if share[0] != f.0 && share[1] != f.1 && share[2] != f.2 {
+            if f[..] != shares[..] {
                 new_reshares_atleast_once = true;
                 break;
             }

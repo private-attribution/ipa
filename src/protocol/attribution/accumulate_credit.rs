@@ -1,4 +1,5 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
+use crate::protocol::mul::SecureMul;
 use crate::{
     error::BoxError,
     ff::Field,
@@ -10,8 +11,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 use futures::future::{try_join, try_join_all};
-
-use crate::protocol::mul::SecureMul;
+use std::iter::{repeat, zip};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -34,7 +34,7 @@ impl AsRef<str> for Step {
 
 /// Accumulation step for Oblivious Attribution protocol.
 #[allow(dead_code)]
-pub struct AccumulateCredit<'a, F> {
+pub struct AccumulateCredit<'a, F: Field> {
     input: &'a Batch<AttributionInputRow<F>>,
 }
 
@@ -63,12 +63,17 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         // These vectors are updated in each iteration to help accumulate values and determine when to stop accumulating.
 
         let one = Replicated::one(ctx.role());
-        let mut stop_bits: Batch<Replicated<F>> = vec![one; num_rows as usize].try_into().unwrap();
+        // TODO - don't clone the value of one value so much
+        let mut stop_bits: Batch<Replicated<F>> = repeat(one.clone())
+            .take(usize::try_from(num_rows).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
         let mut credits: Batch<Replicated<F>> = self
             .input
             .iter()
-            .map(|x| x.value)
+            .map(|x| x.value.clone())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -101,15 +106,16 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
 
             // for each input row, create a future to execute secure multiplications
             for i in 0..end {
+                // TODO - see if making so many copies can be reduced
                 let current = AccumulateCreditInputRow {
-                    stop_bit: stop_bits[i],
-                    credit: credits[i],
-                    report: self.input[i],
+                    stop_bit: stop_bits[i].clone(),
+                    credit: credits[i].clone(),
+                    report: self.input[i].clone(),
                 };
                 let successor = AccumulateCreditInputRow {
-                    stop_bit: stop_bits[i + step_size],
-                    credit: credits[i + step_size],
-                    report: self.input[i + step_size],
+                    stop_bit: stop_bits[i + step_size].clone(),
+                    credit: credits[i + step_size].clone(),
+                    report: self.input[i + step_size].clone(),
                 };
 
                 accumulation_futures.push(Self::get_accumulated_credit(
@@ -128,19 +134,17 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
                 .into_iter()
                 .enumerate()
                 .for_each(|(i, (credit, stop_bit))| {
-                    credits[i] += credit;
+                    credits[i] = &credits[i] + &credit;
                     stop_bits[i] = stop_bit;
                 });
         }
 
         // drop irrelevant fields and add another supporting field called `aggregation_bit` for the next step
-        let output: Batch<AccumulateCreditOutputRow<F>> = self
-            .input
-            .iter()
+        let output: Batch<AccumulateCreditOutputRow<F>> = zip(self.input.iter(), repeat(one))
             .enumerate()
-            .map(|(i, x)| AccumulateCreditOutputRow {
-                breakdown_key: x.breakdown_key,
-                credit: credits[i],
+            .map(|(i, (x, one))| AccumulateCreditOutputRow {
+                breakdown_key: x.breakdown_key.clone(),
+                credit: credits[i].clone(),
                 aggregation_bit: one,
             })
             .collect::<Vec<_>>()
@@ -172,8 +176,8 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
             .narrow(&Step::HelperBitTimesIsTriggerBit)
             .multiply(
                 record_id,
-                successor.report.helper_bit,
-                successor.report.is_trigger_bit,
+                &successor.report.helper_bit,
+                &successor.report.is_trigger_bit,
             )
             .await?;
 
@@ -181,19 +185,19 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
         if !first_iteration {
             b = ctx
                 .narrow(&Step::BTimesStopBit)
-                .multiply(record_id, b, current.stop_bit)
+                .multiply(record_id, &b, &current.stop_bit)
                 .await?;
         }
 
         let credit_future =
             ctx.narrow(&Step::BTimesSuccessorCredit)
-                .multiply(record_id, b, successor.credit);
+                .multiply(record_id, &b, &successor.credit);
 
         // for the same reason as calculating [b], we skip the multiplication in the first iteration
         let stop_bit_future = if first_iteration {
-            futures::future::Either::Left(futures::future::ok(b))
+            futures::future::Either::Left(futures::future::ok(b.clone()))
         } else {
-            futures::future::Either::Right(ctx.multiply(record_id, b, successor.stop_bit))
+            futures::future::Either::Right(ctx.multiply(record_id, &b, &successor.stop_bit))
         };
 
         try_join(credit_future, stop_bit_future).await
@@ -210,6 +214,7 @@ mod tests {
         test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
     };
     use rand::rngs::mock::StepRng;
+    use std::iter::zip;
     use tokio::try_join;
 
     fn generate_shared_input(
@@ -224,31 +229,18 @@ mod tests {
         ];
 
         for x in input {
-            let (h0, (h1, h2)): (Vec<_>, (Vec<_>, Vec<_>)) = x
-                .iter()
-                .map(|y| {
-                    let ss = share(Fp31::from(*y), rng);
-                    (ss[0], (ss[1], ss[2]))
-                })
-                .unzip();
-            shares[0].push(AttributionInputRow {
-                is_trigger_bit: h0[0],
-                helper_bit: h0[1],
-                breakdown_key: h0[2],
-                value: h0[3],
-            });
-            shares[1].push(AttributionInputRow {
-                is_trigger_bit: h1[0],
-                helper_bit: h1[1],
-                breakdown_key: h1[2],
-                value: h1[3],
-            });
-            shares[2].push(AttributionInputRow {
-                is_trigger_bit: h2[0],
-                helper_bit: h2[1],
-                breakdown_key: h2[2],
-                value: h2[3],
-            });
+            let itb = share(Fp31::from(x[0]), rng);
+            let hb = share(Fp31::from(x[1]), rng);
+            let bk = share(Fp31::from(x[2]), rng);
+            let val = share(Fp31::from(x[3]), rng);
+            for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
+                shares[i].push(AttributionInputRow {
+                    is_trigger_bit: itb,
+                    helper_bit: hb,
+                    breakdown_key: bk,
+                    value: val,
+                });
+            }
         }
 
         assert_eq!(shares[0].len(), shares[1].len());
@@ -263,11 +255,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
-        let world = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
-        let mut rng = StepRng::new(100, 1);
-
-        let raw_input: [[u128; 4]; 9] = [
+        const RAW_INPUT: &[[u128; 4]; 9] = &[
             // [is_trigger, helper_bit, breakdown_key, credit]
             [0, 0, 3, 0],
             [0, 1, 4, 0],
@@ -279,8 +267,13 @@ mod tests {
             [0, 0, 1, 0],
             [1, 0, 0, 10],
         ];
+        const EXPECTED: &[u128] = &[0, 19, 19, 9, 7, 6, 1, 0, 10];
 
-        let shares = generate_shared_input(&raw_input, &mut rng);
+        let world = make_world(QueryId);
+        let context = make_contexts::<Fp31>(&world);
+        let mut rng = StepRng::new(100, 1);
+
+        let shares = generate_shared_input(RAW_INPUT, &mut rng);
 
         // Accumulation Step (last touch):
         // Iter 0 credits          [0,  0, 10,  2,  1,  5,  1,  0, 10]
@@ -293,8 +286,6 @@ mod tests {
         // Stop bits               [0,  0,  0,  0,  0,  0,  0,  0,  0]
         // Iter 4 (step_size = 8)  [0, 19, 19,  9,  7,  6,  1,  0, 10]
 
-        let expected_credit_output = vec![0_u128, 19, 19, 9, 7, 6, 1, 0, 10];
-
         let acc0 = AccumulateCredit::new(&shares[0]);
         let acc1 = AccumulateCredit::new(&shares[1]);
         let acc2 = AccumulateCredit::new(&shares[2]);
@@ -306,17 +297,17 @@ mod tests {
 
         let result = try_join!(h0_future, h1_future, h2_future).unwrap();
 
-        assert_eq!(result.0.len(), raw_input.len());
-        assert_eq!(result.1.len(), raw_input.len());
-        assert_eq!(result.2.len(), raw_input.len());
+        assert_eq!(result.0.len(), RAW_INPUT.len());
+        assert_eq!(result.1.len(), RAW_INPUT.len());
+        assert_eq!(result.2.len(), RAW_INPUT.len());
 
-        (0..(result.0.len())).for_each(|i| {
-            let v = validate_and_reconstruct((
-                result.0[i].credit,
-                result.1[i].credit,
-                result.2[i].credit,
-            ));
-            assert_eq!(v.as_u128(), expected_credit_output[i]);
-        });
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            let v = validate_and_reconstruct(
+                &result.0[i].credit,
+                &result.1[i].credit,
+                &result.2[i].credit,
+            );
+            assert_eq!(v.as_u128(), *expected);
+        }
     }
 }

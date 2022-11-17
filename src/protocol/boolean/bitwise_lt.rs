@@ -42,7 +42,7 @@ impl BitwiseLessThan {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let xor = zip(a, b).enumerate().map(|(i, (&a_bit, &b_bit))| {
+        let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::Step(i));
             async move { xor(c, record_id, a_bit, b_bit).await }
         });
@@ -89,8 +89,8 @@ impl BitwiseLessThan {
     fn step3_4<F: Field>(f: &[Replicated<F>]) -> Vec<Replicated<F>> {
         let l = f.len();
         (0..l - 1)
-            .map(|i| f[i] - f[i + 1])
-            .chain([f[l - 1]])
+            .map(|i| &f[i] - &f[i + 1])
+            .chain([f[l - 1].clone()])
             .collect()
     }
 
@@ -112,7 +112,7 @@ impl BitwiseLessThan {
     ) -> Result<Vec<Replicated<F>>, BoxError> {
         let mul = zip(repeat(ctx), zip(g, b))
             .enumerate()
-            .map(|(i, (ctx, (&g_bit, &b_bit)))| {
+            .map(|(i, (ctx, (g_bit, b_bit)))| {
                 let c = ctx.narrow(&BitOpStep::Step(i));
                 async move { c.multiply(record_id, g_bit, b_bit).await }
             });
@@ -124,7 +124,7 @@ impl BitwiseLessThan {
     /// The interpretations is, `h` is 1 iff `a < b`
     fn step6<F: Field>(h: &[Replicated<F>]) -> Replicated<F> {
         h.iter()
-            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, &x| acc + x)
+            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, x| acc + x)
     }
 
     #[allow(dead_code)]
@@ -179,7 +179,7 @@ mod tests {
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
-        x.iter().map(|&x| x[i]).collect::<Vec<_>>()
+        x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
     }
 
     /// Take a field value `x` and turn them into replicated bitwise sharings of three
@@ -207,7 +207,7 @@ mod tests {
 
         // Execute
         let step = "BitwiseLT_Test";
-        let result = try_join_all(vec![
+        let result = try_join_all([
             BitwiseLessThan::execute(
                 ctx[0].narrow(step),
                 RecordId::from(0_u32),
@@ -230,7 +230,7 @@ mod tests {
         .await
         .unwrap();
 
-        Ok(validate_and_reconstruct((result[0], result[1], result[2])))
+        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]))
     }
 
     #[tokio::test]

@@ -66,11 +66,10 @@ impl Compose {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::try_join_all;
     use rand::seq::SliceRandom;
-    use tokio::try_join;
 
     use crate::{
-        error::BoxError,
         ff::Fp31,
         protocol::{
             sort::{apply::apply, compose::Compose},
@@ -82,7 +81,7 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn compose() -> Result<(), BoxError> {
+    pub async fn compose() {
         const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
@@ -100,24 +99,23 @@ mod tests {
             let mut rho_composed = rho_u128.clone();
             apply(&sigma, &mut rho_composed);
 
-            let sigma_shares = generate_shares::<Fp31>(sigma_u128);
-            let mut rho_shares = generate_shares::<Fp31>(rho_u128);
+            let [sigma0, sigma1, sigma2] = generate_shares::<Fp31>(&sigma_u128);
+            let [rho0, rho1, rho2] = generate_shares::<Fp31>(&rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = Compose::execute(ctx0, sigma_shares.0, rho_shares.0);
-            let h1_future = Compose::execute(ctx1, sigma_shares.1, rho_shares.1);
-            let h2_future = Compose::execute(ctx2, sigma_shares.2, rho_shares.2);
+            let h0_future = Compose::execute(ctx0, sigma0, rho0);
+            let h1_future = Compose::execute(ctx1, sigma1, rho1);
+            let h2_future = Compose::execute(ctx2, sigma2, rho2);
 
-            rho_shares = try_join!(h0_future, h1_future, h2_future)?;
-
-            assert_eq!(rho_shares.0.len(), BATCHSIZE as usize);
-            assert_eq!(rho_shares.1.len(), BATCHSIZE as usize);
-            assert_eq!(rho_shares.2.len(), BATCHSIZE as usize);
+            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+                .await
+                .unwrap()
+                .try_into()
+                .unwrap();
 
             // We should get the same result of applying inverse of sigma on rho as in clear
-            validate_list_of_shares(&rho_composed, &rho_shares);
+            validate_list_of_shares(&rho_composed, &result);
         }
-        Ok(())
     }
 }

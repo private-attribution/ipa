@@ -78,11 +78,11 @@ pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
     (p1, p2, p3)
 }
 
-pub type ReplicatedShares<T> = (Vec<Replicated<T>>, Vec<Replicated<T>>, Vec<Replicated<T>>);
+pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]
-pub fn generate_shares<F: Field>(input: Vec<u128>) -> ReplicatedShares<F>
+pub fn generate_shares<F: Field>(input: &[u128]) -> ReplicatedShares<F>
 where
     Standard: Distribution<F>,
 {
@@ -93,13 +93,13 @@ where
     let mut shares1 = Vec::with_capacity(len);
     let mut shares2 = Vec::with_capacity(len);
 
-    for iter in input {
-        let share = share(F::from(iter), &mut rand);
-        shares0.push(share[0]);
-        shares1.push(share[1]);
-        shares2.push(share[2]);
+    for i in input {
+        let [s0, s1, s2] = share(F::from(*i), &mut rand);
+        shares0.push(s0);
+        shares1.push(s1);
+        shares2.push(s2);
     }
-    (shares0, shares1, shares2)
+    [shares0, shares1, shares2]
 }
 
 /// # Panics

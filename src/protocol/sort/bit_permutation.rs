@@ -16,7 +16,7 @@ use futures::future::try_join_all;
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
 #[derive(Debug)]
-pub struct BitPermutation<'a, F> {
+pub struct BitPermutation<'a, F: Field> {
     input: &'a [Replicated<F>],
 }
 
@@ -52,18 +52,18 @@ impl<'a, F: Field> BitPermutation<'a, F> {
         let mult_input = self
             .input
             .iter()
-            .map(move |x: &Replicated<F>| share_of_one - *x)
-            .chain(self.input.iter().copied())
+            .map(|x: &Replicated<F>| &share_of_one - x)
+            .chain(self.input.iter().cloned())
             .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
-                *sum += x;
-                Some((x, *sum))
+                *sum = &*sum + &x;
+                Some((x, sum.clone()))
             });
 
         let async_multiply =
             zip(repeat(ctx), mult_input)
                 .enumerate()
                 .map(|(i, (ctx, (x, sum)))| async move {
-                    ctx.multiply(RecordId::from(i), x, sum).await
+                    ctx.multiply(RecordId::from(i), &x, &sum).await
                 });
         let mut mult_output = try_join_all(async_multiply).await?;
 
@@ -71,10 +71,10 @@ impl<'a, F: Field> BitPermutation<'a, F> {
         // Generate permutation location
         let len = mult_output.len() / 2;
         for i in 0..len {
-            let val = mult_output[i + len];
             // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
             // protocols expect 0-indexed permutation
-            mult_output[i] += val - share_of_one;
+            let less_one = &mult_output[i + len] - &share_of_one;
+            mult_output[i] = less_one + &mult_output[i];
         }
         mult_output.truncate(len);
 
@@ -84,8 +84,8 @@ impl<'a, F: Field> BitPermutation<'a, F> {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::try_join_all;
     use rand::rngs::mock::StepRng;
-    use tokio::try_join;
 
     use crate::{
         ff::Fp31,
@@ -95,24 +95,24 @@ mod tests {
 
     #[tokio::test]
     pub async fn bit_permutation() {
+        // With this input, for stable sort we expect all 0's to line up before 1's.
+        // The expected sort order is same as expected_sort_output.
+        const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
+        const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
+
         let world = make_world(QueryId);
         let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
         let mut rand = StepRng::new(100, 1);
 
-        // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
-        let input: Vec<u128> = vec![1, 0, 1, 0, 0, 1, 0];
-        let expected_sort_output = [4_u128, 0, 5, 1, 2, 6, 3];
-
-        let input_len = input.len();
         let mut shares = [
-            Vec::with_capacity(input_len),
-            Vec::with_capacity(input_len),
-            Vec::with_capacity(input_len),
+            Vec::with_capacity(INPUT.len()),
+            Vec::with_capacity(INPUT.len()),
+            Vec::with_capacity(INPUT.len()),
         ];
-        for iter in input {
-            let share = share(Fp31::from(iter), &mut rand);
-            for i in 0..3 {
-                shares[i].push(share[i]);
+        for i in INPUT {
+            let share = share(Fp31::from(*i), &mut rand);
+            for (i, share) in share.into_iter().enumerate() {
+                shares[i].push(share);
             }
         }
 
@@ -123,12 +123,12 @@ mod tests {
         let h1_future = bitperms1.execute(ctx1);
         let h2_future = bitperms2.execute(ctx2);
 
-        let result = try_join!(h0_future, h1_future, h2_future).unwrap();
+        let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+            .await
+            .unwrap()
+            .try_into()
+            .unwrap();
 
-        assert_eq!(result.0.len(), input_len);
-        assert_eq!(result.1.len(), input_len);
-        assert_eq!(result.2.len(), input_len);
-
-        validate_list_of_shares(&expected_sort_output, &result);
+        validate_list_of_shares(EXPECTED, &result);
     }
 }

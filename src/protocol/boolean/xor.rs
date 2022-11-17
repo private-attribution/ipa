@@ -8,11 +8,11 @@ use crate::secret_sharing::Replicated;
 pub async fn xor<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     record_id: RecordId,
-    a: Replicated<F>,
-    b: Replicated<F>,
+    a: &Replicated<F>,
+    b: &Replicated<F>,
 ) -> Result<Replicated<F>, BoxError> {
     let ab = ctx.multiply(record_id, a, b).await?;
-    Ok(a + b - (ab * F::from(2)))
+    Ok(a + b - &(ab * F::from(2)))
 }
 
 #[cfg(test)]
@@ -43,26 +43,26 @@ mod tests {
             xor(
                 ctx[0].narrow(step),
                 RecordId::from(0_u32),
-                a_shares[0],
-                b_shares[0],
+                &a_shares[0],
+                &b_shares[0],
             ),
             xor(
                 ctx[1].narrow(step),
                 RecordId::from(0_u32),
-                a_shares[1],
-                b_shares[1],
+                &a_shares[1],
+                &b_shares[1],
             ),
             xor(
                 ctx[2].narrow(step),
                 RecordId::from(0_u32),
-                a_shares[2],
-                b_shares[2],
+                &a_shares[2],
+                &b_shares[2],
             ),
         ])
         .await
         .unwrap();
 
-        Ok(validate_and_reconstruct((result[0], result[1], result[2])))
+        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]))
     }
 
     #[tokio::test]

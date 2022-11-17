@@ -71,9 +71,9 @@ impl SecureApplyInv {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
-    use tokio::try_join;
 
     use crate::{
         ff::Fp31,
@@ -103,24 +103,24 @@ mod tests {
 
             let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
-            let perm_shares = generate_shares::<Fp31>(permutation);
-            let mut input_shares = generate_shares::<Fp31>(input);
+            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
+            let [input0, input1, input2] = generate_shares::<Fp31>(&input);
 
             let world = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = SecureApplyInv::execute(ctx0, input_shares.0, perm_shares.0);
-            let h1_future = SecureApplyInv::execute(ctx1, input_shares.1, perm_shares.1);
-            let h2_future = SecureApplyInv::execute(ctx2, input_shares.2, perm_shares.2);
+            let h0_future = SecureApplyInv::execute(ctx0, input0, perm0);
+            let h1_future = SecureApplyInv::execute(ctx1, input1, perm1);
+            let h2_future = SecureApplyInv::execute(ctx2, input2, perm2);
 
-            input_shares = try_join!(h0_future, h1_future, h2_future).unwrap();
-
-            assert_eq!(input_shares.0.len(), BATCHSIZE as usize);
-            assert_eq!(input_shares.1.len(), BATCHSIZE as usize);
-            assert_eq!(input_shares.2.len(), BATCHSIZE as usize);
+            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+                .await
+                .unwrap()
+                .try_into()
+                .unwrap();
 
             // We should get the same result of applying inverse as what we get when applying in clear
-            validate_list_of_shares(&expected_result, &input_shares);
+            validate_list_of_shares(&expected_result, &result);
         }
     }
 }
