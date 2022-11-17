@@ -7,7 +7,7 @@ use rand::{
     Rng, RngCore,
 };
 
-use super::ReplicatedShares;
+use super::{MaliciousShares, ReplicatedShares};
 
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]
@@ -73,5 +73,24 @@ pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &Repl
     for (i, expected) in expected_result.iter().enumerate() {
         let revealed = validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]);
         assert_eq!(revealed, F::from(*expected));
+    }
+}
+
+/// Validates expected result from the secret shares obtained.
+///
+/// # Panics
+/// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails for input or MACs
+pub fn validate_list_of_shares_malicious<F: Field>(
+    expected_result: &[u128],
+    result: &MaliciousShares<F>,
+) {
+    assert_eq!(expected_result.len(), result[0].len());
+    assert_eq!(expected_result.len(), result[1].len());
+    assert_eq!(expected_result.len(), result[2].len());
+    for (i, expected) in expected_result.iter().enumerate() {
+        let revealed =
+            validate_and_reconstruct(result[0][i].x(), result[1][i].x(), result[2][i].x());
+        assert_eq!(revealed, F::from(*expected));
+        validate_and_reconstruct(result[0][i].rx(), result[1][i].rx(), result[2][i].rx());
     }
 }

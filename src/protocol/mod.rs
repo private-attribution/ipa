@@ -3,6 +3,7 @@ mod batch;
 mod boolean;
 mod check_zero;
 pub mod context;
+pub mod context_traits;
 pub mod malicious;
 mod modulus_conversion;
 pub mod mul;

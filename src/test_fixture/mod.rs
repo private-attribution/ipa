@@ -8,15 +8,19 @@ pub mod network;
 use crate::ff::{Field, Fp31};
 use crate::helpers::Role;
 use crate::protocol::context::ProtocolContext;
+use crate::protocol::malicious::SecurityValidator;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
-pub use sharing::{share, share_malicious, validate_and_reconstruct, validate_list_of_shares};
+pub use sharing::{
+    share, share_malicious, validate_and_reconstruct, validate_list_of_shares,
+    validate_list_of_shares_malicious,
+};
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
 };
@@ -38,6 +42,23 @@ pub fn make_contexts<F: Field>(
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
+}
+pub struct MaliciousContext<'a, F: Field> {
+    pub ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
+    pub validator: SecurityValidator<F>,
+}
+
+/// Creates malicious protocol contexts for 3 helpers.
+pub fn make_malicious_contexts<F: Field>(test_world: &TestWorld) -> [MaliciousContext<'_, F>; 3] {
+    make_contexts(test_world).map(|ctx| {
+        let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
+        let acc = v.accumulator();
+
+        MaliciousContext {
+            ctx: ctx.upgrade_to_malicious(acc, v.r_share().clone()),
+            validator: v,
+        }
+    })
 }
 
 /// Narrows a set of contexts all at once.
@@ -79,6 +100,7 @@ pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
 }
 
 pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
+pub type MaliciousShares<T> = [Vec<MaliciousReplicated<T>>; 3];
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]

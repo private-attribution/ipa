@@ -3,8 +3,8 @@ use std::iter::{repeat, zip};
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId},
-    secret_sharing::Replicated,
+    protocol::{context::ProtocolContext, context_traits::ShareOfOne, RecordId},
+    secret_sharing::SecretSharing,
 };
 
 use crate::protocol::mul::SecureMul;
@@ -33,18 +33,20 @@ use futures::future::try_join_all;
 ///
 /// ## Errors
 /// It will propagate errors from multiplication protocol.
-pub async fn bit_permutation<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
-    input: &[Replicated<F>],
-) -> Result<Vec<Replicated<F>>, BoxError> {
-    let share_of_one = Replicated::one(ctx.role());
+pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>>(
+    ctx: ProtocolContext<'a, S, F>,
+    input: &[S],
+) -> Result<Vec<S>, BoxError>
+where
+    ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>,
+{
+    let share_of_one = ctx.share_of_one();
 
-    let mult_input = input
-        .iter()
-        .map(|x: &Replicated<F>| &share_of_one - x)
+    let mult_input = zip(repeat(share_of_one.clone()), input)
+        .map(|(one, x)| one - x)
         .chain(input.iter().cloned())
-        .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
-            *sum = &*sum + &x;
+        .scan(S::default(), |sum, x| {
+            *sum += &x;
             Some((x, sum.clone()))
         });
 
@@ -53,13 +55,13 @@ pub async fn bit_permutation<F: Field>(
         .map(|(i, (ctx, (x, sum)))| async move { ctx.multiply(RecordId::from(i), &x, &sum).await });
     let mut mult_output = try_join_all(async_multiply).await?;
 
-    assert_eq!(mult_output.len(), input.len() * 2);
+    debug_assert!(mult_output.len() == input.len() * 2);
     // Generate permutation location
     let len = mult_output.len() / 2;
     for i in 0..len {
         // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
         // protocols expect 0-indexed permutation
-        let less_one = &mult_output[i + len] - &share_of_one;
+        let less_one = mult_output[i + len].clone() - &share_of_one;
         mult_output[i] = less_one + &mult_output[i];
     }
     mult_output.truncate(len);
@@ -74,7 +76,10 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{sort::bit_permutation::bit_permutation, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
+        test_fixture::{
+            make_contexts, make_malicious_contexts, make_world, share, share_malicious,
+            validate_list_of_shares, validate_list_of_shares_malicious,
+        },
     };
 
     #[tokio::test]
@@ -111,5 +116,41 @@ mod tests {
             .unwrap();
 
         validate_list_of_shares(EXPECTED, &result);
+    }
+
+    #[tokio::test]
+    pub async fn test_bit_permutation_malicious() {
+        // With this input, for stable sort we expect all 0's to line up before 1's.
+        // The expected sort order is same as expected_sort_output.
+        const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
+        const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
+
+        let world = make_world(QueryId);
+        let [ctx0, ctx1, ctx2] = make_malicious_contexts::<Fp31>(&world);
+        let mut rand = StepRng::new(100, 1);
+
+        let mut shares = [
+            Vec::with_capacity(INPUT.len()),
+            Vec::with_capacity(INPUT.len()),
+            Vec::with_capacity(INPUT.len()),
+        ];
+        for i in INPUT {
+            let share = share_malicious(Fp31::from(*i), &mut rand);
+            for (i, share) in share.into_iter().enumerate() {
+                shares[i].push(share);
+            }
+        }
+
+        let h0_future = bit_permutation(ctx0.ctx, shares[0].as_slice());
+        let h1_future = bit_permutation(ctx1.ctx, shares[1].as_slice());
+        let h2_future = bit_permutation(ctx2.ctx, shares[2].as_slice());
+
+        let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+            .await
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        validate_list_of_shares_malicious(EXPECTED, &result);
     }
 }
