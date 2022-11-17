@@ -1,11 +1,10 @@
+use super::{or::or, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-
-use super::BitOpStep;
 
 /// This is an implementation of Prefix-Or on bitwise-shared numbers.
 ///
@@ -24,21 +23,6 @@ use super::BitOpStep;
 pub struct PrefixOr {}
 
 impl PrefixOr {
-    /// Securely computes `[a] | [b] where a, b ∈ {0, 1} ⊆ F_p`
-    /// OR can be computed as: `!MULT(![a], ![b])`
-    async fn bit_or<F: Field>(
-        a: &Replicated<F>,
-        b: &Replicated<F>,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-        record_id: RecordId,
-    ) -> Result<Replicated<F>, Error> {
-        let one = Replicated::one(ctx.role());
-        let result = ctx
-            .multiply(record_id, &(one.clone() - a), &(one.clone() - b))
-            .await?;
-        Ok(one - &result)
-    }
-
     /// Securely computes `∨ [a_1],...[a_n]`
     async fn block_or<F: Field>(
         a: &[Replicated<F>],
@@ -49,7 +33,7 @@ impl PrefixOr {
         #[allow(clippy::cast_possible_truncation)]
         let mut v = a[0].clone();
         for (i, bit) in a[1..].iter().enumerate() {
-            v = Self::bit_or(&v, bit, ctx.narrow(&BitOpStep::Step(k + i)), record_id).await?;
+            v = or(ctx.narrow(&BitOpStep::Step(k + i)), record_id, &v, bit).await?;
         }
         Ok(v)
     }
@@ -97,8 +81,7 @@ impl PrefixOr {
         let mut y = Vec::with_capacity(lambda);
         y.push(x[0].clone());
         for i in 1..lambda {
-            let result =
-                Self::bit_or(&y[i - 1], &x[i], ctx.narrow(&BitOpStep::Step(i)), record_id).await?;
+            let result = or(ctx.narrow(&BitOpStep::Step(i)), record_id, &y[i - 1], &x[i]).await?;
             y.push(result);
         }
         Ok(y)
@@ -184,8 +167,7 @@ impl PrefixOr {
         let mut b = Vec::with_capacity(lambda);
         b.push(c[0].clone());
         for j in 1..lambda {
-            let result =
-                Self::bit_or(&b[j - 1], &c[j], ctx.narrow(&BitOpStep::Step(j)), record_id).await?;
+            let result = or(ctx.narrow(&BitOpStep::Step(j)), record_id, &b[j - 1], &c[j]).await?;
             b.push(result);
         }
         Ok(b)

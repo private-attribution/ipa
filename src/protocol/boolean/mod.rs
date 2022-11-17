@@ -1,4 +1,6 @@
 mod bitwise_lt;
+mod carries;
+mod or;
 mod prefix_or;
 mod xor;
 
