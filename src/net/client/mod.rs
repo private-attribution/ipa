@@ -119,24 +119,28 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{
-            network::{ChannelId, MessageChunks},
+            network::{ChannelId, MessageChunks, Network},
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
-        net::{server::MessageSendMap, BindTarget, MpcHelperServer},
+        net::{http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer},
     };
+    use futures::{Stream, StreamExt};
     use hyper_tls::native_tls::TlsConnector;
-    use tokio::sync::mpsc;
 
-    async fn setup_server(bind_target: BindTarget) -> (u16, mpsc::Receiver<MessageChunks>) {
-        let (tx, rx) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+    async fn setup_server(bind_target: BindTarget) -> (u16, impl Stream<Item = MessageChunks>) {
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
         // setup server
         let (addr, _) = server.bind(bind_target).await;
-        (addr.port(), rx)
+        (addr.port(), rx_stream)
     }
 
-    async fn send_messages_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
+    async fn send_messages_req<St: Stream<Item = MessageChunks> + Unpin>(
+        client: MpcHelperClient,
+        mut rx_stream: St,
+    ) {
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = Step::default().narrow("mul_test");
@@ -155,13 +159,14 @@ mod tests {
             .expect("send should succeed");
 
         let channel_id = ChannelId { role, step };
-        let server_recvd = rx.try_recv().unwrap(); // should already have been received
+        let server_recvd = rx_stream.next().await.unwrap(); // should already have been received
         assert_eq!(server_recvd, (channel_id, body.to_vec()));
     }
 
     #[tokio::test]
     async fn send_messages_req_http() {
-        let (port, rx) = setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let (port, rx_stream) =
+            setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
 
         // setup client
         let client =
@@ -169,7 +174,7 @@ mod tests {
                 .unwrap();
 
         // test
-        send_messages_req(client, rx).await;
+        send_messages_req(client, rx_stream).await;
     }
 
     #[tokio::test]
@@ -177,7 +182,7 @@ mod tests {
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (port, rx) =
+        let (port, rx_stream) =
             setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
 
         // setup client
@@ -198,6 +203,6 @@ mod tests {
         };
 
         // test
-        send_messages_req(client, rx).await;
+        send_messages_req(client, rx_stream).await;
     }
 }

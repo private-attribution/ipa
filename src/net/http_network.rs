@@ -21,35 +21,24 @@ use tokio_stream::wrappers::ReceiverStream;
 /// # Panics
 /// if `recv_stream` or `recv_messages` called more than once.
 #[allow(dead_code)] // TODO: WIP
-pub struct HttpNetwork<'a> {
-    peers: &'a [peer::Config; 3],
+pub struct HttpNetwork {
     query_id: QueryId,
     sink_sender: mpsc::Sender<MessageChunks>,
     message_stream_sender: mpsc::Sender<MessageChunks>,
     message_stream_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
 }
 
-impl<'a> HttpNetwork<'a> {
+impl HttpNetwork {
     /// * Creates an [`HttpNetwork`]
     /// * spawns a task that consumes incoming data from the infra layer intended for other helpers
     #[must_use]
     #[allow(unused)]
-    pub fn new<'b: 'a, D: PeerDiscovery>(
-        role: Role,
-        peer_discovery: &'b D,
-        query_id: QueryId,
-    ) -> Self {
-        let (stx, mut srx) = mpsc::channel(1);
+    pub fn new<D: PeerDiscovery>(role: Role, peer_discovery: &D, query_id: QueryId) -> Self {
+        let (stx, mut srx) = mpsc::channel::<MessageChunks>(1);
         let (mstx, msrx) = mpsc::channel(1);
-        let network = HttpNetwork {
-            peers: peer_discovery.peers(),
-            query_id,
-            sink_sender: stx,
-            message_stream_sender: mstx,
-            message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
-        };
 
-        let clients = network.clients(role);
+        let peers_conf = peer_discovery.peers();
+        let clients = Self::clients(role, peers_conf);
         tokio::spawn(async move {
             let mut last_seen_messages = HashMap::new();
 
@@ -72,7 +61,27 @@ impl<'a> HttpNetwork<'a> {
                     });
             }
         });
-        network
+        HttpNetwork {
+            query_id,
+            sink_sender: stx,
+            message_stream_sender: mstx,
+            message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
+        }
+    }
+
+    /// as this does not initialize the clients, it does not initialize the read-side of the
+    /// [`Sink`]. This allows tests to grab the read-side directly, bypassing the HTTP layer.
+    #[must_use]
+    #[cfg(test)]
+    pub fn new_without_clients(query_id: QueryId, buffer_size: Option<usize>) -> Self {
+        let (stx, _) = mpsc::channel(buffer_size.unwrap_or(1));
+        let (mstx, msrx) = mpsc::channel(buffer_size.unwrap_or(1));
+        HttpNetwork {
+            query_id,
+            sink_sender: stx,
+            message_stream_sender: mstx,
+            message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
+        }
     }
 
     #[must_use]
@@ -81,9 +90,8 @@ impl<'a> HttpNetwork<'a> {
         self.message_stream_sender.clone()
     }
 
-    #[allow(unused)]
-    fn clients(&self, role: Role) -> [MpcHelperClient; 3] {
-        self.peers
+    fn clients(role: Role, peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+        peers_conf
             .iter()
             .map(|peer_conf| {
                 // no https for now
@@ -95,7 +103,7 @@ impl<'a> HttpNetwork<'a> {
     }
 }
 
-impl<'a> Network for HttpNetwork<'a> {
+impl Network for HttpNetwork {
     type Sink = NetworkSink<MessageChunks>;
 
     type MessageStream = ReceiverStream<MessageChunks>;
@@ -123,6 +131,7 @@ mod tests {
         net::{discovery::conf::Conf, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::Step,
     };
+    use futures::{Stream, StreamExt};
     use futures_util::SinkExt;
     use std::str::FromStr;
 
@@ -155,10 +164,11 @@ mod tests {
         Conf::from_str(&peer_discovery_str).unwrap()
     }
 
-    async fn setup() -> (Role, Conf, mpsc::Receiver<MessageChunks>) {
+    async fn setup() -> (Role, Conf, impl Stream<Item = MessageChunks>) {
         // setup server
-        let (tx, rx) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
 
         let (addr, _) = server
@@ -167,13 +177,13 @@ mod tests {
 
         let peer_discovery = h2_peer_valid(addr.port());
 
-        (Role::H2, peer_discovery, rx)
+        (Role::H2, peer_discovery, rx_stream)
     }
 
     #[tokio::test]
     async fn send_multiple_messages() {
         const DATA_LEN: usize = 3;
-        let (target_role, peer_discovery, mut rx) = setup().await;
+        let (target_role, peer_discovery, mut rx_stream) = setup().await;
         let self_role = target_role.peer(Direction::Left);
         let network = HttpNetwork::new(self_role, &peer_discovery, QueryId);
         let mut sink = network.sink();
@@ -190,7 +200,7 @@ mod tests {
             let expected_body = body.to_vec();
             async move {
                 for _ in 0..num_reqs {
-                    let (channel_id, body) = rx.recv().await.unwrap();
+                    let (channel_id, body) = rx_stream.next().await.unwrap();
                     assert_eq!(expected_channel_id, channel_id);
                     assert_eq!(expected_body, body);
                 }

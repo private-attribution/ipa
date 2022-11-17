@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     helpers::network::MessageChunks,
-    net::LastSeenMessages,
+    net::{http_network::HttpNetwork, LastSeenMessages},
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -131,7 +131,7 @@ impl IntoResponse for MpcHelperServerError {
 /// Is shareable by `clone()`ing.
 #[derive(Clone)]
 pub struct MessageSendMap {
-    senders: Arc<Mutex<HashMap<QueryId, mpsc::Sender<MessageChunks>>>>,
+    networks: Arc<Mutex<HashMap<QueryId, HttpNetwork>>>,
 }
 
 impl MessageSendMap {
@@ -144,9 +144,9 @@ impl MessageSendMap {
         &self,
         query_id: QueryId,
     ) -> Result<mpsc::Sender<MessageChunks>, MpcHelperServerError> {
-        self.senders.lock().unwrap().get(&query_id).map_or_else(
+        self.networks.lock().unwrap().get(&query_id).map_or_else(
             || Err(MpcHelperServerError::query_id_not_found(query_id)),
-            |sender| Ok(sender.clone()),
+            |network| Ok(network.message_stream_sender()),
         )
     }
 
@@ -158,12 +158,12 @@ impl MessageSendMap {
     pub fn insert_if_not_present(
         &self,
         query_id: QueryId,
-        sender: mpsc::Sender<MessageChunks>,
+        network: HttpNetwork,
     ) -> Result<(), MpcHelperServerError> {
-        match self.senders.lock().unwrap().entry(query_id) {
+        match self.networks.lock().unwrap().entry(query_id) {
             Entry::Occupied(_) => Err(MpcHelperServerError::sender_already_exists(query_id)),
             Entry::Vacant(entry) => {
-                entry.insert(sender);
+                entry.insert(network);
                 Ok(())
             }
         }
@@ -173,16 +173,16 @@ impl MessageSendMap {
     /// # Panics
     /// if mutex is poisoned
     pub fn remove(&self, query_id: QueryId) {
-        self.senders.lock().unwrap().remove(&query_id);
+        self.networks.lock().unwrap().remove(&query_id);
     }
 
     /// initialize with a [`QueryId`] already inserted.
     /// Intended to be used only in tests
     #[cfg(test)]
     #[must_use]
-    pub fn filled(tx: mpsc::Sender<MessageChunks>) -> MessageSendMap {
+    pub fn filled(network: HttpNetwork) -> MessageSendMap {
         MessageSendMap {
-            senders: Arc::new(Mutex::new([(QueryId, tx)].into())),
+            networks: Arc::new(Mutex::new([(QueryId, network)].into())),
         }
     }
 }
@@ -190,7 +190,7 @@ impl MessageSendMap {
 impl Default for MessageSendMap {
     fn default() -> Self {
         Self {
-            senders: Arc::new(Mutex::new(HashMap::new())),
+            networks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -355,29 +355,33 @@ mod tests {
             message_send_map.get(QueryId),
             Err(MpcHelperServerError::BadPathString(_))
         ));
-        let (tx, _) = mpsc::channel(1);
-        message_send_map.insert_if_not_present(QueryId, tx).unwrap();
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        message_send_map
+            .insert_if_not_present(QueryId, network)
+            .unwrap();
         assert!(message_send_map.get(QueryId).is_ok());
     }
 
     #[test]
     fn message_send_map_errors_on_double_add() {
         let message_send_map = MessageSendMap::default();
-        let (tx, _) = mpsc::channel(1);
         message_send_map
-            .insert_if_not_present(QueryId, tx.clone())
+            .insert_if_not_present(QueryId, HttpNetwork::new_without_clients(QueryId, None))
             .unwrap();
         assert!(matches!(
-            message_send_map.insert_if_not_present(QueryId, tx),
+            message_send_map
+                .insert_if_not_present(QueryId, HttpNetwork::new_without_clients(QueryId, None)),
             Err(MpcHelperServerError::SendError(_))
         ));
     }
 
     #[test]
     fn message_send_map_removes_sender() {
-        let (tx, _) = mpsc::channel(1);
         let message_send_map = MessageSendMap::default();
-        message_send_map.insert_if_not_present(QueryId, tx).unwrap();
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        message_send_map
+            .insert_if_not_present(QueryId, network)
+            .unwrap();
         assert!(message_send_map.get(QueryId).is_ok());
         message_send_map.remove(QueryId);
         assert!(matches!(
@@ -389,8 +393,10 @@ mod tests {
 
 #[cfg(test)]
 mod e2e_tests {
+    use crate::net::http_network::HttpNetwork;
     use crate::net::server::handlers::EchoData;
     use crate::net::server::{BindTarget, MessageSendMap, MpcHelperServer};
+    use crate::protocol::QueryId;
     use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
     use hyper::{
         body,
@@ -403,7 +409,6 @@ mod e2e_tests {
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
-    use tokio::sync::mpsc;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -438,8 +443,8 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_http() {
-        let (tx, _) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -466,8 +471,8 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        let (tx, _) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
@@ -512,8 +517,8 @@ mod e2e_tests {
         // need to ignore errors because there might be other threads installing it as well.
         DebuggingRecorder::per_thread().install().unwrap_or(());
 
-        let (tx, _) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
 
         let (addr, _) = server
@@ -547,8 +552,8 @@ mod e2e_tests {
     #[tokio::test]
     async fn request_version_metric() {
         DebuggingRecorder::per_thread().install().unwrap_or(());
-        let (tx, _) = mpsc::channel(1);
-        let message_send_map = MessageSendMap::filled(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
 
         let (addr, _) = server
