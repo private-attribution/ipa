@@ -1,12 +1,12 @@
 use super::BitOpStep;
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 /// This struct represents set/propagate/kill bits used to compute the carries.
 struct CarryPropagationShares<F: Field> {
     s: Replicated<F>,
@@ -42,12 +42,12 @@ impl Carries {
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
         let s = Self::step1(a, b, ctx.narrow(&Step::AMultB), record_id).await?;
-        let e = Self::step2(a, b, &s, Replicated::one(ctx.role()));
+        let e = Self::step2(a, b, &s, &Replicated::one(ctx.role()));
         let f = Self::step3(&e, ctx.narrow(&Step::CarryPropagation), record_id).await?;
-        let s = f.iter().map(|&x| x.s).collect::<Vec<_>>();
+        let s = f.into_iter().map(|x| x.s).collect::<Vec<_>>();
         Ok(s)
     }
 
@@ -68,10 +68,10 @@ impl Carries {
         b: &[Replicated<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let mul = zip(repeat(ctx), zip(a, b))
             .enumerate()
-            .map(|(i, (ctx, (&a_bit, &b_bit)))| {
+            .map(|(i, (ctx, (a_bit, b_bit)))| {
                 let c = ctx.narrow(&BitOpStep::Step(i));
                 async move { c.multiply(record_id, a_bit, b_bit).await }
             });
@@ -102,16 +102,16 @@ impl Carries {
         a: &[Replicated<F>],
         b: &[Replicated<F>],
         s: &[Replicated<F>],
-        one: Replicated<F>,
+        one: &Replicated<F>,
     ) -> Vec<CarryPropagationShares<F>> {
         zip(a, b)
             .zip(s)
-            .map(|((&a_bit, &b_bit), &s_bit)| {
-                let p_bit = a_bit + b_bit - (s_bit * F::from(2));
+            .map(|((a_bit, b_bit), s_bit)| {
+                let p_bit = a_bit + b_bit - &(s_bit.clone() * F::from(2));
                 CarryPropagationShares {
-                    s: s_bit,
-                    p: p_bit,
-                    k: one - s_bit - p_bit,
+                    s: s_bit.clone(),
+                    p: p_bit.clone(),
+                    k: one - s_bit - &p_bit,
                 }
             })
             .collect::<Vec<_>>()
@@ -125,7 +125,7 @@ impl Carries {
         e: &[CarryPropagationShares<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<Vec<CarryPropagationShares<F>>, BoxError> {
+    ) -> Result<Vec<CarryPropagationShares<F>>, Error> {
         let l = e.len();
         let futures = (0..l).map(|i| {
             let c = ctx.narrow(&BitOpStep::Step(i));
@@ -151,28 +151,28 @@ impl Carries {
         e: &[CarryPropagationShares<F>],
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<CarryPropagationShares<F>, BoxError> {
+    ) -> Result<CarryPropagationShares<F>, Error> {
         let l = e.len();
 
         // TODO(taikiy): Optimization: Could run the following 2 blocks in parallel
 
         // Step 1. fan-in AND. for `i=1..l, ∧ [p_i]`
         let c = ctx.narrow(&Step::FanInAndP);
-        let mut b = e[0].p;
-        for (i, &x) in e.iter().enumerate().skip(1) {
+        let mut b = e[0].p.clone();
+        for (i, x) in e.iter().enumerate().skip(1) {
             let c = c.narrow(&BitOpStep::Step(i));
-            b = c.multiply(record_id, b, x.p).await?;
+            b = c.multiply(record_id, &b, &x.p).await?;
         }
 
         // Step 2. prefix AND. for `i=l..1, ∧ [p_j]` where `j=l..i`
         // Note the `i=l..1`. The output bits are in the reverse order.
         let c = ctx.narrow(&Step::PrefixAndP);
         let mut q = Vec::with_capacity(l);
-        q.push(e[l - 1].p);
-        for (i, &x) in e.iter().rev().enumerate().skip(1) {
+        q.push(e[l - 1].p.clone());
+        for (i, x) in e.iter().rev().enumerate().skip(1) {
             let c = c.narrow(&BitOpStep::Step(i));
             // TODO(taikiy): Optimization. Use the symmetric function `PrefixAnd`?
-            let result = c.multiply(record_id, q[i - 1], x.p).await?;
+            let result = c.multiply(record_id, &q[i - 1], &x.p).await?;
             q.push(result);
         }
         // Change the order back to LE (LSB first). The next step traverses [q] in i=1..l
@@ -184,20 +184,20 @@ impl Carries {
             .iter()
             .enumerate()
             .take_while(|(i, _)| *i < l - 1)
-            .map(|(i, &x)| {
+            .map(|(i, x)| {
                 let c = c.narrow(&BitOpStep::Step(i));
-                c.multiply(record_id, x.k, q[i + 1])
+                c.multiply(record_id, &x.k, &q[i + 1])
             })
             .collect::<Vec<_>>();
         let mut c = try_join_all(futures).await?;
-        c.push(e[l - 1].k);
+        c.push(e[l - 1].k.clone());
 
         // Step 4. `[c] = Σ [c_i]`
         // There's at most one c_i = 1. [c] will be a secret sharing of 0 or 1.
-        let c = c.iter().fold(Replicated::ZERO, |acc, &x| acc + x);
+        let c = c.iter().fold(Replicated::ZERO, |acc, x| acc + x);
 
         // Step 5. `[a] = 1 - [b] - [c]`
-        let a = Replicated::one(ctx.role()) - b - c;
+        let a = Replicated::one(ctx.role()) - &b - &c;
 
         Ok(CarryPropagationShares { s: a, p: b, k: c })
     }
@@ -229,7 +229,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::Carries;
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::ff::{Field, Fp31, Fp32BitPrime, Int};
     use crate::protocol::{QueryId, RecordId};
     use crate::secret_sharing::Replicated;
@@ -241,7 +241,7 @@ mod tests {
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
-        x.iter().map(|&x| x[i]).collect::<Vec<_>>()
+        x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
     }
 
     /// Take a field value `x` and turn them into replicated bitwise sharings of three
@@ -255,7 +255,7 @@ mod tests {
             .collect::<Vec<_>>()
     }
 
-    async fn carries<F: Field>(a: F, b: F) -> Result<Vec<F>, BoxError>
+    async fn carries<F: Field>(a: F, b: F) -> Result<Vec<F>, Error>
     where
         Standard: Distribution<F>,
     {
@@ -293,14 +293,14 @@ mod tests {
         .unwrap();
 
         let carries = (0..result[0].len())
-            .map(|i| validate_and_reconstruct((result[0][i], result[1][i], result[2][i])))
+            .map(|i| validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]))
             .collect::<Vec<_>>();
 
         Ok(carries)
     }
 
     #[tokio::test]
-    pub async fn fp31() -> Result<(), BoxError> {
+    pub async fn fp31() -> Result<(), Error> {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime() -> Result<(), BoxError> {
+    pub async fn fp_32bit_prime() -> Result<(), Error> {
         let c = Fp32BitPrime::from;
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;

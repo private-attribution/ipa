@@ -31,9 +31,9 @@ impl PrefixOr {
         record_id: RecordId,
     ) -> Result<Replicated<F>, Error> {
         #[allow(clippy::cast_possible_truncation)]
-        let mut v = a[0];
-        for (i, &bit) in a[1..].iter().enumerate() {
-            v = or(ctx.narrow(&BitOpStep::Step(k + i)), record_id, v, bit).await?;
+        let mut v = a[0].clone();
+        for (i, bit) in a[1..].iter().enumerate() {
+            v = or(ctx.narrow(&BitOpStep::Step(k + i)), record_id, &v, bit).await?;
         }
         Ok(v)
     }
@@ -81,7 +81,7 @@ impl PrefixOr {
         let mut y = Vec::with_capacity(lambda);
         y.push(x[0].clone());
         for i in 1..lambda {
-            let result = or(ctx.narrow(&BitOpStep::Step(i)), record_id, y[i - 1], x[i]).await?;
+            let result = or(ctx.narrow(&BitOpStep::Step(i)), record_id, &y[i - 1], &x[i]).await?;
             y.push(result);
         }
         Ok(y)
@@ -167,7 +167,7 @@ impl PrefixOr {
         let mut b = Vec::with_capacity(lambda);
         b.push(c[0].clone());
         for j in 1..lambda {
-            let result = or(ctx.narrow(&BitOpStep::Step(j)), record_id, b[j - 1], c[j]).await?;
+            let result = or(ctx.narrow(&BitOpStep::Step(j)), record_id, &b[j - 1], &c[j]).await?;
             b.push(result);
         }
         Ok(b)
