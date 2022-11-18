@@ -18,8 +18,8 @@ use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 
 pub use sharing::{
-    share, share_malicious, validate_and_reconstruct, validate_list_of_shares,
-    validate_list_of_shares_malicious,
+    share, share_malicious, shared_bits, transpose, validate_and_reconstruct,
+    validate_list_of_shares, validate_list_of_shares_malicious,
 };
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,

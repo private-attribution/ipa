@@ -230,37 +230,51 @@ impl AsRef<str> for Step {
 mod tests {
     use super::Carries;
     use crate::error::Error;
-    use crate::ff::{Field, Fp31, Fp32BitPrime, Int};
+    use crate::ff::{Field, Fp31, Fp32BitPrime};
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::{QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, shared_bits, transpose, validate_and_reconstruct, TestWorld,
     };
     use futures::future::try_join_all;
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
+    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng};
+    use std::iter::zip;
 
-    /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
-    fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
-        x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
-    }
+    // `Carries<Fp32BitPrime>` takes ~0.4sec...
+    const TEST_TRIES: usize = 5;
 
-    /// Take a field value `x` and turn them into replicated bitwise sharings of three
-    fn shared_bits<F: Field, R: RngCore>(x: F, rand: &mut R) -> Vec<[Replicated<F>; 3]>
+    /// Computes carries of `a + b ⊆ F`
+    fn expected_carry_bits<F: Field>(a: &[F], b: &[F]) -> Vec<F>
     where
         Standard: Distribution<F>,
     {
-        let x = x.as_u128();
-        (0..F::Integer::BITS)
-            .map(|i| share(F::from(x >> i & 1), rand))
-            .collect::<Vec<_>>()
+        let mut carry = false;
+        let mut expected = Vec::with_capacity(a.len());
+        zip(a, b).for_each(|(&a_bit, &b_bit)| {
+            if a_bit + b_bit == F::from(2_u128) {
+                expected.push(F::ONE);
+                carry = true;
+            } else if a_bit + b_bit == F::ONE && carry {
+                expected.push(F::ONE);
+            } else {
+                expected.push(F::ZERO);
+                carry = false;
+            }
+        });
+        expected
     }
 
-    async fn carries<F: Field>(a: F, b: F) -> Result<Vec<F>, Error>
+    async fn carries<F: Field>(
+        ctx: [ProtocolContext<'_, Replicated<F>, F>; 3],
+        record_id: RecordId,
+        a: F,
+        b: F,
+    ) -> Result<Vec<F>, Error>
     where
         Standard: Distribution<F>,
     {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<F>(&world);
+        let [c0, c1, c2] = ctx;
         let mut rand = StepRng::new(1, 1);
 
         // Generate secret shares
@@ -268,23 +282,22 @@ mod tests {
         let b_bits = shared_bits(b, &mut rand);
 
         // Execute
-        let step = "Carries_Test";
         let result = try_join_all(vec![
             Carries::execute(
-                ctx[0].narrow(step),
-                RecordId::from(0_u32),
+                c0.bind(record_id),
+                record_id,
                 &transpose(&a_bits, 0),
                 &transpose(&b_bits, 0),
             ),
             Carries::execute(
-                ctx[1].narrow(step),
-                RecordId::from(0_u32),
+                c1.bind(record_id),
+                record_id,
                 &transpose(&a_bits, 1),
                 &transpose(&b_bits, 1),
             ),
             Carries::execute(
-                ctx[2].narrow(step),
-                RecordId::from(0_u32),
+                c2.bind(record_id),
+                record_id,
                 &transpose(&a_bits, 2),
                 &transpose(&b_bits, 2),
             ),
@@ -301,102 +314,69 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let c = Fp31::from;
-        let zero = Fp31::ZERO;
-        let one = Fp31::ONE;
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts::<Fp31>(&world);
+        let [c0, c1, c2] = ctx;
+        let mut rng = rand::thread_rng();
 
-        // 0 + 0 -> no carry
-        assert_eq!(
-            vec![zero, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(0_u8), c(0)).await?
-        );
-        // 0 + 0 -> no carry
-        assert_eq!(
-            vec![zero, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(1), c(0)).await?
-        );
-        // 01 + 01 -> carry at i=0
-        assert_eq!(
-            vec![one, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(1), c(1)).await?
-        );
-        // 10 + 01 -> no carry
-        assert_eq!(
-            vec![zero, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(2), c(1)).await?
-        );
-        // 10 + 10 -> carry at i=1
-        assert_eq!(
-            vec![zero, one, zero, zero, zero, zero, zero, zero],
-            carries(c(2), c(2)).await?
-        );
-        // 11 + 01 -> carries at i=0,1
-        assert_eq!(
-            vec![one, one, zero, zero, zero, zero, zero, zero],
-            carries(c(3), c(1)).await?
-        );
-        // 0101 + 0101 -> carries at i=0,2
-        assert_eq!(
-            vec![one, zero, one, zero, zero, zero, zero, zero],
-            carries(c(5), c(5)).await?
-        );
-        // 1111 + 0001 -> carries at i=0,1,2,3,
-        assert_eq!(
-            vec![one, one, one, one, zero, zero, zero, zero],
-            carries(c(15), c(1)).await?
-        );
-        // 0001 1110 + 0000 0011 -> carries at i=2,3,4,5
-        assert_eq!(
-            vec![zero, one, one, one, one, zero, zero, zero],
-            carries(c(30), c(3)).await?
-        );
+        for i in 0..TEST_TRIES {
+            let (a, b) = (rng.gen::<Fp31>(), rng.gen::<Fp31>());
+            let (a_bits, b_bits): (Vec<Fp31>, Vec<Fp31>) = (0..<Fp31 as Field>::Integer::BITS)
+                .map(|i| {
+                    (
+                        Fp31::from(a.as_u128() >> i & 1),
+                        Fp31::from(b.as_u128() >> i & 1),
+                    )
+                })
+                .unzip();
+
+            let expected = expected_carry_bits(&a_bits, &b_bits);
+            assert_eq!(
+                expected,
+                carries(
+                    [c0.clone(), c1.clone(), c2.clone()],
+                    RecordId::from(i),
+                    a,
+                    b,
+                )
+                .await?
+            );
+        }
 
         Ok(())
     }
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let c = Fp32BitPrime::from;
-        let zero = Fp32BitPrime::ZERO;
-        let one = Fp32BitPrime::ONE;
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts::<Fp32BitPrime>(&world);
+        let [c0, c1, c2] = ctx;
+        let mut rng = rand::thread_rng();
 
-        assert_eq!(
-            vec![
-                zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                zero, zero, zero, zero,
-            ],
-            carries(c(0_u32), c(1)).await?
-        );
-        assert_eq!(
-            vec![
-                one, zero, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
-                one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, zero,
-            ],
-            carries(c(2_147_483_645), c(2_147_483_645)).await?
-        );
-        assert_eq!(
-            vec![
-                one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
-                one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, zero,
-            ],
-            carries(c(2_147_483_647), c(1)).await?
-        );
-        assert_eq!(
-            vec![
-                zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                zero, zero, zero, one,
-            ],
-            carries(c(2_147_483_648), c(2_147_483_648)).await?
-        );
-        assert_eq!(
-            vec![
-                zero, zero, zero, one, one, one, one, one, one, one, one, one, one, one, one, one,
-                one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
-            ],
-            carries(c(4_294_967_290), c(8)).await?
-        );
+        for i in 0..TEST_TRIES {
+            let (a, b) = (rng.gen::<Fp32BitPrime>(), rng.gen::<Fp32BitPrime>());
+            let (a_bits, b_bits): (Vec<Fp32BitPrime>, Vec<Fp32BitPrime>) = (0
+                ..<Fp32BitPrime as Field>::Integer::BITS)
+                .map(|i| {
+                    (
+                        Fp32BitPrime::from(a.as_u128() >> i & 1),
+                        Fp32BitPrime::from(b.as_u128() >> i & 1),
+                    )
+                })
+                .unzip();
+
+            let expected = expected_carry_bits(&a_bits, &b_bits);
+            assert_eq!(
+                expected,
+                carries(
+                    [c0.clone(), c1.clone(), c2.clone()],
+                    RecordId::from(i),
+                    a,
+                    b,
+                )
+                .await?
+            );
+        }
 
         Ok(())
     }

@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use crate::ff::Field;
+use crate::ff::{Field, Int};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use rand::{
     distributions::{Distribution, Standard},
@@ -38,6 +38,17 @@ where
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
+}
+
+/// Take a field value `x` and turn them into replicated bitwise sharings of three
+pub fn shared_bits<F: Field, R: RngCore>(x: F, rand: &mut R) -> Vec<[Replicated<F>; 3]>
+where
+    Standard: Distribution<F>,
+{
+    let x = x.as_u128();
+    (0..F::Integer::BITS)
+        .map(|i| share(F::from((x >> i) & 1), rand))
+        .collect::<Vec<_>>()
 }
 
 /// Validates correctness of the secret sharing scheme.
@@ -92,4 +103,9 @@ pub fn validate_list_of_shares_malicious<F: Field>(
         assert_eq!(revealed, F::from(*expected));
         validate_and_reconstruct(result[0][i].rx(), result[1][i].rx(), result[2][i].rx());
     }
+}
+
+/// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
+pub fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
+    x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
 }

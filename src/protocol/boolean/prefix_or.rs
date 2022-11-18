@@ -306,24 +306,29 @@ mod tests {
     use crate::{
         error::Error,
         ff::{Field, Fp2, Fp31},
-        protocol::{QueryId, RecordId},
+        protocol::{context::ProtocolContext, QueryId, RecordId},
         secret_sharing::Replicated,
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{
+            logging, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        },
     };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
     use rand::{rngs::mock::StepRng, Rng};
     use std::iter::zip;
 
-    const BITS: [usize; 2] = [16, 32];
+    const BITS: [usize; 1] = [32];
     const TEST_TRIES: usize = 16;
 
-    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, Error>
+    async fn prefix_or<F: Field>(
+        ctx: [ProtocolContext<'_, Replicated<F>, F>; 3],
+        record_id: RecordId,
+        input: &[F],
+    ) -> Result<Vec<F>, Error>
     where
         Standard: Distribution<F>,
     {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<F>(&world);
+        let [c0, c1, c2] = ctx;
         let mut rand = StepRng::new(1, 1);
 
         // Generate secret shares
@@ -337,11 +342,10 @@ mod tests {
             .unzip();
 
         // Execute
-        let step = "PrefixOr_Test";
         let result = try_join_all([
-            PrefixOr::execute(ctx[0].narrow(step), RecordId::from(0), &s0),
-            PrefixOr::execute(ctx[1].narrow(step), RecordId::from(0), &s1),
-            PrefixOr::execute(ctx[2].narrow(step), RecordId::from(0), &s2),
+            PrefixOr::execute(c0.bind(record_id), record_id, &s0),
+            PrefixOr::execute(c1.bind(record_id), record_id, &s1),
+            PrefixOr::execute(c2.bind(record_id), record_id, &s2),
         ])
         .await
         .unwrap();
@@ -358,13 +362,16 @@ mod tests {
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_2
     pub async fn fp2() -> Result<(), Error> {
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts::<Fp2>(&world);
+        let [c0, c1, c2] = ctx;
         let mut rng = rand::thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
         // so this test covers inputs that have all 0's in 5 first bits.
-        for len in BITS {
-            for _ in 0..TEST_TRIES {
+        for (i, len) in BITS.into_iter().enumerate() {
+            for j in 0..TEST_TRIES {
                 let input: Vec<Fp2> = (0..len).map(|_| Fp2::from(rng.gen::<bool>())).collect();
                 let mut expected: Vec<Fp2> = Vec::with_capacity(len);
 
@@ -374,7 +381,13 @@ mod tests {
                     acc | x
                 });
 
-                let result = prefix_or(&input).await?;
+                // Execute the protocol
+                let result = prefix_or(
+                    [c0.clone(), c1.clone(), c2.clone()],
+                    RecordId::from(i * TEST_TRIES + j),
+                    &input,
+                )
+                .await?;
 
                 // Verify
                 assert_eq!(expected.len(), result.len());
@@ -388,13 +401,18 @@ mod tests {
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_p (i.e. Fp31)
     pub async fn fp31() -> Result<(), Error> {
+        logging::setup();
+
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts::<Fp31>(&world);
+        let [c0, c1, c2] = ctx;
         let mut rng = rand::thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
         // so this test covers inputs that have all 0's in 5 first bits.
-        for len in BITS {
-            for _ in 0..TEST_TRIES {
+        for (i, len) in BITS.into_iter().enumerate() {
+            for j in 0..TEST_TRIES {
                 // Generate a vector of Fp31::ZERO or Fp31::ONE from randomly picked bool values
                 let input: Vec<Fp31> = (0..len)
                     .map(|_| Fp31::from(u128::from(rng.gen::<bool>())))
@@ -408,7 +426,13 @@ mod tests {
                     sum
                 });
 
-                let result = prefix_or(&input).await?;
+                // Execute the protocol
+                let result = prefix_or(
+                    [c0.clone(), c1.clone(), c2.clone()],
+                    RecordId::from(i * TEST_TRIES + j),
+                    &input,
+                )
+                .await?;
 
                 // Verify
                 assert_eq!(expected.len(), result.len());
