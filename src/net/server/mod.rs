@@ -2,8 +2,8 @@ pub mod handlers;
 
 use crate::{
     error::BoxError,
-    helpers::network::MessageChunks,
-    net::{http_network::HttpNetwork, LastSeenMessages},
+    helpers::{http::HttpNetwork, network::MessageChunks},
+    net::LastSeenMessages,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -230,6 +230,19 @@ impl MpcHelperServer {
             .route("/echo", get(handlers::echo_handler))
     }
 
+    /// Adds a mapping between [`QueryId`] and [`HttpNetwork`] so that the server knows where to
+    /// forward arriving data.
+    /// # Errors
+    /// if a query has been previously added
+    pub fn add_query(
+        &self,
+        query_id: QueryId,
+        network: HttpNetwork,
+    ) -> Result<(), MpcHelperServerError> {
+        self.message_send_map
+            .insert_if_not_present(query_id, network)
+    }
+
     /// Starts a new instance of MPC helper and binds it to a given target.
     /// Returns a socket it is listening to and the join handle of the web server running.
     pub async fn bind(&self, target: BindTarget) -> (SocketAddr, JoinHandle<()>) {
@@ -393,11 +406,12 @@ mod tests {
 
 #[cfg(test)]
 mod e2e_tests {
-    use crate::net::http_network::HttpNetwork;
-    use crate::net::server::handlers::EchoData;
-    use crate::net::server::{BindTarget, MessageSendMap, MpcHelperServer};
-    use crate::protocol::QueryId;
-    use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
+    use crate::{
+        helpers::http::HttpNetwork,
+        net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
+        protocol::QueryId,
+        telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED},
+    };
     use hyper::{
         body,
         client::HttpConnector,

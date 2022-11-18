@@ -1,17 +1,20 @@
-use std::ops::{Index, IndexMut};
-use tinyvec::ArrayVec;
-
-mod buffers;
-mod error;
+pub mod http;
 pub mod messaging;
 pub mod network;
 
-use crate::helpers::Direction::{Left, Right};
-use crate::helpers::Role::{H1, H2, H3};
+mod buffers;
+mod error;
+
 pub use buffers::SendBufferConfig;
-pub use error::Error;
-pub use error::Result;
+pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
+
+use crate::helpers::{
+    Direction::{Left, Right},
+    Role::{H1, H2, H3},
+};
+use std::ops::{Index, IndexMut};
+use tinyvec::ArrayVec;
 
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
@@ -21,7 +24,7 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// may be `H2` or `H3`.
 /// Each helper instance must be able to take any role, but once the role is assigned, it cannot
 /// be changed for the remainder of the query.
-#[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Hash, Eq, clap::ValueEnum)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Deserialize),

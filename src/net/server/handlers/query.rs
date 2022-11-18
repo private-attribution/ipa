@@ -109,6 +109,8 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
     let channel_id = req.extensions().get::<ChannelId>().unwrap().clone();
     let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();
 
+    tracing::debug!("received {} bytes from {channel_id:?}", body.len());
+
     // send data
     let permit = req
         .extensions_mut()
@@ -123,10 +125,10 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
 mod tests {
     use super::*;
     use crate::{
-        helpers::{network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{http::HttpNetwork, network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
-            http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer,
-            CONTENT_LENGTH_HEADER_NAME, OFFSET_HEADER_NAME,
+            server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
+            OFFSET_HEADER_NAME,
         },
     };
     use axum::body::Bytes;

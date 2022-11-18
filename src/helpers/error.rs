@@ -5,6 +5,7 @@ use crate::{
         network::{ChannelId, MessageChunks, MessageEnvelope},
         Role,
     },
+    net::MpcHelperServerError,
     protocol::{RecordId, Step},
 };
 use thiserror::Error;
@@ -43,6 +44,8 @@ pub enum Error {
         #[from]
         inner: BoxError,
     },
+    #[error("server encountered an error: {0}")]
+    ServerError(#[from] MpcHelperServerError),
 }
 
 impl Error {

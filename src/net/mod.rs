@@ -5,20 +5,16 @@ mod client;
 mod server;
 
 pub mod discovery;
-pub mod http_network;
 
-pub use client::MpcHelperClient;
+pub use client::{HttpSendMessagesArgs, MpcHelperClient};
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
-pub use server::{BindTarget, MessageSendMap, MpcHelperServer};
+pub use server::{BindTarget, MessageSendMap, MpcHelperServer, MpcHelperServerError};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use crate::{
-    helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
-    net::server::MpcHelperServerError,
-};
+use crate::helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES};
 use async_trait::async_trait;
 use axum::{
     extract::{FromRequest, RequestParts},

@@ -77,8 +77,8 @@ impl FromStr for Conf {
 }
 
 impl PeerDiscovery for Conf {
-    fn peers(&self) -> &[peer::Config; 3] {
-        &self.peers
+    fn peers(&self) -> [peer::Config; 3] {
+        self.peers.clone()
     }
 }
 

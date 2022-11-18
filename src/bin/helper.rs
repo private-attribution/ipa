@@ -1,10 +1,17 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-use raw_ipa::cli::Verbosity;
-use raw_ipa::net::{BindTarget, MessageSendMap, MpcHelperServer};
+use raw_ipa::{
+    cli::Verbosity,
+    ff::Fp31,
+    helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
+    net::{discovery::conf::Conf, BindTarget, MessageSendMap, MpcHelperServer},
+    protocol::{context::ProtocolContext, QueryId, RecordId},
+    secret_sharing::Replicated,
+};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::panic;
+use std::str::FromStr;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -13,6 +20,10 @@ struct Args {
     /// Configure logging.
     #[clap(flatten)]
     logging: Verbosity,
+
+    /// Indicates which role this helper is
+    #[arg(short, long, value_enum)]
+    role: Role,
 
     /// Port to listen. If not specified, will ask Kernel to assign the port
     #[arg(short, long)]
