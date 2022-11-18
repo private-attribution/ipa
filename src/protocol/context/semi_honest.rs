@@ -1,14 +1,16 @@
-use std::borrow::Cow;
-use std::marker::PhantomData;
-use std::sync::Arc;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::context::{ContextInner, MaliciousProtocolContext, ProtocolContext};
 use crate::protocol::malicious::SecurityValidatorAccumulator;
+use crate::protocol::prss::{
+    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
+};
 use crate::protocol::{Step, Substep};
-use crate::protocol::prss::{Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness};
 use crate::secret_sharing::Replicated;
+use std::borrow::Cow;
+use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.

@@ -1,13 +1,15 @@
-use std::sync::Arc;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::mul::SecureMul;
+use crate::protocol::prss::{
+    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
+};
 use crate::protocol::reveal::Reveal;
 use crate::protocol::share_of_one::ShareOfOne;
 use crate::protocol::{Step, Substep};
-use crate::protocol::prss::{Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness};
 use crate::secret_sharing::SecretSharing;
+use std::sync::Arc;
 
 mod malicious;
 mod semi_honest;
@@ -91,4 +93,3 @@ impl<'a> ContextInner<'a> {
         }
     }
 }
-

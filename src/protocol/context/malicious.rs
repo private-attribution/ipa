@@ -1,13 +1,15 @@
-use std::borrow::Cow;
-use std::sync::Arc;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::context::{ContextInner, ProtocolContext, SemiHonestProtocolContext};
 use crate::protocol::malicious::SecurityValidatorAccumulator;
+use crate::protocol::prss::{
+    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
+};
 use crate::protocol::{Step, Substep};
-use crate::protocol::prss::{Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use std::borrow::Cow;
+use std::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -17,7 +19,6 @@ pub struct MaliciousProtocolContext<'a, F: Field> {
     accumulator: SecurityValidatorAccumulator<F>,
     r_share: Replicated<F>,
 }
-
 
 impl<'a, F: Field> MaliciousProtocolContext<'a, F> {
     pub fn new(

@@ -80,6 +80,12 @@ impl Step {
     /// value of the step doesn't include '/' (which would lead to a bad outcome).
     #[must_use]
     pub fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            let s = String::from(step.as_ref());
+            assert!(!s.contains('/'), "The string for a step cannot contain '/'");
+        }
+
         Self {
             id: self.id.clone() + "/" + step.as_ref(),
         }
