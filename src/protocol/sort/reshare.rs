@@ -6,6 +6,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// Reshare(i, \[x\])
 // This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
@@ -36,7 +37,7 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
     pub async fn execute(
         self,
-        ctx: &ProtocolContext<'_, Replicated<F>, F>,
+        ctx: &SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Replicated<F>, BoxError> {

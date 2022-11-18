@@ -1,12 +1,13 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::secret_sharing::Replicated;
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - 2[ab]`
 pub async fn or<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -27,6 +28,7 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::rngs::mock::StepRng;
+    use crate::protocol::context::ProtocolContext;
 
     async fn or_fp31(a: Fp31, b: Fp31) -> Result<Fp31, Error> {
         let world: TestWorld = make_world(QueryId);

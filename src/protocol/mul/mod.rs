@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::ProtocolContext;
+use crate::protocol::context::{MaliciousProtocolContext, ProtocolContext, SemiHonestProtocolContext};
 use crate::protocol::RecordId;
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
@@ -27,7 +27,7 @@ pub use {malicious::SecureMul as MaliciouslySecureMul, semi_honest::SecureMul as
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
+impl<F: Field> SecureMul<F> for SemiHonestProtocolContext<'_, F> {
     type Share = Replicated<F>;
 
     async fn multiply(
@@ -42,7 +42,7 @@ impl<F: Field> SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
+impl<F: Field> SecureMul<F> for MaliciousProtocolContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn multiply(

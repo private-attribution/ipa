@@ -9,6 +9,7 @@ use crate::{
 
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
+use crate::protocol::context::SemiHonestProtocolContext;
 
 pub struct XorShares {
     num_bits: u8,
@@ -107,7 +108,7 @@ impl ConvertShares {
     /// And helper 3 has shares:
     /// a: (0, x1) and b: (0, 0)
     async fn xor_specialized_1<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
@@ -133,7 +134,7 @@ impl ConvertShares {
     /// And helper 3 has shares:
     /// (x3, 0)
     async fn xor_specialized_2<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
@@ -145,7 +146,7 @@ impl ConvertShares {
 
     pub async fn execute_one_bit<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         bit_index: u8,
     ) -> Result<Replicated<F>, Error> {
@@ -168,7 +169,7 @@ impl ConvertShares {
 /// For a given vector of input shares, this returns a vector of modulus converted replicated shares of
 /// `bit_index` of each input.
 pub async fn convert_shares_for_a_bit<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     input: &[(u64, u64)],
     num_bits: u8,
     bit_index: u8,
@@ -204,6 +205,7 @@ mod tests {
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use std::iter::{repeat, zip};
+    use crate::protocol::context::ProtocolContext;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct ModulusConversionTestStep {

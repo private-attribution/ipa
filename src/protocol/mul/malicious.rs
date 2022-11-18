@@ -7,6 +7,7 @@ use crate::protocol::{
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
+use crate::protocol::context::{MaliciousProtocolContext, SemiHonestProtocolContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -47,7 +48,7 @@ impl AsRef<str> for Step {
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
 pub struct SecureMul<'a, F: Field> {
-    ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
+    ctx: MaliciousProtocolContext<'a, F>,
     record_id: RecordId,
     accumulator: SecurityValidatorAccumulator<F>,
 }
@@ -55,7 +56,7 @@ pub struct SecureMul<'a, F: Field> {
 impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
     pub fn new(
-        ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
+        ctx: MaliciousProtocolContext<'a, F>,
         record_id: RecordId,
         accumulator: SecurityValidatorAccumulator<F>,
     ) -> Self {

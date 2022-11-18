@@ -13,6 +13,7 @@ use crate::{
 
 use super::{compose::compose, secureapplyinv::secureapplyinv};
 use embed_doc_image::embed_doc_image;
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -33,9 +34,9 @@ use embed_doc_image::embed_doc_image;
 /// 3  Compute bit permutation that sorts ith bit
 /// 4. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-pub async fn generate_sort_permutation<'a, F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
-    input: &'a [(u64, u64)],
+pub async fn generate_sort_permutation<F: Field>(
+    ctx: SemiHonestProtocolContext<'_, F>,
+    input: &[(u64, u64)],
     num_bits: u8,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let ctx_0 = ctx.narrow(&Sort(0));

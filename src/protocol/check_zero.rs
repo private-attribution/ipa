@@ -7,6 +7,7 @@ use crate::{
     secret_sharing::Replicated,
 };
 use serde::{Deserialize, Serialize};
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -62,7 +63,7 @@ impl AsRef<str> for Step {
 /// back via the error response
 #[allow(dead_code)]
 pub async fn check_zero<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
@@ -87,6 +88,7 @@ pub mod tests {
     use crate::ff::{Field, Fp31};
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
     use crate::test_fixture::{make_contexts, make_world, share, TestWorld};
+    use crate::protocol::context::ProtocolContext;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {

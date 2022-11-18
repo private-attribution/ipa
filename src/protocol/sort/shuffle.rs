@@ -11,6 +11,7 @@ use crate::{
     protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Substep},
     secret_sharing::Replicated,
 };
+use crate::protocol::context::SemiHonestProtocolContext;
 
 use super::{
     apply::{apply, apply_inv},
@@ -88,7 +89,7 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
 #[allow(clippy::cast_possible_truncation)]
 async fn reshare_all_shares<F: Field>(
     input: Vec<Replicated<F>>,
-    ctx: &ProtocolContext<'_, Replicated<F>, F>,
+    ctx: &SemiHonestProtocolContext<'_, F>,
     to_helper: Role,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let reshares = input
@@ -112,7 +113,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
     mut input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
-    ctx: &ProtocolContext<'_, Replicated<F>, F>,
+    ctx: &SemiHonestProtocolContext<'_, F>,
     which_step: ShuffleStep,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let to_helper = shuffle_for_helper(which_step);
@@ -144,7 +145,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 pub async fn shuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let input = shuffle_or_unshuffle_once(
         input,
@@ -179,7 +180,7 @@ pub async fn shuffle_shares<F: Field>(
 pub async fn unshuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let input = shuffle_or_unshuffle_once(
         input,
@@ -228,6 +229,7 @@ mod tests {
         },
     };
     use futures::future::try_join_all;
+    use crate::protocol::context::ProtocolContext;
 
     #[test]
     fn random_sequence_generated() {

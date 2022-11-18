@@ -5,6 +5,7 @@ use crate::{
     protocol::{context::ProtocolContext, RecordId},
     secret_sharing::Replicated,
 };
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// A highly specialized variant of the IKHC multiplication protocol which is only valid
 /// in the case where 4 of the 6 shares are zero.
@@ -30,7 +31,7 @@ use crate::{
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -114,7 +115,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -200,6 +201,7 @@ pub mod tests {
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use crate::protocol::context::ProtocolContext;
 
     #[tokio::test]
     async fn specialized_1_sequence() -> Result<(), Error> {

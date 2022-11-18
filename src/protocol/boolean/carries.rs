@@ -5,6 +5,7 @@ use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
+use crate::protocol::context::SemiHonestProtocolContext;
 
 #[derive(Clone, Debug)]
 /// This struct represents set/propagate/kill bits used to compute the carries.
@@ -38,7 +39,7 @@ impl Carries {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
@@ -66,7 +67,7 @@ impl Carries {
     async fn step1<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let mul = zip(repeat(ctx), zip(a, b))
@@ -123,7 +124,7 @@ impl Carries {
     /// computes `([f_0],...,[f_l]) ← PRE○([e_0],...,[e_l])`.
     async fn step3<F: Field>(
         e: &[CarryPropagationShares<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<CarryPropagationShares<F>>, Error> {
         let l = e.len();
@@ -149,7 +150,7 @@ impl Carries {
     #[allow(clippy::many_single_char_names)]
     async fn fan_in_carry_propagation<F: Field>(
         e: &[CarryPropagationShares<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<CarryPropagationShares<F>, Error> {
         let l = e.len();
@@ -238,6 +239,7 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
+    use crate::protocol::context::ProtocolContext;
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {

@@ -11,6 +11,7 @@ use crate::{
 };
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
+use crate::protocol::context::SemiHonestProtocolContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -122,7 +123,7 @@ pub struct SecurityValidator<F: Field> {
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: ProtocolContext<'_, Replicated<F>, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: SemiHonestProtocolContext<'_, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RECORD_0);
@@ -157,7 +158,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), Error> {
+    pub async fn validate(self, ctx: SemiHonestProtocolContext<'_, F>) -> Result<(), Error> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -214,6 +215,7 @@ pub mod tests {
     };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
+    use crate::protocol::context::ProtocolContext;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -

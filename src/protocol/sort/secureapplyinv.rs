@@ -15,6 +15,7 @@ use super::{
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
 use futures::future::try_join;
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -37,7 +38,7 @@ use futures::future::try_join;
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
 pub async fn secureapplyinv<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     input: Vec<Replicated<F>>,
     sort_permutation: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {

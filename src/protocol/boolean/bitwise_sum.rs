@@ -2,6 +2,7 @@ use super::carries::Carries;
 use crate::error::BoxError;
 use crate::ff::Field;
 use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::secret_sharing::Replicated;
 
 /// This is an implementation of Bitwise Sum on bitwise-shared numbers.
@@ -31,7 +32,7 @@ impl BitwiseSum {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
@@ -91,6 +92,7 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng, RngCore};
+    use crate::protocol::context::ProtocolContext;
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking the `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {

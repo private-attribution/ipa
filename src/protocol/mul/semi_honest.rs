@@ -4,19 +4,20 @@ use crate::helpers::Direction;
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use std::fmt::Debug;
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<'a, F: Field> {
-    ctx: ProtocolContext<'a, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'a, F>,
     record_id: RecordId,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
-    pub fn new(ctx: ProtocolContext<'a, Replicated<F>, F>, record_id: RecordId) -> Self {
+    pub fn new(ctx: SemiHonestProtocolContext<'a, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -75,6 +76,7 @@ pub mod tests {
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
     use std::iter::{repeat, zip};
     use std::sync::atomic::{AtomicU32, Ordering};
+    use crate::protocol::context::SemiHonestProtocolContext;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
@@ -145,7 +147,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore, F: Field>(
-        context: [ProtocolContext<'_, Replicated<F>, F>; 3],
+        context: [SemiHonestProtocolContext<'_, F>; 3],
         a: u8,
         b: u8,
         rng: &mut R,

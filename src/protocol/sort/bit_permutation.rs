@@ -33,13 +33,10 @@ use futures::future::try_join_all;
 ///
 /// ## Errors
 /// It will propagate errors from multiplication protocol.
-pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>>(
-    ctx: ProtocolContext<'a, S, F>,
+pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: ProtocolContext<F, Share = S>>(
+    ctx: C,
     input: &[S],
-) -> Result<Vec<S>, BoxError>
-where
-    ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>,
-{
+) -> Result<Vec<S>, BoxError> {
     let share_of_one = ctx.share_of_one();
 
     let mult_input = zip(repeat(share_of_one.clone()), input)

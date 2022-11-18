@@ -1,7 +1,7 @@
-use std::iter::{repeat, zip};
+use std::iter::{repeat, Rev, zip};
 
 use crate::ff::Field;
-use crate::protocol::context::ProtocolContext;
+use crate::protocol::context::{MaliciousProtocolContext, ProtocolContext, SemiHonestProtocolContext};
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use crate::{
     error::{BoxError, Error},
@@ -11,6 +11,7 @@ use crate::{
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::{try_join, try_join_all};
+use crate::protocol::malicious::SecurityValidator;
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
@@ -25,6 +26,7 @@ pub trait Reveal {
     async fn reveal<F: Field>(self, record: RecordId, input: &Self::Share<F>) -> Result<F, Error>;
 }
 
+
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
 /// each helper has all three shares and can reconstruct `a`
@@ -38,7 +40,7 @@ pub trait Reveal {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<G: Field> Reveal for ProtocolContext<'_, Replicated<G>, G> {
+impl<G: Field> Reveal for SemiHonestProtocolContext<'_, G> {
     type Share<F: Field> = Replicated<F>;
 
     async fn reveal<F: Field>(
@@ -67,7 +69,7 @@ impl<G: Field> Reveal for ProtocolContext<'_, Replicated<G>, G> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<G: Field> Reveal for ProtocolContext<'_, MaliciousReplicated<G>, G> {
+impl<G: Field> Reveal for MaliciousProtocolContext<'_, G> {
     type Share<F: Field> = MaliciousReplicated<F>;
 
     async fn reveal<F: Field>(
@@ -103,7 +105,7 @@ impl<G: Field> Reveal for ProtocolContext<'_, MaliciousReplicated<G>, G> {
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
 pub async fn reveal_permutation<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestProtocolContext<'_, F>,
     permutation: &[Replicated<F>],
 ) -> Result<Vec<u32>, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
@@ -139,6 +141,7 @@ mod tests {
             make_contexts, make_world, share, share_malicious, validate_and_reconstruct, TestWorld,
         },
     };
+    use crate::protocol::context::MaliciousProtocolContext;
 
     #[tokio::test]
     pub async fn simple() -> Result<(), BoxError> {
@@ -223,7 +226,7 @@ mod tests {
     }
 
     pub async fn reveal_with_additive_attack<F: Field>(
-        ctx: ProtocolContext<'_, MaliciousReplicated<F>, F>,
+        ctx: MaliciousProtocolContext<'_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
         additive_error: F,

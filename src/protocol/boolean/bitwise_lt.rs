@@ -7,6 +7,7 @@ use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
+use crate::protocol::context::SemiHonestProtocolContext;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///
@@ -39,7 +40,7 @@ impl BitwiseLessThan {
     async fn step1<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
@@ -67,7 +68,7 @@ impl BitwiseLessThan {
     /// ```
     async fn step2<F: Field>(
         e: &mut [Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         e.reverse();
@@ -107,7 +108,7 @@ impl BitwiseLessThan {
     async fn step5<F: Field>(
         g: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let mul = zip(repeat(ctx), zip(g, b))
@@ -130,7 +131,7 @@ impl BitwiseLessThan {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
@@ -176,6 +177,7 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
+    use crate::protocol::context::ProtocolContext;
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {

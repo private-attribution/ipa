@@ -7,6 +7,7 @@ use crate::test_fixture::{
 };
 use futures_util::future::join_all;
 use rand::thread_rng;
+use crate::protocol::context::ProtocolContext;
 
 /// Creates an arithmetic circuit with the given width and depth.
 ///

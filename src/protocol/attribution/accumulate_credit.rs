@@ -12,6 +12,7 @@ use crate::{
 };
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
+use crate::protocol::context::SemiHonestProtocolContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -54,7 +55,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, Error> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -160,7 +161,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     }
 
     async fn get_accumulated_credit(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestProtocolContext<'_, F>,
         record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,
