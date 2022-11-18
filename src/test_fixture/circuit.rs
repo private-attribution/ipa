@@ -1,4 +1,5 @@
 use crate::ff::Field;
+use crate::protocol::context::ProtocolContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
@@ -7,7 +8,6 @@ use crate::test_fixture::{
 };
 use futures_util::future::join_all;
 use rand::thread_rng;
-use crate::protocol::context::ProtocolContext;
 
 /// Creates an arithmetic circuit with the given width and depth.
 ///

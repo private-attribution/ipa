@@ -1,10 +1,10 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use std::fmt::Debug;
-use crate::protocol::context::SemiHonestProtocolContext;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -66,8 +66,9 @@ pub mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
-    use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
-    use crate::secret_sharing::Replicated;
+    use crate::protocol::{QueryId, RecordId};
+
+    use crate::protocol::context::SemiHonestProtocolContext;
     use crate::test_fixture::{
         make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
@@ -76,7 +77,6 @@ pub mod tests {
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
     use std::iter::{repeat, zip};
     use std::sync::atomic::{AtomicU32, Ordering};
-    use crate::protocol::context::SemiHonestProtocolContext;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {

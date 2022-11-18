@@ -1,3 +1,4 @@
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::reveal::Reveal;
 use crate::{
@@ -7,7 +8,6 @@ use crate::{
     secret_sharing::Replicated,
 };
 use serde::{Deserialize, Serialize};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 /// A message sent by each helper when they've multiplied their own shares
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -86,9 +86,9 @@ pub async fn check_zero<F: Field>(
 pub mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
     use crate::test_fixture::{make_contexts, make_world, share, TestWorld};
-    use crate::protocol::context::ProtocolContext;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {

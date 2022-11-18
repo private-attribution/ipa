@@ -4,6 +4,7 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::{
     error::BoxError,
     ff::Field,
@@ -11,7 +12,6 @@ use crate::{
     protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Substep},
     secret_sharing::Replicated,
 };
-use crate::protocol::context::SemiHonestProtocolContext;
 
 use super::{
     apply::{apply, apply_inv},
@@ -213,6 +213,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::zip;
 
+    use crate::protocol::context::ProtocolContext;
     use crate::test_fixture::{logging, validate_list_of_shares};
     use crate::{
         ff::Fp31,
@@ -229,7 +230,6 @@ mod tests {
         },
     };
     use futures::future::try_join_all;
-    use crate::protocol::context::ProtocolContext;
 
     #[test]
     fn random_sequence_generated() {

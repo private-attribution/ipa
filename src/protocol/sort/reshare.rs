@@ -1,4 +1,5 @@
 use crate::ff::Field;
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::{
     error::BoxError,
     helpers::{Direction, Role},
@@ -6,7 +7,6 @@ use crate::{
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
-use crate::protocol::context::SemiHonestProtocolContext;
 
 /// Reshare(i, \[x\])
 // This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.

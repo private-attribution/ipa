@@ -1,11 +1,11 @@
 use super::{or::or, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 /// This is an implementation of Prefix-Or on bitwise-shared numbers.
 ///
@@ -304,6 +304,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::PrefixOr;
+    use crate::protocol::context::ProtocolContext;
     use crate::{
         error::Error,
         ff::{Field, Fp2, Fp31},
@@ -315,7 +316,6 @@ mod tests {
     use rand::distributions::{Distribution, Standard};
     use rand::{rngs::mock::StepRng, Rng};
     use std::iter::zip;
-    use crate::protocol::context::ProtocolContext;
 
     const BITS: [usize; 2] = [16, 32];
     const TEST_TRIES: usize = 16;

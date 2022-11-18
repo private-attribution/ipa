@@ -1,3 +1,4 @@
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::reveal::Reveal;
 use crate::{
     error::Error,
@@ -11,7 +12,6 @@ use crate::{
 };
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -204,6 +204,7 @@ pub mod tests {
 
     use crate::error::Error;
     use crate::ff::Fp31;
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{
         malicious::{SecurityValidator, Step},
@@ -215,7 +216,6 @@ pub mod tests {
     };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
-    use crate::protocol::context::ProtocolContext;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -

@@ -3,11 +3,10 @@ use std::iter::{repeat, zip};
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, context_traits::ShareOfOne, RecordId},
+    protocol::{context::ProtocolContext, RecordId},
     secret_sharing::SecretSharing,
 };
 
-use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
@@ -33,7 +32,12 @@ use futures::future::try_join_all;
 ///
 /// ## Errors
 /// It will propagate errors from multiplication protocol.
-pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: ProtocolContext<F, Share = S>>(
+pub async fn bit_permutation<
+    'a,
+    F: Field,
+    S: SecretSharing<F>,
+    C: ProtocolContext<F, Share = S>,
+>(
     ctx: C,
     input: &[S],
 ) -> Result<Vec<S>, BoxError> {

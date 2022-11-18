@@ -1,4 +1,5 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::mul::SecureMul;
 use crate::{
     error::Error,
@@ -12,7 +13,6 @@ use crate::{
 };
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {

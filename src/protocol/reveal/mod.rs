@@ -1,7 +1,9 @@
-use std::iter::{repeat, Rev, zip};
+use std::iter::{repeat, zip};
 
 use crate::ff::Field;
-use crate::protocol::context::{MaliciousProtocolContext, ProtocolContext, SemiHonestProtocolContext};
+use crate::protocol::context::{
+    MaliciousProtocolContext, ProtocolContext, SemiHonestProtocolContext,
+};
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use crate::{
     error::{BoxError, Error},
@@ -11,7 +13,6 @@ use crate::{
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::{try_join, try_join_all};
-use crate::protocol::malicious::SecurityValidator;
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
@@ -25,7 +26,6 @@ pub trait Reveal {
     /// Even in case when method never terminates, returns an error, etc.
     async fn reveal<F: Field>(self, record: RecordId, input: &Self::Share<F>) -> Result<F, Error>;
 }
-
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
 /// For simplicity, we consider a simple revealing in which each `P_i` sends `\[a\]_i` to `P_i+1` after which
@@ -128,6 +128,7 @@ mod tests {
     use proptest::prelude::Rng;
     use tokio::try_join;
 
+    use crate::protocol::context::MaliciousProtocolContext;
     use crate::test_fixture::make_malicious_contexts;
     use crate::{
         error::BoxError,
@@ -141,7 +142,6 @@ mod tests {
             make_contexts, make_world, share, share_malicious, validate_and_reconstruct, TestWorld,
         },
     };
-    use crate::protocol::context::MaliciousProtocolContext;
 
     #[tokio::test]
     pub async fn simple() -> Result<(), BoxError> {

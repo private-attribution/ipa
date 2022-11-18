@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::context::MaliciousProtocolContext;
 use crate::protocol::mul::SemiHonestMul;
 use crate::protocol::{
     context::ProtocolContext, malicious::SecurityValidatorAccumulator, RecordId,
@@ -7,7 +8,6 @@ use crate::protocol::{
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
-use crate::protocol::context::{MaliciousProtocolContext, SemiHonestProtocolContext};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {

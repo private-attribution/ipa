@@ -3,11 +3,11 @@ use super::xor::xor;
 use super::BitOpStep;
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///
@@ -168,6 +168,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::BitwiseLessThan;
+    use crate::protocol::context::ProtocolContext;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime, Int},
@@ -177,7 +178,6 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
-    use crate::protocol::context::ProtocolContext;
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {

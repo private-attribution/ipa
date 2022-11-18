@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{compose::compose, secureapplyinv::secureapplyinv};
-use embed_doc_image::embed_doc_image;
 use crate::protocol::context::SemiHonestProtocolContext;
+use embed_doc_image::embed_doc_image;
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"

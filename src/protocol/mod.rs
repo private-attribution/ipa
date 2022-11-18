@@ -3,12 +3,12 @@ mod batch;
 mod boolean;
 mod check_zero;
 pub mod context;
-pub mod context_traits;
 pub mod malicious;
 mod modulus_conversion;
 pub mod mul;
 pub mod prss;
 mod reveal;
+pub mod share_of_one;
 pub mod sort;
 
 use crate::error::Error;
@@ -16,11 +16,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
-#[cfg(debug_assertions)]
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -110,9 +105,7 @@ impl AsRef<str> for Step {
 impl From<&str> for Step {
     fn from(id: &str) -> Self {
         let id = id.strip_prefix('/').unwrap_or(id);
-        Step {
-            id: id.to_owned(),
-        }
+        Step { id: id.to_owned() }
     }
 }
 

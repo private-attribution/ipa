@@ -1,11 +1,11 @@
 use super::BitOpStep;
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 #[derive(Clone, Debug)]
 /// This struct represents set/propagate/kill bits used to compute the carries.
@@ -232,6 +232,7 @@ mod tests {
     use super::Carries;
     use crate::error::Error;
     use crate::ff::{Field, Fp31, Fp32BitPrime, Int};
+    use crate::protocol::context::ProtocolContext;
     use crate::protocol::{QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
@@ -239,7 +240,6 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
-    use crate::protocol::context::ProtocolContext;
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {

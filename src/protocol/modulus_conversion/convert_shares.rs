@@ -7,9 +7,9 @@ use crate::{
     secret_sharing::Replicated,
 };
 
+use crate::protocol::context::SemiHonestProtocolContext;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-use crate::protocol::context::SemiHonestProtocolContext;
 
 pub struct XorShares {
     num_bits: u8,
@@ -205,7 +205,6 @@ mod tests {
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use std::iter::{repeat, zip};
-    use crate::protocol::context::ProtocolContext;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
     struct ModulusConversionTestStep {

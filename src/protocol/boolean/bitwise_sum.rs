@@ -1,8 +1,8 @@
 use super::carries::Carries;
 use crate::error::BoxError;
 use crate::ff::Field;
-use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 
 /// This is an implementation of Bitwise Sum on bitwise-shared numbers.
@@ -83,6 +83,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::BitwiseSum;
+    use crate::protocol::context::ProtocolContext;
     use crate::{
         error::BoxError,
         ff::{Field, Fp31, Fp32BitPrime, Int},
@@ -92,7 +93,6 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng, RngCore};
-    use crate::protocol::context::ProtocolContext;
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking the `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {

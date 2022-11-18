@@ -14,8 +14,8 @@ use super::{
     apply::apply_inv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
-use futures::future::try_join;
 use crate::protocol::context::SemiHonestProtocolContext;
+use futures::future::try_join;
 
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"

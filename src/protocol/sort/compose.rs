@@ -1,3 +1,4 @@
+use crate::protocol::context::SemiHonestProtocolContext;
 use crate::{
     error::BoxError,
     ff::Field,
@@ -5,7 +6,6 @@ use crate::{
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
-use crate::protocol::context::SemiHonestProtocolContext;
 
 use super::{
     apply::apply,

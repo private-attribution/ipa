@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::{MaliciousProtocolContext, ProtocolContext, SemiHonestProtocolContext};
+use crate::protocol::context::{MaliciousProtocolContext, SemiHonestProtocolContext};
 use crate::protocol::RecordId;
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
