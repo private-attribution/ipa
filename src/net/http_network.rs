@@ -31,6 +31,8 @@ pub struct HttpNetwork {
 impl HttpNetwork {
     /// * Creates an [`HttpNetwork`]
     /// * spawns a task that consumes incoming data from the infra layer intended for other helpers
+    /// # Panics
+    /// if client is unable to send message to other helper
     #[must_use]
     #[allow(unused)]
     pub fn new<D: PeerDiscovery>(role: Role, peer_discovery: &D, query_id: QueryId) -> Self {
@@ -53,12 +55,7 @@ impl HttpNetwork {
                 };
                 *offset += 1;
 
-                clients[channel_id.role]
-                    .send_messages(args)
-                    .await
-                    .unwrap_or_else(|err| {
-                        tracing::error!("could not send message to client: {err}");
-                    });
+                clients[channel_id.role].send_messages(args).await.unwrap();
             }
         });
         HttpNetwork {
