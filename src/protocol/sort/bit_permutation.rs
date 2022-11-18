@@ -52,7 +52,7 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: ProtocolConte
             .enumerate()
             .map(|(i, (ctx, (x, sum)))| async move {
                 let record_id = RecordId::from(i);
-                ctx.bind(record_id).multiply(record_id, &x, &sum).await
+                ctx.multiply(record_id, &x, &sum).await
             });
     let mut mult_output = try_join_all(async_multiply).await?;
 

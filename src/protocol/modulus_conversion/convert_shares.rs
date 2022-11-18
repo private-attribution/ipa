@@ -182,7 +182,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
                 packed_bits_left: row.0,
                 packed_bits_right: row.1,
             })
-            .execute_one_bit(ctx.bind(record_id), record_id, bit_index)
+            .execute_one_bit(ctx, record_id, bit_index)
             .await
         },
     ))
@@ -248,19 +248,19 @@ mod tests {
                         packed_bits_left: share_0,
                         packed_bits_right: share_1,
                     })
-                    .execute_one_bit(c0.bind(record_id), record_id, 4),
+                    .execute_one_bit(c0, record_id, 4),
                     ConvertShares::new(XorShares {
                         num_bits: 40,
                         packed_bits_left: share_1,
                         packed_bits_right: share_2,
                     })
-                    .execute_one_bit(c1.bind(record_id), record_id, 4),
+                    .execute_one_bit(c1, record_id, 4),
                     ConvertShares::new(XorShares {
                         num_bits: 40,
                         packed_bits_left: share_2,
                         packed_bits_right: share_0,
                     })
-                    .execute_one_bit(c2.bind(record_id), record_id, 4),
+                    .execute_one_bit(c2, record_id, 4),
                 ])
                 .await
             }),

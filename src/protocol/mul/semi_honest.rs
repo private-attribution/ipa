@@ -122,13 +122,13 @@ pub mod tests {
                 async move {
                     try_join_all([
                         ctx[0]
-                            .bind(record_id)
+                            .clone()
                             .multiply(record_id, &a_shares[0], &b_shares[0]),
                         ctx[1]
-                            .bind(record_id)
+                            .clone()
                             .multiply(record_id, &a_shares[1], &b_shares[1]),
                         ctx[2]
-                            .bind(record_id)
+                            .clone()
                             .multiply(record_id, &a_shares[2], &b_shares[2]),
                     ])
                     .await

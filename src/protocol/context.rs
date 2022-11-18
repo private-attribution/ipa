@@ -40,11 +40,6 @@ pub trait ProtocolContext<F: Field> : Clone
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
 
-    /// Make a sub-context which is bound to a record in case the same step is bound to a different `record_id`
-    /// # Panics
-    /// Panics in case the context is already bound to the same `record_id`
-    fn bind(&self, record_id: RecordId) -> Self;
-
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.
     ///
@@ -112,11 +107,7 @@ impl <'a, F: Field> SemiHonestProtocolContext<'a, F> {
         let mut ctx = MaliciousProtocolContext::new(self.role, self.prss, self.gateway, accumulator, r_share);
         ctx.step = self.step;
 
-        if let Some(record_id) = self.record_id {
-            ctx.bind(record_id)
-        } else {
-            ctx
-        }
+        ctx
     }
 }
 
@@ -138,25 +129,6 @@ impl <'a, F: Field> ProtocolContext<F> for SemiHonestProtocolContext<'a, F> {
             prss: self.prss,
             gateway: self.gateway,
             record_id: self.record_id,
-            _field_marker: PhantomData::default(),
-        }
-    }
-
-    fn bind(&self, record_id: RecordId) -> Self {
-        if let Some(prev_record_id) = self.record_id {
-            panic!(
-                "Cannot bind to {record_id:?} because already bound to record: {prev_record_id:?}"
-            )
-        }
-
-        Self {
-            role: self.role,
-            // create a unique step that allows narrowing this context to the same step
-            // if it is bound to a different record id
-            step: Step::from_step_id(&self.step),
-            prss: self.prss,
-            gateway: self.gateway,
-            record_id: Some(record_id),
             _field_marker: PhantomData::default(),
         }
     }
@@ -207,22 +179,8 @@ impl <'a, F: Field> MaliciousProtocolContext<'a, F> {
     pub fn to_semi_honest(self) -> SemiHonestProtocolContext<'a, F> {
         let mut ctx = SemiHonestProtocolContext::new(self.role, self.prss, self.gateway);
         ctx.step = self.step;
-        if let Some(record_id) = self.record_id {
-            ctx.bind(record_id)
-        } else {
-            ctx
-        }
 
-        // ProtocolContext {
-        //     role: self.role,
-        //     step: self.step,
-        //     prss: self.prss,
-        //     gateway: self.gateway,
-        //     accumulator: None,
-        //     r_share: None,
-        //     record_id: self.record_id,
-        //     _marker: PhantomData::default(),
-        // }
+        ctx
     }
 }
 
@@ -250,25 +208,6 @@ impl <'a, F: Field> ProtocolContext<F> for MaliciousProtocolContext<'a, F> {
         }
     }
 
-    fn bind(&self, record_id: RecordId) -> Self {
-        if let Some(prev_record_id) = self.record_id {
-            panic!(
-                "Cannot bind to {record_id:?} because already bound to record: {prev_record_id:?}"
-            )
-        }
-
-        Self {
-            role: self.role,
-            // create a unique step that allows narrowing this context to the same step
-            // if it is bound to a different record id
-            step: Step::from_step_id(&self.step),
-            prss: self.prss,
-            gateway: self.gateway,
-            accumulator: self.accumulator.clone(),
-            r_share: self.r_share.clone(),
-            record_id: Some(record_id),
-        }
-    }
 
     fn prss(&self) -> Arc<IndexedSharedRandomness> {
         self.prss.indexed(self.step())
