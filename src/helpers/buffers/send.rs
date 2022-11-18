@@ -2,7 +2,7 @@ use crate::{
     helpers::{
         buffers::fsv::FixedSizeByteVec,
         network::{ChannelId, MessageEnvelope},
-        MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES,
+        MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::RecordId,
 };
@@ -31,14 +31,6 @@ pub enum PushError {
         record_id: RecordId,
         accepted_range: Range<RecordId>,
     },
-    #[error(
-        "Message with the same record id {record_id:?} has been already sent to {channel_id:?}"
-    )]
-    Duplicate {
-        channel_id: ChannelId,
-        record_id: RecordId,
-        previous_value: MessagePayload,
-    },
 }
 
 /// Send buffer configuration is defined over two parameters. `items_in_batch` indicates how many
@@ -50,8 +42,8 @@ pub enum PushError {
 /// in memory, `4` quadruples the capacity etc.
 #[derive(Debug, Copy, Clone)]
 pub struct Config {
-    pub items_in_batch: u32,
-    pub batch_count: u32,
+    pub items_in_batch: usize,
+    pub batch_count: usize,
 }
 
 impl Default for Config {
@@ -66,8 +58,8 @@ impl Default for Config {
 impl SendBuffer {
     pub fn new(config: Config) -> Self {
         Self {
-            items_in_batch: config.items_in_batch as usize,
-            batch_count: config.batch_count as usize,
+            items_in_batch: config.items_in_batch,
+            batch_count: config.batch_count,
             inner: HashMap::default(),
         }
     }
@@ -77,7 +69,7 @@ impl SendBuffer {
         channel_id: &ChannelId,
         msg: &MessageEnvelope,
     ) -> Result<Option<Vec<u8>>, PushError> {
-        assert!(
+        debug_assert!(
             msg.payload.len() <= ByteBuf::ELEMENT_SIZE_BYTES,
             "Message payload exceeds the maximum allowed size"
         );
@@ -87,12 +79,12 @@ impl SendBuffer {
         } else {
             self.inner
                 .entry(channel_id.clone())
-                .or_insert_with(|| FixedSizeByteVec::new(self.batch_count, self.items_in_batch))
+                .or_insert_with(|| FixedSizeByteVec::new(self.batch_count * self.items_in_batch))
         };
 
         // Make sure record id is within the accepted range and reject the request if it is not
-        let start = RecordId::from(u32::try_from(buf.elements_drained()).unwrap());
-        let end = RecordId::from(u32::try_from(buf.elements_drained() + buf.capacity()).unwrap());
+        let start = RecordId::from(u32::try_from(buf.taken()).unwrap());
+        let end = RecordId::from(u32::try_from(buf.taken() + buf.capacity()).unwrap());
 
         if !(start..end).contains(&msg.record_id) {
             return Err(PushError::OutOfRange {
@@ -105,24 +97,18 @@ impl SendBuffer {
         // Determine the offset for this record and insert the payload inside the buffer.
         // Message payload may be less than allocated capacity per element, if that's the case
         // payload will be extended to fill the gap.
-        let index: u32 = u32::from(msg.record_id) - u32::from(start);
+        let index = usize::from(msg.record_id) - usize::from(start);
+        // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
-        if let Some(v) = buf.insert(index as usize, payload) {
-            return Err(PushError::Duplicate {
-                record_id: msg.record_id,
-                channel_id: channel_id.clone(),
-                previous_value: v.try_into().unwrap(),
-            });
-        }
-
-        Ok(buf.take())
+        buf.insert(index, &payload);
+        Ok(buf.take(self.items_in_batch))
     }
 }
 
 impl Config {
     #[must_use]
-    pub fn batch_count(self, batch_count: u32) -> Self {
+    pub fn batch_count(self, batch_count: usize) -> Self {
         Self {
             items_in_batch: self.items_in_batch,
             batch_count,
@@ -130,7 +116,7 @@ impl Config {
     }
 
     #[must_use]
-    pub fn items_in_batch(self, items_in_batch: u32) -> Self {
+    pub fn items_in_batch(self, items_in_batch: usize) -> Self {
         Self {
             items_in_batch,
             batch_count: self.batch_count,
@@ -142,12 +128,11 @@ impl Config {
 mod tests {
     use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
     use crate::helpers::buffers::SendBuffer;
+    use crate::helpers::network::{ChannelId, MessageEnvelope};
     use crate::helpers::Role;
     use crate::protocol::{RecordId, Step};
-
+    use std::mem::drop;
     use tinyvec::array_vec;
-
-    use crate::helpers::network::{ChannelId, MessageEnvelope};
 
     impl Clone for MessageEnvelope {
         fn clone(&self) -> Self {
@@ -213,6 +198,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn rejects_duplicates() {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
         let channel = ChannelId::new(Role::H1, Step::default());
@@ -221,10 +207,7 @@ mod tests {
         let m2 = empty_msg(record_id);
 
         assert!(matches!(buf.push(&channel, &m1), Ok(None)));
-        assert!(matches!(
-            buf.push(&channel, &m2),
-            Err(PushError::Duplicate { .. })
-        ));
+        drop(buf.push(&channel, &m2));
     }
 
     #[test]

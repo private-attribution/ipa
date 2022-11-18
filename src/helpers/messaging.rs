@@ -169,7 +169,7 @@ impl Gateway {
                         receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender);
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
-                        tracing::trace!("received {} message(s) from {:?}", messages.len(), channel_id);
+                        tracing::trace!("received {} bytes from {:?}", messages.len(), channel_id);
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
@@ -245,5 +245,48 @@ impl Debug for ReceiveRequest {
             "ReceiveRequest({:?}, {:?})",
             self.channel_id, self.record_id
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ff::Fp31;
+    use crate::helpers::Role;
+    use crate::protocol::{QueryId, RecordId};
+    use crate::test_fixture::{make_contexts, make_world_with_config, TestWorldConfig};
+
+    #[tokio::test]
+    pub async fn handles_reordering() {
+        let mut config = TestWorldConfig::default();
+        config.gateway_config.send_buffer_config.items_in_batch = 1; // Send every record
+        config.gateway_config.send_buffer_config.batch_count = 3; // keep 3 at a time
+
+        let world = Box::leak(Box::new(make_world_with_config(QueryId, config)));
+        let contexts = make_contexts::<Fp31>(world);
+        let sender_ctx = contexts[0].narrow("reordering-test");
+        let recv_ctx = contexts[1].narrow("reordering-test");
+
+        // send record 1 first and wait for confirmation before sending record 0.
+        // when gateway received record 0 it triggers flush so it must make sure record 1 is also
+        // sent (same batch or different does not matter here)
+        tokio::spawn(async move {
+            let channel = sender_ctx.mesh();
+            channel
+                .send(Role::H2, RecordId::from(1), Fp31::from(1_u128))
+                .await
+                .unwrap();
+            channel
+                .send(Role::H2, RecordId::from(0), Fp31::from(0_u128))
+                .await
+                .unwrap();
+        });
+
+        // intentionally ignoring record 0 here
+        let v: Fp31 = recv_ctx
+            .mesh()
+            .receive(Role::H1, RecordId::from(1))
+            .await
+            .unwrap();
+        assert_eq!(Fp31::from(1_u128), v);
     }
 }
