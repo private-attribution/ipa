@@ -6,7 +6,6 @@ use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
 use crate::protocol::reveal::Reveal;
-use crate::protocol::share_of_one::ShareOfOne;
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::SecretSharing;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ pub use semi_honest::SemiHonestProtocolContext;
 pub trait ProtocolContext<F: Field>:
     Clone
     + SecureMul<F, Share = <Self as ProtocolContext<F>>::Share>
-    + ShareOfOne<F, Share = <Self as ProtocolContext<F>>::Share>
+    // + ShareOfOne<F, Share = <Self as ProtocolContext<F>>::Share>
     + Reveal
 {
     /// Secret sharing type this context supports.
@@ -61,6 +60,9 @@ pub trait ProtocolContext<F: Field>:
     /// Get a set of communications channels to different peers.
     #[must_use]
     fn mesh(&self) -> Mesh<'_, '_>;
+
+    /// Generates a new share of one
+    fn share_of_one(&self) -> <Self as ProtocolContext<F>>::Share;
 }
 
 /// Contains things that are applicable to any implementation of protocol context as see it today

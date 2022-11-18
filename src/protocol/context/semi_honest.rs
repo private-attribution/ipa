@@ -73,4 +73,8 @@ impl<'a, F: Field> ProtocolContext<F> for SemiHonestProtocolContext<'a, F> {
     fn mesh(&self) -> Mesh<'_, '_> {
         self.inner.gateway.mesh(self.step())
     }
+
+    fn share_of_one(&self) -> <Self as ProtocolContext<F>>::Share {
+        Replicated::one(self.role())
+    }
 }

@@ -8,7 +8,6 @@ mod modulus_conversion;
 pub mod mul;
 pub mod prss;
 mod reveal;
-pub mod share_of_one;
 pub mod sort;
 
 use crate::error::Error;

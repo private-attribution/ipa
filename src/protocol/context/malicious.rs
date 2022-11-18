@@ -46,10 +46,6 @@ impl<'a, F: Field> MaliciousProtocolContext<'a, F> {
         }
     }
 
-    pub fn r_share(&self) -> &Replicated<F> {
-        &self.r_share
-    }
-
     pub fn accumulator(&self) -> SecurityValidatorAccumulator<F> {
         self.accumulator.clone()
     }
@@ -97,5 +93,9 @@ impl<'a, F: Field> ProtocolContext<F> for MaliciousProtocolContext<'a, F> {
 
     fn mesh(&self) -> Mesh<'_, '_> {
         self.inner.gateway.mesh(self.step())
+    }
+
+    fn share_of_one(&self) -> <Self as ProtocolContext<F>>::Share {
+        MaliciousReplicated::one(self.role(), self.r_share.clone())
     }
 }
