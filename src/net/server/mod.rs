@@ -1,3 +1,5 @@
+pub mod handlers;
+
 use crate::{
     error::BoxError,
     helpers::network::MessageChunks,
@@ -23,8 +25,6 @@ use thiserror::Error;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
-
-pub mod handlers;
 
 #[derive(Error, Debug)]
 pub enum MpcHelperServerError {

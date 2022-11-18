@@ -71,28 +71,32 @@ pub async fn obtain_permit_mw<B: Send>(
     req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, MpcHelperServerError> {
+    // extract everything from the request; middleware cannot have these in the function signature
     let mut req_parts = RequestParts::new(req);
-    let Path(query_id, step) = Path::from_request(&mut req_parts).await?;
-    let Query(RoleQueryParam { role }) =
-        Query::<RoleQueryParam>::from_request(&mut req_parts).await?;
-    let record_headers = RecordHeaders::from_request(&mut req_parts).await?;
-    let Extension(last_seen_messages) =
-        Extension::<LastSeenMessages>::from_request(&mut req_parts).await?;
+    let Path(query_id, step) = req_parts.extract().await?;
+    // TODO: we shouldn't trust the client to tell us their role.
+    //       revisit when we have figured out discovery/handshake
+    let Query(RoleQueryParam { role }) = req_parts.extract().await?;
+    let record_headers = req_parts.extract::<RecordHeaders>().await?;
+    let Extension::<LastSeenMessages>(last_seen_messages) = req_parts.extract().await?;
+    let Extension::<MessageSendMap>(message_send_map) = req_parts.extract().await?;
+
     // PANIC if messages arrive out of order; pretty print the error
     // TODO (ts): remove this when streaming solution is complete
-    last_seen_messages.update_in_place(&ChannelId::new(role, step), record_headers.offset);
+    let channel_id = ChannelId::new(role, step);
+    last_seen_messages.update_in_place(&channel_id, record_headers.offset);
 
-    let Extension(message_send_map) =
-        Extension::<MessageSendMap>::from_request(&mut req_parts).await?;
-
+    // get sender to correct network
     let sender = message_send_map.get(query_id)?;
     let permit = sender.reserve_owned().await?;
+
+    // insert different parts as extensions so that handler doesn't need to extract again
+    req_parts.extensions_mut().insert(channel_id);
     req_parts
         .extensions_mut()
         .insert(ReservedPermit::new(permit));
-    let req = req_parts
-        .try_into_request()
-        .expect("request body should not have been modified");
+
+    let req = req_parts.try_into_request().unwrap();
     Ok(next.run(req).await)
 }
 
@@ -100,21 +104,9 @@ pub async fn obtain_permit_mw<B: Send>(
 /// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
 /// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
-pub async fn handler(
-    path: Path,
-    // TODO: we shouldn't trust the client to tell us their role.
-    //       revisit when we have figured out discovery/handshake
-    query: Query<RoleQueryParam>,
-    _headers: RecordHeaders,
-    mut req: Request<Body>,
-) -> Result<(), MpcHelperServerError> {
+pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let Path(_, step) = path;
-    let channel_id = ChannelId {
-        role: query.role,
-        step,
-    };
-
+    let channel_id = req.extensions().get::<ChannelId>().unwrap().clone();
     let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();
 
     // send data
