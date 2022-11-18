@@ -47,6 +47,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// Panics if `index` is out of bounds or if something was previously inserted at `index`.
     pub fn insert(&mut self, index: usize, elem: &[u8; N]) {
         // if index is out of bounds, this line will panic, there is no need for additional check
+        // TODO: save runtime cost with `debug_assert!()`, though that would affects panic tests
         assert!(!self.added[index]);
         let start = index * N;
         let offset = start..start + N;
