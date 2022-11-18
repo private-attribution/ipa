@@ -8,7 +8,6 @@ use crate::protocol::prss::{
 };
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::Replicated;
-use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -16,19 +15,19 @@ use std::sync::Arc;
 /// honest-but-curious adversary parties.
 #[derive(Clone, Debug)]
 pub struct SemiHonestProtocolContext<'a, F: Field> {
-    inner: Cow<'a, ContextInner<'a>>,
+    inner: ContextInner<'a>,
     _marker: PhantomData<F>,
 }
 
 impl<'a, F: Field> SemiHonestProtocolContext<'a, F> {
     pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            inner: Cow::Owned(ContextInner::new(role, participant, gateway)),
+            inner: ContextInner::new(role, participant, gateway),
             _marker: PhantomData::default(),
         }
     }
 
-    pub(super) fn from_inner(inner: Cow<'a, ContextInner<'a>>) -> Self {
+    pub(super) fn from_inner(inner: ContextInner<'a>) -> Self {
         Self {
             inner,
             _marker: PhantomData::default(),
@@ -58,7 +57,7 @@ impl<'a, F: Field> ProtocolContext<F> for SemiHonestProtocolContext<'a, F> {
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            inner: Cow::Owned(self.inner.narrow(step)),
+            inner: self.inner.narrow(step),
             _marker: PhantomData::default(),
         }
     }

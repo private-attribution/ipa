@@ -8,14 +8,13 @@ use crate::protocol::prss::{
 };
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
-use std::borrow::Cow;
 use std::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone, Debug)]
 pub struct MaliciousProtocolContext<'a, F: Field> {
-    inner: Cow<'a, ContextInner<'a>>,
+    inner: ContextInner<'a>,
     accumulator: SecurityValidatorAccumulator<F>,
     r_share: Replicated<F>,
 }
@@ -29,14 +28,14 @@ impl<'a, F: Field> MaliciousProtocolContext<'a, F> {
         r_share: Replicated<F>,
     ) -> Self {
         Self {
-            inner: Cow::Owned(ContextInner::new(role, participant, gateway)),
+            inner: ContextInner::new(role, participant, gateway),
             accumulator: acc,
             r_share,
         }
     }
 
     pub(super) fn from_inner(
-        inner: Cow<'a, ContextInner<'a>>,
+        inner: ContextInner<'a>,
         acc: SecurityValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Self {
@@ -81,7 +80,7 @@ impl<'a, F: Field> ProtocolContext<F> for MaliciousProtocolContext<'a, F> {
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            inner: Cow::Owned(self.inner.narrow(step)),
+            inner: self.inner.narrow(step),
             accumulator: self.accumulator.clone(),
             // TODO (alex, mt) - is cloning ok here or we need to Cow it?
             r_share: self.r_share.clone(),
