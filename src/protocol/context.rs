@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -62,39 +63,66 @@ pub trait ProtocolContext<F: Field> : Clone
     fn mesh(&self) -> Mesh<'_, '_>;
 }
 
+/// Contains things that are applicable to any implementation of protocol context as see it today
+/// Every context requires access to current step, PRSS and communication and that is what this
+/// struct carries.
+#[derive(Debug, Clone)]
+struct ContextInner<'a> {
+    role: Role,
+    step: Step,
+    prss: &'a PrssEndpoint,
+    gateway: &'a Gateway,
+}
+
+impl <'a> ContextInner<'a> {
+    fn new(role: Role, prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self {
+            role,
+            step: Step::default(),
+            prss,
+            gateway,
+        }
+    }
+
+    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        Self {
+            role: self.role,
+            step: self.step.narrow(step),
+            prss: self.prss,
+            gateway: self.gateway,
+        }
+    }
+}
+
+/// Context for protocol executions suitable for semi-honest security model, i.e. secure against
+/// honest-but-curious adversary parties.
 #[derive(Clone, Debug)]
 pub struct SemiHonestProtocolContext<'a, F: Field> {
-    role: Role,
-    step: Step,
-    prss: &'a PrssEndpoint,
-    gateway: &'a Gateway,
-    record_id: Option<RecordId>,
-    _field_marker: PhantomData<F>,
+    inner: Cow<'a, ContextInner<'a>>,
+    _marker: PhantomData<F>,
 }
 
+/// Represents protocol context in malicious setting, i.e. secure against one active adversary
+/// in 3 party MPC ring.
 #[derive(Clone, Debug)]
 pub struct MaliciousProtocolContext<'a, F: Field> {
-    role: Role,
-    step: Step,
-    prss: &'a PrssEndpoint,
-    gateway: &'a Gateway,
-    record_id: Option<RecordId>,
+    inner: Cow<'a, ContextInner<'a>>,
     accumulator: SecurityValidatorAccumulator<F>,
     r_share: Replicated<F>,
-    // _marker: PhantomData<S>,
 }
-
 
 impl <'a, F: Field> SemiHonestProtocolContext<'a, F> {
     pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            role,
-            step: Step::default(),
-            prss: participant,
-            gateway,
-            record_id: None,
-            // _share_marker: PhantomData::default(),
-            _field_marker: PhantomData::default(),
+            inner: Cow::Owned(ContextInner::new(role, participant, gateway)),
+            _marker: PhantomData::default(),
+        }
+    }
+
+    fn from_inner(inner: Cow<'a, ContextInner<'a>>) -> Self {
+        Self {
+            inner,
+            _marker: PhantomData::default(),
         }
     }
 
@@ -104,10 +132,7 @@ impl <'a, F: Field> SemiHonestProtocolContext<'a, F> {
         accumulator: SecurityValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> MaliciousProtocolContext<'a, F> {
-        let mut ctx = MaliciousProtocolContext::new(self.role, self.prss, self.gateway, accumulator, r_share);
-        ctx.step = self.step;
-
-        ctx
+        MaliciousProtocolContext::from_inner(self.inner, accumulator, r_share)
     }
 }
 
@@ -115,48 +140,51 @@ impl <'a, F: Field> ProtocolContext<F> for SemiHonestProtocolContext<'a, F> {
     type Share = Replicated<F>;
 
     fn role(&self) -> Role {
-        self.role
+        self.inner.role
     }
 
     fn step(&self) -> &Step {
-        &self.step
+        &self.inner.step
     }
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            role: self.role,
-            step: self.step.narrow(step),
-            prss: self.prss,
-            gateway: self.gateway,
-            record_id: self.record_id,
-            _field_marker: PhantomData::default(),
+            inner: Cow::Owned(self.inner.narrow(step)),
+            _marker: PhantomData::default(),
         }
     }
 
     fn prss(&self) -> Arc<IndexedSharedRandomness> {
-        self.prss.indexed(self.step())
+        self.inner.prss.indexed(self.step())
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        self.prss.sequential(self.step())
+        self.inner.prss.sequential(self.step())
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {
-        self.gateway.mesh(self.step())
+        self.inner.gateway.mesh(self.step())
     }
 }
 
 impl <'a, F: Field> MaliciousProtocolContext<'a, F> {
-    pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway, acc: SecurityValidatorAccumulator<F>, r_share: Replicated<F>) -> Self {
+    pub fn new(role: Role,
+               participant: &'a PrssEndpoint,
+               gateway: &'a Gateway,
+               acc: SecurityValidatorAccumulator<F>,
+               r_share: Replicated<F>) -> Self {
         Self {
-            role,
-            step: Step::default(),
-            prss: participant,
-            gateway,
-            record_id: None,
+            inner: Cow::Owned(ContextInner::new(role, participant, gateway)),
             accumulator: acc,
             r_share,
-            // _marker: PhantomData::default(),
+        }
+    }
+
+    fn from_inner(inner: Cow<'a, ContextInner<'a>>, acc: SecurityValidatorAccumulator<F>, r_share: Replicated<F>) -> Self {
+        Self {
+            inner,
+            accumulator: acc,
+            r_share
         }
     }
 
@@ -177,8 +205,7 @@ impl <'a, F: Field> MaliciousProtocolContext<'a, F> {
     /// and prss.
     #[must_use]
     pub fn to_semi_honest(self) -> SemiHonestProtocolContext<'a, F> {
-        let mut ctx = SemiHonestProtocolContext::new(self.role, self.prss, self.gateway);
-        ctx.step = self.step;
+        let mut ctx = SemiHonestProtocolContext::from_inner(self.inner);
 
         ctx
     }
@@ -189,36 +216,33 @@ impl <'a, F: Field> ProtocolContext<F> for MaliciousProtocolContext<'a, F> {
     type Share = MaliciousReplicated<F>;
 
     fn role(&self) -> Role {
-        self.role
+        self.inner.role
     }
 
     fn step(&self) -> &Step {
-        &self.step
+        &self.inner.step
     }
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            role: self.role,
-            step: self.step.narrow(step),
-            prss: self.prss,
-            gateway: self.gateway,
+            inner: Cow::Owned(self.inner.narrow(step)),
             accumulator: self.accumulator.clone(),
+            // TODO (alex, mt) - is cloning ok here or we need to Cow it?
             r_share: self.r_share.clone(),
-            record_id: self.record_id,
         }
     }
 
 
     fn prss(&self) -> Arc<IndexedSharedRandomness> {
-        self.prss.indexed(self.step())
+        self.inner.prss.indexed(self.step())
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        self.prss.sequential(self.step())
+        self.inner.prss.sequential(self.step())
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {
-        self.gateway.mesh(self.step())
+        self.inner.gateway.mesh(self.step())
     }
 }
 
