@@ -10,6 +10,9 @@ use crate::{
     secret_sharing::{MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::sync::{Arc, Mutex, Weak};
+#[cfg(not(all(feature = "shuttle", test)))]
 use std::sync::{Arc, Mutex, Weak};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

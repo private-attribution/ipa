@@ -1,4 +1,7 @@
 use std::marker::PhantomData;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::sync::Arc;
+#[cfg(not(all(feature = "shuttle", test)))]
 use std::sync::Arc;
 
 use super::{
