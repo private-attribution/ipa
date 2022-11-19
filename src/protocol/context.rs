@@ -1,6 +1,6 @@
-use std::marker::PhantomData;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::sync::Arc;
+use std::marker::PhantomData;
 #[cfg(not(all(feature = "shuttle", test)))]
 use std::sync::Arc;
 
