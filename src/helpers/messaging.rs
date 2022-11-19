@@ -19,11 +19,16 @@ use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
 use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
 use futures::SinkExt;
 use futures::StreamExt;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::{future as tokio, future::JoinHandle};
 use std::fmt::{Debug, Formatter};
 use std::io;
 use tinyvec::array_vec;
-use tokio::sync::{mpsc, oneshot};
+
+use ::tokio::sync::{mpsc, oneshot};
+#[cfg(not(all(feature = "shuttle", test)))]
 use tokio::task::JoinHandle;
+
 use tracing::Instrument;
 
 /// Trait for messages sent between helpers
@@ -163,7 +168,7 @@ impl Gateway {
                 // * Receive a message from another helper
                 // * Handle the request to receive a message from another helper
                 // * Send a message
-                tokio::select! {
+                ::tokio::select! {
                     Some(receive_request) = receive_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
                         receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender);
@@ -234,7 +239,10 @@ impl Gateway {
 
 impl Drop for Gateway {
     fn drop(&mut self) {
-        self.control_handle.abort();
+        // todo: remove once loom starts supporting abort
+        if !cfg!(feature = "shuttle") {
+            self.control_handle.abort();
+        }
     }
 }
 

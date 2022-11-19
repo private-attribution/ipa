@@ -4,6 +4,7 @@ mod world;
 pub mod circuit;
 pub mod logging;
 pub mod network;
+pub mod sort;
 
 use crate::ff::{Field, Fp31};
 use crate::helpers::Role;

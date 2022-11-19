@@ -16,3 +16,6 @@ pub mod telemetry;
 
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
+
+#[cfg(test)]
+mod tests;

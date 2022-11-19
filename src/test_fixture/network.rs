@@ -6,13 +6,19 @@ use crate::{
     },
     protocol::Step,
 };
+use ::tokio::sync::mpsc::{self, Receiver, Sender};
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures_util::stream::{FuturesUnordered, SelectAll};
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::{
+    future as tokio,
+    sync::{Arc, Mutex, Weak},
+};
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::{Debug, Formatter};
+#[cfg(not(all(feature = "shuttle", test)))]
 use std::sync::{Arc, Mutex, Weak};
-use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
@@ -90,7 +96,7 @@ impl InMemoryEndpoint {
                 let mut buf = HashMap::<ChannelId, Vec<u8>>::new();
 
                 loop {
-                    tokio::select! {
+                    ::tokio::select! {
                         // handle request to establish connection with a peer
                         Some(control_message) = open_channel_rx.recv() => {
                             match control_message {
