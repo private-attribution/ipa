@@ -1,5 +1,5 @@
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{
         context::ProtocolContext,
@@ -37,7 +37,7 @@ pub async fn generate_sort_permutation<'a, F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     input: &'a [(u64, u64)],
     num_bits: u8,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
     let bit_0 =
         convert_shares_for_a_bit(ctx_0.narrow(&ModulusConversion), input, num_bits, 0).await?;
@@ -80,14 +80,14 @@ mod tests {
     use rand::Rng;
 
     use crate::{
-        error::BoxError,
+        error::Error,
         ff::{Field, Fp32BitPrime},
         protocol::{sort::generate_sort_permutation::generate_sort_permutation, QueryId},
         test_fixture::{logging, make_contexts, make_world, validate_and_reconstruct},
     };
 
     #[tokio::test]
-    pub async fn test_generate_sort_permutation() -> Result<(), BoxError> {
+    pub async fn test_generate_sort_permutation() -> Result<(), Error> {
         const ROUNDS: usize = 50;
         const NUM_BITS: u8 = 24;
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);

@@ -1,5 +1,5 @@
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{
         context::ProtocolContext,
@@ -40,7 +40,7 @@ pub async fn secureapplyinv<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
     input: Vec<Replicated<F>>,
     sort_permutation: Vec<Replicated<F>>,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let prss = &ctx.prss();
     let random_permutations = get_two_of_three_random_permutations(input.len(), prss);
 
