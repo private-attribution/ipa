@@ -129,7 +129,9 @@ mod tests {
         protocol::reveal::Reveal,
         protocol::{context::ProtocolContext, malicious::SecurityValidator, QueryId, RecordId},
         secret_sharing::MaliciousReplicated,
-        test_fixture::{make_contexts, make_world, share, TestWorld},
+        test_fixture::{
+            make_contexts, make_malicious_contexts, make_world, share, validate_circuit, TestWorld,
+        },
     };
 
     #[tokio::test]
@@ -161,61 +163,39 @@ mod tests {
     pub async fn malicious() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
-        let contexts = make_contexts::<Fp31>(&world);
-
-        let validators: Vec<_> = contexts
-            .iter()
-            .map(|ctx| SecurityValidator::new(ctx.narrow("MaliciousValidate")))
-            .collect();
 
         let mut inputs = Vec::with_capacity(10);
-        let mut helper0_shares = Vec::with_capacity(10);
-        let mut helper1_shares = Vec::with_capacity(10);
-        let mut helper2_shares = Vec::with_capacity(10);
         for _ in 0..10 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
-            inputs.push(input);
-            let [sh0, sh1, sh2] = share(input, &mut rng);
-            helper0_shares.push(sh0);
-            helper1_shares.push(sh1);
-            helper2_shares.push(sh2);
+            inputs.push(rng.gen::<Fp31>());
         }
-
-        let reveals = try_join_all(
-            zip(
-                zip(contexts, validators),
-                [helper0_shares, helper1_shares, helper2_shares],
-            )
-            .map(|((ctx, v), shares)| async move {
-                try_join_all(
-                    zip(
-                        repeat(v.r_share()),
-                        zip(repeat(v.accumulator().clone()), zip(shares, repeat(ctx))),
-                    )
-                    .enumerate()
-                    .map(|(i, (r_share, (acc, (s, ctx))))| async move {
-                        let record_id = RecordId::from(i);
-                        let (m_ctx, malicious_share) = ctx
-                            .bind(record_id)
-                            .upgrade_to_malicious(acc, r_share.clone(), record_id, s.clone())
-                            .await?;
-                        m_ctx
-                            .narrow("reveal")
-                            .reveal(record_id, &malicious_share)
-                            .await
-                    }),
-                )
-                .await
-            }),
+        let (contexts, validators, malicious_inputs) = make_malicious_contexts(
+            &world,
+            inputs.iter().map(|x| Fp31::from(*x)).collect(),
+            &mut rng,
         )
-        .await?;
+        .await;
+
+        let reveals =
+            try_join_all(
+                zip(contexts.iter(), malicious_inputs).map(|(ctx, input)| async move {
+                    try_join_all(zip(repeat(ctx), input).enumerate().map(
+                        |(i, (ctx, x))| async move {
+                            ctx.narrow("reveal").reveal(RecordId::from(i), &x).await
+                        },
+                    ))
+                    .await
+                }),
+            )
+            .await?;
 
         for i in 0..10 {
             assert_eq!(inputs[i], reveals[0][i]);
             assert_eq!(inputs[i], reveals[1][i]);
             assert_eq!(inputs[i], reveals[2][i]);
         }
+
+        validate_circuit(contexts, validators).await?;
+
         Ok(())
     }
 
