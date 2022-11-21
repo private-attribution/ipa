@@ -77,17 +77,13 @@ mod tests {
     use crate::error::Error;
     use futures::future::try_join_all;
     use rand::rngs::mock::StepRng;
-    use std::iter::{repeat, zip};
 
     use crate::{
         ff::Fp31,
-        protocol::{
-            malicious::SecurityValidator, sort::bit_permutation::bit_permutation, QueryId, RecordId,
-        },
-        secret_sharing::MaliciousReplicated,
+        protocol::{sort::bit_permutation::bit_permutation, QueryId},
         test_fixture::{
-            make_contexts, make_world, share, validate_list_of_shares,
-            validate_list_of_shares_malicious,
+            make_contexts, make_malicious_contexts, make_world, share, validate_circuit,
+            validate_list_of_shares, validate_list_of_shares_malicious,
         },
     };
 
@@ -135,75 +131,17 @@ mod tests {
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
         let world = make_world(QueryId);
-        let contexts = make_contexts::<Fp31>(&world);
-        let contexts_vector: Vec<_> = contexts.to_vec();
-
-        let validators: Vec<_> = contexts_vector
-            .iter()
-            .map(|ctx| SecurityValidator::new(ctx.narrow("MaliciousValidate")))
-            .collect();
-
         let mut rand = StepRng::new(100, 1);
-
-        let mut helper0_shares = Vec::with_capacity(10);
-        let mut helper1_shares = Vec::with_capacity(10);
-        let mut helper2_shares = Vec::with_capacity(10);
-        for i in 0..INPUT.len() {
-            let [sh0, sh1, sh2] = share(Fp31::from(INPUT[i]), &mut rand);
-            helper0_shares.push(sh0);
-            helper1_shares.push(sh1);
-            helper2_shares.push(sh2);
-        }
-
-        let malicious_inputs = try_join_all(
-            zip(
-                zip(contexts_vector, validators.iter()),
-                [helper0_shares, helper1_shares, helper2_shares],
-            )
-            .map(|((ctx, v), shares)| async move {
-                try_join_all(
-                    zip(
-                        repeat(v.r_share()),
-                        zip(repeat(v.accumulator().clone()), zip(shares, repeat(ctx))),
-                    )
-                    .enumerate()
-                    .map(|(i, (r_share, (acc, (s, ctx))))| async move {
-                        let record_id = RecordId::from(i);
-                        ctx.narrow("upgrade_inputs")
-                            .upgrade_to_malicious(acc, r_share.clone(), record_id, s)
-                            .await
-                    }),
-                )
-                .await
-            }),
+        let (contexts, validators, inputs) = make_malicious_contexts(
+            &world,
+            INPUT.iter().map(|x| Fp31::from(*x)).collect(),
+            &mut rand,
         )
-        .await?;
+        .await;
 
-        let h0_shares: Vec<MaliciousReplicated<Fp31>> = malicious_inputs[0]
-            .iter()
-            .map(|bit| bit.1.clone())
-            .collect();
-        let h1_shares: Vec<MaliciousReplicated<Fp31>> = malicious_inputs[1]
-            .iter()
-            .map(|bit| bit.1.clone())
-            .collect();
-        let h2_shares: Vec<MaliciousReplicated<Fp31>> = malicious_inputs[2]
-            .iter()
-            .map(|bit| bit.1.clone())
-            .collect();
-
-        let h0_future = bit_permutation(
-            malicious_inputs[0][0].0.narrow("bit_permutation"),
-            &h0_shares,
-        );
-        let h1_future = bit_permutation(
-            malicious_inputs[1][0].0.narrow("bit_permutation"),
-            &h1_shares,
-        );
-        let h2_future = bit_permutation(
-            malicious_inputs[2][0].0.narrow("bit_permutation"),
-            &h2_shares,
-        );
+        let h0_future = bit_permutation(contexts[0].narrow("bit_permutation"), &inputs[0]);
+        let h1_future = bit_permutation(contexts[1].narrow("bit_permutation"), &inputs[1]);
+        let h2_future = bit_permutation(contexts[2].narrow("bit_permutation"), &inputs[2]);
 
         let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
             .await?
@@ -212,13 +150,7 @@ mod tests {
 
         validate_list_of_shares_malicious(EXPECTED, &result);
 
-        let _validation_results = try_join_all(zip(validators, malicious_inputs).map(
-            |(v, contexts_and_shares)| async move {
-                v.validate(contexts_and_shares[0].0.narrow("validate_circuit"))
-                    .await
-            },
-        ))
-        .await?;
+        validate_circuit(contexts, validators).await?;
 
         Ok(())
     }

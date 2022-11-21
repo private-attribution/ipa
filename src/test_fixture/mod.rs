@@ -6,7 +6,7 @@ pub mod logging;
 pub mod network;
 
 use std::fmt::Debug;
-
+use crate::error::Error;
 use crate::ff::{Field, Fp31};
 use crate::helpers::Role;
 use crate::protocol::{
@@ -124,6 +124,18 @@ where
         validators.try_into().unwrap(),
         malicious_inputs,
     )
+}
+
+pub async fn validate_circuit<F: Field>(
+    contexts: [ProtocolContext<'_, MaliciousReplicated<F>, F>; 3],
+    validators: [SecurityValidator<F>; 3],
+) -> Result<(), Error> {
+    let _validation_results = try_join_all(
+        zip(validators, contexts.iter())
+            .map(|(v, ctx)| async move { v.validate(ctx.narrow("validate_circuit")).await }),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Narrows a set of contexts all at once.
