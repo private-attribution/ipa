@@ -5,6 +5,8 @@ pub mod circuit;
 pub mod logging;
 pub mod network;
 
+use std::fmt::Debug;
+
 use crate::ff::{Field, Fp31};
 use crate::helpers::Role;
 use crate::protocol::context::ProtocolContext;
@@ -12,6 +14,8 @@ use crate::protocol::malicious::SecurityValidator;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+use futures::future::try_join_all;
+use futures::TryFuture;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
@@ -135,4 +139,35 @@ pub fn permutation_valid(permutation: &[u32]) -> bool {
         assert_eq!(*position as usize, i);
     }
     true
+}
+
+/// Wrapper for joining three things into an array.
+/// # Panics
+/// Probably never, but the compiler doesn't know that.
+pub async fn join3<T>(a: T, b: T, c: T) -> [T::Ok; 3]
+where
+    T: TryFuture,
+    T::Output: Debug,
+    T::Ok: Debug,
+    T::Error: Debug,
+{
+    let x = try_join_all([a, b, c]).await.unwrap();
+    <[_; 3]>::try_from(x).unwrap()
+}
+
+/// Wrapper for joining three things into an array.
+/// # Panics
+/// If `a` is the wrong length.
+pub async fn join3v<T, V>(a: V) -> [T::Ok; 3]
+where
+    V: IntoIterator<Item = T>,
+    T: TryFuture,
+    T::Output: Debug,
+    T::Ok: Debug,
+    T::Error: Debug,
+{
+    let mut it = a.into_iter();
+    let res = join3(it.next().unwrap(), it.next().unwrap(), it.next().unwrap()).await;
+    assert!(it.next().is_none());
+    res
 }
