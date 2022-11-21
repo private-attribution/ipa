@@ -127,7 +127,7 @@ mod tests {
         ff::{Field, Fp31},
         helpers::{Direction, Role},
         protocol::reveal::Reveal,
-        protocol::{context::ProtocolContext, malicious::SecurityValidator, QueryId, RecordId},
+        protocol::{context::ProtocolContext, QueryId, RecordId},
         secret_sharing::MaliciousReplicated,
         test_fixture::{
             make_contexts, make_malicious_contexts, make_world, share, validate_circuit, TestWorld,
@@ -203,64 +203,46 @@ mod tests {
     pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
-        let contexts = make_contexts(&world);
-
-        let validators: Vec<_> = contexts
-            .iter()
-            .map(|ctx| SecurityValidator::new(ctx.narrow("MaliciousValidate")))
-            .collect();
 
         let mut inputs = Vec::with_capacity(10);
-        let mut helper0_shares = Vec::with_capacity(10);
-        let mut helper1_shares = Vec::with_capacity(10);
-        let mut helper2_shares = Vec::with_capacity(10);
-        for _ in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
-            inputs.push(input);
-            let [sh0, sh1, sh2] = share(input, &mut rng);
-            helper0_shares.push(sh0);
-            helper1_shares.push(sh1);
-            helper2_shares.push(sh2);
+        for _ in 0..10 {
+            inputs.push(rng.gen::<Fp31>());
         }
-
-        let reveals = try_join_all(
-            zip(
-                zip(contexts, validators),
-                [helper0_shares, helper1_shares, helper2_shares],
-            )
-            .map(|((ctx, v), shares)| async move {
-                try_join_all(
-                    zip(
-                        repeat(v.r_share()),
-                        zip(repeat(v.accumulator().clone()), zip(shares, repeat(ctx))),
-                    )
-                    .enumerate()
-                    .map(|(i, (r_share, (acc, (s, ctx))))| async move {
-                        let record_id = RecordId::from(i);
-                        let (m_ctx, malicious_share) = ctx
-                            .bind(record_id)
-                            .upgrade_to_malicious(acc, r_share.clone(), record_id, s.clone())
-                            .await?;
-                        if m_ctx.role() == Role::H3 {
-                            reveal_with_additive_attack(
-                                m_ctx,
-                                record_id,
-                                &malicious_share,
-                                Fp31::ONE,
-                            )
-                            .await
-                        } else {
-                            m_ctx.reveal(record_id, &malicious_share).await
-                        }
-                    }),
-                )
-                .await
-            }),
+        let (contexts, validators, malicious_inputs) = make_malicious_contexts(
+            &world,
+            inputs.iter().map(|x| Fp31::from(*x)).collect(),
+            &mut rng,
         )
         .await;
 
+        let reveals =
+            try_join_all(
+                zip(contexts.iter(), malicious_inputs).map(|(ctx, input)| async move {
+                    try_join_all(zip(repeat(ctx), input).enumerate().map(
+                        |(i, (ctx, x))| async move {
+                            let record_id = RecordId::from(i);
+                            if ctx.role() == Role::H3 {
+                                reveal_with_additive_attack(
+                                    ctx.narrow("reveal"),
+                                    record_id,
+                                    &x,
+                                    Fp31::ONE,
+                                )
+                                .await
+                            } else {
+                                ctx.narrow("reveal").reveal(record_id, &x).await
+                            }
+                        },
+                    ))
+                    .await
+                }),
+            )
+            .await;
+
         assert!(matches!(reveals, Err(Error::MaliciousRevealFailed)));
+
+        validate_circuit(contexts, validators).await?;
+
         Ok(())
     }
 
