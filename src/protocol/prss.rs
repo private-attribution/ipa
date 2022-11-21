@@ -453,7 +453,7 @@ pub mod test {
     #[test]
     fn three_party_values() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
@@ -471,7 +471,7 @@ pub mod test {
     #[test]
     fn three_party_zero_u128() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let z1 = p1.indexed(&step).zero_u128(IDX);
@@ -484,7 +484,7 @@ pub mod test {
     #[test]
     fn three_party_xor_zero() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let z1 = p1.indexed(&step).zero_xor(IDX);
@@ -498,7 +498,7 @@ pub mod test {
     fn three_party_random_u128() {
         const IDX1: u128 = 7;
         const IDX2: u128 = 21362;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let r1 = p1.indexed(&step).random_u128(IDX1);
@@ -519,7 +519,7 @@ pub mod test {
     #[test]
     fn three_party_fields() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         // These tests do not check that left != right because
         // the field might not be large enough.
@@ -536,7 +536,7 @@ pub mod test {
     #[test]
     fn three_party_zero() {
         const IDX: u128 = 72;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let z1: Fp31 = p1.indexed(&step).zero(IDX);
@@ -550,7 +550,7 @@ pub mod test {
     fn three_party_random() {
         const IDX1: u128 = 74;
         const IDX2: u128 = 12634;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let s1 = p1.indexed(&step);
@@ -587,7 +587,7 @@ pub mod test {
             assert_eq!(a.gen_bool(0.3), b.gen_bool(0.3));
         }
 
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
         let step = Step::default();
         let (rng1_l, rng1_r) = p1.sequential(&step);
         let (rng2_l, rng2_r) = p2.sequential(&step);
@@ -600,7 +600,7 @@ pub mod test {
 
     #[test]
     fn indexed_and_sequential() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
 
         let base = Step::default();
         let idx = p1.indexed(&base.narrow("indexed"));
@@ -619,7 +619,7 @@ pub mod test {
     #[test]
     #[should_panic]
     fn indexed_then_sequential() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
 
         let step = Step::default().narrow("test");
         drop(p1.indexed(&step));
@@ -632,7 +632,7 @@ pub mod test {
     #[test]
     #[should_panic]
     fn sequential_then_indexed() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
 
         let step = Step::default().narrow("test");
         // TODO(alex): remove after clippy is fixed
@@ -643,7 +643,7 @@ pub mod test {
 
     #[test]
     fn indexed_accepts_unique_index() {
-        let (_, p2, _p3) = make_participants();
+        let [_, p2, _p3] = make_participants();
         let step = Step::default().narrow("test");
         let mut indices = (1..100_u128).collect::<Vec<_>>();
         indices.shuffle(&mut thread_rng());
@@ -658,7 +658,7 @@ pub mod test {
     #[cfg(debug_assertions)]
     #[should_panic]
     fn indexed_rejects_the_same_index() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
         let step = Step::default().narrow("test");
 
         let _ = p1.indexed(&step).random_u128(100_u128);

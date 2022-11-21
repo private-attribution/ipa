@@ -235,7 +235,7 @@ mod tests {
 
         logging::setup();
 
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
         let step = Step::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
         let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
