@@ -212,9 +212,10 @@ pub mod tests {
     use crate::protocol::{malicious::SecurityValidator, QueryId, RecordId};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
-        join3v, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        join3v, make_contexts, make_malicious_contexts, make_world, share, validate_and_reconstruct,
+        validate_circuit, TestWorld,
     };
-    use futures::future::{try_join, try_join_all};
+    use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
@@ -233,57 +234,33 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = make_world(QueryId);
         let mut rng = rand::thread_rng();
-
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
+        let (contexts, validators, inputs) =
+            make_malicious_contexts(&world, vec![a, b], &mut rng).await;
 
-        let a_shares = share(a, &mut rng);
-        let b_shares = share(b, &mut rng);
+        let result: [_; 3] =
+            try_join_all(zip(contexts.iter(), inputs).map(|(ctx, input)| async move {
+                ctx.narrow("Mult")
+                    .multiply(RecordId::from(0), &input[0], &input[1])
+                    .await
+            }))
+            .await?
+            .try_into()
+            .unwrap();
 
-        let futures = zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| {
-            let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
-            let acc = v.accumulator();
-            let r_share = v.r_share().clone();
+        let r = validate_and_reconstruct(
+            &validators[0].r_share(),
+            &validators[1].r_share(),
+            &validators[2].r_share(),
+        );
 
-            let a_ctx = ctx.bind(RecordId::from(0));
-            let b_ctx = ctx.bind(RecordId::from(1));
+        validate_circuit(contexts, validators).await?;
 
-            async move {
-                let ((a_ctx, a_malicious), (_b_ctx, b_malicious)) = try_join(
-                    a_ctx.upgrade_to_malicious(
-                        acc.clone(),
-                        v.r_share().clone(),
-                        RecordId::from(0),
-                        a_share,
-                    ),
-                    b_ctx.upgrade_to_malicious(
-                        acc.clone(),
-                        v.r_share().clone(),
-                        RecordId::from(1),
-                        b_share,
-                    ),
-                )
-                .await?;
-
-                let mult_result = a_ctx
-                    .narrow("Mult")
-                    .multiply(RecordId::from(0), &a_malicious, &b_malicious)
-                    .await?;
-
-                v.validate(a_ctx.narrow("SecurityValidatorValidate"))
-                    .await?;
-                Ok::<_, Error>((mult_result, r_share))
-            }
-        });
-
-        let [ab0, ab1, ab2] = join3v(futures).await;
-
-        let ab = validate_and_reconstruct(ab0.0.x(), ab1.0.x(), ab2.0.x());
-        let rab = validate_and_reconstruct(ab0.0.rx(), ab1.0.rx(), ab2.0.rx());
-        let r = validate_and_reconstruct(&ab0.1, &ab1.1, &ab2.1);
+        let ab = validate_and_reconstruct(result[0].x(), result[1].x(), result[2].x());
+        let rab = validate_and_reconstruct(result[0].rx(), result[1].rx(), result[2].rx());
 
         assert_eq!(ab, a * b);
         assert_eq!(rab, r * a * b);
