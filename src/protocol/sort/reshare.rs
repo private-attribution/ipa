@@ -87,6 +87,7 @@ pub async fn reshare_malicious<F: Field>(
     .await?;
     Ok(MaliciousReplicated::new(x, rx))
 }
+
 #[cfg(test)]
 mod tests {
     use futures::future::try_join_all;
