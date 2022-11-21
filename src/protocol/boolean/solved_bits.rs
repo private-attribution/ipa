@@ -5,14 +5,22 @@ use crate::helpers::Role;
 use crate::protocol::boolean::BitOpStep;
 use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
 use crate::protocol::reveal::Reveal;
-use crate::protocol::IterStep;
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 
-/// This protocol generates a sequence of uniformly random sharing of bits in `F_p`.
-/// Adding these 3-way secret-sharing will yield the secret `b_i ∈ {0,1}`, and the
-/// secret `b` is guaranteed to be less than `p`.
+#[allow(dead_code)]
+pub struct RandomBitsShare<F: Field> {
+    b_b: Vec<Replicated<F>>,
+    b_p: Replicated<F>,
+}
+
+/// This protocol tries to generate a sequence of uniformly random sharing of
+/// bits in `F_p`. Adding these 3-way secret-sharing will yield the secret
+/// `b_i ∈ {0,1}`. This protocol will abort and returns `None` if the secret
+/// number from randomly generated bits is not less than the field's prime
+/// number. Once aborted, the caller must provide a new narrowed context if
+/// they wish to call this protocol again for the same `record_id`.
 ///
 /// This is an implementation of "3.1 Generating random solved BITS" from I. Damgård
 /// et al., but replaces `RAN_2` with our own PRSS implementation in lieu.
@@ -23,53 +31,46 @@ use futures::future::try_join_all;
 pub struct SolvedBits {}
 
 impl SolvedBits {
+    // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
+    // Each bit has a 50% chance of being a 0 or 1, so there are
+    // `F::Integer::MAX - p` cases where `b` may become larger than `p`.
+    // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
+    // 1 * 10^-9. For Fp31, the chance of this protocol succeeding is around
+    // 1/2^3 =~ 13% (3 high bits being all 0's).
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
-    ) -> Result<(Vec<Replicated<F>>, Replicated<F>), Error> {
-        // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
-        // Each bit has a 50% chance of being a 0 or 1, so there are
-        // `F::Integer::MAX - p` cases where `b` may become larger than `p`.
-        // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
-        // `1 * 10^-9`.
-        let mut b_b = None;
-        let mut step = IterStep::new("RetryUntilSuccess", 0);
-        while b_b.is_none() {
-            b_b = Self::try_generate_random_bits_less_than_p(ctx.narrow(step.next()), record_id)
-                .await?;
-            println!("Retry: {:?}: {:?}", ctx.role(), step.count);
-        }
-        let b_b = b_b.unwrap();
-        println!("Pass: {:?}: {:?}", ctx.role(), b_b);
+    ) -> Result<Option<RandomBitsShare<F>>, Error> {
+        //
+        // step 1 & 2
+        //
+        let b_b = Self::generate_random_bits(ctx.clone(), record_id).await?;
 
-        // Compute `[b_p]` by `Σ 2^i * [b_i]_B`
+        //
+        // step 3, 4 & 5
+        //
+        // if b >= p, then abort by returning `None`
+        if !Self::is_less_than_p(ctx.clone(), record_id, &b_b).await? {
+            return Ok(None);
+        }
+
+        //
+        // step 6
+        //
+        // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
         #[allow(clippy::cast_possible_truncation)]
         let b_p: Replicated<F> = b_b
             .iter()
             .enumerate()
             .fold(Replicated::ZERO, |acc, (i, x)| {
-                // acc + &(x.clone() * F::from(2_u128.pow(i as u32)))
                 acc + &(x.clone() * F::from(2_u128.pow(i as u32)))
             });
 
-        Ok((b_b, b_p))
+        Ok(Some(RandomBitsShare { b_b, b_p }))
     }
 
-    /// Generate a sequence of random bits and return `Option<>` if its secret
-    /// number is less than `p`. Otherwise, return `None`.
-    async fn try_generate_random_bits_less_than_p<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-        record_id: RecordId,
-    ) -> Result<Option<Vec<Replicated<F>>>, Error> {
-        let b_b = Self::generate_random_bits(ctx.clone(), record_id).await?;
-        if Self::is_less_than_p(ctx.clone(), record_id, &b_b).await? {
-            Ok(Some(b_b))
-        } else {
-            Ok(None)
-        }
-    }
-
+    /// Generates a sequence of `l` random bit sharings in the target field `F`.
     async fn generate_random_bits<F: Field>(
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
@@ -110,29 +111,29 @@ impl SolvedBits {
         record_id: RecordId,
         b_b: &[Replicated<F>],
     ) -> Result<bool, Error> {
-        let p_b = Self::local_secret_share(&Self::to_bits(F::PRIME.into()), ctx.role());
+        let p_b = Self::local_secret_shared_bits_p(ctx.role());
         let c_b =
             BitwiseLessThan::execute(ctx.narrow(&Step::IsPLessThanB), record_id, b_b, &p_b).await?;
-        let c = ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await?;
-        if c == F::ONE {
-            Ok(true)
-        } else {
-            Ok(false)
+        if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
+            return Ok(false);
         }
+        Ok(true)
     }
 
-    fn to_bits<F: Field>(x: u128) -> Vec<F> {
+    /// Internal use only.
+    /// Converts the prime number to a sequence of `{0,1} ⊆ F`, and creates a
+    /// local replicated share.
+    fn local_secret_shared_bits_p<F: Field>(helper_role: Role) -> Vec<Replicated<F>> {
+        let x = F::PRIME.into();
         let l = F::Integer::BITS;
-        (0..l).map(|i| F::from((x >> i) & 1)).collect::<Vec<_>>()
-    }
-
-    fn local_secret_share<F: Field>(input: &[F], helper_role: Role) -> Vec<Replicated<F>> {
-        input
-            .iter()
-            .map(|&b| match helper_role {
-                Role::H1 => Replicated::new(b, F::ZERO),
-                Role::H2 => Replicated::new(F::ZERO, F::ZERO),
-                Role::H3 => Replicated::new(F::ZERO, b),
+        (0..l)
+            .map(|i| {
+                let b = F::from((x >> i) & 1);
+                match helper_role {
+                    Role::H1 => Replicated::new(b, F::ZERO),
+                    Role::H2 => Replicated::new(F::ZERO, F::ZERO),
+                    Role::H3 => Replicated::new(F::ZERO, b),
+                }
             })
             .collect::<Vec<_>>()
     }
@@ -168,67 +169,77 @@ mod tests {
         protocol::{context::ProtocolContext, QueryId, RecordId},
         secret_sharing::Replicated,
         test_fixture::{
-            bits_to_value, logging, make_contexts, make_world, validate_and_reconstruct, TestWorld,
+            bits_to_value, make_contexts, make_world, validate_and_reconstruct, TestWorld,
         },
     };
     use futures::future::try_join3;
     use rand::{distributions::Standard, prelude::Distribution};
 
-    const TEST_TRIES: usize = 100;
-
-    /// Execute `SolvedBits` protocol and return reconstructed bit-sequence and field.
     async fn random_bits<F: Field>(
         ctx: [ProtocolContext<'_, Replicated<F>, F>; 3],
         record_id: RecordId,
-    ) -> Result<(Vec<F>, F), Error>
+    ) -> Result<Option<(Vec<F>, F)>, Error>
     where
         Standard: Distribution<F>,
     {
         let [c0, c1, c2] = ctx;
 
         // Execute
-        let ((b0_b, b0_p), (b1_b, b1_p), (b2_b, b2_p)) = try_join3(
+        let (result0, result1, result2) = try_join3(
             SolvedBits::execute(c0.bind(record_id), record_id),
             SolvedBits::execute(c1.bind(record_id), record_id),
             SolvedBits::execute(c2.bind(record_id), record_id),
         )
-        .await
-        .unwrap();
+        .await?;
+
+        // if one of `SolvedBits` calls aborts, then all must have aborted, too
+        if result0.is_none() || result1.is_none() || result2.is_none() {
+            assert!(result0.is_none());
+            assert!(result1.is_none());
+            assert!(result2.is_none());
+            return Ok(None);
+        }
+
+        let (s0, s1, s2) = (result0.unwrap(), result1.unwrap(), result2.unwrap());
 
         // [b]_B must be the same bit lengths
-        assert_eq!(b0_b.len(), b1_b.len());
-        assert_eq!(b1_b.len(), b2_b.len());
+        assert_eq!(s0.b_b.len(), s1.b_b.len());
+        assert_eq!(s1.b_b.len(), s2.b_b.len());
 
         // Reconstruct b_B from ([b_1]_p,...,[b_l]_p) bitwise sharings in F_p
-        let b_b = (0..b0_b.len())
+        let b_b = (0..s0.b_b.len())
             .map(|i| {
-                let bit = validate_and_reconstruct(&b0_b[i], &b1_b[i], &b2_b[i]);
+                let bit = validate_and_reconstruct(&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]);
                 assert!(bit == F::ZERO || bit == F::ONE);
                 bit
             })
             .collect::<Vec<_>>();
 
         // Reconstruct b_P
-        let b_p = validate_and_reconstruct(&b0_p, &b1_p, &b2_p);
+        let b_p = validate_and_reconstruct(&s0.b_p, &s1.b_p, &s2.b_p);
 
-        Ok((b_b, b_p))
+        Ok(Some((b_b, b_p)))
     }
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        logging::setup();
-
         let world: TestWorld = make_world(QueryId);
         let ctx = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = ctx;
 
-        for i in 0..2 {
+        // 0.012 secs per invocation. 100 tries = 1.2 secs
+        for i in 0..100 {
             let record_id = RecordId::from(i);
-            let (b_b, b_p): (Vec<Fp31>, Fp31) =
-                random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?;
-            // Base10 of `b_B ⊆ Z` must equal `b_P`
-            assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+            // The chance of this protocol aborting 100 out of 100 tries in Fp31 is < 0.0001%.
+            // Should we test and see if it succeeds at least once?
+            if let Some((b_b, b_p)) =
+                random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?
+            {
+                // Base10 of `b_B ⊆ Z` must equal `b_P`
+                assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+            }
         }
+
         Ok(())
     }
 
@@ -238,13 +249,17 @@ mod tests {
         let ctx = make_contexts::<Fp32BitPrime>(&world);
         let [c0, c1, c2] = ctx;
 
-        for i in 0..TEST_TRIES {
+        // 0.055 secs per invocation. 20 tries = 1.1 secs
+        for i in 0..20 {
             let record_id = RecordId::from(i);
-            let (b_b, b_p): (Vec<Fp32BitPrime>, Fp32BitPrime) =
-                random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?;
-            // Base10 of `b_B ⊆ Z` must equal `b_P`
-            assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+            if let Some((b_b, b_p)) =
+                random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?
+            {
+                // Base10 of `b_B ⊆ Z` must equal `b_P`
+                assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+            }
         }
+
         Ok(())
     }
 }

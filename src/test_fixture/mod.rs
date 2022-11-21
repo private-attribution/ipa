@@ -172,16 +172,6 @@ where
     res
 }
 
-/// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `F_p`
-pub fn bits_to_field<F: Field>(x: &[F]) -> F {
-    #[allow(clippy::cast_possible_truncation)]
-    let v = x
-        .iter()
-        .enumerate()
-        .fold(0, |acc, (i, &b)| acc + (b.as_u128() << i));
-    F::from(v)
-}
-
 /// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `Z`
 pub fn bits_to_value<F: Field>(x: &[F]) -> u128 {
     #[allow(clippy::cast_possible_truncation)]
@@ -190,4 +180,9 @@ pub fn bits_to_value<F: Field>(x: &[F]) -> u128 {
         .enumerate()
         .fold(0, |acc, (i, &b)| acc + (b.as_u128() << i));
     v
+}
+
+/// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `F_p`
+pub fn bits_to_field<F: Field>(x: &[F]) -> F {
+    F::from(bits_to_value(x))
 }
