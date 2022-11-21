@@ -19,7 +19,9 @@ pub use semi_honest::SemiHonestProtocolContext;
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait ProtocolContext<F: Field>:
-    Clone + SecureMul<F, Share = <Self as ProtocolContext<F>>::Share> + Reveal
+    Clone
+    + SecureMul<F, Share = <Self as ProtocolContext<F>>::Share>
+    + Reveal<F, Share = <Self as ProtocolContext<F>>::Share>
 {
     /// Secret sharing type this context supports.
     type Share: SecretSharing<F>;

@@ -16,15 +16,15 @@ use futures::future::{try_join, try_join_all};
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
-pub trait Reveal {
+pub trait Reveal<F: Field> {
     /// Secret sharing type that reveal implementation works with. Note that field type does not
     /// matter - implementations must be able to reveal secret value from any field.
-    type Share<F: Field>: SecretSharing<F>;
+    type Share: SecretSharing<F>;
 
     /// reveal the secret to all helpers in MPC circuit. Note that after method is called,
     /// it must be assumed that the secret value has been revealed to at least one of the helpers.
     /// Even in case when method never terminates, returns an error, etc.
-    async fn reveal<F: Field>(self, record: RecordId, input: &Self::Share<F>) -> Result<F, Error>;
+    async fn reveal(self, record: RecordId, input: &Self::Share) -> Result<F, Error>;
 }
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
@@ -40,14 +40,10 @@ pub trait Reveal {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<G: Field> Reveal for SemiHonestProtocolContext<'_, G> {
-    type Share<F: Field> = Replicated<F>;
+impl<F: Field> Reveal<F> for SemiHonestProtocolContext<'_, F> {
+    type Share = Replicated<F>;
 
-    async fn reveal<F: Field>(
-        self,
-        record_id: RecordId,
-        input: &Self::Share<F>,
-    ) -> Result<F, Error> {
+    async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
         let (role, channel) = (self.role(), self.mesh());
         let (left, right) = input.as_tuple();
 
@@ -69,14 +65,10 @@ impl<G: Field> Reveal for SemiHonestProtocolContext<'_, G> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<G: Field> Reveal for MaliciousProtocolContext<'_, G> {
-    type Share<F: Field> = MaliciousReplicated<F>;
+impl<F: Field> Reveal<F> for MaliciousProtocolContext<'_, F> {
+    type Share = MaliciousReplicated<F>;
 
-    async fn reveal<F: Field>(
-        self,
-        record_id: RecordId,
-        input: &Self::Share<F>,
-    ) -> Result<F, Error> {
+    async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
         let (role, channel) = (self.role(), self.mesh());
         let (left, right) = input.x().as_tuple();
 
