@@ -9,17 +9,19 @@ use std::fmt::Debug;
 
 use crate::ff::{Field, Fp31};
 use crate::helpers::Role;
-use crate::protocol::context::ProtocolContext;
-use crate::protocol::malicious::SecurityValidator;
-use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::Substep;
+use crate::protocol::{
+    context::ProtocolContext, malicious::SecurityValidator, prss::Endpoint as PrssEndpoint,
+    RecordId, Substep,
+};
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
-use rand::distributions::Standard;
-use rand::prelude::Distribution;
-use rand::rngs::mock::StepRng;
-use rand::thread_rng;
+use rand::{
+    distributions::{Distribution, Standard},
+    rngs::mock::StepRng,
+    thread_rng, RngCore,
+};
+use std::iter::{repeat, zip};
 
 pub use sharing::{
     share, share_malicious, validate_and_reconstruct, validate_list_of_shares,
@@ -50,6 +52,78 @@ pub fn make_contexts<F: Field>(
 pub struct MaliciousContext<'a, F: Field> {
     pub ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
     pub validator: SecurityValidator<F>,
+}
+
+pub async fn make_malicious_contexts<'a, F: Field, R: RngCore>(
+    test_world: &'a TestWorld,
+    inputs: Vec<F>,
+    rng: &mut R,
+) -> (
+    [ProtocolContext<'a, MaliciousReplicated<F>, F>; 3],
+    [SecurityValidator<F>; 3],
+    [Vec<MaliciousReplicated<F>>; 3],
+)
+where
+    Standard: Distribution<F>,
+{
+    let contexts = make_contexts(test_world);
+    let validators: Vec<_> = contexts
+        .iter()
+        .map(|ctx| SecurityValidator::new(ctx.narrow("MaliciousValidate")))
+        .collect();
+
+    let mut helper0_shares = Vec::with_capacity(inputs.len());
+    let mut helper1_shares = Vec::with_capacity(inputs.len());
+    let mut helper2_shares = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let [sh0, sh1, sh2] = share(input, rng);
+        helper0_shares.push(sh0);
+        helper1_shares.push(sh1);
+        helper2_shares.push(sh2);
+    }
+
+    let malicious_stuff = try_join_all(
+        zip(
+            zip(contexts.into_iter(), validators.iter()),
+            [helper0_shares, helper1_shares, helper2_shares],
+        )
+        .map(|((ctx, v), shares)| async move {
+            try_join_all(
+                zip(
+                    repeat(v.r_share()),
+                    zip(repeat(v.accumulator().clone()), zip(shares, repeat(ctx))),
+                )
+                .enumerate()
+                .map(|(i, (r_share, (acc, (s, ctx))))| async move {
+                    let record_id = RecordId::from(i);
+                    ctx.narrow("upgrade_inputs")
+                        .upgrade_to_malicious(acc, r_share.clone(), record_id, s)
+                        .await
+                }),
+            )
+            .await
+        }),
+    )
+    .await
+    .unwrap();
+
+    let malicious_inputs = [
+        malicious_stuff[0].iter().map(|(_, x)| x.clone()).collect(),
+        malicious_stuff[1].iter().map(|(_, x)| x.clone()).collect(),
+        malicious_stuff[2].iter().map(|(_, x)| x.clone()).collect(),
+    ];
+
+    let malicious_contexts = [
+        malicious_stuff[0][0].0.clone(),
+        malicious_stuff[1][0].0.clone(),
+        malicious_stuff[2][0].0.clone(),
+    ];
+
+    (
+        malicious_contexts,
+        validators.try_into().unwrap(),
+        malicious_inputs,
+    )
 }
 
 /// Narrows a set of contexts all at once.

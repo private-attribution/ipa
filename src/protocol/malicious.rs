@@ -114,6 +114,7 @@ impl<F: Field> SecurityValidatorAccumulator<F> {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct SecurityValidator<F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
