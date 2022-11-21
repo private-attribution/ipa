@@ -6,15 +6,34 @@ use super::{
     RecordId, Step, Substep,
 };
 use crate::{
+    error::Error,
     ff::Field,
     helpers::{
         messaging::{Gateway, Mesh},
         Role,
     },
-    protocol::{malicious::SecurityValidatorAccumulator, prss::Endpoint as PrssEndpoint},
+    protocol::{
+        malicious::SecurityValidatorAccumulator, mul::SemiHonestMul, prss::Endpoint as PrssEndpoint,
+    },
+    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
 };
 
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum MaliciousInputValidationStep {
+    RandomnessForInputValidation,
+    InputMultByR,
+}
+
+impl crate::protocol::Substep for MaliciousInputValidationStep {}
+
+impl AsRef<str> for MaliciousInputValidationStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::RandomnessForInputValidation => "randomness_for_input_validation",
+            Self::InputMultByR => "input_mult_by_r",
+        }
+    }
+}
 
 /// Context used by each helper to perform computation. Currently they need access to shared
 /// randomness generator (see `Participant`) and communication trait to send messages to each other.
@@ -129,13 +148,37 @@ impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
 /// Implementation to upgrade semi-honest context to malicious. Only works for replicated secret
 /// sharing because it is not known yet how to do it for any other type of secret sharing.
 impl<'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
-    #[must_use]
-    pub fn upgrade_to_malicious(
+    pub async fn upgrade_to_malicious(
         self,
         accumulator: SecurityValidatorAccumulator<F>,
         r_share: Replicated<F>,
-    ) -> ProtocolContext<'a, MaliciousReplicated<F>, F> {
-        ProtocolContext {
+        record_id: RecordId,
+        input: Replicated<F>,
+    ) -> Result<
+        (
+            ProtocolContext<'a, MaliciousReplicated<F>, F>,
+            MaliciousReplicated<F>,
+        ),
+        Error,
+    > {
+        let rx = SemiHonestMul::new(
+            self.narrow(&MaliciousInputValidationStep::InputMultByR),
+            record_id,
+        )
+        .execute(&input, &r_share)
+        .await?;
+
+        let maliciously_secure_input = MaliciousReplicated::new(input, rx);
+
+        accumulator.accumulate_macs(
+            &self
+                .narrow(&MaliciousInputValidationStep::RandomnessForInputValidation)
+                .prss(),
+            record_id,
+            &maliciously_secure_input,
+        );
+
+        let c = ProtocolContext {
             role: self.role,
             step: self.step,
             prss: self.prss,
@@ -144,7 +187,9 @@ impl<'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
             r_share: Some(r_share),
             record_id: self.record_id,
             _marker: PhantomData::default(),
-        }
+        };
+
+        Ok((c, maliciously_secure_input))
     }
 }
 

@@ -74,15 +74,20 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::error::Error;
     use futures::future::try_join_all;
     use rand::rngs::mock::StepRng;
+    use std::iter::{repeat, zip};
 
     use crate::{
         ff::Fp31,
-        protocol::{sort::bit_permutation::bit_permutation, QueryId},
+        protocol::{
+            malicious::SecurityValidator, sort::bit_permutation::bit_permutation, QueryId, RecordId,
+        },
+        secret_sharing::MaliciousReplicated,
         test_fixture::{
-            make_contexts, make_malicious_contexts, make_world, share, share_malicious,
-            validate_and_reconstruct, validate_list_of_shares, validate_list_of_shares_malicious,
+            make_contexts, make_world, share, validate_list_of_shares,
+            validate_list_of_shares_malicious,
         },
     };
 
@@ -123,44 +128,98 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn test_bit_permutation_malicious() {
+    pub async fn test_bit_permutation_malicious() -> Result<(), Error> {
         // With this input, for stable sort we expect all 0's to line up before 1's.
         // The expected sort order is same as expected_sort_output.
         const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
         let world = make_world(QueryId);
-        let [mc0, mc1, mc2] = make_malicious_contexts::<Fp31>(&world);
-        let r = validate_and_reconstruct(
-            mc0.validator.r_share(),
-            mc1.validator.r_share(),
-            mc2.validator.r_share(),
-        );
+        let contexts = make_contexts::<Fp31>(&world);
+        let contexts_vector: Vec<_> = contexts.to_vec();
+
+        let validators: Vec<_> = contexts_vector
+            .iter()
+            .map(|ctx| SecurityValidator::new(ctx.narrow("MaliciousValidate")))
+            .collect();
 
         let mut rand = StepRng::new(100, 1);
 
-        let mut shares = [
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-        ];
-        for i in INPUT {
-            let share = share_malicious(Fp31::from(*i), r, &mut rand);
-            for (i, share) in share.into_iter().enumerate() {
-                shares[i].push(share);
-            }
+        let mut helper0_shares = Vec::with_capacity(10);
+        let mut helper1_shares = Vec::with_capacity(10);
+        let mut helper2_shares = Vec::with_capacity(10);
+        for i in 0..INPUT.len() {
+            let [sh0, sh1, sh2] = share(Fp31::from(INPUT[i]), &mut rand);
+            helper0_shares.push(sh0);
+            helper1_shares.push(sh1);
+            helper2_shares.push(sh2);
         }
 
-        let h0_future = bit_permutation(mc0.ctx, shares[0].as_slice());
-        let h1_future = bit_permutation(mc1.ctx, shares[1].as_slice());
-        let h2_future = bit_permutation(mc2.ctx, shares[2].as_slice());
+        let malicious_inputs = try_join_all(
+            zip(
+                zip(contexts_vector, validators.iter()),
+                [helper0_shares, helper1_shares, helper2_shares],
+            )
+            .map(|((ctx, v), shares)| async move {
+                try_join_all(
+                    zip(
+                        repeat(v.r_share()),
+                        zip(repeat(v.accumulator().clone()), zip(shares, repeat(ctx))),
+                    )
+                    .enumerate()
+                    .map(|(i, (r_share, (acc, (s, ctx))))| async move {
+                        let record_id = RecordId::from(i);
+                        ctx.narrow("upgrade_inputs")
+                            .upgrade_to_malicious(acc, r_share.clone(), record_id, s)
+                            .await
+                    }),
+                )
+                .await
+            }),
+        )
+        .await?;
+
+        let h0_shares: Vec<MaliciousReplicated<Fp31>> = malicious_inputs[0]
+            .iter()
+            .map(|bit| bit.1.clone())
+            .collect();
+        let h1_shares: Vec<MaliciousReplicated<Fp31>> = malicious_inputs[1]
+            .iter()
+            .map(|bit| bit.1.clone())
+            .collect();
+        let h2_shares: Vec<MaliciousReplicated<Fp31>> = malicious_inputs[2]
+            .iter()
+            .map(|bit| bit.1.clone())
+            .collect();
+
+        let h0_future = bit_permutation(
+            malicious_inputs[0][0].0.narrow("bit_permutation"),
+            &h0_shares,
+        );
+        let h1_future = bit_permutation(
+            malicious_inputs[1][0].0.narrow("bit_permutation"),
+            &h1_shares,
+        );
+        let h2_future = bit_permutation(
+            malicious_inputs[2][0].0.narrow("bit_permutation"),
+            &h2_shares,
+        );
 
         let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-            .await
-            .unwrap()
+            .await?
             .try_into()
             .unwrap();
 
         validate_list_of_shares_malicious(EXPECTED, &result);
+
+        let _validation_results = try_join_all(zip(validators, malicious_inputs).map(
+            |(v, contexts_and_shares)| async move {
+                v.validate(contexts_and_shares[0].0.narrow("validate_circuit"))
+                    .await
+            },
+        ))
+        .await?;
+
+        Ok(())
     }
 }

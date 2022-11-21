@@ -52,19 +52,6 @@ pub struct MaliciousContext<'a, F: Field> {
     pub validator: SecurityValidator<F>,
 }
 
-/// Creates malicious protocol contexts for 3 helpers.
-pub fn make_malicious_contexts<F: Field>(test_world: &TestWorld) -> [MaliciousContext<'_, F>; 3] {
-    make_contexts(test_world).map(|ctx| {
-        let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
-        let acc = v.accumulator();
-
-        MaliciousContext {
-            ctx: ctx.upgrade_to_malicious(acc, v.r_share().clone()),
-            validator: v,
-        }
-    })
-}
-
 /// Narrows a set of contexts all at once.
 /// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`
 ///

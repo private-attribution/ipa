@@ -157,7 +157,10 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), Error> {
+    pub async fn validate(
+        self,
+        ctx: ProtocolContext<'_, MaliciousReplicated<F>, F>,
+    ) -> Result<(), Error> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -181,6 +184,7 @@ impl<F: Field> SecurityValidator<F> {
         let w_share = Replicated::new(w_left, state.w);
 
         // This should probably be done in parallel with the futures above
+        let ctx = ctx.to_semi_honest();
         let r = ctx
             .narrow(&Step::RevealR)
             .reveal(RECORD_0, &self.r_share)
@@ -199,16 +203,13 @@ impl<F: Field> SecurityValidator<F> {
 
 #[cfg(test)]
 pub mod tests {
-    use std::iter::zip;
+    use std::iter::{repeat, zip};
 
     use crate::error::Error;
     use crate::ff::Fp31;
     use crate::protocol::mul::SecureMul;
-    use crate::protocol::{
-        malicious::{SecurityValidator, Step},
-        QueryId, RecordId,
-    };
-    use crate::secret_sharing::{MaliciousReplicated, Replicated};
+    use crate::protocol::{malicious::SecurityValidator, QueryId, RecordId};
+    use crate::secret_sharing::Replicated;
     use crate::test_fixture::{
         join3v, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
@@ -241,50 +242,41 @@ pub mod tests {
         let a_shares = share(a, &mut rng);
         let b_shares = share(b, &mut rng);
 
-        let futures =
-            zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
-                let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
-                let acc = v.accumulator();
-                let r_share = v.r_share();
+        let futures = zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| {
+            let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
+            let acc = v.accumulator();
+            let r_share = v.r_share().clone();
 
-                let a_ctx = ctx.narrow("1");
-                let b_ctx = ctx.narrow("2");
+            let a_ctx = ctx.bind(RecordId::from(0));
+            let b_ctx = ctx.bind(RecordId::from(1));
 
-                let (ra, rb) = try_join(
-                    a_ctx
-                        .narrow("input")
-                        .multiply(RecordId::from(0), &a_share, r_share),
-                    b_ctx
-                        .narrow("input")
-                        .multiply(RecordId::from(0), &b_share, r_share),
+            async move {
+                let ((a_ctx, a_malicious), (_b_ctx, b_malicious)) = try_join(
+                    a_ctx.upgrade_to_malicious(
+                        acc.clone(),
+                        v.r_share().clone(),
+                        RecordId::from(0),
+                        a_share,
+                    ),
+                    b_ctx.upgrade_to_malicious(
+                        acc.clone(),
+                        v.r_share().clone(),
+                        RecordId::from(1),
+                        b_share,
+                    ),
                 )
                 .await?;
 
-                let a_ctx = a_ctx.upgrade_to_malicious(acc.clone(), r_share.clone());
-                let b_ctx = b_ctx.upgrade_to_malicious(acc.clone(), r_share.clone());
-
-                let a_malicious = MaliciousReplicated::new(a_share, ra);
-                let b_malicious = MaliciousReplicated::new(b_share, rb);
-
-                acc.accumulate_macs(
-                    &a_ctx.narrow(&Step::ValidateInput).prss(),
-                    RecordId::from(0),
-                    &a_malicious,
-                );
-                acc.accumulate_macs(
-                    &b_ctx.narrow(&Step::ValidateInput).prss(),
-                    RecordId::from(0),
-                    &b_malicious,
-                );
-
                 let mult_result = a_ctx
+                    .narrow("Mult")
                     .multiply(RecordId::from(0), &a_malicious, &b_malicious)
                     .await?;
 
-                let r_share = v.r_share().clone();
-                v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
+                v.validate(a_ctx.narrow("SecurityValidatorValidate"))
+                    .await?;
                 Ok::<_, Error>((mult_result, r_share))
-            });
+            }
+        });
 
         let [ab0, ab1, ab2] = join3v(futures).await;
 
@@ -321,7 +313,17 @@ pub mod tests {
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
         let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let contexts = make_contexts::<Fp31>(&world);
+        let validators = contexts
+            .clone()
+            .map(|ctx| SecurityValidator::new(ctx.narrow("SecurityValidatorInit")));
+
+        let r = validate_and_reconstruct(
+            &validators[0].r_share(),
+            &validators[1].r_share(),
+            &validators[2].r_share(),
+        );
+
         let mut rng = rand::thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);
@@ -337,86 +339,69 @@ pub mod tests {
         let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
         let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
 
-        let futures = context
+        let futures = contexts
             .into_iter()
-            .zip(vec![h1_shares, h2_shares, h3_shares])
-            .map(|(ctx, input_shares)| async move {
-                let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
-                let acc = v.accumulator();
-
-                let mut row_narrowed_contexts = Vec::with_capacity(100);
-                for i in 0..100 {
-                    row_narrowed_contexts.push(ctx.narrow(&format!("row {}", i)));
-                }
-
-                let r_share = v.r_share();
-
-                let maliciously_secure_inputs =
-                    try_join_all(input_shares.iter().zip(row_narrowed_contexts.iter()).map(
-                        |(x, ctx)| async move {
-                            let rx = ctx
-                                .narrow("mult")
-                                .multiply(RecordId::from(0), x, r_share)
-                                .await?;
-
-                            Ok::<_, Error>(MaliciousReplicated::new(x.clone(), rx))
-                        },
-                    ))
-                    .await?;
-
-                let _ = maliciously_secure_inputs
-                    .iter()
-                    .zip(row_narrowed_contexts.iter())
-                    .map(|(maliciously_secure_input, ctx)| {
-                        acc.accumulate_macs(
-                            &ctx.narrow(&Step::ValidateInput).prss(),
-                            RecordId::from(0),
-                            maliciously_secure_input,
-                        );
-                    });
+            .zip(validators)
+            .zip([h1_shares, h2_shares, h3_shares])
+            .map(|((ctx, v), input_shares)| async move {
+                let maliciously_secure_stuff = try_join_all(
+                    zip(
+                        repeat(v.r_share().clone()),
+                        zip(
+                            repeat(v.accumulator().clone()),
+                            zip(repeat(ctx.clone()), input_shares),
+                        ),
+                    )
+                    .enumerate()
+                    .map(|(i, (r_share, (acc, (ctx, x))))| {
+                        let record_id = RecordId::from(i);
+                        async move {
+                            ctx.bind(record_id)
+                                .upgrade_to_malicious(acc, r_share, record_id, x)
+                                .await
+                        }
+                    }),
+                )
+                .await?;
 
                 let mult_results = try_join_all(
-                    maliciously_secure_inputs
+                    maliciously_secure_stuff
                         .iter()
-                        .zip(maliciously_secure_inputs.iter().skip(1))
-                        .zip(row_narrowed_contexts.iter())
-                        .map(|((a_malicious, b_malicious), ctx)| {
-                            let acc = acc.clone();
+                        .zip(maliciously_secure_stuff.iter().skip(1))
+                        .enumerate()
+                        .map(|(i, ((a_ctx, a_malicious), (_b_ctx, b_malicious)))| {
+                            let record_id = RecordId::from(i);
                             async move {
-                                ctx.narrow("Circuit_Step_2")
-                                    .upgrade_to_malicious(acc, r_share.clone())
-                                    .multiply(RecordId::from(0), a_malicious, b_malicious)
+                                a_ctx
+                                    .narrow("Circuit_Step_2")
+                                    .multiply(record_id, a_malicious, b_malicious)
                                     .await
                             }
                         }),
                 )
                 .await?;
 
-                let r_share = v.r_share().clone();
-                v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
-                Ok::<_, Error>((mult_results, r_share))
+                let any_random_malicious_context = maliciously_secure_stuff[0]
+                    .0
+                    .narrow("SecurityValidatorValidate");
+                v.validate(any_random_malicious_context).await?;
+                Ok::<_, Error>(mult_results)
             });
 
         let processed_outputs = join3v(futures).await;
-
-        let r = validate_and_reconstruct(
-            &processed_outputs[0].1,
-            &processed_outputs[1].1,
-            &processed_outputs[2].1,
-        );
 
         for i in 0..99 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
             let x1_times_x2 = validate_and_reconstruct(
-                processed_outputs[0].0[i].x(),
-                processed_outputs[1].0[i].x(),
-                processed_outputs[2].0[i].x(),
+                processed_outputs[0][i].x(),
+                processed_outputs[1][i].x(),
+                processed_outputs[2][i].x(),
             );
             let r_times_x1_times_x2 = validate_and_reconstruct(
-                processed_outputs[0].0[i].rx(),
-                processed_outputs[1].0[i].rx(),
-                processed_outputs[2].0[i].rx(),
+                processed_outputs[0][i].rx(),
+                processed_outputs[1][i].rx(),
+                processed_outputs[2][i].rx(),
             );
 
             assert_eq!(x1 * x2, x1_times_x2);
