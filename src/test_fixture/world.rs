@@ -1,10 +1,19 @@
-use crate::helpers::SendBufferConfig;
+use async_trait::async_trait;
+use futures::{future::join_all, Future};
+use rand::{distributions::Standard, prelude::Distribution};
+
 use crate::{
-    helpers::messaging::{Gateway, GatewayConfig},
-    protocol::{prss::Endpoint as PrssEndpoint, QueryId},
-    test_fixture::{logging, make_participants, network::InMemoryNetwork},
+    ff::Field,
+    helpers::{
+        messaging::{Gateway, GatewayConfig},
+        SendBufferConfig,
+    },
+    protocol::{context::SemiHonestProtocolContext, prss::Endpoint as PrssEndpoint, QueryId},
+    test_fixture::{
+        logging, make_contexts, make_participants, network::InMemoryNetwork, sharing::IntoShares,
+    },
 };
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, iter::zip, sync::Arc};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -76,4 +85,38 @@ pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld
 pub fn make(query_id: QueryId) -> TestWorld {
     let config = TestWorldConfig::default();
     make_with_config(query_id, config)
+}
+
+#[async_trait]
+pub trait Runner<I, A> {
+    async fn semi_honest<'a, F, O, H, X>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        F: Field,
+        O: Send + Debug,
+        H: FnMut(SemiHonestProtocolContext<'a, F>, A) -> X + Send,
+        X: Future<Output = O> + Send,
+        Standard: Distribution<F>;
+}
+
+#[async_trait]
+impl<I, A> Runner<I, A> for TestWorld
+where
+    I: 'static + IntoShares<A> + Send,
+    A: Send,
+{
+    async fn semi_honest<'a, F, O, H, X>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
+    where
+        F: Field,
+        O: Send + Debug,
+        H: FnMut(SemiHonestProtocolContext<'a, F>, A) -> X + Send,
+        X: Future<Output = O> + Send,
+        Standard: Distribution<F>,
+    {
+        let contexts = make_contexts::<F>(self);
+        let input_shares = input.share();
+
+        let output =
+            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
+        <[_; 3]>::try_from(output).unwrap()
+    }
 }
