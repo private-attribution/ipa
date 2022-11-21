@@ -97,3 +97,17 @@ impl AsRef<str> for ShuffleRevealStep {
         }
     }
 }
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum ReshareStep {
+    ReshareMAC,
+}
+impl Substep for ReshareStep {}
+
+impl AsRef<str> for ReshareStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::ReshareMAC => "reshare_mac",
+        }
+    }
+}
