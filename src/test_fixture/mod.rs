@@ -54,6 +54,10 @@ pub struct MaliciousContext<'a, F: Field> {
     pub validator: SecurityValidator<F>,
 }
 
+///
+/// # Panics
+/// If there are any errors upgrading the inputs to `MaliciousReplicated` it will panic
+/// This can happen if there are any problems with the multiplications used to do so.
 pub async fn make_malicious_contexts<'a, F: Field, R: RngCore>(
     test_world: &'a TestWorld,
     inputs: &[F],
@@ -126,6 +130,8 @@ where
     )
 }
 
+/// # Errors
+/// If any of the calls to validate fail, this will throw an error
 pub async fn validate_circuit<F: Field>(
     contexts: [ProtocolContext<'_, MaliciousReplicated<F>, F>; 3],
     validators: [SecurityValidator<F>; 3],

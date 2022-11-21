@@ -238,7 +238,7 @@ pub mod tests {
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
         let (contexts, validators, inputs) =
-            make_malicious_contexts(&world, &vec![a, b], &mut rng).await;
+            make_malicious_contexts(&world, &[a, b], &mut rng).await;
 
         let result: [_; 3] =
             try_join_all(zip(contexts.iter(), inputs).map(|(ctx, input)| async move {
@@ -251,9 +251,9 @@ pub mod tests {
             .unwrap();
 
         let r = validate_and_reconstruct(
-            &validators[0].r_share(),
-            &validators[1].r_share(),
-            &validators[2].r_share(),
+            validators[0].r_share(),
+            validators[1].r_share(),
+            validators[2].r_share(),
         );
 
         validate_circuit(contexts, validators).await?;
@@ -307,7 +307,7 @@ pub mod tests {
                         .map(|(i, (ctx, (x_1, x_2)))| async move {
                             let record_id = RecordId::from(i);
                             ctx.narrow("Circuit_Step_2")
-                                .multiply(record_id, &x_1, &x_2)
+                                .multiply(record_id, x_1, x_2)
                                 .await
                         }),
                 )
@@ -319,9 +319,9 @@ pub mod tests {
         .unwrap();
 
         let r = validate_and_reconstruct(
-            &validators[0].r_share(),
-            &validators[1].r_share(),
-            &validators[2].r_share(),
+            validators[0].r_share(),
+            validators[1].r_share(),
+            validators[2].r_share(),
         );
 
         validate_circuit(contexts, validators).await?;

@@ -184,10 +184,10 @@ mod tests {
             )
             .await?;
 
-        for i in 0..10 {
-            assert_eq!(inputs[i], reveals[0][i]);
-            assert_eq!(inputs[i], reveals[1][i]);
-            assert_eq!(inputs[i], reveals[2][i]);
+        for (i, input) in inputs.iter().enumerate() {
+            assert_eq!(input, &reveals[0][i]);
+            assert_eq!(input, &reveals[1][i]);
+            assert_eq!(input, &reveals[2][i]);
         }
 
         validate_circuit(contexts, validators).await?;

@@ -148,6 +148,10 @@ impl<'a, F: Field, SS: SecretSharing<F>> ProtocolContext<'a, SS, F> {
 /// Implementation to upgrade semi-honest context to malicious. Only works for replicated secret
 /// sharing because it is not known yet how to do it for any other type of secret sharing.
 impl<'a, F: Field> ProtocolContext<'a, Replicated<F>, F> {
+    ///
+    /// # Errors
+    /// Performs a multiplication. If that throws an error, so will this
+    ///
     pub async fn upgrade_to_malicious(
         self,
         accumulator: SecurityValidatorAccumulator<F>,
