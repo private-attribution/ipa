@@ -1,3 +1,5 @@
+use std::iter::{repeat, zip};
+
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 use rand::seq::SliceRandom;
@@ -15,7 +17,7 @@ use crate::{
 
 use super::{
     apply::{apply, apply_inv},
-    reshare::Reshare,
+    reshare::reshare,
     ShuffleStep::{self, Step1, Step2, Step3},
 };
 
@@ -88,18 +90,14 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
 
 #[allow(clippy::cast_possible_truncation)]
 async fn reshare_all_shares<F: Field>(
-    input: Vec<Replicated<F>>,
+    input: &[Replicated<F>],
     ctx: &SemiHonestContext<'_, F>,
     to_helper: Role,
 ) -> Result<Vec<Replicated<F>>, Error> {
-    let reshares = input
-        .iter()
-        .cloned()
+    let reshares = zip(repeat(ctx), input)
         .enumerate()
-        .map(|(index, input)| async move {
-            Reshare::new(input)
-                .execute(ctx, RecordId::from(index), to_helper)
-                .await
+        .map(|(index, (ctx, input))| async move {
+            reshare(ctx, input, RecordId::from(index), to_helper).await
         });
     try_join_all(reshares).await
 }
@@ -131,7 +129,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
             ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut input),
         }
     }
-    reshare_all_shares(input, &ctx, to_helper).await
+    reshare_all_shares(&input, &ctx, to_helper).await
 }
 
 #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
