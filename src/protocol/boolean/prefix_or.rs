@@ -317,8 +317,8 @@ mod tests {
     use rand::{rngs::mock::StepRng, Rng};
     use std::iter::zip;
 
-    const BITS: [usize; 1] = [32];
-    const TEST_TRIES: usize = 16;
+    const BITS: [usize; 2] = [16, 32];
+    const TEST_TRIES: usize = 32;
 
     async fn prefix_or<F: Field>(
         ctx: [ProtocolContext<'_, Replicated<F>, F>; 3],
@@ -370,8 +370,11 @@ mod tests {
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
         // so this test covers inputs that have all 0's in 5 first bits.
-        for (i, len) in BITS.into_iter().enumerate() {
-            for j in 0..TEST_TRIES {
+        for len in BITS {
+            let step = format!("test_{}bit", len);
+            let [c0, c1, c2] = [c0.narrow(&step), c1.narrow(&step), c2.narrow(&step)];
+
+            for i in 0..TEST_TRIES {
                 let input: Vec<Fp2> = (0..len).map(|_| Fp2::from(rng.gen::<bool>())).collect();
                 let mut expected: Vec<Fp2> = Vec::with_capacity(len);
 
@@ -384,7 +387,7 @@ mod tests {
                 // Execute the protocol
                 let result = prefix_or(
                     [c0.clone(), c1.clone(), c2.clone()],
-                    RecordId::from(i * TEST_TRIES + j),
+                    RecordId::from(i),
                     &input,
                 )
                 .await?;
@@ -411,8 +414,11 @@ mod tests {
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
         // so this test covers inputs that have all 0's in 5 first bits.
-        for (i, len) in BITS.into_iter().enumerate() {
-            for j in 0..TEST_TRIES {
+        for len in BITS {
+            let step = format!("test_{}bit", len);
+            let [c0, c1, c2] = [c0.narrow(&step), c1.narrow(&step), c2.narrow(&step)];
+
+            for i in 0..TEST_TRIES {
                 // Generate a vector of Fp31::ZERO or Fp31::ONE from randomly picked bool values
                 let input: Vec<Fp31> = (0..len)
                     .map(|_| Fp31::from(u128::from(rng.gen::<bool>())))
@@ -429,7 +435,7 @@ mod tests {
                 // Execute the protocol
                 let result = prefix_or(
                     [c0.clone(), c1.clone(), c2.clone()],
-                    RecordId::from(i * TEST_TRIES + j),
+                    RecordId::from(i),
                     &input,
                 )
                 .await?;
