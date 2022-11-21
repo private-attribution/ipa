@@ -130,14 +130,12 @@ mod tests {
         const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
+        let input_vector: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
+
         let world = make_world(QueryId);
         let mut rand = StepRng::new(100, 1);
-        let (contexts, validators, inputs) = make_malicious_contexts(
-            &world,
-            INPUT.iter().map(|x| Fp31::from(*x)).collect(),
-            &mut rand,
-        )
-        .await;
+        let (contexts, validators, inputs) =
+            make_malicious_contexts(&world, &input_vector, &mut rand).await;
 
         let h0_future = bit_permutation(contexts[0].narrow("bit_permutation"), &inputs[0]);
         let h1_future = bit_permutation(contexts[1].narrow("bit_permutation"), &inputs[1]);

@@ -56,7 +56,7 @@ pub struct MaliciousContext<'a, F: Field> {
 
 pub async fn make_malicious_contexts<'a, F: Field, R: RngCore>(
     test_world: &'a TestWorld,
-    inputs: Vec<F>,
+    inputs: &[F],
     rng: &mut R,
 ) -> (
     [ProtocolContext<'a, MaliciousReplicated<F>, F>; 3],
@@ -76,7 +76,7 @@ where
     let mut helper1_shares = Vec::with_capacity(inputs.len());
     let mut helper2_shares = Vec::with_capacity(inputs.len());
     for input in inputs {
-        let [sh0, sh1, sh2] = share(input, rng);
+        let [sh0, sh1, sh2] = share(*input, rng);
         helper0_shares.push(sh0);
         helper1_shares.push(sh1);
         helper2_shares.push(sh2);

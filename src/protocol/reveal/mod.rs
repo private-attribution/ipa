@@ -168,12 +168,8 @@ mod tests {
         for _ in 0..10 {
             inputs.push(rng.gen::<Fp31>());
         }
-        let (contexts, validators, malicious_inputs) = make_malicious_contexts(
-            &world,
-            inputs.iter().map(|x| Fp31::from(*x)).collect(),
-            &mut rng,
-        )
-        .await;
+        let (contexts, validators, malicious_inputs) =
+            make_malicious_contexts(&world, &inputs, &mut rng).await;
 
         let reveals =
             try_join_all(
@@ -208,12 +204,8 @@ mod tests {
         for _ in 0..10 {
             inputs.push(rng.gen::<Fp31>());
         }
-        let (contexts, validators, malicious_inputs) = make_malicious_contexts(
-            &world,
-            inputs.iter().map(|x| Fp31::from(*x)).collect(),
-            &mut rng,
-        )
-        .await;
+        let (contexts, validators, malicious_inputs) =
+            make_malicious_contexts(&world, &inputs, &mut rng).await;
 
         let reveals =
             try_join_all(

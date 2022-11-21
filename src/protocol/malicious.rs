@@ -209,11 +209,10 @@ pub mod tests {
     use crate::error::Error;
     use crate::ff::Fp31;
     use crate::protocol::mul::SecureMul;
-    use crate::protocol::{malicious::SecurityValidator, QueryId, RecordId};
-    use crate::secret_sharing::Replicated;
+    use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{
-        join3v, make_contexts, make_malicious_contexts, make_world, share, validate_and_reconstruct,
-        validate_circuit, TestWorld,
+        make_malicious_contexts, make_world, validate_and_reconstruct,
+        validate_circuit,
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
@@ -239,7 +238,7 @@ pub mod tests {
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
         let (contexts, validators, inputs) =
-            make_malicious_contexts(&world, vec![a, b], &mut rng).await;
+            make_malicious_contexts(&world, &vec![a, b], &mut rng).await;
 
         let result: [_; 3] =
             try_join_all(zip(contexts.iter(), inputs).map(|(ctx, input)| async move {
@@ -290,11 +289,34 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let contexts = make_contexts::<Fp31>(&world);
-        let validators = contexts
-            .clone()
-            .map(|ctx| SecurityValidator::new(ctx.narrow("SecurityValidatorInit")));
+        let world = make_world(QueryId);
+        let mut rng = rand::thread_rng();
+        let mut original_inputs = Vec::with_capacity(100);
+        for _ in 0..100 {
+            let x = rng.gen::<Fp31>();
+            original_inputs.push(x);
+        }
+        let (contexts, validators, inputs) =
+            make_malicious_contexts(&world, &original_inputs, &mut rng).await;
+
+        let result: [_; 3] = try_join_all(zip(contexts.iter(), inputs.iter()).map(
+            |(ctx, input)| async move {
+                try_join_all(
+                    zip(repeat(ctx), zip(input.iter(), input.iter().skip(1)))
+                        .enumerate()
+                        .map(|(i, (ctx, (x_1, x_2)))| async move {
+                            let record_id = RecordId::from(i);
+                            ctx.narrow("Circuit_Step_2")
+                                .multiply(record_id, &x_1, &x_2)
+                                .await
+                        }),
+                )
+                .await
+            },
+        ))
+        .await?
+        .try_into()
+        .unwrap();
 
         let r = validate_and_reconstruct(
             &validators[0].r_share(),
@@ -302,85 +324,15 @@ pub mod tests {
             &validators[2].r_share(),
         );
 
-        let mut rng = rand::thread_rng();
-
-        let mut original_inputs = Vec::with_capacity(100);
-        for _ in 0..100 {
-            let x = rng.gen::<Fp31>();
-            original_inputs.push(x);
-        }
-        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
-            .iter()
-            .map(|x| share(*x, &mut rng))
-            .collect();
-        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
-        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
-        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
-
-        let futures = contexts
-            .into_iter()
-            .zip(validators)
-            .zip([h1_shares, h2_shares, h3_shares])
-            .map(|((ctx, v), input_shares)| async move {
-                let maliciously_secure_stuff = try_join_all(
-                    zip(
-                        repeat(v.r_share().clone()),
-                        zip(
-                            repeat(v.accumulator().clone()),
-                            zip(repeat(ctx.clone()), input_shares),
-                        ),
-                    )
-                    .enumerate()
-                    .map(|(i, (r_share, (acc, (ctx, x))))| {
-                        let record_id = RecordId::from(i);
-                        async move {
-                            ctx.bind(record_id)
-                                .upgrade_to_malicious(acc, r_share, record_id, x)
-                                .await
-                        }
-                    }),
-                )
-                .await?;
-
-                let mult_results = try_join_all(
-                    maliciously_secure_stuff
-                        .iter()
-                        .zip(maliciously_secure_stuff.iter().skip(1))
-                        .enumerate()
-                        .map(|(i, ((a_ctx, a_malicious), (_b_ctx, b_malicious)))| {
-                            let record_id = RecordId::from(i);
-                            async move {
-                                a_ctx
-                                    .narrow("Circuit_Step_2")
-                                    .multiply(record_id, a_malicious, b_malicious)
-                                    .await
-                            }
-                        }),
-                )
-                .await?;
-
-                let any_random_malicious_context = maliciously_secure_stuff[0]
-                    .0
-                    .narrow("SecurityValidatorValidate");
-                v.validate(any_random_malicious_context).await?;
-                Ok::<_, Error>(mult_results)
-            });
-
-        let processed_outputs = join3v(futures).await;
+        validate_circuit(contexts, validators).await?;
 
         for i in 0..99 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
-            let x1_times_x2 = validate_and_reconstruct(
-                processed_outputs[0][i].x(),
-                processed_outputs[1][i].x(),
-                processed_outputs[2][i].x(),
-            );
-            let r_times_x1_times_x2 = validate_and_reconstruct(
-                processed_outputs[0][i].rx(),
-                processed_outputs[1][i].rx(),
-                processed_outputs[2][i].rx(),
-            );
+            let x1_times_x2 =
+                validate_and_reconstruct(result[0][i].x(), result[1][i].x(), result[2][i].x());
+            let r_times_x1_times_x2 =
+                validate_and_reconstruct(result[0][i].rx(), result[1][i].rx(), result[2][i].rx());
 
             assert_eq!(x1 * x2, x1_times_x2);
             assert_eq!(r * x1 * x2, r_times_x1_times_x2);
