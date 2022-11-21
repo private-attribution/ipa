@@ -5,7 +5,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     helpers::{Direction, Role},
     protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Substep},
@@ -90,7 +90,7 @@ async fn reshare_all_shares<F: Field>(
     input: Vec<Replicated<F>>,
     ctx: &ProtocolContext<'_, Replicated<F>, F>,
     to_helper: Role,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let reshares = input
         .iter()
         .cloned()
@@ -114,7 +114,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
     ctx: &ProtocolContext<'_, Replicated<F>, F>,
     which_step: ShuffleStep,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let to_helper = shuffle_for_helper(which_step);
     let ctx = ctx.narrow(&which_step);
 
@@ -145,7 +145,7 @@ pub async fn shuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
     ctx: ProtocolContext<'_, Replicated<F>, F>,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
@@ -180,7 +180,7 @@ pub async fn unshuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
     ctx: ProtocolContext<'_, Replicated<F>, F>,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,

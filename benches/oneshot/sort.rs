@@ -1,6 +1,6 @@
 use futures_util::future::try_join_all;
 use rand::Rng;
-use raw_ipa::error::BoxError;
+use raw_ipa::error::Error;
 use raw_ipa::ff::Field;
 use raw_ipa::ff::Fp32BitPrime;
 use raw_ipa::protocol::sort::generate_sort_permutation::generate_sort_permutation;
@@ -11,7 +11,7 @@ use raw_ipa::test_fixture::{
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
-async fn main() -> Result<(), BoxError> {
+async fn main() -> Result<(), Error> {
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = 1;
     config.gateway_config.send_buffer_config.batch_count = 1000;

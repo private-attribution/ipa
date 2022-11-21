@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{context::ProtocolContext, context_traits::ShareOfOne, RecordId},
     secret_sharing::SecretSharing,
@@ -36,7 +36,7 @@ use futures::future::try_join_all;
 pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>>(
     ctx: ProtocolContext<'a, S, F>,
     input: &[S],
-) -> Result<Vec<S>, BoxError>
+) -> Result<Vec<S>, Error>
 where
     ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>,
 {
