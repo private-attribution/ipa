@@ -40,7 +40,6 @@ impl<F: Field> MaliciousReplicated<F> {
     }
 
     /// Returns a pair of replicated secret sharings. One of "one", one of "r"
-    #[allow(dead_code)]
     pub fn one(helper_role: Role, r_share: Replicated<F>) -> Self {
         Self::new(Replicated::one(helper_role), r_share)
     }
