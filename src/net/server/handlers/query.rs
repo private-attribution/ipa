@@ -1,6 +1,6 @@
 use crate::helpers::network::{ChannelId, MessageChunks};
 use crate::helpers::Role;
-use crate::net::server::MpcHelperServerError;
+use crate::net::server::{LastSeenMessages, MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
@@ -8,6 +8,7 @@ use axum::extract::{self, FromRequest, Query, RequestParts};
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use axum::Extension;
 use hyper::Body;
 
 use tokio::sync::mpsc;
@@ -64,13 +65,38 @@ impl<T> Clone for ReservedPermit<T> {
 
 /// Middleware that first reserves a permit on the channel to send messages to the messaging layer.
 /// Once reserved, adds the permit to the extension for retrieval from the handler.
-pub async fn obtain_permit_mw<T: Send + 'static, B>(
-    sender: mpsc::Sender<T>,
-    mut req: Request<B>,
+/// # Panics
+/// if messages arrive out of order
+pub async fn obtain_permit_mw<B: Send>(
+    req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, MpcHelperServerError> {
+    // extract everything from the request; middleware cannot have these in the function signature
+    let mut req_parts = RequestParts::new(req);
+    let Path(query_id, step) = req_parts.extract().await?;
+    // TODO: we shouldn't trust the client to tell us their role.
+    //       revisit when we have figured out discovery/handshake
+    let Query(RoleQueryParam { role }) = req_parts.extract().await?;
+    let record_headers = req_parts.extract::<RecordHeaders>().await?;
+    let Extension::<LastSeenMessages>(last_seen_messages) = req_parts.extract().await?;
+    let Extension::<MessageSendMap>(message_send_map) = req_parts.extract().await?;
+
+    // PANIC if messages arrive out of order; pretty print the error
+    // TODO (ts): remove this when streaming solution is complete
+    let channel_id = ChannelId::new(role, step);
+    last_seen_messages.update_in_place(&channel_id, record_headers.offset);
+
+    // get sender to correct network
+    let sender = message_send_map.get(query_id)?;
     let permit = sender.reserve_owned().await?;
-    req.extensions_mut().insert(ReservedPermit::new(permit));
+
+    // insert different parts as extensions so that handler doesn't need to extract again
+    req_parts.extensions_mut().insert(channel_id);
+    req_parts
+        .extensions_mut()
+        .insert(ReservedPermit::new(permit));
+
+    let req = req_parts.try_into_request().unwrap();
     Ok(next.run(req).await)
 }
 
@@ -78,21 +104,9 @@ pub async fn obtain_permit_mw<T: Send + 'static, B>(
 /// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
 /// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
 /// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
-pub async fn handler(
-    path: Path,
-    // TODO: we shouldn't trust the client to tell us their role.
-    //       revisit when we have figured out discovery/handshake
-    query: Query<RoleQueryParam>,
-    _headers: RecordHeaders,
-    mut req: Request<Body>,
-) -> Result<(), MpcHelperServerError> {
+pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError> {
     // prepare data
-    let Path(_query_id, step) = path;
-    let channel_id = ChannelId {
-        role: query.role,
-        step,
-    };
-
+    let channel_id = req.extensions().get::<ChannelId>().unwrap().clone();
     let body = hyper::body::to_bytes(req.body_mut()).await?.to_vec();
 
     // send data
@@ -108,29 +122,36 @@ pub async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
-    use crate::net::{BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME, OFFSET_HEADER_NAME};
+    use crate::{
+        helpers::{network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
+        net::{
+            http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer,
+            CONTENT_LENGTH_HEADER_NAME, OFFSET_HEADER_NAME,
+        },
+    };
     use axum::body::Bytes;
     use axum::http::{HeaderValue, Request, StatusCode};
+    use futures::{Stream, StreamExt};
     use futures_util::FutureExt;
     use hyper::header::HeaderName;
     use hyper::service::Service;
     use hyper::{body, Body, Client, Response};
     use std::future::Future;
     use std::task::{Context, Poll};
-    use tokio::sync::mpsc;
     use tower::ServiceExt;
 
     const DATA_LEN: usize = 3;
 
-    async fn init_server() -> (u16, mpsc::Receiver<MessageChunks>) {
-        let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+    async fn init_server() -> (u16, impl Stream<Item = MessageChunks>) {
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
         let port = addr.port();
-        (port, rx)
+        (port, rx_stream)
     }
 
     fn build_req(
@@ -185,17 +206,16 @@ mod tests {
 
     #[tokio::test]
     async fn collect_req() {
-        let (port, mut rx) = init_server().await;
+        let (port, mut rx_stream) = init_server().await;
 
         // prepare req
         let query_id = QueryId;
         let target_helper = Role::H2;
         let step = Step::default().narrow("test");
-        let offset = 0;
         let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
         // try a request 10 times
-        for _ in 0..10 {
+        for offset in 0..10 {
             let resp = send_req(port, query_id, &step, target_helper, offset, body).await;
 
             let status = resp.status();
@@ -209,9 +229,43 @@ mod tests {
             };
 
             assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
-            let messages = rx.try_recv().expect("should have already received value");
+            let messages = rx_stream
+                .next()
+                .await
+                .expect("should have already received value");
             assert_eq!(messages, (channel_id, body.to_vec()));
         }
+    }
+
+    #[tokio::test]
+    async fn ensure_ordering() {
+        let (port, _rx) = init_server().await;
+
+        // prepare req
+        let query_id = QueryId;
+        let target_helper = Role::H2;
+        let step = Step::default().narrow("test");
+        let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
+
+        // offset == 0; this is correct
+        let resp = send_req(port, query_id, &step, target_helper, 0, body).await;
+        let resp_status = resp.status();
+        let body_bytes = body::to_bytes(resp.into_body()).await.unwrap();
+        assert!(
+            resp_status.is_success(),
+            "{}",
+            String::from_utf8_lossy(&body_bytes).as_ref()
+        );
+
+        // offset == 0; this is invalid
+        let req = build_req(port, query_id, &step, target_helper, 0, body);
+        let client = Client::default();
+        let resp = client.request(req).await;
+        let resp_err_msg = format!("{}", resp.unwrap_err());
+        assert_eq!(
+            resp_err_msg.as_str(),
+            "connection closed before message completed"
+        );
     }
 
     struct OverrideReq {
@@ -322,18 +376,24 @@ mod tests {
     #[tokio::test]
     async fn backpressure_applied() {
         const QUEUE_DEPTH: usize = 8;
-        let (tx, mut rx) = mpsc::channel(QUEUE_DEPTH);
-        let server = MpcHelperServer::new(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, Some(QUEUE_DEPTH));
+        let mut rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
         let mut r = server.router();
 
         // prepare req
         let query_id = QueryId;
         let step = Step::default().narrow("test");
         let target_helper = Role::H2;
-        let offset = 0;
+        let mut offset = 0;
         let body = &[0; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
 
-        let new_req = || build_req(0, query_id, &step, target_helper, offset, body);
+        let mut new_req = || {
+            let req = build_req(0, query_id, &step, target_helper, offset, body);
+            offset += 1;
+            req
+        };
 
         // fill channel
         for _ in 0..QUEUE_DEPTH {
@@ -354,14 +414,14 @@ mod tests {
         );
 
         // take 1 message from channel
-        rx.recv().await;
+        rx_stream.next().await;
 
         // channel should now have capacity
         assert!(poll(&mut resp_when_full).is_ready());
 
         // take 3 messages from channel
         for _ in 0..3 {
-            rx.recv().await;
+            rx_stream.next().await;
         }
 
         // channel should now have capacity for 3 more reqs

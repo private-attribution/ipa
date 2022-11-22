@@ -119,15 +119,18 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{
-            network::{ChannelId, MessageChunks},
+            network::{ChannelId, MessageChunks, Network},
             Role,
         },
-        net::{BindTarget, MpcHelperServer},
+        net::{http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer},
     };
+    use futures::{Stream, StreamExt};
     use hyper_tls::native_tls::TlsConnector;
-    use tokio::sync::mpsc;
 
-    async fn mul_req(client: MpcHelperClient, mut rx: mpsc::Receiver<MessageChunks>) {
+    async fn mul_req<St: Stream<Item = MessageChunks> + Unpin>(
+        client: MpcHelperClient,
+        mut rx_stream: St,
+    ) {
         const DATA_SIZE: u32 = 8;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
@@ -149,14 +152,16 @@ mod tests {
             .expect("send should succeed");
 
         let channel_id = ChannelId { role, step };
-        let server_recvd = rx.try_recv().unwrap(); // should already have been received
+        let server_recvd = rx_stream.next().await.unwrap(); // should already have been received
         assert_eq!(server_recvd, (channel_id, body.to_vec()));
     }
 
     #[tokio::test]
     async fn mul_req_http() {
-        let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
         // setup server
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
@@ -167,14 +172,16 @@ mod tests {
             MpcHelperClient::with_str_addr(&format!("http://localhost:{}", addr.port())).unwrap();
 
         // test
-        mul_req(client, rx).await;
+        mul_req(client, rx_stream).await;
     }
 
     #[tokio::test]
     async fn mul_req_https() {
         // setup server
-        let (tx, rx) = mpsc::channel(1);
-        let server = MpcHelperServer::new(tx);
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();

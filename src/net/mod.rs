@@ -10,16 +10,20 @@ pub mod http_network;
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
-pub use server::{BindTarget, MpcHelperServer};
+pub use server::{BindTarget, MessageSendMap, MpcHelperServer};
+use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
-use crate::helpers::MESSAGE_PAYLOAD_SIZE_BYTES;
-use crate::net::server::MpcHelperServerError;
-use crate::protocol::{QueryId, RecordId};
+use crate::{
+    helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
+    net::server::MpcHelperServerError,
+};
 use async_trait::async_trait;
-use axum::body::Bytes;
-use axum::extract::{FromRequest, RequestParts};
-use axum::http::header::HeaderName;
+use axum::{
+    extract::{FromRequest, RequestParts},
+    http::header::HeaderName,
+};
 
 /// name of the `offset` header to use for [`RecordHeaders`]
 static OFFSET_HEADER_NAME: HeaderName = HeaderName::from_static("offset");
@@ -33,6 +37,7 @@ static CONTENT_LENGTH_HEADER_NAME: HeaderName = HeaderName::from_static("content
 /// # `offset`
 /// For any given batch, their `record_id`s must be known. The first record in the batch will have id
 /// `offset`, and subsequent records will be in-order from there.
+#[derive(Copy, Clone)]
 pub struct RecordHeaders {
     content_length: u32,
     offset: u32,
@@ -54,7 +59,7 @@ impl RecordHeaders {
             .and_then(|header_value_str| header_value_str.parse().map_err(Into::into))
     }
 
-    pub(crate) fn add_to(&self, req: axum::http::request::Builder) -> axum::http::request::Builder {
+    pub(crate) fn add_to(self, req: axum::http::request::Builder) -> axum::http::request::Builder {
         req.header(CONTENT_LENGTH_HEADER_NAME.clone(), self.content_length)
             .header(OFFSET_HEADER_NAME.clone(), self.offset)
     }
@@ -83,20 +88,34 @@ impl<B: Send> FromRequest<B> for RecordHeaders {
     }
 }
 
-/// After receiving a batch of records from the network, package it into this [`BufferedMessages`]
-/// and pass it to the network layer for processing, and to pass on to the messaging layer
-#[derive(Debug, PartialEq, Eq)]
-pub struct BufferedMessages<S> {
-    query_id: QueryId,
-    step: S,
-    offset: u32,
-    data_size: u32,
-    body: Bytes,
+/// Keeps track of the last seen message for every [`ChannelId`]. This enables the server to ensure
+/// that messages arrive in-order. This solution is a temporary one intended to be removed once
+/// messages arrive in one stream, where ordering will be handled by http.
+/// TODO (ts): remove this when streaming solution is complete
+#[derive(Clone)]
+pub(crate) struct LastSeenMessages {
+    messages: Arc<Mutex<HashMap<ChannelId, u32>>>,
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct MessageEnvelope {
-    record_id: RecordId,
-    message: Box<u8>,
+impl LastSeenMessages {
+    /// ensures that incoming message follows last seen message
+    /// # Panics
+    /// if messages arrive out of order
+    pub fn update_in_place(&self, channel_id: &ChannelId, next_seen: u32) {
+        let mut messages = self.messages.lock().unwrap();
+        let last_seen = messages.entry(channel_id.clone()).or_default();
+        if *last_seen == next_seen {
+            *last_seen += 1;
+        } else {
+            panic!("out-of-order delivery of data for role:{}, step:{}: expected index {last_seen}, but found {next_seen}", channel_id.role.as_ref(), channel_id.step.as_ref());
+        }
+    }
+}
+
+impl Default for LastSeenMessages {
+    fn default() -> Self {
+        Self {
+            messages: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
 }
