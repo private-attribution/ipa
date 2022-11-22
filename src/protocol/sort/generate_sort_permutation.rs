@@ -138,7 +138,7 @@ mod tests {
             QueryId,
         },
         test_fixture::{
-            generate_shares, logging, make_contexts, make_world, validate_and_reconstruct,
+            generate_shares, join3, logging, make_contexts, make_world, validate_and_reconstruct,
         },
     };
 
@@ -210,44 +210,38 @@ mod tests {
 
         let mut rng = rand::thread_rng();
 
-        for _ in 0..10 {
-            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
-            permutation.shuffle(&mut rng);
+        let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
+        permutation.shuffle(&mut rng);
 
-            let world = make_world(QueryId);
-            let [ctx0, ctx1, ctx2] = make_contexts(&world);
-            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
+        let world = make_world(QueryId);
+        let [ctx0, ctx1, ctx2] = make_contexts(&world);
+        let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
-            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
+        let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-            let h0_future = shuffle_and_reveal_permutation(
-                ctx0.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm0,
-            );
-            let h1_future = shuffle_and_reveal_permutation(
-                ctx1.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm1,
-            );
-            let h2_future = shuffle_and_reveal_permutation(
-                ctx2.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm2,
-            );
+        let h0_future = shuffle_and_reveal_permutation(
+            ctx0.narrow("shuffle_reveal"),
+            BATCHSIZE.try_into().unwrap(),
+            perm0,
+        );
+        let h1_future = shuffle_and_reveal_permutation(
+            ctx1.narrow("shuffle_reveal"),
+            BATCHSIZE.try_into().unwrap(),
+            perm1,
+        );
+        let h2_future = shuffle_and_reveal_permutation(
+            ctx2.narrow("shuffle_reveal"),
+            BATCHSIZE.try_into().unwrap(),
+            perm2,
+        );
 
-            let perms_and_randoms: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+        let perms_and_randoms: [_; 3] = join3(h0_future, h1_future, h2_future).await;
 
-            assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
-            assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
+        assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
+        assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
 
-            assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
-            assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
-            assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
-        }
+        assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
+        assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
+        assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
     }
 }
