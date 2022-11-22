@@ -48,7 +48,9 @@ pub struct MaliciousContextWrapper<'a, F: Field> {
 }
 
 /// Creates malicious protocol contexts for 3 helpers.
-pub fn make_malicious_contexts<F: Field>(test_world: &TestWorld) -> [MaliciousContextWrapper<'_, F>; 3] {
+pub fn make_malicious_contexts<F: Field>(
+    test_world: &TestWorld,
+) -> [MaliciousContextWrapper<'_, F>; 3] {
     make_contexts(test_world).map(|ctx| {
         let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
         let acc = v.accumulator();
