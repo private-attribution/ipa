@@ -169,28 +169,19 @@ mod tests {
     use super::BitwiseLessThan;
     use crate::{
         error::Error,
-        ff::{Field, Fp31, Fp32BitPrime, Int},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{
+            make_contexts, make_world, shared_bits, validate_and_reconstruct, TestWorld,
+        },
     };
     use futures::future::try_join_all;
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
+    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
         x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
-    }
-
-    /// Take a field value `x` and turn them into replicated bitwise sharings of three
-    fn shared_bits<F: Field, R: RngCore>(x: F, rand: &mut R) -> Vec<[Replicated<F>; 3]>
-    where
-        Standard: Distribution<F>,
-    {
-        let x = x.as_u128();
-        (0..F::Integer::BITS)
-            .map(|i| share(F::from(x >> i & 1), rand))
-            .collect::<Vec<_>>()
     }
 
     async fn bitwise_lt<F: Field>(a: F, b: F) -> Result<F, Error>
