@@ -53,7 +53,6 @@ pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld
     logging::setup();
 
     let participants = make_participants();
-    let participants = [participants.0, participants.1, participants.2];
     let network = InMemoryNetwork::new();
     let gateways = network
         .endpoints
