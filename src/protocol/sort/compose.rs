@@ -1,16 +1,9 @@
 use crate::{
-    error::Error,
-    ff::Field,
-    protocol::{context::ProtocolContext, reveal::reveal_permutation},
-    secret_sharing::Replicated,
+    error::Error, ff::Field, protocol::context::ProtocolContext, secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 
-use super::{
-    apply::apply,
-    shuffle::{get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares},
-    ComposeStep::{RevealPermutation, ShuffleSigma, UnshuffleRho},
-};
+use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 
 /// This is an implementation of Compose (Algorithm 5) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -32,26 +25,15 @@ use super::{
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
 pub async fn compose<F: Field>(
     ctx: ProtocolContext<'_, Replicated<F>, F>,
-    sigma: Vec<Replicated<F>>,
+    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+    shuffled_sigma: &[u32],
     mut rho: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
-    let prss = &ctx.prss();
-    let random_permutations = get_two_of_three_random_permutations(rho.len(), prss);
-
-    let shuffled_sigma = shuffle_shares(
-        sigma,
-        (&random_permutations.0, &random_permutations.1),
-        ctx.narrow(&ShuffleSigma),
-    )
-    .await?;
-
-    let revealed_permutation =
-        reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sigma).await?;
-    apply(&revealed_permutation, &mut rho);
+    apply(shuffled_sigma, &mut rho);
 
     let unshuffled_rho = unshuffle_shares(
         rho,
-        (&random_permutations.0, &random_permutations.1),
+        random_permutations_for_shuffle,
         ctx.narrow(&UnshuffleRho),
     )
     .await?;
@@ -67,7 +49,10 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            sort::{apply::apply, compose::compose},
+            sort::{
+                apply::apply, compose::compose,
+                generate_sort_permutation::shuffle_and_reveal_permutation,
+            },
             QueryId,
         },
         test_fixture::{
@@ -95,13 +80,24 @@ mod tests {
             apply(&sigma, &mut rho_composed);
 
             let [sigma0, sigma1, sigma2] = generate_shares::<Fp31>(&sigma_u128);
+
             let [rho0, rho1, rho2] = generate_shares::<Fp31>(&rho_u128);
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let h0_future = compose(ctx0, sigma0, rho0);
-            let h1_future = compose(ctx1, sigma1, rho1);
-            let h2_future = compose(ctx2, sigma2, rho2);
+            let sigma_and_randoms: [_; 3] = try_join_all([
+                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),
+                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), sigma.len(), sigma1),
+                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), sigma.len(), sigma2),
+            ])
+            .await
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+            let h0_future = compose(ctx0, &sigma_and_randoms[0].1, &sigma_and_randoms[0].0, rho0);
+            let h1_future = compose(ctx1, &sigma_and_randoms[1].1, &sigma_and_randoms[1].0, rho1);
+            let h2_future = compose(ctx2, &sigma_and_randoms[2].1, &sigma_and_randoms[2].0, rho2);
 
             let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
                 .await

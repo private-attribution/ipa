@@ -15,6 +15,7 @@ pub enum SortStep {
     BitPermutationStep,
     ApplyInv,
     ComposeStep,
+    ShuffleRevealPermutation,
 }
 
 impl Substep for SortStep {}
@@ -26,6 +27,7 @@ impl AsRef<str> for SortStep {
             Self::BitPermutationStep => "bit_permute",
             Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
+            Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
         }
     }
 }
@@ -52,8 +54,6 @@ impl AsRef<str> for ShuffleStep {
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ApplyInvStep {
     ShuffleInputs,
-    ShufflePermutation,
-    RevealPermutation,
 }
 
 impl Substep for ApplyInvStep {}
@@ -62,16 +62,12 @@ impl AsRef<str> for ApplyInvStep {
     fn as_ref(&self) -> &str {
         match self {
             Self::ShuffleInputs => "shuffle_inputs",
-            Self::ShufflePermutation => "shuffle_permutation",
-            Self::RevealPermutation => "reveal_permutation",
         }
     }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ComposeStep {
-    ShuffleSigma,
-    RevealPermutation,
     UnshuffleRho,
 }
 
@@ -80,9 +76,24 @@ impl Substep for ComposeStep {}
 impl AsRef<str> for ComposeStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ShuffleSigma => "shuffle_sigma",
-            Self::RevealPermutation => "compose_reveal_permutation",
             Self::UnshuffleRho => "unshuffle_rho",
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ShuffleRevealStep {
+    RevealPermutation,
+    ShufflePermutation,
+}
+
+impl Substep for ShuffleRevealStep {}
+
+impl AsRef<str> for ShuffleRevealStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::RevealPermutation => "reveal_permutation",
+            Self::ShufflePermutation => "shuffle_permutation",
         }
     }
 }
