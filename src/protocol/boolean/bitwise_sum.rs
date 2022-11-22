@@ -86,42 +86,20 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::{
         error::BoxError,
-        ff::{Field, Fp31, Fp32BitPrime, Int},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{
+            bits_to_field, make_contexts, make_world, shared_bits, validate_and_reconstruct,
+            TestWorld,
+        },
     };
     use futures::future::try_join_all;
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng, RngCore};
+    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng};
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking the `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
         x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
-    }
-
-    /// Take a field value `x` and turn them into replicated bitwise sharings of three
-    fn shared_bits<F: Field, R: RngCore>(
-        x: F,
-        bit_len: u32,
-        rand: &mut R,
-    ) -> Vec<[Replicated<F>; 3]>
-    where
-        Standard: Distribution<F>,
-    {
-        let x = x.as_u128();
-        (0..bit_len)
-            .map(|i| share(F::from(x >> i & 1), rand))
-            .collect::<Vec<_>>()
-    }
-
-    /// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `F_p`
-    fn bits_to_field<F: Field>(x: &[F]) -> F {
-        #[allow(clippy::cast_possible_truncation)]
-        let v = x
-            .iter()
-            .enumerate()
-            .fold(0, |acc, (i, &b)| acc + 2_u128.pow(i as u32) * b.as_u128());
-        F::from(v)
     }
 
     #[allow(clippy::many_single_char_names)]
@@ -133,8 +111,8 @@ mod tests {
         let ctx = make_contexts::<F>(&world);
         let mut rand = StepRng::new(1, 1);
 
-        let a_bits = shared_bits(a, F::Integer::BITS, &mut rand);
-        let b_bits = shared_bits(b, F::Integer::BITS, &mut rand);
+        let a_bits = shared_bits(a, &mut rand);
+        let b_bits = shared_bits(b, &mut rand);
         let l = a_bits.len();
 
         let step = "BitwiseSum_Test";

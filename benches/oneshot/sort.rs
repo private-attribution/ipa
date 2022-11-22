@@ -1,17 +1,16 @@
-use futures_util::future::try_join_all;
 use rand::Rng;
-use raw_ipa::error::BoxError;
+use raw_ipa::error::Error;
 use raw_ipa::ff::Field;
 use raw_ipa::ff::Fp32BitPrime;
 use raw_ipa::protocol::sort::generate_sort_permutation::generate_sort_permutation;
 use raw_ipa::protocol::QueryId;
 use raw_ipa::test_fixture::{
-    make_contexts, make_world_with_config, validate_and_reconstruct, TestWorldConfig,
+    join3, make_contexts, make_world_with_config, validate_and_reconstruct, TestWorldConfig,
 };
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
-async fn main() -> Result<(), BoxError> {
+async fn main() -> Result<(), Error> {
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = 1;
     config.gateway_config.send_buffer_config.batch_count = 1000;
@@ -44,12 +43,12 @@ async fn main() -> Result<(), BoxError> {
     }
 
     let start = Instant::now();
-    let result = try_join_all(vec![
+    let result = join3(
         generate_sort_permutation(ctx0, &shares[0], num_bits),
         generate_sort_permutation(ctx1, &shares[1], num_bits),
         generate_sort_permutation(ctx2, &shares[2], num_bits),
-    ])
-    .await?;
+    )
+    .await;
     let duration = start.elapsed().as_secs_f32();
     println!("benchmark complete after {duration}s");
 

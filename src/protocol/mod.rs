@@ -241,3 +241,38 @@ impl AddAssign<usize> for RecordId {
         self.0 += u32::try_from(rhs).unwrap();
     }
 }
+
+pub struct IterStep {
+    name: &'static str,
+    count: u32,
+    id: String,
+}
+
+impl IterStep {
+    #[must_use]
+    pub fn new(name: &'static str, start: u32) -> Self {
+        Self {
+            name,
+            count: start,
+            id: String::from(name),
+        }
+    }
+
+    fn next(&mut self) -> &Self {
+        self.count += 1;
+        self.id = format!("{}_{}", self.name, self.count);
+        self
+    }
+
+    fn is_first_iteration(&self) -> bool {
+        self.count == 1
+    }
+}
+
+impl crate::protocol::Substep for IterStep {}
+
+impl AsRef<str> for IterStep {
+    fn as_ref(&self) -> &str {
+        self.id.as_str()
+    }
+}

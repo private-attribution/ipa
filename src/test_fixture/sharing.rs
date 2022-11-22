@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use crate::ff::Field;
+use crate::ff::{Field, Int};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use rand::{
     distributions::{Distribution, Standard},
@@ -38,6 +38,17 @@ where
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
+}
+
+/// Take a field value `x` and turn them into replicated bitwise sharings of three
+pub fn shared_bits<F: Field, R: RngCore>(x: F, rand: &mut R) -> Vec<[Replicated<F>; 3]>
+where
+    Standard: Distribution<F>,
+{
+    let x = x.as_u128();
+    (0..F::Integer::BITS)
+        .map(|i| share(F::from((x >> i) & 1), rand))
+        .collect::<Vec<_>>()
 }
 
 /// Validates correctness of the secret sharing scheme.

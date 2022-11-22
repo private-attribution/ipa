@@ -1,6 +1,6 @@
 use crate::protocol::context::SemiHonestContext;
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{context::Context, reveal::reveal_permutation},
     secret_sharing::Replicated,
@@ -35,7 +35,7 @@ pub async fn compose<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     sigma: Vec<Replicated<F>>,
     mut rho: Vec<Replicated<F>>,
-) -> Result<Vec<Replicated<F>>, BoxError> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let prss = &ctx.prss();
     let random_permutations = get_two_of_three_random_permutations(rho.len(), prss);
 

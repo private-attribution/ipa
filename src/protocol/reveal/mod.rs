@@ -3,11 +3,7 @@ use std::iter::{repeat, zip};
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
-use crate::{
-    error::{BoxError, Error},
-    helpers::Direction,
-    protocol::RecordId,
-};
+use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::{try_join, try_join_all};
@@ -97,7 +93,7 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
 pub async fn reveal_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     permutation: &[Replicated<F>],
-) -> Result<Vec<u32>, BoxError> {
+) -> Result<Vec<u32>, Error> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
         |(index, (ctx, input))| async move {
             let reveal_value = ctx.reveal(RecordId::from(index), input).await;
@@ -121,7 +117,6 @@ mod tests {
     use crate::protocol::context::MaliciousContext;
     use crate::test_fixture::make_malicious_contexts;
     use crate::{
-        error::BoxError,
         error::Error,
         ff::{Field, Fp31},
         helpers::Direction,
@@ -134,7 +129,7 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn simple() -> Result<(), BoxError> {
+    pub async fn simple() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
         let ctx = make_contexts::<Fp31>(&world);
@@ -159,7 +154,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn malicious() -> Result<(), BoxError> {
+    pub async fn malicious() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
         let ctx = make_malicious_contexts::<Fp31>(&world);
@@ -187,7 +182,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn malicious_validation_fail() -> Result<(), BoxError> {
+    pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
         let world: TestWorld = make_world(QueryId);
         let [mc0, mc1, mc2] = make_malicious_contexts(&world);

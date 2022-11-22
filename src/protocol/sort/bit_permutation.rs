@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
     protocol::{context::Context, RecordId},
     secret_sharing::SecretSharing,
@@ -35,7 +35,7 @@ use futures::future::try_join_all;
 pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     ctx: C,
     input: &[S],
-) -> Result<Vec<S>, BoxError> {
+) -> Result<Vec<S>, Error> {
     let share_of_one = ctx.share_of_one();
 
     let mult_input = zip(repeat(share_of_one.clone()), input)

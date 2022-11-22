@@ -212,7 +212,7 @@ pub mod tests {
     };
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
     use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        join3v, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
     use futures::future::{try_join, try_join_all};
     use proptest::prelude::Rng;
@@ -288,7 +288,7 @@ pub mod tests {
                 Ok::<_, Error>((mult_result, r_share))
             });
 
-        let [ab0, ab1, ab2] = <[_; 3]>::try_from(try_join_all(futures).await?).unwrap();
+        let [ab0, ab1, ab2] = join3v(futures).await;
 
         let ab = validate_and_reconstruct(ab0.0.x(), ab1.0.x(), ab2.0.x());
         let rab = validate_and_reconstruct(ab0.0.rx(), ab1.0.rx(), ab2.0.rx());
@@ -399,7 +399,7 @@ pub mod tests {
                 Ok::<_, Error>((mult_results, r_share))
             });
 
-        let processed_outputs = try_join_all(futures).await?;
+        let processed_outputs = join3v(futures).await;
 
         let r = validate_and_reconstruct(
             &processed_outputs[0].1,

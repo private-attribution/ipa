@@ -1,7 +1,7 @@
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
 use crate::{
-    error::BoxError,
+    error::Error,
     helpers::{Direction, Role},
     protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
@@ -40,7 +40,7 @@ impl<F: Field> Reshare<F> {
         ctx: &SemiHonestContext<'_, F>,
         record_id: RecordId,
         to_helper: Role,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         let channel = ctx.mesh();
         let prss = ctx.prss();
         let (r0, r1) = prss.generate_fields(record_id);
