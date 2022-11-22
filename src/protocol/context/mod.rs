@@ -1,10 +1,8 @@
 use crate::ff::Field;
-use crate::helpers::messaging::{Gateway, Mesh};
+use crate::helpers::messaging::Mesh;
 use crate::helpers::Role;
 use crate::protocol::mul::SecureMul;
-use crate::protocol::prss::{
-    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
-};
+use crate::protocol::prss::{IndexedSharedRandomness, SequentialSharedRandomness};
 use crate::protocol::reveal::Reveal;
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::SecretSharing;
@@ -62,35 +60,4 @@ pub trait Context<F: Field>:
 
     /// Generates a new share of one
     fn share_of_one(&self) -> <Self as Context<F>>::Share;
-}
-
-/// Contains things that are applicable to any implementation of protocol context as see it today
-/// Every context requires access to current step, PRSS and communication and that is what this
-/// struct carries.
-#[derive(Clone, Debug)]
-struct ContextInner<'a> {
-    role: Role,
-    step: Step,
-    prss: &'a PrssEndpoint,
-    gateway: &'a Gateway,
-}
-
-impl<'a> ContextInner<'a> {
-    fn new(role: Role, prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self {
-            role,
-            step: Step::default(),
-            prss,
-            gateway,
-        }
-    }
-
-    fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
-        Self {
-            role: self.role,
-            step: self.step.narrow(step),
-            prss: self.prss,
-            gateway: self.gateway,
-        }
-    }
 }

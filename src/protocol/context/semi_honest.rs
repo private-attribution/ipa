@@ -1,7 +1,7 @@
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
-use crate::protocol::context::{Context, ContextInner, MaliciousContext};
+use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::malicious::SecurityValidatorAccumulator;
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
@@ -15,7 +15,10 @@ use std::sync::Arc;
 /// honest-but-curious adversary parties.
 #[derive(Clone, Debug)]
 pub struct SemiHonestContext<'a, F: Field> {
-    inner: ContextInner<'a>,
+    /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
+    /// may operate with raw references and be more efficient
+    pub(super) inner: Arc<ContextInner<'a>>,
+    pub(super) step: Step,
     _marker: PhantomData<F>,
 }
 
@@ -23,13 +26,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
     pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
             inner: ContextInner::new(role, participant, gateway),
-            _marker: PhantomData::default(),
-        }
-    }
-
-    pub(super) fn from_inner(inner: ContextInner<'a>) -> Self {
-        Self {
-            inner,
+            step: Step::default(),
             _marker: PhantomData::default(),
         }
     }
@@ -40,7 +37,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         accumulator: SecurityValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> MaliciousContext<'a, F> {
-        MaliciousContext::from_inner(self.inner, accumulator, r_share)
+        MaliciousContext::new(&self, accumulator, r_share)
     }
 }
 
@@ -52,12 +49,13 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn step(&self) -> &Step {
-        &self.inner.step
+        &self.step
     }
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
         Self {
-            inner: self.inner.narrow(step),
+            inner: Arc::clone(&self.inner),
+            step: self.step.narrow(step),
             _marker: PhantomData::default(),
         }
     }
@@ -76,5 +74,22 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         Replicated::one(self.role())
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct ContextInner<'a> {
+    pub role: Role,
+    pub prss: &'a PrssEndpoint,
+    pub gateway: &'a Gateway,
+}
+
+impl<'a> ContextInner<'a> {
+    fn new(role: Role, prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
+        Arc::new(Self {
+            role,
+            prss,
+            gateway,
+        })
     }
 }
