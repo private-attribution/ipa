@@ -11,6 +11,7 @@ use futures::future::try_join_all;
 use std::iter::repeat;
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct RandomBitsShare<F: Field> {
     b_b: Vec<Replicated<F>>,
     b_p: Replicated<F>,
@@ -185,10 +186,9 @@ mod tests {
         protocol::{context::ProtocolContext, QueryId, RecordId},
         secret_sharing::Replicated,
         test_fixture::{
-            bits_to_value, make_contexts, make_world, validate_and_reconstruct, TestWorld,
+            bits_to_value, join3, make_contexts, make_world, validate_and_reconstruct, TestWorld,
         },
     };
-    use futures::future::try_join3;
     use rand::{distributions::Standard, prelude::Distribution};
 
     async fn random_bits<F: Field>(
@@ -201,12 +201,12 @@ mod tests {
         let [c0, c1, c2] = ctx;
 
         // Execute
-        let (result0, result1, result2) = try_join3(
+        let [result0, result1, result2] = join3(
             SolvedBits::execute(c0.bind(record_id), record_id),
             SolvedBits::execute(c1.bind(record_id), record_id),
             SolvedBits::execute(c2.bind(record_id), record_id),
         )
-        .await?;
+        .await;
 
         // if one of `SolvedBits` calls aborts, then all must have aborted, too
         if result0.is_none() || result1.is_none() || result2.is_none() {
