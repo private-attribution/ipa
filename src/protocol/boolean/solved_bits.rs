@@ -8,6 +8,7 @@ use crate::protocol::reveal::Reveal;
 use crate::protocol::{context::ProtocolContext, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
+use std::iter::repeat;
 
 #[allow(dead_code)]
 pub struct RandomBitsShare<F: Field> {
@@ -75,20 +76,21 @@ impl SolvedBits {
         ctx: ProtocolContext<'_, Replicated<F>, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
-        // We assume the bit length we operate in would not exceed 255
-        #[allow(clippy::cast_possible_truncation)]
-        let l = F::Integer::BITS as u8;
+        // Calculate the number of bits we need to form a random number that
+        // has the same number of bits as the prime.
+        let l = u128::BITS - F::PRIME.into().leading_zeros();
+        let leading_zero_bits = F::Integer::BITS - l;
 
         // Generate a pair of random numbers. We'll use these numbers as
         // the source of `l`-bit long uniformly random sequence of bits.
         let (b_bits_left, b_bits_right) = ctx
-            .narrow(&Step::RandomFields)
+            .narrow(&Step::RandomValues)
             .prss()
             .generate_values(record_id);
 
-        // Same here. For now, 64-bit is enough for our F_p
+        // Same here. For now, 256-bit is enough for our F_p
         #[allow(clippy::cast_possible_truncation)]
-        let xor_shares = XorShares::new(l, b_bits_left as u64, b_bits_right as u64);
+        let xor_shares = XorShares::new(l as u8, b_bits_left as u64, b_bits_right as u64);
 
         // Convert each bit to secret sharings of that bit in the target field
         let c = ctx.narrow(&Step::ConvertShares);
@@ -97,13 +99,23 @@ impl SolvedBits {
             #[allow(clippy::cast_possible_truncation)]
             let c = c.narrow(&BitOpStep::Step(i as usize));
             async move {
+                #[allow(clippy::cast_possible_truncation)]
                 ConvertShares::new(xor_shares)
                     .execute_one_bit(c, record_id, i as u8)
                     .await
             }
         });
 
-        try_join_all(futures).await
+        // Pad 0's at the end to return `F::Integer::BITS` long bits
+        let mut b_b = try_join_all(futures).await?;
+        #[allow(clippy::cast_possible_truncation)]
+        b_b.append(
+            &mut repeat(Replicated::ZERO)
+                .take(leading_zero_bits as usize)
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(b_b)
     }
 
     async fn is_less_than_p<F: Field>(
@@ -123,6 +135,10 @@ impl SolvedBits {
     /// Internal use only.
     /// Converts the prime number to a sequence of `{0,1} ⊆ F`, and creates a
     /// local replicated share.
+    ///
+    /// TODO(taikiy): This method should be memoized. We can let the context
+    /// keep a hash table and store these values. An easier approach is to use
+    /// `memoize` crate.
     fn local_secret_shared_bits_p<F: Field>(helper_role: Role) -> Vec<Replicated<F>> {
         let x = F::PRIME.into();
         let l = F::Integer::BITS;
@@ -141,7 +157,7 @@ impl SolvedBits {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    RandomFields,
+    RandomValues,
     ConvertShares,
     IsPLessThanB,
     RevealC,
@@ -152,7 +168,7 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::RandomFields => "random_fields",
+            Self::RandomValues => "random_values",
             Self::ConvertShares => "convert_shares",
             Self::IsPLessThanB => "is_p_less_than_b",
             Self::RevealC => "reveal_c",
@@ -227,18 +243,20 @@ mod tests {
         let ctx = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = ctx;
 
-        // 0.012 secs per invocation. 100 tries = 1.2 secs
-        for i in 0..100 {
+        let mut success = 0;
+        for i in 0..21 {
             let record_id = RecordId::from(i);
-            // The chance of this protocol aborting 100 out of 100 tries in Fp31 is < 0.0001%.
-            // Should we test and see if it succeeds at least once?
             if let Some((b_b, b_p)) =
                 random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?
             {
                 // Base10 of `b_B ⊆ Z` must equal `b_P`
                 assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+                success += 1;
             }
         }
+        // The chance of this protocol aborting 21 out of 21 tries in Fp31
+        // is about 2^-100. Assert that at least one run has succeeded.
+        assert!(success > 0);
 
         Ok(())
     }
@@ -249,16 +267,18 @@ mod tests {
         let ctx = make_contexts::<Fp32BitPrime>(&world);
         let [c0, c1, c2] = ctx;
 
-        // 0.055 secs per invocation. 20 tries = 1.1 secs
-        for i in 0..20 {
+        let mut success = 0;
+        for i in 0..4 {
             let record_id = RecordId::from(i);
             if let Some((b_b, b_p)) =
                 random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?
             {
                 // Base10 of `b_B ⊆ Z` must equal `b_P`
                 assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+                success += 1;
             }
         }
+        assert!(success > 0);
 
         Ok(())
     }
