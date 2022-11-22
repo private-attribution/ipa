@@ -1,6 +1,6 @@
 use super::prefix_or::PrefixOr;
 use super::xor::xor;
-use super::BitOpStep;
+use super::{align_bit_lengths, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
@@ -136,11 +136,12 @@ impl BitwiseLessThan {
         a: &[Replicated<F>],
         b: &[Replicated<F>],
     ) -> Result<Replicated<F>, Error> {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
-        let mut e = Self::step1(a, b, ctx.narrow(&Step::AXorB), record_id).await?;
+        let (a, b) = align_bit_lengths(a, b);
+
+        let mut e = Self::step1(&a, &b, ctx.narrow(&Step::AXorB), record_id).await?;
         let f = Self::step2(&mut e, ctx.narrow(&Step::PrefixOr), record_id).await?;
         let g = Self::step3_4(&f);
-        let h = Self::step5(&g, b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
+        let h = Self::step5(&g, &b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
         let result = Self::step6(&h);
         Ok(result)
     }
@@ -270,6 +271,57 @@ mod tests {
         );
 
         assert_eq!(zero, bitwise_lt(zero, c(Fp32BitPrime::PRIME)).await?);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() -> Result<(), Error> {
+        let world: TestWorld = make_world(QueryId);
+        let ctx = make_contexts::<Fp31>(&world);
+        let mut rand = StepRng::new(1, 1);
+
+        // Generate secret shares
+        let a_bits = shared_bits(Fp31::from(3_u32), &mut rand);
+        let b_bits = shared_bits(Fp31::from(5_u32), &mut rand);
+
+        // Make `a_bits` lengths longer than `b_bits` while keeping the original values
+        let (mut a0, mut a1, mut a2) = (
+            transpose(&a_bits, 0),
+            transpose(&a_bits, 1),
+            transpose(&a_bits, 2),
+        );
+        a0.append(&mut vec![Replicated::ZERO]);
+        a1.append(&mut vec![Replicated::ZERO]);
+        a2.append(&mut vec![Replicated::ZERO]);
+
+        // Execute
+        let step = "BitwiseLT_Test";
+        let result = try_join_all([
+            BitwiseLessThan::execute(
+                ctx[0].narrow(step),
+                RecordId::from(0),
+                &a0,
+                &transpose(&b_bits, 0),
+            ),
+            BitwiseLessThan::execute(
+                ctx[1].narrow(step),
+                RecordId::from(0),
+                &a1,
+                &transpose(&b_bits, 1),
+            ),
+            BitwiseLessThan::execute(
+                ctx[2].narrow(step),
+                RecordId::from(0),
+                &a2,
+                &transpose(&b_bits, 2),
+            ),
+        ])
+        .await
+        .unwrap();
+
+        let f = validate_and_reconstruct(&result[0], &result[1], &result[2]);
+        assert_eq!(Fp31::ONE, f);
 
         Ok(())
     }

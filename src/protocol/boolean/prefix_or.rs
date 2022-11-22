@@ -268,10 +268,10 @@ impl PrefixOr {
         // We can modify this function if we need to support other lengths.
         let l = a.len();
         let lambda: usize = match l {
-            8 => 3,
+            8..=9 => 3,
             16 => 4,
-            32 => 6,
-            _ => panic!("bit length must 8, 16 or 32"),
+            32..=36 => 6,
+            _ => panic!("bit length must be 8..9, 16 or 32..36"),
         };
         let dummy = vec![Replicated::new(F::ZERO, F::ZERO); lambda * lambda - l];
         ([a, &dummy].concat(), lambda)
