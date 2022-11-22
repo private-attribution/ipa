@@ -1,21 +1,13 @@
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{
-        context::Context,
-        reveal::reveal_permutation,
-        sort::ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
-    },
+    protocol::{context::Context, sort::ApplyInvStep::ShuffleInputs},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 
-use super::{
-    apply::apply_inv,
-    shuffle::{get_two_of_three_random_permutations, shuffle_shares},
-};
-use crate::protocol::context::SemiHonestContext;
-use futures::future::try_join;
+use super::{apply::apply_inv, shuffle::shuffle_shares};
 
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -40,28 +32,17 @@ use futures::future::try_join;
 pub async fn secureapplyinv<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: Vec<Replicated<F>>,
-    sort_permutation: Vec<Replicated<F>>,
+    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+    shuffled_sort_permutation: &[u32],
 ) -> Result<Vec<Replicated<F>>, Error> {
-    let prss = &ctx.prss();
-    let random_permutations = get_two_of_three_random_permutations(input.len(), prss);
-
-    let (mut shuffled_input, shuffled_sort_permutation) = try_join(
-        shuffle_shares(
-            input,
-            (&random_permutations.0, &random_permutations.1),
-            ctx.narrow(&ShuffleInputs),
-        ),
-        shuffle_shares(
-            sort_permutation,
-            (&random_permutations.0, &random_permutations.1),
-            ctx.narrow(&ShufflePermutation),
-        ),
+    let mut shuffled_input = shuffle_shares(
+        input,
+        random_permutations_for_shuffle,
+        ctx.narrow(&ShuffleInputs),
     )
     .await?;
-    let revealed_permutation =
-        reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_sort_permutation).await?;
 
-    apply_inv(&revealed_permutation, &mut shuffled_input);
+    apply_inv(shuffled_sort_permutation, &mut shuffled_input);
     Ok(shuffled_input)
 }
 
@@ -71,9 +52,13 @@ mod tests {
     use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
 
+    use crate::protocol::context::Context;
     use crate::{
         ff::Fp31,
-        protocol::{sort::apply::apply_inv, QueryId},
+        protocol::{
+            sort::{apply::apply_inv, generate_sort_permutation::shuffle_and_reveal_permutation},
+            QueryId,
+        },
         test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
     };
 
@@ -97,17 +82,30 @@ mod tests {
             // Applying permutation on the input in clear to get the expected result
             apply_inv(&permutation, &mut expected_result);
 
-            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
-
-            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
             let [input0, input1, input2] = generate_shares::<Fp31>(&input);
 
             let world = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
+            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
-            let h0_future = secureapplyinv(ctx0, input0, perm0);
-            let h1_future = secureapplyinv(ctx1, input1, perm1);
-            let h2_future = secureapplyinv(ctx2, input2, perm2);
+            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
+
+            let perm_and_randoms: [_; 3] = try_join_all([
+                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), input.len(), perm0),
+                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), input.len(), perm1),
+                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), input.len(), perm2),
+            ])
+            .await
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+            let h0_future =
+                secureapplyinv(ctx0, input0, &perm_and_randoms[0].1, &perm_and_randoms[0].0);
+            let h1_future =
+                secureapplyinv(ctx1, input1, &perm_and_randoms[1].1, &perm_and_randoms[1].0);
+            let h2_future =
+                secureapplyinv(ctx2, input2, &perm_and_randoms[2].1, &perm_and_randoms[2].0);
 
             let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
                 .await

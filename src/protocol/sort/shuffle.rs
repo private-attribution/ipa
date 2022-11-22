@@ -111,7 +111,7 @@ async fn reshare_all_shares<F: Field>(
 #[allow(clippy::cast_possible_truncation)]
 async fn shuffle_or_unshuffle_once<F: Field>(
     mut input: Vec<Replicated<F>>,
-    random_permutations: (&[u32], &[u32]),
+    random_permutations: &(Vec<u32>, Vec<u32>),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
     ctx: &SemiHonestContext<'_, F>,
     which_step: ShuffleStep,
@@ -121,9 +121,9 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 
     if to_helper != ctx.role() {
         let permutation_to_apply = if to_helper.peer(Direction::Left) == ctx.role() {
-            random_permutations.0
+            &random_permutations.0
         } else {
-            random_permutations.1
+            &random_permutations.1
         };
 
         match shuffle_or_unshuffle {
@@ -144,7 +144,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 /// ![Shuffle steps][shuffle]
 pub async fn shuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
-    random_permutations: (&[u32], &[u32]),
+    random_permutations: &(Vec<u32>, Vec<u32>),
     ctx: SemiHonestContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let input = shuffle_or_unshuffle_once(
@@ -179,7 +179,7 @@ pub async fn shuffle_shares<F: Field>(
 /// ![Unshuffle steps][unshuffle]
 pub async fn unshuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
-    random_permutations: (&[u32], &[u32]),
+    random_permutations: &(Vec<u32>, Vec<u32>),
     ctx: SemiHonestContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let input = shuffle_or_unshuffle_once(
@@ -237,7 +237,7 @@ mod tests {
 
         logging::setup();
 
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
         let step = Step::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
         let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
@@ -280,9 +280,9 @@ mod tests {
         let [c0, c1, c2] = context;
 
         let [shares0, shares1, shares2] = shares;
-        let h0_future = shuffle_shares(shares0, (&perm1.0, &perm1.1), c0);
-        let h1_future = shuffle_shares(shares1, (&perm2.0, &perm2.1), c1);
-        let h2_future = shuffle_shares(shares2, (&perm3.0, &perm3.1), c2);
+        let h0_future = shuffle_shares(shares0, &perm1, c0);
+        let h1_future = shuffle_shares(shares1, &perm2, c1);
+        let h2_future = shuffle_shares(shares2, &perm3, c2);
 
         let results: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
             .await
@@ -325,9 +325,9 @@ mod tests {
         let shuffled: [_; 3] = {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Shuffle);
             let [shares0, shares1, shares2] = shares;
-            let h0_future = shuffle_shares(shares0, (&perm1.0, &perm1.1), ctx0);
-            let h1_future = shuffle_shares(shares1, (&perm2.0, &perm2.1), ctx1);
-            let h2_future = shuffle_shares(shares2, (&perm3.0, &perm3.1), ctx2);
+            let h0_future = shuffle_shares(shares0, &perm1, ctx0);
+            let h1_future = shuffle_shares(shares1, &perm2, ctx1);
+            let h2_future = shuffle_shares(shares2, &perm3, ctx2);
 
             try_join_all([h0_future, h1_future, h2_future])
                 .await
@@ -338,9 +338,9 @@ mod tests {
         let unshuffled: [_; 3] = {
             let [ctx0, ctx1, ctx2] = narrow_contexts(&context, &ShuffleOrUnshuffle::Unshuffle);
             let [shuffled0, shuffled1, shuffled2] = shuffled;
-            let h0_future = unshuffle_shares(shuffled0, (&perm1.0, &perm1.1), ctx0);
-            let h1_future = unshuffle_shares(shuffled1, (&perm2.0, &perm2.1), ctx1);
-            let h2_future = unshuffle_shares(shuffled2, (&perm3.0, &perm3.1), ctx2);
+            let h0_future = unshuffle_shares(shuffled0, &perm1, ctx0);
+            let h1_future = unshuffle_shares(shuffled1, &perm2, ctx1);
+            let h2_future = unshuffle_shares(shuffled2, &perm3, ctx2);
 
             // When unshuffle and shuffle are called with same step, they undo each other's effect
             try_join_all([h0_future, h1_future, h2_future])

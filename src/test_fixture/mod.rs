@@ -86,7 +86,7 @@ pub fn narrow_contexts<C: Debug + Context<F, Share = S>, F: Field, S: SecretShar
 /// Generate three participants.
 /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
 #[must_use]
-pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
+pub fn make_participants() -> [PrssEndpoint; 3] {
     let mut r = thread_rng();
     let setup1 = PrssEndpoint::prepare(&mut r);
     let setup2 = PrssEndpoint::prepare(&mut r);
@@ -99,7 +99,7 @@ pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
     let p2 = setup2.setup(&pk1_r, &pk3_l);
     let p3 = setup3.setup(&pk2_r, &pk1_l);
 
-    (p1, p2, p3)
+    [p1, p2, p3]
 }
 
 pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
