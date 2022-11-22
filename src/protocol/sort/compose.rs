@@ -1,8 +1,8 @@
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::BoxError,
     ff::Field,
-    protocol::{context::ProtocolContext, reveal::reveal_permutation},
+    protocol::{context::Context, reveal::reveal_permutation},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -32,7 +32,7 @@ use super::{
 /// 4. Revealed permutation is applied locally on another permutation shares (rho)
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
 pub async fn compose<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     sigma: Vec<Replicated<F>>,
     mut rho: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {

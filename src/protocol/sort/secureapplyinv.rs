@@ -2,7 +2,7 @@ use crate::{
     error::BoxError,
     ff::Field,
     protocol::{
-        context::ProtocolContext,
+        context::Context,
         reveal::reveal_permutation,
         sort::ApplyInvStep::{RevealPermutation, ShuffleInputs, ShufflePermutation},
     },
@@ -14,7 +14,7 @@ use super::{
     apply::apply_inv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use futures::future::try_join;
 
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
@@ -38,7 +38,7 @@ use futures::future::try_join;
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
 pub async fn secureapplyinv<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     input: Vec<Replicated<F>>,
     sort_permutation: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {

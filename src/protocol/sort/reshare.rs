@@ -1,9 +1,9 @@
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::BoxError,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -37,7 +37,7 @@ impl<F: Field> Reshare<F> {
     ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
     pub async fn execute(
         self,
-        ctx: &SemiHonestProtocolContext<'_, F>,
+        ctx: &SemiHonestContext<'_, F>,
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Replicated<F>, BoxError> {

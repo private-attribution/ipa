@@ -1,9 +1,9 @@
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 
@@ -31,7 +31,7 @@ use crate::{
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -115,7 +115,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,

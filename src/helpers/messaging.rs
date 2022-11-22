@@ -252,7 +252,7 @@ impl Debug for ReceiveRequest {
 mod tests {
     use crate::ff::Fp31;
     use crate::helpers::Role;
-    use crate::protocol::context::ProtocolContext;
+    use crate::protocol::context::Context;
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{make_contexts, make_world_with_config, TestWorldConfig};
 

@@ -1,7 +1,7 @@
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
-use crate::protocol::context::{ContextInner, ProtocolContext, SemiHonestProtocolContext};
+use crate::protocol::context::{Context, ContextInner, SemiHonestContext};
 use crate::protocol::malicious::SecurityValidatorAccumulator;
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
@@ -13,13 +13,13 @@ use std::sync::Arc;
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone, Debug)]
-pub struct MaliciousProtocolContext<'a, F: Field> {
+pub struct MaliciousContext<'a, F: Field> {
     inner: ContextInner<'a>,
     accumulator: SecurityValidatorAccumulator<F>,
     r_share: Replicated<F>,
 }
 
-impl<'a, F: Field> MaliciousProtocolContext<'a, F> {
+impl<'a, F: Field> MaliciousContext<'a, F> {
     pub fn new(
         role: Role,
         participant: &'a PrssEndpoint,
@@ -58,12 +58,12 @@ impl<'a, F: Field> MaliciousProtocolContext<'a, F> {
     /// The context received will be an exact copy of malicious, so it will be tied up to the same step
     /// and prss.
     #[must_use]
-    pub fn to_semi_honest(self) -> SemiHonestProtocolContext<'a, F> {
-        SemiHonestProtocolContext::from_inner(self.inner)
+    pub fn to_semi_honest(self) -> SemiHonestContext<'a, F> {
+        SemiHonestContext::from_inner(self.inner)
     }
 }
 
-impl<'a, F: Field> ProtocolContext<F> for MaliciousProtocolContext<'a, F> {
+impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     type Share = MaliciousReplicated<F>;
 
     fn role(&self) -> Role {
@@ -95,7 +95,7 @@ impl<'a, F: Field> ProtocolContext<F> for MaliciousProtocolContext<'a, F> {
         self.inner.gateway.mesh(self.step())
     }
 
-    fn share_of_one(&self) -> <Self as ProtocolContext<F>>::Share {
+    fn share_of_one(&self) -> <Self as Context<F>>::Share {
         MaliciousReplicated::one(self.role(), self.r_share.clone())
     }
 }

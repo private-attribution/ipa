@@ -13,15 +13,15 @@ use std::sync::Arc;
 mod malicious;
 mod semi_honest;
 
-pub use malicious::MaliciousProtocolContext;
-pub use semi_honest::SemiHonestProtocolContext;
+pub use malicious::MaliciousContext;
+pub use semi_honest::SemiHonestContext;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
-pub trait ProtocolContext<F: Field>:
+pub trait Context<F: Field>:
     Clone
-    + SecureMul<F, Share = <Self as ProtocolContext<F>>::Share>
-    + Reveal<F, Share = <Self as ProtocolContext<F>>::Share>
+    + SecureMul<F, Share = <Self as Context<F>>::Share>
+    + Reveal<F, Share = <Self as Context<F>>::Share>
 {
     /// Secret sharing type this context supports.
     type Share: SecretSharing<F>;
@@ -61,7 +61,7 @@ pub trait ProtocolContext<F: Field>:
     fn mesh(&self) -> Mesh<'_, '_>;
 
     /// Generates a new share of one
-    fn share_of_one(&self) -> <Self as ProtocolContext<F>>::Share;
+    fn share_of_one(&self) -> <Self as Context<F>>::Share;
 }
 
 /// Contains things that are applicable to any implementation of protocol context as see it today

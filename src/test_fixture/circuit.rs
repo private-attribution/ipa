@@ -1,5 +1,5 @@
 use crate::ff::Field;
-use crate::protocol::context::ProtocolContext;
+use crate::protocol::context::Context;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;

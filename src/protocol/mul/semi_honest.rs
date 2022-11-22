@@ -1,8 +1,8 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
-use crate::protocol::context::SemiHonestProtocolContext;
-use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::Replicated;
 use std::fmt::Debug;
 
@@ -11,13 +11,13 @@ use std::fmt::Debug;
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<'a, F: Field> {
-    ctx: SemiHonestProtocolContext<'a, F>,
+    ctx: SemiHonestContext<'a, F>,
     record_id: RecordId,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
-    pub fn new(ctx: SemiHonestProtocolContext<'a, F>, record_id: RecordId) -> Self {
+    pub fn new(ctx: SemiHonestContext<'a, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -68,7 +68,7 @@ pub mod tests {
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{QueryId, RecordId};
 
-    use crate::protocol::context::SemiHonestProtocolContext;
+    use crate::protocol::context::SemiHonestContext;
     use crate::test_fixture::{
         make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
     };
@@ -147,7 +147,7 @@ pub mod tests {
     }
 
     async fn multiply_sync<R: RngCore, F: Field>(
-        context: [SemiHonestProtocolContext<'_, F>; 3],
+        context: [SemiHonestContext<'_, F>; 3],
         a: u8,
         b: u8,
         rng: &mut R,

@@ -1,10 +1,10 @@
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::reveal::Reveal;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ impl AsRef<str> for Step {
 /// back via the error response
 #[allow(dead_code)]
 pub async fn check_zero<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
@@ -86,7 +86,7 @@ pub async fn check_zero<F: Field>(
 pub mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
-    use crate::protocol::context::ProtocolContext;
+    use crate::protocol::context::Context;
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
     use crate::test_fixture::{make_contexts, make_world, share, TestWorld};
 

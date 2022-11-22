@@ -1,8 +1,8 @@
 use super::{or::or, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestProtocolContext;
-use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -28,7 +28,7 @@ impl PrefixOr {
     async fn block_or<F: Field>(
         a: &[Replicated<F>],
         k: usize,
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Replicated<F>, Error> {
         #[allow(clippy::cast_possible_truncation)]
@@ -54,7 +54,7 @@ impl PrefixOr {
     async fn step1<F: Field>(
         a: &[Replicated<F>],
         lambda: usize,
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let mut futures = Vec::with_capacity(lambda);
@@ -75,7 +75,7 @@ impl PrefixOr {
     /// ```
     async fn step2<F: Field>(
         x: &[Replicated<F>],
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = x.len();
@@ -117,7 +117,7 @@ impl PrefixOr {
     async fn step5<F: Field>(
         f: &[Replicated<F>],
         a: &[Replicated<F>],
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = f.len();
@@ -161,7 +161,7 @@ impl PrefixOr {
     /// ```
     async fn step7<F: Field>(
         c: &[Replicated<F>],
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = c.len();
@@ -187,7 +187,7 @@ impl PrefixOr {
     async fn step8<F: Field>(
         f: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = f.len();
@@ -228,7 +228,7 @@ impl PrefixOr {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         input: &[Replicated<F>],
     ) -> Result<Vec<Replicated<F>>, Error> {
@@ -304,7 +304,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::PrefixOr;
-    use crate::protocol::context::ProtocolContext;
+    use crate::protocol::context::Context;
     use crate::{
         error::Error,
         ff::{Field, Fp2, Fp31},

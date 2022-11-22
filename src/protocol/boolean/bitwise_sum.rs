@@ -1,8 +1,8 @@
 use super::carries::Carries;
 use crate::error::BoxError;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestProtocolContext;
-use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::Replicated;
 
 /// This is an implementation of Bitwise Sum on bitwise-shared numbers.
@@ -32,7 +32,7 @@ impl BitwiseSum {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
@@ -83,7 +83,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::BitwiseSum;
-    use crate::protocol::context::ProtocolContext;
+    use crate::protocol::context::Context;
     use crate::{
         error::BoxError,
         ff::{Field, Fp31, Fp32BitPrime, Int},

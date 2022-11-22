@@ -1,12 +1,12 @@
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow, IterStep};
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
 use crate::{
     error::Error,
     ff::Field,
     protocol::{
         batch::{Batch, RecordIndex},
-        context::ProtocolContext,
+        context::Context,
         RecordId,
     },
     secret_sharing::Replicated,
@@ -55,7 +55,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     #[allow(dead_code)]
     pub async fn execute(
         &self,
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
     ) -> Result<Batch<AccumulateCreditOutputRow<F>>, Error> {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = self.input.len() as RecordIndex;
@@ -161,7 +161,7 @@ impl<'a, F: Field> AccumulateCredit<'a, F> {
     }
 
     async fn get_accumulated_credit(
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         current: AccumulateCreditInputRow<F>,
         successor: AccumulateCreditInputRow<F>,

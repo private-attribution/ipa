@@ -3,11 +3,11 @@ use crate::{
     error::Error,
     ff::{BinaryField, Field, Fp2},
     helpers::Role,
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -108,7 +108,7 @@ impl ConvertShares {
     /// And helper 3 has shares:
     /// a: (0, x1) and b: (0, 0)
     async fn xor_specialized_1<F: Field>(
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
@@ -134,7 +134,7 @@ impl ConvertShares {
     /// And helper 3 has shares:
     /// (x3, 0)
     async fn xor_specialized_2<F: Field>(
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
@@ -146,7 +146,7 @@ impl ConvertShares {
 
     pub async fn execute_one_bit<F: Field>(
         &self,
-        ctx: SemiHonestProtocolContext<'_, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         bit_index: u8,
     ) -> Result<Replicated<F>, Error> {
@@ -169,7 +169,7 @@ impl ConvertShares {
 /// For a given vector of input shares, this returns a vector of modulus converted replicated shares of
 /// `bit_index` of each input.
 pub async fn convert_shares_for_a_bit<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     input: &[(u64, u64)],
     num_bits: u8,
     bit_index: u8,

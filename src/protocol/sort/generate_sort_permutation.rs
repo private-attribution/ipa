@@ -2,7 +2,7 @@ use crate::{
     error::BoxError,
     ff::Field,
     protocol::{
-        context::ProtocolContext,
+        context::Context,
         modulus_conversion::convert_shares::convert_shares_for_a_bit,
         sort::bit_permutation::bit_permutation,
         sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion},
@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{compose::compose, secureapplyinv::secureapplyinv};
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use embed_doc_image::embed_doc_image;
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
@@ -35,7 +35,7 @@ use embed_doc_image::embed_doc_image;
 /// 4. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
 pub async fn generate_sort_permutation<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     input: &[(u64, u64)],
     num_bits: u8,
 ) -> Result<Vec<Replicated<F>>, BoxError> {

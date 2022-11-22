@@ -4,12 +4,12 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::BoxError,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, prss::IndexedSharedRandomness, RecordId, Substep},
+    protocol::{context::Context, prss::IndexedSharedRandomness, RecordId, Substep},
     secret_sharing::Replicated,
 };
 
@@ -89,7 +89,7 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
 #[allow(clippy::cast_possible_truncation)]
 async fn reshare_all_shares<F: Field>(
     input: Vec<Replicated<F>>,
-    ctx: &SemiHonestProtocolContext<'_, F>,
+    ctx: &SemiHonestContext<'_, F>,
     to_helper: Role,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let reshares = input
@@ -113,7 +113,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
     mut input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
-    ctx: &SemiHonestProtocolContext<'_, F>,
+    ctx: &SemiHonestContext<'_, F>,
     which_step: ShuffleStep,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let to_helper = shuffle_for_helper(which_step);
@@ -145,7 +145,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 pub async fn shuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let input = shuffle_or_unshuffle_once(
         input,
@@ -180,7 +180,7 @@ pub async fn shuffle_shares<F: Field>(
 pub async fn unshuffle_shares<F: Field>(
     input: Vec<Replicated<F>>,
     random_permutations: (&[u32], &[u32]),
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, BoxError> {
     let input = shuffle_or_unshuffle_once(
         input,
@@ -213,7 +213,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::zip;
 
-    use crate::protocol::context::ProtocolContext;
+    use crate::protocol::context::Context;
     use crate::test_fixture::{logging, validate_list_of_shares};
     use crate::{
         ff::Fp31,

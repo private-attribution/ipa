@@ -1,13 +1,13 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestProtocolContext;
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::{mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - 2[ab]`
 pub async fn xor<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -19,7 +19,7 @@ pub async fn xor<F: Field>(
 #[cfg(test)]
 mod tests {
     use super::xor;
-    use crate::protocol::context::ProtocolContext;
+    use crate::protocol::context::Context;
     use crate::{
         error::Error,
         ff::{Field, Fp31},

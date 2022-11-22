@@ -1,9 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::ff::Field;
-use crate::protocol::context::{
-    MaliciousProtocolContext, ProtocolContext, SemiHonestProtocolContext,
-};
+use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use crate::{
     error::{BoxError, Error},
@@ -40,7 +38,7 @@ pub trait Reveal<F: Field> {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<F: Field> Reveal<F> for SemiHonestProtocolContext<'_, F> {
+impl<F: Field> Reveal<F> for SemiHonestContext<'_, F> {
     type Share = Replicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
@@ -65,7 +63,7 @@ impl<F: Field> Reveal<F> for SemiHonestProtocolContext<'_, F> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<F: Field> Reveal<F> for MaliciousProtocolContext<'_, F> {
+impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
@@ -97,7 +95,7 @@ impl<F: Field> Reveal<F> for MaliciousProtocolContext<'_, F> {
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
 pub async fn reveal_permutation<F: Field>(
-    ctx: SemiHonestProtocolContext<'_, F>,
+    ctx: SemiHonestContext<'_, F>,
     permutation: &[Replicated<F>],
 ) -> Result<Vec<u32>, BoxError> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
@@ -120,7 +118,7 @@ mod tests {
     use proptest::prelude::Rng;
     use tokio::try_join;
 
-    use crate::protocol::context::MaliciousProtocolContext;
+    use crate::protocol::context::MaliciousContext;
     use crate::test_fixture::make_malicious_contexts;
     use crate::{
         error::BoxError,
@@ -128,7 +126,7 @@ mod tests {
         ff::{Field, Fp31},
         helpers::Direction,
         protocol::reveal::Reveal,
-        protocol::{context::ProtocolContext, QueryId, RecordId},
+        protocol::{context::Context, QueryId, RecordId},
         secret_sharing::MaliciousReplicated,
         test_fixture::{
             make_contexts, make_world, share, share_malicious, validate_and_reconstruct, TestWorld,
@@ -218,7 +216,7 @@ mod tests {
     }
 
     pub async fn reveal_with_additive_attack<F: Field>(
-        ctx: MaliciousProtocolContext<'_, F>,
+        ctx: MaliciousContext<'_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
         additive_error: F,
