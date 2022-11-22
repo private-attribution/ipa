@@ -1,7 +1,8 @@
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::ProtocolContext, sort::ApplyInvStep::ShuffleInputs},
+    protocol::{context::Context, sort::ApplyInvStep::ShuffleInputs},
     secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
@@ -29,7 +30,7 @@ use super::{apply::apply_inv, shuffle::shuffle_shares};
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
 pub async fn secureapplyinv<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     input: Vec<Replicated<F>>,
     random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
     shuffled_sort_permutation: &[u32],
@@ -51,6 +52,7 @@ mod tests {
     use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
 
+    use crate::protocol::context::Context;
     use crate::{
         ff::Fp31,
         protocol::{

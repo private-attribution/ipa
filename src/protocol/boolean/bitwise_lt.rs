@@ -3,7 +3,8 @@ use super::xor::xor;
 use super::BitOpStep;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -39,7 +40,7 @@ impl BitwiseLessThan {
     async fn step1<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
@@ -67,7 +68,7 @@ impl BitwiseLessThan {
     /// ```
     async fn step2<F: Field>(
         e: &mut [Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         e.reverse();
@@ -107,7 +108,7 @@ impl BitwiseLessThan {
     async fn step5<F: Field>(
         g: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let mul = zip(repeat(ctx), zip(g, b))
@@ -130,7 +131,7 @@ impl BitwiseLessThan {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
@@ -167,6 +168,7 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::BitwiseLessThan;
+    use crate::protocol::context::Context;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},

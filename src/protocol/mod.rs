@@ -3,7 +3,6 @@ mod batch;
 mod boolean;
 mod check_zero;
 pub mod context;
-pub mod context_traits;
 pub mod malicious;
 mod modulus_conversion;
 pub mod mul;
@@ -16,11 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
-#[cfg(debug_assertions)]
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -68,7 +62,7 @@ impl Substep for str {}
 /// (possible more efficient) representation.  It is probably not particularly efficient
 /// to be cloning this object all over the place.  Of course, a string is pretty useful
 /// from a debugging perspective.
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Deserialize),
@@ -76,35 +70,9 @@ impl Substep for str {}
 )]
 pub struct Step {
     id: String,
-    /// This tracks the different values that have been provided to `narrow()`.
-    #[cfg(debug_assertions)]
-    used: Arc<Mutex<HashSet<String>>>,
 }
-
-impl Hash for Step {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(self.id.as_bytes());
-    }
-}
-
-impl PartialEq for Step {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for Step {}
 
 impl Step {
-    #[must_use]
-    pub fn from_step_id(step: &Self) -> Self {
-        Self {
-            id: step.id.clone(),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
-        }
-    }
-
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
@@ -115,18 +83,10 @@ impl Step {
         {
             let s = String::from(step.as_ref());
             assert!(!s.contains('/'), "The string for a step cannot contain '/'");
-            assert!(
-                self.used.lock().unwrap().insert(s),
-                "Refined '{}' with step '{}' twice",
-                self.id,
-                step.as_ref(),
-            );
         }
 
         Self {
             id: self.id.clone() + "/" + step.as_ref(),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -137,8 +97,6 @@ impl Default for Step {
     fn default() -> Self {
         Self {
             id: String::from("protocol"),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -152,11 +110,7 @@ impl AsRef<str> for Step {
 impl From<&str> for Step {
     fn from(id: &str) -> Self {
         let id = id.strip_prefix('/').unwrap_or(id);
-        Step {
-            id: id.to_owned(),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
-        }
+        Step { id: id.to_owned() }
     }
 }
 

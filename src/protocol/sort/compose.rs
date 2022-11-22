@@ -1,6 +1,5 @@
-use crate::{
-    error::Error, ff::Field, protocol::context::ProtocolContext, secret_sharing::Replicated,
-};
+use crate::protocol::context::SemiHonestContext;
+use crate::{error::Error, ff::Field, protocol::context::Context, secret_sharing::Replicated};
 use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
@@ -24,7 +23,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// 4. Revealed permutation is applied locally on another permutation shares (rho)
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
 pub async fn compose<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
     shuffled_sigma: &[u32],
     mut rho: Vec<Replicated<F>>,
@@ -46,6 +45,7 @@ mod tests {
     use futures::future::try_join_all;
     use rand::seq::SliceRandom;
 
+    use crate::protocol::context::Context;
     use crate::{
         ff::Fp31,
         protocol::{

@@ -1,10 +1,11 @@
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::reveal::Reveal;
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
     protocol::{
-        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness, RecordId,
+        check_zero::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId,
         RECORD_0, RECORD_1, RECORD_2,
     },
     secret_sharing::{MaliciousReplicated, Replicated},
@@ -122,7 +123,7 @@ pub struct SecurityValidator<F: Field> {
 impl<F: Field> SecurityValidator<F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: ProtocolContext<'_, Replicated<F>, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: SemiHonestContext<'_, F>) -> SecurityValidator<F> {
         let prss = ctx.prss();
 
         let r_share = prss.generate_replicated(RECORD_0);
@@ -157,7 +158,7 @@ impl<F: Field> SecurityValidator<F> {
     /// ## Panics
     /// Will panic if the mutex is poisoned
     #[allow(clippy::await_holding_lock)]
-    pub async fn validate(self, ctx: ProtocolContext<'_, Replicated<F>, F>) -> Result<(), Error> {
+    pub async fn validate(self, ctx: SemiHonestContext<'_, F>) -> Result<(), Error> {
         // send our `u_i+1` value to the helper on the right
         let channel = ctx.mesh();
         let helper_right = ctx.role().peer(Direction::Right);
@@ -203,6 +204,7 @@ pub mod tests {
 
     use crate::error::Error;
     use crate::ff::Fp31;
+    use crate::protocol::context::Context;
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{
         malicious::{SecurityValidator, Step},

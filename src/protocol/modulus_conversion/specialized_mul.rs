@@ -1,8 +1,9 @@
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 
@@ -30,7 +31,7 @@ use crate::{
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -114,7 +115,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -215,19 +216,19 @@ pub mod tests {
 
             let result_shares = try_join_all([
                 multiply_two_shares_mostly_zeroes(
-                    context[0].bind(record_id),
+                    context[0].clone(),
                     record_id,
                     &Replicated::new(a, Fp31::ZERO),
                     &Replicated::new(Fp31::ZERO, b),
                 ),
                 multiply_two_shares_mostly_zeroes(
-                    context[1].bind(record_id),
+                    context[1].clone(),
                     record_id,
                     &Replicated::new(Fp31::ZERO, Fp31::ZERO),
                     &Replicated::new(b, Fp31::ZERO),
                 ),
                 multiply_two_shares_mostly_zeroes(
-                    context[2].bind(record_id),
+                    context[2].clone(),
                     record_id,
                     &Replicated::new(Fp31::ZERO, a),
                     &Replicated::new(Fp31::ZERO, Fp31::ZERO),
@@ -276,19 +277,19 @@ pub mod tests {
             let record_id = RecordId::from(i);
             futures.push(try_join_all([
                 multiply_two_shares_mostly_zeroes(
-                    context[0].bind(record_id),
+                    context[0].clone(),
                     record_id,
                     &a_shares[i][0],
                     &b_shares[i][0],
                 ),
                 multiply_two_shares_mostly_zeroes(
-                    context[1].bind(record_id),
+                    context[1].clone(),
                     record_id,
                     &a_shares[i][1],
                     &b_shares[i][1],
                 ),
                 multiply_two_shares_mostly_zeroes(
-                    context[2].bind(record_id),
+                    context[2].clone(),
                     record_id,
                     &a_shares[i][2],
                     &b_shares[i][2],
@@ -324,19 +325,19 @@ pub mod tests {
 
             let result_shares = try_join_all([
                 multiply_one_share_mostly_zeroes(
-                    context[0].bind(record_id),
+                    context[0].clone(),
                     record_id,
                     &a_shares[0],
                     &Replicated::new(Fp31::ZERO, Fp31::ZERO),
                 ),
                 multiply_one_share_mostly_zeroes(
-                    context[1].bind(record_id),
+                    context[1].clone(),
                     record_id,
                     &a_shares[1],
                     &Replicated::new(Fp31::ZERO, b),
                 ),
                 multiply_one_share_mostly_zeroes(
-                    context[2].bind(record_id),
+                    context[2].clone(),
                     record_id,
                     &a_shares[2],
                     &Replicated::new(b, Fp31::ZERO),
@@ -383,19 +384,19 @@ pub mod tests {
             let record_id = RecordId::from(i);
             futures.push(try_join_all([
                 multiply_one_share_mostly_zeroes(
-                    context[0].bind(record_id),
+                    context[0].clone(),
                     record_id,
                     &a_shares[i][0],
                     &b_shares[i][0],
                 ),
                 multiply_one_share_mostly_zeroes(
-                    context[1].bind(record_id),
+                    context[1].clone(),
                     record_id,
                     &a_shares[i][1],
                     &b_shares[i][1],
                 ),
                 multiply_one_share_mostly_zeroes(
-                    context[2].bind(record_id),
+                    context[2].clone(),
                     record_id,
                     &a_shares[i][2],
                     &b_shares[i][2],

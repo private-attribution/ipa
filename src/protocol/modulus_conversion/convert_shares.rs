@@ -3,10 +3,11 @@ use crate::{
     error::Error,
     ff::{BinaryField, Field, Fp2},
     helpers::Role,
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 
+use crate::protocol::context::SemiHonestContext;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -118,7 +119,7 @@ impl ConvertShares {
     /// And helper 3 has shares:
     /// a: (0, x1) and b: (0, 0)
     async fn xor_specialized_1<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
@@ -144,7 +145,7 @@ impl ConvertShares {
     /// And helper 3 has shares:
     /// (x3, 0)
     async fn xor_specialized_2<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &Replicated<F>,
         b: &Replicated<F>,
@@ -156,7 +157,7 @@ impl ConvertShares {
 
     pub async fn execute_one_bit<F: Field>(
         &self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         bit_index: u8,
     ) -> Result<Replicated<F>, Error> {
@@ -179,7 +180,7 @@ impl ConvertShares {
 /// For a given vector of input shares, this returns a vector of modulus converted replicated shares of
 /// `bit_index` of each input.
 pub async fn convert_shares_for_a_bit<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     input: &[(u64, u64)],
     num_bits: u8,
     bit_index: u8,
@@ -188,7 +189,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
         |(record_id, (ctx, row))| async move {
             let record_id = RecordId::from(record_id);
             ConvertShares::new(XorShares::new(num_bits, row.0, row.1))
-                .execute_one_bit(ctx.bind(record_id), record_id, bit_index)
+                .execute_one_bit(ctx, record_id, bit_index)
                 .await
         },
     ))
@@ -248,21 +249,12 @@ mod tests {
                 let (share_0, share_1, share_2) = shared_match_key;
                 let record_id = RecordId::from(i);
                 try_join_all(vec![
-                    ConvertShares::new(XorShares::new(40, share_0, share_1)).execute_one_bit(
-                        c0.bind(record_id),
-                        record_id,
-                        4,
-                    ),
-                    ConvertShares::new(XorShares::new(40, share_1, share_2)).execute_one_bit(
-                        c1.bind(record_id),
-                        record_id,
-                        4,
-                    ),
-                    ConvertShares::new(XorShares::new(40, share_2, share_0)).execute_one_bit(
-                        c2.bind(record_id),
-                        record_id,
-                        4,
-                    ),
+                    ConvertShares::new(XorShares::new(40, share_0, share_1))
+                        .execute_one_bit(c0, record_id, 4),
+                    ConvertShares::new(XorShares::new(40, share_1, share_2))
+                        .execute_one_bit(c1, record_id, 4),
+                    ConvertShares::new(XorShares::new(40, share_2, share_0))
+                        .execute_one_bit(c2, record_id, 4),
                 ])
                 .await
             }),

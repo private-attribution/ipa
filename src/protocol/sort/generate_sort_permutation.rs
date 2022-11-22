@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::ProtocolContext,
+        context::Context,
         modulus_conversion::convert_shares::convert_shares_for_a_bit,
         reveal::reveal_permutation,
         sort::SortStep::{
@@ -22,6 +22,7 @@ use super::{
     secureapplyinv::secureapplyinv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
+use crate::protocol::context::SemiHonestContext;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
@@ -30,7 +31,7 @@ use futures::future::try_join;
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
 pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     input_len: usize,
     input_permutation: Vec<Replicated<F>>,
 ) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
@@ -69,9 +70,9 @@ pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
 /// 4  Compute bit permutation that sorts ith bit
 /// 5. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-pub async fn generate_sort_permutation<'a, F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
-    input: &'a [(u64, u64)],
+pub async fn generate_sort_permutation<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
+    input: &[(u64, u64)],
     num_bits: u8,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
@@ -126,6 +127,7 @@ mod tests {
     use futures::future::try_join_all;
     use rand::{seq::SliceRandom, Rng};
 
+    use crate::protocol::context::Context;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},

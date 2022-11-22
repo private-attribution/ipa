@@ -3,11 +3,10 @@ use std::iter::{repeat, zip};
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::ProtocolContext, context_traits::ShareOfOne, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::SecretSharing,
 };
 
-use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
@@ -33,13 +32,10 @@ use futures::future::try_join_all;
 ///
 /// ## Errors
 /// It will propagate errors from multiplication protocol.
-pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>>(
-    ctx: ProtocolContext<'a, S, F>,
+pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    ctx: C,
     input: &[S],
-) -> Result<Vec<S>, Error>
-where
-    ProtocolContext<'a, S, F>: SecureMul<F, Share = S> + ShareOfOne<F, Share = S>,
-{
+) -> Result<Vec<S>, Error> {
     let share_of_one = ctx.share_of_one();
 
     let mult_input = zip(repeat(share_of_one.clone()), input)
@@ -55,7 +51,7 @@ where
             .enumerate()
             .map(|(i, (ctx, (x, sum)))| async move {
                 let record_id = RecordId::from(i);
-                ctx.bind(record_id).multiply(record_id, &x, &sum).await
+                ctx.multiply(record_id, &x, &sum).await
             });
     let mut mult_output = try_join_all(async_multiply).await?;
 

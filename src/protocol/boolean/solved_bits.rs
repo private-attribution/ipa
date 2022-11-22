@@ -3,9 +3,10 @@ use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::helpers::Role;
 use crate::protocol::boolean::BitOpStep;
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
 use crate::protocol::reveal::Reveal;
-use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::repeat;
@@ -41,7 +42,7 @@ impl SolvedBits {
     // 1/2^3 =~ 13% (3 high bits being all 0's).
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Option<RandomBitsShare<F>>, Error> {
         //
@@ -74,7 +75,7 @@ impl SolvedBits {
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.
     async fn generate_random_bits<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         // Calculate the number of bits we need to form a random number that
@@ -120,7 +121,7 @@ impl SolvedBits {
     }
 
     async fn is_less_than_p<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         b_b: &[Replicated<F>],
     ) -> Result<bool, Error> {
@@ -180,11 +181,11 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::SolvedBits;
+    use crate::protocol::context::SemiHonestContext;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{context::ProtocolContext, QueryId, RecordId},
-        secret_sharing::Replicated,
+        protocol::{QueryId, RecordId},
         test_fixture::{
             bits_to_value, join3, make_contexts, make_world, validate_and_reconstruct, TestWorld,
         },
@@ -192,7 +193,7 @@ mod tests {
     use rand::{distributions::Standard, prelude::Distribution};
 
     async fn random_bits<F: Field>(
-        ctx: [ProtocolContext<'_, Replicated<F>, F>; 3],
+        ctx: [SemiHonestContext<'_, F>; 3],
         record_id: RecordId,
     ) -> Result<Option<(Vec<F>, F)>, Error>
     where
@@ -202,9 +203,9 @@ mod tests {
 
         // Execute
         let [result0, result1, result2] = join3(
-            SolvedBits::execute(c0.bind(record_id), record_id),
-            SolvedBits::execute(c1.bind(record_id), record_id),
-            SolvedBits::execute(c2.bind(record_id), record_id),
+            SolvedBits::execute(c0, record_id),
+            SolvedBits::execute(c1, record_id),
+            SolvedBits::execute(c2, record_id),
         )
         .await;
 
