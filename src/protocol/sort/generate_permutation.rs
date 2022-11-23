@@ -14,7 +14,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::Replicated,
+    secret_sharing::{Replicated, SecretSharing},
 };
 
 use super::{
@@ -30,10 +30,14 @@ use futures::future::try_join;
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
-pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+pub(super) async fn shuffle_and_reveal_permutation<
+    F: Field,
+    S: SecretSharing<F>,
+    C: Context<F, Share = S>,
+>(
+    ctx: C,
     input_len: usize,
-    input_permutation: Vec<Replicated<F>>,
+    input_permutation: Vec<S>,
 ) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
     let random_permutations_for_shuffle =
         get_two_of_three_random_permutations(input_len, &ctx.prss());
