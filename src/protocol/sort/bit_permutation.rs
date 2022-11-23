@@ -83,7 +83,7 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn test_bit_permutation() {
+    pub async fn semi_honest() {
         // With this input, for stable sort we expect all 0's to line up before 1's.
         // The expected sort order is same as expected_sort_output.
         const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn test_bit_permutation_malicious() {
+    pub async fn malicious() {
         // With this input, for stable sort we expect all 0's to line up before 1's.
         // The expected sort order is same as expected_sort_output.
         const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
