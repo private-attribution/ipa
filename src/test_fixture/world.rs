@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution};
+use rand::{distributions::Standard, prelude::Distribution, thread_rng};
 
 use crate::{
     ff::Field,
@@ -8,7 +8,7 @@ use crate::{
         messaging::{Gateway, GatewayConfig},
         SendBufferConfig,
     },
-    protocol::{context::SemiHonestProtocolContext, prss::Endpoint as PrssEndpoint, QueryId},
+    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, QueryId},
     test_fixture::{
         logging, make_contexts, make_participants, network::InMemoryNetwork, sharing::IntoShares,
     },
@@ -93,7 +93,7 @@ pub trait Runner<I, A> {
     where
         F: Field,
         O: Send + Debug,
-        H: FnMut(SemiHonestProtocolContext<'a, F>, A) -> X + Send,
+        H: FnMut(SemiHonestContext<'a, F>, A) -> X + Send,
         X: Future<Output = O> + Send,
         Standard: Distribution<F>;
 }
@@ -108,12 +108,15 @@ where
     where
         F: Field,
         O: Send + Debug,
-        H: FnMut(SemiHonestProtocolContext<'a, F>, A) -> X + Send,
+        H: FnMut(SemiHonestContext<'a, F>, A) -> X + Send,
         X: Future<Output = O> + Send,
         Standard: Distribution<F>,
     {
         let contexts = make_contexts::<F>(self);
-        let input_shares = input.share();
+        let input_shares = {
+            let mut rng = thread_rng();
+            input.share_with(&mut rng)
+        };
 
         let output =
             join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
