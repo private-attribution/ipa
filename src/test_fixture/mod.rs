@@ -19,6 +19,7 @@ use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
 use std::fmt::Debug;
+use std::sync::atomic::Ordering;
 
 pub use sharing::{
     share, share_malicious, shared_bits, validate_and_reconstruct, validate_list_of_shares,
@@ -35,12 +36,17 @@ pub use world::{
 /// Panics if world has more or less than 3 gateways/participants
 #[must_use]
 pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [SemiHonestContext<'_, F>; 3] {
+    // each time someone requests contexts, we create a unique step for that execution
+    // that simplifies test setup. Using atomics to leverage interior mutability
+    let execution = test_world.executions.fetch_add(1, Ordering::Release);
+
     test_world
         .gateways
         .iter()
         .zip(&test_world.participants)
         .zip(Role::all())
         .map(|((gateway, participant), role)| SemiHonestContext::new(*role, participant, gateway))
+        .map(|ctx| ctx.narrow(&format!("run-{execution}")))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
