@@ -7,6 +7,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use crate::protocol::context::SemiHonestContext;
+use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
@@ -17,7 +18,6 @@ use crate::{
 
 use super::{
     apply::{apply, apply_inv},
-    reshare::reshare,
     ShuffleStep::{self, Step1, Step2, Step3},
 };
 
@@ -89,15 +89,15 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-async fn reshare_all_shares<F: Field>(
-    input: &[Replicated<F>],
-    ctx: &SemiHonestContext<'_, F>,
+async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    input: &[S],
+    ctx: C,
     to_helper: Role,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<S>, Error> {
     let reshares = zip(repeat(ctx), input)
         .enumerate()
         .map(|(index, (ctx, input))| async move {
-            reshare(ctx, input, RecordId::from(index), to_helper).await
+            ctx.reshare(input, RecordId::from(index), to_helper).await
         });
     try_join_all(reshares).await
 }
@@ -129,7 +129,7 @@ async fn shuffle_or_unshuffle_once<F: Field>(
             ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut input),
         }
     }
-    reshare_all_shares(&input, &ctx, to_helper).await
+    reshare_all_shares(&input, ctx, to_helper).await
 }
 
 #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
