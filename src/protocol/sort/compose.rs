@@ -1,5 +1,5 @@
-use crate::protocol::context::SemiHonestContext;
-use crate::{error::Error, ff::Field, protocol::context::Context, secret_sharing::Replicated};
+use crate::secret_sharing::SecretSharing;
+use crate::{error::Error, ff::Field, protocol::context::Context};
 use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
@@ -22,12 +22,12 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// 3. Reveal the permutation
 /// 4. Revealed permutation is applied locally on another permutation shares (rho)
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
-pub async fn compose<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    ctx: C,
     random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sigma: &[u32],
-    mut rho: Vec<Replicated<F>>,
-) -> Result<Vec<Replicated<F>>, Error> {
+    mut rho: Vec<S>,
+) -> Result<Vec<S>, Error> {
     apply(shuffled_sigma, &mut rho);
 
     let unshuffled_rho = unshuffle_shares(
@@ -61,7 +61,7 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn test_compose() {
+    pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
