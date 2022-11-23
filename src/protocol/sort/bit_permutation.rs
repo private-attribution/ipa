@@ -157,6 +157,6 @@ mod tests {
             .try_into()
             .unwrap();
 
-        validate_list_of_shares_malicious(EXPECTED, &result);
+        validate_list_of_shares_malicious(r, EXPECTED, &result);
     }
 }

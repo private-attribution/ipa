@@ -124,7 +124,7 @@ mod tests {
         protocol::{sort::reshare::Reshare, QueryId, RecordId},
         test_fixture::{
             join3, make_contexts, make_malicious_contexts, make_world, share, share_malicious,
-            validate_and_reconstruct, TestWorld,
+            validate_and_reconstruct, validate_and_reconstruct_malicious, TestWorld,
         },
     };
 
@@ -185,11 +185,7 @@ mod tests {
 
             let f = join3(h0_future, h1_future, h2_future).await;
 
-            let output_share = validate_and_reconstruct(f[0].x(), f[1].x(), f[2].x());
-            let output_macs = validate_and_reconstruct(f[0].rx(), f[1].rx(), f[2].rx());
-
-            assert_eq!(output_share, input);
-            assert_eq!(output_macs, input * r);
+            validate_and_reconstruct_malicious(r, &f[0], &f[1], &f[2], secret);
 
             if f[..] != shares[..] {
                 new_reshares_atleast_once = true;
