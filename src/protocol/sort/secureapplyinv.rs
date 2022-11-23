@@ -32,7 +32,7 @@ use super::{apply::apply_inv, shuffle::shuffle_shares};
 pub async fn secureapplyinv<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: Vec<Replicated<F>>,
-    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+    random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sort_permutation: &[u32],
 ) -> Result<Vec<Replicated<F>>, Error> {
     let mut shuffled_input = shuffle_shares(
@@ -100,12 +100,33 @@ mod tests {
             .try_into()
             .unwrap();
 
-            let h0_future =
-                secureapplyinv(ctx0, input0, &perm_and_randoms[0].1, &perm_and_randoms[0].0);
-            let h1_future =
-                secureapplyinv(ctx1, input1, &perm_and_randoms[1].1, &perm_and_randoms[1].0);
-            let h2_future =
-                secureapplyinv(ctx2, input2, &perm_and_randoms[2].1, &perm_and_randoms[2].0);
+            let h0_future = secureapplyinv(
+                ctx0,
+                input0,
+                (
+                    perm_and_randoms[0].1 .0.as_slice(),
+                    perm_and_randoms[0].1 .1.as_slice(),
+                ),
+                &perm_and_randoms[0].0,
+            );
+            let h1_future = secureapplyinv(
+                ctx1,
+                input1,
+                (
+                    perm_and_randoms[1].1 .0.as_slice(),
+                    perm_and_randoms[1].1 .1.as_slice(),
+                ),
+                &perm_and_randoms[1].0,
+            );
+            let h2_future = secureapplyinv(
+                ctx2,
+                input2,
+                (
+                    perm_and_randoms[2].1 .0.as_slice(),
+                    perm_and_randoms[2].1 .1.as_slice(),
+                ),
+                &perm_and_randoms[2].0,
+            );
 
             let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
                 .await

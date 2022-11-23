@@ -24,7 +24,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
 pub async fn compose<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+    random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sigma: &[u32],
     mut rho: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
@@ -95,9 +95,33 @@ mod tests {
             .try_into()
             .unwrap();
 
-            let h0_future = compose(ctx0, &sigma_and_randoms[0].1, &sigma_and_randoms[0].0, rho0);
-            let h1_future = compose(ctx1, &sigma_and_randoms[1].1, &sigma_and_randoms[1].0, rho1);
-            let h2_future = compose(ctx2, &sigma_and_randoms[2].1, &sigma_and_randoms[2].0, rho2);
+            let h0_future = compose(
+                ctx0,
+                (
+                    sigma_and_randoms[0].1 .0.as_slice(),
+                    sigma_and_randoms[0].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[0].0,
+                rho0,
+            );
+            let h1_future = compose(
+                ctx1,
+                (
+                    sigma_and_randoms[1].1 .0.as_slice(),
+                    sigma_and_randoms[1].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[1].0,
+                rho1,
+            );
+            let h2_future = compose(
+                ctx2,
+                (
+                    sigma_and_randoms[2].1 .0.as_slice(),
+                    sigma_and_randoms[2].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[2].0,
+                rho2,
+            );
 
             let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
                 .await

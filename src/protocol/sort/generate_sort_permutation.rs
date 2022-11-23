@@ -40,7 +40,10 @@ pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
 
     let shuffled_permutation = shuffle_shares(
         input_permutation,
-        &random_permutations_for_shuffle,
+        (
+            random_permutations_for_shuffle.0.as_slice(),
+            random_permutations_for_shuffle.1.as_slice(),
+        ),
         ctx.narrow(&ShufflePermutation),
     )
     .await?;
@@ -97,7 +100,10 @@ pub async fn generate_sort_permutation<F: Field>(
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             ctx_bit.narrow(&ApplyInv),
             bit_i,
-            &random_permutations_for_shuffle,
+            (
+                random_permutations_for_shuffle.0.as_slice(),
+                random_permutations_for_shuffle.1.as_slice(),
+            ),
             &shuffled_compose_permutation,
         )
         .await?;
@@ -110,7 +116,10 @@ pub async fn generate_sort_permutation<F: Field>(
 
         let composed_i_permutation = compose(
             ctx_bit.narrow(&ComposeStep),
-            &random_permutations_for_shuffle,
+            (
+                random_permutations_for_shuffle.0.as_slice(),
+                random_permutations_for_shuffle.1.as_slice(),
+            ),
             &shuffled_compose_permutation,
             bit_i_permutation,
         )
