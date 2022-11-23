@@ -56,7 +56,7 @@ mod tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            sort::{apply::apply_inv, generate_sort_permutation::shuffle_and_reveal_permutation},
+            sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
             QueryId,
         },
         test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},

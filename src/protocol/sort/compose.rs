@@ -51,7 +51,7 @@ mod tests {
         protocol::{
             sort::{
                 apply::apply, compose::compose,
-                generate_sort_permutation::shuffle_and_reveal_permutation,
+                generate_permutation::shuffle_and_reveal_permutation,
             },
             QueryId,
         },
