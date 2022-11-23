@@ -81,7 +81,6 @@ impl<F: Field> Reshare<F> {
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::rngs::mock::StepRng;
 
@@ -89,7 +88,9 @@ mod tests {
         ff::Fp31,
         helpers::Role,
         protocol::{sort::reshare::Reshare, QueryId, RecordId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{
+            join3, make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        },
     };
 
     #[tokio::test]
@@ -116,9 +117,8 @@ mod tests {
             let h1_future = reshare1.execute(&context[1], record_id, Role::H2);
             let h2_future = reshare2.execute(&context[2], record_id, Role::H2);
 
-            let f = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap();
+            let f = join3(h0_future, h1_future, h2_future).await;
+
             let output_share = validate_and_reconstruct(&f[0], &f[1], &f[2]);
             assert_eq!(output_share, input);
 

@@ -133,7 +133,6 @@ pub async fn generate_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
-    use futures::future::try_join_all;
     use rand::{seq::SliceRandom, Rng};
 
     use crate::protocol::context::Context;
@@ -180,15 +179,12 @@ mod tests {
             shares[2].push((share_2, share_0));
         }
 
-        let [result0, result1, result2] = <[_; 3]>::try_from(
-            try_join_all([
-                generate_permutation(ctx0, &shares[0], NUM_BITS),
-                generate_permutation(ctx1, &shares[1], NUM_BITS),
-                generate_permutation(ctx2, &shares[2], NUM_BITS),
-            ])
-            .await?,
+        let [result0, result1, result2] = join3(
+            generate_permutation(ctx0, &shares[0], NUM_BITS),
+            generate_permutation(ctx1, &shares[1], NUM_BITS),
+            generate_permutation(ctx2, &shares[2], NUM_BITS),
         )
-        .unwrap();
+        .await;
 
         assert_eq!(result0.len(), ROUNDS);
         assert_eq!(result1.len(), ROUNDS);
