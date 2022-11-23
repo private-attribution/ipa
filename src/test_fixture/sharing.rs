@@ -2,12 +2,55 @@ use std::iter::zip;
 
 use crate::ff::{Field, Int};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use rand::thread_rng;
 use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,
 };
 
 use super::{MaliciousShares, ReplicatedShares};
+
+pub trait IntoShares<S>: Sized {
+    fn share(self) -> [S; 3] {
+        self.share_with(&mut thread_rng())
+    }
+    fn share_with<R: Rng>(self, rng: &mut R) -> [S; 3];
+}
+
+impl<F> IntoShares<Replicated<F>> for F
+where
+    F: Field,
+    Standard: Distribution<F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
+        share(self, rng)
+    }
+}
+
+impl<F> IntoShares<(Replicated<F>, Replicated<F>)> for (F, F)
+where
+    F: Field,
+    Standard: Distribution<F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [(Replicated<F>, Replicated<F>); 3] {
+        let [x0, x1, x2] = share(self.0, rng);
+        let [y0, y1, y2] = share(self.1, rng);
+        [(x0, y0), (x1, y1), (x2, y2)]
+    }
+}
+
+impl<F> IntoShares<(Replicated<F>, Replicated<F>, Replicated<F>)> for (F, F, F)
+where
+    F: Field,
+    Standard: Distribution<F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [(Replicated<F>, Replicated<F>, Replicated<F>); 3] {
+        let [x0, x1, x2] = share(self.0, rng);
+        let [y0, y1, y2] = share(self.1, rng);
+        let [z0, z1, z2] = share(self.2, rng);
+        [(x0, y0, z0), (x1, y1, z1), (x2, y2, z2)]
+    }
+}
 
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]

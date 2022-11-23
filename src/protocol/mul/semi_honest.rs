@@ -70,10 +70,11 @@ pub mod tests {
 
     use crate::protocol::context::SemiHonestContext;
     use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
+        make_contexts, make_world, share, validate_and_reconstruct, Runner, TestWorld,
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use rand::thread_rng;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
     use std::iter::{repeat, zip};
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -93,6 +94,23 @@ pub mod tests {
         assert_eq!(1, multiply_sync(contexts.clone(), 16, 2, &mut rand).await?);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    pub async fn simple() {
+        let world = make_world(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+
+        let res = world
+            .semi_honest((a, b), |ctx, (a, b)| async move {
+                ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
+            })
+            .await;
+
+        assert_eq!(a * b, validate_and_reconstruct(&res[0], &res[1], &res[2]));
     }
 
     /// This test ensures that many secure multiplications can run concurrently as long as
