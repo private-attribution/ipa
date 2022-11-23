@@ -124,13 +124,15 @@ pub fn validate_and_reconstruct_malicious<F: Field>(
     s0: &MaliciousReplicated<F>,
     s1: &MaliciousReplicated<F>,
     s2: &MaliciousReplicated<F>,
-    expected_result: u128,
+    expected_result: Option<u128>,
 ) -> F {
     let result = validate_and_reconstruct(s0.x(), s1.x(), s2.x());
     let result_macs = validate_and_reconstruct(s0.rx(), s1.rx(), s2.rx());
 
-    assert_eq!(result, F::from(expected_result));
-    assert_eq!(result_macs, F::from(expected_result) * r);
+    if let Some(expected_result) = expected_result {
+        assert_eq!(result, F::from(expected_result));
+        assert_eq!(result_macs, F::from(expected_result) * r);
+    }
 
     s0.x().left() + s1.x().left() + s2.x().left()
 }
@@ -167,7 +169,7 @@ pub fn validate_list_of_shares_malicious<F: Field>(
             &result[0][i],
             &result[1][i],
             &result[2][i],
-            *expected,
+            Some(*expected),
         );
         assert_eq!(revealed, F::from(*expected));
     }

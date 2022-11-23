@@ -128,6 +128,28 @@ where
     [shares0, shares1, shares2]
 }
 
+// Generate vector shares from vector of inputs for three participant
+#[must_use]
+pub fn generate_malicious_shares<F: Field>(input: &[u128], r: F) -> MaliciousShares<F>
+where
+    Standard: Distribution<F>,
+{
+    let mut rand = StepRng::new(100, 1);
+
+    let len = input.len();
+    let mut shares0 = Vec::with_capacity(len);
+    let mut shares1 = Vec::with_capacity(len);
+    let mut shares2 = Vec::with_capacity(len);
+
+    for i in input {
+        let [s0, s1, s2] = share_malicious(F::from(*i), r, &mut rand);
+        shares0.push(s0);
+        shares1.push(s1);
+        shares2.push(s2);
+    }
+    [shares0, shares1, shares2]
+}
+
 /// # Panics
 /// Panics if the permutation is not a valid one.
 /// Here "valid" means it contains all the numbers in the range 0..length, and each only appears once.

@@ -185,7 +185,7 @@ mod tests {
 
             let f = join3(h0_future, h1_future, h2_future).await;
 
-            validate_and_reconstruct_malicious(r, &f[0], &f[1], &f[2], secret);
+            validate_and_reconstruct_malicious(r, &f[0], &f[1], &f[2], Some(secret));
 
             if f[..] != shares[..] {
                 new_reshares_atleast_once = true;
