@@ -73,7 +73,7 @@ pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
 /// 4  Compute bit permutation that sorts ith bit
 /// 5. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-pub async fn generate_sort_permutation<F: Field>(
+pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[(u64, u64)],
     num_bits: u8,
@@ -141,9 +141,7 @@ mod tests {
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
-            sort::generate_sort_permutation::{
-                generate_sort_permutation, shuffle_and_reveal_permutation,
-            },
+            sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
         test_fixture::{
@@ -152,7 +150,7 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn test_generate_sort_permutation() -> Result<(), Error> {
+    pub async fn semi_honest() -> Result<(), Error> {
         const ROUNDS: usize = 50;
         const NUM_BITS: u8 = 24;
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
@@ -184,9 +182,9 @@ mod tests {
 
         let [result0, result1, result2] = <[_; 3]>::try_from(
             try_join_all([
-                generate_sort_permutation(ctx0, &shares[0], NUM_BITS),
-                generate_sort_permutation(ctx1, &shares[1], NUM_BITS),
-                generate_sort_permutation(ctx2, &shares[2], NUM_BITS),
+                generate_permutation(ctx0, &shares[0], NUM_BITS),
+                generate_permutation(ctx1, &shares[1], NUM_BITS),
+                generate_permutation(ctx2, &shares[2], NUM_BITS),
             ])
             .await?,
         )

@@ -4,7 +4,7 @@ use std::fmt::Debug;
 mod apply;
 pub mod bit_permutation;
 mod compose;
-pub mod generate_sort_permutation;
+pub mod generate_permutation;
 pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
