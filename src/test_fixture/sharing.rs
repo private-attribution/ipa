@@ -115,6 +115,21 @@ pub fn validate_and_reconstruct<F: Field>(
     s0.left() + s1.left() + s2.left()
 }
 
+/// Validates correctness of the secret sharing scheme.
+///
+/// # Panics
+/// Panics if the given input is not a valid replicated secret share.
+pub fn validate_and_reconstruct_malicious<F: Field>(
+    s0: &MaliciousReplicated<F>,
+    s1: &MaliciousReplicated<F>,
+    s2: &MaliciousReplicated<F>,
+) -> (F, F) {
+    let result = validate_and_reconstruct(s0.x(), s1.x(), s2.x());
+    let result_macs = validate_and_reconstruct(s0.rx(), s1.rx(), s2.rx());
+
+    (result, result_macs)
+}
+
 /// Validates expected result from the secret shares obtained.
 ///
 /// # Panics
@@ -134,6 +149,7 @@ pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &Repl
 /// # Panics
 /// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails for input or MACs
 pub fn validate_list_of_shares_malicious<F: Field>(
+    r: F,
     expected_result: &[u128],
     result: &MaliciousShares<F>,
 ) {
@@ -141,9 +157,9 @@ pub fn validate_list_of_shares_malicious<F: Field>(
     assert_eq!(expected_result.len(), result[1].len());
     assert_eq!(expected_result.len(), result[2].len());
     for (i, expected) in expected_result.iter().enumerate() {
-        let revealed =
-            validate_and_reconstruct(result[0][i].x(), result[1][i].x(), result[2][i].x());
+        let (revealed, revealed_times_r) =
+            validate_and_reconstruct_malicious(&result[0][i], &result[1][i], &result[2][i]);
         assert_eq!(revealed, F::from(*expected));
-        validate_and_reconstruct(result[0][i].rx(), result[1][i].rx(), result[2][i].rx());
+        assert_eq!(revealed * r, revealed_times_r);
     }
 }

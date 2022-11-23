@@ -22,8 +22,8 @@ use std::fmt::Debug;
 use std::sync::atomic::Ordering;
 
 pub use sharing::{
-    share, share_malicious, shared_bits, validate_and_reconstruct, validate_list_of_shares,
-    validate_list_of_shares_malicious,
+    share, share_malicious, shared_bits, validate_and_reconstruct,
+    validate_and_reconstruct_malicious, validate_list_of_shares, validate_list_of_shares_malicious,
 };
 pub use world::{
     make as make_world, make_with_config as make_world_with_config, Runner, TestWorld,
