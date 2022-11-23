@@ -148,6 +148,6 @@ mod tests {
 
         let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
 
-        validate_list_of_shares_malicious(EXPECTED, &result);
+        validate_list_of_shares_malicious(r, EXPECTED, &result);
     }
 }
