@@ -85,7 +85,7 @@ mod tests {
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let sigma_and_randoms: [_; 3] = join3(
+            let sigma_and_randoms = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), sigma.len(), sigma1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), sigma.len(), sigma2),
@@ -120,7 +120,7 @@ mod tests {
                 rho2,
             );
 
-            let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+            let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse of sigma on rho as in clear
             validate_list_of_shares(&rho_composed, &result);

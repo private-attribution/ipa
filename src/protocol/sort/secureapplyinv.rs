@@ -90,7 +90,7 @@ mod tests {
 
             let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-            let perm_and_randoms: [_; 3] = join3(
+            let perm_and_randoms = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), input.len(), perm0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), input.len(), perm1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), input.len(), perm2),
@@ -125,7 +125,7 @@ mod tests {
                 &perm_and_randoms[2].0,
             );
 
-            let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+            let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse as what we get when applying in clear
             validate_list_of_shares(&expected_result, &result);

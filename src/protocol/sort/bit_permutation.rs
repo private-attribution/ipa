@@ -108,7 +108,7 @@ mod tests {
         let h1_future = bit_permutation(ctx1, shares[1].as_slice());
         let h2_future = bit_permutation(ctx2, shares[2].as_slice());
 
-        let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+        let result = join3(h0_future, h1_future, h2_future).await;
 
         validate_list_of_shares(EXPECTED, &result);
     }
@@ -146,7 +146,7 @@ mod tests {
         let h1_future = bit_permutation(mc1.ctx, shares[1].as_slice());
         let h2_future = bit_permutation(mc2.ctx, shares[2].as_slice());
 
-        let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+        let result = join3(h0_future, h1_future, h2_future).await;
 
         validate_list_of_shares_malicious(r, EXPECTED, &result);
     }

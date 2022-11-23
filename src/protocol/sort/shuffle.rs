@@ -281,7 +281,7 @@ mod tests {
         let h1_future = shuffle_shares(shares1, (perm2.0.as_slice(), perm2.1.as_slice()), c1);
         let h2_future = shuffle_shares(shares2, (perm3.0.as_slice(), perm3.1.as_slice()), c2);
 
-        let results: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+        let results = join3(h0_future, h1_future, h2_future).await;
 
         let mut hashed_output_secret = HashSet::new();
         let mut output_secret = Vec::new();

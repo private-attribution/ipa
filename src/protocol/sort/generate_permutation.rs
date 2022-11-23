@@ -238,7 +238,7 @@ mod tests {
             perm2,
         );
 
-        let perms_and_randoms: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+        let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
         assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
         assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
