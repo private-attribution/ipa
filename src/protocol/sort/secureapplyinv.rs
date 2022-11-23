@@ -48,11 +48,11 @@ pub async fn secureapplyinv<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::join3;
     use crate::{
         ff::Fp31,
         protocol::{
@@ -90,15 +90,12 @@ mod tests {
 
             let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-            let perm_and_randoms: [_; 3] = try_join_all([
+            let perm_and_randoms: [_; 3] = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), input.len(), perm0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), input.len(), perm1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), input.len(), perm2),
-            ])
-            .await
-            .unwrap()
-            .try_into()
-            .unwrap();
+            )
+            .await;
 
             let h0_future = secureapplyinv(
                 ctx0,
@@ -128,11 +125,7 @@ mod tests {
                 &perm_and_randoms[2].0,
             );
 
-            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse as what we get when applying in clear
             validate_list_of_shares(&expected_result, &result);

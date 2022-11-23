@@ -42,10 +42,10 @@ pub async fn compose<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::join3;
     use crate::{
         ff::Fp31,
         protocol::{
@@ -85,15 +85,12 @@ mod tests {
             let world: TestWorld = make_world(QueryId);
             let [ctx0, ctx1, ctx2] = make_contexts(&world);
 
-            let sigma_and_randoms: [_; 3] = try_join_all([
+            let sigma_and_randoms: [_; 3] = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), sigma.len(), sigma1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), sigma.len(), sigma2),
-            ])
-            .await
-            .unwrap()
-            .try_into()
-            .unwrap();
+            )
+            .await;
 
             let h0_future = compose(
                 ctx0,
@@ -123,11 +120,7 @@ mod tests {
                 rho2,
             );
 
-            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse of sigma on rho as in clear
             validate_list_of_shares(&rho_composed, &result);
