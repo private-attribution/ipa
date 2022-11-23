@@ -4,8 +4,9 @@ use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::boolean::solved_bits::SolvedBits;
+use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::reveal::Reveal;
-use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::RecordId;
 use crate::secret_sharing::Replicated;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
@@ -21,7 +22,7 @@ pub struct BitDecomposition {}
 impl BitDecomposition {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a_p: &Replicated<F>,
     ) -> Result<Vec<Replicated<F>>, Error> {
@@ -103,8 +104,8 @@ mod tests {
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime, Int},
-        protocol::{context::ProtocolContext, QueryId, RecordId},
-        secret_sharing::Replicated,
+        protocol::context::SemiHonestContext,
+        protocol::{QueryId, RecordId},
         test_fixture::{
             bits_to_value, join3, make_contexts, make_world, share, validate_and_reconstruct,
             TestWorld,
@@ -113,7 +114,7 @@ mod tests {
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng};
 
     async fn bit_decomposition<F: Field>(
-        ctx: [ProtocolContext<'_, Replicated<F>, F>; 3],
+        ctx: [SemiHonestContext<'_, F>; 3],
         record_id: RecordId,
         a: F,
     ) -> Result<Vec<F>, Error>
@@ -126,9 +127,9 @@ mod tests {
         let s = share(a, &mut rand);
 
         let result = join3(
-            BitDecomposition::execute(c0.bind(record_id), record_id, &s[0]),
-            BitDecomposition::execute(c1.bind(record_id), record_id, &s[1]),
-            BitDecomposition::execute(c2.bind(record_id), record_id, &s[2]),
+            BitDecomposition::execute(c0, record_id, &s[0]),
+            BitDecomposition::execute(c1, record_id, &s[1]),
+            BitDecomposition::execute(c2, record_id, &s[2]),
         )
         .await;
 

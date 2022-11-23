@@ -1,8 +1,8 @@
 use super::solved_bits::{RandomBitsShare, SolvedBits};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::{context::ProtocolContext, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::RecordId;
 use std::collections::HashMap;
 
 /// A struct that pre-generates and buffers random sharings of bits from the
@@ -16,7 +16,7 @@ use std::collections::HashMap;
 /// which makes the `buffer` hash map a ring buffer.
 #[allow(dead_code)]
 pub struct RandomBitsGenerator<'a, F: Field> {
-    context: ProtocolContext<'a, Replicated<F>, F>,
+    context: SemiHonestContext<'a, F>,
     buffer: HashMap<i8, RandomBitsShare<F>>,
     counter: u32,
     read_pointer: i8,
@@ -28,7 +28,7 @@ pub struct RandomBitsGenerator<'a, F: Field> {
 impl<'a, F: Field> RandomBitsGenerator<'a, F> {
     const REFILL_THRESHOLD: u8 = 16;
 
-    pub fn new(context: ProtocolContext<'a, Replicated<F>, F>) -> Self {
+    pub fn new(context: SemiHonestContext<'a, F>) -> Self {
         Self {
             context,
             buffer: HashMap::with_capacity(u8::MAX.into()),
@@ -63,7 +63,7 @@ impl<'a, F: Field> RandomBitsGenerator<'a, F> {
 
         while self.read_pointer.wrapping_sub(self.write_pointer) != 1 {
             let record_id = RecordId::from(self.counter);
-            let r = SolvedBits::execute(self.context.bind(record_id), record_id).await?;
+            let r = SolvedBits::execute(self.context.clone(), record_id).await?;
             if let Some(x) = r {
                 self.buffer.insert(self.write_pointer, x);
                 self.write_pointer = self.write_pointer.wrapping_add(1);
@@ -100,10 +100,9 @@ mod tests {
         let ctx = make_contexts::<Fp31>(&world);
         let [c0, c1, c2] = ctx;
 
-        let step = "Test_RGB";
-        let mut rbg0 = RandomBitsGenerator::new(c0.narrow(step));
-        let mut rbg1 = RandomBitsGenerator::new(c1.narrow(step));
-        let mut rbg2 = RandomBitsGenerator::new(c2.narrow(step));
+        let mut rbg0 = RandomBitsGenerator::new(c0);
+        let mut rbg1 = RandomBitsGenerator::new(c1);
+        let mut rbg2 = RandomBitsGenerator::new(c2);
 
         let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
 
