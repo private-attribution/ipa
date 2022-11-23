@@ -1,17 +1,31 @@
 use crate::ff::Field;
-use crate::protocol::context::{MaliciousContext, Context};
-use crate::secret_sharing::MaliciousReplicated;
+use crate::protocol::context::{Context, MaliciousContext};
+use crate::secret_sharing::{MaliciousReplicated, SecretSharing};
 use crate::{
     error::Error,
     helpers::{Direction, Role},
     protocol::{context::SemiHonestContext, sort::ReshareStep::ReshareMAC, RecordId},
     secret_sharing::Replicated,
 };
+use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
+/// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
+#[async_trait]
+pub trait Reshare<F: Field> {
+    type Share: SecretSharing<F>;
+
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error>;
+}
+
 /// Reshare(i, \[x\])
-// This implements reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
+// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 // Input: Pi-1 and Pi+1 know their secret shares
 // Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
@@ -27,65 +41,76 @@ use futures::future::try_join;
 ///    `to_helper.left`  = (part1 + part2, `rand_left`)  = (part1 + part2, r1)
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
-pub async fn reshare<F: Field>(
-    ctx: &SemiHonestContext<'_, F>,
-    input: &Replicated<F>,
-    record_id: RecordId,
-    to_helper: Role,
-) -> Result<Replicated<F>, Error> {
-    let channel = ctx.mesh();
-    let prss = ctx.prss();
-    let (r0, r1) = prss.generate_fields(record_id);
+#[async_trait]
+impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
+    type Share = Replicated<F>;
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error> {
+        let channel = self.mesh();
+        let prss = self.prss();
+        let (r0, r1) = prss.generate_fields(record_id);
 
-    // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
-    // This is same as (a1 + a2) - r2 in the diagram
-    if ctx.role() == to_helper.peer(Direction::Left) {
-        let part1 = input.left() + input.right() - r1;
-        channel
-            .send(to_helper.peer(Direction::Right), record_id, part1)
-            .await?;
+        // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
+        // This is same as (a1 + a2) - r2 in the diagram
+        if self.role() == to_helper.peer(Direction::Left) {
+            let part1 = input.left() + input.right() - r1;
+            channel
+                .send(to_helper.peer(Direction::Right), record_id, part1)
+                .await?;
 
-        // Sleep until `to_helper.right` sends us their part2 value
-        let part2 = channel
-            .receive(to_helper.peer(Direction::Right), record_id)
-            .await?;
+            // Sleep until `to_helper.right` sends us their part2 value
+            let part2 = channel
+                .receive(to_helper.peer(Direction::Right), record_id)
+                .await?;
 
-        Ok(Replicated::new(part1 + part2, r1))
-    } else if ctx.role() == to_helper.peer(Direction::Right) {
-        // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
-        // This is same as (a3 - r3) in the diagram
-        let part2 = input.left() - r0;
-        channel
-            .send(to_helper.peer(Direction::Left), record_id, part2)
-            .await?;
+            Ok(Replicated::new(part1 + part2, r1))
+        } else if self.role() == to_helper.peer(Direction::Right) {
+            // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
+            // This is same as (a3 - r3) in the diagram
+            let part2 = input.left() - r0;
+            channel
+                .send(to_helper.peer(Direction::Left), record_id, part2)
+                .await?;
 
-        // Sleep until `to_helper.left` sends us their part1 value
-        let part1: F = channel
-            .receive(to_helper.peer(Direction::Left), record_id)
-            .await?;
+            // Sleep until `to_helper.left` sends us their part1 value
+            let part1: F = channel
+                .receive(to_helper.peer(Direction::Left), record_id)
+                .await?;
 
-        Ok(Replicated::new(r0, part1 + part2))
-    } else {
-        Ok(Replicated::new(r0, r1))
+            Ok(Replicated::new(r0, part1 + part2))
+        } else {
+            Ok(Replicated::new(r0, r1))
+        }
     }
 }
 
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-pub async fn reshare_malicious<F: Field>(
-    ctx: MaliciousContext<'_, F>,
-    input: &MaliciousReplicated<F>,
-    record_id: RecordId,
-    to_helper: Role,
-) -> Result<MaliciousReplicated<F>, Error> {
-    let rx_ctx = ctx.narrow(&ReshareMAC);
-    let (x, rx) = try_join(
-        reshare(&ctx.to_semi_honest(), input.x(), record_id, to_helper),
-        reshare(&rx_ctx.to_semi_honest(), input.rx(), record_id, to_helper),
-    )
-    .await?;
-    Ok(MaliciousReplicated::new(x, rx))
+#[async_trait]
+impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
+    type Share = MaliciousReplicated<F>;
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error> {
+        let rx_ctx = self.narrow(&ReshareMAC);
+        let (x, rx) = try_join(
+            self.to_semi_honest()
+                .reshare(input.x(), record_id, to_helper),
+            rx_ctx
+                .to_semi_honest()
+                .reshare(input.rx(), record_id, to_helper),
+        )
+        .await?;
+        Ok(MaliciousReplicated::new(x, rx))
+    }
 }
 
 #[cfg(test)]
@@ -96,14 +121,15 @@ mod tests {
     use crate::{
         ff::Fp31,
         helpers::Role,
-        protocol::{sort::reshare::reshare, QueryId, RecordId},
+        protocol::{sort::reshare::Reshare, QueryId, RecordId},
         test_fixture::{
-            join3, make_contexts, make_malicious_contexts, make_world, share, share_malicious, validate_and_reconstruct, TestWorld,
+            join3, make_contexts, make_malicious_contexts, make_world, share, share_malicious,
+            validate_and_reconstruct, TestWorld,
         },
     };
 
     #[tokio::test]
-    pub async fn test_reshare() {
+    pub async fn semi_honest() {
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
         let mut new_reshares_atleast_once = false;
@@ -119,12 +145,11 @@ mod tests {
 
             let [share0, share1, share2] = shares.clone();
 
-            let h0_future = reshare(&ctx0, &share0, record_id, Role::H2);
-            let h1_future = reshare(&ctx1, &share1, record_id, Role::H2);
-            let h2_future = reshare(&ctx2, &share2, record_id, Role::H2);
+            let h0_future = ctx0.clone().reshare(&share0, record_id, Role::H2);
+            let h1_future = ctx1.clone().reshare(&share1, record_id, Role::H2);
+            let h2_future = ctx2.clone().reshare(&share2, record_id, Role::H2);
 
             let f = join3(h0_future, h1_future, h2_future).await;
-
             let output_share = validate_and_reconstruct(&f[0], &f[1], &f[2]);
             assert_eq!(output_share, input);
 
@@ -137,7 +162,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn test_reshare_malicious() {
+    pub async fn malicious() {
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
         let mut new_reshares_atleast_once = false;
@@ -154,13 +179,12 @@ mod tests {
 
             let [share0, share1, share2] = shares.clone();
 
-            let h0_future = reshare_malicious(ctx0.ctx.clone(), &share0, record_id, Role::H2);
-            let h1_future = reshare_malicious(ctx1.ctx.clone(), &share1, record_id, Role::H2);
-            let h2_future = reshare_malicious(ctx2.ctx.clone(), &share2, record_id, Role::H2);
+            let h0_future = ctx0.ctx.clone().reshare(&share0, record_id, Role::H2);
+            let h1_future = ctx1.ctx.clone().reshare(&share1, record_id, Role::H2);
+            let h2_future = ctx2.ctx.clone().reshare(&share2, record_id, Role::H2);
 
-            let f = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap();
+            let f = join3(h0_future, h1_future, h2_future).await;
+
             let output_share = validate_and_reconstruct(f[0].x(), f[1].x(), f[2].x());
             let output_macs = validate_and_reconstruct(f[0].rx(), f[1].rx(), f[2].rx());
 
