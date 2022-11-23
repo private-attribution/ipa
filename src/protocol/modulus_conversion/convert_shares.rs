@@ -207,7 +207,7 @@ mod tests {
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
             QueryId, RecordId,
         },
-        test_fixture::{make_contexts, make_world, validate_and_reconstruct, TestWorld},
+        test_fixture::{validate_and_reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
@@ -222,8 +222,8 @@ mod tests {
     pub async fn convert_one_bit_of_many_match_keys() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let [c0, c1, c2] = context;
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones

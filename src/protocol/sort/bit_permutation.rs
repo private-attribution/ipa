@@ -70,27 +70,32 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
 
 #[cfg(test)]
 mod tests {
+    use std::iter::zip;
+
     use futures::future::try_join_all;
-    use rand::rngs::mock::StepRng;
+    use rand::{rngs::mock::StepRng, thread_rng};
 
     use crate::{
         ff::Fp31,
-        protocol::{sort::bit_permutation::bit_permutation, QueryId},
+        protocol::{
+            malicious::MaliciousValidator, sort::bit_permutation::bit_permutation, QueryId,
+            RecordId,
+        },
         test_fixture::{
-            make_contexts, make_malicious_contexts, make_world, share, share_malicious,
-            validate_and_reconstruct, validate_list_of_shares, validate_list_of_shares_malicious,
+            join3v, share, validate_list_of_shares, validate_list_of_shares_malicious, IntoShares,
+            TestWorld,
         },
     };
 
     #[tokio::test]
-    pub async fn test_bit_permutation() {
+    pub async fn semi_honest() {
         // With this input, for stable sort we expect all 0's to line up before 1's.
         // The expected sort order is same as expected_sort_output.
         const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
-        let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let [ctx0, ctx1, ctx2] = world.contexts::<Fp31>();
         let mut rand = StepRng::new(100, 1);
 
         let mut shares = [
@@ -119,43 +124,37 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn test_bit_permutation_malicious() {
+    pub async fn malicious() {
         // With this input, for stable sort we expect all 0's to line up before 1's.
         // The expected sort order is same as expected_sort_output.
         const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
-        let world = make_world(QueryId);
-        let [mc0, mc1, mc2] = make_malicious_contexts::<Fp31>(&world);
-        let r = validate_and_reconstruct(
-            mc0.validator.r_share(),
-            mc1.validator.r_share(),
-            mc2.validator.r_share(),
-        );
+        let world = TestWorld::new(QueryId);
+        let contexts = world.contexts::<Fp31>();
+        let v = contexts.map(MaliciousValidator::new);
 
-        let mut rand = StepRng::new(100, 1);
-
-        let mut shares = [
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-        ];
-        for i in INPUT {
-            let share = share_malicious(Fp31::from(*i), r, &mut rand);
-            for (i, share) in share.into_iter().enumerate() {
-                shares[i].push(share);
-            }
-        }
-
-        let h0_future = bit_permutation(mc0.ctx, shares[0].as_slice());
-        let h1_future = bit_permutation(mc1.ctx, shares[1].as_slice());
-        let h2_future = bit_permutation(mc2.ctx, shares[2].as_slice());
-
-        let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
+        let mut rng = thread_rng();
+        let shares = INPUT.iter().map(|x| Fp31::from(*x)).share_with(&mut rng);
+        let m_shares = try_join_all(zip(v.iter(), shares).map(|(v, shares)| async move {
+            // Now we have a list of shares for each helper; upgrade all of those.
+            let context = v.context();
+            try_join_all(
+                shares
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, share)| context.upgrade(RecordId::from(i), share)),
+            )
             .await
-            .unwrap()
-            .try_into()
-            .unwrap();
+        }))
+        .await
+        .unwrap();
+
+        let result = join3v(
+            zip(v.iter(), m_shares)
+                .map(|(v, m_share)| async move { bit_permutation(v.context(), &m_share).await }),
+        )
+        .await;
 
         validate_list_of_shares_malicious(EXPECTED, &result);
     }

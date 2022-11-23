@@ -1,12 +1,14 @@
+use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::context::{semi_honest, Context, SemiHonestContext};
-use crate::protocol::malicious::SecurityValidatorAccumulator;
+use crate::protocol::malicious::MaliciousValidatorAccumulator;
+use crate::protocol::mul::SecureMul;
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
-use crate::protocol::{Step, Substep};
+use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use std::borrow::Borrow;
 use std::sync::Arc;
@@ -22,20 +24,34 @@ pub struct MaliciousContext<'a, F: Field> {
 }
 
 impl<'a, F: Field> MaliciousContext<'a, F> {
-    pub(super) fn new(
+    pub(super) fn new<S: Substep + ?Sized>(
         source: &SemiHonestContext<'a, F>,
-        acc: SecurityValidatorAccumulator<F>,
+        protocol_step: &S,
+        upgrade_ctx: SemiHonestContext<'a, F>,
+        acc: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Self {
         Self {
-            inner: ContextInner::new(&source.inner, acc, r_share),
-            step: source.step().clone(),
+            inner: ContextInner::new(&source.inner, upgrade_ctx, acc, r_share),
+            step: source.step().narrow(protocol_step),
         }
     }
 
     #[must_use]
-    pub fn accumulator(&self) -> SecurityValidatorAccumulator<F> {
+    pub fn accumulator(&self) -> MaliciousValidatorAccumulator<F> {
         self.inner.accumulator.clone()
+    }
+
+    /// Upgrade an input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade(
+        &self,
+        record_id: RecordId,
+        input: Replicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner.upgrade(record_id, input).await
     }
 
     /// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
@@ -101,14 +117,16 @@ struct ContextInner<'a, F: Field> {
     role: Role,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
-    accumulator: SecurityValidatorAccumulator<F>,
+    upgrade_ctx: SemiHonestContext<'a, F>,
+    accumulator: MaliciousValidatorAccumulator<F>,
     r_share: Replicated<F>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
     fn new<B: Borrow<semi_honest::ContextInner<'a>>>(
         source: &B,
-        accumulator: SecurityValidatorAccumulator<F>,
+        upgrade_ctx: SemiHonestContext<'a, F>,
+        accumulator: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Arc<Self> {
         let source = source.borrow();
@@ -116,8 +134,22 @@ impl<'a, F: Field> ContextInner<'a, F> {
             role: source.role,
             prss: source.prss,
             gateway: source.gateway,
+            upgrade_ctx,
             accumulator,
             r_share,
         })
+    }
+
+    async fn upgrade(
+        &self,
+        record_id: RecordId,
+        x: Replicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        let rx = self
+            .upgrade_ctx
+            .clone()
+            .multiply(record_id, &x, &self.r_share)
+            .await?;
+        Ok(MaliciousReplicated::new(x, rx))
     }
 }

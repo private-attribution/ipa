@@ -6,14 +6,18 @@ use crate::{
     ff::Field,
     helpers::{
         messaging::{Gateway, GatewayConfig},
-        SendBufferConfig,
+        Role, SendBufferConfig,
     },
-    protocol::{context::SemiHonestContext, prss::Endpoint as PrssEndpoint, QueryId},
-    test_fixture::{
-        logging, make_contexts, make_participants, network::InMemoryNetwork, sharing::IntoShares,
+    protocol::{
+        context::{MaliciousContext, SemiHonestContext},
+        prss::Endpoint as PrssEndpoint,
+        QueryId,
     },
+    test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
 };
 use std::{fmt::Debug, iter::zip, sync::Arc};
+
+use super::sharing::IntoMalicious;
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -55,46 +59,74 @@ impl Default for TestWorldConfig {
     }
 }
 
-/// Creates a new `TestWorld` instance using the provided `config`.
-#[must_use]
-#[allow(clippy::missing_panics_doc)]
-pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
-    logging::setup();
+impl TestWorld {
+    /// Creates a new `TestWorld` instance using the provided `config`.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
+        logging::setup();
 
-    let participants = make_participants();
-    let network = InMemoryNetwork::new();
-    let gateways = network
-        .endpoints
-        .iter()
-        .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+        let participants = make_participants();
+        let network = InMemoryNetwork::new();
+        let gateways = network
+            .endpoints
+            .iter()
+            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
-    TestWorld {
-        query_id,
-        gateways,
-        participants,
-        _network: network,
+        TestWorld {
+            query_id,
+            gateways,
+            participants,
+            _network: network,
+        }
     }
-}
 
-/// Creates a new `TestWorld` instance.
-#[must_use]
-#[allow(clippy::missing_panics_doc)]
-pub fn make(query_id: QueryId) -> TestWorld {
-    let config = TestWorldConfig::default();
-    make_with_config(query_id, config)
+    /// Creates a new `TestWorld` instance.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn new(query_id: QueryId) -> TestWorld {
+        let config = TestWorldConfig::default();
+        Self::new_with(query_id, config)
+    }
+
+    /// Creates protocol contexts for 3 helpers
+    ///
+    /// # Panics
+    /// Panics if world has more or less than 3 gateways/participants
+    #[must_use]
+    pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
+        zip(Role::all(), zip(&self.participants, &self.gateways))
+            .map(|(role, (participant, gateway))| {
+                SemiHonestContext::new(*role, participant, gateway)
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
 }
 
 #[async_trait]
 pub trait Runner<I, A> {
-    async fn semi_honest<'a, F, O, H, X>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn semi_honest<'a, F, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
         F: Field,
         O: Send + Debug,
-        H: FnMut(SemiHonestContext<'a, F>, A) -> X + Send,
-        X: Future<Output = O> + Send,
+        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+        R: Future<Output = O> + Send,
+        Standard: Distribution<F>;
+
+    async fn malicious<'a, 'b, F, O, M, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    where
+        'a: 'b,
+        A: IntoMalicious<F, M>,
+        F: Field,
+        O: Send + Debug,
+        M: Send,
+        H: FnMut(MaliciousContext<'b, F>, M) -> R + Send,
+        R: Future<Output = O> + Send,
         Standard: Distribution<F>;
 }
 
@@ -104,15 +136,15 @@ where
     I: 'static + IntoShares<A> + Send,
     A: Send,
 {
-    async fn semi_honest<'a, F, O, H, X>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
+    async fn semi_honest<'a, F, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
         F: Field,
         O: Send + Debug,
-        H: FnMut(SemiHonestContext<'a, F>, A) -> X + Send,
-        X: Future<Output = O> + Send,
+        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+        R: Future<Output = O> + Send,
         Standard: Distribution<F>,
     {
-        let contexts = make_contexts::<F>(self);
+        let contexts = self.contexts();
         let input_shares = {
             let mut rng = thread_rng();
             input.share_with(&mut rng)
@@ -121,5 +153,25 @@ where
         let output =
             join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
         <[_; 3]>::try_from(output).unwrap()
+    }
+
+    async fn malicious<'a, 'b, F, O, M, H, R>(&'a self, _input: I, mut _helper_fn: H) -> [O; 3]
+    where
+        'a: 'b,
+        A: IntoMalicious<F, M>,
+        F: Field,
+        O: Send + Debug,
+        M: Send,
+        H: FnMut(MaliciousContext<'b, F>, M) -> R + Send,
+        R: Future<Output = O> + Send,
+        Standard: Distribution<F>,
+    {
+        // self.semi_honest(input, |ctx, args| async {
+        //     let v = MaliciousValidator::new(ctx);
+        //     let m_share = args.upgrade(v.context()).await;
+        //     helper_fn(v.context(), m_share).await
+        // })
+        // .await
+        todo!() // just need to convince the borrow checker that this is OK
     }
 }

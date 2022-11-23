@@ -186,9 +186,7 @@ mod tests {
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
-        test_fixture::{
-            bits_to_value, join3, make_contexts, make_world, validate_and_reconstruct, TestWorld,
-        },
+        test_fixture::{bits_to_value, join3, validate_and_reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
@@ -240,8 +238,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;
@@ -264,8 +262,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp32BitPrime>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp32BitPrime>();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;

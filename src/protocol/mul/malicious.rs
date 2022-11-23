@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::mul::SemiHonestMul;
-use crate::protocol::{context::Context, malicious::SecurityValidatorAccumulator, RecordId};
+use crate::protocol::{context::Context, malicious::MaliciousValidatorAccumulator, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -48,7 +48,7 @@ impl AsRef<str> for Step {
 pub struct SecureMul<'a, F: Field> {
     ctx: MaliciousContext<'a, F>,
     record_id: RecordId,
-    accumulator: SecurityValidatorAccumulator<F>,
+    accumulator: MaliciousValidatorAccumulator<F>,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
@@ -56,7 +56,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
     pub fn new(
         ctx: MaliciousContext<'a, F>,
         record_id: RecordId,
-        accumulator: SecurityValidatorAccumulator<F>,
+        accumulator: MaliciousValidatorAccumulator<F>,
     ) -> Self {
         Self {
             ctx,

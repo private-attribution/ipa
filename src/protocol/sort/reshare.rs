@@ -89,7 +89,7 @@ mod tests {
         ff::Fp31,
         helpers::Role,
         protocol::{sort::reshare::Reshare, QueryId, RecordId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{share, validate_and_reconstruct, TestWorld},
     };
 
     #[tokio::test]
@@ -97,8 +97,8 @@ mod tests {
         let mut rand = StepRng::new(100, 1);
         let mut rng = rand::thread_rng();
         let mut new_reshares_atleast_once = false;
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
 
         for _ in 0..10 {
             let secret = rng.gen::<u128>();

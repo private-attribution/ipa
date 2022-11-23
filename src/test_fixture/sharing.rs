@@ -1,12 +1,15 @@
-use std::iter::zip;
-
 use crate::ff::{Field, Int};
+use crate::protocol::context::MaliciousContext;
+use crate::protocol::RecordId;
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use async_trait::async_trait;
+use futures::future::try_join_all;
 use rand::thread_rng;
 use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,
 };
+use std::iter::{repeat, zip};
 
 use super::{MaliciousShares, ReplicatedShares};
 
@@ -52,6 +55,29 @@ where
     }
 }
 
+impl<F, V> IntoShares<Vec<Replicated<F>>> for V
+where
+    F: Field,
+    Standard: Distribution<F>,
+    V: IntoIterator<Item = F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<Replicated<F>>; 3] {
+        let it = self.into_iter();
+        let store = if let (_, Some(sz)) = it.size_hint() {
+            Vec::with_capacity(sz)
+        } else {
+            Vec::new()
+        };
+        let mut res = [store.clone(), store.clone(), store];
+        for v in it {
+            for (i, s) in share(v, rng).into_iter().enumerate() {
+                res[i].push(s);
+            }
+        }
+        res
+    }
+}
+
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]
 where
@@ -68,19 +94,35 @@ where
     ]
 }
 
-/// Shares `input` into 3 maliciously secure replicated secret shares using the provided `rng` implementation
-///
-#[allow(clippy::missing_panics_doc)]
-pub fn share_malicious<F: Field, R: RngCore>(x: F, r: F, rng: &mut R) -> [MaliciousReplicated<F>; 3]
+/// For upgrading various shapes of replicated share to malicious.
+#[async_trait]
+pub trait IntoMalicious<F: Field, M> {
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> M;
+}
+
+#[async_trait]
+impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
+        ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
+    }
+}
+
+#[async_trait]
+impl<F, I> IntoMalicious<F, Vec<MaliciousReplicated<F>>> for I
 where
-    Standard: Distribution<F>,
+    F: Field,
+    I: IntoIterator<Item = Replicated<F>> + Send,
+    <I as IntoIterator>::IntoIter: Send,
 {
-    zip(share(x, rng), share(r * x, rng))
-        .map(|(x, rx)| MaliciousReplicated::new(x, rx))
-        // TODO: array::zip/each_ref when stable
-        .collect::<Vec<_>>()
-        .try_into()
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> Vec<MaliciousReplicated<F>> {
+        try_join_all(
+            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
+                ctx.upgrade(RecordId::from(i), share).await
+            }),
+        )
+        .await
         .unwrap()
+    }
 }
 
 /// Take a field value `x` and turn them into replicated bitwise sharings of three

@@ -6,9 +6,7 @@ pub mod logging;
 pub mod network;
 
 use crate::ff::{Field, Fp31};
-use crate::helpers::Role;
-use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-use crate::protocol::malicious::SecurityValidator;
+use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
@@ -21,49 +19,10 @@ use rand::thread_rng;
 use std::fmt::Debug;
 
 pub use sharing::{
-    share, share_malicious, shared_bits, validate_and_reconstruct, validate_list_of_shares,
-    validate_list_of_shares_malicious,
+    share, shared_bits, validate_and_reconstruct, validate_list_of_shares,
+    validate_list_of_shares_malicious, IntoShares,
 };
-pub use world::{
-    make as make_world, make_with_config as make_world_with_config, Runner, TestWorld,
-    TestWorldConfig,
-};
-
-/// Creates protocol contexts for 3 helpers
-///
-/// # Panics
-/// Panics if world has more or less than 3 gateways/participants
-#[must_use]
-pub fn make_contexts<F: Field>(test_world: &TestWorld) -> [SemiHonestContext<'_, F>; 3] {
-    test_world
-        .gateways
-        .iter()
-        .zip(&test_world.participants)
-        .zip(Role::all())
-        .map(|((gateway, participant), role)| SemiHonestContext::new(*role, participant, gateway))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
-}
-pub struct MaliciousContextWrapper<'a, F: Field> {
-    pub ctx: MaliciousContext<'a, F>,
-    pub validator: SecurityValidator<F>,
-}
-
-/// Creates malicious protocol contexts for 3 helpers.
-pub fn make_malicious_contexts<F: Field>(
-    test_world: &TestWorld,
-) -> [MaliciousContextWrapper<'_, F>; 3] {
-    make_contexts(test_world).map(|ctx| {
-        let v = SecurityValidator::new(ctx.narrow("MaliciousValidate"));
-        let acc = v.accumulator();
-
-        MaliciousContextWrapper {
-            ctx: ctx.upgrade_to_malicious(acc, v.r_share().clone()),
-            validator: v,
-        }
-    })
-}
+pub use world::{Runner, TestWorld, TestWorldConfig};
 
 /// Narrows a set of contexts all at once.
 /// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`
