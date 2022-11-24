@@ -16,12 +16,11 @@ use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
-use std::fmt::Debug;
-
 pub use sharing::{
     share, shared_bits, validate_and_reconstruct, validate_list_of_shares,
     validate_list_of_shares_malicious, IntoShares,
 };
+use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 
 /// Narrows a set of contexts all at once.

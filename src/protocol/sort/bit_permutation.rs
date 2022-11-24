@@ -70,21 +70,13 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
 
 #[cfg(test)]
 mod tests {
-    use std::iter::zip;
-
     use futures::future::try_join_all;
-    use rand::{rngs::mock::StepRng, thread_rng};
+    use rand::rngs::mock::StepRng;
 
     use crate::{
         ff::Fp31,
-        protocol::{
-            malicious::MaliciousValidator, sort::bit_permutation::bit_permutation, QueryId,
-            RecordId,
-        },
-        test_fixture::{
-            join3v, share, validate_list_of_shares, validate_list_of_shares_malicious, IntoShares,
-            TestWorld,
-        },
+        protocol::{sort::bit_permutation::bit_permutation, QueryId},
+        test_fixture::{share, validate_list_of_shares, Runner, TestWorld},
     };
 
     #[tokio::test]
@@ -131,31 +123,14 @@ mod tests {
         const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
         let world = TestWorld::new(QueryId);
-        let contexts = world.contexts::<Fp31>();
-        let v = contexts.map(MaliciousValidator::new);
 
-        let mut rng = thread_rng();
-        let shares = INPUT.iter().map(|x| Fp31::from(*x)).share_with(&mut rng);
-        let m_shares = try_join_all(zip(v.iter(), shares).map(|(v, shares)| async move {
-            // Now we have a list of shares for each helper; upgrade all of those.
-            let context = v.context();
-            try_join_all(
-                shares
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, share)| context.upgrade(RecordId::from(i), share)),
+        let result = world
+            .malicious(
+                INPUT.iter().map(|x| Fp31::from(*x)),
+                |ctx, m_shares| async move { bit_permutation(ctx, &m_shares).await.unwrap() },
             )
-            .await
-        }))
-        .await
-        .unwrap();
+            .await;
 
-        let result = join3v(
-            zip(v.iter(), m_shares)
-                .map(|(v, m_share)| async move { bit_permutation(v.context(), &m_share).await }),
-        )
-        .await;
-
-        validate_list_of_shares_malicious(EXPECTED, &result);
+        validate_list_of_shares(EXPECTED, &result);
     }
 }

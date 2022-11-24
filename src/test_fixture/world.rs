@@ -9,7 +9,7 @@ use crate::{
         Role, SendBufferConfig,
     },
     protocol::{
-        context::{MaliciousContext, SemiHonestContext},
+        context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
         QueryId,
@@ -17,6 +17,7 @@ use crate::{
     secret_sharing::DowngradeMalicious,
     test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
 use super::sharing::IntoMalicious;
@@ -30,6 +31,7 @@ pub struct TestWorld {
     pub query_id: QueryId,
     pub gateways: [Gateway; 3],
     pub participants: [PrssEndpoint; 3],
+    pub(super) executions: AtomicUsize,
     _network: Arc<InMemoryNetwork>,
 }
 
@@ -82,6 +84,7 @@ impl TestWorld {
             query_id,
             gateways,
             participants,
+            executions: AtomicUsize::new(0),
             _network: network,
         }
     }
@@ -100,9 +103,11 @@ impl TestWorld {
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
     pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
+        let execution = self.executions.fetch_add(1, Ordering::Release);
+        let run = format!("run-{execution}");
         zip(Role::all(), zip(&self.participants, &self.gateways))
             .map(|(role, (participant, gateway))| {
-                SemiHonestContext::new(*role, participant, gateway)
+                SemiHonestContext::new(*role, participant, gateway).narrow(&run)
             })
             .collect::<Vec<_>>()
             .try_into()
