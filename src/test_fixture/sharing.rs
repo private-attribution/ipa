@@ -120,19 +120,14 @@ pub fn validate_and_reconstruct<F: Field>(
 /// # Panics
 /// Panics if the given input is not a valid replicated secret share.
 pub fn validate_and_reconstruct_malicious<F: Field>(
-    r: F,
     s0: &MaliciousReplicated<F>,
     s1: &MaliciousReplicated<F>,
     s2: &MaliciousReplicated<F>,
-    expected_result: u128,
-) -> F {
+) -> (F, F) {
     let result = validate_and_reconstruct(s0.x(), s1.x(), s2.x());
     let result_macs = validate_and_reconstruct(s0.rx(), s1.rx(), s2.rx());
 
-    assert_eq!(result, F::from(expected_result));
-    assert_eq!(result_macs, F::from(expected_result) * r);
-
-    s0.x().left() + s1.x().left() + s2.x().left()
+    (result, result_macs)
 }
 
 /// Validates expected result from the secret shares obtained.
@@ -162,13 +157,9 @@ pub fn validate_list_of_shares_malicious<F: Field>(
     assert_eq!(expected_result.len(), result[1].len());
     assert_eq!(expected_result.len(), result[2].len());
     for (i, expected) in expected_result.iter().enumerate() {
-        let revealed = validate_and_reconstruct_malicious(
-            r,
-            &result[0][i],
-            &result[1][i],
-            &result[2][i],
-            *expected,
-        );
+        let (revealed, revealed_times_r) =
+            validate_and_reconstruct_malicious(&result[0][i], &result[1][i], &result[2][i]);
         assert_eq!(revealed, F::from(*expected));
+        assert_eq!(revealed * r, revealed_times_r);
     }
 }

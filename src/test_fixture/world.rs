@@ -13,6 +13,7 @@ use crate::{
         logging, make_contexts, make_participants, network::InMemoryNetwork, sharing::IntoShares,
     },
 };
+use std::sync::atomic::AtomicUsize;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
 /// Test environment for protocols to run tests that require communication between helpers.
@@ -24,6 +25,7 @@ pub struct TestWorld {
     pub query_id: QueryId,
     pub gateways: [Gateway; 3],
     pub participants: [PrssEndpoint; 3],
+    pub(super) executions: AtomicUsize,
     _network: Arc<InMemoryNetwork>,
 }
 
@@ -76,6 +78,7 @@ pub fn make_with_config(query_id: QueryId, config: TestWorldConfig) -> TestWorld
         gateways,
         participants,
         _network: network,
+        executions: AtomicUsize::new(0),
     }
 }
 
