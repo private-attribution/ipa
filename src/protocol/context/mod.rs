@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod malicious;
 mod semi_honest;
 
+pub(super) use malicious::AccessSemiHonestContextFromMalicious;
 pub use malicious::MaliciousContext;
 pub use semi_honest::SemiHonestContext;
 

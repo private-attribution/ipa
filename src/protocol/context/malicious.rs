@@ -22,6 +22,11 @@ pub struct MaliciousContext<'a, F: Field> {
     step: Step,
 }
 
+pub trait AccessSemiHonestContextFromMalicious<'a, F: Field> {
+    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>);
+    fn semi_honest_context(self) -> SemiHonestContext<'a, F>;
+}
+
 impl<'a, F: Field> MaliciousContext<'a, F> {
     pub(super) fn new<S: Substep + ?Sized>(
         source: &SemiHonestContext<'a, F>,
@@ -36,11 +41,6 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         }
     }
 
-    #[must_use]
-    pub fn accumulator(&self) -> MaliciousValidatorAccumulator<F> {
-        self.inner.accumulator.clone()
-    }
-
     /// Upgrade an input using this context.
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
@@ -51,28 +51,6 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner.upgrade(record_id, input).await
-    }
-
-    /// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
-    /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
-    /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
-    /// this implementation makes it easier to reinterpret the context as semi-honest.
-    ///
-    /// The context received will be an exact copy of malicious, so it will be tied up to the same step
-    /// and prss.
-    #[must_use]
-    pub fn to_semi_honest(self) -> SemiHonestContext<'a, F> {
-        // TODO: it can be made more efficient by impersonating malicious context as semi-honest
-        // it does not work as of today because of https://github.com/rust-lang/rust/issues/20400
-        // while it is possible to define a struct that wraps a reference to malicious context
-        // and implement `Context` trait for it, implementing SecureMul and Reveal for Context
-        // is not
-        // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
-        // for `MaliciousContext`. Deep clone is the only option
-        let mut ctx = SemiHonestContext::new(self.inner.role, self.inner.prss, self.inner.gateway);
-        ctx.step = self.step;
-
-        ctx
     }
 }
 
@@ -108,6 +86,35 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
+    }
+}
+
+/// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
+/// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
+/// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
+/// this implementation makes it easier to reinterpret the context as semi-honest.
+impl<'a, F: Field> AccessSemiHonestContextFromMalicious<'a, F> for MaliciousContext<'a, F> {
+    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
+        self.inner
+            .accumulator
+            .accumulate_macs(&self.prss(), record_id, x);
+    }
+
+    /// Get a semi-honest context that is an  exact copy of this malicious
+    /// context, so it will be tied up to the same step and prss.
+    #[must_use]
+    fn semi_honest_context(self) -> SemiHonestContext<'a, F> {
+        // TODO: it can be made more efficient by impersonating malicious context as semi-honest
+        // it does not work as of today because of https://github.com/rust-lang/rust/issues/20400
+        // while it is possible to define a struct that wraps a reference to malicious context
+        // and implement `Context` trait for it, implementing SecureMul and Reveal for Context
+        // is not
+        // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
+        // for `MaliciousContext`. Deep clone is the only option
+        let mut ctx = SemiHonestContext::new(self.inner.role, self.inner.prss, self.inner.gateway);
+        ctx.step = self.step;
+
+        ctx
     }
 }
 

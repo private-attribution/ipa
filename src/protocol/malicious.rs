@@ -13,7 +13,7 @@ use crate::{
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
 
-/// Steps used by any malicious protocol execution.
+/// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Step {
@@ -21,12 +21,8 @@ pub(crate) enum Step {
     UpgradeInput,
     /// For the execution of the malicious protocol.
     MaliciousProtocol,
-    /// Propagate the accumulated values of `u` and `w`.
-    PropagateUW,
-    /// Reveal the value of `r`, necessary for validation.
-    RevealR,
-    /// Check that there is no disagreement between accumulated values.
-    CheckZero,
+    /// The final validation steps.
+    Validate,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -36,6 +32,25 @@ impl AsRef<str> for Step {
         match self {
             Self::UpgradeInput => "upgrade_input",
             Self::MaliciousProtocol => "malicious_protocol",
+            Self::Validate => "validate",
+        }
+    }
+}
+
+enum ValidateStep {
+    /// Propagate the accumulated values of `u` and `w`.
+    PropagateUW,
+    /// Reveal the value of `r`, necessary for validation.
+    RevealR,
+    /// Check that there is no disagreement between accumulated values.
+    CheckZero,
+}
+
+impl crate::protocol::Substep for ValidateStep {}
+
+impl AsRef<str> for ValidateStep {
+    fn as_ref(&self) -> &str {
+        match self {
             Self::PropagateUW => "propagate_uw",
             Self::RevealR => "reveal_r",
             Self::CheckZero => "check_zero",
@@ -131,9 +146,7 @@ pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
     protocol_ctx: MaliciousContext<'a, F>,
-    propagate_uw_ctx: SemiHonestContext<'a, F>,
-    reveal_r_ctx: SemiHonestContext<'a, F>,
-    check_zero_ctx: SemiHonestContext<'a, F>,
+    validate_ctx: SemiHonestContext<'a, F>,
 }
 
 impl<'a, F: Field> MaliciousValidator<'a, F> {
@@ -152,9 +165,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         let accumulator = MaliciousValidatorAccumulator {
             inner: Arc::downgrade(&u_and_w),
         };
-        let propagate_uw_ctx = ctx.narrow(&Step::PropagateUW);
-        let reveal_r_ctx = ctx.narrow(&Step::RevealR);
-        let check_zero_ctx = ctx.narrow(&Step::CheckZero);
+        let validate_ctx = ctx.narrow(&Step::Validate);
         let protocol_ctx = ctx.upgrade(
             &Step::MaliciousProtocol,
             &Step::UpgradeInput,
@@ -165,9 +176,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             r_share,
             u_and_w,
             protocol_ctx,
-            propagate_uw_ctx,
-            reveal_r_ctx,
-            check_zero_ctx,
+            validate_ctx,
         }
     }
 
@@ -191,10 +200,31 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[allow(clippy::await_holding_lock)]
     pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
-        let channel = self.propagate_uw_ctx.mesh();
-        let helper_right = self.propagate_uw_ctx.role().peer(Direction::Right);
-        let helper_left = self.propagate_uw_ctx.role().peer(Direction::Left);
+        let (u_share, w_share) = self.propagate_u_and_w().await?;
 
+        // This should probably be done in parallel with the futures above
+        let narrow_ctx = self.validate_ctx.narrow(&ValidateStep::RevealR);
+        let r = narrow_ctx.reveal(RECORD_0, &self.r_share).await?;
+        let t = u_share - &(w_share * r);
+
+        let check_zero_ctx = self.validate_ctx.narrow(&ValidateStep::CheckZero);
+        let is_valid = check_zero(check_zero_ctx, RECORD_0, &t).await?;
+
+        if is_valid {
+            // Yes, we're allowed to downgrade here.
+            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            Ok(values.downgrade().access_without_downgrade())
+        } else {
+            Err(Error::MaliciousSecurityCheckFailed)
+        }
+    }
+
+    /// Turns out local values for `u` and `w` into proper replicated shares.
+    async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
+        let propagate_ctx = self.validate_ctx.narrow(&ValidateStep::PropagateUW);
+        let channel = propagate_ctx.mesh();
+        let helper_right = propagate_ctx.role().peer(Direction::Right);
+        let helper_left = propagate_ctx.role().peer(Direction::Left);
         let (u_local, w_local) = {
             let state = self.u_and_w.lock().unwrap();
             (state.u, state.w)
@@ -204,31 +234,14 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             channel.send(helper_right, RECORD_1, w_local),
         )
         .await?;
-
-        // receive `u_i` value from helper to the left
         let (u_left, w_left): (F, F) = try_join(
             channel.receive(helper_left, RECORD_0),
             channel.receive(helper_left, RECORD_1),
         )
         .await?;
-
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
-
-        // This should probably be done in parallel with the futures above
-        let r = self.reveal_r_ctx.reveal(RECORD_0, &self.r_share).await?;
-        let t = u_share - &(w_share * r);
-
-        let is_valid =
-            check_zero(self.check_zero_ctx.narrow(&Step::CheckZero), RECORD_0, &t).await?;
-
-        if is_valid {
-            // Yes, we're allowed to downgrade here.
-            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            Ok(values.downgrade().access_without_downgrade())
-        } else {
-            Err(Error::MaliciousSecurityCheckFailed)
-        }
+        Ok((u_share, w_share))
     }
 }
 
