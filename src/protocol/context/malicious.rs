@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
-use crate::protocol::context::{semi_honest, Context, SemiHonestContext};
+use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::prss::{
@@ -10,7 +10,6 @@ use crate::protocol::prss::{
 };
 use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
-use std::borrow::Borrow;
 use std::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
@@ -32,7 +31,7 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         r_share: Replicated<F>,
     ) -> Self {
         Self {
-            inner: ContextInner::new(&source.inner, upgrade_ctx, acc, r_share),
+            inner: ContextInner::new(upgrade_ctx, acc, r_share),
             step: source.step().narrow(protocol_step),
         }
     }
@@ -123,17 +122,15 @@ struct ContextInner<'a, F: Field> {
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
-    fn new<B: Borrow<semi_honest::ContextInner<'a>>>(
-        source: &B,
+    fn new(
         upgrade_ctx: SemiHonestContext<'a, F>,
         accumulator: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Arc<Self> {
-        let source = source.borrow();
         Arc::new(ContextInner {
-            role: source.role,
-            prss: source.prss,
-            gateway: source.gateway,
+            role: upgrade_ctx.inner.role,
+            prss: upgrade_ctx.inner.prss,
+            gateway: upgrade_ctx.inner.gateway,
             upgrade_ctx,
             accumulator,
             r_share,

@@ -79,12 +79,17 @@ impl<'a, F: Field> SecureMul<'a, F> {
         a: &MaliciousReplicated<F>,
         b: &MaliciousReplicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
         let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
         let (ab, rab) = try_join(
-            SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a.x(), b.x()),
+            SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(
+                a.x().access_without_downgrade(),
+                b.x().access_without_downgrade(),
+            ),
             SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
-                .execute(a.rx(), b.x()),
+                .execute(a.rx(), b.x().access_without_downgrade()),
         )
         .await?;
 

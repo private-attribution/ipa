@@ -1,9 +1,11 @@
 use crate::ff::{Field, Int};
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::secret_sharing::{
+    MaliciousReplicated, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+};
 use async_trait::async_trait;
-use futures::future::try_join_all;
+use futures::future::{try_join, try_join_all};
 use rand::thread_rng;
 use rand::{
     distributions::{Distribution, Standard},
@@ -39,19 +41,6 @@ where
         let [x0, x1, x2] = share(self.0, rng);
         let [y0, y1, y2] = share(self.1, rng);
         [(x0, y0), (x1, y1), (x2, y2)]
-    }
-}
-
-impl<F> IntoShares<(Replicated<F>, Replicated<F>, Replicated<F>)> for (F, F, F)
-where
-    F: Field,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [(Replicated<F>, Replicated<F>, Replicated<F>); 3] {
-        let [x0, x1, x2] = share(self.0, rng);
-        let [y0, y1, y2] = share(self.1, rng);
-        let [z0, z1, z2] = share(self.2, rng);
-        [(x0, y0, z0), (x1, y1, z1), (x2, y2, z2)]
     }
 }
 
@@ -104,6 +93,23 @@ pub trait IntoMalicious<F: Field, M> {
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
     async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
         ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
+    }
+}
+
+#[async_trait]
+impl<F: Field> IntoMalicious<F, (MaliciousReplicated<F>, MaliciousReplicated<F>)>
+    for (Replicated<F>, Replicated<F>)
+{
+    async fn upgrade<'a>(
+        self,
+        ctx: MaliciousContext<'a, F>,
+    ) -> (MaliciousReplicated<F>, MaliciousReplicated<F>) {
+        try_join(
+            ctx.upgrade(RecordId::from(0_u32), self.0),
+            ctx.upgrade(RecordId::from(1_u32), self.1),
+        )
+        .await
+        .unwrap()
     }
 }
 
@@ -183,8 +189,11 @@ pub fn validate_list_of_shares_malicious<F: Field>(
     assert_eq!(expected_result.len(), result[1].len());
     assert_eq!(expected_result.len(), result[2].len());
     for (i, expected) in expected_result.iter().enumerate() {
-        let revealed =
-            validate_and_reconstruct(result[0][i].x(), result[1][i].x(), result[2][i].x());
+        let revealed = validate_and_reconstruct(
+            result[0][i].x().access_without_downgrade(),
+            result[1][i].x().access_without_downgrade(),
+            result[2][i].x().access_without_downgrade(),
+        );
         assert_eq!(revealed, F::from(*expected));
         validate_and_reconstruct(result[0][i].rx(), result[1][i].rx(), result[2][i].rx());
     }

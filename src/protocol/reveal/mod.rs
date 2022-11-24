@@ -63,8 +63,10 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let (role, channel) = (self.role(), self.mesh());
-        let (left, right) = input.x().as_tuple();
+        let (left, right) = input.x().access_without_downgrade().as_tuple();
 
         // Send share to helpers to the right and left
         try_join(
@@ -124,7 +126,7 @@ mod tests {
             QueryId, RecordId,
         },
         protocol::{malicious::MaliciousValidator, reveal::Reveal},
-        secret_sharing::MaliciousReplicated,
+        secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
         test_fixture::{join3v, share, TestWorld},
     };
 
@@ -218,7 +220,7 @@ mod tests {
         additive_error: F,
     ) -> Result<F, Error> {
         let channel = ctx.mesh();
-        let (left, right) = input.x().as_tuple();
+        let (left, right) = input.x().access_without_downgrade().as_tuple();
 
         // Send share to helpers to the right and left
         try_join(
