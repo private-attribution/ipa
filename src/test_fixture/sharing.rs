@@ -97,7 +97,7 @@ where
 /// For upgrading various shapes of replicated share to malicious.
 #[async_trait]
 pub trait IntoMalicious<F: Field, M> {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> M;
+    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M;
 }
 
 #[async_trait]
