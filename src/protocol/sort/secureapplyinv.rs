@@ -53,13 +53,14 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::{Reconstruct, join3};
     use crate::{
         ff::Fp31,
         protocol::{
             sort::{apply::apply_inv, generate_sort_permutation::shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
+        test_fixture::{generate_shares, TestWorld},
     };
 
     use super::secureapplyinv;
@@ -107,14 +108,10 @@ mod tests {
             let h2_future =
                 secureapplyinv(ctx2, input2, &perm_and_randoms[2].1, &perm_and_randoms[2].0);
 
-            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse as what we get when applying in clear
-            validate_list_of_shares(&expected_result, &result);
+            assert_eq!(&expected_result, &result.reconstruct());
         }
     }
 }

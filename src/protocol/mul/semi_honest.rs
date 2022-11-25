@@ -63,35 +63,29 @@ impl<'a, F: Field> SecureMul<'a, F> {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{QueryId, RecordId};
 
-    use crate::protocol::context::SemiHonestContext;
-    use crate::test_fixture::{share, Reconstruct, Runner, TestWorld};
+    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use rand::distributions::Standard;
+    use rand::prelude::Distribution;
     use rand::thread_rng;
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, RngCore};
-    use std::iter::{repeat, zip};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::iter::zip;
 
     #[tokio::test]
-    async fn basic() -> Result<(), Error> {
+    async fn basic() {
         let world = TestWorld::new(QueryId);
-        let mut rand = StepRng::new(1, 1);
-        let contexts = world.contexts::<Fp31>();
 
-        assert_eq!(30, multiply_sync(contexts.clone(), 6, 5, &mut rand).await?);
-        assert_eq!(25, multiply_sync(contexts.clone(), 5, 5, &mut rand).await?);
-        assert_eq!(7, multiply_sync(contexts.clone(), 7, 1, &mut rand).await?);
-        assert_eq!(0, multiply_sync(contexts.clone(), 0, 14, &mut rand).await?);
-        assert_eq!(8, multiply_sync(contexts.clone(), 7, 10, &mut rand).await?);
-        assert_eq!(4, multiply_sync(contexts.clone(), 5, 7, &mut rand).await?);
-        assert_eq!(1, multiply_sync(contexts.clone(), 16, 2, &mut rand).await?);
-
-        Ok(())
+        assert_eq!(30, multiply_sync::<Fp31>(&world, 6, 5).await);
+        assert_eq!(25, multiply_sync::<Fp31>(&world, 5, 5).await);
+        assert_eq!(7, multiply_sync::<Fp31>(&world, 7, 1).await);
+        assert_eq!(0, multiply_sync::<Fp31>(&world, 0, 14).await);
+        assert_eq!(8, multiply_sync::<Fp31>(&world, 7, 10).await);
+        assert_eq!(4, multiply_sync::<Fp31>(&world, 5, 7).await);
+        assert_eq!(1, multiply_sync::<Fp31>(&world, 16, 2).await);
     }
 
     #[tokio::test]
@@ -118,76 +112,46 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
+        const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);
-        let contexts = world.contexts::<Fp31>();
-        let mut rng = rand::thread_rng();
 
-        let mut expected_outputs = Vec::with_capacity(10);
-
-        let futures: Vec<_> = zip(repeat(contexts), 0..10)
-            .map(|(ctx, i)| {
-                let a = rng.gen::<Fp31>();
-                let b = rng.gen::<Fp31>();
-                expected_outputs.push(a * b);
-
-                let a_shares = share(a, &mut rng);
-                let b_shares = share(b, &mut rng);
-
-                let record_id = RecordId::from(i);
-
-                async move {
-                    try_join_all([
-                        ctx[0]
-                            .clone()
-                            .multiply(record_id, &a_shares[0], &b_shares[0]),
-                        ctx[1]
-                            .clone()
-                            .multiply(record_id, &a_shares[1], &b_shares[1]),
-                        ctx[2]
-                            .clone()
-                            .multiply(record_id, &a_shares[2], &b_shares[2]),
-                    ])
-                    .await
-                }
+        let mut rng = thread_rng();
+        let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
+        let b: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
+        let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
+        let results = world
+            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
+                try_join_all(zip(a_shares, b_shares).enumerate().map(
+                    |(i, (a_share, b_share))| async move {
+                        ctx.clone()
+                            .multiply(RecordId::from(i), &a_share, &b_share)
+                            .await
+                    },
+                ))
+                .await
+                .unwrap()
             })
-            .collect();
-
-        let results = try_join_all(futures).await.unwrap();
-
-        for (i, shares) in results.iter().enumerate() {
-            assert_eq!(expected_outputs[i], shares.reconstruct());
-        }
+            .await;
+        assert_eq!(expected, results.reconstruct());
     }
 
-    async fn multiply_sync<R: RngCore, F: Field>(
-        context: [SemiHonestContext<'_, F>; 3],
-        a: u8,
-        b: u8,
-        rng: &mut R,
-    ) -> Result<u128, Error>
+    async fn multiply_sync<F>(world: &TestWorld, a: u128, b: u128) -> u128
     where
+        F: Field,
+        (F, F): Sized,
         Standard: Distribution<F>,
     {
-        let a = F::from(u128::from(a));
-        let b = F::from(u128::from(b));
+        let a = F::from(a);
+        let b = F::from(b);
 
-        thread_local! {
-            static INDEX: AtomicU32 = AtomicU32::default();
-        }
+        let result = world
+            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
+                ctx.multiply(RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await;
 
-        let [context0, context1, context2] = context;
-        let record_id = INDEX.with(|i| i.fetch_add(1, Ordering::Release)).into();
-
-        let a = share(a, rng);
-        let b = share(b, rng);
-
-        let result = try_join_all([
-            context0.multiply(record_id, &a[0], &b[0]),
-            context1.multiply(record_id, &a[1], &b[1]),
-            context2.multiply(record_id, &a[2], &b[2]),
-        ])
-        .await?;
-
-        Ok(result.reconstruct().as_u128())
+        result.reconstruct().as_u128()
     }
 }

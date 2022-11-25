@@ -12,44 +12,35 @@ use rand::{
 use std::borrow::Borrow;
 use std::iter::{repeat, zip};
 
-use super::ReplicatedShares;
-
-pub trait IntoShares: Sized {
-    type Output;
-    fn share(self) -> [Self::Output; 3] {
+pub trait IntoShares<T>: Sized {
+    fn share(self) -> [T; 3] {
         self.share_with(&mut thread_rng())
     }
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3];
+    fn share_with<R: Rng>(self, rng: &mut R) -> [T; 3];
 }
 
-impl<F> IntoShares for F
+impl<F> IntoShares<Replicated<F>> for F
 where
     F: Field,
     Standard: Distribution<F>,
 {
-    type Output = Replicated<F>;
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3] {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
         share(self, rng)
     }
 }
 
-impl<F, V> IntoShares for Vec<V>
+impl<V, T> IntoShares<Vec<T>> for Vec<V>
 where
-    F: Field,
-    Standard: Distribution<F>,
-    V: IntoShares,
+    V: IntoShares<T>,
 {
-    type Output = Vec<<V as IntoShares>::Output>;
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3] {
-        let it = self.into_iter();
-        let store = if let (_, Some(sz)) = it.size_hint() {
-            Vec::with_capacity(sz)
-        } else {
-            Vec::new()
-        };
-        let mut res = [store.clone(), store.clone(), store];
-        for v in it {
-            for (i, s) in share(v, rng).into_iter().enumerate() {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<T>; 3] {
+        let mut res = [
+            Vec::with_capacity(self.len()),
+            Vec::with_capacity(self.len()),
+            Vec::with_capacity(self.len()),
+        ];
+        for v in self {
+            for (i, s) in v.share_with(rng).into_iter().enumerate() {
                 res[i].push(s);
             }
         }
@@ -58,13 +49,15 @@ where
 }
 
 // TODO: make a macro so we can use arbitrary-sized tuples
-impl<T> IntoShares for (T, T)
+impl<V, W, T> IntoShares<(T, T)> for (V, W)
 where
-    T: IntoShares,
+    V: IntoShares<T>,
+    W: IntoShares<T>,
 {
-    type Output = (<T as IntoShares>::Output, <T as IntoShares>::Output);
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3] {
-        (self.0.share_with(rng), self.1.share_with(rng))
+    fn share_with<R: Rng>(self, rng: &mut R) -> [(T, T); 3] {
+        let [a0, a1, a2] = self.0.share_with(rng);
+        let [b0, b1, b2] = self.1.share_with(rng);
+        [(a0, b0), (a1, b1), (a2, b2)]
     }
 }
 
@@ -173,8 +166,13 @@ impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for (T, T, T) {
     }
 }
 
-impl<I: Reconstruct<T>, T> Reconstruct<Vec<T>> for [Vec<I>; 3] {
+impl<'a, I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
+where
+    [&'a I; 3]: Reconstruct<T> + 'a,
+{
     fn reconstruct(&self) -> Vec<T> {
+        assert_eq!(self[0].len(), self[1].len());
+        assert_eq!(self[0].len(), self[2].len());
         zip(self[0].iter(), zip(self[1].iter(), self[2].iter()))
             .map(|(x0, (x1, x2))| [x0, x1, x2].reconstruct())
             .collect()
@@ -197,19 +195,5 @@ impl<F: Field> ValidateMalicious<F> for [&MaliciousReplicated<F>; 3] {
             .reconstruct();
         let rx = (self[0].rx(), self[1].rx(), self[1].rx()).reconstruct();
         assert_eq!(x * r, rx);
-    }
-}
-
-/// Validates expected result from the secret shares obtained.
-///
-/// # Panics
-/// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails
-pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &ReplicatedShares<F>) {
-    assert_eq!(expected_result.len(), result[0].len());
-    assert_eq!(expected_result.len(), result[1].len());
-    assert_eq!(expected_result.len(), result[2].len());
-    for (i, expected) in expected_result.iter().enumerate() {
-        let revealed = (&result[0][i], &result[1][i], &result[2][i]).reconstruct();
-        assert_eq!(revealed, F::from(*expected));
     }
 }

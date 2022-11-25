@@ -207,9 +207,9 @@ mod tests {
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
             QueryId, RecordId,
         },
-        test_fixture::{Reconstruct, TestWorld},
+        test_fixture::{join3, Reconstruct, TestWorld},
     };
-    use futures::future::try_join_all;
+    use futures::future::{join_all};
     use proptest::prelude::Rng;
     use std::iter::{repeat, zip};
 
@@ -228,38 +228,38 @@ mod tests {
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones
         let mut match_keys = Vec::with_capacity(1000);
-        let mut shared_match_keys = Vec::with_capacity(1000);
-        for _ in 0..1000 {
-            let match_key: u64 = rng.gen::<u64>() & mask;
+        for mk in &mut match_keys {
+            *mk = rng.gen::<u64>() & mask;
+        }
+        let shared_match_keys = match_keys.iter().map(|&mk| {
             let share_0 = rng.gen::<u64>() & mask;
             let share_1 = rng.gen::<u64>() & mask;
-            let share_2 = match_key ^ share_0 ^ share_1;
+            let share_2 = mk ^ share_0 ^ share_1;
 
-            match_keys.push(match_key);
-            shared_match_keys.push((share_0, share_1, share_2));
-        }
+            [share_0, share_1, share_2]
+        });
 
-        let results = try_join_all(
+        let results = join_all(
             zip(
                 repeat(c0),
                 zip(repeat(c1), zip(repeat(c2), shared_match_keys)),
             )
             .enumerate()
             .map(|(i, (c0, (c1, (c2, shared_match_key))))| async move {
-                let (share_0, share_1, share_2) = shared_match_key;
+                let [share_0, share_1, share_2] = shared_match_key;
                 let record_id = RecordId::from(i);
-                try_join_all(vec![
+                join3(
                     ConvertShares::new(XorShares::new(40, share_0, share_1))
                         .execute_one_bit(c0, record_id, 4),
                     ConvertShares::new(XorShares::new(40, share_1, share_2))
                         .execute_one_bit(c1, record_id, 4),
                     ConvertShares::new(XorShares::new(40, share_2, share_0))
                         .execute_one_bit(c2, record_id, 4),
-                ])
+                )
                 .await
             }),
         )
-        .await?;
+        .await;
 
         for (match_key, result) in zip(match_keys, results) {
             let bit_of_match_key = match_key & (1 << 4) != 0;

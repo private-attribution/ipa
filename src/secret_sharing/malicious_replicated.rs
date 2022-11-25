@@ -163,38 +163,6 @@ impl<F: Field> Downgrade for Vec<MaliciousReplicated<F>> {
     }
 }
 
-// Stoopid E0119 👎
-//   "upstream crates may add a new impl of trait `Iterator` for type
-//   `(MaliciousReplicated<_>, MaliciousReplicated<_>)` in future versions"
-//
-// pub struct DowngradeIter<I> {
-//     iter: I,
-// }
-
-// impl<I, F> Iterator for DowngradeIter<I>
-// where
-//     I: Iterator<Item = MaliciousReplicated<F>>,
-//     F: Field,
-// {
-//     type Item = Replicated<F>;
-//     fn next(&mut self) -> Option<Self::Item> {
-//         self.iter.next().map(|v| v.downgrade().authorized_access())
-//     }
-// }
-
-// impl<I, F> Downgrade for I
-// where
-//     I: Iterator<Item = MaliciousReplicated<F>>,
-//     F: Field,
-// {
-//     type Target = DowngradeIter<I>;
-//     fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-//         UnauthorizedDowngradeWrapper(DowngradeIter {
-//             iter: self.into_iter(),
-//         })
-//     }
-// }
-
 impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
     fn access_without_downgrade(self) -> T {
         self.0

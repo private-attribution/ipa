@@ -185,7 +185,7 @@ mod tests {
 
         let input = (into_bits(a), into_bits(b));
         let result = world
-            .semi_honest(input, |ctx, (a_share, b_share)| async {
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
                 BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
                     .await
                     .unwrap()

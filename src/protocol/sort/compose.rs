@@ -46,6 +46,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::Reconstruct;
     use crate::{
         ff::Fp31,
         protocol::{
@@ -55,7 +56,7 @@ mod tests {
             },
             QueryId,
         },
-        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
+        test_fixture::{generate_shares, TestWorld},
     };
 
     #[tokio::test]
@@ -104,7 +105,7 @@ mod tests {
                 .unwrap();
 
             // We should get the same result of applying inverse of sigma on rho as in clear
-            validate_list_of_shares(&rho_composed, &result);
+            assert_eq!(&result.reconstruct(), &rho_composed);
         }
     }
 }

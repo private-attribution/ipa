@@ -144,7 +144,7 @@ pub trait Runner<I, A> {
 #[async_trait]
 impl<I, A> Runner<I, A> for TestWorld
 where
-    I: 'static + IntoShares<Output = A> + Send,
+    I: 'static + IntoShares<A> + Send,
     A: Send,
 {
     async fn semi_honest<'a, F, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
@@ -228,11 +228,12 @@ where
 
         // Perform validation and convert the results we just got: P to O
         let validated = join_all(zip(v, m_results).map(|(v, m_result)| async {
-            (v.validate(m_result.clone()).await.unwrap(), m_result)
+            (m_result.clone(), v.validate(m_result).await.unwrap())
         }))
         .await;
-        let (output, m_shares): (Vec<_>, Vec<_>) = validated.into_iter().unzip();
-        <[_; 3]>::try_from(m_shares).unwrap().validate(r);
+        let (m_shares, output): (Vec<_>, Vec<_>) = validated.into_iter().unzip();
+        let m_shares = <[_; 3]>::try_from(m_shares).unwrap();
+        m_shares.validate(r);
         <[_; 3]>::try_from(output).unwrap()
     }
 }

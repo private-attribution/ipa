@@ -211,11 +211,10 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::zip;
 
-    use crate::protocol::context::Context;
-    use crate::test_fixture::{logging, validate_list_of_shares};
     use crate::{
         ff::Fp31,
         protocol::{
+            context::Context,
             sort::shuffle::{
                 get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
                 ShuffleOrUnshuffle,
@@ -223,8 +222,8 @@ mod tests {
             QueryId, Step,
         },
         test_fixture::{
-            generate_shares, make_participants, narrow_contexts, permutation_valid, Reconstruct,
-            TestWorld,
+            generate_shares, logging, make_participants, narrow_contexts, permutation_valid,
+            Reconstruct, TestWorld,
         },
     };
     use futures::future::try_join_all;
@@ -348,6 +347,6 @@ mod tests {
                 .unwrap()
         };
 
-        validate_list_of_shares(&input[..], &unshuffled);
+        assert_eq!(&input[..], &unshuffled.reconstruct());
     }
 }

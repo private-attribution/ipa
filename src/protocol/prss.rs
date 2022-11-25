@@ -524,8 +524,8 @@ pub mod test {
         // the field might not be large enough.
         let step = Step::default();
         let (r1_l, r1_r): (Fp31, Fp31) = p1.indexed(&step).generate_fields(IDX);
-        let (r2_l, r2_r) = p2.indexed(&step).generate_fields(IDX);
-        let (r3_l, r3_r) = p3.indexed(&step).generate_fields(IDX);
+        let (r2_l, r2_r): (Fp31, Fp31) = p2.indexed(&step).generate_fields(IDX);
+        let (r3_l, r3_r): (Fp31, Fp31) = p3.indexed(&step).generate_fields(IDX);
 
         assert_eq!(r1_l, r3_r);
         assert_eq!(r2_l, r1_r);
@@ -539,8 +539,8 @@ pub mod test {
 
         let step = Step::default();
         let z1: Fp31 = p1.indexed(&step).zero(IDX);
-        let z2 = p2.indexed(&step).zero(IDX);
-        let z3 = p3.indexed(&step).zero(IDX);
+        let z2: Fp31 = p2.indexed(&step).zero(IDX);
+        let z3: Fp31 = p3.indexed(&step).zero(IDX);
 
         assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
     }

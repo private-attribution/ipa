@@ -249,8 +249,10 @@ mod tests {
 
         let input = (into_bits(a), into_bits(b));
         let result = world
-            .semi_honest(input, |ctx, (a_shares, b_shares)| async {
+            .semi_honest(input, |ctx, (a_shares, b_shares)| async move {
                 Carries::execute(ctx, RecordId::from(0), &a_shares, &b_shares)
+                    .await
+                    .unwrap()
             })
             .await;
         result.reconstruct()
