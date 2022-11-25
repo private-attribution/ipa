@@ -23,6 +23,7 @@ use super::{
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
 use crate::protocol::context::SemiHonestContext;
+use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
@@ -32,11 +33,13 @@ use futures::future::try_join;
 /// <https://eprint.iacr.org/2019/695.pdf>.
 pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input_len: usize,
+    input_len: u32,
     input_permutation: Vec<Replicated<F>>,
 ) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
-    let random_permutations_for_shuffle =
-        get_two_of_three_random_permutations(input_len, &ctx.prss());
+    let random_permutations_for_shuffle = get_two_of_three_random_permutations(
+        input_len,
+        ctx.narrow(&GeneratePermutation).prss_rng(),
+    );
 
     let shuffled_permutation = shuffle_shares(
         input_permutation,
@@ -79,7 +82,7 @@ pub async fn generate_sort_permutation<F: Field>(
     let bit_0 =
         convert_shares_for_a_bit(ctx_0.narrow(&ModulusConversion), input, num_bits, 0).await?;
     let bit_0_permutation = bit_permutation(ctx_0.narrow(&BitPermutationStep), &bit_0).await?;
-    let input_len = input.len();
+    let input_len = u32::try_from(input.len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
@@ -220,21 +223,12 @@ mod tests {
 
             let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-            let h0_future = shuffle_and_reveal_permutation(
-                ctx0.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm0,
-            );
-            let h1_future = shuffle_and_reveal_permutation(
-                ctx1.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm1,
-            );
-            let h2_future = shuffle_and_reveal_permutation(
-                ctx2.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm2,
-            );
+            let h0_future =
+                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, perm0);
+            let h1_future =
+                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, perm1);
+            let h2_future =
+                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, perm2);
 
             let perms_and_randoms: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
                 .await
