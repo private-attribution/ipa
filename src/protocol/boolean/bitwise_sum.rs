@@ -1,5 +1,5 @@
 use super::carries::Carries;
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::{context::Context, RecordId};
@@ -36,7 +36,7 @@ impl BitwiseSum {
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
         let l = a.len();
 
