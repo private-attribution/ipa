@@ -100,12 +100,18 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
+        use crate::protocol::context::SpecialAccessToMaliciousContext;
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let rx_ctx = self.narrow(&ReshareMAC);
         let (x, rx) = try_join(
-            self.to_semi_honest()
-                .reshare(input.x(), record_id, to_helper),
+            self.semi_honest_context().reshare(
+                input.x().access_without_downgrade(),
+                record_id,
+                to_helper,
+            ),
             rx_ctx
-                .to_semi_honest()
+                .semi_honest_context()
                 .reshare(input.rx(), record_id, to_helper),
         )
         .await?;
@@ -125,15 +131,13 @@ mod tests {
         use crate::{
             helpers::Role,
             protocol::{sort::reshare::Reshare, QueryId, RecordId},
-            test_fixture::{make_world, validate_and_reconstruct},
+            test_fixture::{validate_and_reconstruct, Runner, TestWorld},
         };
-
-        use crate::test_fixture::Runner;
 
         /// Validates that reshare protocol actually generates new shares using PRSS.
         #[tokio::test]
         async fn generates_unique_shares() {
-            let world = make_world(QueryId);
+            let world = TestWorld::new(QueryId);
 
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -166,7 +170,7 @@ mod tests {
         /// the input will pass this test. However `generates_unique_shares` will fail this implementation.
         #[tokio::test]
         async fn correct() {
-            let world = make_world(QueryId);
+            let world = TestWorld::new(QueryId);
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -189,12 +193,8 @@ mod tests {
         use crate::helpers::Role;
         use crate::protocol::sort::reshare::Reshare;
         use crate::protocol::{QueryId, RecordId};
-        use crate::test_fixture::{
-            join3, make_malicious_contexts, make_world, share_malicious,
-            validate_and_reconstruct_malicious,
-        };
-        use rand::rngs::mock::StepRng;
-        use rand::Rng;
+        use crate::test_fixture::{validate_and_reconstruct, Runner, TestWorld};
+        use rand::{thread_rng, Rng};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
         /// new shares.
@@ -203,31 +203,21 @@ mod tests {
         /// adversary, we are only left with one honest helper that knows the input and can validate
         /// it.
         #[tokio::test]
-        pub async fn correct() {
-            let mut rand = StepRng::new(100, 1);
-            let mut rng = rand::thread_rng();
-            let world = make_world(QueryId);
+        async fn correct() {
+            let world = TestWorld::new(QueryId);
 
             for &role in Role::all() {
-                let r = rng.gen::<Fp32BitPrime>();
-                let secret = rng.gen::<Fp32BitPrime>();
+                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let new_shares = world
+                    .malicious(secret, |ctx, share| async move {
+                        ctx.reshare(&share, RecordId::from(0), role).await.unwrap()
+                    })
+                    .await;
 
-                let [ctx0, ctx1, ctx2] = make_malicious_contexts::<Fp32BitPrime>(&world);
-                let shares = share_malicious(secret, r, &mut rand);
-                let record_id = RecordId::from(0);
-
-                let f = join3(
-                    ctx0.ctx.reshare(&shares[0], record_id, role),
-                    ctx1.ctx.reshare(&shares[1], record_id, role),
-                    ctx2.ctx.reshare(&shares[2], record_id, role),
-                )
-                .await;
-
-                let (new_secret, new_secret_times_r) =
-                    validate_and_reconstruct_malicious(&f[0], &f[1], &f[2]);
-
-                assert_eq!(secret, new_secret);
-                assert_eq!(secret * r, new_secret_times_r);
+                assert_eq!(
+                    secret,
+                    validate_and_reconstruct(&new_shares[0], &new_shares[1], &new_shares[2])
+                );
             }
         }
     }

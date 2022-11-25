@@ -51,8 +51,7 @@ impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error> {
-        let acc = self.accumulator();
-        MaliciouslySecureMul::new(self, record_id, acc)
+        MaliciouslySecureMul::new(self, record_id)
             .execute(a, b)
             .await
     }

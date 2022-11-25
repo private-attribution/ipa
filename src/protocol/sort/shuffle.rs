@@ -223,8 +223,8 @@ mod tests {
             QueryId, Step,
         },
         test_fixture::{
-            generate_shares, make_contexts, make_participants, make_world, narrow_contexts,
-            permutation_valid, validate_and_reconstruct, TestWorld,
+            generate_shares, make_participants, narrow_contexts, permutation_valid,
+            validate_and_reconstruct, TestWorld,
         },
     };
     use futures::future::try_join_all;
@@ -258,8 +258,8 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle() {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
 
         let batchsize = 25;
         let input: Vec<u8> = (0..batchsize).collect();
@@ -309,8 +309,8 @@ mod tests {
     async fn shuffle_unshuffle() {
         const BATCHSIZE: usize = 5;
 
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
 
         let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 

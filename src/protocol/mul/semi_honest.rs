@@ -69,9 +69,7 @@ pub mod tests {
     use crate::protocol::{QueryId, RecordId};
 
     use crate::protocol::context::SemiHonestContext;
-    use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, Runner, TestWorld,
-    };
+    use crate::test_fixture::{share, validate_and_reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::thread_rng;
@@ -81,9 +79,9 @@ pub mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
+        let world = TestWorld::new(QueryId);
         let mut rand = StepRng::new(1, 1);
-        let contexts = make_contexts::<Fp31>(&world);
+        let contexts = world.contexts::<Fp31>();
 
         assert_eq!(30, multiply_sync(contexts.clone(), 6, 5, &mut rand).await?);
         assert_eq!(25, multiply_sync(contexts.clone(), 5, 5, &mut rand).await?);
@@ -98,7 +96,7 @@ pub mod tests {
 
     #[tokio::test]
     pub async fn simple() {
-        let world = make_world(QueryId);
+        let world = TestWorld::new(QueryId);
 
         let mut rng = thread_rng();
         let a = rng.gen::<Fp31>();
@@ -120,8 +118,8 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
-        let world = make_world(QueryId);
-        let contexts = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let contexts = world.contexts::<Fp31>();
         let mut rng = rand::thread_rng();
 
         let mut expected_outputs = Vec::with_capacity(10);

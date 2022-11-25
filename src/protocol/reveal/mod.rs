@@ -63,8 +63,10 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let (role, channel) = (self.role(), self.mesh());
-        let (left, right) = input.x().as_tuple();
+        let (left, right) = input.x().access_without_downgrade().as_tuple();
 
         // Send share to helpers to the right and left
         try_join(
@@ -110,29 +112,29 @@ pub async fn reveal_permutation<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::{try_join, try_join_all};
+    use futures::future::{try_join, try_join3, try_join_all};
     use proptest::prelude::Rng;
-    use tokio::try_join;
+    use rand::thread_rng;
+    use std::iter::zip;
 
-    use crate::protocol::context::MaliciousContext;
-    use crate::test_fixture::make_malicious_contexts;
     use crate::{
         error::Error,
         ff::{Field, Fp31},
         helpers::Direction,
-        protocol::reveal::Reveal,
-        protocol::{context::Context, QueryId, RecordId},
-        secret_sharing::MaliciousReplicated,
-        test_fixture::{
-            make_contexts, make_world, share, share_malicious, validate_and_reconstruct, TestWorld,
+        protocol::{
+            context::{Context, MaliciousContext},
+            QueryId, RecordId,
         },
+        protocol::{malicious::MaliciousValidator, reveal::Reveal},
+        secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
+        test_fixture::{join3v, share, TestWorld},
     };
 
     #[tokio::test]
     pub async fn simple() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
+        let mut rng = thread_rng();
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
@@ -155,24 +157,26 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_malicious_contexts::<Fp31>(&world);
-        let r = rng.gen::<Fp31>();
+        let mut rng = thread_rng();
+        let world = TestWorld::new(QueryId);
+        let sh_ctx = world.contexts::<Fp31>();
+        let v = sh_ctx.map(MaliciousValidator::new);
 
         for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
-            // r*x value is not used inside malicious reveal, so it can be set to any value
-            let share = share_malicious(input, r, &mut rng);
-
             let record_id = RecordId::from(i);
-            let results = try_join_all(vec![
-                ctx[0].ctx.clone().reveal(record_id, &share[0]),
-                ctx[1].ctx.clone().reveal(record_id, &share[1]),
-                ctx[2].ctx.clone().reveal(record_id, &share[2]),
-            ])
-            .await?;
+            let input: Fp31 = rng.gen();
+
+            let m_shares = join3v(
+                zip(v.iter(), share(input, &mut rng))
+                    .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
+            )
+            .await;
+
+            let results =
+                join3v(zip(v.iter(), m_shares).map(|(v, m_share)| async move {
+                    v.context().reveal(record_id, &m_share).await
+                }))
+                .await;
 
             assert_eq!(input, results[0]);
             assert_eq!(input, results[1]);
@@ -183,27 +187,26 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious_validation_fail() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
-        let world: TestWorld = make_world(QueryId);
-        let [mc0, mc1, mc2] = make_malicious_contexts(&world);
+        let mut rng = thread_rng();
+        let world = TestWorld::new(QueryId);
+        let sh_ctx = world.contexts::<Fp31>();
+        let v = sh_ctx.map(MaliciousValidator::new);
 
-        let r = validate_and_reconstruct(
-            mc0.validator.r_share(),
-            mc1.validator.r_share(),
-            mc2.validator.r_share(),
-        );
-
-        for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
-            // r*x value is not used inside malicious reveal, so it can be set to any value
-            let share = share_malicious(input, r, &mut rng);
+        for i in 0..10 {
             let record_id = RecordId::from(i);
-            let result = try_join!(
-                mc0.ctx.clone().reveal(record_id, &share[0]),
-                mc1.ctx.clone().reveal(record_id, &share[1]),
-                reveal_with_additive_attack(mc2.ctx.clone(), record_id, &share[2], Fp31::ONE),
-            );
+            let input: Fp31 = rng.gen();
+
+            let m_shares = join3v(
+                zip(v.iter(), share(input, &mut rng))
+                    .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
+            )
+            .await;
+            let result = try_join3(
+                v[0].context().reveal(record_id, &m_shares[0]),
+                v[1].context().reveal(record_id, &m_shares[1]),
+                reveal_with_additive_attack(v[2].context(), record_id, &m_shares[2], Fp31::ONE),
+            )
+            .await;
 
             assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
         }
@@ -217,7 +220,7 @@ mod tests {
         additive_error: F,
     ) -> Result<F, Error> {
         let channel = ctx.mesh();
-        let (left, right) = input.x().as_tuple();
+        let (left, right) = input.x().access_without_downgrade().as_tuple();
 
         // Send share to helpers to the right and left
         try_join(
