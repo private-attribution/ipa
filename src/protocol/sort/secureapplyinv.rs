@@ -53,7 +53,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
-    use crate::test_fixture::{Reconstruct, join3};
+    use crate::test_fixture::{join3, Reconstruct};
     use crate::{
         ff::Fp31,
         protocol::{

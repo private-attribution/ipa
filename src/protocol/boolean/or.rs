@@ -23,7 +23,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::{QueryId, RecordId},
-        test_fixture::{Runner, Reconstruct, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     async fn or_fp31(a: Fp31, b: Fp31) -> Fp31 {
@@ -31,7 +31,9 @@ mod tests {
 
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                or(ctx, RecordId::from(0_u32), &a_share, &b_share).await.unwrap()
+                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
+                    .await
+                    .unwrap()
             })
             .await;
         result.reconstruct()

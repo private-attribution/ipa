@@ -232,14 +232,8 @@ mod tests {
     use super::Carries;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::protocol::{QueryId, RecordId};
-    use crate::secret_sharing::Replicated;
     use crate::test_fixture::{into_bits, Reconstruct, Runner, TestWorld};
     use rand::{distributions::Standard, prelude::Distribution};
-
-    /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
-    fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
-        x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
-    }
 
     async fn carries<F: Field>(a: F, b: F) -> Vec<F>
     where
@@ -266,49 +260,31 @@ mod tests {
 
         // 0 + 0 -> no carry
         assert_eq!(
-            vec![zero, zero, zero, zero, zero, zero, zero, zero],
+            vec![zero, zero, zero, zero, zero],
             carries(c(0_u8), c(0)).await
         );
         // 0 + 0 -> no carry
         assert_eq!(
-            vec![zero, zero, zero, zero, zero, zero, zero, zero],
+            vec![zero, zero, zero, zero, zero],
             carries(c(1), c(0)).await
         );
         // 01 + 01 -> carry at i=0
-        assert_eq!(
-            vec![one, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(1), c(1)).await
-        );
+        assert_eq!(vec![one, zero, zero, zero, zero], carries(c(1), c(1)).await);
         // 10 + 01 -> no carry
         assert_eq!(
-            vec![zero, zero, zero, zero, zero, zero, zero, zero],
+            vec![zero, zero, zero, zero, zero],
             carries(c(2), c(1)).await
         );
         // 10 + 10 -> carry at i=1
-        assert_eq!(
-            vec![zero, one, zero, zero, zero, zero, zero, zero],
-            carries(c(2), c(2)).await
-        );
+        assert_eq!(vec![zero, one, zero, zero, zero], carries(c(2), c(2)).await);
         // 11 + 01 -> carries at i=0,1
-        assert_eq!(
-            vec![one, one, zero, zero, zero, zero, zero, zero],
-            carries(c(3), c(1)).await
-        );
+        assert_eq!(vec![one, one, zero, zero, zero], carries(c(3), c(1)).await);
         // 0101 + 0101 -> carries at i=0,2
-        assert_eq!(
-            vec![one, zero, one, zero, zero, zero, zero, zero],
-            carries(c(5), c(5)).await
-        );
+        assert_eq!(vec![one, zero, one, zero, zero], carries(c(5), c(5)).await);
         // 1111 + 0001 -> carries at i=0,1,2,3,
-        assert_eq!(
-            vec![one, one, one, one, zero, zero, zero, zero],
-            carries(c(15), c(1)).await
-        );
+        assert_eq!(vec![one, one, one, one, zero], carries(c(15), c(1)).await);
         // 0001 1110 + 0000 0011 -> carries at i=2,3,4,5
-        assert_eq!(
-            vec![zero, one, one, one, one, zero, zero, zero],
-            carries(c(30), c(3)).await
-        );
+        assert_eq!(vec![zero, one, one, one, one], carries(c(30), c(3)).await);
     }
 
     #[tokio::test]

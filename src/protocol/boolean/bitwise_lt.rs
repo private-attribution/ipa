@@ -176,6 +176,14 @@ mod tests {
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
+    /// This protocol requires a number of inputs that are equal to a power of 2.
+    /// This functions pads those inputs.
+    fn pad<F: Field>(mut values: Vec<F>) -> Vec<F> {
+        let target_len = 1 << (usize::BITS - (values.len() - 1).leading_zeros());
+        values.resize(target_len, F::ZERO);
+        values
+    }
+
     async fn bitwise_lt<F: Field>(a: F, b: F) -> F
     where
         (F, F): Sized,
@@ -183,7 +191,7 @@ mod tests {
     {
         let world = TestWorld::new(QueryId);
 
-        let input = (into_bits(a), into_bits(b));
+        let input = (pad(into_bits(a)), pad(into_bits(b)));
         let result = world
             .semi_honest(input, |ctx, (a_share, b_share)| async move {
                 BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)

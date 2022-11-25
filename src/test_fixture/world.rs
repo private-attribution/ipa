@@ -136,7 +136,7 @@ pub trait Runner<I, A> {
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
         R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Clone + Send + Sync + Debug,
+        P: DowngradeMalicious<Target = O> + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
 }
@@ -174,7 +174,7 @@ where
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
         R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Clone + Send + Sync + Debug,
+        P: DowngradeMalicious<Target = O> + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
     {
@@ -225,15 +225,14 @@ where
         let m_results =
             join_all(zip(v.iter(), m_shares).map(|(v, m_share)| helper_fn(v.context(), m_share)))
                 .await;
+        let m_results = <[_; 3]>::try_from(m_results).unwrap();
+        m_results.validate(r);
 
         // Perform validation and convert the results we just got: P to O
-        let validated = join_all(zip(v, m_results).map(|(v, m_result)| async {
-            (m_result.clone(), v.validate(m_result).await.unwrap())
-        }))
+        let output = join_all(
+            zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
+        )
         .await;
-        let (m_shares, output): (Vec<_>, Vec<_>) = validated.into_iter().unzip();
-        let m_shares = <[_; 3]>::try_from(m_shares).unwrap();
-        m_shares.validate(r);
         <[_; 3]>::try_from(output).unwrap()
     }
 }

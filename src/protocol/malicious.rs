@@ -308,7 +308,8 @@ pub mod tests {
             ab0.0.x().access_without_downgrade(),
             ab1.0.x().access_without_downgrade(),
             ab2.0.x().access_without_downgrade(),
-        ).reconstruct();
+        )
+            .reconstruct();
         let rab = (ab0.0.rx(), ab1.0.rx(), ab2.0.rx()).reconstruct();
         let r = (&ab0.1, &ab1.1, &ab2.1).reconstruct();
 
@@ -403,7 +404,8 @@ pub mod tests {
             &processed_outputs[0].1,
             &processed_outputs[1].1,
             &processed_outputs[2].1,
-        ).reconstruct();
+        )
+            .reconstruct();
 
         for i in 0..99 {
             let x1 = original_inputs[i];
@@ -412,12 +414,14 @@ pub mod tests {
                 processed_outputs[0].0[i].x().access_without_downgrade(),
                 processed_outputs[1].0[i].x().access_without_downgrade(),
                 processed_outputs[2].0[i].x().access_without_downgrade(),
-            ).reconstruct();
+            )
+                .reconstruct();
             let r_times_x1_times_x2 = (
                 processed_outputs[0].0[i].rx(),
                 processed_outputs[1].0[i].rx(),
                 processed_outputs[2].0[i].rx(),
-            ).reconstruct();
+            )
+                .reconstruct();
 
             assert_eq!(x1 * x2, x1_times_x2);
             assert_eq!(r * x1 * x2, r_times_x1_times_x2);

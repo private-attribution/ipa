@@ -142,8 +142,12 @@ impl<F: Field> Downgrade for MaliciousReplicated<F> {
     }
 }
 
-impl<F: Field> Downgrade for (MaliciousReplicated<F>, MaliciousReplicated<F>) {
-    type Target = (Replicated<F>, Replicated<F>);
+impl<T, U> Downgrade for (T, U)
+where
+    T: Downgrade,
+    U: Downgrade,
+{
+    type Target = (<T as Downgrade>::Target, <U as Downgrade>::Target);
     fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper((
             self.0.downgrade().access_without_downgrade(),
@@ -152,8 +156,11 @@ impl<F: Field> Downgrade for (MaliciousReplicated<F>, MaliciousReplicated<F>) {
     }
 }
 
-impl<F: Field> Downgrade for Vec<MaliciousReplicated<F>> {
-    type Target = Vec<Replicated<F>>;
+impl<T> Downgrade for Vec<T>
+where
+    T: Downgrade,
+{
+    type Target = Vec<<T as Downgrade>::Target>;
     fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(
             self.into_iter()

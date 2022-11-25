@@ -16,7 +16,7 @@ use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
-pub use sharing::{share, into_bits, IntoShares, Reconstruct};
+pub use sharing::{into_bits, share, IntoShares, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 

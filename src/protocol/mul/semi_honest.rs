@@ -73,7 +73,7 @@ pub mod tests {
     use rand::distributions::Standard;
     use rand::prelude::Distribution;
     use rand::thread_rng;
-    use std::iter::zip;
+    use std::iter::{repeat, zip};
 
     #[tokio::test]
     async fn basic() {
@@ -121,11 +121,9 @@ pub mod tests {
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
         let results = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                try_join_all(zip(a_shares, b_shares).enumerate().map(
-                    |(i, (a_share, b_share))| async move {
-                        ctx.clone()
-                            .multiply(RecordId::from(i), &a_share, &b_share)
-                            .await
+                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
+                    |(i, (ctx, (a_share, b_share)))| async move {
+                        ctx.multiply(RecordId::from(i), &a_share, &b_share).await
                     },
                 ))
                 .await

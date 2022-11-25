@@ -185,7 +185,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
 
 #[cfg(test)]
 pub mod tests {
-    use std::iter::zip;
+    use std::iter::{repeat, zip};
 
     use crate::ff::{Field, Fp31};
     use crate::protocol::{
@@ -200,6 +200,7 @@ pub mod tests {
     use proptest::prelude::Rng;
     use rand::thread_rng;
 
+    #[derive(Clone, Copy)]
     struct SpecializedA(Fp31);
 
     impl IntoShares<Replicated<Fp31>> for SpecializedA {
@@ -212,6 +213,7 @@ pub mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
     struct SpecializedB(Fp31);
 
     impl IntoShares<Replicated<Fp31>> for SpecializedB {
@@ -257,8 +259,8 @@ pub mod tests {
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a.0 * b.0).collect();
         let result = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                try_join_all(zip(a_shares, b_shares).enumerate().map(
-                    |(i, (a_share, b_share))| async move {
+                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
+                    |(i, (ctx, (a_share, b_share)))| async move {
                         multiply_two_shares_mostly_zeroes(
                             ctx,
                             RecordId::from(i),
@@ -275,6 +277,7 @@ pub mod tests {
         assert_eq!(expected, result.reconstruct());
     }
 
+    #[derive(Clone, Copy)]
     struct SpecializedC(Fp31);
 
     impl IntoShares<Replicated<Fp31>> for SpecializedC {
@@ -318,8 +321,8 @@ pub mod tests {
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b.0).collect();
         let result = world
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                try_join_all(zip(a_shares, b_shares).enumerate().map(
-                    |(i, (a_share, b_share))| async move {
+                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
+                    |(i, (ctx, (a_share, b_share)))| async move {
                         multiply_one_share_mostly_zeroes(ctx, RecordId::from(i), &a_share, &b_share)
                             .await
                     },

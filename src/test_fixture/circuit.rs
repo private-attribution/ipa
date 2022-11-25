@@ -3,7 +3,7 @@ use crate::protocol::context::Context;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
-use crate::test_fixture::{narrow_contexts, share, Reconstruct, Fp31, TestWorld};
+use crate::test_fixture::{narrow_contexts, share, Fp31, Reconstruct, TestWorld};
 use futures_util::future::join_all;
 use rand::thread_rng;
 

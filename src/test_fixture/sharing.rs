@@ -141,11 +141,11 @@ pub trait Reconstruct<T> {
     fn reconstruct(&self) -> T;
 }
 
-impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for [T; 3] {
+impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
     fn reconstruct(&self) -> F {
-        let s0 = self[0].borrow();
-        let s1 = self[1].borrow();
-        let s2 = self[2].borrow();
+        let s0 = &self[0];
+        let s1 = &self[1];
+        let s2 = &self[2];
 
         assert_eq!(
             s0.left() + s1.left() + s2.left(),
@@ -160,15 +160,21 @@ impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for [T; 3] {
     }
 }
 
-impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for (T, T, T) {
+impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     fn reconstruct(&self) -> F {
-        [self.0, self.1, self.2].reconstruct()
+        [&self[0], &self[1], &self[2]].reconstruct()
     }
 }
 
-impl<'a, I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
+impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for (T, T, T) {
+    fn reconstruct(&self) -> F {
+        [self.0.borrow(), self.1.borrow(), self.2.borrow()].reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
 where
-    [&'a I; 3]: Reconstruct<T> + 'a,
+    for<'i> [&'i I; 3]: Reconstruct<T>,
 {
     fn reconstruct(&self) -> Vec<T> {
         assert_eq!(self[0].len(), self[1].len());
@@ -183,17 +189,35 @@ pub trait ValidateMalicious<F> {
     fn validate(&self, r: F);
 }
 
-impl<F: Field> ValidateMalicious<F> for [&MaliciousReplicated<F>; 3] {
+impl<F, T> ValidateMalicious<F> for [T; 3]
+where
+    F: Field,
+    T: Borrow<MaliciousReplicated<F>>,
+{
     fn validate(&self, r: F) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
-            self[0].x().access_without_downgrade(),
-            self[1].x().access_without_downgrade(),
-            self[2].x().access_without_downgrade(),
-        )
-            .reconstruct();
-        let rx = (self[0].rx(), self[1].rx(), self[1].rx()).reconstruct();
-        assert_eq!(x * r, rx);
+            self[0].borrow().x().access_without_downgrade(),
+            self[1].borrow().x().access_without_downgrade(),
+            self[2].borrow().x().access_without_downgrade(),
+        );
+        let rx = (
+            self[0].borrow().rx(),
+            self[1].borrow().rx(),
+            self[2].borrow().rx(),
+        );
+        assert_eq!(x.reconstruct() * r, rx.reconstruct());
+    }
+}
+
+impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
+    fn validate(&self, r: F) {
+        assert_eq!(self[0].len(), self[1].len());
+        assert_eq!(self[0].len(), self[2].len());
+
+        for (m0, (m1, m2)) in zip(self[0].iter(), zip(self[1].iter(), self[2].iter())) {
+            [m0, m1, m2].validate(r);
+        }
     }
 }

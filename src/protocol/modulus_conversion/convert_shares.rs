@@ -209,7 +209,7 @@ mod tests {
         },
         test_fixture::{join3, Reconstruct, TestWorld},
     };
-    use futures::future::{join_all};
+    use futures::future::join_all;
     use proptest::prelude::Rng;
     use std::iter::{repeat, zip};
 
