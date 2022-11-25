@@ -91,6 +91,9 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
+use crate::protocol::context::SpecialAccessToMaliciousContext;
+use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
 #[async_trait]
 impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
@@ -100,9 +103,6 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
-        use crate::protocol::context::SpecialAccessToMaliciousContext;
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-
         let rx_ctx = self.narrow(&ReshareMAC);
         let (x, rx) = try_join(
             self.semi_honest_context().reshare(

@@ -6,14 +6,12 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-use crate::protocol::context::SemiHonestContext;
 use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
     protocol::{context::Context, prss::IndexedSharedRandomness, RecordId, Substep},
-    secret_sharing::Replicated,
 };
 
 use super::{
@@ -107,13 +105,13 @@ async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
 #[allow(clippy::cast_possible_truncation)]
-async fn shuffle_or_unshuffle_once<F: Field>(
-    mut input: Vec<Replicated<F>>,
+async fn shuffle_or_unshuffle_once<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    mut input: Vec<S>,
     random_permutations: (&[u32], &[u32]),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
-    ctx: &SemiHonestContext<'_, F>,
+    ctx: &C,
     which_step: ShuffleStep,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<S>, Error> {
     let to_helper = shuffle_for_helper(which_step);
     let ctx = ctx.narrow(&which_step);
 
@@ -140,11 +138,11 @@ async fn shuffle_or_unshuffle_once<F: Field>(
 /// For this, we have three shuffle steps one per `shuffle_or_unshuffle_once` i.e. Step1, Step2 and Step3.
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
 /// ![Shuffle steps][shuffle]
-pub async fn shuffle_shares<F: Field>(
-    input: Vec<Replicated<F>>,
+pub async fn shuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    input: Vec<S>,
     random_permutations: (&[u32], &[u32]),
-    ctx: SemiHonestContext<'_, F>,
-) -> Result<Vec<Replicated<F>>, Error> {
+    ctx: C,
+) -> Result<Vec<S>, Error> {
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
@@ -175,11 +173,11 @@ pub async fn shuffle_shares<F: Field>(
 /// Unshuffle calls `shuffle_or_unshuffle_once` three times with 2 helpers shuffling the shares each time in the opposite order to shuffle.
 /// Order of calling `shuffle_or_unshuffle_once` is shuffle with (H1, H2), (H3, H1) and (H2, H3)
 /// ![Unshuffle steps][unshuffle]
-pub async fn unshuffle_shares<F: Field>(
-    input: Vec<Replicated<F>>,
+pub async fn unshuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    input: Vec<S>,
     random_permutations: (&[u32], &[u32]),
-    ctx: SemiHonestContext<'_, F>,
-) -> Result<Vec<Replicated<F>>, Error> {
+    ctx: C,
+) -> Result<Vec<S>, Error> {
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
@@ -256,7 +254,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shuffle() {
+    async fn semi_honest() {
         let world = TestWorld::new(QueryId);
         let context = world.contexts::<Fp31>();
 
@@ -282,7 +280,6 @@ mod tests {
         let h2_future = shuffle_shares(shares2, (perm3.0.as_slice(), perm3.1.as_slice()), c2);
 
         let results = join3(h0_future, h1_future, h2_future).await;
-
         let mut hashed_output_secret = HashSet::new();
         let mut output_secret = Vec::new();
         for (r0, (r1, r2)) in zip(results[0].iter(), zip(results[1].iter(), results[2].iter())) {

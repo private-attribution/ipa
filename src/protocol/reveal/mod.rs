@@ -92,9 +92,9 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
 /// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
-pub async fn reveal_permutation<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    permutation: &[Replicated<F>],
+pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    ctx: C,
+    permutation: &[S],
 ) -> Result<Vec<u32>, Error> {
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
         |(index, (ctx, input))| async move {

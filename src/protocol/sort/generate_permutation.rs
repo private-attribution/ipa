@@ -14,7 +14,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::Replicated,
+    secret_sharing::{Replicated, SecretSharing},
 };
 
 use super::{
@@ -30,10 +30,14 @@ use futures::future::try_join;
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
-pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+pub(super) async fn shuffle_and_reveal_permutation<
+    F: Field,
+    S: SecretSharing<F>,
+    C: Context<F, Share = S>,
+>(
+    ctx: C,
     input_len: usize,
-    input_permutation: Vec<Replicated<F>>,
+    input_permutation: Vec<S>,
 ) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
     let random_permutations_for_shuffle =
         get_two_of_three_random_permutations(input_len, &ctx.prss());
@@ -212,40 +216,38 @@ mod tests {
 
         let mut rng = rand::thread_rng();
 
-        for _ in 0..10 {
-            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
-            permutation.shuffle(&mut rng);
+        let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
+        permutation.shuffle(&mut rng);
 
-            let world = TestWorld::new(QueryId);
-            let [ctx0, ctx1, ctx2] = world.contexts();
-            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
+        let world = TestWorld::new(QueryId);
+        let [ctx0, ctx1, ctx2] = world.contexts();
+        let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
-            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
+        let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-            let h0_future = shuffle_and_reveal_permutation(
-                ctx0.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm0,
-            );
-            let h1_future = shuffle_and_reveal_permutation(
-                ctx1.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm1,
-            );
-            let h2_future = shuffle_and_reveal_permutation(
-                ctx2.narrow("shuffle_reveal"),
-                BATCHSIZE.try_into().unwrap(),
-                perm2,
-            );
+        let h0_future = shuffle_and_reveal_permutation(
+            ctx0.narrow("shuffle_reveal"),
+            BATCHSIZE.try_into().unwrap(),
+            perm0,
+        );
+        let h1_future = shuffle_and_reveal_permutation(
+            ctx1.narrow("shuffle_reveal"),
+            BATCHSIZE.try_into().unwrap(),
+            perm1,
+        );
+        let h2_future = shuffle_and_reveal_permutation(
+            ctx2.narrow("shuffle_reveal"),
+            BATCHSIZE.try_into().unwrap(),
+            perm2,
+        );
 
-            let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
+        let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
-            assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
-            assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
+        assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
+        assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
 
-            assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
-            assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
-            assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
-        }
+        assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
+        assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
+        assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
     }
 }

@@ -1,9 +1,8 @@
-use crate::protocol::context::SemiHonestContext;
+use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, sort::ApplyInvStep::ShuffleInputs},
-    secret_sharing::Replicated,
 };
 use embed_doc_image::embed_doc_image;
 
@@ -29,12 +28,12 @@ use super::{apply::apply_inv, shuffle::shuffle_shares};
 /// 3. Secret shared value is shuffled using the same random permutations
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
-pub async fn secureapplyinv<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: Vec<Replicated<F>>,
+pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    ctx: C,
+    input: Vec<S>,
     random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sort_permutation: &[u32],
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<S>, Error> {
     let mut shuffled_input = shuffle_shares(
         input,
         random_permutations_for_shuffle,
@@ -65,7 +64,7 @@ mod tests {
     use super::secureapplyinv;
 
     #[tokio::test]
-    pub async fn test_secureapplyinv() {
+    pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng = rand::thread_rng();
