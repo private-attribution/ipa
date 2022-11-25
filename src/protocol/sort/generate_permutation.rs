@@ -136,6 +136,7 @@ mod tests {
     use rand::{seq::SliceRandom, Rng};
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::join3;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -143,9 +144,7 @@ mod tests {
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{
-            generate_shares, join3, logging, make_contexts, make_world, validate_and_reconstruct,
-        },
+        test_fixture::{generate_shares, logging, validate_and_reconstruct, TestWorld},
     };
 
     #[tokio::test]
@@ -155,8 +154,8 @@ mod tests {
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
 
         logging::setup();
-        let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts::<Fp32BitPrime>(&world);
+        let world = TestWorld::new(QueryId);
+        let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
         let mut rng = rand::thread_rng();
 
         let mut match_keys: Vec<u64> = Vec::new();
@@ -213,38 +212,40 @@ mod tests {
 
         let mut rng = rand::thread_rng();
 
-        let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
-        permutation.shuffle(&mut rng);
+        for _ in 0..10 {
+            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
+            permutation.shuffle(&mut rng);
 
-        let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts(&world);
-        let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
+            let world = TestWorld::new(QueryId);
+            let [ctx0, ctx1, ctx2] = world.contexts();
+            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
-        let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
+            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-        let h0_future = shuffle_and_reveal_permutation(
-            ctx0.narrow("shuffle_reveal"),
-            BATCHSIZE.try_into().unwrap(),
-            perm0,
-        );
-        let h1_future = shuffle_and_reveal_permutation(
-            ctx1.narrow("shuffle_reveal"),
-            BATCHSIZE.try_into().unwrap(),
-            perm1,
-        );
-        let h2_future = shuffle_and_reveal_permutation(
-            ctx2.narrow("shuffle_reveal"),
-            BATCHSIZE.try_into().unwrap(),
-            perm2,
-        );
+            let h0_future = shuffle_and_reveal_permutation(
+                ctx0.narrow("shuffle_reveal"),
+                BATCHSIZE.try_into().unwrap(),
+                perm0,
+            );
+            let h1_future = shuffle_and_reveal_permutation(
+                ctx1.narrow("shuffle_reveal"),
+                BATCHSIZE.try_into().unwrap(),
+                perm1,
+            );
+            let h2_future = shuffle_and_reveal_permutation(
+                ctx2.narrow("shuffle_reveal"),
+                BATCHSIZE.try_into().unwrap(),
+                perm2,
+            );
 
-        let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
+            let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
-        assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
-        assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
+            assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
+            assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
 
-        assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
-        assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
-        assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
+            assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
+            assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
+            assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
+        }
     }
 }

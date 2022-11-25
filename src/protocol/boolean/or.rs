@@ -25,14 +25,14 @@ mod tests {
         error::Error,
         ff::{Field, Fp31},
         protocol::{QueryId, RecordId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{share, validate_and_reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use rand::rngs::mock::StepRng;
 
     async fn or_fp31(a: Fp31, b: Fp31) -> Result<Fp31, Error> {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
         let mut rand = StepRng::new(1, 1);
 
         // Generate secret shares

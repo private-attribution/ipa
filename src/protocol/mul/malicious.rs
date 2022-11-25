@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::mul::SemiHonestMul;
-use crate::protocol::{context::Context, malicious::SecurityValidatorAccumulator, RecordId};
+use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -48,21 +48,12 @@ impl AsRef<str> for Step {
 pub struct SecureMul<'a, F: Field> {
     ctx: MaliciousContext<'a, F>,
     record_id: RecordId,
-    accumulator: SecurityValidatorAccumulator<F>,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
-    pub fn new(
-        ctx: MaliciousContext<'a, F>,
-        record_id: RecordId,
-        accumulator: SecurityValidatorAccumulator<F>,
-    ) -> Self {
-        Self {
-            ctx,
-            record_id,
-            accumulator,
-        }
+    pub fn new(ctx: MaliciousContext<'a, F>, record_id: RecordId) -> Self {
+        Self { ctx, record_id }
     }
 
     /// Executes two parallel multiplications;
@@ -79,20 +70,52 @@ impl<'a, F: Field> SecureMul<'a, F> {
         a: &MaliciousReplicated<F>,
         b: &MaliciousReplicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
+        use crate::protocol::context::SpecialAccessToMaliciousContext;
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
-        let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
+        let random_constant_ctx = self.ctx.narrow(&Step::RandomnessForValidation);
         let (ab, rab) = try_join(
-            SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a.x(), b.x()),
-            SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
-                .execute(a.rx(), b.x()),
+            SemiHonestMul::new(self.ctx.semi_honest_context(), self.record_id).execute(
+                a.x().access_without_downgrade(),
+                b.x().access_without_downgrade(),
+            ),
+            SemiHonestMul::new(duplicate_multiply_ctx.semi_honest_context(), self.record_id)
+                .execute(a.rx(), b.x().access_without_downgrade()),
         )
         .await?;
 
         let malicious_ab = MaliciousReplicated::new(ab, rab);
 
-        self.accumulator
-            .accumulate_macs(&random_constant_prss, self.record_id, &malicious_ab);
+        random_constant_ctx.accumulate_macs(self.record_id, &malicious_ab);
 
         Ok(malicious_ab)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        ff::Fp31,
+        protocol::{mul::SecureMul, QueryId, RecordId},
+        test_fixture::{validate_and_reconstruct, Runner, TestWorld},
+    };
+    use rand::{thread_rng, Rng};
+
+    #[tokio::test]
+    pub async fn simple() {
+        let world = TestWorld::new(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+
+        let res = world
+            .malicious((a, b), |ctx, (a, b)| async move {
+                ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
+            })
+            .await;
+
+        assert_eq!(a * b, validate_and_reconstruct(&res[0], &res[1], &res[2]));
     }
 }

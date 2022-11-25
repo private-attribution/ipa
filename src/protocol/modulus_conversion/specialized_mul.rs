@@ -196,16 +196,14 @@ pub mod tests {
         QueryId, RecordId,
     };
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
-    };
+    use crate::test_fixture::{share, validate_and_reconstruct, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
     #[tokio::test]
     async fn specialized_1_sequence() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = rand::thread_rng();
 
         for i in 0..10_u32 {
@@ -247,8 +245,8 @@ pub mod tests {
     #[tokio::test]
     async fn specialized_1_parallel() -> Result<(), Error> {
         const ROUNDS: usize = 10;
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = rand::thread_rng();
 
         let mut inputs = Vec::with_capacity(ROUNDS);
@@ -311,8 +309,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn specialized_2_sequence() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = rand::thread_rng();
 
         for i in 0..10_u32 {
@@ -357,8 +355,8 @@ pub mod tests {
     #[tokio::test]
     async fn specialized_2_parallel() -> Result<(), Error> {
         const ROUNDS: usize = 10;
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = rand::thread_rng();
 
         let mut inputs = Vec::with_capacity(ROUNDS);

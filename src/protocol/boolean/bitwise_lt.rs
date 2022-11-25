@@ -174,9 +174,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
-        test_fixture::{
-            make_contexts, make_world, shared_bits, validate_and_reconstruct, TestWorld,
-        },
+        test_fixture::{shared_bits, validate_and_reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
@@ -190,8 +188,8 @@ mod tests {
     where
         Standard: Distribution<F>,
     {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<F>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<F>();
         let mut rand = StepRng::new(1, 1);
 
         // Generate secret shares

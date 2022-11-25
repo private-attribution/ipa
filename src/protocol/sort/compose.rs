@@ -55,9 +55,7 @@ mod tests {
             },
             QueryId,
         },
-        test_fixture::{
-            generate_shares, make_contexts, make_world, validate_list_of_shares, TestWorld,
-        },
+        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
     };
 
     #[tokio::test]
@@ -82,8 +80,8 @@ mod tests {
             let [sigma0, sigma1, sigma2] = generate_shares::<Fp31>(&sigma_u128);
 
             let [rho0, rho1, rho2] = generate_shares::<Fp31>(&rho_u128);
-            let world: TestWorld = make_world(QueryId);
-            let [ctx0, ctx1, ctx2] = make_contexts(&world);
+            let world = TestWorld::new(QueryId);
+            let [ctx0, ctx1, ctx2] = world.contexts();
 
             let sigma_and_randoms = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),

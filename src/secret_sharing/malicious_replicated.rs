@@ -13,6 +13,21 @@ pub struct MaliciousReplicated<F: Field> {
     rx: Replicated<F>,
 }
 
+/// A trait that is implemented for various collections of `MaliciousReplicated`
+/// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
+/// when the protocol is done.  This should not be used directly.
+pub trait Downgrade {
+    type Target;
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
+}
+
+#[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
+pub struct UnauthorizedDowngradeWrapper<T>(T);
+
+pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
+    fn access_without_downgrade(self) -> T;
+}
+
 impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
@@ -31,8 +46,8 @@ impl<F: Field> MaliciousReplicated<F> {
         Self { x, rx }
     }
 
-    pub fn x(&self) -> &Replicated<F> {
-        &self.x
+    pub fn x(&self) -> UnauthorizedDowngradeWrapper<&Replicated<F>> {
+        UnauthorizedDowngradeWrapper(&self.x)
     }
 
     pub fn rx(&self) -> &Replicated<F> {
@@ -120,13 +135,49 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
     }
 }
 
+impl<F: Field> Downgrade for MaliciousReplicated<F> {
+    type Target = Replicated<F>;
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper(self.x)
+    }
+}
+
+impl<F: Field> Downgrade for (MaliciousReplicated<F>, MaliciousReplicated<F>) {
+    type Target = (Replicated<F>, Replicated<F>);
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper((
+            self.0.downgrade().access_without_downgrade(),
+            self.1.downgrade().access_without_downgrade(),
+        ))
+    }
+}
+
+impl<F: Field> Downgrade for Vec<MaliciousReplicated<F>> {
+    type Target = Vec<Replicated<F>>;
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper(
+            self.into_iter()
+                .map(|v| v.downgrade().access_without_downgrade())
+                .collect(),
+        )
+    }
+}
+
+impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
+    fn access_without_downgrade(self) -> T {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::MaliciousReplicated;
+    use super::{Downgrade, MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
+    use crate::secret_sharing::Replicated;
     use crate::test_fixture::{share, validate_and_reconstruct};
     use proptest::prelude::Rng;
+    use rand::thread_rng;
 
     #[test]
     #[allow(clippy::many_single_char_names)]
@@ -194,12 +245,25 @@ mod tests {
             (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::from(6_u128) + Fp31::from(2_u128) * f;
 
         assert_eq!(
-            validate_and_reconstruct(results[0].x(), results[1].x(), results[2].x()),
+            validate_and_reconstruct(
+                results[0].x().access_without_downgrade(),
+                results[1].x().access_without_downgrade(),
+                results[2].x().access_without_downgrade(),
+            ),
             correct,
         );
         assert_eq!(
             validate_and_reconstruct(results[0].rx(), results[1].rx(), results[2].rx()),
             correct * r,
         );
+    }
+
+    #[test]
+    fn downgrade() {
+        let mut rng = thread_rng();
+        let x = Replicated::new(rng.gen::<Fp31>(), rng.gen());
+        let y = Replicated::new(rng.gen::<Fp31>(), rng.gen());
+        let m = MaliciousReplicated::new(x.clone(), y);
+        assert_eq!(x, m.downgrade().access_without_downgrade());
     }
 }

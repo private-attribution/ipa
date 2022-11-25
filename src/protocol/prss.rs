@@ -4,7 +4,6 @@ use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
 };
-use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
@@ -385,11 +384,11 @@ impl Generator {
     /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
     #[must_use]
     pub fn generate(&self, index: u128) -> u128 {
-        let mut buf = [0_u8; 16];
-        LittleEndian::write_u128(&mut buf, index);
+        let mut buf = index.to_le_bytes();
         self.cipher
             .encrypt_block(GenericArray::from_mut_slice(&mut buf));
-        LittleEndian::read_u128(&buf) ^ index
+
+        u128::from_le_bytes(buf) ^ index
     }
 }
 

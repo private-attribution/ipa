@@ -59,7 +59,7 @@ mod tests {
             sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, make_contexts, make_world, validate_list_of_shares},
+        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
     };
 
     use super::secureapplyinv;
@@ -84,8 +84,8 @@ mod tests {
 
             let [input0, input1, input2] = generate_shares::<Fp31>(&input);
 
-            let world = make_world(QueryId);
-            let [ctx0, ctx1, ctx2] = make_contexts(&world);
+            let world = TestWorld::new(QueryId);
+            let [ctx0, ctx1, ctx2] = world.contexts();
             let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
             let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
