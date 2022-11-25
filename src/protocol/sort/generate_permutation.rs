@@ -40,7 +40,10 @@ pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
 
     let shuffled_permutation = shuffle_shares(
         input_permutation,
-        &random_permutations_for_shuffle,
+        (
+            random_permutations_for_shuffle.0.as_slice(),
+            random_permutations_for_shuffle.1.as_slice(),
+        ),
         ctx.narrow(&ShufflePermutation),
     )
     .await?;
@@ -70,7 +73,7 @@ pub(super) async fn shuffle_and_reveal_permutation<F: Field>(
 /// 4  Compute bit permutation that sorts ith bit
 /// 5. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-pub async fn generate_sort_permutation<F: Field>(
+pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[(u64, u64)],
     num_bits: u8,
@@ -97,7 +100,10 @@ pub async fn generate_sort_permutation<F: Field>(
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             ctx_bit.narrow(&ApplyInv),
             bit_i,
-            &random_permutations_for_shuffle,
+            (
+                random_permutations_for_shuffle.0.as_slice(),
+                random_permutations_for_shuffle.1.as_slice(),
+            ),
             &shuffled_compose_permutation,
         )
         .await?;
@@ -110,7 +116,10 @@ pub async fn generate_sort_permutation<F: Field>(
 
         let composed_i_permutation = compose(
             ctx_bit.narrow(&ComposeStep),
-            &random_permutations_for_shuffle,
+            (
+                random_permutations_for_shuffle.0.as_slice(),
+                random_permutations_for_shuffle.1.as_slice(),
+            ),
             &shuffled_compose_permutation,
             bit_i_permutation,
         )
@@ -124,24 +133,22 @@ pub async fn generate_sort_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
-    use futures::future::try_join_all;
     use rand::{seq::SliceRandom, Rng};
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::join3;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
-            sort::generate_sort_permutation::{
-                generate_sort_permutation, shuffle_and_reveal_permutation,
-            },
+            sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
         test_fixture::{generate_shares, logging, Reconstruct, TestWorld},
     };
 
     #[tokio::test]
-    pub async fn test_generate_sort_permutation() -> Result<(), Error> {
+    pub async fn semi_honest() -> Result<(), Error> {
         const ROUNDS: usize = 50;
         const NUM_BITS: u8 = 24;
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
@@ -171,15 +178,12 @@ mod tests {
             shares[2].push((share_2, share_0));
         }
 
-        let [result0, result1, result2] = <[_; 3]>::try_from(
-            try_join_all([
-                generate_sort_permutation(ctx0, &shares[0], NUM_BITS),
-                generate_sort_permutation(ctx1, &shares[1], NUM_BITS),
-                generate_sort_permutation(ctx2, &shares[2], NUM_BITS),
-            ])
-            .await?,
+        let [result0, result1, result2] = join3(
+            generate_permutation(ctx0, &shares[0], NUM_BITS),
+            generate_permutation(ctx1, &shares[1], NUM_BITS),
+            generate_permutation(ctx2, &shares[2], NUM_BITS),
         )
-        .unwrap();
+        .await;
 
         assert_eq!(result0.len(), ROUNDS);
         assert_eq!(result1.len(), ROUNDS);
@@ -234,11 +238,7 @@ mod tests {
                 perm2,
             );
 
-            let perms_and_randoms: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
             assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
             assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);

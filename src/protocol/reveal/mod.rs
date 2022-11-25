@@ -112,7 +112,7 @@ pub async fn reveal_permutation<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::{try_join, try_join3, try_join_all};
+    use futures::future::{try_join, try_join3};
     use proptest::prelude::Rng;
     use rand::thread_rng;
     use std::iter::zip;
@@ -127,7 +127,7 @@ mod tests {
         },
         protocol::{malicious::MaliciousValidator, reveal::Reveal},
         secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
-        test_fixture::{join3v, share, TestWorld},
+        test_fixture::{join3, join3v, share, TestWorld},
     };
 
     #[tokio::test]
@@ -141,12 +141,12 @@ mod tests {
             let input = Fp31::from(secret);
             let share = share(input, &mut rng);
             let record_id = RecordId::from(i);
-            let results = try_join_all(vec![
+            let results = join3(
                 ctx[0].clone().reveal(record_id, &share[0]),
                 ctx[1].clone().reveal(record_id, &share[1]),
                 ctx[2].clone().reveal(record_id, &share[2]),
-            ])
-            .await?;
+            )
+            .await;
 
             assert_eq!(input, results[0]);
             assert_eq!(input, results[1]);

@@ -24,7 +24,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
 pub async fn compose<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+    random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sigma: &[u32],
     mut rho: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
@@ -42,22 +42,19 @@ pub async fn compose<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
-    use rand::seq::SliceRandom;
-
-    use crate::protocol::context::Context;
-    use crate::test_fixture::Reconstruct;
     use crate::{
         ff::Fp31,
         protocol::{
+            context::Context,
             sort::{
                 apply::apply, compose::compose,
-                generate_sort_permutation::shuffle_and_reveal_permutation,
+                generate_permutation::shuffle_and_reveal_permutation,
             },
             QueryId,
         },
-        test_fixture::{generate_shares, TestWorld},
+        test_fixture::{generate_shares, join3, Reconstruct, TestWorld},
     };
+    use rand::seq::SliceRandom;
 
     #[tokio::test]
     pub async fn test_compose() {
@@ -84,25 +81,42 @@ mod tests {
             let world = TestWorld::new(QueryId);
             let [ctx0, ctx1, ctx2] = world.contexts();
 
-            let sigma_and_randoms: [_; 3] = try_join_all([
+            let sigma_and_randoms = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), sigma.len(), sigma1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), sigma.len(), sigma2),
-            ])
-            .await
-            .unwrap()
-            .try_into()
-            .unwrap();
+            )
+            .await;
 
-            let h0_future = compose(ctx0, &sigma_and_randoms[0].1, &sigma_and_randoms[0].0, rho0);
-            let h1_future = compose(ctx1, &sigma_and_randoms[1].1, &sigma_and_randoms[1].0, rho1);
-            let h2_future = compose(ctx2, &sigma_and_randoms[2].1, &sigma_and_randoms[2].0, rho2);
+            let h0_future = compose(
+                ctx0,
+                (
+                    sigma_and_randoms[0].1 .0.as_slice(),
+                    sigma_and_randoms[0].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[0].0,
+                rho0,
+            );
+            let h1_future = compose(
+                ctx1,
+                (
+                    sigma_and_randoms[1].1 .0.as_slice(),
+                    sigma_and_randoms[1].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[1].0,
+                rho1,
+            );
+            let h2_future = compose(
+                ctx2,
+                (
+                    sigma_and_randoms[2].1 .0.as_slice(),
+                    sigma_and_randoms[2].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[2].0,
+                rho2,
+            );
 
-            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse of sigma on rho as in clear
             assert_eq!(&result.reconstruct(), &rho_composed);

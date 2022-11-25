@@ -70,7 +70,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
         a: &MaliciousReplicated<F>,
         b: &MaliciousReplicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::context::AccessSemiHonestContextFromMalicious;
+        use crate::protocol::context::SpecialAccessToMaliciousContext;
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);

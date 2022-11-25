@@ -100,7 +100,7 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
-        use crate::protocol::context::AccessSemiHonestContextFromMalicious;
+        use crate::protocol::context::SpecialAccessToMaliciousContext;
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let rx_ctx = self.narrow(&ReshareMAC);
