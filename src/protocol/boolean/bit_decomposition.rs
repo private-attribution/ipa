@@ -103,89 +103,64 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitDecomposition;
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Fp32BitPrime, Int},
         protocol::{QueryId, RecordId},
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
+    use rand::{distributions::Standard, prelude::Distribution};
 
-    // async fn bit_decomposition<F: Field>(
-    //     ctx: [SemiHonestContext<'_, F>; 3],
-    //     record_id: RecordId,
-    //     a: F,
-    // ) -> Result<Vec<F>, Error>
-    // where
-    //     Standard: Distribution<F>,
-    // {
-    //     let [c0, c1, c2] = ctx;
-    //     let mut rand = StepRng::new(1, 1);
-
-    //     let s = share(a, &mut rand);
-
-    //     let result = join3(
-    //         BitDecomposition::execute(c0, record_id, &s[0]),
-    //         BitDecomposition::execute(c1, record_id, &s[1]),
-    //         BitDecomposition::execute(c2, record_id, &s[2]),
-    //     )
-    //     .await;
-
-    //     // bit-decomposed values must have the same bit length of the target field
-    //     assert_eq!(F::Integer::BITS as usize, result[0].len());
-    //     assert_eq!(F::Integer::BITS as usize, result[1].len());
-    //     assert_eq!(F::Integer::BITS as usize, result[2].len());
-
-    //     let bits = (0..result[0].len())
-    //         .map(|i| validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]))
-    //         .collect::<Vec<_>>();
-
-    //     Ok(bits)
-    // }
-
-    #[ignore]
-    #[tokio::test]
-    pub async fn fp31() {
+    async fn bit_decomposition<F: Field>(a: F) -> Vec<F>
+    where
+        F: Sized,
+        Standard: Distribution<F>,
+    {
         let world = TestWorld::new(QueryId);
-        // let ctx = make_contexts::<Fp31>(&world);
-        // let [c0, c1, c2] = ctx;
-
-        let input = Fp31::from(0_u32);
-        // let result = bit_decomposition(
-        //     [c0.clone(), c1.clone(), c2.clone()],
-        //     RecordId::from(0_u32),
-        //     input,
-        // )
-        // .await?;
         let result = world
-            .semi_honest(input, |ctx, a_p| async move {
+            .semi_honest(a, |ctx, a_p| async move {
                 BitDecomposition::execute(ctx, RecordId::from(0), &a_p)
                     .await
                     .unwrap()
             })
-            .await
-            .reconstruct();
-        assert_eq!(input.as_u128(), bits_to_value(&result));
+            .await;
+
+        // bit-decomposed values must have the same bit length of the target field
+        assert_eq!(F::Integer::BITS as usize, result[0].len());
+        assert_eq!(F::Integer::BITS as usize, result[1].len());
+        assert_eq!(F::Integer::BITS as usize, result[2].len());
+
+        result.reconstruct()
     }
 
-    // #[tokio::test]
-    // pub async fn fp32_bit_prime() -> Result<(), Error> {
-    //     let world: TestWorld = make_world(QueryId);
-    //     let ctx = make_contexts::<Fp32BitPrime>(&world);
-    //     let [c0, c1, c2] = ctx;
-    //     let mut rng = rand::thread_rng();
+    #[ignore]
+    #[tokio::test]
+    pub async fn fp31() {
+        let c = Fp31::from;
+        assert_eq!(0, bits_to_value(&bit_decomposition(c(0_u32)).await));
+        assert_eq!(1, bits_to_value(&bit_decomposition(c(1)).await));
+        assert_eq!(15, bits_to_value(&bit_decomposition(c(15)).await));
+        assert_eq!(16, bits_to_value(&bit_decomposition(c(16)).await));
+        assert_eq!(30, bits_to_value(&bit_decomposition(c(30)).await));
+    }
 
-    //     for i in 0..2 {
-    //         let input = rng.gen::<Fp32BitPrime>();
-    //         let result = bit_decomposition(
-    //             [c0.clone(), c1.clone(), c2.clone()],
-    //             RecordId::from(i),
-    //             input,
-    //         )
-    //         .await?;
-
-    //         // the reconstructed integer (not the field) must be in the range
-    //         // of the field `0..p`.
-    //         assert_eq!(input.as_u128(), bits_to_value(&result));
-    //     }
-
-    //     Ok(())
-    // }
+    // This test takes 3 secs which is too long. Commenting out some test
+    // cases, but we want to bring these back after optimizations.
+    #[tokio::test]
+    pub async fn fp32_bit_prime() {
+        let c = Fp32BitPrime::from;
+        // let u16_max: u32 = u16::MAX.into();
+        assert_eq!(0, bits_to_value(&bit_decomposition(c(0_u32)).await));
+        // assert_eq!(1, bits_to_value(&bit_decomposition(c(1)).await));
+        // assert_eq!(
+        //     u128::from(u16_max),
+        //     bits_to_value(&bit_decomposition(c(u16_max)).await)
+        // );
+        // assert_eq!(
+        //     u128::from(u16_max + 1),
+        //     bits_to_value(&bit_decomposition(c(u16_max + 1)).await)
+        // );
+        assert_eq!(
+            u128::from(Fp32BitPrime::PRIME - 1),
+            bits_to_value(&bit_decomposition(c(Fp32BitPrime::PRIME - 1)).await)
+        );
+    }
 }

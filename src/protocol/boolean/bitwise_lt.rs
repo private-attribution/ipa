@@ -248,56 +248,25 @@ mod tests {
         assert_eq!(zero, bitwise_lt(zero, c(Fp32BitPrime::PRIME)).await);
     }
 
-    // #[tokio::test]
-    // pub async fn cmp_different_bit_lengths() -> Result<(), Error> {
-    //     let world: TestWorld = make_world(QueryId);
-    //     let ctx = make_contexts::<Fp31>(&world);
-    //     let mut rand = StepRng::new(1, 1);
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() {
+        let world = TestWorld::new(QueryId);
 
-    //     // Generate secret shares
-    //     let a_bits = shared_bits(Fp31::from(3_u32), &mut rand);
-    //     let b_bits = shared_bits(Fp31::from(5_u32), &mut rand);
+        let input = (
+            pad(into_bits(Fp31::from(3_u32))), // 8-bit
+            into_bits(Fp31::from(5_u32)),      // 5-bit
+        );
+        let result = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
 
-    //     // Make `a_bits` lengths longer than `b_bits` while keeping the original values
-    //     let (mut a0, mut a1, mut a2) = (
-    //         transpose(&a_bits, 0),
-    //         transpose(&a_bits, 1),
-    //         transpose(&a_bits, 2),
-    //     );
-    //     a0.append(&mut vec![Replicated::ZERO]);
-    //     a1.append(&mut vec![Replicated::ZERO]);
-    //     a2.append(&mut vec![Replicated::ZERO]);
-
-    //     // Execute
-    //     let step = "BitwiseLT_Test";
-    //     let result = try_join_all([
-    //         BitwiseLessThan::execute(
-    //             ctx[0].narrow(step),
-    //             RecordId::from(0),
-    //             &a0,
-    //             &transpose(&b_bits, 0),
-    //         ),
-    //         BitwiseLessThan::execute(
-    //             ctx[1].narrow(step),
-    //             RecordId::from(0),
-    //             &a1,
-    //             &transpose(&b_bits, 1),
-    //         ),
-    //         BitwiseLessThan::execute(
-    //             ctx[2].narrow(step),
-    //             RecordId::from(0),
-    //             &a2,
-    //             &transpose(&b_bits, 2),
-    //         ),
-    //     ])
-    //     .await
-    //     .unwrap();
-
-    //     let f = validate_and_reconstruct(&result[0], &result[1], &result[2]);
-    //     assert_eq!(Fp31::ONE, f);
-
-    //     Ok(())
-    // }
+        assert_eq!(Fp31::ONE, result);
+    }
 
     // this test is for manual execution only
     #[ignore]

@@ -91,6 +91,14 @@ mod tests {
     };
     use rand::{distributions::Standard, prelude::Distribution, Rng};
 
+    /// This protocol requires a number of inputs that are equal to a power of 2.
+    /// This functions pads those inputs.
+    fn pad<F: Field>(mut values: Vec<F>) -> Vec<F> {
+        let target_len = 1 << (usize::BITS - (values.len() - 1).leading_zeros());
+        values.resize(target_len, F::ZERO);
+        values
+    }
+
     #[allow(clippy::many_single_char_names)]
     async fn bitwise_sum<F: Field>(a: F, b: F) -> Vec<F>
     where
@@ -148,71 +156,28 @@ mod tests {
         );
     }
 
-    // #[tokio::test]
-    // pub async fn cmp_different_bit_lengths() {
-    // let world = TestWorld::new(QueryId);
-    // let input
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() {
+        let world = TestWorld::new(QueryId);
 
-    // let mut rand = StepRng::new(1, 1);
+        let input = (
+            pad(into_bits(Fp31::from(3_u32))), // 8-bit
+            into_bits(Fp31::from(5_u32)),      // 5-bit
+        );
+        let l = input.0.len();
+        let sum = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseSum::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
 
-    // Generate secret shares
-    // let input = (into_bits(Fp31::from(3_u32)), into_bits(Fp31::from(5_u32)));
-    // let sum = world
-    //     .semi_honest(input, |ctx, (a_share, b_share)| async move {
-    //         BitwiseSum::execute(ctx, RecordId::from(0), &a_share, &b_share)
-    //             .await
-    //             .unwrap()
-    //     })
-    //     .await
-    //     .reconstruct();
-
-    // // let a_bits = shared_bits(, &mut rand);
-    // // let b_bits = shared_bits(, &mut rand);
-
-    // // Make `a_bits` lengths longer than `b_bits` while keeping the original values
-    // let (mut a0, mut a1, mut a2) = (
-    //     transpose(&a_bits, 0),
-    //     transpose(&a_bits, 1),
-    //     transpose(&a_bits, 2),
-    // );
-    // a0.append(&mut vec![Replicated::ZERO]);
-    // a1.append(&mut vec![Replicated::ZERO]);
-    // a2.append(&mut vec![Replicated::ZERO]);
-
-    // // Execute
-    // let step = "BitwiseSum_Test";
-    // let result = try_join_all([
-    //     BitwiseSum::execute(
-    //         ctx[0].narrow(step),
-    //         RecordId::from(0),
-    //         &a0,
-    //         &transpose(&b_bits, 0),
-    //     ),
-    //     BitwiseSum::execute(
-    //         ctx[1].narrow(step),
-    //         RecordId::from(0),
-    //         &a1,
-    //         &transpose(&b_bits, 1),
-    //     ),
-    //     BitwiseSum::execute(
-    //         ctx[2].narrow(step),
-    //         RecordId::from(0),
-    //         &a2,
-    //         &transpose(&b_bits, 2),
-    //     ),
-    // ])
-    // .await
-    // .unwrap();
-
-    // // `result` is comprised of three bitwise-sharings of `a + b`
-    // let sum = (0..result[0].len())
-    //     .map(|i| validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]))
-    //     .collect::<Vec<_>>();
-
-    // Output's bit length should be `input.len() + 1`
-    // assert_eq!(input.0.len() + 1, sum.len());
-    // assert_eq!(8, bits_to_value(&sum));
-    // }
+        // Output's bit length should be `input.len() + 1`
+        assert_eq!(l + 1, sum.len());
+        assert_eq!(8, bits_to_value(&sum));
+    }
 
     #[tokio::test]
     pub async fn fp_32bit_prime_random() {
