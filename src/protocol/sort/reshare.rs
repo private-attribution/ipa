@@ -91,6 +91,9 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
+use crate::protocol::context::SpecialAccessToMaliciousContext;
+use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
 #[async_trait]
 impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
@@ -102,10 +105,13 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     ) -> Result<Self::Share, Error> {
         let rx_ctx = self.narrow(&ReshareMAC);
         let (x, rx) = try_join(
-            self.to_semi_honest()
-                .reshare(input.x(), record_id, to_helper),
+            self.semi_honest_context().reshare(
+                input.x().access_without_downgrade(),
+                record_id,
+                to_helper,
+            ),
             rx_ctx
-                .to_semi_honest()
+                .semi_honest_context()
                 .reshare(input.rx(), record_id, to_helper),
         )
         .await?;
@@ -115,83 +121,104 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::Rng;
-    use rand::rngs::mock::StepRng;
+    mod semi_honest {
+        use proptest::prelude::Rng;
 
-    use crate::{
-        ff::Fp31,
-        helpers::Role,
-        protocol::{sort::reshare::Reshare, QueryId, RecordId},
-        test_fixture::{
-            join3, make_contexts, make_malicious_contexts, make_world, share, share_malicious,
-            validate_and_reconstruct, validate_and_reconstruct_malicious, TestWorld,
-        },
-    };
+        use rand::thread_rng;
 
-    #[tokio::test]
-    pub async fn semi_honest() {
-        let mut rand = StepRng::new(100, 1);
-        let mut rng = rand::thread_rng();
-        let mut new_reshares_atleast_once = false;
-        let world: TestWorld = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
+        use crate::ff::Fp32BitPrime;
+        use crate::protocol::context::Context;
+        use crate::{
+            helpers::Role,
+            protocol::{sort::reshare::Reshare, QueryId, RecordId},
+            test_fixture::{validate_and_reconstruct, Runner, TestWorld},
+        };
 
-        for _ in 0..10 {
-            let secret = rng.gen::<u128>();
+        /// Validates that reshare protocol actually generates new shares using PRSS.
+        #[tokio::test]
+        async fn generates_unique_shares() {
+            let world = TestWorld::new(QueryId);
 
-            let input = Fp31::from(secret);
-            let shares = share(input, &mut rand);
-            let record_id = RecordId::from(0);
+            for &target in Role::all() {
+                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let shares = world
+                    .semi_honest(secret, |ctx, share| async move {
+                        let record_id = RecordId::from(0);
 
-            let [share0, share1, share2] = shares.clone();
+                        // run reshare protocol for all helpers except the one that does not know the input
+                        if ctx.role() == target {
+                            // test follows the reshare protocol
+                            ctx.prss().generate_fields(record_id).into()
+                        } else {
+                            ctx.reshare(&share, record_id, target).await.unwrap()
+                        }
+                    })
+                    .await;
 
-            let h0_future = ctx0.clone().reshare(&share0, record_id, Role::H2);
-            let h1_future = ctx1.clone().reshare(&share1, record_id, Role::H2);
-            let h2_future = ctx2.clone().reshare(&share2, record_id, Role::H2);
+                let reshared_secret = validate_and_reconstruct(&shares[0], &shares[1], &shares[2]);
 
-            let f = join3(h0_future, h1_future, h2_future).await;
-            let output_share = validate_and_reconstruct(&f[0], &f[1], &f[2]);
-            assert_eq!(output_share, input);
-
-            if f[..] != shares[..] {
-                new_reshares_atleast_once = true;
-                break;
+                // if reshare cheated and just returned its input without adding randomness,
+                // this test will catch it with the probability of error (1/|F|)^2.
+                // Using 32 bit field is sufficient to consider error probability negligible
+                assert_eq!(secret, reshared_secret);
             }
         }
-        assert!(new_reshares_atleast_once);
+
+        /// This test validates the correctness of the protocol, relying on `generates_unique_shares`
+        /// to ensure security. It does not verify that helpers actually attempt to generate new shares
+        /// so a naive implementation of reshare that just output shares `[O]` = `[I]` where `[I]` is
+        /// the input will pass this test. However `generates_unique_shares` will fail this implementation.
+        #[tokio::test]
+        async fn correct() {
+            let world = TestWorld::new(QueryId);
+
+            for &role in Role::all() {
+                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let new_shares = world
+                    .semi_honest(secret, |ctx, share| async move {
+                        ctx.reshare(&share, RecordId::from(0), role).await.unwrap()
+                    })
+                    .await;
+
+                assert_eq!(
+                    secret,
+                    validate_and_reconstruct(&new_shares[0], &new_shares[1], &new_shares[2])
+                );
+            }
+        }
     }
 
-    #[tokio::test]
-    pub async fn malicious() {
-        let mut rand = StepRng::new(100, 1);
-        let mut rng = rand::thread_rng();
-        let mut new_reshares_atleast_once = false;
-        let world: TestWorld = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_malicious_contexts::<Fp31>(&world);
-        let r = rng.gen::<Fp31>();
+    mod malicious {
+        use crate::ff::Fp32BitPrime;
+        use crate::helpers::Role;
+        use crate::protocol::sort::reshare::Reshare;
+        use crate::protocol::{QueryId, RecordId};
+        use crate::test_fixture::{validate_and_reconstruct, Runner, TestWorld};
+        use rand::{thread_rng, Rng};
 
-        for _ in 0..10 {
-            let secret = rng.gen::<u128>();
+        /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
+        /// new shares.
+        /// TODO: It would be great to have a test to validate that helpers cannot cheat. In this
+        /// setting we have 1 helper that does not know the input and if another one is malicious
+        /// adversary, we are only left with one honest helper that knows the input and can validate
+        /// it.
+        #[tokio::test]
+        async fn correct() {
+            let world = TestWorld::new(QueryId);
 
-            let input = Fp31::from(secret);
-            let shares = share_malicious(input, r, &mut rand);
-            let record_id = RecordId::from(0);
+            for &role in Role::all() {
+                let secret = thread_rng().gen::<Fp32BitPrime>();
+                let new_shares = world
+                    .malicious(secret, |ctx, share| async move {
+                        ctx.reshare(&share, RecordId::from(0), role).await.unwrap()
+                    })
+                    .await;
 
-            let [share0, share1, share2] = shares.clone();
-
-            let h0_future = ctx0.ctx.clone().reshare(&share0, record_id, Role::H2);
-            let h1_future = ctx1.ctx.clone().reshare(&share1, record_id, Role::H2);
-            let h2_future = ctx2.ctx.clone().reshare(&share2, record_id, Role::H2);
-
-            let f = join3(h0_future, h1_future, h2_future).await;
-
-            validate_and_reconstruct_malicious(r, &f[0], &f[1], &f[2], Some(secret));
-
-            if f[..] != shares[..] {
-                new_reshares_atleast_once = true;
-                break;
+                assert_eq!(
+                    secret,
+                    validate_and_reconstruct(&new_shares[0], &new_shares[1], &new_shares[2])
+                );
             }
         }
-        assert!(new_reshares_atleast_once);
     }
 }

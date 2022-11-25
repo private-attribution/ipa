@@ -12,6 +12,7 @@ mod malicious;
 mod semi_honest;
 
 pub use malicious::MaliciousContext;
+pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use semi_honest::SemiHonestContext;
 
 use super::sort::reshare::Reshare;

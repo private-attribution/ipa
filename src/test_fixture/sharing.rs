@@ -1,12 +1,17 @@
-use std::iter::zip;
-
 use crate::ff::{Field, Int};
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::protocol::context::MaliciousContext;
+use crate::protocol::RecordId;
+use crate::secret_sharing::{
+    MaliciousReplicated, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+};
+use async_trait::async_trait;
+use futures::future::{try_join, try_join_all};
 use rand::thread_rng;
 use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,
 };
+use std::iter::{repeat, zip};
 
 use super::{MaliciousShares, ReplicatedShares};
 
@@ -39,16 +44,26 @@ where
     }
 }
 
-impl<F> IntoShares<(Replicated<F>, Replicated<F>, Replicated<F>)> for (F, F, F)
+impl<F, V> IntoShares<Vec<Replicated<F>>> for V
 where
     F: Field,
     Standard: Distribution<F>,
+    V: IntoIterator<Item = F>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [(Replicated<F>, Replicated<F>, Replicated<F>); 3] {
-        let [x0, x1, x2] = share(self.0, rng);
-        let [y0, y1, y2] = share(self.1, rng);
-        let [z0, z1, z2] = share(self.2, rng);
-        [(x0, y0, z0), (x1, y1, z1), (x2, y2, z2)]
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<Replicated<F>>; 3] {
+        let it = self.into_iter();
+        let store = if let (_, Some(sz)) = it.size_hint() {
+            Vec::with_capacity(sz)
+        } else {
+            Vec::new()
+        };
+        let mut res = [store.clone(), store.clone(), store];
+        for v in it {
+            for (i, s) in share(v, rng).into_iter().enumerate() {
+                res[i].push(s);
+            }
+        }
+        res
     }
 }
 
@@ -68,19 +83,52 @@ where
     ]
 }
 
-/// Shares `input` into 3 maliciously secure replicated secret shares using the provided `rng` implementation
-///
-#[allow(clippy::missing_panics_doc)]
-pub fn share_malicious<F: Field, R: RngCore>(x: F, r: F, rng: &mut R) -> [MaliciousReplicated<F>; 3]
-where
-    Standard: Distribution<F>,
+/// For upgrading various shapes of replicated share to malicious.
+#[async_trait]
+pub trait IntoMalicious<F: Field, M> {
+    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M;
+}
+
+#[async_trait]
+impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
+        ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
+    }
+}
+
+#[async_trait]
+impl<F: Field> IntoMalicious<F, (MaliciousReplicated<F>, MaliciousReplicated<F>)>
+    for (Replicated<F>, Replicated<F>)
 {
-    zip(share(x, rng), share(r * x, rng))
-        .map(|(x, rx)| MaliciousReplicated::new(x, rx))
-        // TODO: array::zip/each_ref when stable
-        .collect::<Vec<_>>()
-        .try_into()
+    async fn upgrade<'a>(
+        self,
+        ctx: MaliciousContext<'a, F>,
+    ) -> (MaliciousReplicated<F>, MaliciousReplicated<F>) {
+        try_join(
+            ctx.upgrade(RecordId::from(0_u32), self.0),
+            ctx.upgrade(RecordId::from(1_u32), self.1),
+        )
+        .await
         .unwrap()
+    }
+}
+
+#[async_trait]
+impl<F, I> IntoMalicious<F, Vec<MaliciousReplicated<F>>> for I
+where
+    F: Field,
+    I: IntoIterator<Item = Replicated<F>> + Send,
+    <I as IntoIterator>::IntoIter: Send,
+{
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> Vec<MaliciousReplicated<F>> {
+        try_join_all(
+            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
+                ctx.upgrade(RecordId::from(i), share).await
+            }),
+        )
+        .await
+        .unwrap()
+    }
 }
 
 /// Take a field value `x` and turn them into replicated bitwise sharings of three
@@ -120,21 +168,18 @@ pub fn validate_and_reconstruct<F: Field>(
 /// # Panics
 /// Panics if the given input is not a valid replicated secret share.
 pub fn validate_and_reconstruct_malicious<F: Field>(
-    r: F,
     s0: &MaliciousReplicated<F>,
     s1: &MaliciousReplicated<F>,
     s2: &MaliciousReplicated<F>,
-    expected_result: Option<u128>,
-) -> F {
-    let result = validate_and_reconstruct(s0.x(), s1.x(), s2.x());
+) -> (F, F) {
+    let result = validate_and_reconstruct(
+        s0.x().access_without_downgrade(),
+        s1.x().access_without_downgrade(),
+        s2.x().access_without_downgrade(),
+    );
     let result_macs = validate_and_reconstruct(s0.rx(), s1.rx(), s2.rx());
 
-    if let Some(expected_result) = expected_result {
-        assert_eq!(result, F::from(expected_result));
-        assert_eq!(result_macs, F::from(expected_result) * r);
-    }
-
-    s0.x().left() + s1.x().left() + s2.x().left()
+    (result, result_macs)
 }
 
 /// Validates expected result from the secret shares obtained.
@@ -164,13 +209,9 @@ pub fn validate_list_of_shares_malicious<F: Field>(
     assert_eq!(expected_result.len(), result[1].len());
     assert_eq!(expected_result.len(), result[2].len());
     for (i, expected) in expected_result.iter().enumerate() {
-        let revealed = validate_and_reconstruct_malicious(
-            r,
-            &result[0][i],
-            &result[1][i],
-            &result[2][i],
-            Some(*expected),
-        );
+        let (revealed, revealed_times_r) =
+            validate_and_reconstruct_malicious(&result[0][i], &result[1][i], &result[2][i]);
         assert_eq!(revealed, F::from(*expected));
+        assert_eq!(revealed * r, revealed_times_r);
     }
 }

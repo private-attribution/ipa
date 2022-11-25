@@ -254,7 +254,7 @@ mod tests {
     use crate::helpers::Role;
     use crate::protocol::context::Context;
     use crate::protocol::{QueryId, RecordId};
-    use crate::test_fixture::{make_contexts, make_world_with_config, TestWorldConfig};
+    use crate::test_fixture::{TestWorld, TestWorldConfig};
 
     #[tokio::test]
     pub async fn handles_reordering() {
@@ -262,8 +262,8 @@ mod tests {
         config.gateway_config.send_buffer_config.items_in_batch = 1; // Send every record
         config.gateway_config.send_buffer_config.batch_count = 3; // keep 3 at a time
 
-        let world = Box::leak(Box::new(make_world_with_config(QueryId, config)));
-        let contexts = make_contexts::<Fp31>(world);
+        let world = Box::leak(Box::new(TestWorld::new_with(QueryId, config)));
+        let contexts = world.contexts::<Fp31>();
         let sender_ctx = contexts[0].narrow("reordering-test");
         let recv_ctx = contexts[1].narrow("reordering-test");
 

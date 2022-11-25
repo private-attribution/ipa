@@ -114,6 +114,12 @@ impl<F: Field> Mul<F> for Replicated<F> {
     }
 }
 
+impl<F: Field> From<(F, F)> for Replicated<F> {
+    fn from(s: (F, F)) -> Self {
+        Replicated::new(s.0, s.1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Replicated;

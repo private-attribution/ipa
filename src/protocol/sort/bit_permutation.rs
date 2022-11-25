@@ -70,84 +70,42 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::mock::StepRng;
-
     use crate::{
         ff::Fp31,
         protocol::{sort::bit_permutation::bit_permutation, QueryId},
-        test_fixture::{
-            join3, make_contexts, make_malicious_contexts, make_world, share, share_malicious,
-            validate_and_reconstruct, validate_list_of_shares, validate_list_of_shares_malicious,
-        },
+        test_fixture::{validate_list_of_shares, Runner, TestWorld},
     };
+
+    // With this input, for stable sort we expect all 0's to line up before 1's.
+    // The expected sort order is same as expected_sort_output.
+    const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
+    const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
 
     #[tokio::test]
     pub async fn semi_honest() {
-        // With this input, for stable sort we expect all 0's to line up before 1's.
-        // The expected sort order is same as expected_sort_output.
-        const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
-        const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
+        let world = TestWorld::new(QueryId);
 
-        let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
-        let mut rand = StepRng::new(100, 1);
-
-        let mut shares = [
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-        ];
-        for i in INPUT {
-            let share = share(Fp31::from(*i), &mut rand);
-            for (i, share) in share.into_iter().enumerate() {
-                shares[i].push(share);
-            }
-        }
-
-        let h0_future = bit_permutation(ctx0, shares[0].as_slice());
-        let h1_future = bit_permutation(ctx1, shares[1].as_slice());
-        let h2_future = bit_permutation(ctx2, shares[2].as_slice());
-
-        let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
+        let result = world
+            .semi_honest(
+                INPUT.iter().map(|x| Fp31::from(*x)),
+                |ctx, m_shares| async move { bit_permutation(ctx, &m_shares).await.unwrap() },
+            )
+            .await;
 
         validate_list_of_shares(EXPECTED, &result);
     }
 
     #[tokio::test]
     pub async fn malicious() {
-        // With this input, for stable sort we expect all 0's to line up before 1's.
-        // The expected sort order is same as expected_sort_output.
-        const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
-        const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
+        let world = TestWorld::new(QueryId);
 
-        let world = make_world(QueryId);
-        let [mc0, mc1, mc2] = make_malicious_contexts::<Fp31>(&world);
-        let r = validate_and_reconstruct(
-            mc0.validator.r_share(),
-            mc1.validator.r_share(),
-            mc2.validator.r_share(),
-        );
+        let result = world
+            .malicious(
+                INPUT.iter().map(|x| Fp31::from(*x)),
+                |ctx, m_shares| async move { bit_permutation(ctx, &m_shares).await.unwrap() },
+            )
+            .await;
 
-        let mut rand = StepRng::new(100, 1);
-
-        let mut shares = [
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-            Vec::with_capacity(INPUT.len()),
-        ];
-        for i in INPUT {
-            let share = share_malicious(Fp31::from(*i), r, &mut rand);
-            for (i, share) in share.into_iter().enumerate() {
-                shares[i].push(share);
-            }
-        }
-
-        let h0_future = bit_permutation(mc0.ctx, shares[0].as_slice());
-        let h1_future = bit_permutation(mc1.ctx, shares[1].as_slice());
-        let h2_future = bit_permutation(mc2.ctx, shares[2].as_slice());
-
-        let result: [_; 3] = join3(h0_future, h1_future, h2_future).await;
-
-        validate_list_of_shares_malicious(r, EXPECTED, &result);
+        validate_list_of_shares(EXPECTED, &result);
     }
 }
