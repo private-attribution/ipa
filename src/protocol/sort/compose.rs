@@ -82,9 +82,9 @@ mod tests {
             let [ctx0, ctx1, ctx2] = world.contexts();
 
             let sigma_and_randoms = join3(
-                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),
-                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), sigma.len(), sigma1),
-                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), sigma.len(), sigma2),
+                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, sigma0),
+                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, sigma1),
+                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, sigma2),
             )
             .await;
 

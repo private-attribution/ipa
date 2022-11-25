@@ -83,6 +83,7 @@ impl AsRef<str> for ComposeStep {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ShuffleRevealStep {
+    GeneratePermutation,
     RevealPermutation,
     ShufflePermutation,
 }
@@ -92,6 +93,7 @@ impl Substep for ShuffleRevealStep {}
 impl AsRef<str> for ShuffleRevealStep {
     fn as_ref(&self) -> &str {
         match self {
+            Self::GeneratePermutation => "generate_permutation",
             Self::RevealPermutation => "reveal_permutation",
             Self::ShufflePermutation => "shuffle_permutation",
         }
