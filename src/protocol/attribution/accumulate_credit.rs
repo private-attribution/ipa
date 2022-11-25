@@ -213,7 +213,7 @@ mod tests {
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
         protocol::{attribution::AttributionInputRow, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct},
+        test_fixture::{share, Reconstruct, TestWorld},
     };
     use rand::rngs::mock::StepRng;
     use std::iter::zip;
@@ -271,8 +271,8 @@ mod tests {
         ];
         const EXPECTED: &[u128] = &[0, 19, 19, 9, 7, 6, 1, 0, 10];
 
-        let world = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = StepRng::new(100, 1);
 
         let shares = generate_shared_input(RAW_INPUT, &mut rng);
@@ -304,11 +304,12 @@ mod tests {
         assert_eq!(result.2.len(), RAW_INPUT.len());
 
         for (i, expected) in EXPECTED.iter().enumerate() {
-            let v = validate_and_reconstruct(
+            let v = (
                 &result.0[i].credit,
                 &result.1[i].credit,
                 &result.2[i].credit,
-            );
+            )
+                .reconstruct();
             assert_eq!(v.as_u128(), *expected);
         }
     }

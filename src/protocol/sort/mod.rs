@@ -4,7 +4,7 @@ use std::fmt::Debug;
 mod apply;
 pub mod bit_permutation;
 mod compose;
-pub mod generate_sort_permutation;
+pub mod generate_permutation;
 pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
@@ -94,6 +94,20 @@ impl AsRef<str> for ShuffleRevealStep {
         match self {
             Self::RevealPermutation => "reveal_permutation",
             Self::ShufflePermutation => "shuffle_permutation",
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum ReshareStep {
+    ReshareMAC,
+}
+impl Substep for ReshareStep {}
+
+impl AsRef<str> for ReshareStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::ReshareMAC => "reshare_mac",
         }
     }
 }

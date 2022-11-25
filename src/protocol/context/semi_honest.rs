@@ -2,7 +2,7 @@ use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::context::{Context, MaliciousContext};
-use crate::protocol::malicious::SecurityValidatorAccumulator;
+use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
@@ -31,13 +31,21 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         }
     }
 
+    /// Upgrade this context to malicious.
+    /// `malicious_step` is the step that will be used for malicious protocol execution.
+    /// `upgrade_step` is the step that will be used for upgrading inputs
+    /// from `Replicated` to `MaliciousReplicated`.
+    /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
-    pub fn upgrade_to_malicious(
+    pub fn upgrade<S: Substep + ?Sized>(
         self,
-        accumulator: SecurityValidatorAccumulator<F>,
+        malicious_step: &S,
+        upgrade_step: &S,
+        accumulator: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> MaliciousContext<'a, F> {
-        MaliciousContext::new(&self, accumulator, r_share)
+        let upgrade_ctx = self.narrow(upgrade_step);
+        MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)
     }
 }
 
