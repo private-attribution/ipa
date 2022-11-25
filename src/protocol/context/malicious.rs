@@ -22,7 +22,7 @@ pub struct MaliciousContext<'a, F: Field> {
     step: Step,
 }
 
-pub trait AccessSemiHonestContextFromMalicious<'a, F: Field> {
+pub trait SpecialAccessToMaliciousContext<'a, F: Field> {
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>);
     fn semi_honest_context(self) -> SemiHonestContext<'a, F>;
 }
@@ -30,14 +30,14 @@ pub trait AccessSemiHonestContextFromMalicious<'a, F: Field> {
 impl<'a, F: Field> MaliciousContext<'a, F> {
     pub(super) fn new<S: Substep + ?Sized>(
         source: &SemiHonestContext<'a, F>,
-        protocol_step: &S,
+        malicious_step: &S,
         upgrade_ctx: SemiHonestContext<'a, F>,
         acc: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Self {
         Self {
             inner: ContextInner::new(upgrade_ctx, acc, r_share),
-            step: source.step().narrow(protocol_step),
+            step: source.step().narrow(malicious_step),
         }
     }
 
@@ -93,7 +93,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
 /// protocols should be generic over `SecretShare` trait and not requiring this cast and taking
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
 /// this implementation makes it easier to reinterpret the context as semi-honest.
-impl<'a, F: Field> AccessSemiHonestContextFromMalicious<'a, F> for MaliciousContext<'a, F> {
+impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'a, F> {
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
         self.inner
             .accumulator
