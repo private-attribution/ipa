@@ -20,7 +20,10 @@ use crate::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
-use super::sharing::IntoMalicious;
+use super::{
+    sharing::{IntoMalicious, ValidateMalicious},
+    Reconstruct,
+};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -134,6 +137,7 @@ pub trait Runner<I, A> {
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
         R: Future<Output = P> + Send,
         P: DowngradeMalicious<Target = O> + Send + Debug,
+        [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
 }
 
@@ -171,6 +175,7 @@ where
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
         R: Future<Output = P> + Send,
         P: DowngradeMalicious<Target = O> + Send + Debug,
+        [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
     {
         // The following is what this *should* look like,
@@ -211,6 +216,7 @@ where
 
         // Separate the validators and the now-malicious shares.
         let (v, m_shares): (Vec<_>, Vec<_>) = upgraded.into_iter().unzip();
+        let r = (v[0].r_share(), v[1].r_share(), v[2].r_share()).reconstruct();
 
         // Reference the validator to produce malicious contexts,
         // and process the inputs M and produce Future R which can be awaited to P.
@@ -219,6 +225,8 @@ where
         let m_results =
             join_all(zip(v.iter(), m_shares).map(|(v, m_share)| helper_fn(v.context(), m_share)))
                 .await;
+        let m_results = <[_; 3]>::try_from(m_results).unwrap();
+        m_results.validate(r);
 
         // Perform validation and convert the results we just got: P to O
         let output = join_all(

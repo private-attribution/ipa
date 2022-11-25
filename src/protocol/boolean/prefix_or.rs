@@ -310,7 +310,7 @@ mod tests {
         ff::{Field, Fp2, Fp31},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
-        test_fixture::{share, validate_and_reconstruct, TestWorld},
+        test_fixture::{share, Reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(input.len(), result[0].len());
         let [r0, r1, r2] = <[_; 3]>::try_from(result).unwrap();
         let reconstructed = zip(r0, zip(r1, r2))
-            .map(|(x0, (x1, x2))| validate_and_reconstruct(&x0, &x1, &x2))
+            .map(|(x0, (x1, x2))| (&x0, &x1, &x2).reconstruct())
             .collect::<Vec<_>>();
         Ok(reconstructed)
     }

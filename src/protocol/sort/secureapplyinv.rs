@@ -47,21 +47,18 @@ pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::Rng;
-    use rand::seq::SliceRandom;
-
-    use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
+    use super::secureapplyinv;
     use crate::{
         ff::Fp31,
         protocol::{
+            context::Context,
             sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
+        test_fixture::{generate_shares, join3, Reconstruct, TestWorld},
     };
-
-    use super::secureapplyinv;
+    use proptest::prelude::Rng;
+    use rand::seq::SliceRandom;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -127,7 +124,7 @@ mod tests {
             let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse as what we get when applying in clear
-            validate_list_of_shares(&expected_result, &result);
+            assert_eq!(&expected_result, &result.reconstruct());
         }
     }
 }

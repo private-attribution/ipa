@@ -148,7 +148,7 @@ mod tests {
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, logging, validate_and_reconstruct, TestWorld},
+        test_fixture::{generate_shares, logging, Reconstruct, TestWorld},
     };
 
     #[tokio::test]
@@ -197,7 +197,7 @@ mod tests {
         for (match_key, (r0, (r1, r2))) in
             zip(match_keys.iter(), zip(result0, zip(result1, result2)))
         {
-            let index = validate_and_reconstruct(&r0, &r1, &r2);
+            let index = (&r0, &r1, &r2).reconstruct();
             mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
         }
 

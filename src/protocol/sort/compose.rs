@@ -42,21 +42,19 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
 
 #[cfg(test)]
 mod tests {
-    use rand::seq::SliceRandom;
-
-    use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
     use crate::{
         ff::Fp31,
         protocol::{
+            context::Context,
             sort::{
                 apply::apply, compose::compose,
                 generate_permutation::shuffle_and_reveal_permutation,
             },
             QueryId,
         },
-        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
+        test_fixture::{generate_shares, join3, Reconstruct, TestWorld},
     };
+    use rand::seq::SliceRandom;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -121,7 +119,7 @@ mod tests {
             let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse of sigma on rho as in clear
-            validate_list_of_shares(&rho_composed, &result);
+            assert_eq!(&result.reconstruct(), &rho_composed);
         }
     }
 }

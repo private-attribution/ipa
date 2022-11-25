@@ -142,8 +142,12 @@ impl<F: Field> Downgrade for MaliciousReplicated<F> {
     }
 }
 
-impl<F: Field> Downgrade for (MaliciousReplicated<F>, MaliciousReplicated<F>) {
-    type Target = (Replicated<F>, Replicated<F>);
+impl<T, U> Downgrade for (T, U)
+where
+    T: Downgrade,
+    U: Downgrade,
+{
+    type Target = (<T as Downgrade>::Target, <U as Downgrade>::Target);
     fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper((
             self.0.downgrade().access_without_downgrade(),
@@ -152,8 +156,11 @@ impl<F: Field> Downgrade for (MaliciousReplicated<F>, MaliciousReplicated<F>) {
     }
 }
 
-impl<F: Field> Downgrade for Vec<MaliciousReplicated<F>> {
-    type Target = Vec<Replicated<F>>;
+impl<T> Downgrade for Vec<T>
+where
+    T: Downgrade,
+{
+    type Target = Vec<<T as Downgrade>::Target>;
     fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(
             self.into_iter()
@@ -175,7 +182,7 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{share, validate_and_reconstruct};
+    use crate::test_fixture::{share, Reconstruct};
     use proptest::prelude::Rng;
     use rand::thread_rng;
 
@@ -245,15 +252,16 @@ mod tests {
             (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::from(6_u128) + Fp31::from(2_u128) * f;
 
         assert_eq!(
-            validate_and_reconstruct(
+            (
                 results[0].x().access_without_downgrade(),
                 results[1].x().access_without_downgrade(),
                 results[2].x().access_without_downgrade(),
-            ),
+            )
+                .reconstruct(),
             correct,
         );
         assert_eq!(
-            validate_and_reconstruct(results[0].rx(), results[1].rx(), results[2].rx()),
+            (results[0].rx(), results[1].rx(), results[2].rx()).reconstruct(),
             correct * r,
         );
     }

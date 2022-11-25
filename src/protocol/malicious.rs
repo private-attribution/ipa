@@ -253,7 +253,7 @@ pub mod tests {
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
     use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::test_fixture::{join3v, share, validate_and_reconstruct, TestWorld};
+    use crate::test_fixture::{join3v, share, Reconstruct, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
@@ -304,13 +304,14 @@ pub mod tests {
 
         let [ab0, ab1, ab2] = join3v(futures).await;
 
-        let ab = validate_and_reconstruct(
+        let ab = (
             ab0.0.x().access_without_downgrade(),
             ab1.0.x().access_without_downgrade(),
             ab2.0.x().access_without_downgrade(),
-        );
-        let rab = validate_and_reconstruct(ab0.0.rx(), ab1.0.rx(), ab2.0.rx());
-        let r = validate_and_reconstruct(&ab0.1, &ab1.1, &ab2.1);
+        )
+            .reconstruct();
+        let rab = (ab0.0.rx(), ab1.0.rx(), ab2.0.rx()).reconstruct();
+        let r = (&ab0.1, &ab1.1, &ab2.1).reconstruct();
 
         assert_eq!(ab, a * b);
         assert_eq!(rab, r * a * b);
@@ -399,25 +400,28 @@ pub mod tests {
 
         let processed_outputs = join3v(futures).await;
 
-        let r = validate_and_reconstruct(
+        let r = (
             &processed_outputs[0].1,
             &processed_outputs[1].1,
             &processed_outputs[2].1,
-        );
+        )
+            .reconstruct();
 
         for i in 0..99 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
-            let x1_times_x2 = validate_and_reconstruct(
+            let x1_times_x2 = (
                 processed_outputs[0].0[i].x().access_without_downgrade(),
                 processed_outputs[1].0[i].x().access_without_downgrade(),
                 processed_outputs[2].0[i].x().access_without_downgrade(),
-            );
-            let r_times_x1_times_x2 = validate_and_reconstruct(
+            )
+                .reconstruct();
+            let r_times_x1_times_x2 = (
                 processed_outputs[0].0[i].rx(),
                 processed_outputs[1].0[i].rx(),
                 processed_outputs[2].0[i].rx(),
-            );
+            )
+                .reconstruct();
 
             assert_eq!(x1 * x2, x1_times_x2);
             assert_eq!(r * x1 * x2, r_times_x1_times_x2);

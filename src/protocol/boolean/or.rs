@@ -20,61 +20,30 @@ pub async fn or<F: Field>(
 #[cfg(test)]
 mod tests {
     use super::or;
-    use crate::protocol::context::Context;
     use crate::{
-        error::Error,
         ff::{Field, Fp31},
         protocol::{QueryId, RecordId},
-        test_fixture::{share, validate_and_reconstruct, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join_all;
-    use rand::rngs::mock::StepRng;
 
-    async fn or_fp31(a: Fp31, b: Fp31) -> Result<Fp31, Error> {
+    async fn or_fp31(a: Fp31, b: Fp31) -> Fp31 {
         let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<Fp31>();
-        let mut rand = StepRng::new(1, 1);
 
-        // Generate secret shares
-        #[allow(clippy::type_complexity)]
-        let a_shares = share(a, &mut rand);
-        let b_shares = share(b, &mut rand);
-
-        // Execute
-        let step = "Or_Test";
-        let result = try_join_all(vec![
-            or(
-                ctx[0].narrow(step),
-                RecordId::from(0_u32),
-                &a_shares[0],
-                &b_shares[0],
-            ),
-            or(
-                ctx[1].narrow(step),
-                RecordId::from(0_u32),
-                &a_shares[1],
-                &b_shares[1],
-            ),
-            or(
-                ctx[2].narrow(step),
-                RecordId::from(0_u32),
-                &a_shares[2],
-                &b_shares[2],
-            ),
-        ])
-        .await
-        .unwrap();
-
-        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]))
+        let result = world
+            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
+                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await;
+        result.reconstruct()
     }
 
     #[tokio::test]
-    pub async fn basic() -> Result<(), Error> {
-        assert_eq!(Fp31::ZERO, or_fp31(Fp31::ZERO, Fp31::ZERO).await?);
-        assert_eq!(Fp31::ONE, or_fp31(Fp31::ONE, Fp31::ZERO).await?);
-        assert_eq!(Fp31::ONE, or_fp31(Fp31::ZERO, Fp31::ONE).await?);
-        assert_eq!(Fp31::ONE, or_fp31(Fp31::ONE, Fp31::ONE).await?);
-
-        Ok(())
+    pub async fn basic() {
+        assert_eq!(Fp31::ZERO, or_fp31(Fp31::ZERO, Fp31::ZERO).await);
+        assert_eq!(Fp31::ONE, or_fp31(Fp31::ONE, Fp31::ZERO).await);
+        assert_eq!(Fp31::ONE, or_fp31(Fp31::ZERO, Fp31::ONE).await);
+        assert_eq!(Fp31::ONE, or_fp31(Fp31::ONE, Fp31::ONE).await);
     }
 }

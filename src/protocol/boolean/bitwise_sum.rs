@@ -83,117 +83,77 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::BitwiseSum;
-    use crate::protocol::context::Context;
     use crate::{
-        error::BoxError,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
-        secret_sharing::Replicated,
-        test_fixture::{bits_to_field, shared_bits, validate_and_reconstruct, TestWorld},
+        test_fixture::{bits_to_field, into_bits, Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join_all;
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng, Rng};
-
-    /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking the `i`'th share per row
-    fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
-        x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
-    }
+    use rand::{distributions::Standard, prelude::Distribution, Rng};
 
     #[allow(clippy::many_single_char_names)]
-    async fn bitwise_sum<F: Field>(a: F, b: F) -> Result<Vec<F>, BoxError>
+    async fn bitwise_sum<F: Field>(a: F, b: F) -> Vec<F>
     where
+        (F, F): Sized,
         Standard: Distribution<F>,
     {
         let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<F>();
-        let mut rand = StepRng::new(1, 1);
-
-        let a_bits = shared_bits(a, &mut rand);
-        let b_bits = shared_bits(b, &mut rand);
-        let l = a_bits.len();
-
-        let step = "BitwiseSum_Test";
-        let result = try_join_all(vec![
-            BitwiseSum::execute(
-                ctx[0].narrow(step),
-                RecordId::from(0_u32),
-                &transpose(&a_bits, 0),
-                &transpose(&b_bits, 0),
-            ),
-            BitwiseSum::execute(
-                ctx[1].narrow(step),
-                RecordId::from(0_u32),
-                &transpose(&a_bits, 1),
-                &transpose(&b_bits, 1),
-            ),
-            BitwiseSum::execute(
-                ctx[2].narrow(step),
-                RecordId::from(0_u32),
-                &transpose(&a_bits, 2),
-                &transpose(&b_bits, 2),
-            ),
-        ])
-        .await
-        .unwrap();
-
-        // `result` is comprised of three bitwise-sharings of `a + b`
-        let sum = (0..result[0].len())
-            .map(|i| validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]))
-            .collect::<Vec<_>>();
+        let input = (into_bits(a), into_bits(b));
+        let n_bits = input.0.len();
+        let sum = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseSum::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
 
         // Output's bit length should be `input.len() + 1`
-        assert_eq!(l + 1, sum.len());
-
-        Ok(sum)
+        assert_eq!(n_bits + 1, sum.len());
+        sum
     }
 
     #[tokio::test]
-    pub async fn fp31_basic() -> Result<(), BoxError> {
+    pub async fn fp31_basic() {
         let c = Fp31::from;
 
-        assert_eq!(c(0_u8), bits_to_field(&bitwise_sum(c(0), c(0)).await?));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(0), c(1)).await?));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(1), c(0)).await?));
-        assert_eq!(c(2), bits_to_field(&bitwise_sum(c(1), c(1)).await?));
-
-        Ok(())
+        assert_eq!(c(0_u8), bits_to_field(&bitwise_sum(c(0), c(0)).await));
+        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(0), c(1)).await));
+        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(1), c(0)).await));
+        assert_eq!(c(2), bits_to_field(&bitwise_sum(c(1), c(1)).await));
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime_basic() -> Result<(), BoxError> {
+    pub async fn fp_32bit_prime_basic() {
         let c = Fp32BitPrime::from;
 
-        assert_eq!(c(0_u32), bits_to_field(&bitwise_sum(c(0), c(0)).await?));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(0), c(1)).await?));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(1), c(0)).await?));
-        assert_eq!(c(2), bits_to_field(&bitwise_sum(c(1), c(1)).await?));
+        assert_eq!(c(0_u32), bits_to_field(&bitwise_sum(c(0), c(0)).await));
+        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(0), c(1)).await));
+        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(1), c(0)).await));
+        assert_eq!(c(2), bits_to_field(&bitwise_sum(c(1), c(1)).await));
         assert_eq!(
             c(2_147_483_648_u32),
-            bits_to_field(&bitwise_sum(c(2_147_483_647), c(1)).await?)
+            bits_to_field(&bitwise_sum(c(2_147_483_647), c(1)).await)
         );
         assert_eq!(
             c(4_294_967_290),
-            bits_to_field(&bitwise_sum(c(2_147_483_645), c(2_147_483_645)).await?)
+            bits_to_field(&bitwise_sum(c(2_147_483_645), c(2_147_483_645)).await)
         );
         assert_eq!(
             c(0),
-            bits_to_field(&bitwise_sum(c(2_147_483_645), c(2_147_483_646)).await?)
+            bits_to_field(&bitwise_sum(c(2_147_483_645), c(2_147_483_646)).await)
         );
-
-        Ok(())
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime_random() -> Result<(), BoxError> {
+    pub async fn fp_32bit_prime_random() {
         let c = Fp32BitPrime::from;
         let mut rng = rand::thread_rng();
 
         for _ in 0..10 {
             let a = c(rng.gen::<u128>());
             let b = c(rng.gen());
-            assert_eq!(a + b, bits_to_field(&bitwise_sum(a, b).await?));
+            assert_eq!(a + b, bits_to_field(&bitwise_sum(a, b).await));
         }
-
-        Ok(())
     }
 }
