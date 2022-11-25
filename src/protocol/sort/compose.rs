@@ -1,5 +1,5 @@
-use crate::protocol::context::SemiHonestContext;
-use crate::{error::Error, ff::Field, protocol::context::Context, secret_sharing::Replicated};
+use crate::secret_sharing::SecretSharing;
+use crate::{error::Error, ff::Field, protocol::context::Context};
 use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
@@ -22,12 +22,12 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// 3. Reveal the permutation
 /// 4. Revealed permutation is applied locally on another permutation shares (rho)
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
-pub async fn compose<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    ctx: C,
+    random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sigma: &[u32],
-    mut rho: Vec<Replicated<F>>,
-) -> Result<Vec<Replicated<F>>, Error> {
+    mut rho: Vec<S>,
+) -> Result<Vec<S>, Error> {
     apply(shuffled_sigma, &mut rho);
 
     let unshuffled_rho = unshuffle_shares(
@@ -42,26 +42,22 @@ pub async fn compose<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
-    use rand::seq::SliceRandom;
-
-    use crate::protocol::context::Context;
     use crate::{
         ff::Fp31,
         protocol::{
+            context::Context,
             sort::{
                 apply::apply, compose::compose,
-                generate_sort_permutation::shuffle_and_reveal_permutation,
+                generate_permutation::shuffle_and_reveal_permutation,
             },
             QueryId,
         },
-        test_fixture::{
-            generate_shares, make_contexts, make_world, validate_list_of_shares, TestWorld,
-        },
+        test_fixture::{generate_shares, join3, Reconstruct, TestWorld},
     };
+    use rand::seq::SliceRandom;
 
     #[tokio::test]
-    pub async fn test_compose() {
+    pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
             let mut rng_sigma = rand::thread_rng();
@@ -82,31 +78,48 @@ mod tests {
             let [sigma0, sigma1, sigma2] = generate_shares::<Fp31>(&sigma_u128);
 
             let [rho0, rho1, rho2] = generate_shares::<Fp31>(&rho_u128);
-            let world: TestWorld = make_world(QueryId);
-            let [ctx0, ctx1, ctx2] = make_contexts(&world);
+            let world = TestWorld::new(QueryId);
+            let [ctx0, ctx1, ctx2] = world.contexts();
 
-            let sigma_and_randoms: [_; 3] = try_join_all([
+            let sigma_and_randoms = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, sigma0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, sigma1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, sigma2),
-            ])
-            .await
-            .unwrap()
-            .try_into()
-            .unwrap();
+            )
+            .await;
 
-            let h0_future = compose(ctx0, &sigma_and_randoms[0].1, &sigma_and_randoms[0].0, rho0);
-            let h1_future = compose(ctx1, &sigma_and_randoms[1].1, &sigma_and_randoms[1].0, rho1);
-            let h2_future = compose(ctx2, &sigma_and_randoms[2].1, &sigma_and_randoms[2].0, rho2);
+            let h0_future = compose(
+                ctx0,
+                (
+                    sigma_and_randoms[0].1 .0.as_slice(),
+                    sigma_and_randoms[0].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[0].0,
+                rho0,
+            );
+            let h1_future = compose(
+                ctx1,
+                (
+                    sigma_and_randoms[1].1 .0.as_slice(),
+                    sigma_and_randoms[1].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[1].0,
+                rho1,
+            );
+            let h2_future = compose(
+                ctx2,
+                (
+                    sigma_and_randoms[2].1 .0.as_slice(),
+                    sigma_and_randoms[2].1 .1.as_slice(),
+                ),
+                &sigma_and_randoms[2].0,
+                rho2,
+            );
 
-            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse of sigma on rho as in clear
-            validate_list_of_shares(&rho_composed, &result);
+            assert_eq!(&result.reconstruct(), &rho_composed);
         }
     }
 }

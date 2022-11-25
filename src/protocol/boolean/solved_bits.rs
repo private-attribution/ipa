@@ -186,9 +186,7 @@ mod tests {
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
-        test_fixture::{
-            bits_to_value, join3, make_contexts, make_world, validate_and_reconstruct, TestWorld,
-        },
+        test_fixture::{bits_to_value, join3, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
@@ -226,22 +224,22 @@ mod tests {
         // Reconstruct b_B from ([b_1]_p,...,[b_l]_p) bitwise sharings in F_p
         let b_b = (0..s0.b_b.len())
             .map(|i| {
-                let bit = validate_and_reconstruct(&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]);
+                let bit = (&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]).reconstruct();
                 assert!(bit == F::ZERO || bit == F::ONE);
                 bit
             })
             .collect::<Vec<_>>();
 
         // Reconstruct b_P
-        let b_p = validate_and_reconstruct(&s0.b_p, &s1.b_p, &s2.b_p);
+        let b_p = (&s0.b_p, &s1.b_p, &s2.b_p).reconstruct();
 
         Ok(Some((b_b, b_p)))
     }
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;
@@ -264,8 +262,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp32BitPrime>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp32BitPrime>();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;
