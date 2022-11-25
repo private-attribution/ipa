@@ -223,8 +223,8 @@ mod tests {
             QueryId, Step,
         },
         test_fixture::{
-            generate_shares, make_participants, narrow_contexts, permutation_valid,
-            validate_and_reconstruct, TestWorld,
+            generate_shares, make_participants, narrow_contexts, permutation_valid, Reconstruct,
+            TestWorld,
         },
     };
     use futures::future::try_join_all;
@@ -291,7 +291,7 @@ mod tests {
         let mut hashed_output_secret = HashSet::new();
         let mut output_secret = Vec::new();
         for (r0, (r1, r2)) in zip(results[0].iter(), zip(results[1].iter(), results[2].iter())) {
-            let val = validate_and_reconstruct(r0, r1, r2);
+            let val = (r0, r1, r2).reconstruct();
             output_secret.push(u8::from(val));
             hashed_output_secret.insert(u8::from(val));
         }

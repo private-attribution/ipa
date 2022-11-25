@@ -9,17 +9,14 @@ use crate::ff::{Field, Fp31};
 use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
-pub use sharing::{
-    share, shared_bits, validate_and_reconstruct, validate_list_of_shares,
-    validate_list_of_shares_malicious, IntoShares,
-};
+pub use sharing::{share, into_bits, validate_list_of_shares, IntoShares, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 
@@ -62,7 +59,6 @@ pub fn make_participants() -> [PrssEndpoint; 3] {
 }
 
 pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
-pub type MaliciousShares<T> = [Vec<MaliciousReplicated<T>>; 3];
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]

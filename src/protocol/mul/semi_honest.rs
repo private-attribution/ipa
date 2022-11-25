@@ -69,7 +69,7 @@ pub mod tests {
     use crate::protocol::{QueryId, RecordId};
 
     use crate::protocol::context::SemiHonestContext;
-    use crate::test_fixture::{share, validate_and_reconstruct, Runner, TestWorld};
+    use crate::test_fixture::{share, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::thread_rng;
@@ -108,7 +108,7 @@ pub mod tests {
             })
             .await;
 
-        assert_eq!(a * b, validate_and_reconstruct(&res[0], &res[1], &res[2]));
+        assert_eq!(a * b, res.reconstruct());
     }
 
     /// This test ensures that many secure multiplications can run concurrently as long as
@@ -155,10 +155,7 @@ pub mod tests {
         let results = try_join_all(futures).await.unwrap();
 
         for (i, shares) in results.iter().enumerate() {
-            assert_eq!(
-                expected_outputs[i],
-                validate_and_reconstruct(&shares[0], &shares[1], &shares[2])
-            );
+            assert_eq!(expected_outputs[i], shares.reconstruct());
         }
     }
 
@@ -191,6 +188,6 @@ pub mod tests {
         ])
         .await?;
 
-        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]).as_u128())
+        Ok(result.reconstruct().as_u128())
     }
 }

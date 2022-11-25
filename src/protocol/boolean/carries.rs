@@ -230,66 +230,34 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::Carries;
-    use crate::error::Error;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::protocol::context::Context;
     use crate::protocol::{QueryId, RecordId};
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{shared_bits, validate_and_reconstruct, TestWorld};
-    use futures::future::try_join_all;
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
+    use crate::test_fixture::{into_bits, Reconstruct, Runner, TestWorld};
+    use rand::{distributions::Standard, prelude::Distribution};
 
     /// From `Vec<[Replicated<F>; 3]>`, create `Vec<Replicated<F>>` taking `i`'th share per row
     fn transpose<F: Field>(x: &[[Replicated<F>; 3]], i: usize) -> Vec<Replicated<F>> {
         x.iter().map(|x| x[i].clone()).collect::<Vec<_>>()
     }
 
-    async fn carries<F: Field>(a: F, b: F) -> Result<Vec<F>, Error>
+    async fn carries<F: Field>(a: F, b: F) -> Vec<F>
     where
         Standard: Distribution<F>,
     {
         let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<F>();
-        let mut rand = StepRng::new(1, 1);
 
-        // Generate secret shares
-        let a_bits = shared_bits(a, &mut rand);
-        let b_bits = shared_bits(b, &mut rand);
-
-        // Execute
-        let step = "Carries_Test";
-        let result = try_join_all(vec![
-            Carries::execute(
-                ctx[0].narrow(step),
-                RecordId::from(0_u32),
-                &transpose(&a_bits, 0),
-                &transpose(&b_bits, 0),
-            ),
-            Carries::execute(
-                ctx[1].narrow(step),
-                RecordId::from(0_u32),
-                &transpose(&a_bits, 1),
-                &transpose(&b_bits, 1),
-            ),
-            Carries::execute(
-                ctx[2].narrow(step),
-                RecordId::from(0_u32),
-                &transpose(&a_bits, 2),
-                &transpose(&b_bits, 2),
-            ),
-        ])
-        .await
-        .unwrap();
-
-        let carries = (0..result[0].len())
-            .map(|i| validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]))
-            .collect::<Vec<_>>();
-
-        Ok(carries)
+        let input = (into_bits(a), into_bits(b));
+        let result = world
+            .semi_honest(input, |ctx, (a_shares, b_shares)| async {
+                Carries::execute(ctx, RecordId::from(0), &a_shares, &b_shares)
+            })
+            .await;
+        result.reconstruct()
     }
 
     #[tokio::test]
-    pub async fn fp31() -> Result<(), Error> {
+    pub async fn fp31() {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -297,54 +265,52 @@ mod tests {
         // 0 + 0 -> no carry
         assert_eq!(
             vec![zero, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(0_u8), c(0)).await?
+            carries(c(0_u8), c(0)).await
         );
         // 0 + 0 -> no carry
         assert_eq!(
             vec![zero, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(1), c(0)).await?
+            carries(c(1), c(0)).await
         );
         // 01 + 01 -> carry at i=0
         assert_eq!(
             vec![one, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(1), c(1)).await?
+            carries(c(1), c(1)).await
         );
         // 10 + 01 -> no carry
         assert_eq!(
             vec![zero, zero, zero, zero, zero, zero, zero, zero],
-            carries(c(2), c(1)).await?
+            carries(c(2), c(1)).await
         );
         // 10 + 10 -> carry at i=1
         assert_eq!(
             vec![zero, one, zero, zero, zero, zero, zero, zero],
-            carries(c(2), c(2)).await?
+            carries(c(2), c(2)).await
         );
         // 11 + 01 -> carries at i=0,1
         assert_eq!(
             vec![one, one, zero, zero, zero, zero, zero, zero],
-            carries(c(3), c(1)).await?
+            carries(c(3), c(1)).await
         );
         // 0101 + 0101 -> carries at i=0,2
         assert_eq!(
             vec![one, zero, one, zero, zero, zero, zero, zero],
-            carries(c(5), c(5)).await?
+            carries(c(5), c(5)).await
         );
         // 1111 + 0001 -> carries at i=0,1,2,3,
         assert_eq!(
             vec![one, one, one, one, zero, zero, zero, zero],
-            carries(c(15), c(1)).await?
+            carries(c(15), c(1)).await
         );
         // 0001 1110 + 0000 0011 -> carries at i=2,3,4,5
         assert_eq!(
             vec![zero, one, one, one, one, zero, zero, zero],
-            carries(c(30), c(3)).await?
+            carries(c(30), c(3)).await
         );
-
-        Ok(())
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime() -> Result<(), Error> {
+    pub async fn fp_32bit_prime() {
         let c = Fp32BitPrime::from;
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
@@ -355,21 +321,21 @@ mod tests {
                 zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
                 zero, zero, zero, zero,
             ],
-            carries(c(0_u32), c(1)).await?
+            carries(c(0_u32), c(1)).await
         );
         assert_eq!(
             vec![
                 one, zero, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
                 one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, zero,
             ],
-            carries(c(2_147_483_645), c(2_147_483_645)).await?
+            carries(c(2_147_483_645), c(2_147_483_645)).await
         );
         assert_eq!(
             vec![
                 one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
                 one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, zero,
             ],
-            carries(c(2_147_483_647), c(1)).await?
+            carries(c(2_147_483_647), c(1)).await
         );
         assert_eq!(
             vec![
@@ -377,16 +343,14 @@ mod tests {
                 zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
                 zero, zero, zero, one,
             ],
-            carries(c(2_147_483_648), c(2_147_483_648)).await?
+            carries(c(2_147_483_648), c(2_147_483_648)).await
         );
         assert_eq!(
             vec![
                 zero, zero, zero, one, one, one, one, one, one, one, one, one, one, one, one, one,
                 one, one, one, one, one, one, one, one, one, one, one, one, one, one, one, one,
             ],
-            carries(c(4_294_967_290), c(8)).await?
+            carries(c(4_294_967_290), c(8)).await
         );
-
-        Ok(())
     }
 }

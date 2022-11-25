@@ -131,7 +131,7 @@ mod tests {
         use crate::{
             helpers::Role,
             protocol::{sort::reshare::Reshare, QueryId, RecordId},
-            test_fixture::{validate_and_reconstruct, Runner, TestWorld},
+            test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
         /// Validates that reshare protocol actually generates new shares using PRSS.
@@ -155,7 +155,7 @@ mod tests {
                     })
                     .await;
 
-                let reshared_secret = validate_and_reconstruct(&shares[0], &shares[1], &shares[2]);
+                let reshared_secret = shares.reconstruct();
 
                 // if reshare cheated and just returned its input without adding randomness,
                 // this test will catch it with the probability of error (1/|F|)^2.
@@ -180,10 +180,7 @@ mod tests {
                     })
                     .await;
 
-                assert_eq!(
-                    secret,
-                    validate_and_reconstruct(&new_shares[0], &new_shares[1], &new_shares[2])
-                );
+                assert_eq!(secret, new_shares.reconstruct());
             }
         }
     }
@@ -193,7 +190,7 @@ mod tests {
         use crate::helpers::Role;
         use crate::protocol::sort::reshare::Reshare;
         use crate::protocol::{QueryId, RecordId};
-        use crate::test_fixture::{validate_and_reconstruct, Runner, TestWorld};
+        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
         use rand::{thread_rng, Rng};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
@@ -214,10 +211,7 @@ mod tests {
                     })
                     .await;
 
-                assert_eq!(
-                    secret,
-                    validate_and_reconstruct(&new_shares[0], &new_shares[1], &new_shares[2])
-                );
+                assert_eq!(secret, new_shares.reconstruct());
             }
         }
     }

@@ -3,7 +3,7 @@ use crate::protocol::context::Context;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::{QueryId, RecordId};
 use crate::secret_sharing::Replicated;
-use crate::test_fixture::{narrow_contexts, share, validate_and_reconstruct, Fp31, TestWorld};
+use crate::test_fixture::{narrow_contexts, share, Reconstruct, Fp31, TestWorld};
 use futures_util::future::join_all;
 use rand::thread_rng;
 
@@ -23,7 +23,7 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
     let results = join_all(multiplications).await;
     let mut sum = 0;
     for line in results {
-        sum += validate_and_reconstruct(&line[0], &line[1], &line[2]).as_u128();
+        sum += line.reconstruct().as_u128();
     }
 
     assert_eq!(sum, u128::from(width));

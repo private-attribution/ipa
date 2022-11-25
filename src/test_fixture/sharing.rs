@@ -1,9 +1,7 @@
-use crate::ff::{Field, Int};
+use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
-use crate::secret_sharing::{
-    MaliciousReplicated, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
-};
+use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use rand::thread_rng;
@@ -11,46 +9,38 @@ use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,
 };
+use std::borrow::Borrow;
 use std::iter::{repeat, zip};
 
-use super::{MaliciousShares, ReplicatedShares};
+use super::ReplicatedShares;
 
-pub trait IntoShares<S>: Sized {
-    fn share(self) -> [S; 3] {
+pub trait IntoShares: Sized {
+    type Output;
+    fn share(self) -> [Self::Output; 3] {
         self.share_with(&mut thread_rng())
     }
-    fn share_with<R: Rng>(self, rng: &mut R) -> [S; 3];
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3];
 }
 
-impl<F> IntoShares<Replicated<F>> for F
+impl<F> IntoShares for F
 where
     F: Field,
     Standard: Distribution<F>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
+    type Output = Replicated<F>;
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3] {
         share(self, rng)
     }
 }
 
-impl<F> IntoShares<(Replicated<F>, Replicated<F>)> for (F, F)
+impl<F, V> IntoShares for Vec<V>
 where
     F: Field,
     Standard: Distribution<F>,
+    V: IntoShares,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [(Replicated<F>, Replicated<F>); 3] {
-        let [x0, x1, x2] = share(self.0, rng);
-        let [y0, y1, y2] = share(self.1, rng);
-        [(x0, y0), (x1, y1), (x2, y2)]
-    }
-}
-
-impl<F, V> IntoShares<Vec<Replicated<F>>> for V
-where
-    F: Field,
-    Standard: Distribution<F>,
-    V: IntoIterator<Item = F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<Replicated<F>>; 3] {
+    type Output = Vec<<V as IntoShares>::Output>;
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3] {
         let it = self.into_iter();
         let store = if let (_, Some(sz)) = it.size_hint() {
             Vec::with_capacity(sz)
@@ -64,6 +54,17 @@ where
             }
         }
         res
+    }
+}
+
+// TODO: make a macro so we can use arbitrary-sized tuples
+impl<T> IntoShares for (T, T)
+where
+    T: IntoShares,
+{
+    type Output = (<T as IntoShares>::Output, <T as IntoShares>::Output);
+    fn share_with<R: Rng>(self, rng: &mut R) -> [Self::Output; 3] {
+        (self.0.share_with(rng), self.1.share_with(rng))
     }
 }
 
@@ -81,6 +82,13 @@ where
         Replicated::new(x2, x3),
         Replicated::new(x3, x1),
     ]
+}
+
+/// Deconstructs a value into N values, one for each bit.
+pub fn into_bits<F: Field>(x: F) -> Vec<F> {
+    (0..(128 - F::PRIME.into().leading_zeros()) as u32)
+        .map(|i| F::from((x.as_u128() >> i) & 1))
+        .collect::<Vec<_>>()
 }
 
 /// For upgrading various shapes of replicated share to malicious.
@@ -131,55 +139,65 @@ where
     }
 }
 
-/// Take a field value `x` and turn them into replicated bitwise sharings of three
-pub fn shared_bits<F: Field, R: RngCore>(x: F, rand: &mut R) -> Vec<[Replicated<F>; 3]>
-where
-    Standard: Distribution<F>,
-{
-    let x = x.as_u128();
-    (0..F::Integer::BITS)
-        .map(|i| share(F::from((x >> i) & 1), rand))
-        .collect::<Vec<_>>()
+/// A trait that is helpful for reconstruction of values in tests.
+pub trait Reconstruct<T> {
+    /// Validates correctness of the secret sharing scheme.
+    ///
+    /// # Panics
+    /// Panics if the given input is not a valid replicated secret share.
+    fn reconstruct(&self) -> T;
 }
 
-/// Validates correctness of the secret sharing scheme.
-///
-/// # Panics
-/// Panics if the given input is not a valid replicated secret share.
-pub fn validate_and_reconstruct<F: Field>(
-    s0: &Replicated<F>,
-    s1: &Replicated<F>,
-    s2: &Replicated<F>,
-) -> F {
-    assert_eq!(
-        s0.left() + s1.left() + s2.left(),
-        s0.right() + s1.right() + s2.right()
-    );
+impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for [T; 3] {
+    fn reconstruct(&self) -> F {
+        let s0 = self[0].borrow();
+        let s1 = self[1].borrow();
+        let s2 = self[2].borrow();
 
-    assert_eq!(s0.right(), s1.left());
-    assert_eq!(s1.right(), s2.left());
-    assert_eq!(s2.right(), s0.left());
+        assert_eq!(
+            s0.left() + s1.left() + s2.left(),
+            s0.right() + s1.right() + s2.right(),
+        );
 
-    s0.left() + s1.left() + s2.left()
+        assert_eq!(s0.right(), s1.left());
+        assert_eq!(s1.right(), s2.left());
+        assert_eq!(s2.right(), s0.left());
+
+        s0.left() + s1.left() + s2.left()
+    }
 }
 
-/// Validates correctness of the secret sharing scheme.
-///
-/// # Panics
-/// Panics if the given input is not a valid replicated secret share.
-pub fn validate_and_reconstruct_malicious<F: Field>(
-    s0: &MaliciousReplicated<F>,
-    s1: &MaliciousReplicated<F>,
-    s2: &MaliciousReplicated<F>,
-) -> (F, F) {
-    let result = validate_and_reconstruct(
-        s0.x().access_without_downgrade(),
-        s1.x().access_without_downgrade(),
-        s2.x().access_without_downgrade(),
-    );
-    let result_macs = validate_and_reconstruct(s0.rx(), s1.rx(), s2.rx());
+impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for (T, T, T) {
+    fn reconstruct(&self) -> F {
+        [self.0, self.1, self.2].reconstruct()
+    }
+}
 
-    (result, result_macs)
+impl<I: Reconstruct<T>, T> Reconstruct<Vec<T>> for [Vec<I>; 3] {
+    fn reconstruct(&self) -> Vec<T> {
+        zip(self[0].iter(), zip(self[1].iter(), self[2].iter()))
+            .map(|(x0, (x1, x2))| [x0, x1, x2].reconstruct())
+            .collect()
+    }
+}
+
+pub trait ValidateMalicious<F> {
+    fn validate(&self, r: F);
+}
+
+impl<F: Field> ValidateMalicious<F> for [&MaliciousReplicated<F>; 3] {
+    fn validate(&self, r: F) {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+        let x = (
+            self[0].x().access_without_downgrade(),
+            self[1].x().access_without_downgrade(),
+            self[2].x().access_without_downgrade(),
+        )
+            .reconstruct();
+        let rx = (self[0].rx(), self[1].rx(), self[1].rx()).reconstruct();
+        assert_eq!(x * r, rx);
+    }
 }
 
 /// Validates expected result from the secret shares obtained.
@@ -191,27 +209,7 @@ pub fn validate_list_of_shares<F: Field>(expected_result: &[u128], result: &Repl
     assert_eq!(expected_result.len(), result[1].len());
     assert_eq!(expected_result.len(), result[2].len());
     for (i, expected) in expected_result.iter().enumerate() {
-        let revealed = validate_and_reconstruct(&result[0][i], &result[1][i], &result[2][i]);
+        let revealed = (&result[0][i], &result[1][i], &result[2][i]).reconstruct();
         assert_eq!(revealed, F::from(*expected));
-    }
-}
-
-/// Validates expected result from the secret shares obtained.
-///
-/// # Panics
-/// Panics if the expected result is not same as obtained result. Also panics if `validate_and_reconstruct` fails for input or MACs
-pub fn validate_list_of_shares_malicious<F: Field>(
-    r: F,
-    expected_result: &[u128],
-    result: &MaliciousShares<F>,
-) {
-    assert_eq!(expected_result.len(), result[0].len());
-    assert_eq!(expected_result.len(), result[1].len());
-    assert_eq!(expected_result.len(), result[2].len());
-    for (i, expected) in expected_result.iter().enumerate() {
-        let (revealed, revealed_times_r) =
-            validate_and_reconstruct_malicious(&result[0][i], &result[1][i], &result[2][i]);
-        assert_eq!(revealed, F::from(*expected));
-        assert_eq!(revealed * r, revealed_times_r);
     }
 }

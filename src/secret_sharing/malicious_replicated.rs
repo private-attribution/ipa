@@ -207,7 +207,7 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{share, validate_and_reconstruct};
+    use crate::test_fixture::{share, Reconstruct};
     use proptest::prelude::Rng;
     use rand::thread_rng;
 
@@ -277,15 +277,16 @@ mod tests {
             (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::from(6_u128) + Fp31::from(2_u128) * f;
 
         assert_eq!(
-            validate_and_reconstruct(
+            (
                 results[0].x().access_without_downgrade(),
                 results[1].x().access_without_downgrade(),
                 results[2].x().access_without_downgrade(),
-            ),
+            )
+                .reconstruct(),
             correct,
         );
         assert_eq!(
-            validate_and_reconstruct(results[0].rx(), results[1].rx(), results[2].rx()),
+            (results[0].rx(), results[1].rx(), results[2].rx()).reconstruct(),
             correct * r,
         );
     }

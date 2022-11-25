@@ -25,7 +25,7 @@ mod tests {
         error::Error,
         ff::{Field, Fp31},
         protocol::{QueryId, RecordId},
-        test_fixture::{share, validate_and_reconstruct, TestWorld},
+        test_fixture::{share, Reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use rand::rngs::mock::StepRng;
@@ -65,7 +65,7 @@ mod tests {
         .await
         .unwrap();
 
-        Ok(validate_and_reconstruct(&result[0], &result[1], &result[2]))
+        Ok(result.reconstruct())
     }
 
     #[tokio::test]

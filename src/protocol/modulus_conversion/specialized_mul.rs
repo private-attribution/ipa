@@ -196,7 +196,7 @@ pub mod tests {
         QueryId, RecordId,
     };
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{share, validate_and_reconstruct, TestWorld};
+    use crate::test_fixture::{share, Reconstruct, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
@@ -234,8 +234,7 @@ pub mod tests {
             ])
             .await?;
 
-            let result =
-                validate_and_reconstruct(&result_shares[0], &result_shares[1], &result_shares[2]);
+            let result = result_shares.reconstruct();
             assert_eq!(result, a * b);
         }
 
@@ -298,8 +297,7 @@ pub mod tests {
         let results = try_join_all(futures).await?;
 
         for (input, result) in zip(inputs, results) {
-            let multiplication_output =
-                validate_and_reconstruct(&result[0], &result[1], &result[2]);
+            let multiplication_output = result.reconstruct();
 
             assert_eq!(multiplication_output, input.0 * input.1);
         }
@@ -343,9 +341,7 @@ pub mod tests {
             ])
             .await?;
 
-            let result =
-                validate_and_reconstruct(&result_shares[0], &result_shares[1], &result_shares[2]);
-
+            let result = result_shares.reconstruct();
             assert_eq!(result, a * b);
         }
 
@@ -405,8 +401,7 @@ pub mod tests {
         let results = try_join_all(futures).await?;
 
         for (input, result) in zip(inputs, results) {
-            let multiplication_output =
-                validate_and_reconstruct(&result[0], &result[1], &result[2]);
+            let multiplication_output = result.reconstruct();
 
             assert_eq!(multiplication_output, input.0 * input.1);
         }

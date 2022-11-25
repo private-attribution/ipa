@@ -207,7 +207,7 @@ mod tests {
             modulus_conversion::convert_shares::{ConvertShares, XorShares},
             QueryId, RecordId,
         },
-        test_fixture::{validate_and_reconstruct, TestWorld},
+        test_fixture::{Reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
@@ -264,7 +264,7 @@ mod tests {
         for (match_key, result) in zip(match_keys, results) {
             let bit_of_match_key = match_key & (1 << 4) != 0;
 
-            let share_of_bit = validate_and_reconstruct(&result[0], &result[1], &result[2]);
+            let share_of_bit = result.reconstruct();
             if bit_of_match_key {
                 assert_eq!(share_of_bit, Fp31::ONE);
             } else {

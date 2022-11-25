@@ -20,7 +20,10 @@ use crate::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
-use super::sharing::IntoMalicious;
+use super::{
+    sharing::{IntoMalicious, ValidateMalicious},
+    Reconstruct,
+};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -133,14 +136,15 @@ pub trait Runner<I, A> {
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
         R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Send + Debug,
+        P: DowngradeMalicious<Target = O> + Clone + Send + Sync + Debug,
+        [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
 }
 
 #[async_trait]
 impl<I, A> Runner<I, A> for TestWorld
 where
-    I: 'static + IntoShares<A> + Send,
+    I: 'static + IntoShares<Output = A> + Send,
     A: Send,
 {
     async fn semi_honest<'a, F, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
@@ -170,7 +174,8 @@ where
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
         R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Send + Debug,
+        P: DowngradeMalicious<Target = O> + Clone + Send + Sync + Debug,
+        [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
     {
         // The following is what this *should* look like,
@@ -211,6 +216,7 @@ where
 
         // Separate the validators and the now-malicious shares.
         let (v, m_shares): (Vec<_>, Vec<_>) = upgraded.into_iter().unzip();
+        let r = (v[0].r_share(), v[1].r_share(), v[2].r_share()).reconstruct();
 
         // Reference the validator to produce malicious contexts,
         // and process the inputs M and produce Future R which can be awaited to P.
@@ -221,10 +227,12 @@ where
                 .await;
 
         // Perform validation and convert the results we just got: P to O
-        let output = join_all(
-            zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
-        )
+        let validated = join_all(zip(v, m_results).map(|(v, m_result)| async {
+            (v.validate(m_result.clone()).await.unwrap(), m_result)
+        }))
         .await;
+        let (output, m_shares): (Vec<_>, Vec<_>) = validated.into_iter().unzip();
+        <[_; 3]>::try_from(m_shares).unwrap().validate(r);
         <[_; 3]>::try_from(output).unwrap()
     }
 }
