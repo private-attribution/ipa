@@ -254,8 +254,8 @@ mod tests {
 
     #[tokio::test]
     async fn semi_honest() {
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
 
         let batchsize = 25;
         let input: Vec<u8> = (0..batchsize).collect();
@@ -300,8 +300,8 @@ mod tests {
     async fn shuffle_unshuffle() {
         const BATCHSIZE: usize = 5;
 
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
 
         let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 

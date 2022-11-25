@@ -158,8 +158,8 @@ mod tests {
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
 
         logging::setup();
-        let world = TestWorld::new(QueryId);
-        let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
+        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let [ctx0, ctx1, ctx2] = world.contexts();
         let mut rng = rand::thread_rng();
 
         let mut match_keys: Vec<u64> = Vec::new();

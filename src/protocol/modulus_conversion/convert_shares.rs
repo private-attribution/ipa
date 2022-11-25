@@ -222,8 +222,8 @@ mod tests {
     pub async fn convert_one_bit_of_many_match_keys() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
         let [c0, c1, c2] = context;
 
         let mask = (1_u64 << 41) - 1; // in binary, a sequence of 40 ones

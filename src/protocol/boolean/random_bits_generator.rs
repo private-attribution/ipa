@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 /// item to return, and `write_pointer` points to the least recent empty slot.
 /// The pointers are `u8`. Incrementing them cause wrap around at the boundary,
 /// which makes the hash map a ring buffer.
+#[derive(Debug)]
 struct RingBuffer<T> {
     entries: HashMap<u8, T>,
     read_pointer: u8,
@@ -55,6 +56,7 @@ impl<T> RingBuffer<T> {
     }
 }
 
+#[derive(Debug)]
 struct State<F: Field> {
     buffer: RingBuffer<RandomBitsShare<F>>,
     next_index: u32,
@@ -117,28 +119,42 @@ impl<F: Field> State<F> {
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
 /// one by calling `take_one()`. It will call `SolvedBits` once the stock falls
 /// below `REFILL_THRESHOLD` until it fills up the empty slots.
-#[allow(dead_code)]
-pub struct RandomBitsGenerator<'a, F: Field> {
-    context: SemiHonestContext<'a, F>,
+#[derive(Debug)]
+pub struct RandomBitsGenerator<F: Field> {
     state: Arc<Mutex<State<F>>>,
 }
 
-#[allow(dead_code)]
-impl<'a, F: Field> RandomBitsGenerator<'a, F> {
-    pub fn new(context: SemiHonestContext<'a, F>) -> Self {
+impl<F: Field> Default for RandomBitsGenerator<F> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<F: Field> RandomBitsGenerator<F> {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
-            context,
             state: Arc::new(Mutex::new(State::new())),
         }
     }
 
-    pub async fn take_one(&self) -> Result<RandomBitsShare<F>, Error> {
+    /// Generates a `RandomBitsShare` instance.
+    ///
+    /// # Errors
+    /// This method mail fail for number of reasons. Errors include locking the
+    /// inner members multiple times, I/O errors while executing MPC protocols,
+    /// read from an empty buffer, etc.
+    pub async fn take_one(
+        &self,
+        context: SemiHonestContext<'_, F>,
+    ) -> Result<RandomBitsShare<F>, Error> {
         let mut state = self.state.lock().await;
-        state.get(self.context.clone()).await
+        state.get(context).await
     }
 
     // Used for unit tests only. Takes a lock and returns the internal counters
-    // of the ring buffer.
+    // in the ring buffer.
+    #[allow(dead_code)]
     async fn stats(&self) -> (usize, u32, u32, u8, u8) {
         let state = self.state.lock().await;
         (
@@ -151,12 +167,19 @@ impl<'a, F: Field> RandomBitsGenerator<'a, F> {
     }
 }
 
+impl<F: Field> Clone for RandomBitsGenerator<F> {
+    fn clone(&self) -> Self {
+        Self {
+            state: Arc::clone(&self.state),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::RandomBitsGenerator;
     use crate::{
         ff::Fp31,
-        protocol::QueryId,
+        protocol::{context::Context, QueryId},
         test_fixture::{join3, TestWorld},
     };
 
@@ -165,14 +188,19 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn basic() {
-        let world = TestWorld::new(QueryId);
-        let [c0, c1, c2] = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let [c0, c1, c2] = world.contexts();
 
-        let rbg0 = RandomBitsGenerator::new(c0);
-        let rbg1 = RandomBitsGenerator::new(c1);
-        let rbg2 = RandomBitsGenerator::new(c2);
+        let rbg0 = c0.random_bits_generator();
+        let rbg1 = c1.random_bits_generator();
+        let rbg2 = c2.random_bits_generator();
 
-        let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
+        let _result = join3(
+            rbg0.take_one(c0.clone()),
+            rbg1.take_one(c1.clone()),
+            rbg2.take_one(c2.clone()),
+        )
+        .await;
 
         // From the initial pointer positions r=0, w=0, the buffer is replenished
         // until we fill `MAX_SIZE` items. We called `take_one()` once, so the
@@ -191,7 +219,12 @@ mod tests {
 
         // Now we `take_one()` until 16 items left in the buffer
         for _ in 0..take_n {
-            let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
+            let _result = join3(
+                rbg0.take_one(c0.clone()),
+                rbg1.take_one(c1.clone()),
+                rbg2.take_one(c2.clone()),
+            )
+            .await;
         }
 
         // There should be 16 items left in the buffer. It hasn't triggered a
@@ -206,7 +239,12 @@ mod tests {
         let last_abort_count = abort_count;
 
         // One more `take_one()` will trigger the replenishment
-        let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
+        let _result = join3(
+            rbg0.take_one(c0.clone()),
+            rbg1.take_one(c1.clone()),
+            rbg2.take_one(c2.clone()),
+        )
+        .await;
 
         // Now, RBG tried to fill the remaining empty slots (`256 - 16`),
         // aborted N times in this round (last_about_count - abort_count),

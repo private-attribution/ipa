@@ -15,6 +15,7 @@ pub use malicious::MaliciousContext;
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use semi_honest::SemiHonestContext;
 
+use super::boolean::random_bits_generator::RandomBitsGenerator;
 use super::sort::reshare::Reshare;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
@@ -64,4 +65,6 @@ pub trait Context<F: Field>:
 
     /// Generates a new share of one
     fn share_of_one(&self) -> <Self as Context<F>>::Share;
+
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F>;
 }

@@ -3,7 +3,6 @@ use super::bitwise_sum::BitwiseSum;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
-use crate::protocol::boolean::solved_bits::SolvedBits;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::reveal::Reveal;
 use crate::protocol::RecordId;
@@ -29,10 +28,10 @@ impl BitDecomposition {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = SolvedBits::execute(ctx.narrow(&Step::GenerateRandomBits), record_id).await?;
-        // Would like to do something like below. Where should I add the `RandomBitsGenerator`?
-        // let r = ctx.random_bits_generator.take_one().await?;
-        let r = r.expect("SolvedBits aborted");
+        let r = ctx
+            .random_bits_generator()
+            .take_one(ctx.narrow(&Step::GenerateRandomBits))
+            .await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
@@ -109,12 +108,11 @@ mod tests {
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bit_decomposition<F: Field>(a: F) -> Vec<F>
+    async fn bit_decomposition<F: Field>(world: &TestWorld<F>, a: F) -> Vec<F>
     where
         F: Sized,
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new(QueryId);
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
                 BitDecomposition::execute(ctx, RecordId::from(0), &a_p)
@@ -131,36 +129,39 @@ mod tests {
         result.reconstruct()
     }
 
-    #[ignore]
+    // 0.8 secs * 5 cases = 4.0 secs
     #[tokio::test]
     pub async fn fp31() {
+        let world = TestWorld::new(QueryId);
         let c = Fp31::from;
-        assert_eq!(0, bits_to_value(&bit_decomposition(c(0_u32)).await));
-        assert_eq!(1, bits_to_value(&bit_decomposition(c(1)).await));
-        assert_eq!(15, bits_to_value(&bit_decomposition(c(15)).await));
-        assert_eq!(16, bits_to_value(&bit_decomposition(c(16)).await));
-        assert_eq!(30, bits_to_value(&bit_decomposition(c(30)).await));
+        assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));
+        assert_eq!(1, bits_to_value(&bit_decomposition(&world, c(1)).await));
+        assert_eq!(15, bits_to_value(&bit_decomposition(&world, c(15)).await));
+        assert_eq!(16, bits_to_value(&bit_decomposition(&world, c(16)).await));
+        assert_eq!(30, bits_to_value(&bit_decomposition(&world, c(30)).await));
     }
 
-    // This test takes 3 secs which is too long. Commenting out some test
-    // cases, but we want to bring these back after optimizations.
+    // This test takes more than 15 secs... I'm disabling it for now until
+    // we optimize and/or find a way to make tests run faster.
+    #[ignore]
     #[tokio::test]
     pub async fn fp32_bit_prime() {
+        let world = TestWorld::new(QueryId);
         let c = Fp32BitPrime::from;
-        // let u16_max: u32 = u16::MAX.into();
-        assert_eq!(0, bits_to_value(&bit_decomposition(c(0_u32)).await));
-        // assert_eq!(1, bits_to_value(&bit_decomposition(c(1)).await));
-        // assert_eq!(
-        //     u128::from(u16_max),
-        //     bits_to_value(&bit_decomposition(c(u16_max)).await)
-        // );
-        // assert_eq!(
-        //     u128::from(u16_max + 1),
-        //     bits_to_value(&bit_decomposition(c(u16_max + 1)).await)
-        // );
+        let u16_max: u32 = u16::MAX.into();
+        assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));
+        assert_eq!(1, bits_to_value(&bit_decomposition(&world, c(1)).await));
+        assert_eq!(
+            u128::from(u16_max),
+            bits_to_value(&bit_decomposition(&world, c(u16_max)).await)
+        );
+        assert_eq!(
+            u128::from(u16_max + 1),
+            bits_to_value(&bit_decomposition(&world, c(u16_max + 1)).await)
+        );
         assert_eq!(
             u128::from(Fp32BitPrime::PRIME - 1),
-            bits_to_value(&bit_decomposition(c(Fp32BitPrime::PRIME - 1)).await)
+            bits_to_value(&bit_decomposition(&world, c(Fp32BitPrime::PRIME - 1)).await)
         );
     }
 }

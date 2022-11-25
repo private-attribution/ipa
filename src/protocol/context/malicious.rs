@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
+use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::mul::SecureMul;
@@ -20,6 +21,7 @@ pub struct MaliciousContext<'a, F: Field> {
     /// may operate with raw references and be more efficient
     inner: Arc<ContextInner<'a, F>>,
     step: Step,
+    random_bits_generator: RandomBitsGenerator<F>,
 }
 
 pub trait SpecialAccessToMaliciousContext<'a, F: Field> {
@@ -38,6 +40,7 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         Self {
             inner: ContextInner::new(upgrade_ctx, acc, r_share),
             step: source.step().narrow(malicious_step),
+            random_bits_generator: RandomBitsGenerator::new(),
         }
     }
 
@@ -51,6 +54,19 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner.upgrade(record_id, input).await
+    }
+
+    /// Test use only!
+    /// Reuse a provided `RandomBitsGenerator` (rbg).
+    /// Each context holds an instance of `rbg`. It is wrapped within an Arc
+    /// pointer, so the instance would persist for the lifetime of the context
+    /// its in. In unit tests, however, a new context is created each time a
+    /// test is run, which makes the rbg buffer useless. Use this method to
+    /// provide an existing rbg to use for tests.
+    #[must_use]
+    pub fn supply_rbg_for_tests(mut self, rbg: RandomBitsGenerator<F>) -> Self {
+        self.random_bits_generator = rbg;
+        self
     }
 }
 
@@ -69,6 +85,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
+            random_bits_generator: self.random_bits_generator.clone(),
         }
     }
 
@@ -86,6 +103,10 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
+    }
+
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F> {
+        self.random_bits_generator.clone()
     }
 }
 

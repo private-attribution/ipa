@@ -1,6 +1,7 @@
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
+use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::prss::{
@@ -19,6 +20,7 @@ pub struct SemiHonestContext<'a, F: Field> {
     /// may operate with raw references and be more efficient
     pub(super) inner: Arc<ContextInner<'a>>,
     pub(super) step: Step,
+    pub(super) random_bits_generator: RandomBitsGenerator<F>,
     _marker: PhantomData<F>,
 }
 
@@ -27,6 +29,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         Self {
             inner: ContextInner::new(role, participant, gateway),
             step: Step::default(),
+            random_bits_generator: RandomBitsGenerator::new(),
             _marker: PhantomData::default(),
         }
     }
@@ -47,6 +50,19 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         let upgrade_ctx = self.narrow(upgrade_step);
         MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)
     }
+
+    /// Test use only!
+    /// Reuse a provided `RandomBitsGenerator` (rbg).
+    /// Each context holds an instance of `rbg`. It is wrapped within an Arc
+    /// pointer, so the instance would persist for the lifetime of the context
+    /// its in. In unit tests, however, a new context is created each time a
+    /// test is run, which makes the rbg buffer useless. Use this method to
+    /// provide an existing rbg to use for tests.
+    #[must_use]
+    pub fn supply_rbg_for_tests(mut self, rbg: RandomBitsGenerator<F>) -> Self {
+        self.random_bits_generator = rbg;
+        self
+    }
 }
 
 impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
@@ -64,6 +80,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
+            random_bits_generator: self.random_bits_generator.clone(),
             _marker: PhantomData::default(),
         }
     }
@@ -82,6 +99,10 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         Replicated::one(self.role())
+    }
+
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F> {
+        self.random_bits_generator.clone()
     }
 }
 

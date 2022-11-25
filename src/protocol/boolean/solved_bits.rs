@@ -217,8 +217,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let ctx = world.contexts();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;
@@ -241,8 +241,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<Fp32BitPrime>();
+        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let ctx = world.contexts();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;

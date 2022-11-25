@@ -325,7 +325,7 @@ mod tests {
         Standard: Distribution<F>,
     {
         let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<F>();
+        let ctx = world.contexts();
         let mut rand = StepRng::new(1, 1);
 
         // Generate secret shares
