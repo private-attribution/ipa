@@ -2,7 +2,7 @@ use rand::Rng;
 use raw_ipa::error::Error;
 use raw_ipa::ff::Field;
 use raw_ipa::ff::Fp32BitPrime;
-use raw_ipa::protocol::sort::generate_sort_permutation::generate_sort_permutation;
+use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
 use raw_ipa::protocol::QueryId;
 use raw_ipa::test_fixture::{join3, validate_and_reconstruct, TestWorld, TestWorldConfig};
 use std::time::Instant;
@@ -42,9 +42,9 @@ async fn main() -> Result<(), Error> {
 
     let start = Instant::now();
     let result = join3(
-        generate_sort_permutation(ctx0, &shares[0], num_bits),
-        generate_sort_permutation(ctx1, &shares[1], num_bits),
-        generate_sort_permutation(ctx2, &shares[2], num_bits),
+        generate_permutation(ctx0, &shares[0], num_bits),
+        generate_permutation(ctx1, &shares[1], num_bits),
+        generate_permutation(ctx2, &shares[2], num_bits),
     )
     .await;
     let duration = start.elapsed().as_secs_f32();

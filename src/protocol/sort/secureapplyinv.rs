@@ -32,7 +32,7 @@ use super::{apply::apply_inv, shuffle::shuffle_shares};
 pub async fn secureapplyinv<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: Vec<Replicated<F>>,
-    random_permutations_for_shuffle: &(Vec<u32>, Vec<u32>),
+    random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sort_permutation: &[u32],
 ) -> Result<Vec<Replicated<F>>, Error> {
     let mut shuffled_input = shuffle_shares(
@@ -48,15 +48,15 @@ pub async fn secureapplyinv<F: Field>(
 
 #[cfg(test)]
 mod tests {
-    use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
+    use crate::test_fixture::join3;
     use crate::{
         ff::Fp31,
         protocol::{
-            sort::{apply::apply_inv, generate_sort_permutation::shuffle_and_reveal_permutation},
+            sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
             QueryId,
         },
         test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
@@ -90,28 +90,42 @@ mod tests {
 
             let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-            let perm_and_randoms: [_; 3] = try_join_all([
+            let perm_and_randoms = join3(
                 shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), input.len(), perm0),
                 shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), input.len(), perm1),
                 shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), input.len(), perm2),
-            ])
-            .await
-            .unwrap()
-            .try_into()
-            .unwrap();
+            )
+            .await;
 
-            let h0_future =
-                secureapplyinv(ctx0, input0, &perm_and_randoms[0].1, &perm_and_randoms[0].0);
-            let h1_future =
-                secureapplyinv(ctx1, input1, &perm_and_randoms[1].1, &perm_and_randoms[1].0);
-            let h2_future =
-                secureapplyinv(ctx2, input2, &perm_and_randoms[2].1, &perm_and_randoms[2].0);
+            let h0_future = secureapplyinv(
+                ctx0,
+                input0,
+                (
+                    perm_and_randoms[0].1 .0.as_slice(),
+                    perm_and_randoms[0].1 .1.as_slice(),
+                ),
+                &perm_and_randoms[0].0,
+            );
+            let h1_future = secureapplyinv(
+                ctx1,
+                input1,
+                (
+                    perm_and_randoms[1].1 .0.as_slice(),
+                    perm_and_randoms[1].1 .1.as_slice(),
+                ),
+                &perm_and_randoms[1].0,
+            );
+            let h2_future = secureapplyinv(
+                ctx2,
+                input2,
+                (
+                    perm_and_randoms[2].1 .0.as_slice(),
+                    perm_and_randoms[2].1 .1.as_slice(),
+                ),
+                &perm_and_randoms[2].0,
+            );
 
-            let result: [_; 3] = try_join_all([h0_future, h1_future, h2_future])
-                .await
-                .unwrap()
-                .try_into()
-                .unwrap();
+            let result = join3(h0_future, h1_future, h2_future).await;
 
             // We should get the same result of applying inverse as what we get when applying in clear
             validate_list_of_shares(&expected_result, &result);
