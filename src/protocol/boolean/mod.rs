@@ -9,7 +9,7 @@ mod bitwise_sum;
 mod carries;
 mod or;
 mod prefix_or;
-mod random_bits_generator;
+pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
