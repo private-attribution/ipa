@@ -66,5 +66,6 @@ pub trait Context<F: Field>:
     /// Generates a new share of one
     fn share_of_one(&self) -> <Self as Context<F>>::Share;
 
+    /// Get the random bits generator instance.
     fn random_bits_generator(&self) -> RandomBitsGenerator<F>;
 }
