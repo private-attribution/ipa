@@ -23,15 +23,15 @@ use std::iter::zip;
 pub struct BitwiseLessThan {}
 
 impl BitwiseLessThan {
-    /// Step 1. `for i=0..l-1, [e_i] = XOR([a_i], [b_i])`
     ///
+    /// For each bit index, compare the corresponding bits of `a` and `b` and return `a_i != b_a`
+    /// Logically, "is this bit of `a` different from this bit of `b`?"
+    /// Results returned in *big-endian* order (most significant digit first)
     /// # Example
     /// ```ignore
-    ///   //  bit-0         bit-7
-    ///   //    v             v
-    ///   [a] = 1 0 1 0 1 0 0 0   // 21 in little-endian
-    ///   [b] = 0 1 1 1 1 0 0 0   // 30 in little-endian
-    ///   [e] = 1 1 0 1 0 0 0 0
+    ///   [a] = 1 1 0 1 0 1 1 0
+    ///   [b] = 1 1 0 0 1 0 0 1
+    ///   =>    0 0 0 1 1 1 1 1
     /// ```
     async fn xor_all_but_the_last_bit<F: Field>(
         a: &[Replicated<F>],
@@ -50,21 +50,15 @@ impl BitwiseLessThan {
         try_join_all(xor).await
     }
 
-    /// Step 2. `([f_(l-1)]..[f_0]) = PrefixOr([e_(l-1)]..[e_0])`
     ///
-    /// We compute `PrefixOr` of [e] in the reverse order. Remember that the
-    /// inputs are in little-endian format. In this step, we try to find the
-    /// smallest `i` (or MSB since `e` is reversed) where `a_i != b_i`. The
-    /// output is in big-endian, note that the ordering of `[f]` in the notation
-    /// above is also reversed as in `([f_(l-1)]..[f_0])`, hence we reverse the
-    /// vector once again before returning.
-    ///
+    /// For each bit index, compare the corresponding bits of `a` and `b` and return `a_i == 0 && b_i == 1`
+    /// Logically, "is this bit of `a` less than this bit of `b`?"
+    /// Results returned in *big-endian* order (most significant digit first)
     /// # Example
     /// ```ignore
-    ///   //  bit-0         bit-7
-    ///   //    v             v
-    ///   [e] = 1 1 0 1 0 0 0 0
-    ///   [f] = 0 0 0 0 1 1 1 1
+    ///   [a] = 1 1 0 1 0 1 1 0
+    ///   [b] = 1 1 0 0 1 0 0 1
+    ///   =>    0 0 0 0 1 0 0 1
     /// ```
     async fn less_than_all_bits<F: Field>(
         a: &[Replicated<F>],
@@ -80,6 +74,14 @@ impl BitwiseLessThan {
         try_join_all(less_than).await
     }
 
+    ///
+    /// Compares the `a` and `b`, and returns `1` iff `a < b`
+    /// This logic is very simple:
+    /// Starting from the most-significant bit and working downwards:
+    /// For the most-significant bit: check if `a_0 == 0 && b_0 == 1`
+    /// For any the other bit `j`: check if `a_i == b_i` for `i = 0..j-1` AND `(a_j == 0 && b_j == 1)`
+    /// Finally, since at most one of these conditions can be true, it is sufficient to just add up
+    /// all of these conditions. That sum is logically equivalent to an OR of all conditions.
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
