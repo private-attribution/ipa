@@ -35,6 +35,18 @@ impl BitwiseSum {
         try_join_all(both_one).await
     }
 
+    ///
+    /// Really simple logic. Just follows the way you do addition in grade school
+    /// Starting from the least significant digit add up the digits, carrying when required.
+    ///
+    /// For the very first digit, the output is `a_0 XOR b_0` and it carries `a_0 * b_0`
+    /// For all the following digits, we need to carry if EITHER:
+    /// `a_i` and `b_i` are both one, OR
+    /// one of `a_i` and `b_i` are one AND the carry digit is also one
+    /// we can compute the first condition as `a_i * b_i`
+    /// the second condition is `XOR(a_i, b_i) * carry_i`
+    /// Finally, each digit of the output can be found by just summing up `a_i`, `b_i` and `carry_i`,
+    /// then subtracting 2 if `carry_{i+1} == 1`.
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
