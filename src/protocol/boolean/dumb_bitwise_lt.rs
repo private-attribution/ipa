@@ -33,7 +33,7 @@ impl BitwiseLessThan {
     ///   [b] = 1 1 0 0 1 0 0 1
     ///   =>    0 0 0 1 1 1 1 1
     /// ```
-    async fn xor_all_but_the_last_bit<F: Field>(
+    async fn xor_all_but_lsb<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
         ctx: SemiHonestContext<'_, F>,
@@ -41,8 +41,8 @@ impl BitwiseLessThan {
     ) -> Result<Vec<Replicated<F>>, Error> {
         let xor = zip(a, b)
             .enumerate()
+            .skip(1)
             .rev()
-            .take(a.len() - 1)
             .map(|(i, (a_bit, b_bit))| {
                 let c = ctx.narrow(&BitOpStep::Step(i));
                 async move { xor(c, record_id, a_bit, b_bit).await }
@@ -92,7 +92,7 @@ impl BitwiseLessThan {
     ) -> Result<Replicated<F>, Error> {
         debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
         let (xored_bits, less_thaned_bits) = try_join(
-            Self::xor_all_but_the_last_bit(a, b, ctx.narrow(&Step::BitwiseAXorB), record_id),
+            Self::xor_all_but_lsb(a, b, ctx.narrow(&Step::BitwiseAXorB), record_id),
             Self::less_than_all_bits(a, b, ctx.narrow(&Step::BitwiseALessThanB), record_id),
         )
         .await?;
