@@ -83,7 +83,8 @@ impl AsRef<str> for Step {
 
 #[cfg(test)]
 mod tests {
-    use super::BitwiseSum;
+    //use super::BitwiseSum;
+    use crate::protocol::boolean::dumb_bitwise_sum::BitwiseSum;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
@@ -191,6 +192,20 @@ mod tests {
                 a.as_u128() + b.as_u128(),
                 bits_to_value(&bitwise_sum(a, b).await)
             );
+        }
+    }
+
+    // this test is for manual execution only
+    #[ignore]
+    #[tokio::test]
+    pub async fn cmp_all_fp31() {
+        for a in 0..Fp31::PRIME {
+            for b in 0..Fp31::PRIME {
+                assert_eq!(
+                    u128::from(a + b),
+                    bits_to_value(&bitwise_sum(Fp31::from(a), Fp31::from(b)).await)
+                );
+            }
         }
     }
 }
