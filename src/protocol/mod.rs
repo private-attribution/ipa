@@ -1,6 +1,6 @@
 mod attribution;
 mod batch;
-mod boolean;
+pub mod boolean;
 mod check_zero;
 pub mod context;
 pub mod malicious;

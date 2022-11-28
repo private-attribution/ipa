@@ -271,8 +271,8 @@ mod tests {
         ];
         const EXPECTED: &[u128] = &[0, 19, 19, 9, 7, 6, 1, 0, 10];
 
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
         let mut rng = StepRng::new(100, 1);
 
         let shares = generate_shared_input(RAW_INPUT, &mut rng);

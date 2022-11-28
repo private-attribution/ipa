@@ -1,6 +1,6 @@
 use super::prefix_or::PrefixOr;
 use super::xor::xor;
-use super::BitOpStep;
+use super::{align_bit_lengths, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
@@ -136,11 +136,12 @@ impl BitwiseLessThan {
         a: &[Replicated<F>],
         b: &[Replicated<F>],
     ) -> Result<Replicated<F>, Error> {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
-        let mut e = Self::step1(a, b, ctx.narrow(&Step::AXorB), record_id).await?;
+        let (a, b) = align_bit_lengths(a, b);
+
+        let mut e = Self::step1(&a, &b, ctx.narrow(&Step::AXorB), record_id).await?;
         let f = Self::step2(&mut e, ctx.narrow(&Step::PrefixOr), record_id).await?;
         let g = Self::step3_4(&f);
-        let h = Self::step5(&g, b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
+        let h = Self::step5(&g, &b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
         let result = Self::step6(&h);
         Ok(result)
     }
@@ -248,6 +249,26 @@ mod tests {
         );
 
         assert_eq!(zero, bitwise_lt(zero, c(Fp32BitPrime::PRIME)).await);
+    }
+
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() {
+        let world = TestWorld::new(QueryId);
+
+        let input = (
+            pad(into_bits(Fp31::from(3_u32))), // 8-bit
+            into_bits(Fp31::from(5_u32)),      // 5-bit
+        );
+        let result = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(Fp31::ONE, result);
     }
 
     // this test is for manual execution only

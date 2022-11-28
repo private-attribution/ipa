@@ -1,8 +1,9 @@
+use super::align_bit_lengths;
 use super::carries::Carries;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, RecordId};
+use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::RecordId;
 use crate::secret_sharing::Replicated;
 
 /// This is an implementation of Bitwise Sum on bitwise-shared numbers.
@@ -37,11 +38,11 @@ impl BitwiseSum {
         a: &[Replicated<F>],
         b: &[Replicated<F>],
     ) -> Result<Vec<Replicated<F>>, Error> {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
+        let (a, b) = align_bit_lengths(a, b);
         let l = a.len();
 
         // Step 1. Get a bitwise sharing of the carries
-        let c = Carries::execute(ctx.narrow(&Step::Carries), record_id, a, b).await?;
+        let c = Carries::execute(ctx.narrow(&Step::Carries), record_id, &a, &b).await?;
 
         // Step 2. `[d_0] = [a_0] + [b_0] - 2[c_1]`
         // The paper refers `[c]_b` as `([c_1],...[c_l])`; the starting index is 1;
@@ -86,9 +87,17 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
-        test_fixture::{bits_to_field, into_bits, Reconstruct, Runner, TestWorld},
+        test_fixture::{bits_to_value, into_bits, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution, Rng};
+
+    /// This protocol requires a number of inputs that are equal to a power of 2.
+    /// This functions pads those inputs.
+    fn pad<F: Field>(mut values: Vec<F>) -> Vec<F> {
+        let target_len = 1 << (usize::BITS - (values.len() - 1).leading_zeros());
+        values.resize(target_len, F::ZERO);
+        values
+    }
 
     #[allow(clippy::many_single_char_names)]
     async fn bitwise_sum<F: Field>(a: F, b: F) -> Vec<F>
@@ -117,32 +126,57 @@ mod tests {
     pub async fn fp31_basic() {
         let c = Fp31::from;
 
-        assert_eq!(c(0_u8), bits_to_field(&bitwise_sum(c(0), c(0)).await));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(0), c(1)).await));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(1), c(0)).await));
-        assert_eq!(c(2), bits_to_field(&bitwise_sum(c(1), c(1)).await));
+        assert_eq!(0, bits_to_value(&bitwise_sum(c(0_u32), c(0)).await));
+        assert_eq!(1, bits_to_value(&bitwise_sum(c(0), c(1)).await));
+        assert_eq!(1, bits_to_value(&bitwise_sum(c(1), c(0)).await));
+        assert_eq!(2, bits_to_value(&bitwise_sum(c(1), c(1)).await));
+        assert_eq!(32, bits_to_value(&bitwise_sum(c(16), c(16)).await));
+        assert_eq!(60, bits_to_value(&bitwise_sum(c(30), c(30)).await));
     }
 
     #[tokio::test]
     pub async fn fp_32bit_prime_basic() {
         let c = Fp32BitPrime::from;
 
-        assert_eq!(c(0_u32), bits_to_field(&bitwise_sum(c(0), c(0)).await));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(0), c(1)).await));
-        assert_eq!(c(1), bits_to_field(&bitwise_sum(c(1), c(0)).await));
-        assert_eq!(c(2), bits_to_field(&bitwise_sum(c(1), c(1)).await));
+        assert_eq!(0, bits_to_value(&bitwise_sum(c(0_u32), c(0)).await));
+        assert_eq!(1, bits_to_value(&bitwise_sum(c(0), c(1)).await));
+        assert_eq!(1, bits_to_value(&bitwise_sum(c(1), c(0)).await));
+        assert_eq!(2, bits_to_value(&bitwise_sum(c(1), c(1)).await));
         assert_eq!(
-            c(2_147_483_648_u32),
-            bits_to_field(&bitwise_sum(c(2_147_483_647), c(1)).await)
+            2_147_483_648,
+            bits_to_value(&bitwise_sum(c(2_147_483_647), c(1)).await)
         );
         assert_eq!(
-            c(4_294_967_290),
-            bits_to_field(&bitwise_sum(c(2_147_483_645), c(2_147_483_645)).await)
+            4_294_967_290,
+            bits_to_value(&bitwise_sum(c(2_147_483_645), c(2_147_483_645)).await)
         );
         assert_eq!(
-            c(0),
-            bits_to_field(&bitwise_sum(c(2_147_483_645), c(2_147_483_646)).await)
+            4_294_967_291,
+            bits_to_value(&bitwise_sum(c(2_147_483_645), c(2_147_483_646)).await)
         );
+    }
+
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() {
+        let world = TestWorld::new(QueryId);
+
+        let input = (
+            pad(into_bits(Fp31::from(3_u32))), // 8-bit
+            into_bits(Fp31::from(5_u32)),      // 5-bit
+        );
+        let l = input.0.len();
+        let sum = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseSum::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        // Output's bit length should be `input.len() + 1`
+        assert_eq!(l + 1, sum.len());
+        assert_eq!(8, bits_to_value(&sum));
     }
 
     #[tokio::test]
@@ -153,7 +187,10 @@ mod tests {
         for _ in 0..10 {
             let a = c(rng.gen::<u128>());
             let b = c(rng.gen());
-            assert_eq!(a + b, bits_to_field(&bitwise_sum(a, b).await));
+            assert_eq!(
+                a.as_u128() + b.as_u128(),
+                bits_to_value(&bitwise_sum(a, b).await)
+            );
         }
     }
 }

@@ -133,7 +133,7 @@ pub mod tests {
         assert_eq!(expected, results.reconstruct());
     }
 
-    async fn multiply_sync<F>(world: &TestWorld, a: u128, b: u128) -> u128
+    async fn multiply_sync<F>(world: &TestWorld<F>, a: u128, b: u128) -> u128
     where
         F: Field,
         (F, F): Sized,
