@@ -45,7 +45,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
+    use crate::test_fixture::Runner;
     use crate::{
         ff::Fp31,
         protocol::{
@@ -55,72 +55,56 @@ mod tests {
             },
             QueryId,
         },
-        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
+        test_fixture::{validate_list_of_shares, TestWorld},
     };
 
     #[tokio::test]
     pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
         for _ in 0..10 {
+            let world = TestWorld::new(QueryId);
             let mut rng_sigma = rand::thread_rng();
             let mut rng_rho = rand::thread_rng();
 
             let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
             sigma.shuffle(&mut rng_sigma);
-
-            let sigma_u128: Vec<u128> = sigma.iter().map(|x| u128::from(*x)).collect();
-
             let mut rho: Vec<u32> = (0..BATCHSIZE).collect();
             rho.shuffle(&mut rng_rho);
-            let rho_u128: Vec<u128> = rho.iter().map(|x| u128::from(*x)).collect();
 
-            let mut rho_composed = rho_u128.clone();
+            let mut rho_composed: Vec<u128> = rho.iter().map(|x| u128::from(*x)).collect();
+
             apply(&sigma, &mut rho_composed);
 
-            let [sigma0, sigma1, sigma2] = generate_shares::<Fp31>(&sigma_u128);
+            let result = world
+                .semi_honest(
+                    (
+                        sigma.into_iter().map(u128::from).map(Fp31::from),
+                        rho.into_iter().map(u128::from).map(Fp31::from),
+                    ),
+                    |ctx, (m_sigma_shares, m_rho_shares)| async move {
+                        let sigma_and_randoms = shuffle_and_reveal_permutation(
+                            ctx.narrow("shuffle_reveal"),
+                            BATCHSIZE.try_into().unwrap(),
+                            m_sigma_shares,
+                        )
+                        .await
+                        .unwrap();
 
-            let [rho0, rho1, rho2] = generate_shares::<Fp31>(&rho_u128);
-            let world = TestWorld::new(QueryId);
-            let [ctx0, ctx1, ctx2] = world.contexts();
+                        compose(
+                            ctx,
+                            (
+                                sigma_and_randoms.1 .0.as_slice(),
+                                sigma_and_randoms.1 .1.as_slice(),
+                            ),
+                            &sigma_and_randoms.0,
+                            m_rho_shares,
+                        )
+                        .await
+                        .unwrap()
+                    },
+                )
+                .await;
 
-            let sigma_and_randoms = join3(
-                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), sigma.len(), sigma0),
-                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), sigma.len(), sigma1),
-                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), sigma.len(), sigma2),
-            )
-            .await;
-
-            let h0_future = compose(
-                ctx0,
-                (
-                    sigma_and_randoms[0].1 .0.as_slice(),
-                    sigma_and_randoms[0].1 .1.as_slice(),
-                ),
-                &sigma_and_randoms[0].0,
-                rho0,
-            );
-            let h1_future = compose(
-                ctx1,
-                (
-                    sigma_and_randoms[1].1 .0.as_slice(),
-                    sigma_and_randoms[1].1 .1.as_slice(),
-                ),
-                &sigma_and_randoms[1].0,
-                rho1,
-            );
-            let h2_future = compose(
-                ctx2,
-                (
-                    sigma_and_randoms[2].1 .0.as_slice(),
-                    sigma_and_randoms[2].1 .1.as_slice(),
-                ),
-                &sigma_and_randoms[2].0,
-                rho2,
-            );
-
-            let result = join3(h0_future, h1_future, h2_future).await;
-
-            // We should get the same result of applying inverse of sigma on rho as in clear
             validate_list_of_shares(&rho_composed, &result);
         }
     }

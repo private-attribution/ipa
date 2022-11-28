@@ -67,6 +67,22 @@ where
     }
 }
 
+impl<F, V, U> IntoShares<(Vec<Replicated<F>>, Vec<Replicated<F>>)> for (V, U)
+where
+    F: Field,
+    Standard: Distribution<F>,
+    V: IntoIterator<Item = F>,
+    U: IntoIterator<Item = F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [(Vec<Replicated<F>>, Vec<Replicated<F>>); 3] {
+        let ([res11, res12, res13], [res21, res22, res23]) = (
+            self.0.into_iter().share_with(rng),
+            self.1.into_iter().share_with(rng),
+        );
+        [(res11, res21), (res12, res22), (res13, res23)]
+    }
+}
+
 /// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
 pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]
 where

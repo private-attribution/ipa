@@ -330,4 +330,98 @@ mod tests {
             validate_list_of_shares(&input[..], &result);
         }
     }
+
+    mod malicious {
+        use std::collections::HashSet;
+        use std::iter::zip;
+
+        use crate::ff::Fp31;
+        use crate::protocol::context::Context;
+        use crate::protocol::sort::shuffle::{
+            get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
+        };
+        use crate::protocol::QueryId;
+        use crate::test_fixture::{
+            validate_and_reconstruct, validate_list_of_shares, Runner, TestWorld,
+        };
+
+        #[tokio::test]
+        async fn malicious() {
+            const BATCHSIZE: u8 = 25;
+            let world = TestWorld::new(QueryId);
+
+            let input: Vec<u8> = (0..BATCHSIZE).collect();
+            let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
+
+            let input_u128: Vec<u128> = input.iter().map(|x| u128::from(*x)).collect();
+
+            let result = world
+                .malicious(
+                    input_u128.clone().into_iter().map(Fp31::from),
+                    |ctx, m_shares| async move {
+                        let perms = get_two_of_three_random_permutations(
+                            BATCHSIZE.into(),
+                            ctx.prss().as_ref(),
+                        );
+                        shuffle_shares(
+                            m_shares,
+                            (perms.0.as_slice(), perms.1.as_slice()),
+                            ctx.clone(),
+                        )
+                        .await
+                        .unwrap()
+                    },
+                )
+                .await;
+
+            let mut hashed_output_secret = HashSet::new();
+            let mut output_secret = Vec::new();
+            for (r0, (r1, r2)) in zip(result[0].iter(), zip(result[1].iter(), result[2].iter())) {
+                let val = validate_and_reconstruct(r0, r1, r2);
+                output_secret.push(u8::from(val));
+                hashed_output_secret.insert(u8::from(val));
+            }
+
+            // Secrets should be shuffled
+            assert_ne!(output_secret, input);
+
+            // Shuffled output should have same inputs
+            assert_eq!(hashed_output_secret, hashed_input);
+        }
+
+        #[tokio::test]
+        async fn shuffle_unshuffle() {
+            const BATCHSIZE: usize = 5;
+
+            let world = TestWorld::new(QueryId);
+            let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
+
+            let result = world
+                .malicious(
+                    input.clone().into_iter().map(Fp31::from),
+                    |ctx, m_shares| async move {
+                        let perms =
+                            get_two_of_three_random_permutations(BATCHSIZE, ctx.prss().as_ref());
+                        let shuffled = shuffle_shares(
+                            m_shares,
+                            (perms.0.as_slice(), perms.1.as_slice()),
+                            ctx.clone(),
+                        )
+                        .await
+                        .unwrap();
+
+                        unshuffle_shares(
+                            shuffled,
+                            (perms.0.as_slice(), perms.1.as_slice()),
+                            ctx.narrow("unshuffle"),
+                        )
+                        .await
+                        .unwrap()
+                    },
+                )
+                .await;
+
+            validate_list_of_shares(&input[..], &result);
+        }
+    }
 }

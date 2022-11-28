@@ -47,87 +47,73 @@ pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::Rng;
-    use rand::seq::SliceRandom;
+    mod semi_honest {
+        use proptest::prelude::Rng;
+        use rand::seq::SliceRandom;
 
-    use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
-    use crate::{
-        ff::Fp31,
-        protocol::{
-            sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
-            QueryId,
-        },
-        test_fixture::{generate_shares, validate_list_of_shares, TestWorld},
-    };
+        use crate::protocol::context::Context;
+        use crate::protocol::sort::secureapplyinv::secureapplyinv;
+        use crate::test_fixture::Runner;
+        use crate::{
+            ff::Fp31,
+            protocol::{
+                sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
+                QueryId,
+            },
+            test_fixture::{validate_list_of_shares, TestWorld},
+        };
 
-    use super::secureapplyinv;
+        #[tokio::test]
+        pub async fn semi_honest() {
+            const BATCHSIZE: u32 = 25;
+            for _ in 0..10 {
+                let world = TestWorld::new(QueryId);
+                let mut rng = rand::thread_rng();
 
-    #[tokio::test]
-    pub async fn semi_honest() {
-        const BATCHSIZE: u32 = 25;
-        for _ in 0..10 {
-            let mut rng = rand::thread_rng();
-            let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE as usize);
-            for _ in 0..BATCHSIZE {
-                input.push(rng.gen::<u128>() % 31_u128);
+                let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE as usize);
+                for _ in 0..BATCHSIZE {
+                    input.push(rng.gen::<u128>() % 31_u128);
+                }
+
+                let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
+                permutation.shuffle(&mut rng);
+
+                let mut expected_result = input.clone();
+
+                // Applying permutation on the input in clear to get the expected result
+                apply_inv(&permutation, &mut expected_result);
+
+                let input_iter = input.into_iter().map(Fp31::from);
+                let permutation_iter = permutation.into_iter().map(u128::from).map(Fp31::from);
+
+                let result = world
+                    .semi_honest(
+                        (input_iter, permutation_iter),
+                        |ctx, (m_shares, m_perms)| async move {
+                            let perm_and_randoms = shuffle_and_reveal_permutation(
+                                ctx.narrow("shuffle_reveal"),
+                                BATCHSIZE.try_into().unwrap(),
+                                m_perms,
+                            )
+                            .await
+                            .unwrap();
+                            secureapplyinv(
+                                ctx,
+                                m_shares,
+                                (
+                                    perm_and_randoms.1 .0.as_slice(),
+                                    perm_and_randoms.1 .1.as_slice(),
+                                ),
+                                &perm_and_randoms.0,
+                            )
+                            .await
+                            .unwrap()
+                        },
+                    )
+                    .await;
+
+                validate_list_of_shares(&expected_result, &result);
             }
-
-            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
-            permutation.shuffle(&mut rng);
-
-            let mut expected_result = input.clone();
-
-            // Applying permutation on the input in clear to get the expected result
-            apply_inv(&permutation, &mut expected_result);
-
-            let [input0, input1, input2] = generate_shares::<Fp31>(&input);
-
-            let world = TestWorld::new(QueryId);
-            let [ctx0, ctx1, ctx2] = world.contexts();
-            let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
-
-            let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
-
-            let perm_and_randoms = join3(
-                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), input.len(), perm0),
-                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), input.len(), perm1),
-                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), input.len(), perm2),
-            )
-            .await;
-
-            let h0_future = secureapplyinv(
-                ctx0,
-                input0,
-                (
-                    perm_and_randoms[0].1 .0.as_slice(),
-                    perm_and_randoms[0].1 .1.as_slice(),
-                ),
-                &perm_and_randoms[0].0,
-            );
-            let h1_future = secureapplyinv(
-                ctx1,
-                input1,
-                (
-                    perm_and_randoms[1].1 .0.as_slice(),
-                    perm_and_randoms[1].1 .1.as_slice(),
-                ),
-                &perm_and_randoms[1].0,
-            );
-            let h2_future = secureapplyinv(
-                ctx2,
-                input2,
-                (
-                    perm_and_randoms[2].1 .0.as_slice(),
-                    perm_and_randoms[2].1 .1.as_slice(),
-                ),
-                &perm_and_randoms[2].0,
-            );
-
-            let result = join3(h0_future, h1_future, h2_future).await;
-
-            // We should get the same result of applying inverse as what we get when applying in clear
-            validate_list_of_shares(&expected_result, &result);
         }
     }
 }
