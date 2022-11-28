@@ -44,7 +44,7 @@ pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{apply, apply_inv};
     use rand::seq::SliceRandom;

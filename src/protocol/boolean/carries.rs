@@ -227,7 +227,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::Carries;
     use crate::ff::{Field, Fp31, Fp32BitPrime};

@@ -88,7 +88,7 @@ macro_rules! field_impl {
         }
 
         impl rand::distributions::Distribution<$field> for rand::distributions::Standard {
-            fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
+            fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $field {
                 <$field>::from(rng.gen::<u128>())
             }
         }
@@ -206,7 +206,7 @@ impl Field for Fp32BitPrime {
 
 field_impl! { Fp32BitPrime, u32 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod test {
     use super::{Field, Fp2, Fp31, Fp32BitPrime};
 

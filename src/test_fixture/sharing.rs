@@ -1,10 +1,10 @@
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
+use crate::rand::thread_rng;
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
-use rand::thread_rng;
 use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,

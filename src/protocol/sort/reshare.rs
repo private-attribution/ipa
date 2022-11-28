@@ -119,7 +119,7 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod semi_honest {
         use proptest::prelude::Rng;

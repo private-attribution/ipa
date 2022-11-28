@@ -11,7 +11,7 @@ use crate::protocol::prss::{
 };
 use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
-use std::sync::Arc;
+use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.

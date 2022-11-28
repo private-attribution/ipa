@@ -1,3 +1,4 @@
+use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     helpers::{
         self,
@@ -6,15 +7,17 @@ use crate::{
     },
     protocol::Step,
 };
+use ::tokio::sync::mpsc::{self, Receiver, Sender};
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures_util::stream::{FuturesUnordered, SelectAll};
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex, Weak};
-use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
+
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
 pub(super) enum ControlMessage {
@@ -90,7 +93,7 @@ impl InMemoryEndpoint {
                 let mut buf = HashMap::<ChannelId, Vec<u8>>::new();
 
                 loop {
-                    tokio::select! {
+                    ::tokio::select! {
                         // handle request to establish connection with a peer
                         Some(control_message) = open_channel_rx.recv() => {
                             match control_message {

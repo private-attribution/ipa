@@ -45,7 +45,7 @@ pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share =
     Ok(shuffled_input)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::secureapplyinv;
     use crate::{

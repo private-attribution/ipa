@@ -1,3 +1,4 @@
+use crate::sync::{Arc, Mutex};
 use crate::{
     helpers::network::{MessageChunks, Network, NetworkSink},
     net::{
@@ -6,7 +7,6 @@ use crate::{
     },
     protocol::QueryId,
 };
-use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
