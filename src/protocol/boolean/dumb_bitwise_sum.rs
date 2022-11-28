@@ -1,4 +1,4 @@
-use super::BitOpStep;
+use super::{align_bit_lengths, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::or::or;
@@ -55,10 +55,10 @@ impl BitwiseSum {
         a: &[Replicated<F>],
         b: &[Replicated<F>],
     ) -> Result<Vec<Replicated<F>>, Error> {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
+        let (a, b) = align_bit_lengths(a, b);
 
         let both_bits_one =
-            Self::multiply_all_the_bits(a, b, ctx.narrow(&Step::MultiplyAllTheBits), record_id)
+            Self::multiply_all_the_bits(&a, &b, ctx.narrow(&Step::MultiplyAllTheBits), record_id)
                 .await?;
         let mut xored_bits = Vec::with_capacity(a.len());
         for i in 0..a.len() {
