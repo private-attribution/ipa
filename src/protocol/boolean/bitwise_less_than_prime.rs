@@ -11,10 +11,9 @@ use std::iter::repeat;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///
-/// `BitwiseLessThan` takes inputs `[a]_B = ([a_1]_p,...,[a_l]_p)` where
-/// `a1,...,a_l ∈ {0,1} ⊆ F_p` and `[b]_B = ([b_1]_p,...,[b_l]_p)` where
-/// `b1,...,b_l ∈ {0,1} ⊆ F_p`, then computes `h ∈ {0, 1} <- a <? b` where
-/// `h = 1` iff `a` is less than `b`.
+/// `BitwiseLessThan` takes inputs `[x]_B = ([x_1]_p,...,[x_l]_p)` where
+/// `x_1,...,x_l ∈ {0,1} ⊆ F_p` then computes `h ∈ {0, 1} <- x <? p` where
+/// `h = 1` iff `x` is less than `p`.
 ///
 /// Note that `[a]_B` can be converted to `[a]_p` by `Σ (2^i * a_i), i=0..l`. In
 /// other words, if comparing two integers, the protocol expects inputs to be in
@@ -44,7 +43,7 @@ impl BitwiseLessThanPrime {
         let l_as_usize = l.try_into().unwrap();
         match x.len().cmp(&l_as_usize) {
             Ordering::Greater => {
-                let (zero_check, normal_check) = try_join(
+                let (leading_ones, normal_check) = try_join(
                     Self::any_ones(
                         &ctx.narrow(&Step::CheckIfAnyOnes),
                         record_id,
@@ -60,7 +59,7 @@ impl BitwiseLessThanPrime {
                 or(
                     ctx.narrow(&Step::LeadingOnesOrRest),
                     record_id,
-                    &zero_check,
+                    &leading_ones,
                     &normal_check,
                 )
                 .await
@@ -92,25 +91,29 @@ impl BitwiseLessThanPrime {
         // Check if this is a Mersenne Prime
         // In that special case, the only way for `x >= p` is if `x == p`,
         // meaning all the bits of `x` are shares of one.
-        if prime == (2_u128.pow(l) - 1) {
+        if prime == (1 << l) - 1 {
             return Self::check_if_all_ones(&ctx.narrow(&Step::CheckIfAllOnes), record_id, x).await;
         }
 
         // Assume this is an Fp32BitPrime
         // Meaning the least significant three bits are exactly [1, 1, 0]
-        if prime == (2_u128.pow(l) - 5) {
-            let (check_if_all_ones, check_final_bits) = try_join(
-                Self::check_if_all_ones(&ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
+        if prime == (1 << l) - 5 {
+            let (check_least_significant_bits, most_significant_bits_all_ones) = try_join(
                 Self::check_least_significant_bits(
                     ctx.narrow(&Step::CheckLeastSignificantBits),
                     record_id,
                     &x[0..3],
                 ),
+                Self::check_if_all_ones(&ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
             )
             .await?;
             return ctx
                 .narrow(&Step::AllOnesAndFinalBits)
-                .multiply(record_id, &check_if_all_ones, &check_final_bits)
+                .multiply(
+                    record_id,
+                    &check_least_significant_bits,
+                    &most_significant_bits_all_ones,
+                )
                 .await;
         }
         // Not implemented for any other type of prime. Please add to this if you create a new type of Field which

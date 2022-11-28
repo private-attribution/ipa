@@ -146,7 +146,7 @@ mod tests {
 
     // This test takes more than 15 secs... I'm disabling it for now until
     // we optimize and/or find a way to make tests run faster.
-    //#[ignore]
+    #[ignore]
     #[tokio::test]
     pub async fn fp32_bit_prime() {
         let world = TestWorld::new(QueryId);
