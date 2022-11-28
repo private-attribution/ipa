@@ -1,5 +1,5 @@
-use super::bitwise_sum::BitwiseSum;
 use super::dumb_bitwise_lt::BitwiseLessThan;
+use super::dumb_bitwise_sum::BitwiseSum;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
