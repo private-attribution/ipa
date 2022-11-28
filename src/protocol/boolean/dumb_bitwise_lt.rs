@@ -1,5 +1,5 @@
 use super::xor::xor;
-use super::BitOpStep;
+use super::{align_bit_lengths, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
@@ -90,10 +90,11 @@ impl BitwiseLessThan {
         a: &[Replicated<F>],
         b: &[Replicated<F>],
     ) -> Result<Replicated<F>, Error> {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
+        let (a, b) = align_bit_lengths(a, b);
+
         let (xored_bits, less_thaned_bits) = try_join(
-            Self::xor_all_but_lsb(a, b, ctx.narrow(&Step::BitwiseAXorB), record_id),
-            Self::less_than_all_bits(a, b, ctx.narrow(&Step::BitwiseALessThanB), record_id),
+            Self::xor_all_but_lsb(&a, &b, ctx.narrow(&Step::BitwiseAXorB), record_id),
+            Self::less_than_all_bits(&a, &b, ctx.narrow(&Step::BitwiseALessThanB), record_id),
         )
         .await?;
 

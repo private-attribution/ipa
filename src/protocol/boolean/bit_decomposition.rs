@@ -1,5 +1,5 @@
-use super::bitwise_lt::BitwiseLessThan;
 use super::bitwise_sum::BitwiseSum;
+use super::dumb_bitwise_lt::BitwiseLessThan;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
@@ -129,7 +129,8 @@ mod tests {
         result.reconstruct()
     }
 
-    // 0.8 secs * 5 cases = 4.0 secs
+    // 0.8 secs * 5 cases = 4 secs
+    // New BitwiseLessThan -> 0.56 secs * 5 cases = 2.8
     #[tokio::test]
     pub async fn fp31() {
         let world = TestWorld::new(QueryId);

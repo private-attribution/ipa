@@ -1,4 +1,4 @@
-use super::bitwise_lt::BitwiseLessThan;
+use super::dumb_bitwise_lt::BitwiseLessThan;
 use super::local_secret_shared_bits;
 use crate::error::Error;
 use crate::ff::{Field, Int};
