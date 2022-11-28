@@ -87,9 +87,9 @@ mod tests {
             let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
             let perm_and_randoms = join3(
-                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), input.len(), perm0),
-                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), input.len(), perm1),
-                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), input.len(), perm2),
+                shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, perm0),
+                shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, perm1),
+                shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, perm2),
             )
             .await;
 

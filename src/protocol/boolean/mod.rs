@@ -7,6 +7,7 @@ mod bit_decomposition;
 mod bitwise_lt;
 mod bitwise_sum;
 mod carries;
+mod dumb_bitwise_lt;
 mod or;
 mod prefix_or;
 pub mod random_bits_generator;

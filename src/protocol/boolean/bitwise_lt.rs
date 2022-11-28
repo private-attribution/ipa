@@ -168,13 +168,16 @@ impl AsRef<str> for Step {
 
 #[cfg(test)]
 mod tests {
-    use super::BitwiseLessThan;
+    //use super::BitwiseLessThan;
+    use crate::protocol::boolean::dumb_bitwise_lt::BitwiseLessThan;
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
         test_fixture::{into_bits, Reconstruct, TestWorld},
     };
+    use proptest::prelude::Rng;
+    use rand::thread_rng;
     use rand::{distributions::Standard, prelude::Distribution};
 
     /// This protocol requires a number of inputs that are equal to a power of 2.
@@ -266,6 +269,21 @@ mod tests {
             .reconstruct();
 
         assert_eq!(Fp31::ONE, result);
+    }
+
+    // this test is for manual execution only
+    #[ignore]
+    #[tokio::test]
+    pub async fn cmp_random_32_bit_prime_field_elements() {
+        let mut rand = thread_rng();
+        for _ in 0..1000 {
+            let a = rand.gen::<Fp32BitPrime>();
+            let b = rand.gen::<Fp32BitPrime>();
+            assert_eq!(
+                Fp32BitPrime::from(a.as_u128() < b.as_u128()),
+                bitwise_lt(a, b).await
+            );
+        }
     }
 
     // this test is for manual execution only
