@@ -1,4 +1,4 @@
-use super::dumb_bitwise_lt::BitwiseLessThan;
+use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use super::dumb_bitwise_sum::BitwiseSum;
 use crate::error::Error;
 use crate::ff::{Field, Int};
@@ -46,10 +46,12 @@ impl BitDecomposition {
         let d_b = BitwiseSum::execute(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
 
         // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
-        let p_b = local_secret_shared_bits(F::PRIME.into(), ctx.role());
-        let q_p = Replicated::one(ctx.role())
-            - &(BitwiseLessThan::execute(ctx.narrow(&Step::IsPLessThanD), record_id, &d_b, &p_b)
-                .await?);
+        let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
+            ctx.narrow(&Step::IsPLessThanD),
+            record_id,
+            &d_b,
+        )
+        .await?;
 
         // Step 7. a bitwise scalar value `f_B = bits(2^l - p)`
         let l = F::Integer::BITS;
@@ -144,7 +146,7 @@ mod tests {
 
     // This test takes more than 15 secs... I'm disabling it for now until
     // we optimize and/or find a way to make tests run faster.
-    #[ignore]
+    //#[ignore]
     #[tokio::test]
     pub async fn fp32_bit_prime() {
         let world = TestWorld::new(QueryId);

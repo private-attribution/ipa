@@ -84,6 +84,14 @@ pub fn into_bits<F: Field>(x: F) -> Vec<F> {
         .collect::<Vec<_>>()
 }
 
+/// Deconstructs a value into N values, one for each bit.
+#[must_use]
+pub fn get_bits<F: Field>(x: u32, num_bits: usize) -> Vec<F> {
+    (0..num_bits)
+        .map(|i| F::from(((x >> i) & 1).into()))
+        .collect::<Vec<_>>()
+}
+
 /// For upgrading various shapes of replicated share to malicious.
 #[async_trait]
 pub trait IntoMalicious<F: Field, M> {
