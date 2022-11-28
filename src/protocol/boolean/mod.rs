@@ -1,5 +1,18 @@
+use crate::ff::{Field, Int};
+use crate::helpers::Role;
+use crate::secret_sharing::Replicated;
+use std::iter::repeat;
+
+mod bit_decomposition;
 mod bitwise_lt;
+mod bitwise_sum;
+mod carries;
+mod dumb_bitwise_lt;
+mod dumb_bitwise_sum;
+mod or;
 mod prefix_or;
+pub mod random_bits_generator;
+mod solved_bits;
 mod xor;
 
 /// A step generator for bitwise secure operations.
@@ -32,4 +45,42 @@ impl AsRef<str> for BitOpStep {
             Self::Step(i) => BIT_OP[*i],
         }
     }
+}
+
+/// Internal use only.
+/// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
+/// local replicated share.
+fn local_secret_shared_bits<F: Field>(x: u128, helper_role: Role) -> Vec<Replicated<F>> {
+    // let x = F::PRIME.into();
+    (0..F::Integer::BITS)
+        .map(|i| {
+            let b = F::from((x >> i) & 1);
+            match helper_role {
+                Role::H1 => Replicated::new(b, F::ZERO),
+                Role::H2 => Replicated::new(F::ZERO, F::ZERO),
+                Role::H3 => Replicated::new(F::ZERO, b),
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
+/// Aligns the bits by padding extra zeros at the end (assuming the bits are in
+/// little-endian format).
+fn align_bit_lengths<F: Field>(
+    a: &[Replicated<F>],
+    b: &[Replicated<F>],
+) -> (Vec<Replicated<F>>, Vec<Replicated<F>>) {
+    let mut a = a.to_vec();
+    let mut b = b.to_vec();
+
+    if a.len() == b.len() {
+        return (a, b);
+    }
+
+    let pad_a = b.len().saturating_sub(a.len());
+    let pad_b = a.len().saturating_sub(b.len());
+    a.append(&mut repeat(Replicated::ZERO).take(pad_a).collect::<Vec<_>>());
+    b.append(&mut repeat(Replicated::ZERO).take(pad_b).collect::<Vec<_>>());
+
+    (a, b)
 }

@@ -1,8 +1,9 @@
+use crate::protocol::context::SemiHonestContext;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 
@@ -30,10 +31,10 @@ use crate::{
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: Replicated<F>,
-    b: Replicated<F>,
+    a: &Replicated<F>,
+    b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
     match ctx.role() {
         Role::H1 => {
@@ -114,10 +115,10 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 /// back via the error response
 #[allow(dead_code)]
 pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: Replicated<F>,
-    b: Replicated<F>,
+    a: &Replicated<F>,
+    b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
     let prss = &ctx.prss();
     let (s_left, s_right) = prss.generate_fields(record_id);
@@ -184,7 +185,8 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::BoxError;
+    use std::iter::{repeat, zip};
+
     use crate::ff::{Field, Fp31};
     use crate::protocol::{
         modulus_conversion::specialized_mul::{
@@ -193,209 +195,142 @@ pub mod tests {
         QueryId, RecordId,
     };
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
-    };
+    use crate::test_fixture::{IntoShares, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use rand::thread_rng;
 
-    #[tokio::test]
-    async fn specialized_1_sequence() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
-        let mut rng = rand::thread_rng();
+    #[derive(Clone, Copy)]
+    struct SpecializedA(Fp31);
 
-        for i in 0..10_u32 {
-            let a = rng.gen::<Fp31>();
-            let b = rng.gen::<Fp31>();
-
-            let record_id = RecordId::from(0_u32);
-
-            let iteration = format!("{}", i);
-
-            let result_shares = tokio::try_join!(
-                multiply_two_shares_mostly_zeroes(
-                    context[0].narrow(&iteration),
-                    record_id,
-                    Replicated::new(a, Fp31::ZERO),
-                    Replicated::new(Fp31::ZERO, b)
-                ),
-                multiply_two_shares_mostly_zeroes(
-                    context[1].narrow(&iteration),
-                    record_id,
-                    Replicated::new(Fp31::ZERO, Fp31::ZERO),
-                    Replicated::new(b, Fp31::ZERO)
-                ),
-                multiply_two_shares_mostly_zeroes(
-                    context[2].narrow(&iteration),
-                    record_id,
-                    Replicated::new(Fp31::ZERO, a),
-                    Replicated::new(Fp31::ZERO, Fp31::ZERO)
-                ),
-            )?;
-
-            let result = validate_and_reconstruct(result_shares);
-
-            assert_eq!(result, a * b);
+    impl IntoShares<Replicated<Fp31>> for SpecializedA {
+        fn share_with<R: Rng>(self, _rng: &mut R) -> [Replicated<Fp31>; 3] {
+            [
+                Replicated::new(self.0, Fp31::ZERO),
+                Replicated::new(Fp31::ZERO, Fp31::ZERO),
+                Replicated::new(Fp31::ZERO, self.0),
+            ]
         }
+    }
 
-        Ok(())
+    #[derive(Clone, Copy)]
+    struct SpecializedB(Fp31);
+
+    impl IntoShares<Replicated<Fp31>> for SpecializedB {
+        fn share_with<R: Rng>(self, _rng: &mut R) -> [Replicated<Fp31>; 3] {
+            [
+                Replicated::new(Fp31::ZERO, self.0),
+                Replicated::new(self.0, Fp31::ZERO),
+                Replicated::new(Fp31::ZERO, Fp31::ZERO),
+            ]
+        }
     }
 
     #[tokio::test]
-    async fn specialized_1_parallel() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
-        let mut rng = rand::thread_rng();
+    async fn specialized_1() {
+        let world = TestWorld::new(QueryId);
 
-        let mut inputs = Vec::with_capacity(10);
-        let mut futures = Vec::with_capacity(10);
-
-        for i in 0..10_u32 {
-            let a = rng.gen::<Fp31>();
-            let b = rng.gen::<Fp31>();
-
-            inputs.push((a, b));
-
-            let record_id = RecordId::from(0_u32);
-
-            let iteration = format!("{}", i);
-
-            futures.push(try_join_all(vec![
-                multiply_two_shares_mostly_zeroes(
-                    context[0].narrow(&iteration),
-                    record_id,
-                    Replicated::new(a, Fp31::ZERO),
-                    Replicated::new(Fp31::ZERO, b),
-                ),
-                multiply_two_shares_mostly_zeroes(
-                    context[1].narrow(&iteration),
-                    record_id,
-                    Replicated::new(Fp31::ZERO, Fp31::ZERO),
-                    Replicated::new(b, Fp31::ZERO),
-                ),
-                multiply_two_shares_mostly_zeroes(
-                    context[2].narrow(&iteration),
-                    record_id,
-                    Replicated::new(Fp31::ZERO, a),
-                    Replicated::new(Fp31::ZERO, Fp31::ZERO),
-                ),
-            ]));
-        }
-
-        let results = try_join_all(futures).await?;
-
-        for i in 0..10 {
-            let input = inputs[i];
-            let result_shares = &results[i];
-            let multiplication_output =
-                validate_and_reconstruct((result_shares[0], result_shares[1], result_shares[2]));
-
-            assert_eq!(multiplication_output, input.0 * input.1);
-        }
-
-        Ok(())
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+        let input = (SpecializedA(a), SpecializedB(b));
+        let result = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                multiply_two_shares_mostly_zeroes(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await;
+        assert_eq!(a * b, result.reconstruct());
     }
 
     #[tokio::test]
-    async fn specialized_2_sequence() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+    async fn specialized_1_parallel() {
+        const COUNT: usize = 10;
+        let world = TestWorld::new(QueryId);
+
         let mut rng = rand::thread_rng();
+        let a: Vec<_> = (0..COUNT)
+            .map(|_| SpecializedA(rng.gen::<Fp31>()))
+            .collect();
+        let b: Vec<_> = (0..COUNT)
+            .map(|_| SpecializedB(rng.gen::<Fp31>()))
+            .collect();
+        let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a.0 * b.0).collect();
+        let result = world
+            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
+                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
+                    |(i, (ctx, (a_share, b_share)))| async move {
+                        multiply_two_shares_mostly_zeroes(
+                            ctx,
+                            RecordId::from(i),
+                            &a_share,
+                            &b_share,
+                        )
+                        .await
+                    },
+                ))
+                .await
+                .unwrap()
+            })
+            .await;
+        assert_eq!(expected, result.reconstruct());
+    }
 
-        for i in 0..10_u32 {
-            let a = rng.gen::<Fp31>();
-            let b = rng.gen::<Fp31>();
+    #[derive(Clone, Copy)]
+    struct SpecializedC(Fp31);
 
-            let a_shares = share(a, &mut rng);
-
-            let record_id = RecordId::from(0_u32);
-
-            let iteration = format!("{}", i);
-
-            let result_shares = tokio::try_join!(
-                multiply_one_share_mostly_zeroes(
-                    context[0].narrow(&iteration),
-                    record_id,
-                    a_shares[0],
-                    Replicated::new(Fp31::ZERO, Fp31::ZERO)
-                ),
-                multiply_one_share_mostly_zeroes(
-                    context[1].narrow(&iteration),
-                    record_id,
-                    a_shares[1],
-                    Replicated::new(Fp31::ZERO, b)
-                ),
-                multiply_one_share_mostly_zeroes(
-                    context[2].narrow(&iteration),
-                    record_id,
-                    a_shares[2],
-                    Replicated::new(b, Fp31::ZERO)
-                ),
-            )?;
-
-            let result = validate_and_reconstruct(result_shares);
-
-            assert_eq!(result, a * b);
+    impl IntoShares<Replicated<Fp31>> for SpecializedC {
+        fn share_with<R: Rng>(self, _rng: &mut R) -> [Replicated<Fp31>; 3] {
+            [
+                Replicated::new(Fp31::ZERO, Fp31::ZERO),
+                Replicated::new(Fp31::ZERO, self.0),
+                Replicated::new(self.0, Fp31::ZERO),
+            ]
         }
-
-        Ok(())
     }
 
     #[tokio::test]
-    async fn specialized_2_parallel() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+    async fn specialized_2() {
+        let world = TestWorld::new(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+        let input = (a, SpecializedC(b));
+        let result = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                multiply_one_share_mostly_zeroes(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await;
+        assert_eq!(a * b, result.reconstruct());
+    }
+
+    #[tokio::test]
+    async fn specialized_2_parallel() {
+        const COUNT: usize = 10;
+        let world = TestWorld::new(QueryId);
+
         let mut rng = rand::thread_rng();
-
-        let mut inputs = Vec::with_capacity(10);
-        let mut futures = Vec::with_capacity(10);
-
-        for i in 0..10_u32 {
-            let a = rng.gen::<Fp31>();
-            let b = rng.gen::<Fp31>();
-
-            inputs.push((a, b));
-
-            let a_shares = share(a, &mut rng);
-
-            let record_id = RecordId::from(0_u32);
-
-            let iteration = format!("{}", i);
-
-            futures.push(try_join_all(vec![
-                multiply_one_share_mostly_zeroes(
-                    context[0].narrow(&iteration),
-                    record_id,
-                    a_shares[0],
-                    Replicated::new(Fp31::ZERO, Fp31::ZERO),
-                ),
-                multiply_one_share_mostly_zeroes(
-                    context[1].narrow(&iteration),
-                    record_id,
-                    a_shares[1],
-                    Replicated::new(Fp31::ZERO, b),
-                ),
-                multiply_one_share_mostly_zeroes(
-                    context[2].narrow(&iteration),
-                    record_id,
-                    a_shares[2],
-                    Replicated::new(b, Fp31::ZERO),
-                ),
-            ]));
-        }
-
-        let results = try_join_all(futures).await?;
-
-        for i in 0..10 {
-            let input = inputs[i];
-            let result_shares = &results[i];
-            let multiplication_output =
-                validate_and_reconstruct((result_shares[0], result_shares[1], result_shares[2]));
-
-            assert_eq!(multiplication_output, input.0 * input.1);
-        }
-
-        Ok(())
+        let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
+        let b: Vec<_> = (0..COUNT)
+            .map(|_| SpecializedC(rng.gen::<Fp31>()))
+            .collect();
+        let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b.0).collect();
+        let result = world
+            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
+                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
+                    |(i, (ctx, (a_share, b_share)))| async move {
+                        multiply_one_share_mostly_zeroes(ctx, RecordId::from(i), &a_share, &b_share)
+                            .await
+                    },
+                ))
+                .await
+                .unwrap()
+            })
+            .await;
+        assert_eq!(expected, result.reconstruct());
     }
 }

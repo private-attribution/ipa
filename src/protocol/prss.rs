@@ -4,7 +4,6 @@ use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
 };
-use byteorder::{ByteOrder, LittleEndian};
 use hkdf::Hkdf;
 use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
@@ -385,11 +384,11 @@ impl Generator {
     /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
     #[must_use]
     pub fn generate(&self, index: u128) -> u128 {
-        let mut buf = [0_u8; 16];
-        LittleEndian::write_u128(&mut buf, index);
+        let mut buf = index.to_le_bytes();
         self.cipher
             .encrypt_block(GenericArray::from_mut_slice(&mut buf));
-        LittleEndian::read_u128(&buf) ^ index
+
+        u128::from_le_bytes(buf) ^ index
     }
 }
 
@@ -453,7 +452,7 @@ pub mod test {
     #[test]
     fn three_party_values() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
@@ -471,7 +470,7 @@ pub mod test {
     #[test]
     fn three_party_zero_u128() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let z1 = p1.indexed(&step).zero_u128(IDX);
@@ -484,7 +483,7 @@ pub mod test {
     #[test]
     fn three_party_xor_zero() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let z1 = p1.indexed(&step).zero_xor(IDX);
@@ -498,7 +497,7 @@ pub mod test {
     fn three_party_random_u128() {
         const IDX1: u128 = 7;
         const IDX2: u128 = 21362;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let r1 = p1.indexed(&step).random_u128(IDX1);
@@ -519,14 +518,14 @@ pub mod test {
     #[test]
     fn three_party_fields() {
         const IDX: u128 = 7;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         // These tests do not check that left != right because
         // the field might not be large enough.
         let step = Step::default();
         let (r1_l, r1_r): (Fp31, Fp31) = p1.indexed(&step).generate_fields(IDX);
-        let (r2_l, r2_r) = p2.indexed(&step).generate_fields(IDX);
-        let (r3_l, r3_r) = p3.indexed(&step).generate_fields(IDX);
+        let (r2_l, r2_r): (Fp31, Fp31) = p2.indexed(&step).generate_fields(IDX);
+        let (r3_l, r3_r): (Fp31, Fp31) = p3.indexed(&step).generate_fields(IDX);
 
         assert_eq!(r1_l, r3_r);
         assert_eq!(r2_l, r1_r);
@@ -536,12 +535,12 @@ pub mod test {
     #[test]
     fn three_party_zero() {
         const IDX: u128 = 72;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let z1: Fp31 = p1.indexed(&step).zero(IDX);
-        let z2 = p2.indexed(&step).zero(IDX);
-        let z3 = p3.indexed(&step).zero(IDX);
+        let z2: Fp31 = p2.indexed(&step).zero(IDX);
+        let z3: Fp31 = p3.indexed(&step).zero(IDX);
 
         assert_eq!(Fp31::from(0_u8), z1 + z2 + z3);
     }
@@ -550,7 +549,7 @@ pub mod test {
     fn three_party_random() {
         const IDX1: u128 = 74;
         const IDX2: u128 = 12634;
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
 
         let step = Step::default();
         let s1 = p1.indexed(&step);
@@ -587,7 +586,7 @@ pub mod test {
             assert_eq!(a.gen_bool(0.3), b.gen_bool(0.3));
         }
 
-        let (p1, p2, p3) = make_participants();
+        let [p1, p2, p3] = make_participants();
         let step = Step::default();
         let (rng1_l, rng1_r) = p1.sequential(&step);
         let (rng2_l, rng2_r) = p2.sequential(&step);
@@ -600,7 +599,7 @@ pub mod test {
 
     #[test]
     fn indexed_and_sequential() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
 
         let base = Step::default();
         let idx = p1.indexed(&base.narrow("indexed"));
@@ -619,7 +618,7 @@ pub mod test {
     #[test]
     #[should_panic]
     fn indexed_then_sequential() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
 
         let step = Step::default().narrow("test");
         drop(p1.indexed(&step));
@@ -632,7 +631,7 @@ pub mod test {
     #[test]
     #[should_panic]
     fn sequential_then_indexed() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
 
         let step = Step::default().narrow("test");
         // TODO(alex): remove after clippy is fixed
@@ -643,7 +642,7 @@ pub mod test {
 
     #[test]
     fn indexed_accepts_unique_index() {
-        let (_, p2, _p3) = make_participants();
+        let [_, p2, _p3] = make_participants();
         let step = Step::default().narrow("test");
         let mut indices = (1..100_u128).collect::<Vec<_>>();
         indices.shuffle(&mut thread_rng());
@@ -658,7 +657,7 @@ pub mod test {
     #[cfg(debug_assertions)]
     #[should_panic]
     fn indexed_rejects_the_same_index() {
-        let (p1, _p2, _p3) = make_participants();
+        let [p1, _p2, _p3] = make_participants();
         let step = Step::default().narrow("test");
 
         let _ = p1.indexed(&step).random_u128(100_u128);

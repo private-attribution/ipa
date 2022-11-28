@@ -1,7 +1,8 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
-use crate::protocol::{context::ProtocolContext, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::Replicated;
 use std::fmt::Debug;
 
@@ -10,13 +11,13 @@ use std::fmt::Debug;
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
 #[derive(Debug)]
 pub struct SecureMul<'a, F: Field> {
-    ctx: ProtocolContext<'a, Replicated<F>, F>,
+    ctx: SemiHonestContext<'a, F>,
     record_id: RecordId,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
-    pub fn new(ctx: ProtocolContext<'a, Replicated<F>, F>, record_id: RecordId) -> Self {
+    pub fn new(ctx: SemiHonestContext<'a, F>, record_id: RecordId) -> Self {
         Self { ctx, record_id }
     }
 
@@ -29,9 +30,9 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// back via the error response
     pub async fn execute(
         self,
-        a: Replicated<F>,
-        b: Replicated<F>,
-    ) -> Result<Replicated<F>, BoxError> {
+        a: &Replicated<F>,
+        b: &Replicated<F>,
+    ) -> Result<Replicated<F>, Error> {
         let channel = self.ctx.mesh();
 
         // generate shared randomness.
@@ -62,36 +63,46 @@ impl<'a, F: Field> SecureMul<'a, F> {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::BoxError;
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
-    use crate::protocol::{context::ProtocolContext, QueryId, RecordId};
-    use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
-    };
-    use futures_util::future::join_all;
+    use crate::protocol::{QueryId, RecordId};
+
+    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use futures::future::try_join_all;
+    use proptest::prelude::Rng;
     use rand::distributions::Standard;
     use rand::prelude::Distribution;
-    use rand::rngs::mock::StepRng;
-    use rand::RngCore;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use rand::thread_rng;
+    use std::iter::{repeat, zip};
 
     #[tokio::test]
-    async fn basic() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let mut rand = StepRng::new(1, 1);
-        let contexts = make_contexts::<Fp31>(&world);
+    async fn basic() {
+        let world = TestWorld::new(QueryId);
 
-        assert_eq!(30, multiply_sync(contexts.clone(), 6, 5, &mut rand).await?);
-        assert_eq!(25, multiply_sync(contexts.clone(), 5, 5, &mut rand).await?);
-        assert_eq!(7, multiply_sync(contexts.clone(), 7, 1, &mut rand).await?);
-        assert_eq!(0, multiply_sync(contexts.clone(), 0, 14, &mut rand).await?);
-        assert_eq!(8, multiply_sync(contexts.clone(), 7, 10, &mut rand).await?);
-        assert_eq!(4, multiply_sync(contexts.clone(), 5, 7, &mut rand).await?);
-        assert_eq!(1, multiply_sync(contexts.clone(), 16, 2, &mut rand).await?);
+        assert_eq!(30, multiply_sync::<Fp31>(&world, 6, 5).await);
+        assert_eq!(25, multiply_sync::<Fp31>(&world, 5, 5).await);
+        assert_eq!(7, multiply_sync::<Fp31>(&world, 7, 1).await);
+        assert_eq!(0, multiply_sync::<Fp31>(&world, 0, 14).await);
+        assert_eq!(8, multiply_sync::<Fp31>(&world, 7, 10).await);
+        assert_eq!(4, multiply_sync::<Fp31>(&world, 5, 7).await);
+        assert_eq!(1, multiply_sync::<Fp31>(&world, 16, 2).await);
+    }
 
-        Ok(())
+    #[tokio::test]
+    pub async fn simple() {
+        let world = TestWorld::new(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+
+        let res = world
+            .semi_honest((a, b), |ctx, (a, b)| async move {
+                ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
+            })
+            .await;
+
+        assert_eq!(a * b, res.reconstruct());
     }
 
     /// This test ensures that many secure multiplications can run concurrently as long as
@@ -101,72 +112,44 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
-        type MulArgs<F> = (Replicated<F>, Replicated<F>);
-        async fn mul<F: Field>(
-            v: (ProtocolContext<'_, Replicated<F>, F>, MulArgs<F>),
-        ) -> Replicated<F> {
-            let (ctx, (a, b)) = v;
-            ctx.multiply(RecordId::from(0_u32), a, b).await.unwrap()
-        }
+        const COUNT: usize = 10;
+        let world = TestWorld::new(QueryId);
 
-        let world = make_world(QueryId);
-        let contexts = make_contexts::<Fp31>(&world);
-        let mut rand = StepRng::new(1, 1);
-
-        let mut multiplications = Vec::new();
-
-        for step in 1..10_u8 {
-            let a = share(Fp31::from(4_u128), &mut rand);
-            let b = share(Fp31::from(3_u128), &mut rand);
-
-            let step_name = format!("step{}", step);
-            let f = join_all(
-                contexts
-                    .iter()
-                    .map(|ctx| ctx.narrow(&step_name))
-                    .zip(std::iter::zip(a, b))
-                    .map(mul),
-            );
-            multiplications.push(f);
-        }
-
-        let results = join_all(multiplications).await;
-        for shares in results {
-            assert_eq!(
-                Fp31::from(12_u128),
-                validate_and_reconstruct((shares[0], shares[1], shares[2]))
-            );
-        }
+        let mut rng = thread_rng();
+        let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
+        let b: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
+        let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
+        let results = world
+            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
+                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
+                    |(i, (ctx, (a_share, b_share)))| async move {
+                        ctx.multiply(RecordId::from(i), &a_share, &b_share).await
+                    },
+                ))
+                .await
+                .unwrap()
+            })
+            .await;
+        assert_eq!(expected, results.reconstruct());
     }
 
-    async fn multiply_sync<R: RngCore, F: Field>(
-        context: [ProtocolContext<'_, Replicated<F>, F>; 3],
-        a: u8,
-        b: u8,
-        rng: &mut R,
-    ) -> Result<u128, BoxError>
+    async fn multiply_sync<F>(world: &TestWorld<F>, a: u128, b: u128) -> u128
     where
+        F: Field,
+        (F, F): Sized,
         Standard: Distribution<F>,
     {
-        let a = F::from(u128::from(a));
-        let b = F::from(u128::from(b));
+        let a = F::from(a);
+        let b = F::from(b);
 
-        thread_local! {
-            static INDEX: AtomicU32 = AtomicU32::default();
-        }
+        let result = world
+            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
+                ctx.multiply(RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await;
 
-        let [context0, context1, context2] = context;
-        let record_id = INDEX.with(|i| i.fetch_add(1, Ordering::Release)).into();
-
-        let a = share(a, rng);
-        let b = share(b, rng);
-
-        let result_shares = tokio::try_join!(
-            context0.multiply(record_id, a[0], b[0]),
-            context1.multiply(record_id, a[1], b[1]),
-            context2.multiply(record_id, a[2], b[2]),
-        )?;
-
-        Ok(validate_and_reconstruct(result_shares).as_u128())
+        result.reconstruct().as_u128()
     }
 }

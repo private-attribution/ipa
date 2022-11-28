@@ -1,25 +1,28 @@
+use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::reveal::Reveal;
 use crate::{
-    error::{BoxError, Error},
+    error::Error,
     ff::Field,
     helpers::Direction,
     protocol::{
-        check_zero::check_zero, context::ProtocolContext, prss::IndexedSharedRandomness, RecordId,
+        check_zero::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId,
         RECORD_0, RECORD_1, RECORD_2,
     },
-    secret_sharing::{MaliciousReplicated, Replicated},
+    secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
 use std::sync::{Arc, Mutex, Weak};
 
+/// Steps used by the validation component of malicious protocol execution.
+/// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
-    #[allow(dead_code)]
-    ValidateInput,
-    #[allow(dead_code)]
-    ValidateMultiplySubstep,
-    RevealR,
-    CheckZero,
+pub(crate) enum Step {
+    /// For upgrading all inputs from `Replicated` to `MaliciousReplicated`
+    UpgradeInput,
+    /// For the execution of the malicious protocol.
+    MaliciousProtocol,
+    /// The final validation steps.
+    Validate,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -27,8 +30,28 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ValidateInput => "validate_input",
-            Self::ValidateMultiplySubstep => "validate_multiply",
+            Self::UpgradeInput => "upgrade_input",
+            Self::MaliciousProtocol => "malicious_protocol",
+            Self::Validate => "validate",
+        }
+    }
+}
+
+enum ValidateStep {
+    /// Propagate the accumulated values of `u` and `w`.
+    PropagateUW,
+    /// Reveal the value of `r`, necessary for validation.
+    RevealR,
+    /// Check that there is no disagreement between accumulated values.
+    CheckZero,
+}
+
+impl crate::protocol::Substep for ValidateStep {}
+
+impl AsRef<str> for ValidateStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::PropagateUW => "propagate_uw",
             Self::RevealR => "reveal_r",
             Self::CheckZero => "check_zero",
         }
@@ -81,12 +104,12 @@ struct AccumulatorState<F> {
 }
 
 #[derive(Clone, Debug)]
-pub struct SecurityValidatorAccumulator<F> {
+pub struct MaliciousValidatorAccumulator<F> {
     inner: Weak<Mutex<AccumulatorState<F>>>,
 }
 
-impl<F: Field> SecurityValidatorAccumulator<F> {
-    fn compute_dot_product_contribution(a: Replicated<F>, b: Replicated<F>) -> F {
+impl<F: Field> MaliciousValidatorAccumulator<F> {
+    fn compute_dot_product_contribution(a: &Replicated<F>, b: &Replicated<F>) -> F {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
     }
 
@@ -96,12 +119,17 @@ impl<F: Field> SecurityValidatorAccumulator<F> {
         &self,
         prss: &Arc<IndexedSharedRandomness>,
         record_id: RecordId,
-        input: MaliciousReplicated<F>,
+        input: &MaliciousReplicated<F>,
     ) {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let random_constant = prss.generate_replicated(record_id);
 
-        let u_contribution = Self::compute_dot_product_contribution(random_constant, input.rx());
-        let w_contribution = Self::compute_dot_product_contribution(random_constant, input.x());
+        let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
+        let w_contribution = Self::compute_dot_product_contribution(
+            &random_constant,
+            input.x().access_without_downgrade(),
+        );
 
         let arc_mutex = self.inner.upgrade().unwrap();
         // LOCK BEGIN
@@ -114,38 +142,51 @@ impl<F: Field> SecurityValidatorAccumulator<F> {
 }
 
 #[allow(dead_code)]
-pub struct SecurityValidator<F> {
+pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
+    protocol_ctx: MaliciousContext<'a, F>,
+    validate_ctx: SemiHonestContext<'a, F>,
 }
 
-impl<F: Field> SecurityValidator<F> {
+impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: ProtocolContext<'_, Replicated<F>, F>) -> SecurityValidator<F> {
+    pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
+        // Use the current step in the context for initialization.
         let prss = ctx.prss();
-
         let r_share = prss.generate_replicated(RECORD_0);
-
         let state = AccumulatorState {
             u: prss.zero(RECORD_1),
             w: prss.zero(RECORD_2),
         };
 
-        SecurityValidator {
+        let u_and_w = Arc::new(Mutex::new(state));
+        let accumulator = MaliciousValidatorAccumulator {
+            inner: Arc::downgrade(&u_and_w),
+        };
+        let validate_ctx = ctx.narrow(&Step::Validate);
+        let protocol_ctx = ctx.upgrade(
+            &Step::MaliciousProtocol,
+            &Step::UpgradeInput,
+            accumulator,
+            r_share.clone(),
+        );
+        MaliciousValidator {
             r_share,
-            u_and_w: Arc::new(Mutex::new(state)),
+            u_and_w,
+            protocol_ctx,
+            validate_ctx,
         }
     }
 
-    pub fn accumulator(&self) -> SecurityValidatorAccumulator<F> {
-        SecurityValidatorAccumulator {
-            inner: Arc::downgrade(&self.u_and_w),
-        }
+    pub fn r_share(&self) -> &Replicated<F> {
+        &self.r_share
     }
 
-    pub fn r_share(&self) -> Replicated<F> {
-        self.r_share
+    /// Get a copy of the context that can be used for malicious protocol execution.
+    pub fn context<'b>(&'b self) -> MaliciousContext<'a, F> {
+        self.protocol_ctx.clone()
     }
 
     /// ## Errors
@@ -156,64 +197,64 @@ impl<F: Field> SecurityValidator<F> {
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    #[allow(clippy::await_holding_lock)]
-    pub async fn validate(
-        self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<(), BoxError> {
+    pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
-        let channel = ctx.mesh();
-        let helper_right = ctx.role().peer(Direction::Right);
-        let helper_left = ctx.role().peer(Direction::Left);
+        let (u_share, w_share) = self.propagate_u_and_w().await?;
 
-        let state = self.u_and_w.lock().unwrap();
+        // This should probably be done in parallel with the futures above
+        let narrow_ctx = self.validate_ctx.narrow(&ValidateStep::RevealR);
+        let r = narrow_ctx.reveal(RECORD_0, &self.r_share).await?;
+        let t = u_share - &(w_share * r);
+
+        let check_zero_ctx = self.validate_ctx.narrow(&ValidateStep::CheckZero);
+        let is_valid = check_zero(check_zero_ctx, RECORD_0, &t).await?;
+
+        if is_valid {
+            // Yes, we're allowed to downgrade here.
+            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            Ok(values.downgrade().access_without_downgrade())
+        } else {
+            Err(Error::MaliciousSecurityCheckFailed)
+        }
+    }
+
+    /// Turns out local values for `u` and `w` into proper replicated shares.
+    async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
+        let propagate_ctx = self.validate_ctx.narrow(&ValidateStep::PropagateUW);
+        let channel = propagate_ctx.mesh();
+        let helper_right = propagate_ctx.role().peer(Direction::Right);
+        let helper_left = propagate_ctx.role().peer(Direction::Left);
+        let (u_local, w_local) = {
+            let state = self.u_and_w.lock().unwrap();
+            (state.u, state.w)
+        };
         try_join(
-            channel.send(helper_right, RECORD_0, state.u),
-            channel.send(helper_right, RECORD_1, state.w),
+            channel.send(helper_right, RECORD_0, u_local),
+            channel.send(helper_right, RECORD_1, w_local),
         )
         .await?;
-
-        // receive `u_i` value from helper to the left
         let (u_left, w_left): (F, F) = try_join(
             channel.receive(helper_left, RECORD_0),
             channel.receive(helper_left, RECORD_1),
         )
         .await?;
-
-        let u_share = Replicated::new(u_left, state.u);
-        let w_share = Replicated::new(w_left, state.w);
-
-        // This should probably be done in parallel with the futures above
-        let r = ctx
-            .narrow(&Step::RevealR)
-            .reveal(RECORD_0, self.r_share)
-            .await?;
-        let t = u_share - (w_share * r);
-
-        let is_valid = check_zero(ctx.narrow(&Step::CheckZero), RECORD_0, t).await?;
-
-        if is_valid {
-            Ok(())
-        } else {
-            Err(Box::new(Error::MaliciousSecurityCheckFailed))
-        }
+        let u_share = Replicated::new(u_left, u_local);
+        let w_share = Replicated::new(w_left, w_local);
+        Ok((u_share, w_share))
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::BoxError;
+    use std::iter::{repeat, zip};
+
+    use crate::error::Error;
     use crate::ff::Fp31;
     use crate::protocol::mul::SecureMul;
-    use crate::protocol::{
-        malicious::{SecurityValidator, Step},
-        QueryId, RecordId,
-    };
-    use crate::secret_sharing::{MaliciousReplicated, Replicated};
-    use crate::test_fixture::{
-        make_contexts, make_world, share, validate_and_reconstruct, TestWorld,
-    };
-    use futures::future::{try_join, try_join_all};
+    use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
+    use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
+    use crate::test_fixture::{join3v, share, Reconstruct, TestWorld};
+    use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
@@ -231,9 +272,9 @@ pub mod tests {
     /// MACs are compared. If any helper deviated from the protocol, chances are that the MACs will not match up.
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
-    async fn simplest_circuit() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+    async fn simplest_circuit() -> Result<(), Error> {
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
         let mut rng = rand::thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -242,60 +283,35 @@ pub mod tests {
         let a_shares = share(a, &mut rng);
         let b_shares = share(b, &mut rng);
 
-        let futures = (0..3).into_iter().zip(context).map(|(i, ctx)| async move {
-            let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
-            let acc = v.accumulator();
-            let r_share = v.r_share();
+        let futures =
+            zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
+                let v = MaliciousValidator::new(ctx);
+                let m_ctx = v.context();
 
-            let a_ctx = ctx.narrow("1");
-            let b_ctx = ctx.narrow("2");
+                let a_malicious = m_ctx.upgrade(RecordId::from(0), a_share).await?;
+                let b_malicious = m_ctx.upgrade(RecordId::from(1), b_share).await?;
 
-            let (ra, rb) = try_join(
-                a_ctx
-                    .narrow("input")
-                    .multiply(RecordId::from(0_u32), a_shares[i], r_share),
-                b_ctx
-                    .narrow("input")
-                    .multiply(RecordId::from(0_u32), b_shares[i], r_share),
-            )
-            .await?;
+                let m_result = m_ctx
+                    .multiply(RecordId::from(0), &a_malicious, &b_malicious)
+                    .await?;
 
-            let a_ctx = a_ctx.upgrade_to_malicious(acc.clone());
-            let b_ctx = b_ctx.upgrade_to_malicious(acc.clone());
+                // Save some cloned values so that we can check them.
+                let r_share = v.r_share().clone();
+                let result = v.validate(m_result.clone()).await?;
+                assert_eq!(&result, m_result.x().access_without_downgrade());
+                Ok::<_, Error>((m_result, r_share))
+            });
 
-            let a_malicious = MaliciousReplicated::new(a_shares[i], ra);
-            let b_malicious = MaliciousReplicated::new(b_shares[i], rb);
+        let [ab0, ab1, ab2] = join3v(futures).await;
 
-            acc.accumulate_macs(
-                &a_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(0_u32),
-                a_malicious,
-            );
-            acc.accumulate_macs(
-                &b_ctx.narrow(&Step::ValidateInput).prss(),
-                RecordId::from(0_u32),
-                b_malicious,
-            );
-
-            let mult_result = a_ctx
-                .multiply(RecordId::from(0_u32), a_malicious, b_malicious)
-                .await?;
-
-            v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
-
-            Ok::<_, BoxError>((mult_result, r_share))
-        });
-
-        let ab_pieces = try_join_all(futures).await?;
-
-        let r = validate_and_reconstruct((ab_pieces[0].1, ab_pieces[1].1, ab_pieces[2].1));
-        let ab =
-            validate_and_reconstruct((ab_pieces[0].0.x(), ab_pieces[1].0.x(), ab_pieces[2].0.x()));
-        let rab = validate_and_reconstruct((
-            ab_pieces[0].0.rx(),
-            ab_pieces[1].0.rx(),
-            ab_pieces[2].0.rx(),
-        ));
+        let ab = (
+            ab0.0.x().access_without_downgrade(),
+            ab1.0.x().access_without_downgrade(),
+            ab2.0.x().access_without_downgrade(),
+        )
+            .reconstruct();
+        let rab = (ab0.0.rx(), ab1.0.rx(), ab2.0.rx()).reconstruct();
+        let r = (&ab0.1, &ab1.1, &ab2.1).reconstruct();
 
         assert_eq!(ab, a * b);
         assert_eq!(rab, r * a * b);
@@ -324,9 +340,9 @@ pub mod tests {
     /// MACs are compared. If any helper deviated from the protocol, chances are that the MACs will not match up.
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
-    async fn complex_circuit() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+    async fn complex_circuit() -> Result<(), Error> {
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
         let mut rng = rand::thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);
@@ -338,91 +354,74 @@ pub mod tests {
             .iter()
             .map(|x| share(*x, &mut rng))
             .collect();
-        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0]).collect();
-        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1]).collect();
-        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2]).collect();
+        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
+        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
+        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
 
         let futures = context
             .into_iter()
-            .zip(vec![h1_shares, h2_shares, h3_shares])
+            .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = SecurityValidator::new(ctx.narrow("SecurityValidatorInit"));
-                let acc = v.accumulator();
+                let v = MaliciousValidator::new(ctx);
+                let m_ctx = v.context();
 
-                let mut row_narrowed_contexts = Vec::with_capacity(100);
-                for i in 0..100 {
-                    row_narrowed_contexts.push(ctx.narrow(&format!("row {}", i)));
-                }
+                let m_input = try_join_all(
+                    input_shares
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, share)| m_ctx.upgrade(RecordId::from(i), share)),
+                )
+                .await
+                .unwrap();
 
-                let r_share = v.r_share();
-
-                let maliciously_secure_inputs =
-                    try_join_all(input_shares.iter().zip(row_narrowed_contexts.iter()).map(
-                        |(x, ctx)| async move {
-                            let rx = ctx
-                                .narrow("mult")
-                                .multiply(RecordId::from(0_u32), *x, r_share)
-                                .await?;
-
-                            Ok::<_, BoxError>(MaliciousReplicated::new(*x, rx))
-                        },
-                    ))
-                    .await?;
-
-                let _ = maliciously_secure_inputs
-                    .iter()
-                    .zip(row_narrowed_contexts.iter())
-                    .map(|(maliciously_secure_input, ctx)| {
-                        acc.accumulate_macs(
-                            &ctx.narrow(&Step::ValidateInput).prss(),
-                            RecordId::from(0_u32),
-                            *maliciously_secure_input,
-                        );
-                    });
-
-                let mult_results = try_join_all(
-                    maliciously_secure_inputs
-                        .iter()
-                        .zip(maliciously_secure_inputs.iter().skip(1))
-                        .zip(row_narrowed_contexts.iter())
-                        .map(|((a_malicious, b_malicious), ctx)| {
-                            let acc = acc.clone();
-                            async move {
-                                ctx.narrow("Circuit_Step_2")
-                                    .upgrade_to_malicious(acc)
-                                    .multiply(RecordId::from(0_u32), *a_malicious, *b_malicious)
-                                    .await
-                            }
-                        }),
+                let m_results = try_join_all(
+                    zip(
+                        repeat(m_ctx).enumerate(),
+                        zip(m_input.iter(), m_input.iter().skip(1)),
+                    )
+                    .map(|((i, ctx), (a_malicious, b_malicious))| async move {
+                        ctx.multiply(RecordId::from(i), a_malicious, b_malicious)
+                            .await
+                    }),
                 )
                 .await?;
 
-                v.validate(ctx.narrow("SecurityValidatorValidate")).await?;
-
-                Ok::<_, BoxError>((mult_results, r_share))
+                let r_share = v.r_share().clone();
+                let results = v.validate(m_results.clone()).await?;
+                assert_eq!(
+                    results.iter().collect::<Vec<_>>(),
+                    m_results
+                        .iter()
+                        .map(|x| x.x().access_without_downgrade())
+                        .collect::<Vec<_>>()
+                );
+                Ok::<_, Error>((m_results, r_share))
             });
 
-        let processed_outputs = try_join_all(futures).await?;
+        let processed_outputs = join3v(futures).await;
 
-        let r = validate_and_reconstruct((
-            processed_outputs[0].1,
-            processed_outputs[1].1,
-            processed_outputs[2].1,
-        ));
+        let r = (
+            &processed_outputs[0].1,
+            &processed_outputs[1].1,
+            &processed_outputs[2].1,
+        )
+            .reconstruct();
 
         for i in 0..99 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
-            let x1_times_x2 = validate_and_reconstruct((
-                processed_outputs[0].0[i].x(),
-                processed_outputs[1].0[i].x(),
-                processed_outputs[2].0[i].x(),
-            ));
-            let r_times_x1_times_x2 = validate_and_reconstruct((
+            let x1_times_x2 = (
+                processed_outputs[0].0[i].x().access_without_downgrade(),
+                processed_outputs[1].0[i].x().access_without_downgrade(),
+                processed_outputs[2].0[i].x().access_without_downgrade(),
+            )
+                .reconstruct();
+            let r_times_x1_times_x2 = (
                 processed_outputs[0].0[i].rx(),
                 processed_outputs[1].0[i].rx(),
                 processed_outputs[2].0[i].rx(),
-            ));
+            )
+                .reconstruct();
 
             assert_eq!(x1 * x2, x1_times_x2);
             assert_eq!(r * x1 * x2, r_times_x1_times_x2);

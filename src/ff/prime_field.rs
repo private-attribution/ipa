@@ -98,6 +98,20 @@ macro_rules! field_impl {
                 write!(f, "{}_mod{}", self.0, Self::PRIME)
             }
         }
+
+        #[cfg(test)]
+        impl std::cmp::PartialEq<u128> for $field {
+            fn eq(&self, other: &u128) -> bool {
+                self.as_u128() == *other
+            }
+        }
+
+        #[cfg(test)]
+        impl std::cmp::PartialEq<$field> for u128 {
+            fn eq(&self, other: &$field) -> bool {
+                *self == other.as_u128()
+            }
+        }
     };
 }
 

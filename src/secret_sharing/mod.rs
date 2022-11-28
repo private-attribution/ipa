@@ -2,14 +2,25 @@ mod malicious_replicated;
 mod replicated;
 
 use crate::ff::Field;
-pub use malicious_replicated::MaliciousReplicated;
+pub(crate) use malicious_replicated::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+pub use malicious_replicated::{Downgrade as DowngradeMalicious, MaliciousReplicated};
 pub use replicated::Replicated;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 /// Secret share of a secret has additive and multiplicative properties.
 pub trait SecretSharing<F>:
-    Add + AddAssign + Neg + Sub + SubAssign + Mul<F> + Debug + Sized
+    for<'a> Add<&'a Self, Output = Self>
+    + for<'a> AddAssign<&'a Self>
+    + Neg
+    + for<'a> Sub<&'a Self, Output = Self>
+    + for<'a> SubAssign<&'a Self>
+    + Mul<F>
+    + Clone
+    + Debug
+    + Default
+    + Sized
+    + Sync
 {
 }
 

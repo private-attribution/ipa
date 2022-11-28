@@ -1,6 +1,5 @@
 use bitvec::bitvec;
 use bitvec::prelude::BitVec;
-use std::ops::Range;
 
 /// A vector of bytes that never grows over a certain size or shrinks below that size.
 /// Vector is segmented into regions and `max_size` is a factor of number of regions.
@@ -15,11 +14,12 @@ use std::ops::Range;
 /// vector has 3 regions and `X` indicates that space at that element is occupied.
 ///
 ///  region1  region2  region3
-/// [X,_,_,_][_,_,X,_][_,X,_,X]
+/// [X,_,_,_][X,_,X,_][_,X,_,X]
 ///
-/// Once `region1` is completely filled up, it is possible to drain the vector
+/// Once `region1` is completely filled up, it is possible to drain the vector. Draining will cause
+/// **all** elements from the head of the queue to be removed
 ///
-/// [X,X,X,X][_,_,X,_][_,X,_,X] -> `drain` -> [_,_,X,_][_,X,_,X][_,_,_,_]
+/// [X,X,X,X][X,_,X,_][_,X,_,X] -> `take` -> [_,X,_,_][X,_,X,_][_,_,_,_]
 ///
 /// This vector is used inside the send buffer to keep track of messages added to it. Once first
 /// batch of messages is ready (region1 is full), it drains this vector and send those messages
@@ -28,80 +28,61 @@ use std::ops::Range;
 pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
     added: BitVec,
-    elements_drained: usize,
-    region_size: usize,
+    taken: usize,
 }
 
 impl<const N: usize> FixedSizeByteVec<N> {
     pub const ELEMENT_SIZE_BYTES: usize = N;
 
-    pub fn new(region_count: usize, region_size: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            data: vec![0_u8; N * region_size * region_count],
-            added: bitvec![0; region_size * region_count],
-            elements_drained: 0,
-            region_size,
+            data: vec![0_u8; N * capacity],
+            added: bitvec![0; capacity],
+            taken: 0,
         }
     }
 
     /// Inserts a new element to the specified position, returning the previous element at this `index`.
     /// ## Panics
-    /// * Panics if `index` is out of bounds.
-    pub fn insert(&mut self, index: usize, elem: [u8; N]) -> Option<[u8; N]> {
-        let offset = Self::index_offset(index);
-
+    /// Panics if `index` is out of bounds or if something was previously inserted at `index`.
+    pub fn insert(&mut self, index: usize, elem: &[u8; N]) {
         // if index is out of bounds, this line will panic, there is no need for additional check
-        if self.added[index] {
-            // this is not supposed to be on the hot path, this branch is executed when there is
-            // an error and message with the same record id is received more than once, so
-            // copying here is fine.
-            let r = self.data[offset.clone()].try_into().unwrap();
-            self.data[offset].copy_from_slice(&elem);
+        // TODO: save runtime cost with `debug_assert!()`, though that would affects panic tests
+        assert!(!self.added[index]);
+        let start = index * N;
+        let offset = start..start + N;
 
-            Some(r)
-        } else {
-            self.added.set(index, true);
-            self.data[offset].copy_from_slice(&elem);
-
-            None
-        }
+        self.added.set(index, true);
+        self.data[offset].copy_from_slice(elem);
     }
 
-    /// Drains the elements from the beginning of the vector. If all of the first `self.region_size`
-    /// elements have been inserted, returns them in order. `self.ready()` should indicate that.
-    ///
-    /// ## Panic
-    /// Panics if `ready()` is false before calling `drain()`.
-    pub fn take(&mut self) -> Option<Vec<u8>> {
-        if self.added[..self.region_size].all() {
-            self.added.drain(..self.region_size).for_each(drop);
-            let r = self.data.drain(..self.region_size * N).collect();
-            self.elements_drained += self.region_size;
+    /// Takes a block of elements from the beginning of the vector, or `None` if
+    /// fewer than `min_count` elements have been inserted at the start of the buffer.
+    pub fn take(&mut self, min_count: usize) -> Option<Vec<u8>> {
+        let contiguous = self.added.leading_ones();
 
-            // clear out last `region_size` elements in the buffer
-            self.data.resize(self.data.len() + self.region_size * N, 0);
-            self.added
-                .resize(self.added.len() + self.region_size, false);
-
-            Some(r)
-        } else {
-            None
+        if contiguous < min_count {
+            return None;
         }
+        self.added.drain(..contiguous).for_each(drop);
+        let r = self.data.drain(..contiguous * N).collect();
+        self.taken += contiguous;
+
+        // clear out last `contiguous` elements in the buffer
+        self.added.resize(self.added.len() + contiguous, false);
+        self.data.resize(self.data.len() + contiguous * N, 0);
+
+        Some(r)
     }
 
     /// Returns total number of elements evicted from this buffer since the creation.
-    pub fn elements_drained(&self) -> usize {
-        self.elements_drained
+    pub fn taken(&self) -> usize {
+        self.taken
     }
 
     /// returns the maximum number of elements this vector can hold.
     pub fn capacity(&self) -> usize {
         self.data.capacity() / N
-    }
-
-    fn index_offset(index: usize) -> Range<usize> {
-        let start = index * N;
-        start..start + N
     }
 }
 
@@ -122,95 +103,82 @@ mod tests {
     }
 
     trait FSBTestExt {
-        fn insert_test_data(&mut self, index: usize) -> Option<[u8; ELEMENT_SIZE]>;
+        fn insert_test_data(&mut self, index: usize);
     }
 
     impl FSBTestExt for FixedSizeByteVec<ELEMENT_SIZE> {
-        fn insert_test_data(&mut self, index: usize) -> Option<[u8; ELEMENT_SIZE]> {
-            self.insert(index, test_data_at(index))
+        fn insert_test_data(&mut self, index: usize) {
+            self.insert(index, &test_data_at(index));
         }
     }
 
     #[test]
+    #[should_panic]
     fn insert() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 1);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
         v.insert_test_data(0);
-        v.insert_test_data(1);
+        v.insert_test_data(2);
 
-        assert_eq!(v.take(), Some(test_data_at(0).to_vec()));
+        assert_eq!(v.take(1), Some(test_data_at(0).to_vec()));
 
-        // element already present should be returned
-        assert_eq!(v.insert(0, [10; ELEMENT_SIZE]), Some(test_data_at(1)));
-
-        assert_eq!(v.take(), Some(vec![10; ELEMENT_SIZE]));
+        v.insert(1, &[10; ELEMENT_SIZE]);
     }
 
     #[test]
-    fn drain() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 1);
+    fn take() {
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2);
         v.insert_test_data(0);
 
         // drain the first region
-        assert_eq!(v.take(), Some(test_data_at(0).to_vec()));
+        assert_eq!(v.take(1), Some(test_data_at(0).to_vec()));
 
         // second region became first because of shift but it is not ready to drain
-        assert_eq!(v.take(), None);
+        assert_eq!(v.take(1), None);
 
         // However there should be no elements in the second region because of the shift
-        assert_eq!(v.insert_test_data(1), None);
-        assert_eq!(1, v.elements_drained());
+        v.insert_test_data(1);
+        assert_eq!(1, v.taken());
     }
 
     #[test]
-    fn drain_touches_first_region_only() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(2, 2);
-        assert_eq!(4, v.capacity());
+    fn take_is_greedy() {
+        // Insert elements X,X,X,_,X,_,_
+        // first take should remove first 3 elements leaving the element at index 4 intact
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3 * 2);
+        assert_eq!(6, v.capacity());
 
         v.insert_test_data(2);
-        v.insert_test_data(3);
+        v.insert_test_data(4);
 
-        assert_eq!(v.take(), None);
+        assert_eq!(v.take(2), None);
 
         v.insert_test_data(1);
 
         // still not ready (element at 0 is missing)
-        assert_eq!(v.take(), None);
+        assert_eq!(v.take(2), None);
 
         v.insert_test_data(0);
 
         // now it is ready
         assert_eq!(
-            v.take(),
-            Some(
-                vec![test_data_at(0), test_data_at(1)]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-            )
+            v.take(2),
+            Some([test_data_at(0), test_data_at(1), test_data_at(2)].concat())
         );
+        assert_eq!(3, v.taken());
 
-        // next region should be ready too as it was at capacity even earlier
-        assert_eq!(
-            v.take(),
-            Some(
-                vec![test_data_at(2), test_data_at(3)]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-            )
-        );
+        v.insert_test_data(0);
 
-        // in total, 4 elements left the buffer
-        assert_eq!(4, v.elements_drained());
+        assert_eq!(v.take(2), Some([test_data_at(0), test_data_at(4)].concat()));
+        assert_eq!(5, v.taken());
 
         // buffer should be empty by now
-        assert_eq!(v.take(), None);
+        assert_eq!(v.take(1), None);
     }
 
     #[test]
     #[should_panic]
     fn index_out_of_bounds() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(1, 1);
-        v.insert(10, [1; ELEMENT_SIZE]);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(1);
+        v.insert(10, &[1; ELEMENT_SIZE]);
     }
 }

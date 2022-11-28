@@ -45,6 +45,7 @@ pub trait Field:
     + PartialEq
     + Debug
     + Send
+    + Sync
     + Sized
     + 'static
 {
@@ -126,6 +127,6 @@ pub trait BinaryField:
     + BitOrAssign
     + BitXor<Output = Self>
     + BitXorAssign
-    + Not
+    + Not<Output = Self>
 {
 }

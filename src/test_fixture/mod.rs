@@ -6,39 +6,19 @@ pub mod logging;
 pub mod network;
 
 use crate::ff::{Field, Fp31};
-use crate::helpers::Role;
-use crate::protocol::context::ProtocolContext;
+use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::secret_sharing::{Replicated, SecretSharing};
+use futures::future::try_join_all;
+use futures::TryFuture;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
 use rand::thread_rng;
-
-pub use sharing::{share, share_malicious, validate_and_reconstruct, validate_list_of_shares};
-pub use world::{
-    make as make_world, make_with_config as make_world_with_config, TestWorld, TestWorldConfig,
-};
-
-/// Creates protocol contexts for 3 helpers
-///
-/// # Panics
-/// Panics if world has more or less than 3 gateways/participants
-#[must_use]
-pub fn make_contexts<F: Field>(
-    test_world: &TestWorld,
-) -> [ProtocolContext<'_, Replicated<F>, F>; 3] {
-    test_world
-        .gateways
-        .iter()
-        .zip(&test_world.participants)
-        .zip(Role::all())
-        .map(|((gateway, participant), role)| ProtocolContext::new(*role, participant, gateway))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
-}
+pub use sharing::{into_bits, share, IntoShares, Reconstruct};
+use std::fmt::Debug;
+pub use world::{Runner, TestWorld, TestWorldConfig};
 
 /// Narrows a set of contexts all at once.
 /// Use by assigning like so: `let [c0, c1, c2] = narrow_contexts(&contexts, "test")`
@@ -46,10 +26,10 @@ pub fn make_contexts<F: Field>(
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<'a, F: Field, S: SecretSharing<F>>(
-    contexts: &[ProtocolContext<'a, S, F>; 3],
+pub fn narrow_contexts<C: Debug + Context<F, Share = S>, F: Field, S: SecretSharing<F>>(
+    contexts: &[C; 3],
     step: &impl Substep,
-) -> [ProtocolContext<'a, S, F>; 3] {
+) -> [C; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()
@@ -62,7 +42,7 @@ pub fn narrow_contexts<'a, F: Field, S: SecretSharing<F>>(
 /// Generate three participants.
 /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
 #[must_use]
-pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
+pub fn make_participants() -> [PrssEndpoint; 3] {
     let mut r = thread_rng();
     let setup1 = PrssEndpoint::prepare(&mut r);
     let setup2 = PrssEndpoint::prepare(&mut r);
@@ -75,14 +55,14 @@ pub fn make_participants() -> (PrssEndpoint, PrssEndpoint, PrssEndpoint) {
     let p2 = setup2.setup(&pk1_r, &pk3_l);
     let p3 = setup3.setup(&pk2_r, &pk1_l);
 
-    (p1, p2, p3)
+    [p1, p2, p3]
 }
 
-pub type ReplicatedShares<T> = (Vec<Replicated<T>>, Vec<Replicated<T>>, Vec<Replicated<T>>);
+pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]
-pub fn generate_shares<F: Field>(input: Vec<u128>) -> ReplicatedShares<F>
+pub fn generate_shares<F: Field>(input: &[u128]) -> ReplicatedShares<F>
 where
     Standard: Distribution<F>,
 {
@@ -93,13 +73,13 @@ where
     let mut shares1 = Vec::with_capacity(len);
     let mut shares2 = Vec::with_capacity(len);
 
-    for iter in input {
-        let share = share(F::from(iter), &mut rand);
-        shares0.push(share[0]);
-        shares1.push(share[1]);
-        shares2.push(share[2]);
+    for i in input {
+        let [s0, s1, s2] = share(F::from(*i), &mut rand);
+        shares0.push(s0);
+        shares1.push(s1);
+        shares2.push(s2);
     }
-    (shares0, shares1, shares2)
+    [shares0, shares1, shares2]
 }
 
 /// # Panics
@@ -113,4 +93,50 @@ pub fn permutation_valid(permutation: &[u32]) -> bool {
         assert_eq!(*position as usize, i);
     }
     true
+}
+
+/// Wrapper for joining three things into an array.
+/// # Panics
+/// Probably never, but the compiler doesn't know that.
+pub async fn join3<T>(a: T, b: T, c: T) -> [T::Ok; 3]
+where
+    T: TryFuture,
+    T::Output: Debug,
+    T::Ok: Debug,
+    T::Error: Debug,
+{
+    let x = try_join_all([a, b, c]).await.unwrap();
+    <[_; 3]>::try_from(x).unwrap()
+}
+
+/// Wrapper for joining three things into an array.
+/// # Panics
+/// If `a` is the wrong length.
+pub async fn join3v<T, V>(a: V) -> [T::Ok; 3]
+where
+    V: IntoIterator<Item = T>,
+    T: TryFuture,
+    T::Output: Debug,
+    T::Ok: Debug,
+    T::Error: Debug,
+{
+    let mut it = a.into_iter();
+    let res = join3(it.next().unwrap(), it.next().unwrap(), it.next().unwrap()).await;
+    assert!(it.next().is_none());
+    res
+}
+
+/// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `Z`
+pub fn bits_to_value<F: Field>(x: &[F]) -> u128 {
+    #[allow(clippy::cast_possible_truncation)]
+    let v = x
+        .iter()
+        .enumerate()
+        .fold(0, |acc, (i, &b)| acc + (b.as_u128() << i));
+    v
+}
+
+/// Take a slice of bits in `{0,1} ⊆ F_p`, and reconstruct the integer in `F_p`
+pub fn bits_to_field<F: Field>(x: &[F]) -> F {
+    F::from(bits_to_value(x))
 }
