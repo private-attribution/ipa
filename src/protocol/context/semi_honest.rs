@@ -18,18 +18,21 @@ use std::sync::Arc;
 pub struct SemiHonestContext<'a, F: Field> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
-    pub(super) inner: Arc<ContextInner<'a>>,
+    pub(super) inner: Arc<ContextInner<'a, F>>,
     pub(super) step: Step,
-    pub(super) random_bits_generator: RandomBitsGenerator<F>,
     _marker: PhantomData<F>,
 }
 
 impl<'a, F: Field> SemiHonestContext<'a, F> {
-    pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+    pub fn new(
+        role: Role,
+        participant: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        random_bits_generator: &'a RandomBitsGenerator<F>,
+    ) -> Self {
         Self {
-            inner: ContextInner::new(role, participant, gateway),
+            inner: ContextInner::new(role, participant, gateway, random_bits_generator),
             step: Step::default(),
-            random_bits_generator: RandomBitsGenerator::new(),
             _marker: PhantomData::default(),
         }
     }
@@ -50,19 +53,6 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         let upgrade_ctx = self.narrow(upgrade_step);
         MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)
     }
-
-    /// Test use only!
-    /// Reuse a provided `RandomBitsGenerator` (rbg).
-    /// Each context holds an instance of `rbg`. It is wrapped within an Arc
-    /// pointer, so the instance would persist for the lifetime of the context
-    /// its in. In unit tests, however, a new context is created each time a
-    /// test is run, which makes the rbg buffer useless. Use this method to
-    /// provide an existing rbg to use for tests.
-    #[must_use]
-    pub fn supply_rbg_for_tests(mut self, rbg: RandomBitsGenerator<F>) -> Self {
-        self.random_bits_generator = rbg;
-        self
-    }
 }
 
 impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
@@ -80,7 +70,6 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
-            random_bits_generator: self.random_bits_generator.clone(),
             _marker: PhantomData::default(),
         }
     }
@@ -102,23 +91,32 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn random_bits_generator(&self) -> RandomBitsGenerator<F> {
-        self.random_bits_generator.clone()
+        // RandomBitsGenerator has only one direct member which is wrapped in
+        // `Arc`. This `clone()` will only increment the ref count.
+        self.inner.random_bits_generator.clone()
     }
 }
 
 #[derive(Debug)]
-pub(super) struct ContextInner<'a> {
+pub(super) struct ContextInner<'a, F: Field> {
     pub role: Role,
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
+    pub random_bits_generator: &'a RandomBitsGenerator<F>,
 }
 
-impl<'a> ContextInner<'a> {
-    fn new(role: Role, prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
+impl<'a, F: Field> ContextInner<'a, F> {
+    fn new(
+        role: Role,
+        prss: &'a PrssEndpoint,
+        gateway: &'a Gateway,
+        random_bits_generator: &'a RandomBitsGenerator<F>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             role,
             prss,
             gateway,
+            random_bits_generator,
         })
     }
 }

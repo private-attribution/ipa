@@ -122,9 +122,7 @@ impl<F: Field> TestWorld<F> {
             zip(&self.participants, zip(&self.gateways, &self.rbg)),
         )
         .map(|(role, (participant, (gateway, rbg)))| {
-            SemiHonestContext::new(*role, participant, gateway)
-                .supply_rbg_for_tests(rbg.clone())
-                .narrow(&run)
+            SemiHonestContext::new(*role, participant, gateway, rbg).narrow(&run)
         })
         .collect::<Vec<_>>()
         .try_into()
