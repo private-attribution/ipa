@@ -1,6 +1,7 @@
 mod bitwise_lt;
 mod bitwise_sum;
 mod carries;
+mod dumb_bitwise_lt;
 mod or;
 mod prefix_or;
 mod solved_bits;
