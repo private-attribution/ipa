@@ -1,6 +1,6 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::ProtocolContext;
+use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::RecordId;
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
@@ -17,9 +17,9 @@ pub trait SecureMul<F: Field> {
     async fn multiply(
         self,
         record_id: RecordId,
-        a: Self::Share,
-        b: Self::Share,
-    ) -> Result<Self::Share, BoxError>;
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error>;
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
@@ -27,32 +27,31 @@ pub use {malicious::SecureMul as MaliciouslySecureMul, semi_honest::SecureMul as
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for ProtocolContext<'_, Replicated<F>, F> {
+impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
     type Share = Replicated<F>;
 
     async fn multiply(
         self,
         record_id: RecordId,
-        a: Self::Share,
-        b: Self::Share,
-    ) -> Result<Self::Share, BoxError> {
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error> {
         SemiHonestMul::new(self, record_id).execute(a, b).await
     }
 }
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for ProtocolContext<'_, MaliciousReplicated<F>, F> {
+impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn multiply(
         self,
         record_id: RecordId,
-        a: Self::Share,
-        b: Self::Share,
-    ) -> Result<Self::Share, BoxError> {
-        let acc = self.accumulator();
-        MaliciouslySecureMul::new(self, record_id, acc)
+        a: &Self::Share,
+        b: &Self::Share,
+    ) -> Result<Self::Share, Error> {
+        MaliciouslySecureMul::new(self, record_id)
             .execute(a, b)
             .await
     }

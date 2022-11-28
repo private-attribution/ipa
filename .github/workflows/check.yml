@@ -5,6 +5,9 @@ jobs:
     name: Rust Checks
     env:
       CARGO_TERM_COLOR: always
+      RUSTFLAGS: -D warnings
+      RUSTDOCFLAGS: -D warnings
+
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +27,15 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        if: ${{ success() || failure() }}
+        run: cargo clippy --tests
+
       - name: Build
+        if: ${{ success() || failure() }}
         run: cargo build --tests
 
       - name: Release Build
@@ -32,14 +43,6 @@ jobs:
 
       - name: Build benchmarks
         run: cargo build --benches --all-features
-
-      - name: Check formatting
-        if: ${{ success() || failure() }}
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        if: ${{ success() || failure() }}
-        run: cargo clippy --tests -- -D warnings -D clippy::pedantic
 
       - name: Run Tests
         run: cargo test

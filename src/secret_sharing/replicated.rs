@@ -3,10 +3,10 @@ use crate::helpers::Role;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Replicated<F>(F, F);
+#[derive(Clone, PartialEq, Eq)]
+pub struct Replicated<F: Field>(F, F);
 
-impl<F: Debug> Debug for Replicated<F> {
+impl<F: Field + Debug> Debug for Replicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
@@ -45,49 +45,78 @@ impl<F: Field> Replicated<F> {
             Role::H3 => Self::new(F::ZERO, F::ONE),
         }
     }
+
+    /// Replicated secret share where both left and right values are `F::ZERO`
+    pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
 }
 
-impl<F: Field> Add for Replicated<F> {
+impl<F: Field> Add<Self> for &Replicated<F> {
+    type Output = Replicated<F>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Replicated(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl<F: Field> Add<&Self> for Replicated<F> {
     type Output = Self;
 
-    fn add(self, rhs: Self) -> Self {
-        Self(self.0 + rhs.0, self.1 + rhs.1)
+    fn add(mut self, rhs: &Self) -> Self::Output {
+        self += rhs;
+        self
     }
 }
 
-impl<F: Field> AddAssign for Replicated<F> {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = self.add(rhs);
-    }
-}
-
-impl<F: Field> SubAssign for Replicated<F> {
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = self.sub(rhs);
+impl<F: Field> AddAssign<&Self> for Replicated<F> {
+    fn add_assign(&mut self, rhs: &Self) {
+        self.0 += rhs.0;
+        self.1 += rhs.1;
     }
 }
 
 impl<F: Field> Neg for Replicated<F> {
     type Output = Self;
 
-    fn neg(self) -> Self {
+    fn neg(self) -> Self::Output {
         Self(-self.0, -self.1)
     }
 }
 
-impl<F: Field> Sub for Replicated<F> {
+impl<F: Field> Sub<Self> for &Replicated<F> {
+    type Output = Replicated<F>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Replicated(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl<F: Field> Sub<&Self> for Replicated<F> {
     type Output = Self;
 
-    fn sub(self, rhs: Self) -> Self {
-        Self(self.0 - rhs.0, self.1 - rhs.1)
+    fn sub(mut self, rhs: &Self) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
+impl<F: Field> SubAssign<&Self> for Replicated<F> {
+    fn sub_assign(&mut self, rhs: &Self) {
+        self.0 -= rhs.0;
+        self.1 -= rhs.1;
     }
 }
 
 impl<F: Field> Mul<F> for Replicated<F> {
     type Output = Self;
 
-    fn mul(self, rhs: F) -> Self {
-        Self(rhs * self.0, rhs * self.1)
+    fn mul(self, rhs: F) -> Self::Output {
+        Self(self.0 * rhs, self.1 * rhs)
+    }
+}
+
+impl<F: Field> From<(F, F)> for Replicated<F> {
+    fn from(s: (F, F)) -> Self {
+        Replicated::new(s.0, s.1)
     }
 }
 
@@ -105,9 +134,9 @@ mod tests {
     }
 
     fn assert_valid_secret_sharing(
-        res1: Replicated<Fp31>,
-        res2: Replicated<Fp31>,
-        res3: Replicated<Fp31>,
+        res1: &Replicated<Fp31>,
+        res2: &Replicated<Fp31>,
+        res3: &Replicated<Fp31>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -115,9 +144,9 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: Replicated<Fp31>,
-        a2: Replicated<Fp31>,
-        a3: Replicated<Fp31>,
+        a1: &Replicated<Fp31>,
+        a2: &Replicated<Fp31>,
+        a3: &Replicated<Fp31>,
         expected_value: u128,
     ) {
         assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));
@@ -129,12 +158,12 @@ mod tests {
         let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
 
         // Compute r1 + r2
-        let res1 = a1 + b1;
-        let res2 = a2 + b2;
-        let res3 = a3 + b3;
+        let res1 = a1 + &b1;
+        let res2 = a2 + &b2;
+        let res3 = a3 + &b3;
 
-        assert_valid_secret_sharing(res1, res2, res3);
-        assert_secret_shared_value(res1, res2, res3, expected_output);
+        assert_valid_secret_sharing(&res1, &res2, &res3);
+        assert_secret_shared_value(&res1, &res2, &res3, expected_output);
     }
 
     #[test]
@@ -169,12 +198,12 @@ mod tests {
         let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
 
         // Compute r1 - r2
-        let res1 = a1 - b1;
-        let res2 = a2 - b2;
-        let res3 = a3 - b3;
+        let res1 = a1 - &b1;
+        let res2 = a2 - &b2;
+        let res3 = a3 - &b3;
 
-        assert_valid_secret_sharing(res1, res2, res3);
-        assert_secret_shared_value(res1, res2, res3, expected_output);
+        assert_valid_secret_sharing(&res1, &res2, &res3);
+        assert_secret_shared_value(&res1, &res2, &res3, expected_output);
     }
 
     #[test]
@@ -211,8 +240,8 @@ mod tests {
         let res2 = a2 * Fp31::from(c);
         let res3 = a3 * Fp31::from(c);
 
-        assert_valid_secret_sharing(res1, res2, res3);
-        assert_secret_shared_value(res1, res2, res3, expected_output);
+        assert_valid_secret_sharing(&res1, &res2, &res3);
+        assert_secret_shared_value(&res1, &res2, &res3, expected_output);
     }
 
     #[test]

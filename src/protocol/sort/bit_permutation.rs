@@ -1,13 +1,12 @@
 use std::iter::{repeat, zip};
 
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId},
-    secret_sharing::Replicated,
+    protocol::{context::Context, RecordId},
+    secret_sharing::SecretSharing,
 };
 
-use crate::protocol::mul::SecureMul;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
@@ -15,120 +14,98 @@ use futures::future::try_join_all;
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
-#[derive(Debug)]
-pub struct BitPermutation<'a, F> {
-    input: &'a [Replicated<F>],
-}
+#[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
+/// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
+///
+/// At a high level, the protocol works as follows:
+/// 1. Start with a list of `n` secret shares `[x_1]` ... `[x_n]` where each is a secret sharing of either zero or one.
+/// 2. Create a vector of length `2*n` where the first `n` rows have the values `[1 - x_1]` ... `[1 - x_n]`
+/// and the next `n` rows have the value `[x_1]` ... `[x_n]`
+/// 3. Compute a new vector of length `2*n` by computing the running sum of the vector from step 2.
+/// 4. Compute another vector of length `2*n` by multipling the vectors from steps 2 and 3 element-wise.
+/// 5. Compute the final output, a vector of length `n`. Each element `i` in this output vector is the sum of
+/// the elements at index `i` and `i+n` from the vector computed in step 4.
+///
+/// ![Bit Permutation steps][bit_permutation]
+/// ## Panics
+/// In case the function is unable to get double size of output from multiplication step, the code will panic
+///
+/// ## Errors
+/// It will propagate errors from multiplication protocol.
+pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+    ctx: C,
+    input: &[S],
+) -> Result<Vec<S>, Error> {
+    let share_of_one = ctx.share_of_one();
 
-impl<'a, F: Field> BitPermutation<'a, F> {
-    pub fn new(input: &'a [Replicated<F>]) -> BitPermutation<'a, F> {
-        Self { input }
-    }
+    let mult_input = zip(repeat(share_of_one.clone()), input)
+        .map(|(one, x)| one - x)
+        .chain(input.iter().cloned())
+        .scan(S::default(), |sum, x| {
+            *sum += &x;
+            Some((x, sum.clone()))
+        });
 
-    #[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
-    /// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
-    ///
-    /// At a high level, the protocol works as follows:
-    /// 1. Start with a list of `n` secret shares `[x_1]` ... `[x_n]` where each is a secret sharing of either zero or one.
-    /// 2. Create a vector of length `2*n` where the first `n` rows have the values `[1 - x_1]` ... `[1 - x_n]`
-    /// and the next `n` rows have the value `[x_1]` ... `[x_n]`
-    /// 3. Compute a new vector of length `2*n` by computing the running sum of the vector from step 2.
-    /// 4. Compute another vector of length `2*n` by multipling the vectors from steps 2 and 3 element-wise.
-    /// 5. Compute the final output, a vector of length `n`. Each element `i` in this output vector is the sum of
-    /// the elements at index `i` and `i+n` from the vector computed in step 4.
-    ///
-    /// ![Bit Permutation steps][bit_permutation]
-    /// ## Panics
-    /// In case the function is unable to get double size of output from multiplication step, the code will panic
-    ///
-    /// ## Errors
-    /// It will propagate errors from multiplication protocol.
-    pub async fn execute(
-        &self,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let share_of_one = Replicated::one(ctx.role());
-
-        let mult_input = self
-            .input
-            .iter()
-            .map(move |x: &Replicated<F>| share_of_one - *x)
-            .chain(self.input.iter().copied())
-            .scan(Replicated::<F>::new(F::ZERO, F::ZERO), |sum, x| {
-                *sum += x;
-                Some((x, *sum))
+    let async_multiply =
+        zip(repeat(ctx), mult_input)
+            .enumerate()
+            .map(|(i, (ctx, (x, sum)))| async move {
+                let record_id = RecordId::from(i);
+                ctx.multiply(record_id, &x, &sum).await
             });
+    let mut mult_output = try_join_all(async_multiply).await?;
 
-        let async_multiply =
-            zip(repeat(ctx), mult_input)
-                .enumerate()
-                .map(|(i, (ctx, (x, sum)))| async move {
-                    ctx.multiply(RecordId::from(i), x, sum).await
-                });
-        let mut mult_output = try_join_all(async_multiply).await?;
-
-        assert_eq!(mult_output.len(), self.input.len() * 2);
-        // Generate permutation location
-        let len = mult_output.len() / 2;
-        for i in 0..len {
-            let val = mult_output[i + len];
-            // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
-            // protocols expect 0-indexed permutation
-            mult_output[i] += val - share_of_one;
-        }
-        mult_output.truncate(len);
-
-        Ok(mult_output)
+    debug_assert!(mult_output.len() == input.len() * 2);
+    // Generate permutation location
+    let len = mult_output.len() / 2;
+    for i in 0..len {
+        // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
+        // protocols expect 0-indexed permutation
+        let less_one = mult_output[i + len].clone() - &share_of_one;
+        mult_output[i] = less_one + &mult_output[i];
     }
+    mult_output.truncate(len);
+    Ok(mult_output)
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::rngs::mock::StepRng;
-    use tokio::try_join;
-
     use crate::{
         ff::Fp31,
-        protocol::{sort::bit_permutation::BitPermutation, QueryId},
-        test_fixture::{make_contexts, make_world, share, validate_list_of_shares},
+        protocol::{sort::bit_permutation::bit_permutation, QueryId},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
+    // With this input, for stable sort we expect all 0's to line up before 1's.
+    // The expected sort order is same as expected_sort_output.
+    const INPUT: &[u128] = &[1, 0, 1, 0, 0, 1, 0];
+    const EXPECTED: &[u128] = &[4, 0, 5, 1, 2, 6, 3];
+
     #[tokio::test]
-    pub async fn bit_permutation() {
-        let world = make_world(QueryId);
-        let [ctx0, ctx1, ctx2] = make_contexts::<Fp31>(&world);
-        let mut rand = StepRng::new(100, 1);
+    pub async fn semi_honest() {
+        let world = TestWorld::new(QueryId);
 
-        // With this input, for stable sort we expect all 0's to line up before 1's. The expected sort order is same as expected_sort_output
-        let input: Vec<u128> = vec![1, 0, 1, 0, 0, 1, 0];
-        let expected_sort_output = [4_u128, 0, 5, 1, 2, 6, 3];
+        let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
+        let result = world
+            .semi_honest(input, |ctx, m_shares| async move {
+                bit_permutation(ctx, &m_shares).await.unwrap()
+            })
+            .await;
 
-        let input_len = input.len();
-        let mut shares = [
-            Vec::with_capacity(input_len),
-            Vec::with_capacity(input_len),
-            Vec::with_capacity(input_len),
-        ];
-        for iter in input {
-            let share = share(Fp31::from(iter), &mut rand);
-            for i in 0..3 {
-                shares[i].push(share[i]);
-            }
-        }
+        assert_eq!(&result.reconstruct(), EXPECTED);
+    }
 
-        let bitperms0 = BitPermutation::new(&shares[0]);
-        let bitperms1 = BitPermutation::new(&shares[1]);
-        let bitperms2 = BitPermutation::new(&shares[2]);
-        let h0_future = bitperms0.execute(ctx0);
-        let h1_future = bitperms1.execute(ctx1);
-        let h2_future = bitperms2.execute(ctx2);
+    #[tokio::test]
+    pub async fn malicious() {
+        let world = TestWorld::new(QueryId);
 
-        let result = try_join!(h0_future, h1_future, h2_future).unwrap();
+        let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
+        let result = world
+            .malicious(input, |ctx, m_shares| async move {
+                bit_permutation(ctx, &m_shares).await.unwrap()
+            })
+            .await;
 
-        assert_eq!(result.0.len(), input_len);
-        assert_eq!(result.1.len(), input_len);
-        assert_eq!(result.2.len(), input_len);
-
-        validate_list_of_shares(&expected_sort_output, &result);
+        assert_eq!(&result.reconstruct(), EXPECTED);
     }
 }

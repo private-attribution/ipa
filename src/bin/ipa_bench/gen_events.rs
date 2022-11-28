@@ -1,7 +1,7 @@
 use crate::models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Number};
 
 use super::sample::Sample;
-use byteorder::WriteBytesExt;
+use bitvec::view::BitViewSized;
 use rand::distributions::Bernoulli;
 use rand::distributions::Distribution;
 use rand::{CryptoRng, Rng, RngCore};
@@ -62,7 +62,7 @@ pub fn generate_events<R: RngCore + CryptoRng, W: io::Write>(
             total_conversions += u32::from(conversions);
 
             for e in events {
-                out.write_u8(RECORD_SEPARATOR).unwrap();
+                out.write_all(RECORD_SEPARATOR.as_raw_slice()).unwrap();
                 out.write_all(serde_json::to_string(&e).unwrap().as_bytes())
                     .unwrap();
                 writeln!(out).unwrap();

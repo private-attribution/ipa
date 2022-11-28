@@ -1,9 +1,10 @@
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::reveal::Reveal;
 use crate::{
-    error::BoxError,
+    error::Error,
     ff::Field,
-    protocol::{context::ProtocolContext, RecordId},
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 use serde::{Deserialize, Serialize};
@@ -62,20 +63,20 @@ impl AsRef<str> for Step {
 /// back via the error response
 #[allow(dead_code)]
 pub async fn check_zero<F: Field>(
-    ctx: ProtocolContext<'_, Replicated<F>, F>,
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    v: Replicated<F>,
-) -> Result<bool, BoxError> {
+    v: &Replicated<F>,
+) -> Result<bool, Error> {
     let prss = &ctx.prss();
     let r_sharing = prss.generate_replicated(record_id);
 
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
-        .multiply(record_id, r_sharing, v)
+        .multiply(record_id, &r_sharing, v)
         .await?;
     let rv = ctx
         .narrow(&Step::RevealR)
-        .reveal(record_id, rv_share)
+        .reveal(record_id, &rv_share)
         .await?;
 
     Ok(rv == F::ZERO)
@@ -83,15 +84,16 @@ pub async fn check_zero<F: Field>(
 
 #[cfg(test)]
 pub mod tests {
-    use crate::error::BoxError;
+    use crate::error::Error;
     use crate::ff::{Field, Fp31};
+    use crate::protocol::context::Context;
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
-    use crate::test_fixture::{make_contexts, make_world, share, TestWorld};
+    use crate::test_fixture::{share, TestWorld};
 
     #[tokio::test]
-    async fn basic() -> Result<(), BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let context = make_contexts::<Fp31>(&world);
+    async fn basic() -> Result<(), Error> {
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
         let mut rng = rand::thread_rng();
         let mut counter = 0_u32;
 
@@ -105,9 +107,9 @@ pub mod tests {
                 counter += 1;
 
                 let protocol_output = tokio::try_join!(
-                    check_zero(context[0].narrow(&iteration), record_id, v_shares[0],),
-                    check_zero(context[1].narrow(&iteration), record_id, v_shares[1],),
-                    check_zero(context[2].narrow(&iteration), record_id, v_shares[2],),
+                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0],),
+                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1],),
+                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2],),
                 )?;
 
                 // All three helpers should always get the same result

@@ -1,22 +1,34 @@
-use std::fmt::Formatter;
-use std::ops::AddAssign;
-use std::ops::SubAssign;
 use std::{
-    fmt::Debug,
-    ops::{Add, Mul, Neg, Sub},
+    fmt::{Debug, Formatter},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
 use crate::ff::Field;
 use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct MaliciousReplicated<F> {
+#[derive(Clone, PartialEq, Eq)]
+pub struct MaliciousReplicated<F: Field> {
     x: Replicated<F>,
     rx: Replicated<F>,
 }
 
-impl<F: Debug> Debug for MaliciousReplicated<F> {
+/// A trait that is implemented for various collections of `MaliciousReplicated`
+/// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
+/// when the protocol is done.  This should not be used directly.
+pub trait Downgrade {
+    type Target;
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
+}
+
+#[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
+pub struct UnauthorizedDowngradeWrapper<T>(T);
+
+pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
+    fn access_without_downgrade(self) -> T;
+}
+
+impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
     }
@@ -34,41 +46,44 @@ impl<F: Field> MaliciousReplicated<F> {
         Self { x, rx }
     }
 
-    pub fn x(&self) -> Replicated<F> {
-        self.x
+    pub fn x(&self) -> UnauthorizedDowngradeWrapper<&Replicated<F>> {
+        UnauthorizedDowngradeWrapper(&self.x)
     }
 
-    pub fn rx(&self) -> Replicated<F> {
-        self.rx
+    pub fn rx(&self) -> &Replicated<F> {
+        &self.rx
     }
 
     /// Returns a pair of replicated secret sharings. One of "one", one of "r"
-    #[allow(dead_code)]
     pub fn one(helper_role: Role, r_share: Replicated<F>) -> Self {
         Self::new(Replicated::one(helper_role), r_share)
     }
 }
 
-impl<F: Field> Add for MaliciousReplicated<F> {
-    type Output = Self;
+impl<F: Field> Add<Self> for &MaliciousReplicated<F> {
+    type Output = MaliciousReplicated<F>;
 
-    fn add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x + rhs.x,
-            rx: self.rx + rhs.rx,
+    fn add(self, rhs: Self) -> Self::Output {
+        MaliciousReplicated {
+            x: &self.x + &rhs.x,
+            rx: &self.rx + &rhs.rx,
         }
     }
 }
 
-impl<F: Field> AddAssign for MaliciousReplicated<F> {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = self.add(rhs);
+impl<F: Field> Add<&Self> for MaliciousReplicated<F> {
+    type Output = Self;
+
+    fn add(mut self, rhs: &Self) -> Self::Output {
+        self += rhs;
+        self
     }
 }
 
-impl<F: Field> SubAssign for MaliciousReplicated<F> {
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = self.sub(rhs);
+impl<F: Field> AddAssign<&Self> for MaliciousReplicated<F> {
+    fn add_assign(&mut self, rhs: &Self) {
+        self.x += &rhs.x;
+        self.rx += &rhs.rx;
     }
 }
 
@@ -83,21 +98,36 @@ impl<F: Field> Neg for MaliciousReplicated<F> {
     }
 }
 
-impl<F: Field> Sub for MaliciousReplicated<F> {
+impl<F: Field> Sub<Self> for &MaliciousReplicated<F> {
+    type Output = MaliciousReplicated<F>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        MaliciousReplicated {
+            x: &self.x - &rhs.x,
+            rx: &self.rx - &rhs.rx,
+        }
+    }
+}
+impl<F: Field> Sub<&Self> for MaliciousReplicated<F> {
     type Output = Self;
 
-    fn sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x - rhs.x,
-            rx: self.rx - rhs.rx,
-        }
+    fn sub(mut self, rhs: &Self) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
+impl<F: Field> SubAssign<&Self> for MaliciousReplicated<F> {
+    fn sub_assign(&mut self, rhs: &Self) {
+        self.x -= &rhs.x;
+        self.rx -= &rhs.rx;
     }
 }
 
 impl<F: Field> Mul<F> for MaliciousReplicated<F> {
     type Output = Self;
 
-    fn mul(self, rhs: F) -> Self {
+    fn mul(self, rhs: F) -> Self::Output {
         Self {
             x: self.x * rhs,
             rx: self.rx * rhs,
@@ -105,13 +135,56 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
     }
 }
 
+impl<F: Field> Downgrade for MaliciousReplicated<F> {
+    type Target = Replicated<F>;
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper(self.x)
+    }
+}
+
+impl<T, U> Downgrade for (T, U)
+where
+    T: Downgrade,
+    U: Downgrade,
+{
+    type Target = (<T as Downgrade>::Target, <U as Downgrade>::Target);
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper((
+            self.0.downgrade().access_without_downgrade(),
+            self.1.downgrade().access_without_downgrade(),
+        ))
+    }
+}
+
+impl<T> Downgrade for Vec<T>
+where
+    T: Downgrade,
+{
+    type Target = Vec<<T as Downgrade>::Target>;
+    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper(
+            self.into_iter()
+                .map(|v| v.downgrade().access_without_downgrade())
+                .collect(),
+        )
+    }
+}
+
+impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
+    fn access_without_downgrade(self) -> T {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::MaliciousReplicated;
+    use super::{Downgrade, MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
-    use crate::test_fixture::{share, validate_and_reconstruct};
+    use crate::secret_sharing::Replicated;
+    use crate::test_fixture::{share, Reconstruct};
     use proptest::prelude::Rng;
+    use rand::thread_rng;
 
     #[test]
     #[allow(clippy::many_single_char_names)]
@@ -156,37 +229,49 @@ mod tests {
         for i in 0..3 {
             let helper_role = roles[i];
 
-            let malicious_a = MaliciousReplicated::new(a_shared[i], ra_shared[i]);
-            let malicious_b = MaliciousReplicated::new(b_shared[i], rb_shared[i]);
-            let malicious_c = MaliciousReplicated::new(c_shared[i], rc_shared[i]);
-            let malicious_d = MaliciousReplicated::new(d_shared[i], rd_shared[i]);
-            let malicious_e = MaliciousReplicated::new(e_shared[i], re_shared[i]);
-            let malicious_f = MaliciousReplicated::new(f_shared[i], rf_shared[i]);
+            // Avoiding copies here is a real pain: clone!
+            let malicious_a = MaliciousReplicated::new(a_shared[i].clone(), ra_shared[i].clone());
+            let malicious_b = MaliciousReplicated::new(b_shared[i].clone(), rb_shared[i].clone());
+            let malicious_c = MaliciousReplicated::new(c_shared[i].clone(), rc_shared[i].clone());
+            let malicious_d = MaliciousReplicated::new(d_shared[i].clone(), rd_shared[i].clone());
+            let malicious_e = MaliciousReplicated::new(e_shared[i].clone(), re_shared[i].clone());
+            let malicious_f = MaliciousReplicated::new(f_shared[i].clone(), rf_shared[i].clone());
 
-            let malicious_a_plus_b = malicious_a + malicious_b;
-            let malicious_c_minus_d = malicious_c - malicious_d;
+            let malicious_a_plus_b = malicious_a + &malicious_b;
+            let malicious_c_minus_d = malicious_c - &malicious_d;
             let malicious_1_minus_e =
-                MaliciousReplicated::one(helper_role, r_shared[i]) - malicious_e;
+                MaliciousReplicated::one(helper_role, r_shared[i].clone()) - &malicious_e;
             let malicious_2f = malicious_f * Fp31::from(2_u128);
 
-            let mut temp = -malicious_a_plus_b;
-            temp -= malicious_c_minus_d;
-            temp -= malicious_1_minus_e;
+            let mut temp = -malicious_a_plus_b - &malicious_c_minus_d - &malicious_1_minus_e;
             temp = temp * Fp31::from(6_u128);
-            temp += malicious_2f;
-            results.push(temp);
+            results.push(temp + &malicious_2f);
         }
 
         let correct =
             (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::from(6_u128) + Fp31::from(2_u128) * f;
 
         assert_eq!(
-            validate_and_reconstruct((results[0].x(), results[1].x(), results[2].x())),
+            (
+                results[0].x().access_without_downgrade(),
+                results[1].x().access_without_downgrade(),
+                results[2].x().access_without_downgrade(),
+            )
+                .reconstruct(),
             correct,
         );
         assert_eq!(
-            validate_and_reconstruct((results[0].rx(), results[1].rx(), results[2].rx())),
+            (results[0].rx(), results[1].rx(), results[2].rx()).reconstruct(),
             correct * r,
         );
+    }
+
+    #[test]
+    fn downgrade() {
+        let mut rng = thread_rng();
+        let x = Replicated::new(rng.gen::<Fp31>(), rng.gen());
+        let y = Replicated::new(rng.gen::<Fp31>(), rng.gen());
+        let m = MaliciousReplicated::new(x.clone(), y);
+        assert_eq!(x, m.downgrade().access_without_downgrade());
     }
 }

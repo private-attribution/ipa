@@ -1,6 +1,6 @@
 mod attribution;
 mod batch;
-mod boolean;
+pub mod boolean;
 mod check_zero;
 pub mod context;
 pub mod malicious;
@@ -15,11 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
-#[cfg(debug_assertions)]
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -67,7 +62,7 @@ impl Substep for str {}
 /// (possible more efficient) representation.  It is probably not particularly efficient
 /// to be cloning this object all over the place.  Of course, a string is pretty useful
 /// from a debugging perspective.
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Deserialize),
@@ -75,35 +70,9 @@ impl Substep for str {}
 )]
 pub struct Step {
     id: String,
-    /// This tracks the different values that have been provided to `narrow()`.
-    #[cfg(debug_assertions)]
-    used: Arc<Mutex<HashSet<String>>>,
 }
-
-impl Hash for Step {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(self.id.as_bytes());
-    }
-}
-
-impl PartialEq for Step {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Eq for Step {}
 
 impl Step {
-    #[must_use]
-    pub fn from_step_id(step: &Self) -> Self {
-        Self {
-            id: step.id.clone(),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
-        }
-    }
-
     /// Narrow the scope of the step identifier.
     /// # Panics
     /// In a debug build, this checks that the same refine call isn't run twice and that the string
@@ -114,18 +83,10 @@ impl Step {
         {
             let s = String::from(step.as_ref());
             assert!(!s.contains('/'), "The string for a step cannot contain '/'");
-            assert!(
-                self.used.lock().unwrap().insert(s),
-                "Refined '{}' with step '{}' twice",
-                self.id,
-                step.as_ref(),
-            );
         }
 
         Self {
             id: self.id.clone() + "/" + step.as_ref(),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -136,8 +97,6 @@ impl Default for Step {
     fn default() -> Self {
         Self {
             id: String::from("protocol"),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -151,11 +110,7 @@ impl AsRef<str> for Step {
 impl From<&str> for Step {
     fn from(id: &str) -> Self {
         let id = id.strip_prefix('/').unwrap_or(id);
-        Step {
-            id: id.to_owned(),
-            #[cfg(debug_assertions)]
-            used: Arc::new(Mutex::new(HashSet::new())),
-        }
+        Step { id: id.to_owned() }
     }
 }
 
@@ -252,6 +207,17 @@ impl From<usize> for RecordId {
     }
 }
 
+/// This implementation exists because I am tired of typing `RecordId::from(0_u32)` in tests.
+/// I simply want to be able to say `RecordId::from(0)` there.
+#[cfg(test)]
+impl From<i32> for RecordId {
+    fn from(v: i32) -> Self {
+        assert!(v >= 0, "Record identifier must be a non-negative number");
+
+        RecordId::from(u32::try_from(v).unwrap())
+    }
+}
+
 impl From<RecordId> for u128 {
     fn from(r: RecordId) -> Self {
         r.0.into()
@@ -273,5 +239,40 @@ impl From<RecordId> for usize {
 impl AddAssign<usize> for RecordId {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += u32::try_from(rhs).unwrap();
+    }
+}
+
+pub struct IterStep {
+    name: &'static str,
+    count: u32,
+    id: String,
+}
+
+impl IterStep {
+    #[must_use]
+    pub fn new(name: &'static str, start: u32) -> Self {
+        Self {
+            name,
+            count: start,
+            id: String::from(name),
+        }
+    }
+
+    fn next(&mut self) -> &Self {
+        self.count += 1;
+        self.id = format!("{}_{}", self.name, self.count);
+        self
+    }
+
+    fn is_first_iteration(&self) -> bool {
+        self.count == 1
+    }
+}
+
+impl crate::protocol::Substep for IterStep {}
+
+impl AsRef<str> for IterStep {
+    fn as_ref(&self) -> &str {
+        self.id.as_str()
     }
 }

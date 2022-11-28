@@ -1,9 +1,8 @@
-use crate::error::BoxError;
+use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::context::MaliciousContext;
 use crate::protocol::mul::SemiHonestMul;
-use crate::protocol::{
-    context::ProtocolContext, malicious::SecurityValidatorAccumulator, RecordId,
-};
+use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -47,23 +46,14 @@ impl AsRef<str> for Step {
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
 pub struct SecureMul<'a, F: Field> {
-    ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
+    ctx: MaliciousContext<'a, F>,
     record_id: RecordId,
-    accumulator: SecurityValidatorAccumulator<F>,
 }
 
 impl<'a, F: Field> SecureMul<'a, F> {
     #[must_use]
-    pub fn new(
-        ctx: ProtocolContext<'a, MaliciousReplicated<F>, F>,
-        record_id: RecordId,
-        accumulator: SecurityValidatorAccumulator<F>,
-    ) -> Self {
-        Self {
-            ctx,
-            record_id,
-            accumulator,
-        }
+    pub fn new(ctx: MaliciousContext<'a, F>, record_id: RecordId) -> Self {
+        Self { ctx, record_id }
     }
 
     /// Executes two parallel multiplications;
@@ -77,31 +67,55 @@ impl<'a, F: Field> SecureMul<'a, F> {
     /// Panics if the mutex is found to be poisoned
     pub async fn execute(
         self,
-        a: MaliciousReplicated<F>,
-        b: MaliciousReplicated<F>,
-    ) -> Result<MaliciousReplicated<F>, BoxError> {
-        // being clever and assuming a clean context...
+        a: &MaliciousReplicated<F>,
+        b: &MaliciousReplicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        use crate::protocol::context::SpecialAccessToMaliciousContext;
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
-        let random_constant_prss = self.ctx.narrow(&Step::RandomnessForValidation).prss();
-        let (ab, rab) = {
-            // Convince compiler that neither a nor b will be used across the await point
-            // to relax the requirement for either of them to be Sync
-            let a_x = a.x();
-            let a_rx = a.rx();
-            let b_x = b.x();
-            try_join(
-                SemiHonestMul::new(self.ctx.to_semi_honest(), self.record_id).execute(a_x, b_x),
-                SemiHonestMul::new(duplicate_multiply_ctx.to_semi_honest(), self.record_id)
-                    .execute(a_rx, b_x),
-            )
-            .await?
-        };
+        let random_constant_ctx = self.ctx.narrow(&Step::RandomnessForValidation);
+        let (ab, rab) = try_join(
+            SemiHonestMul::new(self.ctx.semi_honest_context(), self.record_id).execute(
+                a.x().access_without_downgrade(),
+                b.x().access_without_downgrade(),
+            ),
+            SemiHonestMul::new(duplicate_multiply_ctx.semi_honest_context(), self.record_id)
+                .execute(a.rx(), b.x().access_without_downgrade()),
+        )
+        .await?;
 
         let malicious_ab = MaliciousReplicated::new(ab, rab);
 
-        self.accumulator
-            .accumulate_macs(&random_constant_prss, self.record_id, malicious_ab);
+        random_constant_ctx.accumulate_macs(self.record_id, &malicious_ab);
 
         Ok(malicious_ab)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        ff::Fp31,
+        protocol::{mul::SecureMul, QueryId, RecordId},
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
+    use rand::{thread_rng, Rng};
+
+    #[tokio::test]
+    pub async fn simple() {
+        let world = TestWorld::new(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+
+        let res = world
+            .malicious((a, b), |ctx, (a, b)| async move {
+                ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
+            })
+            .await;
+
+        assert_eq!(a * b, res.reconstruct());
     }
 }

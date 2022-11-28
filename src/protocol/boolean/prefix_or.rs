@@ -1,11 +1,11 @@
-use crate::error::BoxError;
+use super::{or::or, BitOpStep};
+use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-
-use super::BitOpStep;
 
 /// This is an implementation of Prefix-Or on bitwise-shared numbers.
 ///
@@ -24,30 +24,17 @@ use super::BitOpStep;
 pub struct PrefixOr {}
 
 impl PrefixOr {
-    /// Securely computes `[a] | [b] where a, b ∈ {0, 1} ⊆ F_p`
-    /// OR can be computed as: `!MULT(![a], ![b])`
-    async fn bit_or<F: Field>(
-        a: Replicated<F>,
-        b: Replicated<F>,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
-        record_id: RecordId,
-    ) -> Result<Replicated<F>, BoxError> {
-        let one = Replicated::one(ctx.role());
-        let result = ctx.multiply(record_id, one - a, one - b).await?;
-        Ok(one - result)
-    }
-
     /// Securely computes `∨ [a_1],...[a_n]`
     async fn block_or<F: Field>(
         a: &[Replicated<F>],
         k: usize,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Replicated<F>, BoxError> {
+    ) -> Result<Replicated<F>, Error> {
         #[allow(clippy::cast_possible_truncation)]
-        let mut v = a[0];
-        for (i, &bit) in a[1..].iter().enumerate() {
-            v = Self::bit_or(v, bit, ctx.narrow(&BitOpStep::Step(k + i)), record_id).await?;
+        let mut v = a[0].clone();
+        for (i, bit) in a[1..].iter().enumerate() {
+            v = or(ctx.narrow(&BitOpStep::Step(k + i)), record_id, &v, bit).await?;
         }
         Ok(v)
     }
@@ -67,9 +54,9 @@ impl PrefixOr {
     async fn step1<F: Field>(
         a: &[Replicated<F>],
         lambda: usize,
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let mut futures = Vec::with_capacity(lambda);
         (0..a.len()).step_by(lambda).for_each(|i| {
             futures.push(Self::block_or(&a[i..i + lambda], i, ctx.clone(), record_id));
@@ -88,15 +75,14 @@ impl PrefixOr {
     /// ```
     async fn step2<F: Field>(
         x: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = x.len();
         let mut y = Vec::with_capacity(lambda);
-        y.push(x[0]);
+        y.push(x[0].clone());
         for i in 1..lambda {
-            let result =
-                Self::bit_or(y[i - 1], x[i], ctx.narrow(&BitOpStep::Step(i)), record_id).await?;
+            let result = or(ctx.narrow(&BitOpStep::Step(i)), record_id, &y[i - 1], &x[i]).await?;
             y.push(result);
         }
         Ok(y)
@@ -113,9 +99,9 @@ impl PrefixOr {
     ///   [f] = 0 1 0 0
     /// ```
     fn step3_4<F: Field>(x: &[Replicated<F>], y: &[Replicated<F>]) -> Vec<Replicated<F>> {
-        [x[0]]
+        [x[0].clone()]
             .into_iter()
-            .chain((1..x.len()).map(|i| y[i] - y[i - 1]))
+            .chain((1..x.len()).map(|i| &y[i] - &y[i - 1]))
             .collect()
     }
 
@@ -131,12 +117,12 @@ impl PrefixOr {
     async fn step5<F: Field>(
         f: &[Replicated<F>],
         a: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = f.len();
-        let mul = zip(repeat(ctx), a).enumerate().map(|(i, (ctx, &a_bit))| {
-            let f_bit = f[i / lambda];
+        let mul = zip(repeat(ctx), a).enumerate().map(|(i, (ctx, a_bit))| {
+            let f_bit = &f[i / lambda];
             let c = ctx.narrow(&BitOpStep::Step(i));
             async move { c.multiply(record_id, f_bit, a_bit).await }
         });
@@ -157,7 +143,7 @@ impl PrefixOr {
             .map(|j| {
                 let mut v = Replicated::new(F::ZERO, F::ZERO);
                 (0..g.len()).step_by(lambda).for_each(|i| {
-                    v += g[i + j];
+                    v += &g[i + j];
                 });
                 v
             })
@@ -175,15 +161,14 @@ impl PrefixOr {
     /// ```
     async fn step7<F: Field>(
         c: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = c.len();
         let mut b = Vec::with_capacity(lambda);
-        b.push(c[0]);
+        b.push(c[0].clone());
         for j in 1..lambda {
-            let result =
-                Self::bit_or(b[j - 1], c[j], ctx.narrow(&BitOpStep::Step(j)), record_id).await?;
+            let result = or(ctx.narrow(&BitOpStep::Step(j)), record_id, &b[j - 1], &c[j]).await?;
             b.push(result);
         }
         Ok(b)
@@ -202,13 +187,13 @@ impl PrefixOr {
     async fn step8<F: Field>(
         f: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let lambda = f.len();
         let mut mul = Vec::new();
-        for (i, &f_bit) in f.iter().enumerate() {
-            for (j, &b_bit) in b.iter().enumerate() {
+        for (i, f_bit) in f.iter().enumerate() {
+            for (j, b_bit) in b.iter().enumerate() {
                 let c = ctx.narrow(&BitOpStep::Step(lambda * i + j));
                 mul.push(c.multiply(record_id, f_bit, b_bit));
             }
@@ -234,7 +219,7 @@ impl PrefixOr {
         (0..lambda)
             .flat_map(|i| {
                 (0..lambda)
-                    .map(|j| s[lambda * i + j] + y[i] - f[i])
+                    .map(|j| &s[lambda * i + j] + &y[i] - &f[i])
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>()
@@ -243,10 +228,10 @@ impl PrefixOr {
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         input: &[Replicated<F>],
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         // The paper assumes `l = λ^2`, where `l` is the bit length of the input
         // share. Then the input is split into `λ` blocks each holding `λ` bits.
         // Or operations are executed in parallel by running the blocks in
@@ -283,10 +268,10 @@ impl PrefixOr {
         // We can modify this function if we need to support other lengths.
         let l = a.len();
         let lambda: usize = match l {
-            8 => 3,
+            8..=9 => 3,
             16 => 4,
-            32 => 6,
-            _ => panic!("bit length must 8, 16 or 32"),
+            32..=36 => 6,
+            _ => panic!("bit length must be 8..9, 16 or 32..36"),
         };
         let dummy = vec![Replicated::new(F::ZERO, F::ZERO); lambda * lambda - l];
         ([a, &dummy].concat(), lambda)
@@ -319,12 +304,13 @@ impl AsRef<str> for Step {
 #[cfg(test)]
 mod tests {
     use super::PrefixOr;
+    use crate::protocol::context::Context;
     use crate::{
-        error::BoxError,
+        error::Error,
         ff::{Field, Fp2, Fp31},
         protocol::{QueryId, RecordId},
         secret_sharing::Replicated,
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{share, Reconstruct, TestWorld},
     };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
@@ -334,12 +320,12 @@ mod tests {
     const BITS: [usize; 2] = [16, 32];
     const TEST_TRIES: usize = 16;
 
-    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, BoxError>
+    async fn prefix_or<F: Field>(input: &[F]) -> Result<Vec<F>, Error>
     where
         Standard: Distribution<F>,
     {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<F>(&world);
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts();
         let mut rand = StepRng::new(1, 1);
 
         // Generate secret shares
@@ -347,31 +333,33 @@ mod tests {
         let (s0, (s1, s2)): (Vec<Replicated<F>>, (Vec<Replicated<F>>, Vec<Replicated<F>>)) = input
             .iter()
             .map(|&x| {
-                let y = share(x, &mut rand);
-                (y[0], (y[1], y[2]))
+                let [y0, y1, y2] = share(x, &mut rand);
+                (y0, (y1, y2))
             })
             .unzip();
 
         // Execute
         let step = "PrefixOr_Test";
-        let result = try_join_all(vec![
-            PrefixOr::execute(ctx[0].narrow(step), RecordId::from(0_u32), &s0),
-            PrefixOr::execute(ctx[1].narrow(step), RecordId::from(0_u32), &s1),
-            PrefixOr::execute(ctx[2].narrow(step), RecordId::from(0_u32), &s2),
+        let result = try_join_all([
+            PrefixOr::execute(ctx[0].narrow(step), RecordId::from(0), &s0),
+            PrefixOr::execute(ctx[1].narrow(step), RecordId::from(0), &s1),
+            PrefixOr::execute(ctx[2].narrow(step), RecordId::from(0), &s2),
         ])
         .await
         .unwrap();
 
         // Verify
         assert_eq!(input.len(), result[0].len());
-        Ok((0..input.len())
-            .map(|i| validate_and_reconstruct((result[0][i], result[1][i], result[2][i])))
-            .collect::<Vec<_>>())
+        let [r0, r1, r2] = <[_; 3]>::try_from(result).unwrap();
+        let reconstructed = zip(r0, zip(r1, r2))
+            .map(|(x0, (x1, x2))| (&x0, &x1, &x2).reconstruct())
+            .collect::<Vec<_>>();
+        Ok(reconstructed)
     }
 
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_2
-    pub async fn fp2() -> Result<(), BoxError> {
+    pub async fn fp2() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
@@ -401,7 +389,7 @@ mod tests {
 
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_p (i.e. Fp31)
-    pub async fn fp31() -> Result<(), BoxError> {
+    pub async fn fp31() -> Result<(), Error> {
         let mut rng = rand::thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed

@@ -1,9 +1,10 @@
 use super::prefix_or::PrefixOr;
 use super::xor::xor;
-use super::BitOpStep;
-use crate::error::BoxError;
+use super::{align_bit_lengths, BitOpStep};
+use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::{context::ProtocolContext, mul::SecureMul, RecordId};
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{context::Context, mul::SecureMul, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -39,10 +40,10 @@ impl BitwiseLessThan {
     async fn step1<F: Field>(
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
-        let xor = zip(a, b).enumerate().map(|(i, (&a_bit, &b_bit))| {
+    ) -> Result<Vec<Replicated<F>>, Error> {
+        let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::Step(i));
             async move { xor(c, record_id, a_bit, b_bit).await }
         });
@@ -67,9 +68,9 @@ impl BitwiseLessThan {
     /// ```
     async fn step2<F: Field>(
         e: &mut [Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         e.reverse();
         let mut f = PrefixOr::execute(ctx, record_id, e).await?;
         f.reverse();
@@ -89,8 +90,8 @@ impl BitwiseLessThan {
     fn step3_4<F: Field>(f: &[Replicated<F>]) -> Vec<Replicated<F>> {
         let l = f.len();
         (0..l - 1)
-            .map(|i| f[i] - f[i + 1])
-            .chain([f[l - 1]])
+            .map(|i| &f[i] - &f[i + 1])
+            .chain([f[l - 1].clone()])
             .collect()
     }
 
@@ -107,12 +108,12 @@ impl BitwiseLessThan {
     async fn step5<F: Field>(
         g: &[Replicated<F>],
         b: &[Replicated<F>],
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, BoxError> {
+    ) -> Result<Vec<Replicated<F>>, Error> {
         let mul = zip(repeat(ctx), zip(g, b))
             .enumerate()
-            .map(|(i, (ctx, (&g_bit, &b_bit)))| {
+            .map(|(i, (ctx, (g_bit, b_bit)))| {
                 let c = ctx.narrow(&BitOpStep::Step(i));
                 async move { c.multiply(record_id, g_bit, b_bit).await }
             });
@@ -124,22 +125,23 @@ impl BitwiseLessThan {
     /// The interpretations is, `h` is 1 iff `a < b`
     fn step6<F: Field>(h: &[Replicated<F>]) -> Replicated<F> {
         h.iter()
-            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, &x| acc + x)
+            .fold(Replicated::new(F::ZERO, F::ZERO), |acc, x| acc + x)
     }
 
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
-        ctx: ProtocolContext<'_, Replicated<F>, F>,
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a: &[Replicated<F>],
         b: &[Replicated<F>],
-    ) -> Result<Replicated<F>, BoxError> {
-        debug_assert_eq!(a.len(), b.len(), "Length of the input bits must be equal");
-        let mut e = Self::step1(a, b, ctx.narrow(&Step::AXorB), record_id).await?;
+    ) -> Result<Replicated<F>, Error> {
+        let (a, b) = align_bit_lengths(a, b);
+
+        let mut e = Self::step1(&a, &b, ctx.narrow(&Step::AXorB), record_id).await?;
         let f = Self::step2(&mut e, ctx.narrow(&Step::PrefixOr), record_id).await?;
         let g = Self::step3_4(&f);
-        let h = Self::step5(&g, b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
+        let h = Self::step5(&g, &b, ctx.narrow(&Step::MaskLessThanBit), record_id).await?;
         let result = Self::step6(&h);
         Ok(result)
     }
@@ -166,92 +168,135 @@ impl AsRef<str> for Step {
 
 #[cfg(test)]
 mod tests {
-    use super::BitwiseLessThan;
+    //use super::BitwiseLessThan;
+    use crate::protocol::boolean::dumb_bitwise_lt::BitwiseLessThan;
+    use crate::test_fixture::Runner;
     use crate::{
-        error::BoxError,
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
-        secret_sharing::Replicated,
-        test_fixture::{make_contexts, make_world, share, validate_and_reconstruct, TestWorld},
+        test_fixture::{into_bits, Reconstruct, TestWorld},
     };
-    use futures::future::try_join_all;
-    use rand::rngs::mock::StepRng;
-    use std::iter::zip;
+    use proptest::prelude::Rng;
+    use rand::thread_rng;
+    use rand::{distributions::Standard, prelude::Distribution};
 
-    type BitwiseShares = (
-        Vec<Replicated<Fp31>>,
-        (Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>),
-    );
-
-    fn fp31_to_bits(x: Fp31) -> Vec<Fp31> {
-        let x = u8::from(x);
-        (0..u8::BITS).map(|i| Fp31::from(x >> i & 1)).collect()
+    /// This protocol requires a number of inputs that are equal to a power of 2.
+    /// This functions pads those inputs.
+    fn pad<F: Field>(mut values: Vec<F>) -> Vec<F> {
+        let target_len = 1 << (usize::BITS - (values.len() - 1).leading_zeros());
+        values.resize(target_len, F::ZERO);
+        values
     }
 
-    async fn bitwise_lt(a: Fp31, b: Fp31) -> Result<Fp31, BoxError> {
-        let world: TestWorld = make_world(QueryId);
-        let ctx = make_contexts::<Fp31>(&world);
-        let mut rand = StepRng::new(1, 1);
+    async fn bitwise_lt<F: Field>(a: F, b: F) -> F
+    where
+        (F, F): Sized,
+        Standard: Distribution<F>,
+    {
+        let world = TestWorld::new(QueryId);
 
-        let a_bits = fp31_to_bits(a);
-        let b_bits = fp31_to_bits(b);
-
-        // Generate secret shares
-        #[allow(clippy::type_complexity)]
-        let ((a0, (a1, a2)), (b0, (b1, b2))): (BitwiseShares, BitwiseShares) = zip(a_bits, b_bits)
-            .map(|(a_i, b_i)| {
-                let x = share(a_i, &mut rand);
-                let y = share(b_i, &mut rand);
-                ((x[0], (x[1], x[2])), (y[0], (y[1], y[2])))
+        let input = (pad(into_bits(a)), pad(into_bits(b)));
+        let result = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
             })
-            .unzip();
+            .await;
 
-        // Execute
-        let step = "BitwiseLT_Test";
-        let result = try_join_all(vec![
-            BitwiseLessThan::execute(ctx[0].narrow(step), RecordId::from(0_u32), &a0, &b0),
-            BitwiseLessThan::execute(ctx[1].narrow(step), RecordId::from(0_u32), &a1, &b1),
-            BitwiseLessThan::execute(ctx[2].narrow(step), RecordId::from(0_u32), &a2, &b2),
-        ])
-        .await
-        .unwrap();
-
-        Ok(validate_and_reconstruct((result[0], result[1], result[2])))
+        result.reconstruct()
     }
 
     #[tokio::test]
-    pub async fn basic() -> Result<(), BoxError> {
-        let fp31 = Fp31::from;
+    pub async fn fp31() {
+        let c = Fp31::from;
+        let zero = Fp31::ZERO;
+        let one = Fp31::ONE;
 
-        assert_eq!(Fp31::ONE, bitwise_lt(Fp31::ZERO, Fp31::ONE).await?);
-        assert_eq!(Fp31::ZERO, bitwise_lt(Fp31::ONE, Fp31::ZERO).await?);
-        assert_eq!(Fp31::ZERO, bitwise_lt(Fp31::ZERO, Fp31::ZERO).await?);
-        assert_eq!(Fp31::ZERO, bitwise_lt(Fp31::ONE, Fp31::ONE).await?);
+        assert_eq!(one, bitwise_lt(zero, one).await);
+        assert_eq!(zero, bitwise_lt(one, zero).await);
+        assert_eq!(zero, bitwise_lt(zero, zero).await);
+        assert_eq!(zero, bitwise_lt(one, one).await);
 
-        assert_eq!(Fp31::ONE, bitwise_lt(fp31(3_u32), fp31(7)).await?);
-        assert_eq!(Fp31::ZERO, bitwise_lt(fp31(21), fp31(20)).await?);
-        assert_eq!(Fp31::ZERO, bitwise_lt(fp31(9), fp31(9)).await?);
+        assert_eq!(one, bitwise_lt(c(3_u8), c(7)).await);
+        assert_eq!(zero, bitwise_lt(c(21), c(20)).await);
+        assert_eq!(zero, bitwise_lt(c(9), c(9)).await);
 
+        assert_eq!(zero, bitwise_lt(zero, c(Fp31::PRIME)).await);
+    }
+
+    #[tokio::test]
+    pub async fn fp_32bit_prime() {
+        let c = Fp32BitPrime::from;
+        let zero = Fp32BitPrime::ZERO;
+        let one = Fp32BitPrime::ONE;
+        let u16_max: u32 = u16::MAX.into();
+
+        assert_eq!(one, bitwise_lt(zero, one).await);
+        assert_eq!(zero, bitwise_lt(one, zero).await);
+        assert_eq!(zero, bitwise_lt(zero, zero).await);
+        assert_eq!(zero, bitwise_lt(one, one).await);
+
+        assert_eq!(one, bitwise_lt(c(3_u32), c(7)).await);
+        assert_eq!(zero, bitwise_lt(c(21), c(20)).await);
+        assert_eq!(zero, bitwise_lt(c(9), c(9)).await);
+
+        assert_eq!(one, bitwise_lt(c(u16_max), c(u16_max + 1)).await);
+        assert_eq!(zero, bitwise_lt(c(u16_max + 1), c(u16_max)).await);
         assert_eq!(
-            Fp31::ZERO,
-            bitwise_lt(Fp31::ZERO, Fp31::from(Fp31::PRIME)).await?
+            one,
+            bitwise_lt(c(u16_max), c(Fp32BitPrime::PRIME - 1)).await
         );
 
-        Ok(())
+        assert_eq!(zero, bitwise_lt(zero, c(Fp32BitPrime::PRIME)).await);
+    }
+
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() {
+        let world = TestWorld::new(QueryId);
+
+        let input = (
+            pad(into_bits(Fp31::from(3_u32))), // 8-bit
+            into_bits(Fp31::from(5_u32)),      // 5-bit
+        );
+        let result = world
+            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(Fp31::ONE, result);
     }
 
     // this test is for manual execution only
     #[ignore]
     #[tokio::test]
-    pub async fn cmp_all_fp31() -> Result<(), BoxError> {
+    pub async fn cmp_random_32_bit_prime_field_elements() {
+        let mut rand = thread_rng();
+        for _ in 0..1000 {
+            let a = rand.gen::<Fp32BitPrime>();
+            let b = rand.gen::<Fp32BitPrime>();
+            assert_eq!(
+                Fp32BitPrime::from(a.as_u128() < b.as_u128()),
+                bitwise_lt(a, b).await
+            );
+        }
+    }
+
+    // this test is for manual execution only
+    #[ignore]
+    #[tokio::test]
+    pub async fn cmp_all_fp31() {
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(
                     Fp31::from(a < b),
-                    bitwise_lt(Fp31::from(a), Fp31::from(b)).await?
+                    bitwise_lt(Fp31::from(a), Fp31::from(b)).await
                 );
             }
         }
-        Ok(())
     }
 }
