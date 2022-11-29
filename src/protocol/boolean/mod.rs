@@ -31,7 +31,7 @@ where
             if ((x >> i) & 1) == 1 {
                 ctx.share_of_one()
             } else {
-                S::default()
+                S::ZERO
             }
         })
         .collect::<Vec<_>>()

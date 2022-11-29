@@ -20,7 +20,6 @@ pub trait SecretSharing<F>:
     + Mul<F, Output = Self>
     + Clone
     + Debug
-    + Default
     + Sized
     + Send
     + Sync
