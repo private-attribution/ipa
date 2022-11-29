@@ -42,8 +42,6 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use rand::seq::SliceRandom;
-
     use crate::protocol::context::Context;
     use crate::test_fixture::{Reconstruct, Runner};
     use crate::{
@@ -57,55 +55,54 @@ mod tests {
         },
         test_fixture::TestWorld,
     };
+    use rand::seq::SliceRandom;
 
     #[tokio::test]
     pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
-        for _ in 0..10 {
-            let world = TestWorld::new(QueryId);
-            let mut rng_sigma = rand::thread_rng();
-            let mut rng_rho = rand::thread_rng();
+        let world = TestWorld::new(QueryId);
+        let mut rng_sigma = rand::thread_rng();
+        let mut rng_rho = rand::thread_rng();
 
-            let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
-            sigma.shuffle(&mut rng_sigma);
-            let mut rho: Vec<u32> = (0..BATCHSIZE).collect();
-            rho.shuffle(&mut rng_rho);
+        let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
+        sigma.shuffle(&mut rng_sigma);
 
-            let mut rho_composed: Vec<u128> = rho.iter().map(|x| u128::from(*x)).collect();
+        let mut rho: Vec<u128> = (0..BATCHSIZE.try_into().unwrap()).collect();
+        rho.shuffle(&mut rng_rho);
 
-            apply(&sigma, &mut rho_composed);
+        let mut expected_result = rho.clone();
+        apply(&sigma, &mut expected_result);
 
-            let result = world
-                .semi_honest(
-                    (
-                        sigma.into_iter().map(u128::from).map(Fp31::from),
-                        rho.into_iter().map(u128::from).map(Fp31::from),
-                    ),
-                    |ctx, (m_sigma_shares, m_rho_shares)| async move {
-                        let sigma_and_randoms = shuffle_and_reveal_permutation(
-                            ctx.narrow("shuffle_reveal"),
-                            BATCHSIZE,
-                            m_sigma_shares,
-                        )
-                        .await
-                        .unwrap();
+        let result = world
+            .semi_honest(
+                (
+                    sigma.into_iter().map(u128::from).map(Fp31::from),
+                    rho.into_iter().map(Fp31::from),
+                ),
+                |ctx, (m_sigma_shares, m_rho_shares)| async move {
+                    let sigma_and_randoms = shuffle_and_reveal_permutation(
+                        ctx.narrow("shuffle_reveal"),
+                        BATCHSIZE,
+                        m_sigma_shares,
+                    )
+                    .await
+                    .unwrap();
 
-                        compose(
-                            ctx,
-                            (
-                                sigma_and_randoms.1 .0.as_slice(),
-                                sigma_and_randoms.1 .1.as_slice(),
-                            ),
-                            &sigma_and_randoms.0,
-                            m_rho_shares,
-                        )
-                        .await
-                        .unwrap()
-                    },
-                )
-                .await;
+                    compose(
+                        ctx,
+                        (
+                            sigma_and_randoms.1 .0.as_slice(),
+                            sigma_and_randoms.1 .1.as_slice(),
+                        ),
+                        &sigma_and_randoms.0,
+                        m_rho_shares,
+                    )
+                    .await
+                    .unwrap()
+                },
+            )
+            .await;
 
-            assert_eq!(&rho_composed[..], &result.reconstruct());
-        }
+        assert_eq!(&expected_result[..], &result.reconstruct());
     }
 }

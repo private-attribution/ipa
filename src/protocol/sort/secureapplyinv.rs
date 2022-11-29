@@ -66,54 +66,49 @@ mod tests {
         #[tokio::test]
         pub async fn semi_honest() {
             const BATCHSIZE: u32 = 25;
-            for _ in 0..10 {
-                let world = TestWorld::new(QueryId);
-                let mut rng = rand::thread_rng();
+            let world = TestWorld::new(QueryId);
+            let mut rng = rand::thread_rng();
 
-                let mut input: Vec<u128> = Vec::with_capacity(BATCHSIZE as usize);
-                for _ in 0..BATCHSIZE {
-                    input.push(rng.gen::<u128>() % 31_u128);
-                }
+            let mut input = Vec::with_capacity(BATCHSIZE as usize);
+            input.resize_with(BATCHSIZE.try_into().unwrap(), || rng.gen::<Fp31>());
 
-                let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
-                permutation.shuffle(&mut rng);
+            let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
+            permutation.shuffle(&mut rng);
 
-                let mut expected_result = input.clone();
+            let mut expected_result = input.clone();
 
-                // Applying permutation on the input in clear to get the expected result
-                apply_inv(&permutation, &mut expected_result);
+            // Applying permutation on the input in clear to get the expected result
+            apply_inv(&permutation, &mut expected_result);
 
-                let input_iter = input.into_iter().map(Fp31::from);
-                let permutation_iter = permutation.into_iter().map(u128::from).map(Fp31::from);
+            let permutation_iter = permutation.into_iter().map(u128::from).map(Fp31::from);
 
-                let result = world
-                    .semi_honest(
-                        (input_iter, permutation_iter),
-                        |ctx, (m_shares, m_perms)| async move {
-                            let perm_and_randoms = shuffle_and_reveal_permutation(
-                                ctx.narrow("shuffle_reveal"),
-                                BATCHSIZE,
-                                m_perms,
-                            )
-                            .await
-                            .unwrap();
-                            secureapplyinv(
-                                ctx,
-                                m_shares,
-                                (
-                                    perm_and_randoms.1 .0.as_slice(),
-                                    perm_and_randoms.1 .1.as_slice(),
-                                ),
-                                &perm_and_randoms.0,
-                            )
-                            .await
-                            .unwrap()
-                        },
-                    )
-                    .await;
+            let result = world
+                .semi_honest(
+                    (input, permutation_iter),
+                    |ctx, (m_shares, m_perms)| async move {
+                        let perm_and_randoms = shuffle_and_reveal_permutation(
+                            ctx.narrow("shuffle_reveal"),
+                            BATCHSIZE,
+                            m_perms,
+                        )
+                        .await
+                        .unwrap();
+                        secureapplyinv(
+                            ctx,
+                            m_shares,
+                            (
+                                perm_and_randoms.1 .0.as_slice(),
+                                perm_and_randoms.1 .1.as_slice(),
+                            ),
+                            &perm_and_randoms.0,
+                        )
+                        .await
+                        .unwrap()
+                    },
+                )
+                .await;
 
-                assert_eq!(&expected_result[..], &result.reconstruct());
-            }
+            assert_eq!(&expected_result[..], &result.reconstruct());
         }
     }
 }

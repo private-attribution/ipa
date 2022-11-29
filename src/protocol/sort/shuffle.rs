@@ -233,11 +233,9 @@ mod tests {
             let input: Vec<u8> = (0..BATCHSIZE).collect();
             let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
 
-            let input_u128: Vec<u128> = input.iter().map(|x| u128::from(*x)).collect();
-
             let result = world
                 .semi_honest(
-                    input_u128.clone().into_iter().map(Fp31::from),
+                    input.clone().into_iter().map(u128::from).map(Fp31::from),
                     |ctx, m_shares| async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
