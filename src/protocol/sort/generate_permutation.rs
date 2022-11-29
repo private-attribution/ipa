@@ -136,7 +136,7 @@ pub async fn generate_permutation<F: Field>(
     Ok(composed_less_significant_bits_permutation)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::iter::zip;
 

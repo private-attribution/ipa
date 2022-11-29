@@ -68,7 +68,7 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
     Ok(mult_output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
         ff::Fp31,

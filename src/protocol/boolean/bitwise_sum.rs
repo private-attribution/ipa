@@ -81,7 +81,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     //use super::BitwiseSum;
     use crate::protocol::boolean::dumb_bitwise_sum::BitwiseSum;

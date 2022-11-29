@@ -1,5 +1,6 @@
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::reveal::Reveal;
+use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
@@ -11,7 +12,6 @@ use crate::{
     secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
-use std::sync::{Arc, Mutex, Weak};
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
@@ -244,8 +244,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use std::iter::{repeat, zip};
 
     use crate::error::Error;
@@ -256,6 +256,7 @@ pub mod tests {
     use crate::test_fixture::{join3v, share, Reconstruct, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use rand::thread_rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -275,7 +276,7 @@ pub mod tests {
     async fn simplest_circuit() -> Result<(), Error> {
         let world = TestWorld::<Fp31>::new(QueryId);
         let context = world.contexts();
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
@@ -343,7 +344,7 @@ pub mod tests {
     async fn complex_circuit() -> Result<(), Error> {
         let world = TestWorld::<Fp31>::new(QueryId);
         let context = world.contexts();
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);
         for _ in 0..100 {

@@ -6,7 +6,7 @@ use crate::protocol::prss::{IndexedSharedRandomness, SequentialSharedRandomness}
 use crate::protocol::reveal::Reveal;
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::SecretSharing;
-use std::sync::Arc;
+use crate::sync::Arc;
 
 mod malicious;
 mod semi_honest;

@@ -61,8 +61,8 @@ impl<'a, F: Field> SecureMul<'a, F> {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{QueryId, RecordId};

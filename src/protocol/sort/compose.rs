@@ -40,7 +40,7 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     Ok(unshuffled_rho)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
         ff::Fp31,
