@@ -1,4 +1,5 @@
 use crate::ff::Field;
+use crate::protocol::attribution::AttributionInputRow;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
 use crate::rand::thread_rng;
@@ -219,5 +220,24 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
         for (m0, (m1, m2)) in zip(self[0].iter(), zip(self[1].iter(), self[2].iter())) {
             [m0, m1, m2].validate(r);
         }
+    }
+}
+
+impl<F: Field> Reconstruct<[F; 4]> for [AttributionInputRow<F>; 3] 
+{
+    fn reconstruct(&self) -> [F; 4] {
+        let s0 = &self[0];
+        let s1 = &self[1];
+        let s2 = &self[2];
+
+        let is_trigger_bit =
+            (&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit).reconstruct();
+
+        let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
+
+        let breakdown_key = (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
+        let value = (&s0.value, &s1.value, &s2.value).reconstruct();
+
+        [is_trigger_bit, helper_bit, breakdown_key, value]
     }
 }

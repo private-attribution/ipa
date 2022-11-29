@@ -7,13 +7,13 @@ use crate::{error::Error, helpers::Role, protocol::RecordId};
 use crate::{ff::Field, protocol::context::Context, secret_sharing::SecretSharing};
 
 #[allow(dead_code)]
-async fn reshare_objects<F: Field, S, C, T>(
+async fn reshare_all_objects<F: Field, C, S, T>(
     input: &[T],
     ctx: C,
     to_helper: Role,
 ) -> Result<Vec<T>, Error>
 where
-    C: Context<F, Share = S> + std::marker::Send,
+    C: Context<F, Share = S> + Send,
     S: SecretSharing<F>,
     T: Resharable<F, Share = S>,
 {
@@ -38,5 +38,5 @@ pub trait Resharable<F: Field>: Sized {
         to_helper: Role,
     ) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + std::marker::Send;
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
 }

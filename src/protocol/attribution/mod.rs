@@ -4,13 +4,13 @@ use super::Substep;
 
 mod accumulate_credit;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AttributionInputRow<F: Field> {
-    is_trigger_bit: Replicated<F>,
-    helper_bit: Replicated<F>,
+    pub is_trigger_bit: Replicated<F>,
+    pub helper_bit: Replicated<F>,
     #[allow(dead_code)]
-    breakdown_key: Replicated<F>,
-    value: Replicated<F>,
+    pub breakdown_key: Replicated<F>,
+    pub value: Replicated<F>,
 }
 
 pub struct AccumulateCreditInputRow<F: Field> {

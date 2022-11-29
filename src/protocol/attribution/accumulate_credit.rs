@@ -3,7 +3,7 @@ use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInpu
 use crate::helpers::Role;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
-use crate::protocol::sort::sort_values::Resharable;
+use crate::protocol::sort::reshare_objects::Resharable;
 use crate::protocol::IterStep;
 use crate::{
     error::Error,
@@ -55,7 +55,7 @@ impl<F: Field> Resharable<F> for AttributionInputRow<F> {
         to_helper: Role,
     ) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + std::marker::Send,
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
     {
         let f_trigger_bit =
             ctx.narrow(&IsTriggerBit)
@@ -253,14 +253,39 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp31},
-        protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
-        protocol::{attribution::AttributionInputRow, QueryId},
-        test_fixture::{share, Reconstruct, TestWorld},
+        helpers::Role,
+        protocol::{
+            attribution::accumulate_credit::AccumulateCredit, batch::Batch,
+            sort::reshare_objects::Resharable,
+        },
+        protocol::{attribution::AttributionInputRow, QueryId, RecordId},
+        test_fixture::{share, Reconstruct, Runner, TestWorld},
     };
-    use rand::rngs::mock::StepRng;
+    use futures::future::try_join_all;
+    use rand::{rngs::mock::StepRng, thread_rng};
     use std::iter::zip;
     use tokio::try_join;
 
+    fn generate_attribution_input_row(
+        input: &[u128],
+        rng: &mut StepRng,
+    ) -> Vec<AttributionInputRow<Fp31>> {
+        let itb = share(Fp31::from(input[0]), rng);
+        let hb = share(Fp31::from(input[1]), rng);
+        let bk = share(Fp31::from(input[2]), rng);
+        let val = share(Fp31::from(input[3]), rng);
+
+        let mut output = Vec::new();
+        for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
+            output.push(AttributionInputRow {
+                is_trigger_bit: itb,
+                helper_bit: hb,
+                breakdown_key: bk,
+                value: val,
+            });
+        }
+        output
+    }
     fn generate_shared_input(
         input: &[[u128; 4]],
         rng: &mut StepRng,
@@ -273,18 +298,10 @@ mod tests {
         ];
 
         for x in input {
-            let itb = share(Fp31::from(x[0]), rng);
-            let hb = share(Fp31::from(x[1]), rng);
-            let bk = share(Fp31::from(x[2]), rng);
-            let val = share(Fp31::from(x[3]), rng);
-            for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
-                shares[i].push(AttributionInputRow {
-                    is_trigger_bit: itb,
-                    helper_bit: hb,
-                    breakdown_key: bk,
-                    value: val,
-                });
-            }
+            let row = generate_attribution_input_row(x, rng);
+            shares[0].push(row[0].clone());
+            shares[1].push(row[1].clone());
+            shares[2].push(row[2].clone());
         }
 
         assert_eq!(shares[0].len(), shares[1].len());
@@ -353,6 +370,28 @@ mod tests {
             )
                 .reconstruct();
             assert_eq!(v.as_u128(), *expected);
+        }
+    }
+
+    #[tokio::test]
+    pub async fn resharable() {
+        const RAW_INPUT: [u128; 4] =
+            // [is_trigger, helper_bit, breakdown_key, credit]
+            [0, 0, 3, 0];
+
+        let world = TestWorld::<Fp31>::new(QueryId);
+
+        for &role in Role::all() {
+            let secret = [0, 0, 3, 0];
+            let new_shares = world
+                .semi_honest(secret, |ctx, share: AttributionInputRow<Fp31>| async move {
+                    share
+                        .resharable(ctx, RecordId::from(0), role)
+                        .await
+                        .unwrap()
+                })
+                .await;
+            assert_eq!(secret, new_shares.reconstruct());
         }
     }
 }
