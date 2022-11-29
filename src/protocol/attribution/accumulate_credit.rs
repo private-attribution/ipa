@@ -130,7 +130,6 @@ impl AccumulateCredit {
                 });
         }
 
-        // drop irrelevant fields and add another supporting field called `aggregation_bit` for the next step
         let output: Batch<AccumulateCreditOutputRow<F>> = input
             .iter()
             .enumerate()
