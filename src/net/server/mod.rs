@@ -53,10 +53,12 @@ pub enum MpcHelperServerError {
 }
 
 impl MpcHelperServerError {
+    #[must_use]
     pub fn query_id_not_found(query_id: QueryId) -> Self {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
     }
 
+    #[must_use]
     pub fn sender_already_exists(query_id: QueryId) -> Self {
         Self::SendError(
             format!(
@@ -223,10 +225,12 @@ impl MpcHelperServer {
     #[must_use]
     pub(crate) fn router(&self) -> Router {
         Router::new()
+            // query handler
             .route("/query/:query_id/step/*step", post(handlers::query_handler))
             .layer(middleware::from_fn(handlers::obtain_permit_mw))
             .layer(Extension(self.last_seen_messages.clone()))
             .layer(Extension(self.message_send_map.clone()))
+            // echo
             .route("/echo", get(handlers::echo_handler))
     }
 
