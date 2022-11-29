@@ -73,7 +73,7 @@ impl PeerDiscovery for Conf {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::helpers::Role;

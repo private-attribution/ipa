@@ -16,7 +16,7 @@ pub async fn or<F: Field>(
     Ok(a + b - &ab)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::or;
     use crate::{

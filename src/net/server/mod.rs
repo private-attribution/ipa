@@ -1,5 +1,7 @@
 pub mod handlers;
 
+use crate::sync::{Arc, Mutex};
+use crate::task::JoinHandle;
 use crate::{
     error::BoxError,
     helpers::{http::HttpNetwork, network::MessageChunks},
@@ -7,6 +9,7 @@ use crate::{
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
+use ::tokio::sync::mpsc;
 use axum::{
     extract::rejection::QueryRejection,
     middleware,
@@ -20,11 +23,12 @@ use metrics::increment_counter;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use tokio::{sync::mpsc, task::JoinHandle};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
+
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 #[derive(Error, Debug)]
 pub enum MpcHelperServerError {
@@ -299,6 +303,7 @@ impl MpcHelperServer {
 /// # Errors
 /// if cert is invalid
 #[cfg(any(test, feature = "self-signed-certs"))]
+#[allow(dead_code)]
 pub async fn tls_config_from_self_signed_cert() -> std::io::Result<RustlsConfig> {
     let cert: &'static str = r#"
 -----BEGIN CERTIFICATE-----
@@ -361,7 +366,7 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 /// [`MessageSendMap`] tests are limited right now due to the fact that they key, [`QueryId`], is
 /// an empty struct, and so there can only ever be 1 entry in the map. When we fully define a
 /// [`QueryId`], these tests can be expanded to handle more cases
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
 
@@ -408,7 +413,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use crate::{
         helpers::http::HttpNetwork,

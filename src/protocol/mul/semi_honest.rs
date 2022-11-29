@@ -4,65 +4,56 @@ use crate::helpers::Direction;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::Replicated;
-use std::fmt::Debug;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-#[derive(Debug)]
-pub struct SecureMul<'a, F: Field> {
-    ctx: SemiHonestContext<'a, F>,
+
+/// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
+/// their part, eventually producing 2/3 shares of the product and that is what this function
+/// returns.
+///
+/// ## Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+pub async fn secure_mul<F>(
+    ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
+    a: &Replicated<F>,
+    b: &Replicated<F>,
+) -> Result<Replicated<F>, Error>
+where
+    F: Field,
+{
+    let channel = ctx.mesh();
+
+    // generate shared randomness.
+    let prss = ctx.prss();
+    let (s0, s1) = prss.generate_fields(record_id);
+    let role = ctx.role();
+
+    // compute the value (d_i) we want to send to the right helper (i+1)
+    let right_d = a.left() * b.right() + a.right() * b.left() - s0;
+
+    // notify helper on the right that we've computed our value
+    channel
+        .send(role.peer(Direction::Right), record_id, right_d)
+        .await?;
+
+    // Sleep until helper on the left sends us their (d_i-1) value
+    let left_d = channel
+        .receive(role.peer(Direction::Left), record_id)
+        .await?;
+
+    // now we are ready to construct the result - 2/3 secret shares of a * b.
+    let lhs = a.left() * b.left() + left_d + s0;
+    let rhs = a.right() * b.right() + right_d + s1;
+
+    Ok(Replicated::new(lhs, rhs))
 }
 
-impl<'a, F: Field> SecureMul<'a, F> {
-    #[must_use]
-    pub fn new(ctx: SemiHonestContext<'a, F>, record_id: RecordId) -> Self {
-        Self { ctx, record_id }
-    }
-
-    /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
-    /// their part, eventually producing 2/3 shares of the product and that is what this function
-    /// returns.
-    ///
-    /// ## Errors
-    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
-    /// back via the error response
-    pub async fn execute(
-        self,
-        a: &Replicated<F>,
-        b: &Replicated<F>,
-    ) -> Result<Replicated<F>, Error> {
-        let channel = self.ctx.mesh();
-
-        // generate shared randomness.
-        let prss = self.ctx.prss();
-        let (s0, s1) = prss.generate_fields(self.record_id);
-        let role = self.ctx.role();
-
-        // compute the value (d_i) we want to send to the right helper (i+1)
-        let right_d = a.left() * b.right() + a.right() * b.left() - s0;
-
-        // notify helper on the right that we've computed our value
-        channel
-            .send(role.peer(Direction::Right), self.record_id, right_d)
-            .await?;
-
-        // Sleep until helper on the left sends us their (d_i-1) value
-        let left_d = channel
-            .receive(role.peer(Direction::Left), self.record_id)
-            .await?;
-
-        // now we are ready to construct the result - 2/3 secret shares of a * b.
-        let lhs = a.left() * b.left() + left_d + s0;
-        let rhs = a.right() * b.right() + right_d + s1;
-
-        Ok(Replicated::new(lhs, rhs))
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{QueryId, RecordId};

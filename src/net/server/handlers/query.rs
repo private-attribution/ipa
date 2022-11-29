@@ -120,7 +120,7 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::{

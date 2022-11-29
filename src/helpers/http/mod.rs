@@ -17,12 +17,12 @@ use crate::{
         boolean::random_bits_generator::RandomBitsGenerator, context::SemiHonestContext, prss,
         QueryId, RecordId, Step,
     },
+    task::JoinHandle,
 };
 use prss_exchange_protocol::{PrssExchangeStep, PublicKeyChunk};
 use rand::thread_rng;
 use std::iter::zip;
 use std::net::SocketAddr;
-use tokio::task::JoinHandle;
 use x25519_dalek::PublicKey;
 
 pub struct HttpHelper {

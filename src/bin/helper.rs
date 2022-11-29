@@ -1,15 +1,13 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-use raw_ipa::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use raw_ipa::{
     cli::Verbosity,
     ff::Fp31,
     helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
     net::discovery,
-    protocol::QueryId,
+    protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId},
 };
 use std::error::Error;
-use std::fs;
 use std::str::FromStr;
 use tracing::info;
 
@@ -38,7 +36,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    let peer_discovery_str = fs::read_to_string("./peer_conf.toml").expect("unable to read file");
+    let peer_discovery_str =
+        std::fs::read_to_string("./peer_conf.toml").expect("unable to read file");
     let peer_discovery =
         discovery::conf::Conf::from_str(&peer_discovery_str).expect("unable to parse config file");
     let gateway_config = GatewayConfig {

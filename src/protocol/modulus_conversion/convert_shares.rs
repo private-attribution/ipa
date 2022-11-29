@@ -197,7 +197,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
     Ok(converted_shares)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
     use crate::{
