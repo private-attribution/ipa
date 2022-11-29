@@ -185,6 +185,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::zip;
 
+    use crate::test_fixture::{logging, ParticipantSetup};
     use crate::{
         ff::Fp31,
         protocol::{
@@ -196,8 +197,7 @@ mod tests {
             QueryId, Step,
         },
         test_fixture::{
-            generate_shares, join3, logging, make_participants, narrow_contexts, permutation_valid,
-            Reconstruct, TestWorld,
+            generate_shares, join3, narrow_contexts, permutation_valid, Reconstruct, TestWorld,
         },
     };
 
@@ -207,7 +207,7 @@ mod tests {
 
         logging::setup();
 
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
         let step = Step::default();
         let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.sequential(&step));
         let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.sequential(&step));

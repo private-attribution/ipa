@@ -21,11 +21,13 @@ use crate::task::JoinHandle;
 use ::tokio::sync::{mpsc, oneshot};
 use futures::SinkExt;
 use futures::StreamExt;
+use metrics_runtime::Sink;
 use std::fmt::{Debug, Formatter};
 use std::io;
 use tinyvec::array_vec;
 use tracing::Instrument;
 
+use crate::telemetry::metrics::RECORDS_SENT;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -151,7 +153,12 @@ pub struct GatewayConfig {
 }
 
 impl Gateway {
-    pub fn new<N: Network>(role: Role, network: &N, config: GatewayConfig) -> Self {
+    pub fn new<N: Network>(
+        role: Role,
+        network: &N,
+        metrics_sink: Sink,
+        config: GatewayConfig,
+    ) -> Self {
         let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
         let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
         let mut message_stream = network.recv_stream();
@@ -176,6 +183,10 @@ impl Gateway {
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
+                        metrics_sink
+                            .scoped(channel_id.step.as_ref())
+                            .increment_counter(RECORDS_SENT, 1);
+
                         tracing::trace!("new SendRequest({channel_id:?}, {:?}", msg.record_id);
                         if let Some(buf_to_send) = send_buf.push(&channel_id, &msg).expect("Failed to append data to the send buffer") {
                             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);

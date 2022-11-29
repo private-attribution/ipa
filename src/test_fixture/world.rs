@@ -4,6 +4,8 @@ use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::sync::atomic::{AtomicUsize, Ordering};
+use crate::test_fixture::metrics::print_metrics;
+use crate::test_fixture::ParticipantSetup;
 use crate::{
     ff::Field,
     helpers::{
@@ -18,8 +20,9 @@ use crate::{
         QueryId,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
+    test_fixture::{logging, network::InMemoryNetwork, sharing::IntoShares},
 };
+use metrics_runtime::Receiver;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
 use super::{
@@ -31,14 +34,14 @@ use super::{
 /// For now the messages sent through it never leave the test infra memory perimeter, so
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
-#[derive(Debug)]
 pub struct TestWorld<F: Field> {
     pub query_id: QueryId,
-    pub gateways: [Gateway; 3],
+    gateways: [Gateway; 3],
     pub participants: [PrssEndpoint; 3],
-    pub(super) executions: AtomicUsize,
+    executions: AtomicUsize,
+    metrics_receiver: Receiver,
+    rbg: [RandomBitsGenerator<F>; 3],
     _network: Arc<InMemoryNetwork>,
-    pub rbg: [RandomBitsGenerator<F>; 3],
 }
 
 #[derive(Copy, Clone)]
@@ -75,13 +78,20 @@ impl<F: Field> TestWorld<F> {
     #[allow(clippy::missing_panics_doc)]
     pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld<F> {
         logging::setup();
+        let metrics_receiver = Receiver::builder()
+            .build()
+            .expect("failed to create metrics receiver");
 
-        let participants = make_participants();
+        let participants = ParticipantSetup::new_with(metrics_receiver.sink()).into_participants();
+
         let network = InMemoryNetwork::new();
         let gateways = network
             .endpoints
             .iter()
-            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
+            .map(|endpoint| {
+                let metrics_sink = metrics_receiver.sink().scoped(endpoint.role.as_str());
+                Gateway::new(endpoint.role, endpoint, metrics_sink, config.gateway_config)
+            })
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -96,6 +106,7 @@ impl<F: Field> TestWorld<F> {
             query_id,
             gateways,
             participants,
+            metrics_receiver,
             executions: AtomicUsize::new(0),
             _network: network,
             rbg,
@@ -128,6 +139,12 @@ impl<F: Field> TestWorld<F> {
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()
+    }
+}
+
+impl<F: Field> Drop for TestWorld<F> {
+    fn drop(&mut self) {
+        print_metrics(self.metrics_receiver.controller().snapshot());
     }
 }
 

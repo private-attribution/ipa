@@ -4,6 +4,9 @@ pub mod metrics {
     use metrics::{describe_counter, KeyName};
 
     pub const REQUESTS_RECEIVED: &str = "requests.received";
+    pub const RECORDS_SENT: &str = "records.sent";
+    pub const INDEXED_PRSS_GENERATED: &str = "iprss.generated";
+    pub const SEQUENTIAL_PRSS_GENERATED: &str = "sprss.generated";
 
     /// Metric that records the version of HTTP protocol used for a particular request.
     #[cfg(feature = "web-app")]

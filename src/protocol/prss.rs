@@ -2,11 +2,13 @@ use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
+use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
 };
 use hkdf::Hkdf;
+use metrics_runtime::Sink;
 use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
@@ -66,6 +68,7 @@ impl Debug for UsedSet {
 pub struct IndexedSharedRandomness {
     left: Generator,
     right: Generator,
+    metrics_sink: Option<Sink>,
     #[cfg(debug_assertions)]
     used: UsedSet,
 }
@@ -85,7 +88,9 @@ impl IndexedSharedRandomness {
         {
             self.used.insert(index);
         }
-
+        if let Some(ref sink) = self.metrics_sink {
+            sink.clone().increment_counter(INDEXED_PRSS_GENERATED, 1);
+        }
         (self.left.generate(index), self.right.generate(index))
     }
 
@@ -160,14 +165,16 @@ impl IndexedSharedRandomness {
 /// in APIs that expect `Rng`.
 pub struct SequentialSharedRandomness {
     generator: Generator,
+    metrics_sink: Option<Sink>,
     counter: u128,
 }
 
 impl SequentialSharedRandomness {
     /// Private constructor.
-    fn new(generator: Generator) -> Self {
+    fn new(generator: Generator, metrics_sink: Option<Sink>) -> Self {
         Self {
             generator,
+            metrics_sink,
             counter: 0,
         }
     }
@@ -199,6 +206,15 @@ impl RngCore for SequentialSharedRandomness {
 }
 
 impl CryptoRng for SequentialSharedRandomness {}
+
+impl Drop for SequentialSharedRandomness {
+    fn drop(&mut self) {
+        if let Some(mut sink) = self.metrics_sink.take() {
+            let counter = u64::try_from(self.counter).unwrap();
+            sink.increment_counter(SEQUENTIAL_PRSS_GENERATED, counter);
+        }
+    }
+}
 
 /// A single participant in the protocol.
 /// This holds multiple streams of correlated (pseudo)randomness.
@@ -252,6 +268,7 @@ struct EndpointInner {
     left: GeneratorFactory,
     right: GeneratorFactory,
     items: HashMap<String, EndpointItem>,
+    metrics_sink: Option<Sink>,
 }
 
 impl EndpointInner {
@@ -266,6 +283,7 @@ impl EndpointInner {
                 EndpointItem::Indexed(Arc::new(IndexedSharedRandomness {
                     left: self.left.generator(k.as_bytes()),
                     right: self.right.generator(k.as_bytes()),
+                    metrics_sink: self.metrics_sink.as_ref().map(|sink| sink.scoped(key)),
                     #[cfg(debug_assertions)]
                     used: UsedSet::new(key.to_owned()),
                 }))
@@ -287,9 +305,14 @@ impl EndpointInner {
             prev.is_none(),
             "Attempt access a sequential PRSS for {key} after another access"
         );
+
+        let metrics_sink = self.metrics_sink.as_ref().map(|sink| sink.scoped(key));
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
-            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(
+                self.left.generator(key.as_bytes()),
+                metrics_sink.clone(),
+            ),
+            SequentialSharedRandomness::new(self.right.generator(key.as_bytes()), metrics_sink),
         )
     }
 }
@@ -312,13 +335,19 @@ impl EndpointSetup {
     /// Provide the left and right public keys to construct a functioning
     /// participant instance.
     #[must_use]
-    pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
+    pub fn setup(
+        self,
+        left_pk: &PublicKey,
+        right_pk: &PublicKey,
+        metrics_sink: Option<Sink>,
+    ) -> Endpoint {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
         Endpoint {
             inner: Mutex::new(EndpointInner {
                 left: fl,
                 right: fr,
+                metrics_sink,
                 items: HashMap::new(),
             }),
         }
@@ -392,7 +421,8 @@ impl Generator {
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
-    use crate::{ff::Fp31, protocol::Step, test_fixture::make_participants};
+    use crate::test_fixture::ParticipantSetup;
+    use crate::{ff::Fp31, protocol::Step};
     use rand::prelude::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::mem::drop;
@@ -449,7 +479,7 @@ pub mod test {
     #[test]
     fn three_party_values() {
         const IDX: u128 = 7;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default();
         let (r1_l, r1_r) = p1.indexed(&step).generate_values(IDX);
@@ -467,7 +497,7 @@ pub mod test {
     #[test]
     fn three_party_zero_u128() {
         const IDX: u128 = 7;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default();
         let z1 = p1.indexed(&step).zero_u128(IDX);
@@ -480,7 +510,7 @@ pub mod test {
     #[test]
     fn three_party_xor_zero() {
         const IDX: u128 = 7;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default();
         let z1 = p1.indexed(&step).zero_xor(IDX);
@@ -494,7 +524,7 @@ pub mod test {
     fn three_party_random_u128() {
         const IDX1: u128 = 7;
         const IDX2: u128 = 21362;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default();
         let r1 = p1.indexed(&step).random_u128(IDX1);
@@ -515,7 +545,7 @@ pub mod test {
     #[test]
     fn three_party_fields() {
         const IDX: u128 = 7;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         // These tests do not check that left != right because
         // the field might not be large enough.
@@ -532,7 +562,7 @@ pub mod test {
     #[test]
     fn three_party_zero() {
         const IDX: u128 = 72;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default();
         let z1: Fp31 = p1.indexed(&step).zero(IDX);
@@ -546,7 +576,7 @@ pub mod test {
     fn three_party_random() {
         const IDX1: u128 = 74;
         const IDX2: u128 = 12634;
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default();
         let s1 = p1.indexed(&step);
@@ -583,7 +613,7 @@ pub mod test {
             assert_eq!(a.gen_bool(0.3), b.gen_bool(0.3));
         }
 
-        let [p1, p2, p3] = make_participants();
+        let [p1, p2, p3] = ParticipantSetup::default().into_participants();
         let step = Step::default();
         let (rng1_l, rng1_r) = p1.sequential(&step);
         let (rng2_l, rng2_r) = p2.sequential(&step);
@@ -596,7 +626,7 @@ pub mod test {
 
     #[test]
     fn indexed_and_sequential() {
-        let [p1, _p2, _p3] = make_participants();
+        let [p1, _p2, _p3] = ParticipantSetup::default().into_participants();
 
         let base = Step::default();
         let idx = p1.indexed(&base.narrow("indexed"));
@@ -615,7 +645,7 @@ pub mod test {
     #[test]
     #[should_panic]
     fn indexed_then_sequential() {
-        let [p1, _p2, _p3] = make_participants();
+        let [p1, _p2, _p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default().narrow("test");
         drop(p1.indexed(&step));
@@ -628,7 +658,7 @@ pub mod test {
     #[test]
     #[should_panic]
     fn sequential_then_indexed() {
-        let [p1, _p2, _p3] = make_participants();
+        let [p1, _p2, _p3] = ParticipantSetup::default().into_participants();
 
         let step = Step::default().narrow("test");
         // TODO(alex): remove after clippy is fixed
@@ -639,7 +669,7 @@ pub mod test {
 
     #[test]
     fn indexed_accepts_unique_index() {
-        let [_, p2, _p3] = make_participants();
+        let [_, p2, _p3] = ParticipantSetup::default().into_participants();
         let step = Step::default().narrow("test");
         let mut indices = (1..100_u128).collect::<Vec<_>>();
         indices.shuffle(&mut thread_rng());
@@ -654,7 +684,7 @@ pub mod test {
     #[cfg(debug_assertions)]
     #[should_panic]
     fn indexed_rejects_the_same_index() {
-        let [p1, _p2, _p3] = make_participants();
+        let [p1, _p2, _p3] = ParticipantSetup::default().into_participants();
         let step = Step::default().narrow("test");
 
         let _ = p1.indexed(&step).random_u128(100_u128);

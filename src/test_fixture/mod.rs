@@ -3,9 +3,11 @@ mod world;
 
 pub mod circuit;
 pub mod logging;
+mod metrics;
 pub mod network;
 
 use crate::ff::{Field, Fp31};
+use crate::helpers::Role;
 use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
@@ -13,6 +15,7 @@ use crate::rand::thread_rng;
 use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
+use metrics_runtime::Sink;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
@@ -39,23 +42,55 @@ pub fn narrow_contexts<C: Debug + Context<F, Share = S>, F: Field, S: SecretShar
         .unwrap()
 }
 
-/// Generate three participants.
-/// p1 is left of p2, p2 is left of p3, p3 is left of p1...
-#[must_use]
-pub fn make_participants() -> [PrssEndpoint; 3] {
-    let mut r = thread_rng();
-    let setup1 = PrssEndpoint::prepare(&mut r);
-    let setup2 = PrssEndpoint::prepare(&mut r);
-    let setup3 = PrssEndpoint::prepare(&mut r);
-    let (pk1_l, pk1_r) = setup1.public_keys();
-    let (pk2_l, pk2_r) = setup2.public_keys();
-    let (pk3_l, pk3_r) = setup3.public_keys();
+#[derive(Default)]
+pub struct ParticipantSetup {
+    metrics_sink: Option<Sink>,
+}
 
-    let p1 = setup1.setup(&pk3_r, &pk2_l);
-    let p2 = setup2.setup(&pk1_r, &pk3_l);
-    let p3 = setup3.setup(&pk2_r, &pk1_l);
+impl ParticipantSetup {
+    #[must_use]
+    pub fn new_with(metrics_sink: Sink) -> Self {
+        Self {
+            metrics_sink: Some(metrics_sink),
+        }
+    }
 
-    [p1, p2, p3]
+    /// Generate three participants.
+    /// p1 is left of p2, p2 is left of p3, p3 is left of p1...
+    #[must_use]
+    pub fn into_participants(self) -> [PrssEndpoint; 3] {
+        let mut r = thread_rng();
+        let setup1 = PrssEndpoint::prepare(&mut r);
+        let setup2 = PrssEndpoint::prepare(&mut r);
+        let setup3 = PrssEndpoint::prepare(&mut r);
+        let (pk1_l, pk1_r) = setup1.public_keys();
+        let (pk2_l, pk2_r) = setup2.public_keys();
+        let (pk3_l, pk3_r) = setup3.public_keys();
+
+        let p1 = setup1.setup(
+            &pk3_r,
+            &pk2_l,
+            self.metrics_sink
+                .as_ref()
+                .map(|sink| sink.scoped(Role::H1.as_str())),
+        );
+        let p2 = setup2.setup(
+            &pk1_r,
+            &pk3_l,
+            self.metrics_sink
+                .as_ref()
+                .map(|sink| sink.scoped(Role::H2.as_str())),
+        );
+        let p3 = setup3.setup(
+            &pk2_r,
+            &pk1_l,
+            self.metrics_sink
+                .as_ref()
+                .map(|sink| sink.scoped(Role::H3.as_str())),
+        );
+
+        [p1, p2, p3]
+    }
 }
 
 pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
