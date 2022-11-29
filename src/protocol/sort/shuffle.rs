@@ -214,9 +214,6 @@ mod tests {
     }
 
     mod semi_honest {
-        use std::collections::HashSet;
-        use std::iter::zip;
-
         use crate::ff::Fp31;
         use crate::protocol::context::Context;
         use crate::protocol::sort::shuffle::{
@@ -224,6 +221,7 @@ mod tests {
         };
         use crate::protocol::QueryId;
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+        use std::collections::HashSet;
 
         #[tokio::test]
         async fn semi_honest() {
@@ -252,8 +250,7 @@ mod tests {
 
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
-            for (r0, (r1, r2)) in zip(result[0].iter(), zip(result[1].iter(), result[2].iter())) {
-                let val = (r0, r1, r2).reconstruct();
+            for val in result.reconstruct() {
                 output_secret.push(u8::from(val));
                 hashed_output_secret.insert(u8::from(val));
             }
@@ -304,9 +301,6 @@ mod tests {
     }
 
     mod malicious {
-        use std::collections::HashSet;
-        use std::iter::zip;
-
         use crate::ff::Fp31;
         use crate::protocol::context::Context;
         use crate::protocol::sort::shuffle::{
@@ -314,6 +308,7 @@ mod tests {
         };
         use crate::protocol::QueryId;
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+        use std::collections::HashSet;
 
         #[tokio::test]
         async fn malicious() {
@@ -344,8 +339,7 @@ mod tests {
 
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
-            for (r0, (r1, r2)) in zip(result[0].iter(), zip(result[1].iter(), result[2].iter())) {
-                let val = (r0, r1, r2).reconstruct();
+            for val in result.reconstruct() {
                 output_secret.push(u8::from(val));
                 hashed_output_secret.insert(u8::from(val));
             }
