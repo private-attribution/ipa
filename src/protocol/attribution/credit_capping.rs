@@ -136,13 +136,13 @@ impl CreditCapping {
                     is_trigger_bit: input[i].is_trigger_bit.clone(),
                     helper_bit: input[i].helper_bit.clone(),
                     stop_bit: stop_bits[i].clone(),
-                    interaction_bit: current_contribution[i].clone(),
+                    interaction_value: current_contribution[i].clone(),
                 };
                 let successor = InteractionPatternInputRow {
                     is_trigger_bit: input[i + step_size].is_trigger_bit.clone(),
                     helper_bit: input[i + step_size].helper_bit.clone(),
                     stop_bit: stop_bits[i + step_size].clone(),
-                    interaction_bit: current_contribution[i + step_size].clone(),
+                    interaction_value: current_contribution[i + step_size].clone(),
                 };
 
                 interaction_futures.push(Self::interaction_pattern(
@@ -298,8 +298,8 @@ impl CreditCapping {
             ctx.clone(),
             record_id,
             b.clone(),
-            this.interaction_bit.clone(),
-            other.interaction_bit.clone(),
+            this.interaction_value.clone(),
+            other.interaction_value.clone(),
         );
 
         // For the same reason as calculating [b], we skip the multiplication
