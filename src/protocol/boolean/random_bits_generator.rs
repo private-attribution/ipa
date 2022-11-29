@@ -175,7 +175,7 @@ impl<F: Field> Clone for RandomBitsGenerator<F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
         ff::Fp31,

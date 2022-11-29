@@ -7,13 +7,13 @@ mod server;
 pub mod discovery;
 pub mod http_network;
 
+use crate::sync::{Arc, Mutex};
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
 pub use server::{BindTarget, MessageSendMap, MpcHelperServer};
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 use crate::{
     helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
@@ -101,7 +101,7 @@ impl LastSeenMessages {
     /// ensures that incoming message follows last seen message
     /// # Panics
     /// if messages arrive out of order
-    pub fn update_in_place(&self, channel_id: &ChannelId, next_seen: u32) {
+    pub fn ensure_ordering(&self, channel_id: &ChannelId, next_seen: u32) {
         let mut messages = self.messages.lock().unwrap();
         let last_seen = messages.entry(channel_id.clone()).or_default();
         if *last_seen == next_seen {

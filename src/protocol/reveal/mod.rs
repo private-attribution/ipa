@@ -110,7 +110,7 @@ pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Sha
     Ok(revealed_permutation)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use futures::future::{try_join, try_join3};
     use proptest::prelude::Rng;

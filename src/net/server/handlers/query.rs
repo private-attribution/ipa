@@ -84,7 +84,7 @@ pub async fn obtain_permit_mw<B: Send>(
     // PANIC if messages arrive out of order; pretty print the error
     // TODO (ts): remove this when streaming solution is complete
     let channel_id = ChannelId::new(role, step);
-    last_seen_messages.update_in_place(&channel_id, record_headers.offset);
+    last_seen_messages.ensure_ordering(&channel_id, record_headers.offset);
 
     // get sender to correct network
     let sender = message_send_map.get(query_id)?;
@@ -119,7 +119,7 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::{

@@ -86,7 +86,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
     use crate::helpers::buffers::fsv::FixedSizeByteVec;

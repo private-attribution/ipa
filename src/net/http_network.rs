@@ -1,12 +1,18 @@
 use crate::{
-    helpers::network::{MessageChunks, Network, NetworkSink},
+    helpers::{
+        network::{MessageChunks, Network, NetworkSink},
+        Role,
+    },
     net::{
+        client::HttpSendMessagesArgs,
         discovery::{peer, PeerDiscovery},
         MpcHelperClient,
     },
     protocol::QueryId,
+    sync::{Arc, Mutex},
 };
-use std::sync::{Arc, Mutex};
+use axum::body::Bytes;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -18,30 +24,46 @@ use tokio_stream::wrappers::ReceiverStream;
 pub struct HttpNetwork {
     query_id: QueryId,
     sink_sender: mpsc::Sender<MessageChunks>,
-    sink_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
     message_stream_sender: mpsc::Sender<MessageChunks>,
     message_stream_receiver: Arc<Mutex<Option<mpsc::Receiver<MessageChunks>>>>,
 }
 
 impl HttpNetwork {
+    /// * Creates an [`HttpNetwork`]
+    /// * spawns a task that consumes incoming data from the infra layer intended for other helpers
+    /// # Panics
+    /// if client is unable to send message to other helper
     #[must_use]
     #[allow(unused)]
-    pub fn new<D: PeerDiscovery>(peer_discovery: &D, query_id: QueryId) -> Self {
-        let (stx, srx) = mpsc::channel(1);
+    pub fn new<D: PeerDiscovery>(role: Role, peer_discovery: &D, query_id: QueryId) -> Self {
+        let (stx, mut srx) = mpsc::channel::<MessageChunks>(1);
         let (mstx, msrx) = mpsc::channel(1);
-        let network = HttpNetwork {
+
+        let peers_conf = peer_discovery.peers();
+        let clients = Self::clients(role, peers_conf);
+        tokio::spawn(async move {
+            let mut last_seen_messages = HashMap::new();
+
+            while let Some((channel_id, messages)) = srx.recv().await {
+                // increment `offset` each time, per `ChannelId`
+                let offset = last_seen_messages.entry(channel_id.clone()).or_default();
+                let args = HttpSendMessagesArgs {
+                    query_id,
+                    step: &channel_id.step,
+                    offset: *offset,
+                    messages: Bytes::from(messages),
+                };
+                *offset += 1;
+
+                clients[channel_id.role].send_messages(args).await.unwrap();
+            }
+        });
+        HttpNetwork {
             query_id,
             sink_sender: stx,
-            sink_receiver: Arc::new(Mutex::new(Some(srx))),
             message_stream_sender: mstx,
             message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
-        };
-
-        // TODO: use the clients
-        let peers_config = peer_discovery.peers();
-        let _clients = Self::clients(peers_config);
-
-        network
+        }
     }
 
     /// as this does not initialize the clients, it does not initialize the read-side of the
@@ -49,29 +71,14 @@ impl HttpNetwork {
     #[must_use]
     #[cfg(test)]
     pub fn new_without_clients(query_id: QueryId, buffer_size: Option<usize>) -> Self {
-        let (stx, srx) = mpsc::channel(buffer_size.unwrap_or(1));
+        let (stx, _) = mpsc::channel(buffer_size.unwrap_or(1));
         let (mstx, msrx) = mpsc::channel(buffer_size.unwrap_or(1));
         HttpNetwork {
             query_id,
             sink_sender: stx,
-            sink_receiver: Arc::new(Mutex::new(Some(srx))),
             message_stream_sender: mstx,
             message_stream_receiver: Arc::new(Mutex::new(Some(msrx))),
         }
-    }
-
-    /// TODO: implement event loop for receiving.
-    ///       this function will be removed when that loop exists
-    /// # Panics
-    /// if called more than once
-    #[must_use]
-    #[allow(unused)] // See TODO
-    pub fn recv_messages(&self) -> mpsc::Receiver<MessageChunks> {
-        self.sink_receiver
-            .lock()
-            .unwrap()
-            .take()
-            .expect("recv_messages called more than once")
     }
 
     #[must_use]
@@ -80,12 +87,12 @@ impl HttpNetwork {
         self.message_stream_sender.clone()
     }
 
-    fn clients(peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+    fn clients(role: Role, peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
         peers_conf
             .iter()
             .map(|peer_conf| {
                 // no https for now
-                MpcHelperClient::new(peer_conf.http.origin.clone())
+                MpcHelperClient::new(peer_conf.http.origin.clone(), role)
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -110,5 +117,102 @@ impl Network for HttpNetwork {
                 .take()
                 .expect("recv_stream called more than once"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        helpers::{network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
+        net::{discovery::conf::Conf, BindTarget, MessageSendMap, MpcHelperServer},
+        protocol::Step,
+    };
+    use futures::{Stream, StreamExt};
+    use futures_util::SinkExt;
+    use std::str::FromStr;
+
+    fn localhost_peers(h1_port: u16, h2_port: u16, h3_port: u16) -> Conf {
+        let peer_discovery_str = format!(
+            r#"
+[h1]
+    [h1.http]
+        origin = "http://localhost:{}"
+        public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
+    [h1.prss]
+        public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
+
+[h2]
+    [h2.http]
+        origin = "http://localhost:{}"
+        public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
+    [h2.prss]
+        public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
+
+[h3]
+    [h3.http]
+        origin = "http://localhost:{}"
+        public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
+    [h3.prss]
+        public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
+"#,
+            h1_port, h2_port, h3_port
+        );
+        Conf::from_str(&peer_discovery_str).unwrap()
+    }
+
+    async fn setup() -> (Role, Conf, impl Stream<Item = MessageChunks>) {
+        // setup server
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
+
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
+
+        // only H2 is valid
+        let peer_discovery = localhost_peers(0, addr.port(), 0);
+
+        (Role::H2, peer_discovery, rx_stream)
+    }
+
+    #[tokio::test]
+    async fn send_multiple_messages() {
+        const DATA_LEN: usize = 3;
+        let (target_role, peer_discovery, mut rx_stream) = setup().await;
+        let self_role = target_role.peer(Direction::Left);
+        let network = HttpNetwork::new(self_role, &peer_discovery, QueryId);
+        let mut sink = network.sink();
+
+        // build request
+        let step = Step::default().narrow("mul_test");
+        let body = &[123; MESSAGE_PAYLOAD_SIZE_BYTES * DATA_LEN];
+
+        let num_reqs = 10;
+
+        // consume request on server-side
+        let spawned = tokio::spawn({
+            let expected_channel_id = ChannelId::new(self_role, step.clone());
+            let expected_body = body.to_vec();
+            async move {
+                for _ in 0..num_reqs {
+                    let (channel_id, body) = rx_stream.next().await.unwrap();
+                    assert_eq!(expected_channel_id, channel_id);
+                    assert_eq!(expected_body, body);
+                }
+            }
+        });
+
+        // send request on client-side
+        for _ in 0..num_reqs {
+            sink.send((ChannelId::new(target_role, step.clone()), body.to_vec()))
+                .await
+                .expect("send should succeed");
+        }
+
+        // ensure server had no errors
+        spawned.await.unwrap();
     }
 }
