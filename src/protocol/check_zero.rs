@@ -82,8 +82,8 @@ pub async fn check_zero<F: Field>(
     Ok(rv == F::ZERO)
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::context::Context;

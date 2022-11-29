@@ -78,7 +78,7 @@ impl<T> IndexMut<usize> for Batch<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::Batch;
 

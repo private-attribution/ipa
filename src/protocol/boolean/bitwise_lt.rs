@@ -166,7 +166,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     //use super::BitwiseLessThan;
     use crate::protocol::boolean::dumb_bitwise_lt::BitwiseLessThan;

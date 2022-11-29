@@ -5,10 +5,10 @@ use crate::{
     },
     net::{discovery::peer, HttpSendMessagesArgs, MpcHelperClient},
     protocol::QueryId,
+    sync::{Arc, Mutex},
 };
 use axum::body::Bytes;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;

@@ -124,7 +124,7 @@ impl Config {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
     use crate::helpers::buffers::SendBuffer;

@@ -23,7 +23,9 @@ pub trait SecureMul<F: Field> {
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
-pub use {malicious::SecureMul as MaliciouslySecureMul, semi_honest::SecureMul as SemiHonestMul};
+pub use {
+    malicious::secure_mul as maliciously_secure_mul, semi_honest::secure_mul as semi_honest_mul,
+};
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
@@ -36,7 +38,7 @@ impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error> {
-        SemiHonestMul::new(self, record_id).execute(a, b).await
+        semi_honest_mul(self, record_id, a, b).await
     }
 }
 
@@ -51,8 +53,6 @@ impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error> {
-        MaliciouslySecureMul::new(self, record_id)
-            .execute(a, b)
-            .await
+        maliciously_secure_mul(self, record_id, a, b).await
     }
 }

@@ -33,7 +33,7 @@ pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcHelperServe
     }))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::net::server::handlers::echo::handler;
     use hyper::{Body, Request};

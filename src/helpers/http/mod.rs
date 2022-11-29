@@ -9,12 +9,14 @@ use crate::{
         discovery::{peer, PeerDiscovery},
         BindTarget, MessageSendMap, MpcHelperServer,
     },
-    protocol::{context::ProtocolContext, prss, QueryId},
-    secret_sharing::Replicated,
+    protocol::{
+        boolean::random_bits_generator::RandomBitsGenerator, context::SemiHonestContext, prss,
+        QueryId,
+    },
+    task::JoinHandle,
 };
 use rand::thread_rng;
 use std::net::SocketAddr;
-use tokio::task::JoinHandle;
 
 pub struct HttpHelper {
     role: Role,
@@ -73,11 +75,12 @@ impl HttpHelper {
     }
 
     /// TODO: can the participant be shared across queries?
-    pub fn context<'a, 'b: 'a, 'c: 'a, F: Field>(
+    pub fn context<'a, 'b: 'a, 'c: 'a, 'd: 'a, F: Field>(
         &'b self,
         gateway: &'c Gateway,
-    ) -> ProtocolContext<'a, Replicated<F>, F> {
-        ProtocolContext::new(self.role, &self.participant, gateway)
+        rbg: &'d RandomBitsGenerator<F>,
+    ) -> SemiHonestContext<'a, F> {
+        SemiHonestContext::new(self.role, &self.participant, gateway, rbg)
     }
 }
 
@@ -89,7 +92,7 @@ mod e2e_tests {
         helpers::SendBufferConfig,
         net::discovery,
         protocol::{mul::SecureMul, RecordId},
-        test_fixture::{logging, share, validate_and_reconstruct},
+        test_fixture::{logging, share, Reconstruct},
     };
     use rand::rngs::mock::StepRng;
     use x25519_dalek::PublicKey;
@@ -173,9 +176,10 @@ mod e2e_tests {
         let gateway2 = h2.query(QueryId).unwrap();
         let gateway3 = h3.query(QueryId).unwrap();
 
-        let ctx1 = h1.context(&gateway1);
-        let ctx2 = h2.context(&gateway2);
-        let ctx3 = h3.context(&gateway3);
+        let rbg = RandomBitsGenerator::<Fp31>::new();
+        let ctx1 = h1.context(&gateway1, &rbg);
+        let ctx2 = h2.context(&gateway2, &rbg);
+        let ctx3 = h3.context(&gateway3, &rbg);
 
         let mut rand = StepRng::new(1, 1);
 
@@ -186,13 +190,13 @@ mod e2e_tests {
         let b_shared = share(Fp31::from(b), &mut rand);
 
         let input = tokio::try_join!(
-            ctx1.multiply(record_id, a_shared[0], b_shared[0]),
-            ctx2.multiply(record_id, a_shared[1], b_shared[1]),
-            ctx3.multiply(record_id, a_shared[2], b_shared[2])
+            ctx1.multiply(record_id, &a_shared[0], &b_shared[0]),
+            ctx2.multiply(record_id, &a_shared[1], &b_shared[1]),
+            ctx3.multiply(record_id, &a_shared[2], &b_shared[2])
         )
         .unwrap();
 
-        let reconstructed = validate_and_reconstruct(input);
+        let reconstructed = [input.0, input.1, input.2].reconstruct();
         assert_eq!(a * b, reconstructed.as_u128());
     }
 }

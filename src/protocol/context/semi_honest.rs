@@ -9,8 +9,8 @@ use crate::protocol::prss::{
 };
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::Replicated;
+use crate::sync::Arc;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.

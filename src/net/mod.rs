@@ -12,9 +12,11 @@ pub use server::tls_config_from_self_signed_cert;
 pub use server::{BindTarget, MessageSendMap, MpcHelperServer, MpcHelperServerError};
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
-use crate::helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES};
+use crate::{
+    helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
+    sync::{Arc, Mutex},
+};
 use async_trait::async_trait;
 use axum::{
     extract::{FromRequest, RequestParts},
