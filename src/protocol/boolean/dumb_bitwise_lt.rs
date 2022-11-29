@@ -82,7 +82,10 @@ impl BitwiseLessThan {
     /// For any the other bit `j`: check if `a_i == b_i` for `i = 0..j-1` AND `(a_j == 0 && b_j == 1)`
     /// Finally, since at most one of these conditions can be true, it is sufficient to just add up
     /// all of these conditions. That sum is logically equivalent to an OR of all conditions.
-    #[allow(dead_code)]
+    ///
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(
         ctx: SemiHonestContext<'_, F>,

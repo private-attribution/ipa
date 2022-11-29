@@ -16,7 +16,7 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
-pub use {bit_decomposition::BitDecomposition, bitwise_lt::BitwiseLessThan};
+pub use {bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan};
 
 /// A step generator for bitwise secure operations.
 ///
