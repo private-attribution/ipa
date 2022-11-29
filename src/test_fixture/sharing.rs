@@ -29,18 +29,22 @@ where
     }
 }
 
-impl<V, T> IntoShares<Vec<T>> for Vec<V>
+impl<U, V, T> IntoShares<Vec<T>> for V
 where
-    V: IntoShares<T>,
+    U: IntoShares<T>,
+    V: IntoIterator<Item = U>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<T>; 3] {
+        let it = self.into_iter();
+        let (lower_bound, upper_bound) = it.size_hint();
+        let len = upper_bound.unwrap_or(lower_bound);
         let mut res = [
-            Vec::with_capacity(self.len()),
-            Vec::with_capacity(self.len()),
-            Vec::with_capacity(self.len()),
+            Vec::with_capacity(len),
+            Vec::with_capacity(len),
+            Vec::with_capacity(len),
         ];
-        for v in self {
-            for (i, s) in v.share_with(rng).into_iter().enumerate() {
+        for u in it {
+            for (i, s) in u.share_with(rng).into_iter().enumerate() {
                 res[i].push(s);
             }
         }
