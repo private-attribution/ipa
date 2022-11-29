@@ -125,7 +125,7 @@ impl<F: Field> From<(F, F)> for Replicated<F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::Replicated;
     use crate::ff::Fp31;

@@ -199,7 +199,7 @@ impl AccumulateCredit {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
     use crate::{

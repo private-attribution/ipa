@@ -180,7 +180,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::collections::HashSet;
     use std::iter::zip;

@@ -125,7 +125,7 @@ impl<T> IndexMut<Role> for Vec<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod role_tests {
         use crate::helpers::{Direction, Role};

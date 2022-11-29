@@ -93,7 +93,7 @@ impl<'a, F: Field> SecureMul<'a, F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod test {
     use crate::{
         ff::Fp31,

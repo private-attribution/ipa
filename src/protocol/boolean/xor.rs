@@ -16,7 +16,7 @@ pub async fn xor<F: Field>(
     Ok(a + b - &(ab * F::from(2)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::xor;
     use crate::{

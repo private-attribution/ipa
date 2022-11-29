@@ -176,7 +176,7 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{Downgrade, MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::ff::{Field, Fp31};
