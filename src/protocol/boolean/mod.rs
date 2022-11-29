@@ -4,6 +4,7 @@ use crate::secret_sharing::Replicated;
 use std::iter::repeat;
 
 mod bit_decomposition;
+mod bitwise_less_than_prime;
 mod bitwise_lt;
 mod bitwise_sum;
 mod carries;
