@@ -266,6 +266,17 @@ struct InteractionClosureInput<F: Field> {
 /// Many attribution protocols use interaction patterns to obliviously
 /// compute values, and they usually follow the same pattern. This is a
 /// generalized logic of the "interaction pattern" computation.
+///
+/// `interaction_fn` is the computation unique to each protocol. The caller
+/// will use five parameters given as closure's parameters, which are:
+///
+/// * context
+/// * record ID
+/// * `b` bit
+/// * current `interaction_value`
+/// * sibling `interaction_value`
+///
+/// The latter three are contained in `InteractionClosureInput` struct.
 async fn interaction_pattern<'a, F, H, R>(
     ctx: SemiHonestContext<'a, F>,
     record_id: RecordId,
