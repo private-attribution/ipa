@@ -30,18 +30,22 @@ where
     }
 }
 
-impl<V, T> IntoShares<Vec<T>> for Vec<V>
+impl<U, V, T> IntoShares<Vec<T>> for V
 where
-    V: IntoShares<T>,
+    U: IntoShares<T>,
+    V: IntoIterator<Item = U>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<T>; 3] {
+        let it = self.into_iter();
+        let (lower_bound, upper_bound) = it.size_hint();
+        let len = upper_bound.unwrap_or(lower_bound);
         let mut res = [
-            Vec::with_capacity(self.len()),
-            Vec::with_capacity(self.len()),
-            Vec::with_capacity(self.len()),
+            Vec::with_capacity(len),
+            Vec::with_capacity(len),
+            Vec::with_capacity(len),
         ];
-        for v in self {
-            for (i, s) in v.share_with(rng).into_iter().enumerate() {
+        for u in it {
+            for (i, s) in u.share_with(rng).into_iter().enumerate() {
                 res[i].push(s);
             }
         }
@@ -82,6 +86,14 @@ where
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {
     (0..(128 - F::PRIME.into().leading_zeros()) as u32)
         .map(|i| F::from((x.as_u128() >> i) & 1))
+        .collect::<Vec<_>>()
+}
+
+/// Deconstructs a value into N values, one for each bit.
+#[must_use]
+pub fn get_bits<F: Field>(x: u32, num_bits: usize) -> Vec<F> {
+    (0..num_bits)
+        .map(|i| F::from(((x >> i) & 1).into()))
         .collect::<Vec<_>>()
 }
 
@@ -223,8 +235,7 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     }
 }
 
-impl<F: Field> Reconstruct<[F; 4]> for [AttributionInputRow<F>; 3] 
-{
+impl<F: Field> Reconstruct<[F; 4]> for [AttributionInputRow<F>; 3] {
     fn reconstruct(&self) -> [F; 4] {
         let s0 = &self[0];
         let s1 = &self[1];
@@ -236,8 +247,40 @@ impl<F: Field> Reconstruct<[F; 4]> for [AttributionInputRow<F>; 3]
         let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
 
         let breakdown_key = (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-        let value = (&s0.value, &s1.value, &s2.value).reconstruct();
+        let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
 
-        [is_trigger_bit, helper_bit, breakdown_key, value]
+        [is_trigger_bit, helper_bit, breakdown_key, credit]
+    }
+}
+
+impl<F> IntoShares<AttributionInputRow<F>> for [F; 4]
+where
+    F: Field + IntoShares<Replicated<F>>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
+        let [a0, a1, a2] = self[0].share_with(rng);
+        let [b0, b1, b2] = self[1].share_with(rng);
+        let [c0, c1, c2] = self[2].share_with(rng);
+        let [d0, d1, d2] = self[3].share_with(rng);
+        [
+            AttributionInputRow {
+                is_trigger_bit: a0,
+                helper_bit: b0,
+                breakdown_key: c0,
+                credit: d0,
+            },
+            AttributionInputRow {
+                is_trigger_bit: a1,
+                helper_bit: b1,
+                breakdown_key: c1,
+                credit: d1,
+            },
+            AttributionInputRow {
+                is_trigger_bit: a2,
+                helper_bit: b2,
+                breakdown_key: c2,
+                credit: d2,
+            },
+        ]
     }
 }

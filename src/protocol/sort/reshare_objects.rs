@@ -6,8 +6,22 @@ use futures::future::try_join_all;
 use crate::{error::Error, helpers::Role, protocol::RecordId};
 use crate::{ff::Field, protocol::context::Context, secret_sharing::SecretSharing};
 
+#[async_trait]
+pub trait Resharable<F: Field>: Sized {
+    type Share: SecretSharing<F>;
+
+    async fn resharable<C>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
+}
+
 #[allow(dead_code)]
-async fn reshare_all_objects<F: Field, C, S, T>(
+async fn reshare_objects<F: Field, C, S, T>(
     input: &[T],
     ctx: C,
     to_helper: Role,
@@ -25,18 +39,4 @@ where
                 .await
         });
     try_join_all(reshares).await
-}
-
-#[async_trait]
-pub trait Resharable<F: Field>: Sized {
-    type Share: SecretSharing<F>;
-
-    async fn resharable<C>(
-        &self,
-        ctx: C,
-        record_id: RecordId,
-        to_helper: Role,
-    ) -> Result<Self, Error>
-    where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
 }
