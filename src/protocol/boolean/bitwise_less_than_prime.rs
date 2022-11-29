@@ -131,6 +131,7 @@ impl BitwiseLessThanPrime {
     ) -> Result<Replicated<F>, Error> {
         let mut todo = x.to_vec();
         let mut mult_count = 0;
+
         while todo.len() > 1 {
             let half = todo.len() / 2;
             let mut multiplications = Vec::with_capacity(half);
@@ -143,8 +144,10 @@ impl BitwiseLessThanPrime {
                 mult_count += 1;
             }
             let mut results = try_join_all(multiplications).await?;
-            todo.drain(0..2 * half);
-            todo.append(&mut results);
+            if todo.len() % 2 == 1 {
+                results.push(todo.pop().unwrap());
+            }
+            todo = results;
         }
         Ok(todo[0].clone())
     }
