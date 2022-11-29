@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::Context,
-        modulus_conversion::convert_shares_for_a_bit,
+        modulus_conversion::{convert_bits, convert_bits_local},
         reveal::reveal_permutation,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion, ShuffleRevealPermutation,
@@ -98,21 +98,22 @@ pub async fn generate_permutation<F: Field>(
     num_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
-    let bit_0 =
-        convert_shares_for_a_bit(ctx_0.narrow(&ModulusConversion), input, num_bits, 0).await?;
+    let triple_0 = convert_bits_local(ctx_0.role(), 0, input);
+    let bit_0 = convert_bits(ctx_0.narrow(&ModulusConversion), &triple_0).await?;
     let bit_0_permutation = bit_permutation(ctx_0.narrow(&BitPermutationStep), &bit_0).await?;
     let input_len = u32::try_from(input.len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
+        let triples = convert_bits_local(ctx.role(), bit_num, input);
         let (revealed_and_random_permutations, bit_i) = try_join(
             shuffle_and_reveal_permutation(
                 ctx_bit.narrow(&ShuffleRevealPermutation),
                 input_len,
                 composed_less_significant_bits_permutation,
             ),
-            convert_shares_for_a_bit(ctx_bit.narrow(&ModulusConversion), input, num_bits, bit_num),
+            convert_bits(ctx_bit.narrow(&ModulusConversion), &triples),
         )
         .await?;
 

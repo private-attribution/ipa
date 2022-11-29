@@ -20,10 +20,11 @@ use super::sort::reshare::Reshare;
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait Context<F: Field>:
-    Clone
-    + SecureMul<F, Share = <Self as Context<F>>::Share>
+    SecureMul<F, Share = <Self as Context<F>>::Share>
     + Reshare<F, Share = <Self as Context<F>>::Share>
     + Reveal<F, Share = <Self as Context<F>>::Share>
+    + Clone
+    + Send
 {
     /// Secret sharing type this context supports.
     type Share: SecretSharing<F>;
