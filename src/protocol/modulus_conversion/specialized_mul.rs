@@ -183,8 +183,8 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use std::iter::{repeat, zip};
 
     use crate::ff::{Field, Fp31};

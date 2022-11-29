@@ -7,13 +7,13 @@ mod server;
 pub mod discovery;
 pub mod http_network;
 
+use crate::sync::{Arc, Mutex};
 pub use client::MpcHelperClient;
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
 pub use server::{BindTarget, MessageSendMap, MpcHelperServer};
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 use crate::{
     helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},

@@ -34,6 +34,10 @@ jobs:
         if: ${{ success() || failure() }}
         run: cargo clippy --tests
 
+      - name: Clippy concurrency tests
+        if: ${{ success() || failure() }}
+        run: cargo clippy --tests --features shuttle
+
       - name: Build
         if: ${{ success() || failure() }}
         run: cargo build --tests
@@ -44,5 +48,12 @@ jobs:
       - name: Build benchmarks
         run: cargo build --benches --all-features
 
+      - name: Build concurrency tests
+        run: cargo build --features shuttle
+
       - name: Run Tests
         run: cargo test
+
+# Uncomment once infra bugs are fixed: https://github.com/private-attribution/ipa/issues/256
+#      - name: Run concurrency tests
+#        run: cargo test --features shuttle

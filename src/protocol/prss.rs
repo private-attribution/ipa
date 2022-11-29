@@ -1,17 +1,14 @@
 use crate::ff::Field;
+use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
+use crate::sync::{Arc, Mutex};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
 };
 use hkdf::Hkdf;
-use rand::{CryptoRng, RngCore};
 use sha2::Sha256;
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
 use x25519_dalek::{EphemeralSecret, PublicKey};
@@ -392,7 +389,7 @@ impl Generator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
     use crate::{ff::Fp31, protocol::Step, test_fixture::make_participants};

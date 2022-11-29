@@ -12,6 +12,7 @@ enable-serde = ["serde", "serde_json"]
 web-app = ["tokio", "tokio-stream", "tokio-util", "axum", "axum-server", "hyper", "hyper-tls", "tower", "tower-http"]
 self-signed-certs = ["hyper-tls"]
 test-fixture = []
+shuttle = ["shuttle-crate", "test-fixture"]
 
 [dependencies]
 aes = "0.8"
@@ -40,6 +41,7 @@ rand_core = "0.6"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0", optional = true }
 sha2 = "0.10.6"
+shuttle-crate = { package = "shuttle", version = "0.5", optional = true }
 thiserror = "1.0"
 tinyvec = { version = "1.6.0" }
 tokio = { version = "1.21.2", optional = true, features = ["rt", "rt-multi-thread", "macros"] }

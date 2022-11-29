@@ -1,7 +1,9 @@
+use crate::rand::thread_rng;
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution, thread_rng};
+use rand::{distributions::Standard, prelude::Distribution};
 
+use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::{
     ff::Field,
     helpers::{
@@ -18,7 +20,6 @@ use crate::{
     secret_sharing::DowngradeMalicious,
     test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
 use super::{
