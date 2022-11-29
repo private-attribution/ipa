@@ -110,13 +110,24 @@ mod tests {
         let input = (into_bits(a), into_bits(b));
         let n_bits = input.0.len();
         let sum = world
-            .semi_honest(input, |ctx, (a_share, b_share)| async move {
+            .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
                 bitwise_sum(ctx, RecordId::from(0), &a_share, &b_share)
                     .await
                     .unwrap()
             })
             .await
             .reconstruct();
+
+        let m_sum = world
+            .malicious(input, |ctx, (a_share, b_share)| async move {
+                bitwise_sum(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(sum, m_sum);
 
         // Output's bit length should be `input.len() + 1`
         assert_eq!(n_bits + 1, sum.len());

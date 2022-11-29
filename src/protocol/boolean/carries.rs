@@ -1,8 +1,10 @@
-use super::BitOpStep;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
+use crate::protocol::{
+    context::{Context, SemiHonestContext},
+    mul::SecureMul,
+    BitOpStep, RecordId,
+};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -73,7 +75,7 @@ impl Carries {
         let mul = zip(repeat(ctx), zip(a, b))
             .enumerate()
             .map(|(i, (ctx, (a_bit, b_bit)))| {
-                let c = ctx.narrow(&BitOpStep::Step(i));
+                let c = ctx.narrow(&BitOpStep::from(i));
                 async move { c.multiply(record_id, a_bit, b_bit).await }
             });
         try_join_all(mul).await
@@ -129,7 +131,7 @@ impl Carries {
     ) -> Result<Vec<CarryPropagationShares<F>>, Error> {
         let l = e.len();
         let futures = (0..l).map(|i| {
-            let c = ctx.narrow(&BitOpStep::Step(i));
+            let c = ctx.narrow(&BitOpStep::from(i));
             async move { Self::fan_in_carry_propagation(&e[0..=i], c, record_id).await }
         });
         try_join_all(futures).await
@@ -161,7 +163,7 @@ impl Carries {
         let c = ctx.narrow(&Step::FanInAndP);
         let mut b = e[0].p.clone();
         for (i, x) in e.iter().enumerate().skip(1) {
-            let c = c.narrow(&BitOpStep::Step(i));
+            let c = c.narrow(&BitOpStep::from(i));
             b = c.multiply(record_id, &b, &x.p).await?;
         }
 
@@ -171,7 +173,7 @@ impl Carries {
         let mut q = Vec::with_capacity(l);
         q.push(e[l - 1].p.clone());
         for (i, x) in e.iter().rev().enumerate().skip(1) {
-            let c = c.narrow(&BitOpStep::Step(i));
+            let c = c.narrow(&BitOpStep::from(i));
             // TODO(taikiy): Optimization. Use the symmetric function `PrefixAnd`?
             let result = c.multiply(record_id, &q[i - 1], &x.p).await?;
             q.push(result);
@@ -186,7 +188,7 @@ impl Carries {
             .enumerate()
             .take_while(|(i, _)| *i < l - 1)
             .map(|(i, x)| {
-                let c = c.narrow(&BitOpStep::Step(i));
+                let c = c.narrow(&BitOpStep::from(i));
                 c.multiply(record_id, &x.k, &q[i + 1])
             })
             .collect::<Vec<_>>();

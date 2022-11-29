@@ -1,8 +1,8 @@
-use super::{align_bit_lengths, BitOpStep};
+use super::align_bit_lengths;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::or::or;
-use crate::protocol::{context::Context, RecordId};
+use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::SecretSharing;
 use futures::future::try_join_all;
 use std::iter::zip;
@@ -19,7 +19,7 @@ where
     S: SecretSharing<F>,
 {
     let both_one = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
-        let c = ctx.narrow(&BitOpStep::Step(i));
+        let c = ctx.narrow(&BitOpStep::from(i));
         async move { c.multiply(record_id, a_bit, b_bit).await }
     });
     try_join_all(both_one).await
@@ -76,11 +76,11 @@ where
     let mut carry = both_bits_one[0].clone();
     for i in 1..a.len() {
         let carry_and_xored_bit = carry_and_xored_bit_ctx
-            .narrow(&BitOpStep::Step(i))
+            .narrow(&BitOpStep::from(i))
             .multiply(record_id, &carry, &xored_bits[i])
             .await?;
         let next_carry = or(
-            either_carry_condition_ctx.narrow(&BitOpStep::Step(i)),
+            either_carry_condition_ctx.narrow(&BitOpStep::from(i)),
             record_id,
             &carry_and_xored_bit,
             &both_bits_one[i],

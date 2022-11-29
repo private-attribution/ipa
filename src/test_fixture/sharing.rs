@@ -4,7 +4,7 @@ use crate::protocol::RecordId;
 use crate::rand::thread_rng;
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{join, try_join_all};
 use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,
@@ -103,26 +103,44 @@ pub trait IntoMalicious<F: Field, M> {
 }
 
 #[async_trait]
+pub trait IntoMaliciousBit<F: Field, M> {
+    async fn upgrade_bit(self, ctx: MaliciousContext<'_, F>, bit: u32) -> M;
+}
+
+#[async_trait]
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
     async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
         ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
     }
 }
-
 #[async_trait]
-impl<F: Field> IntoMalicious<F, (MaliciousReplicated<F>, MaliciousReplicated<F>)>
-    for (Replicated<F>, Replicated<F>)
-{
-    async fn upgrade<'a>(
+impl<F: Field> IntoMaliciousBit<F, MaliciousReplicated<F>> for Replicated<F> {
+    async fn upgrade_bit<'a>(
         self,
         ctx: MaliciousContext<'a, F>,
-    ) -> (MaliciousReplicated<F>, MaliciousReplicated<F>) {
-        try_join(
-            ctx.upgrade(RecordId::from(0_u32), self.0),
-            ctx.upgrade(RecordId::from(1_u32), self.1),
+        bit: u32,
+    ) -> MaliciousReplicated<F> {
+        ctx.upgrade_bit(RecordId::from(0_u32), bit, self)
+            .await
+            .unwrap()
+    }
+}
+
+#[async_trait]
+impl<F, T, TM, U, UM> IntoMalicious<F, (TM, UM)> for (T, U)
+where
+    F: Field,
+    T: IntoMaliciousBit<F, TM> + Send,
+    U: IntoMaliciousBit<F, UM> + Send,
+    TM: Sized + Send,
+    UM: Sized + Send,
+{
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> (TM, UM) {
+        join(
+            self.0.upgrade_bit(ctx.clone(), 0),
+            self.1.upgrade_bit(ctx, 1),
         )
         .await
-        .unwrap()
     }
 }
 
@@ -139,6 +157,26 @@ where
                 ctx.upgrade(RecordId::from(i), share).await
             }),
         )
+        .await
+        .unwrap()
+    }
+}
+
+#[async_trait]
+impl<F, I> IntoMaliciousBit<F, Vec<MaliciousReplicated<F>>> for I
+where
+    F: Field,
+    I: IntoIterator<Item = Replicated<F>> + Send,
+    <I as IntoIterator>::IntoIter: Send,
+{
+    async fn upgrade_bit<'a>(
+        self,
+        ctx: MaliciousContext<'a, F>,
+        bit: u32,
+    ) -> Vec<MaliciousReplicated<F>> {
+        try_join_all(zip(repeat(ctx), self.into_iter().enumerate()).map(
+            |(ctx, (i, share))| async move { ctx.upgrade_bit(RecordId::from(i), bit, share).await },
+        ))
         .await
         .unwrap()
     }
@@ -178,7 +216,13 @@ impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     }
 }
 
-impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for (T, T, T) {
+impl<F, T, U, V> Reconstruct<F> for (T, U, V)
+where
+    F: Field,
+    T: Borrow<Replicated<F>>,
+    U: Borrow<Replicated<F>>,
+    V: Borrow<Replicated<F>>,
+{
     fn reconstruct(&self) -> F {
         [self.0.borrow(), self.1.borrow(), self.2.borrow()].reconstruct()
     }

@@ -1,11 +1,12 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::protocol::boolean::BitOpStep;
-use crate::protocol::context::SemiHonestContext;
 use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
 use crate::protocol::reveal::Reveal;
-use crate::protocol::{context::Context, RecordId};
+use crate::protocol::{
+    context::{Context, SemiHonestContext},
+    BitOpStep, RecordId,
+};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::repeat;
@@ -99,7 +100,7 @@ impl SolvedBits {
         let futures = (0..l).map(|i| {
             // again, we don't expect our prime field to be > 2^64
             #[allow(clippy::cast_possible_truncation)]
-            let c = c.narrow(&BitOpStep::Step(i as usize));
+            let c = c.narrow(&BitOpStep::from(i as usize));
             async move {
                 #[allow(clippy::cast_possible_truncation)]
                 ConvertShares::new(xor_shares)
