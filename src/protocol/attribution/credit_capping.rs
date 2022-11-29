@@ -1,11 +1,14 @@
-use super::{CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternInputRow};
+use super::{
+    CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternInputRow,
+    InteractionPatternStep,
+};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::batch::{Batch, RecordIndex};
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::mul::SecureMul;
-use crate::protocol::{IterStep, RecordId, Substep};
+use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
 use futures::Future;
@@ -118,15 +121,14 @@ impl CreditCapping {
         #[allow(clippy::cast_possible_truncation)]
         let num_rows = input.len() as RecordIndex;
 
-        let mut iteration_step = IterStep::new("current_contribution_iteration", 0);
-        for step_size in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
+        for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
             .take_while(|&v| v < num_rows)
+            .enumerate()
         {
             let end = num_rows - step_size;
             let mut interaction_futures = Vec::with_capacity(end as usize);
 
-            let c = ctx.narrow(iteration_step.next());
-            let mut interaction_step = IterStep::new("current_contribution_interaction", 0);
+            let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
 
             // for each input row, create a future to execute secure multiplications
             for i in 0..end {
@@ -144,8 +146,8 @@ impl CreditCapping {
                 };
 
                 interaction_futures.push(Self::interaction_pattern(
-                    c.narrow(interaction_step.next()),
-                    RecordId::from(0_u32),
+                    c.clone(),
+                    RecordId::from(i),
                     current,
                     successor,
                     |ctx, record_id, b, _current, successor| async move {
@@ -153,7 +155,7 @@ impl CreditCapping {
                             .multiply(record_id, &b, &successor)
                             .await
                     },
-                    iteration_step.is_first_iteration(),
+                    depth == 0,
                 ));
             }
 
@@ -220,18 +222,20 @@ impl CreditCapping {
         let num_rows = input.len() as RecordIndex;
         let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
 
-        /*
-        d = (cap - helperbits.get_vector(base = 1, size = numrows -1 )
-                * (cap + compare_bit.get_vector(base = 1, size = numrows -1)
-                    * ((cap - current_contribution.get_vector(base = 1, size = numrows-1)).get_vector())
-                    )
-                )
-        final_credits.assign_vector(
-            d.get_vector() + compare_bit.get_vector(base = 1, size = numrows-1)
-                * (final_credits.get_vector(base = 1, size = numrows - 1) - d.get_vector())
-            , base = 1)
-        */
-        // In the above logic, all vectors have "base = 1". Why are we skipping final_credits[0]??
+        // Below is the logic from MP-SPDZ prototype, which this part of the
+        // protocol implements.
+        //
+        // d = (cap - helperbits.get_vector(base = 1, size = numrows -1 )
+        //         * (cap + compare_bit.get_vector(base = 1, size = numrows -1)
+        //             * ((cap - current_contribution.get_vector(base = 1, size = numrows-1)).get_vector())
+        //             )
+        //         )
+        // final_credits.assign_vector(
+        //     d.get_vector() + compare_bit.get_vector(base = 1, size = numrows-1)
+        //         * (final_credits.get_vector(base = 1, size = numrows - 1) - d.get_vector())
+        //     , base = 1)
+        //
+        // TODO(taikiy): In the above logic, all vectors have "base = 1". Why are we skipping final_credits[0]??
 
         for i in 0..(num_rows - 1) {
             let a = cap.clone() - &current_contribution[i + 1].clone();

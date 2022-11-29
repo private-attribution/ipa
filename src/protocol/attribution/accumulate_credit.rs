@@ -1,10 +1,13 @@
-use super::{AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternInputRow};
+use super::{
+    AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternInputRow,
+    InteractionPatternStep,
+};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::batch::{Batch, RecordIndex};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::mul::SecureMul;
-use crate::protocol::{IterStep, RecordId};
+use crate::protocol::RecordId;
 use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -81,17 +84,15 @@ impl AccumulateCredit {
         // iteration, and the interaction do not depend on the calculation results
         // of other elements, allowing the algorithm to be executed in parallel.
 
-        let mut iteration_step = IterStep::new("iteration", 0);
-
         // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-        for step_size in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
+        for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
             .take_while(|&v| v < num_rows)
+            .enumerate()
         {
             let end = num_rows - step_size;
             let mut accumulation_futures = Vec::with_capacity(end as usize);
 
-            let ctx = ctx.narrow(iteration_step.next());
-            let mut multiply_step = IterStep::new("multiply", 0);
+            let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
 
             // for each input row, create a future to execute secure multiplications
             for i in 0..end {
@@ -110,11 +111,11 @@ impl AccumulateCredit {
                 };
 
                 accumulation_futures.push(Self::get_accumulated_credit(
-                    ctx.narrow(multiply_step.next()),
-                    RecordId::from(0_u32),
+                    c.clone(),
+                    RecordId::from(i),
                     current,
                     successor,
-                    iteration_step.is_first_iteration(),
+                    depth == 0,
                 ));
             }
 
@@ -200,7 +201,6 @@ impl AccumulateCredit {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
     use crate::{
         ff::{Field, Fp31},
         protocol::{attribution::accumulate_credit::AccumulateCredit, batch::Batch},
