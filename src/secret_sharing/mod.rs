@@ -12,14 +12,15 @@ use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 pub trait SecretSharing<F>:
     for<'a> Add<&'a Self, Output = Self>
     + for<'a> AddAssign<&'a Self>
-    + Neg
+    + Neg<Output = Self>
     + for<'a> Sub<&'a Self, Output = Self>
     + for<'a> SubAssign<&'a Self>
-    + Mul<F>
+    + Mul<F, Output = Self>
     + Clone
     + Debug
     + Default
     + Sized
+    + Send
     + Sync
 {
 }

@@ -1,8 +1,9 @@
 use super::solved_bits::{RandomBitsShare, SolvedBits};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
+use crate::protocol::context::{SemiHonestContext, Context};
 use crate::protocol::RecordId;
+use crate::secret_sharing::SecretSharing;
 use futures::{future::try_join_all, TryFutureExt};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -119,18 +120,12 @@ impl<F: Field> State<F> {
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
 /// one by calling `take_one()`. It will call `SolvedBits` once the stock falls
 /// below `REFILL_THRESHOLD` until it fills up the empty slots.
-#[derive(Debug)]
-pub struct RandomBitsGenerator<F: Field> {
+#[derive(Debug, Clone)]
+pub struct RandomBitsGenerator<F: Field, C, S> {
     state: Arc<Mutex<State<F>>>,
 }
 
-impl<F: Field> Default for RandomBitsGenerator<F> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<F: Field> RandomBitsGenerator<F> {
+impl<F: Field, C: Context<F, Share = S> + Send + Sync, S: SecretSharing<F> + Send> RandomBitsGenerator<F, C, S> {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -146,8 +141,8 @@ impl<F: Field> RandomBitsGenerator<F> {
     /// read from an empty buffer, etc.
     pub async fn take_one(
         &self,
-        context: SemiHonestContext<'_, F>,
-    ) -> Result<RandomBitsShare<F>, Error> {
+        context: C,
+    ) -> Result<S, Error> {
         let mut state = self.state.lock().await;
         state.get(context).await
     }
@@ -167,13 +162,13 @@ impl<F: Field> RandomBitsGenerator<F> {
     }
 }
 
-impl<F: Field> Clone for RandomBitsGenerator<F> {
-    fn clone(&self) -> Self {
-        Self {
-            state: Arc::clone(&self.state),
-        }
-    }
-}
+// impl<F: Field> Clone for RandomBitsGenerator<F> {
+//     fn clone(&self) -> Self {
+//         Self {
+//             state: Arc::clone(&self.state),
+//         }
+//     }
+// }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {

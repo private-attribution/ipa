@@ -1,14 +1,14 @@
-use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::BitOpStep;
-use crate::protocol::context::SemiHonestContext;
 use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
 use crate::protocol::reveal::Reveal;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use std::iter::repeat;
+
+use super::bitwise_less_than_prime::ComparesToPrime;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -30,9 +30,9 @@ pub struct RandomBitsShare<F: Field> {
 /// 3.1 Generating random solved BITS
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-pub struct SolvedBits {}
+pub struct SolvedBits<F, C, S> {}
 
-impl SolvedBits {
+impl<F: Field + ComparesToPrime<F, C, S>, C: Context<F, Share = S>, S: SecretSharing<F>> SolvedBits<F, C, S> {
     // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
     // Each bit has a 50% chance of being a 0 or 1, so there are
     // `F::Integer::MAX - p` cases where `b` may become larger than `p`.
@@ -41,8 +41,8 @@ impl SolvedBits {
     // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
     // 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
     #[allow(dead_code)]
-    pub async fn execute<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    pub async fn execute(
+        ctx: C,
         record_id: RecordId,
     ) -> Result<Option<RandomBitsShare<F>>, Error> {
         //
@@ -74,10 +74,10 @@ impl SolvedBits {
     }
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    async fn generate_random_bits(
+        ctx: C,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, Error> {
+    ) -> Result<Vec<S>, Error> {
         // Calculate the number of bits we need to form a random number that
         // has the same number of bits as the prime.
         let l = u128::BITS - F::PRIME.into().leading_zeros();
@@ -120,13 +120,13 @@ impl SolvedBits {
         Ok(b_b)
     }
 
-    async fn is_less_than_p<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    async fn is_less_than_p(
+        ctx: C,
         record_id: RecordId,
-        b_b: &[Replicated<F>],
+        b_b: &[S],
     ) -> Result<bool, Error> {
         let c_b =
-            BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
+            F::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
                 .await?;
         if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
             return Ok(false);
