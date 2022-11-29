@@ -68,12 +68,12 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
     Ok(mult_output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
         ff::Fp31,
         protocol::{sort::bit_permutation::bit_permutation, QueryId},
-        test_fixture::{validate_list_of_shares, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     // With this input, for stable sort we expect all 0's to line up before 1's.
@@ -85,27 +85,27 @@ mod tests {
     pub async fn semi_honest() {
         let world = TestWorld::new(QueryId);
 
+        let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world
-            .semi_honest(
-                INPUT.iter().map(|x| Fp31::from(*x)),
-                |ctx, m_shares| async move { bit_permutation(ctx, &m_shares).await.unwrap() },
-            )
+            .semi_honest(input, |ctx, m_shares| async move {
+                bit_permutation(ctx, &m_shares).await.unwrap()
+            })
             .await;
 
-        validate_list_of_shares(EXPECTED, &result);
+        assert_eq!(&result.reconstruct(), EXPECTED);
     }
 
     #[tokio::test]
     pub async fn malicious() {
         let world = TestWorld::new(QueryId);
 
+        let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world
-            .malicious(
-                INPUT.iter().map(|x| Fp31::from(*x)),
-                |ctx, m_shares| async move { bit_permutation(ctx, &m_shares).await.unwrap() },
-            )
+            .malicious(input, |ctx, m_shares| async move {
+                bit_permutation(ctx, &m_shares).await.unwrap()
+            })
             .await;
 
-        validate_list_of_shares(EXPECTED, &result);
+        assert_eq!(&result.reconstruct(), EXPECTED);
     }
 }

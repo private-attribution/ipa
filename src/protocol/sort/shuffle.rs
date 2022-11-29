@@ -3,15 +3,14 @@ use std::iter::{repeat, zip};
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
 
+use crate::protocol::prss::SequentialSharedRandomness;
 use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::Context, prss::IndexedSharedRandomness, RecordId, Substep},
+    protocol::{context::Context, RecordId, Substep},
 };
 
 use super::{
@@ -38,39 +37,16 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
 #[allow(clippy::cast_possible_truncation)]
 pub fn get_two_of_three_random_permutations(
-    batchsize: usize,
-    prss: &IndexedSharedRandomness,
+    batch_size: u32,
+    mut rng: (SequentialSharedRandomness, SequentialSharedRandomness),
 ) -> (Vec<u32>, Vec<u32>) {
-    // Chacha8Rng expects a [u8;32] seed whereas prss returns a u128 number.
-    // We are using two seeds from prss to generate a seed for shuffle and concatenating them
-    // Since reshare uses indexes 0..batchsize to generate random numbers from prss, we are using
-    // batchsize and batchsize+1 as index to get seeds for permutation
-    let randoms = (
-        prss.generate_values(batchsize as u128),
-        prss.generate_values(batchsize as u128 + 1),
-    );
+    let mut left_permutation = (0..batch_size).collect::<Vec<_>>();
+    let mut right_permutation = left_permutation.clone();
 
-    // generate seed for shuffle
-    let (mut seed_left, mut seed_right) = (Vec::with_capacity(32), Vec::with_capacity(32));
-    seed_left.extend_from_slice(&randoms.0 .0.to_le_bytes());
-    seed_left.extend_from_slice(&randoms.1 .0.to_le_bytes());
+    left_permutation.shuffle(&mut rng.0);
+    right_permutation.shuffle(&mut rng.1);
 
-    seed_right.extend_from_slice(&randoms.0 .1.to_le_bytes());
-    seed_right.extend_from_slice(&randoms.1 .1.to_le_bytes());
-
-    let max_index: u32 = batchsize.try_into().unwrap();
-
-    let mut permutations: (Vec<u32>, Vec<u32>) =
-        ((0..max_index).collect(), (0..max_index).collect());
-    // shuffle 0..N based on seed
-    permutations
-        .0
-        .shuffle(&mut ChaCha8Rng::from_seed(seed_left.try_into().unwrap()));
-    permutations
-        .1
-        .shuffle(&mut ChaCha8Rng::from_seed(seed_right.try_into().unwrap()));
-
-    permutations
+    (left_permutation, right_permutation)
 }
 
 /// This is SHUFFLE(Algorithm 1) described in <https://eprint.iacr.org/2019/695.pdf>.
@@ -204,7 +180,7 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
     use crate::{
@@ -214,13 +190,13 @@ mod tests {
 
     #[test]
     fn random_sequence_generated() {
-        const BATCH_SIZE: usize = 10000;
+        const BATCH_SIZE: u32 = 10000;
 
         let [p1, p2, p3] = make_participants();
         let step = Step::default();
-        let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.indexed(&step).as_ref());
-        let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.indexed(&step).as_ref());
-        let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.indexed(&step).as_ref());
+        let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.sequential(&step));
+        let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.sequential(&step));
+        let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.sequential(&step));
 
         assert_eq!(perm1.1, perm2.0);
         assert_eq!(perm2.1, perm3.0);
@@ -247,9 +223,7 @@ mod tests {
             get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
         };
         use crate::protocol::QueryId;
-        use crate::test_fixture::{
-            validate_and_reconstruct, validate_list_of_shares, Runner, TestWorld,
-        };
+        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
         #[tokio::test]
         async fn semi_honest() {
@@ -265,10 +239,8 @@ mod tests {
                 .semi_honest(
                     input_u128.clone().into_iter().map(Fp31::from),
                     |ctx, m_shares| async move {
-                        let perms = get_two_of_three_random_permutations(
-                            BATCHSIZE.into(),
-                            ctx.prss().as_ref(),
-                        );
+                        let perms =
+                            get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
                         shuffle_shares(
                             m_shares,
                             (perms.0.as_slice(), perms.1.as_slice()),
@@ -283,7 +255,7 @@ mod tests {
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
             for (r0, (r1, r2)) in zip(result[0].iter(), zip(result[1].iter(), result[2].iter())) {
-                let val = validate_and_reconstruct(r0, r1, r2);
+                let val = (r0, r1, r2).reconstruct();
                 output_secret.push(u8::from(val));
                 hashed_output_secret.insert(u8::from(val));
             }
@@ -306,8 +278,10 @@ mod tests {
                 .semi_honest(
                     input.clone().into_iter().map(Fp31::from),
                     |ctx, m_shares| async move {
-                        let perms =
-                            get_two_of_three_random_permutations(BATCHSIZE, ctx.prss().as_ref());
+                        let perms = get_two_of_three_random_permutations(
+                            BATCHSIZE.try_into().unwrap(),
+                            ctx.prss_rng(),
+                        );
                         let shuffled = shuffle_shares(
                             m_shares,
                             (perms.0.as_slice(), perms.1.as_slice()),
@@ -327,7 +301,7 @@ mod tests {
                 )
                 .await;
 
-            validate_list_of_shares(&input[..], &result);
+            assert_eq!(&input[..], &result.reconstruct());
         }
     }
 
@@ -341,9 +315,7 @@ mod tests {
             get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
         };
         use crate::protocol::QueryId;
-        use crate::test_fixture::{
-            validate_and_reconstruct, validate_list_of_shares, Runner, TestWorld,
-        };
+        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
         #[tokio::test]
         async fn malicious() {
@@ -359,10 +331,8 @@ mod tests {
                 .malicious(
                     input_u128.clone().into_iter().map(Fp31::from),
                     |ctx, m_shares| async move {
-                        let perms = get_two_of_three_random_permutations(
-                            BATCHSIZE.into(),
-                            ctx.prss().as_ref(),
-                        );
+                        let perms =
+                            get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
                         shuffle_shares(
                             m_shares,
                             (perms.0.as_slice(), perms.1.as_slice()),
@@ -377,7 +347,7 @@ mod tests {
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
             for (r0, (r1, r2)) in zip(result[0].iter(), zip(result[1].iter(), result[2].iter())) {
-                let val = validate_and_reconstruct(r0, r1, r2);
+                let val = (r0, r1, r2).reconstruct();
                 output_secret.push(u8::from(val));
                 hashed_output_secret.insert(u8::from(val));
             }
@@ -400,8 +370,10 @@ mod tests {
                 .malicious(
                     input.clone().into_iter().map(Fp31::from),
                     |ctx, m_shares| async move {
-                        let perms =
-                            get_two_of_three_random_permutations(BATCHSIZE, ctx.prss().as_ref());
+                        let perms = get_two_of_three_random_permutations(
+                            BATCHSIZE.try_into().unwrap(),
+                            ctx.prss_rng(),
+                        );
                         let shuffled = shuffle_shares(
                             m_shares,
                             (perms.0.as_slice(), perms.1.as_slice()),
@@ -421,7 +393,7 @@ mod tests {
                 )
                 .await;
 
-            validate_list_of_shares(&input[..], &result);
+            assert_eq!(&input[..], &result.reconstruct());
         }
     }
 }

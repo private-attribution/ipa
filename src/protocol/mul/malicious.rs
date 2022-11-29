@@ -93,12 +93,12 @@ impl<'a, F: Field> SecureMul<'a, F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod test {
     use crate::{
         ff::Fp31,
         protocol::{mul::SecureMul, QueryId, RecordId},
-        test_fixture::{validate_and_reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::{thread_rng, Rng};
 
@@ -116,6 +116,6 @@ mod test {
             })
             .await;
 
-        assert_eq!(a * b, validate_and_reconstruct(&res[0], &res[1], &res[2]));
+        assert_eq!(a * b, res.reconstruct());
     }
 }

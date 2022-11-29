@@ -1,7 +1,7 @@
-use super::bitwise_lt::BitwiseLessThan;
+use super::dumb_bitwise_lt::BitwiseLessThan;
+use super::local_secret_shared_bits;
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::helpers::Role;
 use crate::protocol::boolean::BitOpStep;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
@@ -14,8 +14,8 @@ use std::iter::repeat;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct RandomBitsShare<F: Field> {
-    b_b: Vec<Replicated<F>>,
-    b_p: Replicated<F>,
+    pub b_b: Vec<Replicated<F>>,
+    pub b_p: Replicated<F>,
 }
 
 /// This protocol tries to generate a sequence of uniformly random sharing of
@@ -37,9 +37,10 @@ impl SolvedBits {
     // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
     // Each bit has a 50% chance of being a 0 or 1, so there are
     // `F::Integer::MAX - p` cases where `b` may become larger than `p`.
+    // However, we calculate the number of bits needed to form a random
+    // number that has the same number of bits as the prime.
     // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
-    // 1 * 10^-9. For Fp31, the chance of this protocol succeeding is around
-    // 1/2^3 =~ 13% (3 high bits being all 0's).
+    // 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
         ctx: SemiHonestContext<'_, F>,
@@ -125,35 +126,13 @@ impl SolvedBits {
         record_id: RecordId,
         b_b: &[Replicated<F>],
     ) -> Result<bool, Error> {
-        let p_b = Self::local_secret_shared_bits_p(ctx.role());
+        let p_b = local_secret_shared_bits(F::PRIME.into(), ctx.role());
         let c_b =
             BitwiseLessThan::execute(ctx.narrow(&Step::IsPLessThanB), record_id, b_b, &p_b).await?;
         if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
             return Ok(false);
         }
         Ok(true)
-    }
-
-    /// Internal use only.
-    /// Converts the prime number to a sequence of `{0,1} ⊆ F`, and creates a
-    /// local replicated share.
-    ///
-    /// TODO(taikiy): This method should be memoized. We can let the context
-    /// keep a hash table and store these values. An easier approach is to use
-    /// `memoize` crate.
-    fn local_secret_shared_bits_p<F: Field>(helper_role: Role) -> Vec<Replicated<F>> {
-        let x = F::PRIME.into();
-        let l = F::Integer::BITS;
-        (0..l)
-            .map(|i| {
-                let b = F::from((x >> i) & 1);
-                match helper_role {
-                    Role::H1 => Replicated::new(b, F::ZERO),
-                    Role::H2 => Replicated::new(F::ZERO, F::ZERO),
-                    Role::H3 => Replicated::new(F::ZERO, b),
-                }
-            })
-            .collect::<Vec<_>>()
     }
 }
 
@@ -178,7 +157,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::SolvedBits;
     use crate::protocol::context::SemiHonestContext;
@@ -186,7 +165,7 @@ mod tests {
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
-        test_fixture::{bits_to_value, join3, validate_and_reconstruct, TestWorld},
+        test_fixture::{bits_to_value, join3, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
@@ -224,22 +203,22 @@ mod tests {
         // Reconstruct b_B from ([b_1]_p,...,[b_l]_p) bitwise sharings in F_p
         let b_b = (0..s0.b_b.len())
             .map(|i| {
-                let bit = validate_and_reconstruct(&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]);
+                let bit = (&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]).reconstruct();
                 assert!(bit == F::ZERO || bit == F::ONE);
                 bit
             })
             .collect::<Vec<_>>();
 
         // Reconstruct b_P
-        let b_p = validate_and_reconstruct(&s0.b_p, &s1.b_p, &s2.b_p);
+        let b_p = (&s0.b_p, &s1.b_p, &s2.b_p).reconstruct();
 
         Ok(Some((b_b, b_p)))
     }
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let ctx = world.contexts();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;
@@ -262,8 +241,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let ctx = world.contexts::<Fp32BitPrime>();
+        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let ctx = world.contexts();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;

@@ -1,5 +1,6 @@
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::reveal::Reveal;
+use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
@@ -11,7 +12,6 @@ use crate::{
     secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
-use std::sync::{Arc, Mutex, Weak};
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
@@ -244,8 +244,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use std::iter::{repeat, zip};
 
     use crate::error::Error;
@@ -253,9 +253,10 @@ pub mod tests {
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
     use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::test_fixture::{join3v, share, validate_and_reconstruct, TestWorld};
+    use crate::test_fixture::{join3v, share, Reconstruct, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
+    use rand::thread_rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -273,9 +274,9 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
-        let mut rng = rand::thread_rng();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
+        let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
@@ -304,13 +305,14 @@ pub mod tests {
 
         let [ab0, ab1, ab2] = join3v(futures).await;
 
-        let ab = validate_and_reconstruct(
+        let ab = (
             ab0.0.x().access_without_downgrade(),
             ab1.0.x().access_without_downgrade(),
             ab2.0.x().access_without_downgrade(),
-        );
-        let rab = validate_and_reconstruct(ab0.0.rx(), ab1.0.rx(), ab2.0.rx());
-        let r = validate_and_reconstruct(&ab0.1, &ab1.1, &ab2.1);
+        )
+            .reconstruct();
+        let rab = (ab0.0.rx(), ab1.0.rx(), ab2.0.rx()).reconstruct();
+        let r = (&ab0.1, &ab1.1, &ab2.1).reconstruct();
 
         assert_eq!(ab, a * b);
         assert_eq!(rab, r * a * b);
@@ -340,9 +342,9 @@ pub mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
-        let mut rng = rand::thread_rng();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
+        let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);
         for _ in 0..100 {
@@ -399,25 +401,28 @@ pub mod tests {
 
         let processed_outputs = join3v(futures).await;
 
-        let r = validate_and_reconstruct(
+        let r = (
             &processed_outputs[0].1,
             &processed_outputs[1].1,
             &processed_outputs[2].1,
-        );
+        )
+            .reconstruct();
 
         for i in 0..99 {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
-            let x1_times_x2 = validate_and_reconstruct(
+            let x1_times_x2 = (
                 processed_outputs[0].0[i].x().access_without_downgrade(),
                 processed_outputs[1].0[i].x().access_without_downgrade(),
                 processed_outputs[2].0[i].x().access_without_downgrade(),
-            );
-            let r_times_x1_times_x2 = validate_and_reconstruct(
+            )
+                .reconstruct();
+            let r_times_x1_times_x2 = (
                 processed_outputs[0].0[i].rx(),
                 processed_outputs[1].0[i].rx(),
                 processed_outputs[2].0[i].rx(),
-            );
+            )
+                .reconstruct();
 
             assert_eq!(x1 * x2, x1_times_x2);
             assert_eq!(r * x1 * x2, r_times_x1_times_x2);

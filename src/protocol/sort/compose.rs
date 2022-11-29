@@ -40,12 +40,12 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     Ok(unshuffled_rho)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
-    use crate::test_fixture::Runner;
+    use crate::test_fixture::{Reconstruct, Runner};
     use crate::{
         ff::Fp31,
         protocol::{
@@ -55,7 +55,7 @@ mod tests {
             },
             QueryId,
         },
-        test_fixture::{validate_list_of_shares, TestWorld},
+        test_fixture::TestWorld,
     };
 
     #[tokio::test]
@@ -84,7 +84,7 @@ mod tests {
                     |ctx, (m_sigma_shares, m_rho_shares)| async move {
                         let sigma_and_randoms = shuffle_and_reveal_permutation(
                             ctx.narrow("shuffle_reveal"),
-                            BATCHSIZE.try_into().unwrap(),
+                            BATCHSIZE,
                             m_sigma_shares,
                         )
                         .await
@@ -105,7 +105,7 @@ mod tests {
                 )
                 .await;
 
-            validate_list_of_shares(&rho_composed, &result);
+            assert_eq!(&rho_composed[..], &result.reconstruct());
         }
     }
 }

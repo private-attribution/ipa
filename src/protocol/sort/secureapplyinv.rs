@@ -45,7 +45,7 @@ pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share =
     Ok(shuffled_input)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod semi_honest {
         use proptest::prelude::Rng;
@@ -53,14 +53,14 @@ mod tests {
 
         use crate::protocol::context::Context;
         use crate::protocol::sort::secureapplyinv::secureapplyinv;
-        use crate::test_fixture::Runner;
+        use crate::test_fixture::{Reconstruct, Runner};
         use crate::{
             ff::Fp31,
             protocol::{
                 sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
                 QueryId,
             },
-            test_fixture::{validate_list_of_shares, TestWorld},
+            test_fixture::TestWorld,
         };
 
         #[tokio::test]
@@ -92,7 +92,7 @@ mod tests {
                         |ctx, (m_shares, m_perms)| async move {
                             let perm_and_randoms = shuffle_and_reveal_permutation(
                                 ctx.narrow("shuffle_reveal"),
-                                BATCHSIZE.try_into().unwrap(),
+                                BATCHSIZE,
                                 m_perms,
                             )
                             .await
@@ -112,7 +112,7 @@ mod tests {
                     )
                     .await;
 
-                validate_list_of_shares(&expected_result, &result);
+                assert_eq!(&expected_result[..], &result.reconstruct());
             }
         }
     }

@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
+use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::mul::SecureMul;
@@ -10,7 +11,7 @@ use crate::protocol::prss::{
 };
 use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
-use std::sync::Arc;
+use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -87,6 +88,12 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
     }
+
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F> {
+        // RandomBitsGenerator has only one direct member which is wrapped in
+        // `Arc`. This `clone()` will only increment the ref count.
+        self.inner.random_bits_generator.clone()
+    }
 }
 
 /// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
@@ -111,7 +118,12 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
         // is not
         // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
         // for `MaliciousContext`. Deep clone is the only option
-        let mut ctx = SemiHonestContext::new(self.inner.role, self.inner.prss, self.inner.gateway);
+        let mut ctx = SemiHonestContext::new(
+            self.inner.role,
+            self.inner.prss,
+            self.inner.gateway,
+            self.inner.random_bits_generator,
+        );
         ctx.step = self.step;
 
         ctx
@@ -126,6 +138,7 @@ struct ContextInner<'a, F: Field> {
     upgrade_ctx: SemiHonestContext<'a, F>,
     accumulator: MaliciousValidatorAccumulator<F>,
     r_share: Replicated<F>,
+    random_bits_generator: &'a RandomBitsGenerator<F>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
@@ -138,6 +151,7 @@ impl<'a, F: Field> ContextInner<'a, F> {
             role: upgrade_ctx.inner.role,
             prss: upgrade_ctx.inner.prss,
             gateway: upgrade_ctx.inner.gateway,
+            random_bits_generator: upgrade_ctx.inner.random_bits_generator,
             upgrade_ctx,
             accumulator,
             r_share,

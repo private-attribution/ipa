@@ -23,6 +23,7 @@ use super::{
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
 use crate::protocol::context::SemiHonestContext;
+use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
@@ -36,11 +37,13 @@ pub(super) async fn shuffle_and_reveal_permutation<
     C: Context<F, Share = S>,
 >(
     ctx: C,
-    input_len: usize,
+    input_len: u32,
     input_permutation: Vec<S>,
 ) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
-    let random_permutations_for_shuffle =
-        get_two_of_three_random_permutations(input_len, &ctx.prss());
+    let random_permutations_for_shuffle = get_two_of_three_random_permutations(
+        input_len,
+        ctx.narrow(&GeneratePermutation).prss_rng(),
+    );
 
     let shuffled_permutation = shuffle_shares(
         input_permutation,
@@ -86,7 +89,7 @@ pub async fn generate_permutation<F: Field>(
     let bit_0 =
         convert_shares_for_a_bit(ctx_0.narrow(&ModulusConversion), input, num_bits, 0).await?;
     let bit_0_permutation = bit_permutation(ctx_0.narrow(&BitPermutationStep), &bit_0).await?;
-    let input_len = input.len();
+    let input_len = u32::try_from(input.len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
@@ -133,7 +136,7 @@ pub async fn generate_permutation<F: Field>(
     Ok(composed_less_significant_bits_permutation)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::iter::zip;
 
@@ -148,7 +151,7 @@ mod tests {
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, logging, validate_and_reconstruct, TestWorld},
+        test_fixture::{generate_shares, logging, Reconstruct, TestWorld},
     };
 
     #[tokio::test]
@@ -158,8 +161,8 @@ mod tests {
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
 
         logging::setup();
-        let world = TestWorld::new(QueryId);
-        let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
+        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let [ctx0, ctx1, ctx2] = world.contexts();
         let mut rng = rand::thread_rng();
 
         let mut match_keys: Vec<u64> = Vec::new();
@@ -197,7 +200,7 @@ mod tests {
         for (match_key, (r0, (r1, r2))) in
             zip(match_keys.iter(), zip(result0, zip(result1, result2)))
         {
-            let index = validate_and_reconstruct(&r0, &r1, &r2);
+            let index = (&r0, &r1, &r2).reconstruct();
             mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
         }
 
@@ -225,21 +228,12 @@ mod tests {
 
         let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-        let h0_future = shuffle_and_reveal_permutation(
-            ctx0.narrow("shuffle_reveal"),
-            BATCHSIZE.try_into().unwrap(),
-            perm0,
-        );
-        let h1_future = shuffle_and_reveal_permutation(
-            ctx1.narrow("shuffle_reveal"),
-            BATCHSIZE.try_into().unwrap(),
-            perm1,
-        );
-        let h2_future = shuffle_and_reveal_permutation(
-            ctx2.narrow("shuffle_reveal"),
-            BATCHSIZE.try_into().unwrap(),
-            perm2,
-        );
+        let h0_future =
+            shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, perm0);
+        let h1_future =
+            shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, perm1);
+        let h2_future =
+            shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, perm2);
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 

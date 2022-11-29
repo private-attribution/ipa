@@ -166,7 +166,7 @@ fn add_event_timestamps(rhs: EventTimestamp, lhs: EventTimestamp) -> EventTimest
     EventTimestamp::new((epoch % (c(Epoch::MAX) + 1)) as Epoch, offset)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
     use crate::{gen_events::add_event_timestamps, models::Epoch, sample::Sample};

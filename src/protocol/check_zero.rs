@@ -82,8 +82,8 @@ pub async fn check_zero<F: Field>(
     Ok(rv == F::ZERO)
 }
 
-#[cfg(test)]
-pub mod tests {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::context::Context;
@@ -92,8 +92,8 @@ pub mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
+        let world = TestWorld::<Fp31>::new(QueryId);
+        let context = world.contexts();
         let mut rng = rand::thread_rng();
         let mut counter = 0_u32;
 
