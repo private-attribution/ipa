@@ -43,6 +43,7 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::protocol::context::Context;
+    use crate::rand::thread_rng;
     use crate::test_fixture::{Reconstruct, Runner};
     use crate::{
         ff::Fp31,
@@ -61,8 +62,8 @@ mod tests {
     pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
         let world = TestWorld::new(QueryId);
-        let mut rng_sigma = rand::thread_rng();
-        let mut rng_rho = rand::thread_rng();
+        let mut rng_sigma = thread_rng();
+        let mut rng_rho = thread_rng();
 
         let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
         sigma.shuffle(&mut rng_sigma);
@@ -91,10 +92,10 @@ mod tests {
                     compose(
                         ctx,
                         (
-                            sigma_and_randoms.1 .0.as_slice(),
-                            sigma_and_randoms.1 .1.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.0.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.1.as_slice(),
                         ),
-                        &sigma_and_randoms.0,
+                        &sigma_and_randoms.revealed,
                         m_rho_shares,
                     )
                     .await

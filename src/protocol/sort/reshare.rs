@@ -123,7 +123,7 @@ mod tests {
     mod semi_honest {
         use proptest::prelude::Rng;
 
-        use rand::thread_rng;
+        use crate::rand::thread_rng;
 
         use crate::ff::Fp32BitPrime;
         use crate::protocol::context::Context;
@@ -189,8 +189,8 @@ mod tests {
         use crate::helpers::Role;
         use crate::protocol::sort::reshare::Reshare;
         use crate::protocol::{QueryId, RecordId};
+        use crate::rand::{thread_rng, Rng};
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
-        use rand::{thread_rng, Rng};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
         /// new shares.

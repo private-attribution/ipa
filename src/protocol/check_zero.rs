@@ -88,13 +88,14 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::protocol::context::Context;
     use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
+    use crate::rand::thread_rng;
     use crate::test_fixture::{share, TestWorld};
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
-        let mut rng = rand::thread_rng();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
+        let mut rng = thread_rng();
         let mut counter = 0_u32;
 
         for v in 0..u32::from(Fp31::PRIME) {

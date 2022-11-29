@@ -186,10 +186,10 @@ mod tests {
     use super::{Downgrade, MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
+    use crate::rand::thread_rng;
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{share, Reconstruct};
     use proptest::prelude::Rng;
-    use rand::thread_rng;
 
     #[test]
     #[allow(clippy::many_single_char_names)]

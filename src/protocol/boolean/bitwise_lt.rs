@@ -170,6 +170,7 @@ impl AsRef<str> for Step {
 mod tests {
     //use super::BitwiseLessThan;
     use crate::protocol::boolean::dumb_bitwise_lt::BitwiseLessThan;
+    use crate::rand::thread_rng;
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
@@ -177,7 +178,6 @@ mod tests {
         test_fixture::{into_bits, Reconstruct, TestWorld},
     };
     use proptest::prelude::Rng;
-    use rand::thread_rng;
     use rand::{distributions::Standard, prelude::Distribution};
 
     /// This protocol requires a number of inputs that are equal to a power of 2.

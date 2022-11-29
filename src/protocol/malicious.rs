@@ -252,11 +252,11 @@ mod tests {
     use crate::ff::Fp31;
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
+    use crate::rand::thread_rng;
     use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::test_fixture::{join3v, share, Reconstruct, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
-    use rand::thread_rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -274,8 +274,8 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -342,8 +342,8 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);

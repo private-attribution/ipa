@@ -1,8 +1,9 @@
 use crate::ff::Field;
+use crate::protocol::attribution::AttributionInputRow;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, XorReplicated};
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
 use rand::{
@@ -11,6 +12,30 @@ use rand::{
 };
 use std::borrow::Borrow;
 use std::iter::{repeat, zip};
+
+#[derive(Clone, Copy)]
+pub struct MaskedMatchKey(u64);
+
+impl MaskedMatchKey {
+    pub const BITS: u32 = 23;
+    const MASK: u64 = u64::MAX >> (64 - Self::BITS);
+
+    #[must_use]
+    pub fn mask(v: u64) -> Self {
+        Self(v & Self::MASK)
+    }
+
+    #[must_use]
+    pub fn bit(self, bit_num: u32) -> u64 {
+        (self.0 >> bit_num) & 1
+    }
+}
+
+impl From<MaskedMatchKey> for u64 {
+    fn from(v: MaskedMatchKey) -> Self {
+        v.0
+    }
+}
 
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {
@@ -62,6 +87,20 @@ where
         let [a0, a1, a2] = self.0.share_with(rng);
         let [b0, b1, b2] = self.1.share_with(rng);
         [(a0, b0), (a1, b1), (a2, b2)]
+    }
+}
+
+impl IntoShares<XorReplicated> for MaskedMatchKey {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [XorReplicated; 3] {
+        debug_assert_eq!(self.0, self.0 & Self::MASK);
+        let s0 = rng.gen::<u64>() & Self::MASK;
+        let s1 = rng.gen::<u64>() & Self::MASK;
+        let s2 = self.0 ^ s0 ^ s1;
+        [
+            XorReplicated::new(s0, s1),
+            XorReplicated::new(s1, s2),
+            XorReplicated::new(s2, s0),
+        ]
     }
 }
 
@@ -275,5 +314,23 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
         for (m0, (m1, m2)) in zip(self[0].iter(), zip(self[1].iter(), self[2].iter())) {
             [m0, m1, m2].validate(r);
         }
+    }
+}
+
+impl<F: Field> Reconstruct<[F; 4]> for [AttributionInputRow<F>; 3] {
+    fn reconstruct(&self) -> [F; 4] {
+        let s0 = &self[0];
+        let s1 = &self[1];
+        let s2 = &self[2];
+
+        let is_trigger_bit =
+            (&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit).reconstruct();
+
+        let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
+
+        let breakdown_key = (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
+        let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+
+        [is_trigger_bit, helper_bit, breakdown_key, credit]
     }
 }

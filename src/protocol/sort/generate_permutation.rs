@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::Context,
-        modulus_conversion::convert_shares::convert_shares_for_a_bit,
+        modulus_conversion::convert_shares_for_a_bit,
         reveal::reveal_permutation,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion, ShuffleRevealPermutation,
@@ -14,7 +14,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{Replicated, SecretSharing},
+    secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 
 use super::{
@@ -26,6 +26,15 @@ use crate::protocol::context::SemiHonestContext;
 use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
+
+#[derive(Debug)]
+/// This object contains the output of `shuffle_and_reveal_permutation`
+/// i) `revealed` permutation after shuffling
+/// ii) Random permutations: each helper knows 2/3 of random permutations. This is then used for shuffle protocol.
+pub struct RevealedAndRandomPermutations {
+    pub revealed: Vec<u32>,
+    pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
+}
 
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -39,7 +48,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
     ctx: C,
     input_len: u32,
     input_permutation: Vec<S>,
-) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
+) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
         ctx.narrow(&GeneratePermutation).prss_rng(),
@@ -59,7 +68,10 @@ pub(super) async fn shuffle_and_reveal_permutation<
     let revealed_permutation =
         reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
 
-    Ok((revealed_permutation, random_permutations_for_shuffle))
+    Ok(RevealedAndRandomPermutations {
+        revealed: revealed_permutation,
+        randoms_for_shuffle: random_permutations_for_shuffle,
+    })
 }
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
@@ -82,8 +94,8 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
 pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: &[(u64, u64)],
-    num_bits: u8,
+    input: &[XorReplicated],
+    num_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
     let bit_0 =
@@ -94,7 +106,7 @@ pub async fn generate_permutation<F: Field>(
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
-        let ((shuffled_compose_permutation, random_permutations_for_shuffle), bit_i) = try_join(
+        let (revealed_and_random_permutations, bit_i) = try_join(
             shuffle_and_reveal_permutation(
                 ctx_bit.narrow(&ShuffleRevealPermutation),
                 input_len,
@@ -108,10 +120,16 @@ pub async fn generate_permutation<F: Field>(
             ctx_bit.narrow(&ApplyInv),
             bit_i,
             (
-                random_permutations_for_shuffle.0.as_slice(),
-                random_permutations_for_shuffle.1.as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
             ),
-            &shuffled_compose_permutation,
+            &revealed_and_random_permutations.revealed,
         )
         .await?;
 
@@ -124,10 +142,16 @@ pub async fn generate_permutation<F: Field>(
         let composed_i_permutation = compose(
             ctx_bit.narrow(&ComposeStep),
             (
-                random_permutations_for_shuffle.0.as_slice(),
-                random_permutations_for_shuffle.1.as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
             ),
-            &shuffled_compose_permutation,
+            &revealed_and_random_permutations.revealed,
             bit_i_permutation,
         )
         .await?;
@@ -140,12 +164,13 @@ pub async fn generate_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
-    use rand::{seq::SliceRandom, Rng};
+    use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::Replicated;
+    use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
+    use crate::test_fixture::{join3, MaskedMatchKey, Runner};
     use crate::{
-        error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
@@ -155,69 +180,43 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn semi_honest() -> Result<(), Error> {
-        const ROUNDS: usize = 50;
-        const NUM_BITS: u8 = 24;
-        const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
+    pub async fn semi_honest() {
+        const COUNT: usize = 5;
 
         logging::setup();
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
-        let [ctx0, ctx1, ctx2] = world.contexts();
-        let mut rng = rand::thread_rng();
+        let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
 
-        let mut match_keys: Vec<u64> = Vec::new();
-        for _ in 0..ROUNDS {
-            match_keys.push(rng.gen::<u64>() & MASK);
+        let mut match_keys = Vec::with_capacity(COUNT);
+        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+
+        let mut expected = match_keys
+            .iter()
+            .map(|mk| u64::from(*mk))
+            .collect::<Vec<_>>();
+        expected.sort_unstable();
+
+        let result: [Vec<Replicated<Fp32BitPrime>>; 3] = world
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        for (match_key, index) in zip(match_keys, result.reconstruct()) {
+            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
         }
 
-        let mut shares = [
-            Vec::with_capacity(ROUNDS),
-            Vec::with_capacity(ROUNDS),
-            Vec::with_capacity(ROUNDS),
-        ];
-        for match_key in match_keys.clone() {
-            let share_0 = rng.gen::<u64>() & MASK;
-            let share_1 = rng.gen::<u64>() & MASK;
-            let share_2 = match_key ^ share_0 ^ share_1;
-
-            shares[0].push((share_0, share_1));
-            shares[1].push((share_1, share_2));
-            shares[2].push((share_2, share_0));
-        }
-
-        let [result0, result1, result2] = join3(
-            generate_permutation(ctx0, &shares[0], NUM_BITS),
-            generate_permutation(ctx1, &shares[1], NUM_BITS),
-            generate_permutation(ctx2, &shares[2], NUM_BITS),
-        )
-        .await;
-
-        assert_eq!(result0.len(), ROUNDS);
-        assert_eq!(result1.len(), ROUNDS);
-        assert_eq!(result2.len(), ROUNDS);
-
-        let mut mpc_sorted_list: Vec<u128> = (0..ROUNDS).map(|i| i as u128).collect();
-        for (match_key, (r0, (r1, r2))) in
-            zip(match_keys.iter(), zip(result0, zip(result1, result2)))
-        {
-            let index = (&r0, &r1, &r2).reconstruct();
-            mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
-        }
-
-        let mut sorted_match_keys = match_keys.clone();
-        sorted_match_keys.sort_unstable();
-        for i in 0..ROUNDS {
-            assert_eq!(u128::from(sorted_match_keys[i]), mpc_sorted_list[i]);
-        }
-
-        Ok(())
+        assert_eq!(expected, mpc_sorted_list);
     }
 
     #[tokio::test]
     pub async fn test_shuffle_and_reveal_permutation() {
         const BATCHSIZE: u32 = 25;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
         permutation.shuffle(&mut rng);
@@ -237,11 +236,20 @@ mod tests {
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
-        assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
-        assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
+        assert_eq!(perms_and_randoms[0].revealed, perms_and_randoms[1].revealed);
+        assert_eq!(perms_and_randoms[1].revealed, perms_and_randoms[2].revealed);
 
-        assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
-        assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
-        assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
+        assert_eq!(
+            perms_and_randoms[0].randoms_for_shuffle.0,
+            perms_and_randoms[2].randoms_for_shuffle.1
+        );
+        assert_eq!(
+            perms_and_randoms[1].randoms_for_shuffle.0,
+            perms_and_randoms[0].randoms_for_shuffle.1
+        );
+        assert_eq!(
+            perms_and_randoms[2].randoms_for_shuffle.0,
+            perms_and_randoms[1].randoms_for_shuffle.1
+        );
     }
 }
