@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::SemiHonestMul;
+use crate::protocol::mul::semi_honest_mul;
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
@@ -45,52 +45,51 @@ impl AsRef<str> for Step {
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
 /// `SecureMult` is an implementation of the IKHC multiplication protocol, which has this property.
 ///
-pub struct SecureMul<'a, F: Field> {
-    ctx: MaliciousContext<'a, F>,
+
+/// Executes two parallel multiplications;
+/// `A * B`, and `rA * B`, yielding both `AB` and `rAB`
+/// both `AB` and `rAB` are provided to the security validator
+///
+/// ## Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+/// ## Panics
+/// Panics if the mutex is found to be poisoned
+pub async fn secure_mul<F>(
+    ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
-}
+    a: &MaliciousReplicated<F>,
+    b: &MaliciousReplicated<F>,
+) -> Result<MaliciousReplicated<F>, Error>
+where
+    F: Field,
+{
+    use crate::protocol::context::SpecialAccessToMaliciousContext;
+    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-impl<'a, F: Field> SecureMul<'a, F> {
-    #[must_use]
-    pub fn new(ctx: MaliciousContext<'a, F>, record_id: RecordId) -> Self {
-        Self { ctx, record_id }
-    }
+    let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
+    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let (ab, rab) = try_join(
+        semi_honest_mul(
+            ctx.semi_honest_context(),
+            record_id,
+            a.x().access_without_downgrade(),
+            b.x().access_without_downgrade(),
+        ),
+        semi_honest_mul(
+            duplicate_multiply_ctx.semi_honest_context(),
+            record_id,
+            a.rx(),
+            b.x().access_without_downgrade(),
+        ),
+    )
+    .await?;
 
-    /// Executes two parallel multiplications;
-    /// `A * B`, and `rA * B`, yielding both `AB` and `rAB`
-    /// both `AB` and `rAB` are provided to the security validator
-    ///
-    /// ## Errors
-    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
-    /// back via the error response
-    /// ## Panics
-    /// Panics if the mutex is found to be poisoned
-    pub async fn execute(
-        self,
-        a: &MaliciousReplicated<F>,
-        b: &MaliciousReplicated<F>,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        use crate::protocol::context::SpecialAccessToMaliciousContext;
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    let malicious_ab = MaliciousReplicated::new(ab, rab);
 
-        let duplicate_multiply_ctx = self.ctx.narrow(&Step::DuplicateMultiply);
-        let random_constant_ctx = self.ctx.narrow(&Step::RandomnessForValidation);
-        let (ab, rab) = try_join(
-            SemiHonestMul::new(self.ctx.semi_honest_context(), self.record_id).execute(
-                a.x().access_without_downgrade(),
-                b.x().access_without_downgrade(),
-            ),
-            SemiHonestMul::new(duplicate_multiply_ctx.semi_honest_context(), self.record_id)
-                .execute(a.rx(), b.x().access_without_downgrade()),
-        )
-        .await?;
+    random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
-        let malicious_ab = MaliciousReplicated::new(ab, rab);
-
-        random_constant_ctx.accumulate_macs(self.record_id, &malicious_ab);
-
-        Ok(malicious_ab)
-    }
+    Ok(malicious_ab)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
