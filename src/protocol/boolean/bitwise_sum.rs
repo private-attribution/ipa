@@ -102,7 +102,6 @@ mod tests {
         values
     }
 
-    #[allow(clippy::many_single_char_names)]
     async fn sum<F: Field>(a: F, b: F) -> Vec<F>
     where
         (F, F): Sized,
