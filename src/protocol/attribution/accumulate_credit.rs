@@ -212,11 +212,16 @@ mod tests {
     use std::iter::zip;
     use tokio::try_join;
 
+    const S: u128 = 0;
+    const T: u128 = 1;
+    const H: [u128; 2] = [0, 1];
+    const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
+
     /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
     /// shares of `AttributionInputRow`.
     // TODO(taikiy): Implement a `IntoShares` for any struct
     fn generate_shared_input(
-        input: &[[u128; 4]],
+        input: &[[u128; 5]],
         rng: &mut StepRng,
     ) -> [Batch<AttributionInputRow<Fp31>>; 3] {
         let num_rows = input.len();
@@ -253,37 +258,50 @@ mod tests {
 
     #[tokio::test]
     pub async fn accumulate() {
-        const RAW_INPUT: &[[u128; 4]; 19] = &[
-            // [is_trigger, helper_bit, breakdown_key, credit]
-            [0, 0, 3, 0],
-            [0, 0, 4, 0],
-            [0, 1, 4, 0],
-            [1, 1, 0, 10],
-            [1, 1, 0, 2],
-            [1, 1, 0, 1],
-            [1, 1, 0, 5],
-            [1, 1, 0, 1],
-            [0, 0, 1, 0],
-            [1, 0, 0, 10],
-            [0, 0, 2, 0],
-            [1, 1, 0, 3],
-            [1, 1, 0, 12],
-            [0, 1, 2, 0],
-            [0, 1, 2, 0],
-            [1, 1, 0, 6],
-            [1, 1, 0, 4],
-            [0, 1, 5, 0],
-            [1, 1, 5, 6],
+        const TEST_CASE: &[[u128; 5]; 19] = &[
+            // Each row array contains five elements. The first four elements
+            // represents either a source or trigger event sent from a report
+            // collector. Those four elements are:
+            //
+            // `is_trigger_bit`, `helper_bit`, `breakdown_key`, `credit`
+            //
+            // The last element in each row array represents a value expected
+            // from running this protocol. For the `accumulation_credit`
+            // protocol, they are the accumulated values using "last touch"
+            // attribution model.
+
+            // match key 1
+            [S, H[0], BD[3], 0, 0],
+            // match key 2
+            [S, H[0], BD[4], 0, 0],
+            [S, H[1], BD[4], 0, 19],
+            [T, H[1], BD[0], 10, 19],
+            [T, H[1], BD[0], 2, 9],
+            [T, H[1], BD[0], 1, 7],
+            [T, H[1], BD[0], 5, 6],
+            [T, H[1], BD[0], 1, 1],
+            // match key 3
+            [S, H[0], BD[1], 0, 0],
+            // match key 4
+            [T, H[0], BD[0], 10, 10],
+            // match key 5
+            [S, H[0], BD[2], 0, 15],
+            [T, H[1], BD[0], 3, 15],
+            [T, H[1], BD[0], 12, 12],
+            [S, H[1], BD[2], 0, 0],
+            [S, H[1], BD[2], 0, 10],
+            [T, H[1], BD[0], 6, 10],
+            [T, H[1], BD[0], 4, 4],
+            [S, H[1], BD[5], 0, 6],
+            [T, H[1], BD[5], 6, 6],
         ];
-        const EXPECTED: &[u128] = &[
-            0, 0, 19, 19, 9, 7, 6, 1, 0, 10, 15, 15, 12, 0, 10, 10, 4, 6, 6,
-        ];
+        let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         let world = TestWorld::<Fp31>::new(QueryId);
         let context = world.contexts();
         let mut rng = StepRng::new(100, 1);
 
-        let shares = generate_shared_input(RAW_INPUT, &mut rng);
+        let shares = generate_shared_input(TEST_CASE, &mut rng);
 
         let [c0, c1, c2] = context;
         let [s0, s1, s2] = shares;
@@ -294,11 +312,11 @@ mod tests {
 
         let result = try_join!(h0_future, h1_future, h2_future).unwrap();
 
-        assert_eq!(result.0.len(), RAW_INPUT.len());
-        assert_eq!(result.1.len(), RAW_INPUT.len());
-        assert_eq!(result.2.len(), RAW_INPUT.len());
+        assert_eq!(result.0.len(), TEST_CASE.len());
+        assert_eq!(result.1.len(), TEST_CASE.len());
+        assert_eq!(result.2.len(), TEST_CASE.len());
 
-        for (i, expected) in EXPECTED.iter().enumerate() {
+        for (i, expected) in expected.iter().enumerate() {
             let v = (
                 &result.0[i].credit,
                 &result.1[i].credit,
