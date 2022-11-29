@@ -1,7 +1,8 @@
 use crate::ff::{Field, Int};
-use crate::helpers::Role;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::SecretSharing;
 use std::iter::repeat;
+
+use super::context::Context;
 
 mod bit_decomposition;
 mod bitwise_less_than_prime;
@@ -51,15 +52,18 @@ impl AsRef<str> for BitOpStep {
 /// Internal use only.
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
-fn local_secret_shared_bits<F: Field>(x: u128, helper_role: Role) -> Vec<Replicated<F>> {
-    // let x = F::PRIME.into();
+fn local_secret_shared_bits<F, C, S>(ctx: &C, x: u128) -> Vec<S>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
     (0..F::Integer::BITS)
         .map(|i| {
-            let b = F::from((x >> i) & 1);
-            match helper_role {
-                Role::H1 => Replicated::new(b, F::ZERO),
-                Role::H2 => Replicated::new(F::ZERO, F::ZERO),
-                Role::H3 => Replicated::new(F::ZERO, b),
+            if ((x >> i) & 1) == 1 {
+                ctx.share_of_one()
+            } else {
+                S::default()
             }
         })
         .collect::<Vec<_>>()
@@ -67,10 +71,12 @@ fn local_secret_shared_bits<F: Field>(x: u128, helper_role: Role) -> Vec<Replica
 
 /// Aligns the bits by padding extra zeros at the end (assuming the bits are in
 /// little-endian format).
-fn align_bit_lengths<F: Field>(
-    a: &[Replicated<F>],
-    b: &[Replicated<F>],
-) -> (Vec<Replicated<F>>, Vec<Replicated<F>>) {
+/// TODO: this needs to be removed; where it is used there are better optimizations.
+fn align_bit_lengths<F, S>(a: &[S], b: &[S]) -> (Vec<S>, Vec<S>)
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
     let mut a = a.to_vec();
     let mut b = b.to_vec();
 
@@ -80,8 +86,8 @@ fn align_bit_lengths<F: Field>(
 
     let pad_a = b.len().saturating_sub(a.len());
     let pad_b = a.len().saturating_sub(b.len());
-    a.append(&mut repeat(Replicated::ZERO).take(pad_a).collect::<Vec<_>>());
-    b.append(&mut repeat(Replicated::ZERO).take(pad_b).collect::<Vec<_>>());
+    a.append(&mut repeat(S::ZERO).take(pad_a).collect::<Vec<_>>());
+    b.append(&mut repeat(S::ZERO).take(pad_b).collect::<Vec<_>>());
 
     (a, b)
 }

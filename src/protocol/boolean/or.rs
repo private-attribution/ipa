@@ -1,19 +1,19 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{mul::SecureMul, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::protocol::context::Context;
+use crate::protocol::RecordId;
+use crate::secret_sharing::SecretSharing;
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - [ab]`
-pub async fn or<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+pub async fn or<F: Field, C: Context<F, Share = S>, S: SecretSharing<F>>(
+    ctx: C,
     record_id: RecordId,
-    a: &Replicated<F>,
-    b: &Replicated<F>,
-) -> Result<Replicated<F>, Error> {
+    a: &S,
+    b: &S,
+) -> Result<S, Error> {
     let ab = ctx.multiply(record_id, a, b).await?;
-    Ok(a + b - &ab)
+    Ok(-ab + a + b)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
