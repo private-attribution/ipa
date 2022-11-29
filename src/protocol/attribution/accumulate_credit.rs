@@ -2,13 +2,18 @@ use super::{
     AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternInputRow,
     InteractionPatternStep,
 };
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::batch::{Batch, RecordIndex};
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Replicated;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        batch::{Batch, RecordIndex},
+        context::Context,
+        RecordId,
+    },
+    secret_sharing::Replicated,
+};
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
 
