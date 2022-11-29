@@ -22,6 +22,7 @@ use super::sort::reshare::Reshare;
 /// generator and communication channel.
 pub trait Context<F: Field>:
     Clone
+    + Send
     + SecureMul<F, Share = <Self as Context<F>>::Share>
     + Reshare<F, Share = <Self as Context<F>>::Share>
     + Reveal<F, Share = <Self as Context<F>>::Share>
@@ -67,5 +68,5 @@ pub trait Context<F: Field>:
     fn share_of_one(&self) -> <Self as Context<F>>::Share;
 
     /// Get the random bits generator instance.
-    fn random_bits_generator(&self) -> RandomBitsGenerator<F, Self, <Self as Context<F>>::Share>;
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F, <Self as Context<F>>::Share>;
 }

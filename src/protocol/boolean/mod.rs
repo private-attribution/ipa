@@ -1,7 +1,9 @@
 use crate::ff::{Field, Int};
 use crate::helpers::Role;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use std::iter::repeat;
+
+use super::context::Context;
 
 mod bit_decomposition;
 mod bitwise_less_than_prime;
@@ -51,15 +53,19 @@ impl AsRef<str> for BitOpStep {
 /// Internal use only.
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
-fn local_secret_shared_bits<F: Field>(x: u128, helper_role: Role) -> Vec<Replicated<F>> {
-    // let x = F::PRIME.into();
+fn local_secret_shared_bits<F, C, S>(ctx: C, x: u128) -> Vec<S>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
     (0..F::Integer::BITS)
         .map(|i| {
             let b = F::from((x >> i) & 1);
-            match helper_role {
-                Role::H1 => Replicated::new(b, F::ZERO),
-                Role::H2 => Replicated::new(F::ZERO, F::ZERO),
-                Role::H3 => Replicated::new(F::ZERO, b),
+            if b == 1 {
+                ctx.share_of_one()
+            } else {
+                S::default()
             }
         })
         .collect::<Vec<_>>()

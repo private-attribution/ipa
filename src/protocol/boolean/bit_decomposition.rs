@@ -1,12 +1,13 @@
-use super::bitwise_less_than_prime::ComparesToPrime;
+use super::bitwise_less_than_prime::{greater_than_or_equal_to_prime, ComparesToPrime};
 use super::dumb_bitwise_sum::BitwiseSum;
+use super::solved_bits::RandomBitsShare;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::context::Context;
 use crate::protocol::reveal::Reveal;
 use crate::protocol::RecordId;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::SecretSharing;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -20,20 +21,20 @@ pub struct BitDecomposition {}
 
 impl BitDecomposition {
     #[allow(dead_code)]
-    pub async fn execute<F, C, S>(
-        ctx: C,
-        record_id: RecordId,
-        a_p: &S,
-    ) -> Result<Vec<Replicated<F>>, Error>
+    pub async fn execute<F, C, S>(ctx: C, record_id: RecordId, a_p: &S) -> Result<Vec<S>, Error>
     where
         F: Field + ComparesToPrime<F, C, S>,
-        C: Context<F, Share = S> + Send + Sync,
-        S: SecretSharing<F> + Send,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = ctx
+        let RandomBitsShare {
+            b_p: r_b_p,
+            b_b: r_b_b,
+            ..
+        } = ctx
             .random_bits_generator()
             .take_one(ctx.narrow(&Step::GenerateRandomBits))
             .await?;
@@ -41,19 +42,19 @@ impl BitDecomposition {
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
             .narrow(&Step::RevealAMinusB)
-            .reveal(record_id, &(a_p - &r.b_p))
+            .reveal(record_id, &(-r_b_p + a_p))
             .await?;
-        let c_b = local_secret_shared_bits(c.as_u128(), ctx.role());
+
+        let c_b = local_secret_shared_bits(ctx, c.as_u128());
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //
         // `BitwiseSum` outputs `l + 1` bits, so [d]_B is (l + 1)-bit long.
-        let d_b = BitwiseSum::execute(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
+        let d_b = BitwiseSum::execute(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r_b_b).await?;
 
         // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
-        let q_p =
-            F::greater_than_or_equal_to_prime(ctx.narrow(&Step::IsPLessThanD), record_id, &d_b)
-                .await?;
+        let q_p = greater_than_or_equal_to_prime(ctx.narrow(&Step::IsPLessThanD), record_id, &d_b)
+            .await?;
 
         // Step 7. a bitwise scalar value `f_B = bits(2^l - p)`
         let l = F::Integer::BITS;
@@ -107,14 +108,14 @@ mod tests {
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Int},
-        protocol::{QueryId, RecordId},
-        test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
+        protocol::{QueryId, RecordId, boolean::bitwise_less_than_prime::ComparesToPrime, context::SemiHonestContext},
+        test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld}, secret_sharing::Replicated,
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bit_decomposition<F: Field>(world: &TestWorld<F>, a: F) -> Vec<F>
+    async fn bit_decomposition<'a, F>(world: &'a TestWorld<F>, a: F) -> Vec<F>
     where
-        F: Sized,
+        F: Field + ComparesToPrime<F, SemiHonestContext<'a, F>, Replicated<F>>,
         Standard: Distribution<F>,
     {
         let result = world

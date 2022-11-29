@@ -28,7 +28,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         role: Role,
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        random_bits_generator: &'a RandomBitsGenerator<F, SemiHonestContext<F>, Replicated<F>>,
+        random_bits_generator: &'a RandomBitsGenerator<F, Replicated<F>>,
     ) -> Self {
         Self {
             inner: ContextInner::new(role, participant, gateway, random_bits_generator),
@@ -90,7 +90,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         Replicated::one(self.role())
     }
 
-    fn random_bits_generator(&self) -> RandomBitsGenerator<F, SemiHonestContext<F>, Replicated<F>> {
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F, Replicated<F>> {
         // RandomBitsGenerator has only one direct member which is wrapped in
         // `Arc`. This `clone()` will only increment the ref count.
         self.inner.random_bits_generator.clone()
@@ -102,7 +102,7 @@ pub(super) struct ContextInner<'a, F: Field> {
     pub role: Role,
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
-    pub random_bits_generator: &'a RandomBitsGenerator<F, SemiHonestContext<'a, F>, Replicated<F>>,
+    pub random_bits_generator: &'a RandomBitsGenerator<F, Replicated<F>>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
@@ -110,7 +110,7 @@ impl<'a, F: Field> ContextInner<'a, F> {
         role: Role,
         prss: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        random_bits_generator: &'a RandomBitsGenerator<F, SemiHonestContext<'a, F>, Replicated<F>>,
+        random_bits_generator: &'a RandomBitsGenerator<F, Replicated<F>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             role,

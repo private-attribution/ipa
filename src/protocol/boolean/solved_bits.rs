@@ -5,16 +5,31 @@ use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShar
 use crate::protocol::reveal::Reveal;
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::{Replicated, SecretSharing};
+use async_trait::async_trait;
 use futures::future::try_join_all;
 use std::iter::repeat;
+use std::marker::PhantomData;
 
 use super::bitwise_less_than_prime::ComparesToPrime;
 
 #[allow(dead_code)]
 #[derive(Debug)]
-pub struct RandomBitsShare<F: Field> {
-    pub b_b: Vec<Replicated<F>>,
-    pub b_p: Replicated<F>,
+pub struct RandomBitsShare<F: Field, S: SecretSharing<F>> {
+    pub b_b: Vec<S>,
+    pub b_p: S,
+    _x: PhantomData<F>,
+}
+
+#[async_trait]
+pub trait GenerateOneRandomBitShare {
+    async fn generate<F, C, S>(
+        ctx: C,
+        record_id: RecordId,
+    ) -> Result<Option<RandomBitsShare<F, S>>, Error>
+    where
+        F: Field + ComparesToPrime<F, C, S>,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>;
 }
 
 /// This protocol tries to generate a sequence of uniformly random sharing of
@@ -30,9 +45,11 @@ pub struct RandomBitsShare<F: Field> {
 /// 3.1 Generating random solved BITS
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-pub struct SolvedBits<F, C, S> {}
-
-impl<F: Field + ComparesToPrime<F, C, S>, C: Context<F, Share = S>, S: SecretSharing<F>> SolvedBits<F, C, S> {
+#[async_trait]
+impl<F> GenerateOneRandomBitShare for RandomBitsShare<F, Replicated<F>>
+where
+    F: Field,
+{
     // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
     // Each bit has a 50% chance of being a 0 or 1, so there are
     // `F::Integer::MAX - p` cases where `b` may become larger than `p`.
@@ -40,11 +57,13 @@ impl<F: Field + ComparesToPrime<F, C, S>, C: Context<F, Share = S>, S: SecretSha
     // number that has the same number of bits as the prime.
     // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
     // 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
-    #[allow(dead_code)]
-    pub async fn execute(
-        ctx: C,
+    async fn generate(
+        ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
-    ) -> Result<Option<RandomBitsShare<F>>, Error> {
+    ) -> Result<Option<RandomBitsShare<F, Replicated<F>>>, Error>
+    where
+        F: ComparesToPrime<F, SemiHonestContext<F>, Replicated<F>>,
+    {
         //
         // step 1 & 2
         //
@@ -70,69 +89,73 @@ impl<F: Field + ComparesToPrime<F, C, S>, C: Context<F, Share = S>, S: SecretSha
                 acc + &(x.clone() * F::from(2_u128.pow(i as u32)))
             });
 
-        Ok(Some(RandomBitsShare { b_b, b_p }))
+        Ok(Some(RandomBitsShare {
+            b_b,
+            b_p,
+            _f: PhantomData::default(),
+        }))
     }
+}
 
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits(
-        ctx: C,
-        record_id: RecordId,
-    ) -> Result<Vec<S>, Error> {
-        // Calculate the number of bits we need to form a random number that
-        // has the same number of bits as the prime.
-        let l = u128::BITS - F::PRIME.into().leading_zeros();
-        let leading_zero_bits = F::Integer::BITS - l;
+/// Generates a sequence of `l` random bit sharings in the target field `F`.
+async fn generate_random_bits<F, C, S>(ctx: C, record_id: RecordId) -> Result<Vec<S>, Error>
+where
+    F: Field + ComparesToPrime<F, C, S>,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    // Calculate the number of bits we need to form a random number that
+    // has the same number of bits as the prime.
+    let l = u128::BITS - F::PRIME.into().leading_zeros();
+    let leading_zero_bits = F::Integer::BITS - l;
 
-        // Generate a pair of random numbers. We'll use these numbers as
-        // the source of `l`-bit long uniformly random sequence of bits.
-        let (b_bits_left, b_bits_right) = ctx
-            .narrow(&Step::RandomValues)
-            .prss()
-            .generate_values(record_id);
+    // Generate a pair of random numbers. We'll use these numbers as
+    // the source of `l`-bit long uniformly random sequence of bits.
+    let (b_bits_left, b_bits_right) = ctx
+        .narrow(&Step::RandomValues)
+        .prss()
+        .generate_values(record_id);
 
-        // Same here. For now, 256-bit is enough for our F_p
+    // Same here. For now, 256-bit is enough for our F_p
+    #[allow(clippy::cast_possible_truncation)]
+    let xor_shares = XorShares::new(l as u8, b_bits_left as u64, b_bits_right as u64);
+
+    // Convert each bit to secret sharings of that bit in the target field
+    let c = ctx.narrow(&Step::ConvertShares);
+    let futures = (0..l).map(|i| {
+        // again, we don't expect our prime field to be > 2^64
         #[allow(clippy::cast_possible_truncation)]
-        let xor_shares = XorShares::new(l as u8, b_bits_left as u64, b_bits_right as u64);
-
-        // Convert each bit to secret sharings of that bit in the target field
-        let c = ctx.narrow(&Step::ConvertShares);
-        let futures = (0..l).map(|i| {
-            // again, we don't expect our prime field to be > 2^64
+        let c = c.narrow(&BitOpStep::Step(i as usize));
+        async move {
             #[allow(clippy::cast_possible_truncation)]
-            let c = c.narrow(&BitOpStep::Step(i as usize));
-            async move {
-                #[allow(clippy::cast_possible_truncation)]
-                ConvertShares::new(xor_shares)
-                    .execute_one_bit(c, record_id, i as u8)
-                    .await
-            }
-        });
-
-        // Pad 0's at the end to return `F::Integer::BITS` long bits
-        let mut b_b = try_join_all(futures).await?;
-        #[allow(clippy::cast_possible_truncation)]
-        b_b.append(
-            &mut repeat(Replicated::ZERO)
-                .take(leading_zero_bits as usize)
-                .collect::<Vec<_>>(),
-        );
-
-        Ok(b_b)
-    }
-
-    async fn is_less_than_p(
-        ctx: C,
-        record_id: RecordId,
-        b_b: &[S],
-    ) -> Result<bool, Error> {
-        let c_b =
-            F::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
-                .await?;
-        if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
-            return Ok(false);
+            ConvertShares::new(xor_shares)
+                .execute_one_bit(c, record_id, i as u8)
+                .await
         }
-        Ok(true)
+    });
+
+    // Pad 0's at the end to return `F::Integer::BITS` long bits
+    let mut b_b = try_join_all(futures).await?;
+    b_b.append(
+        &mut repeat(Replicated::ZERO)
+            .take(usize::try_from(leading_zero_bits).unwrap())
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(b_b)
+}
+
+async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Result<bool, Error>
+where
+    F: Field + ComparesToPrime<F, C, S>,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    let c_b = F::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b).await?;
+    if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
+        return Ok(false);
     }
+    Ok(true)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -158,7 +181,7 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::SolvedBits;
+    use super::RandomBitsShare;
     use crate::protocol::context::SemiHonestContext;
     use crate::{
         error::Error,
@@ -179,9 +202,9 @@ mod tests {
 
         // Execute
         let [result0, result1, result2] = join3(
-            SolvedBits::execute(c0, record_id),
-            SolvedBits::execute(c1, record_id),
-            SolvedBits::execute(c2, record_id),
+            RandomBitsShare::generate(c0, record_id),
+            RandomBitsShare::generate(c1, record_id),
+            RandomBitsShare::generate(c2, record_id),
         )
         .await;
 

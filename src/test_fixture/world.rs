@@ -1,4 +1,5 @@
 use crate::rand::thread_rng;
+use crate::secret_sharing::Replicated;
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
@@ -38,7 +39,7 @@ pub struct TestWorld<F: Field> {
     pub participants: [PrssEndpoint; 3],
     pub(super) executions: AtomicUsize,
     _network: Arc<InMemoryNetwork>,
-    pub rbg: [RandomBitsGenerator<F>; 3],
+    pub rbg: [RandomBitsGenerator<F, Replicated<F>>; 3],
 }
 
 #[derive(Copy, Clone)]

@@ -191,15 +191,11 @@ where
             .await
         }
         Ordering::Equal => {
-            F::greater_than_or_equal_to_prime_trimmed(
-                ctx.narrow(&Step::CheckTrimmed),
-                record_id,
-                x,
-            )
-            .await
+            F::greater_than_or_equal_to_prime_trimmed(ctx.narrow(&Step::CheckTrimmed), record_id, x)
+                .await
         }
         Ordering::Less => {
-            panic!();
+            panic!("Not enough bits to even bother invoking this protocol");
         }
     }
 }
@@ -256,10 +252,12 @@ mod tests {
         protocol::{QueryId, RecordId},
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
+    use futures::future::try_join_all;
     use rand::{distributions::Standard, prelude::Distribution};
+    use std::iter::{repeat, zip};
 
     #[tokio::test]
-    pub async fn fp31() {
+    pub async fn less_than_fp31() {
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
 
@@ -275,18 +273,18 @@ mod tests {
         ];
         let result = world
             .semi_honest(test_cases, |ctx, shares| async move {
-                try_join_all(
-                    zip(
-                        repeat(ctx), 
-                        test_cases_for_helper,
-                    ).enumerate().map(|(i, (ctx, test_case))| async move {
-                        less_than_prime(ctx, RecordId::from(i), &shares).await
-                    })
-                ).await?
+                try_join_all(zip(repeat(ctx), shares).enumerate().map(
+                    |(i, (ctx, share))| async move {
+                        less_than_prime(ctx, RecordId::from(i), &share).await
+                    },
+                ))
+                .await?
             })
             .await;
 
-        result.reconstruct()
+        for i in result.reconstruct() {
+            assert_eq!(i, Fp31::ONE);
+        }
 
         // assert_eq!(zero, bitwise_less_than_prime(get_bits::<Fp31>(31, 5)).await);
         // assert_eq!(zero, bitwise_less_than_prime(get_bits::<Fp31>(32, 6)).await);

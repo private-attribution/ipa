@@ -5,7 +5,7 @@ use crate::protocol::boolean::or::or;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use std::iter::zip;
 
@@ -49,12 +49,17 @@ impl BitwiseSum {
     /// then subtracting 2 if `carry_{i+1} == 1`.
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
-    pub async fn execute<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    pub async fn execute<F, C, S>(
+        ctx: C,
         record_id: RecordId,
-        a: &[Replicated<F>],
-        b: &[Replicated<F>],
-    ) -> Result<Vec<Replicated<F>>, Error> {
+        a: &[S],
+        b: &[S],
+    ) -> Result<Vec<S>, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let (a, b) = align_bit_lengths(a, b);
 
         let both_bits_one =

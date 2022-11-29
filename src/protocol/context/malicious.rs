@@ -89,7 +89,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
     }
 
-    fn random_bits_generator(&self) -> RandomBitsGenerator<F, MaliciousContext<'a, F>, MaliciousReplicated<F>> {
+    fn random_bits_generator(&self) -> RandomBitsGenerator<F, MaliciousReplicated<F>> {
         // RandomBitsGenerator has only one direct member which is wrapped in
         // `Arc`. This `clone()` will only increment the ref count.
         self.inner.random_bits_generator.clone()
@@ -122,7 +122,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
             self.inner.role,
             self.inner.prss,
             self.inner.gateway,
-            self.inner.random_bits_generator,
+            self.inner.random_bits_generator, // uh-oh
         );
         ctx.step = self.step;
 
@@ -138,7 +138,7 @@ struct ContextInner<'a, F: Field> {
     upgrade_ctx: SemiHonestContext<'a, F>,
     accumulator: MaliciousValidatorAccumulator<F>,
     r_share: Replicated<F>,
-    random_bits_generator: &'a RandomBitsGenerator<F, SemiHonestContext<'a, F>, Replicated<F>>,
+    random_bits_generator: &'a RandomBitsGenerator<F, MaliciousReplicated<F>>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
