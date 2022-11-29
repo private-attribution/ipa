@@ -123,6 +123,7 @@ pub enum IpaProtocolStep {
     Sort(u8),
     /// Perform attribution.
     Attribution,
+    SortPreAccumulation,
 }
 
 impl Substep for IpaProtocolStep {}
@@ -143,6 +144,7 @@ impl AsRef<str> for IpaProtocolStep {
             Self::ConvertShares => "convert",
             Self::Sort(i) => SORT[usize::from(*i)],
             Self::Attribution => "attribution",
+            Self::SortPreAccumulation => "sort_pre_accumulation",
         }
     }
 }

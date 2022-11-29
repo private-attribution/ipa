@@ -8,6 +8,7 @@ pub mod generate_permutation;
 pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
+pub mod sort_values;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {

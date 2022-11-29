@@ -1,6 +1,9 @@
+use super::AttributionInputRowResharableStep::{BreakdownKey, HelperBit, IsTriggerBit, Value};
 use super::{AccumulateCreditInputRow, AccumulateCreditOutputRow, AttributionInputRow};
+use crate::helpers::Role;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
+use crate::protocol::sort::sort_values::Resharable;
 use crate::protocol::IterStep;
 use crate::{
     error::Error,
@@ -12,6 +15,7 @@ use crate::{
     },
     secret_sharing::Replicated,
 };
+use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
@@ -38,6 +42,44 @@ impl AsRef<str> for Step {
 #[allow(dead_code)]
 pub struct AccumulateCredit<'a, F: Field> {
     input: &'a Batch<AttributionInputRow<F>>,
+}
+
+#[async_trait]
+impl<F: Field> Resharable<F> for AttributionInputRow<F> {
+    type Share = Replicated<F>;
+
+    async fn resharable<C>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + std::marker::Send,
+    {
+        let f_trigger_bit =
+            ctx.narrow(&IsTriggerBit)
+                .reshare(&self.is_trigger_bit, record_id, to_helper);
+        let f_helper_bit = ctx
+            .narrow(&HelperBit)
+            .reshare(&self.helper_bit, record_id, to_helper);
+        let f_breakdown_key =
+            ctx.narrow(&BreakdownKey)
+                .reshare(&self.breakdown_key, record_id, to_helper);
+        let f_value = ctx
+            .narrow(&Value)
+            .reshare(&self.value, record_id, to_helper);
+
+        let outputs =
+            &try_join_all([f_trigger_bit, f_helper_bit, f_breakdown_key, f_value]).await?[..];
+
+        Ok(AttributionInputRow {
+            is_trigger_bit: outputs[0].clone(),
+            helper_bit: outputs[1].clone(),
+            breakdown_key: outputs[2].clone(),
+            value: outputs[3].clone(),
+        })
+    }
 }
 
 impl<'a, F: Field> AccumulateCredit<'a, F> {

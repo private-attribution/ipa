@@ -110,7 +110,6 @@ mod tests {
     /// `TestHelper`'s ability to distinguish messages of the same type sent towards helpers
     /// executing multiple same type protocols
     #[tokio::test]
-    #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);
