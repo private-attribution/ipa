@@ -1,5 +1,5 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
-use super::dumb_bitwise_sum::BitwiseSum;
+use super::dumb_bitwise_sum::bitwise_sum;
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::{Field, Int};
@@ -37,12 +37,12 @@ impl BitDecomposition {
             .narrow(&Step::RevealAMinusB)
             .reveal(record_id, &(a_p - &r.b_p))
             .await?;
-        let c_b = local_secret_shared_bits(c.as_u128(), ctx.role());
+        let c_b = local_secret_shared_bits(&ctx, c.as_u128());
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //
         // `BitwiseSum` outputs `l + 1` bits, so [d]_B is (l + 1)-bit long.
-        let d_b = BitwiseSum::execute(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
+        let d_b = bitwise_sum(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
 
         // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
         let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
@@ -67,7 +67,7 @@ impl BitDecomposition {
         //
         // Again, `BitwiseSum` outputs `l + 1` bits. Since [d]_B is already
         // `l + 1` bit long, [h]_B will be `l + 2`-bit long.
-        let h_b = BitwiseSum::execute(ctx.narrow(&Step::AddDtoG), record_id, &d_b, &g_b).await?;
+        let h_b = bitwise_sum(ctx.narrow(&Step::AddDtoG), record_id, &d_b, &g_b).await?;
 
         // Step 11. [a]_B = ([h]_0,...[h]_(l-1))
         let a_b = h_b[0..l as usize].to_vec();

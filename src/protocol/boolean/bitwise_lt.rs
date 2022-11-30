@@ -1,10 +1,10 @@
+use super::align_bit_lengths;
 use super::prefix_or::PrefixOr;
 use super::xor::xor;
-use super::{align_bit_lengths, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
+use crate::protocol::{context::Context, mul::SecureMul, BitOpStep, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -44,7 +44,7 @@ impl BitwiseLessThan {
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
-            let c = ctx.narrow(&BitOpStep::Step(i));
+            let c = ctx.narrow(&BitOpStep::from(i));
             async move { xor(c, record_id, a_bit, b_bit).await }
         });
         try_join_all(xor).await
@@ -114,7 +114,7 @@ impl BitwiseLessThan {
         let mul = zip(repeat(ctx), zip(g, b))
             .enumerate()
             .map(|(i, (ctx, (g_bit, b_bit)))| {
-                let c = ctx.narrow(&BitOpStep::Step(i));
+                let c = ctx.narrow(&BitOpStep::from(i));
                 async move { c.multiply(record_id, g_bit, b_bit).await }
             });
         try_join_all(mul).await

@@ -41,7 +41,7 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
     let mult_input = zip(repeat(share_of_one.clone()), input)
         .map(|(one, x)| one - x)
         .chain(input.iter().cloned())
-        .scan(S::default(), |sum, x| {
+        .scan(S::ZERO, |sum, x| {
             *sum += &x;
             Some((x, sum.clone()))
         });
