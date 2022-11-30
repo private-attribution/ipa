@@ -370,92 +370,54 @@ impl AsRef<str> for Step {
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::generate_shared_input;
     use crate::{
         ff::{Field, Fp32BitPrime},
         protocol::attribution::credit_capping::credit_capping,
-        protocol::batch::Batch,
-        protocol::{attribution::AttributionInputRow, QueryId},
-        test_fixture::{share, Reconstruct, TestWorld},
+        protocol::QueryId,
+        test_fixture::{Reconstruct, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
-    use std::iter::zip;
+    use rand::rngs::mock::StepRng;
     use tokio::try_join;
 
-    /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
-    /// shares of `AttributionInputRow`.
-    // TODO: Implement a `IntoShares` for any struct
-    fn generate_shared_input<F: Field>(
-        input: &[[u128; 4]],
-        rng: &mut StepRng,
-    ) -> [Batch<AttributionInputRow<F>>; 3]
-    where
-        Standard: Distribution<F>,
-    {
-        let num_rows = input.len();
-        let mut shares = [
-            Vec::with_capacity(num_rows),
-            Vec::with_capacity(num_rows),
-            Vec::with_capacity(num_rows),
-        ];
-
-        for x in input {
-            let itb = share(F::from(x[0]), rng);
-            let hb = share(F::from(x[1]), rng);
-            let bk = share(F::from(x[2]), rng);
-            let val = share(F::from(x[3]), rng);
-            for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
-                shares[i].push(AttributionInputRow {
-                    is_trigger_bit: itb,
-                    helper_bit: hb,
-                    breakdown_key: bk,
-                    credit: val,
-                });
-            }
-        }
-
-        assert_eq!(shares[0].len(), shares[1].len());
-        assert_eq!(shares[1].len(), shares[2].len());
-
-        [
-            Batch::try_from(shares[0].clone()).unwrap(),
-            Batch::try_from(shares[1].clone()).unwrap(),
-            Batch::try_from(shares[2].clone()).unwrap(),
-        ]
-    }
+    const S: u128 = 0;
+    const T: u128 = 1;
+    const H: [u128; 2] = [0, 1];
+    const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     #[tokio::test]
     pub async fn cap() {
-        // TODO: Better formatting for attribution test cases. It's very hard to read
-        const RAW_INPUT: &[[u128; 4]; 19] = &[
-            // [is_trigger, helper_bit, breakdown_key, credit]
-            [0, 0, 3, 0],
-            [0, 0, 4, 0],
-            [0, 1, 4, 19],
-            [1, 1, 0, 19],
-            [1, 1, 0, 9],
-            [1, 1, 0, 7],
-            [1, 1, 0, 6],
-            [1, 1, 0, 1],
-            [0, 0, 1, 0],
-            [1, 0, 0, 10],
-            [0, 0, 2, 15],
-            [1, 1, 0, 15],
-            [1, 1, 0, 12],
-            [0, 1, 2, 0],
-            [0, 1, 2, 10],
-            [1, 1, 0, 10],
-            [1, 1, 0, 4],
-            [0, 1, 5, 6],
-            [1, 1, 0, 6],
-        ];
         const CAP: u32 = 18;
-        const EXPECTED: &[u128] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
+        const TEST_CASE: &[[u128; 5]; 19] = &[
+            // is_trigger, helper_bit, breakdown_key, credit, expected
+            [S, H[0], BD[3], 0, 0],
+            [S, H[0], BD[4], 0, 0],
+            [S, H[1], BD[4], 19, 18],
+            [T, H[1], BD[0], 19, 0],
+            [T, H[1], BD[0], 9, 0],
+            [T, H[1], BD[0], 7, 0],
+            [T, H[1], BD[0], 6, 0],
+            [T, H[1], BD[0], 1, 0],
+            [S, H[0], BD[1], 0, 0],
+            [T, H[0], BD[0], 10, 0],
+            [S, H[0], BD[2], 15, 2],
+            [T, H[1], BD[0], 15, 0],
+            [T, H[1], BD[0], 12, 0],
+            [S, H[1], BD[2], 0, 0],
+            [S, H[1], BD[2], 10, 10],
+            [T, H[1], BD[0], 10, 0],
+            [T, H[1], BD[0], 4, 0],
+            [S, H[1], BD[5], 6, 6],
+            [T, H[1], BD[0], 6, 0],
+        ];
+        let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
+        //TODO: move to the new test framework
         let world = TestWorld::<Fp32BitPrime>::new(QueryId);
         let context = world.contexts();
         let mut rng = StepRng::new(100, 1);
 
-        let shares = generate_shared_input(RAW_INPUT, &mut rng);
+        let shares = generate_shared_input(TEST_CASE, &mut rng);
 
         let [c0, c1, c2] = context;
         let [s0, s1, s2] = shares;
@@ -466,12 +428,12 @@ mod tests {
 
         let result = try_join!(h0_future, h1_future, h2_future).unwrap();
 
-        assert_eq!(result.0.len(), RAW_INPUT.len());
-        assert_eq!(result.1.len(), RAW_INPUT.len());
-        assert_eq!(result.2.len(), RAW_INPUT.len());
-        assert_eq!(result.0.len(), EXPECTED.len());
+        assert_eq!(result.0.len(), TEST_CASE.len());
+        assert_eq!(result.1.len(), TEST_CASE.len());
+        assert_eq!(result.2.len(), TEST_CASE.len());
+        assert_eq!(result.0.len(), expected.len());
 
-        for (i, expected) in EXPECTED.iter().enumerate() {
+        for (i, expected) in expected.iter().enumerate() {
             let v = (
                 &result.0[i].credit,
                 &result.1[i].credit,

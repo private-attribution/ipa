@@ -241,6 +241,7 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use super::super::tests::generate_shared_input;
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::IntoShares;
     use crate::{
@@ -248,12 +249,11 @@ mod tests {
         helpers::Role,
         protocol::{
             attribution::accumulate_credit::accumulate_credit, attribution::AttributionInputRow,
-            batch::Batch, sort::reshare_objects::Resharable, QueryId, RecordId,
+            sort::reshare_objects::Resharable, QueryId, RecordId,
         },
-        test_fixture::{share, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::rngs::mock::StepRng;
-    use std::iter::zip;
     use tokio::try_join;
 
     const S: u128 = 0;
@@ -291,45 +291,6 @@ mod tests {
                 },
             ]
         }
-    }
-
-    /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
-    /// shares of `AttributionInputRow`.
-    // TODO(taikiy): Implement a `IntoShares` for any struct
-    fn generate_shared_input(
-        input: &[[u128; 5]],
-        rng: &mut StepRng,
-    ) -> [Batch<AttributionInputRow<Fp31>>; 3] {
-        let num_rows = input.len();
-        let mut shares = [
-            Vec::with_capacity(num_rows),
-            Vec::with_capacity(num_rows),
-            Vec::with_capacity(num_rows),
-        ];
-
-        for x in input {
-            let itb = share(Fp31::from(x[0]), rng);
-            let hb = share(Fp31::from(x[1]), rng);
-            let bk = share(Fp31::from(x[2]), rng);
-            let val = share(Fp31::from(x[3]), rng);
-            for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
-                shares[i].push(AttributionInputRow {
-                    is_trigger_bit: itb,
-                    helper_bit: hb,
-                    breakdown_key: bk,
-                    credit: val,
-                });
-            }
-        }
-
-        assert_eq!(shares[0].len(), shares[1].len());
-        assert_eq!(shares[1].len(), shares[2].len());
-
-        [
-            Batch::try_from(shares[0].clone()).unwrap(),
-            Batch::try_from(shares[1].clone()).unwrap(),
-            Batch::try_from(shares[2].clone()).unwrap(),
-        ]
     }
 
     #[tokio::test]
