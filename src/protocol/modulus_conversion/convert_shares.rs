@@ -1,9 +1,8 @@
-use super::specialized_mul::{multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes};
 use crate::{
     error::Error,
     ff::{BinaryField, Field},
     helpers::Role,
-    protocol::{context::Context, RecordId},
+    protocol::{context::Context, mul::SecureMul, RecordId},
     secret_sharing::{Replicated, XorReplicated},
 };
 
@@ -76,7 +75,9 @@ async fn xor_specialized_1<F: Field>(
     a: &Replicated<F>,
     b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
-    let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
+    let result = ctx
+        .multiply_two_shares_mostly_zeroes(record_id, a, b)
+        .await?;
 
     Ok(a + b - &(result * F::from(2)))
 }
@@ -102,7 +103,9 @@ async fn xor_specialized_2<F: Field>(
     a: &Replicated<F>,
     b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
-    let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
+    let result = ctx
+        .multiply_one_share_mostly_zeroes(record_id, a, b)
+        .await?;
 
     Ok(a + b - &(result * F::from(2)))
 }
