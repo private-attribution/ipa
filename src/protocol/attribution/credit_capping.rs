@@ -1,7 +1,4 @@
-use super::{
-    CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternInputRow,
-    InteractionPatternStep,
-};
+use super::{CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::batch::{Batch, RecordIndex};
@@ -12,7 +9,6 @@ use crate::protocol::mul::SecureMul;
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
-use futures::Future;
 use std::iter::{repeat, zip};
 
 #[allow(dead_code)]
@@ -38,12 +34,16 @@ pub async fn credit_capping<F: Field>(
     //
     // Step 2. Compute the current_contribution for each event.
     //
-    // We follow the approach used in the `AccumulateCredit` protocol.
-    // `current_contribution`
+    // We follow the approach used in the `AccumulateCredit` protocol. It's a
+    // reversed Prefix Sum of `final_credits`.
     //
-    let current_contribution =
-        compute_current_contribution(ctx.clone(), input, stop_bits.clone(), final_credits.clone())
-            .await?;
+    let current_contribution = compute_current_contribution(
+        ctx.clone(),
+        input,
+        &mut stop_bits.clone(),
+        &mut final_credits.clone(),
+    )
+    .await?;
 
     //
     // 3. Compute compare_bits
@@ -106,56 +106,56 @@ async fn mask_source_credits<F: Field>(
 async fn compute_current_contribution<'a, F: Field>(
     ctx: SemiHonestContext<'a, F>,
     input: &Batch<CreditCappingInputRow<F>>,
-    stop_bits: Batch<Replicated<F>>,
-    current_contribution: Batch<Replicated<F>>,
+    stop_bits: &mut Batch<Replicated<F>>,
+    current_contribution: &mut Batch<Replicated<F>>,
 ) -> Result<Batch<Replicated<F>>, Error> {
-    let mut stop_bits = stop_bits;
-    let mut current_contribution = current_contribution;
     let num_rows: RecordIndex = input.len().try_into().unwrap();
-
-    // Below is the logic from MP-SPDZ prototype, which this part of the
-    // protocol implements.
-    //
-    // b = stop_bit * successor.helper_bit
-    // current_contribution += b * successor.current_contribution
-    // stop_bit = b * successor.stop_bit
 
     for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
         let end = num_rows - step_size;
-        let mut interaction_futures = Vec::with_capacity(end as usize);
-
         let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
+        let mut interaction_futures = Vec::with_capacity(end as usize);
 
         // for each input row, create a future to execute secure multiplications
         for i in 0..end {
-            let current = InteractionPatternInputRow {
-                is_trigger_bit: input[i].is_trigger_bit.clone(),
-                helper_bit: input[i].helper_bit.clone(),
-                stop_bit: stop_bits[i].clone(),
-                interaction_value: current_contribution[i].clone(),
-            };
-            let successor = InteractionPatternInputRow {
-                is_trigger_bit: input[i + step_size].is_trigger_bit.clone(),
-                helper_bit: input[i + step_size].helper_bit.clone(),
-                stop_bit: stop_bits[i + step_size].clone(),
-                interaction_value: current_contribution[i + step_size].clone(),
-            };
+            let c = c.clone();
+            let record_id = RecordId::from(i);
+            let current_stop_bit = stop_bits[i].clone();
+            let sibling_stop_bit = stop_bits[i + step_size].clone();
+            let sibling_contribution = current_contribution[i + step_size].clone();
+            interaction_futures.push(async move {
+                // This block implements the below logic from MP-SPDZ code.
+                //
+                // b = stop_bit * successor.helper_bit
+                // current_contribution += b * successor.current_contribution
+                // stop_bit = b * successor.stop_bit
 
-            interaction_futures.push(interaction_pattern(
-                c.clone(),
-                RecordId::from(i),
-                current,
-                successor,
-                |ctx, record_id, input| async move {
-                    ctx.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
-                        .multiply(record_id, &input.b, &input.sibling)
-                        .await
-                },
-                depth == 0,
-            ));
+                let b = compute_b_bit(
+                    c.narrow(&Step::BTimesStopBit),
+                    record_id,
+                    &current_stop_bit,
+                    &input[i + step_size].helper_bit,
+                    depth == 0,
+                )
+                .await
+                .unwrap();
+
+                try_join(
+                    c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
+                        .multiply(record_id, &b, &sibling_contribution),
+                    compute_stop_bit(
+                        c.narrow(&Step::BTimesSuccessorStopBit),
+                        record_id,
+                        &b,
+                        &sibling_stop_bit,
+                        depth == 0,
+                    ),
+                )
+                .await
+            });
         }
 
         let results = try_join_all(interaction_futures).await?;
@@ -165,12 +165,48 @@ async fn compute_current_contribution<'a, F: Field>(
             .into_iter()
             .enumerate()
             .for_each(|(i, (credit, stop_bit))| {
-                current_contribution[i] = &current_contribution[i] + &credit;
+                current_contribution[i] += &credit;
                 stop_bits[i] = stop_bit;
             });
     }
 
     Ok(current_contribution.clone())
+}
+
+async fn compute_b_bit<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
+    record_id: RecordId,
+    current_stop_bit: &Replicated<F>,
+    sibling_helper_bit: &Replicated<F>,
+    first_iteration: bool,
+) -> Result<Replicated<F>, Error> {
+    // Compute `b = [this.stop_bit * sibling.helper_bit]`.
+    // Since `stop_bit` is initialized with all 1's, we only multiply in
+    // the second and later iterations.
+    let mut b = sibling_helper_bit.clone();
+    if !first_iteration {
+        b = ctx
+            .multiply(record_id, sibling_helper_bit, current_stop_bit)
+            .await?;
+    }
+    Ok(b)
+}
+
+async fn compute_stop_bit<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
+    record_id: RecordId,
+    b_bit: &Replicated<F>,
+    sibling_stop_bit: &Replicated<F>,
+    first_iteration: bool,
+) -> Result<Replicated<F>, Error> {
+    // Since `compute_b_bit()` will always return 1 in the first found, we can
+    // skip the multiplication in the first round.
+    let stop_bit_future = if first_iteration {
+        futures::future::Either::Left(futures::future::ok(b_bit.clone()))
+    } else {
+        futures::future::Either::Right(ctx.multiply(record_id, b_bit, sibling_stop_bit))
+    };
+    stop_bit_future.await
 }
 
 async fn compute_compare_bits<F: Field>(
@@ -179,35 +215,38 @@ async fn compute_compare_bits<F: Field>(
     cap: u32,
 ) -> Result<Batch<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
-    let random_bits_generator = RandomBitsGenerator::new();
     let cap = local_secret_shared_bits(&ctx, cap.into());
     let one = Replicated::one(ctx.role());
+
+    let random_bits_generator = RandomBitsGenerator::new();
     let compare_bits: Batch<_> = try_join_all(
         current_contribution
             .iter()
             .zip(zip(repeat(ctx.clone()), zip(repeat(cap), repeat(one))))
             .enumerate()
-            .map(|(i, (contrib, (ctx, (cap, one))))| {
+            .map(|(i, (credit, (ctx, (cap, one))))| {
                 // The buffer inside the generator is `Arc`, so these clones
                 // just increment the reference.
                 let rbg = random_bits_generator.clone();
                 async move {
-                    let contrib_b = BitDecomposition::execute(
+                    let credit_bits = BitDecomposition::execute(
                         ctx.narrow(&Step::BitDecomposeCurrentContribution),
                         RecordId::from(i),
                         rbg,
-                        contrib,
+                        credit,
                     )
                     .await?;
-                    let lt_b = one.clone()
+
+                    // compare_bit = current_contribution <=? cap
+                    let compare_bit = one.clone()
                         - &BitwiseLessThan::execute(
                             ctx.narrow(&Step::IsCapLessThanCurrentContribution),
                             RecordId::from(i),
                             &cap,
-                            &contrib_b,
+                            &credit_bits,
                         )
                         .await?;
-                    Ok::<_, Error>(lt_b)
+                    Ok::<_, Error>(compare_bit)
                 }
             }),
     )
@@ -225,8 +264,7 @@ async fn compute_final_credits<F: Field>(
     final_credits: &mut Batch<Replicated<F>>,
     cap: u32,
 ) -> Result<Batch<Replicated<F>>, Error> {
-    #[allow(clippy::cast_possible_truncation)]
-    let num_rows = input.len() as RecordIndex;
+    let num_rows: RecordIndex = input.len().try_into().unwrap();
     let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
 
     // Below is the logic from MP-SPDZ prototype, which this part of the
@@ -271,76 +309,6 @@ async fn compute_final_credits<F: Field>(
     }
 
     Ok(final_credits.clone())
-}
-
-#[allow(dead_code)]
-struct InteractionClosureInput<F: Field> {
-    b: Replicated<F>,
-    current: Replicated<F>,
-    sibling: Replicated<F>,
-}
-
-/// Many attribution protocols use interaction patterns to obliviously
-/// compute values, and they usually follow the same pattern. This is a
-/// generalized logic of the "interaction pattern" computation.
-///
-/// `interaction_fn` is the computation unique to each protocol. The caller
-/// will use five parameters given as closure's parameters, which are:
-///
-/// * context
-/// * record ID
-/// * `b` bit
-/// * current `interaction_value`
-/// * sibling `interaction_value`
-///
-/// The latter three are contained in `InteractionClosureInput` struct.
-async fn interaction_pattern<'a, F, H, R>(
-    ctx: SemiHonestContext<'a, F>,
-    record_id: RecordId,
-    this: InteractionPatternInputRow<F>,
-    sibling: InteractionPatternInputRow<F>,
-    mut interaction_fn: H,
-    first_iteration: bool,
-) -> Result<(Replicated<F>, Replicated<F>), Error>
-where
-    F: Field,
-    H: FnMut(SemiHonestContext<'a, F>, RecordId, InteractionClosureInput<F>) -> R,
-    R: Future<Output = Result<Replicated<F>, Error>> + Send,
-{
-    // Compute `b = [this.stop_bit * sibling.helper_bit]`.
-    // Since `stop_bit` is initialized with all 1's, we only multiply in
-    // the second and later iterations.
-    let mut b = sibling.helper_bit;
-    if !first_iteration {
-        b = ctx
-            .narrow(&Step::BTimesStopBit)
-            .multiply(record_id, &b, &this.stop_bit)
-            .await?;
-    }
-
-    let interaction_future = interaction_fn(
-        ctx.clone(),
-        record_id,
-        InteractionClosureInput {
-            b: b.clone(),
-            current: this.interaction_value.clone(),
-            sibling: sibling.interaction_value.clone(),
-        },
-    );
-
-    // For the same reason as calculating [b], we skip the multiplication
-    // in the first iteration.
-    let stop_bit_future = if first_iteration {
-        futures::future::Either::Left(futures::future::ok(b.clone()))
-    } else {
-        futures::future::Either::Right(ctx.narrow(&Step::BTimesSuccessorStopBit).multiply(
-            record_id,
-            &b,
-            &sibling.stop_bit,
-        ))
-    };
-
-    try_join(interaction_future, stop_bit_future).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
