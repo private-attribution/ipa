@@ -79,7 +79,7 @@ pub fn convert_bit_local<F: Field>(
     }
 }
 
-pub fn convert_bits_local<F: Field>(
+pub fn convert_bit_local_list<F: Field>(
     helper_role: Role,
     bit_index: u32,
     input: &[XorReplicated],
@@ -146,32 +146,42 @@ where
     Ok(-(result * F::from(2)) + a + b)
 }
 
-pub async fn convert_bit<F, C, S>(ctx: C, record_id: RecordId, input: &[S; 3]) -> Result<S, Error>
+pub async fn convert_bit<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    locally_converted_bits: &[S; 3],
+) -> Result<S, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let (sh0, sh1, sh2) = (&input[0], &input[1], &input[2]);
+    let (sh0, sh1, sh2) = (
+        &locally_converted_bits[0],
+        &locally_converted_bits[1],
+        &locally_converted_bits[2],
+    );
     let ctx1 = ctx.narrow(&Step::Xor1);
     let ctx2 = ctx.narrow(&Step::Xor2);
     let sh0_xor_sh1 = xor_specialized_1(ctx1, record_id, sh0, sh1).await?;
     xor_specialized_2(ctx2, record_id, &sh0_xor_sh1, sh2).await
 }
 
-pub async fn convert_bits<F, C, S>(ctx: C, input: &[[S; 3]]) -> Result<Vec<S>, Error>
+pub async fn convert_bit_list<F, C, S>(
+    ctx: C,
+    locally_converted_bits: &[[S; 3]],
+) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let r = try_join_all(
-        zip(repeat(ctx), input.iter())
+    try_join_all(
+        zip(repeat(ctx), locally_converted_bits.iter())
             .enumerate()
             .map(|(i, (ctx, row))| async move { convert_bit(ctx, RecordId::from(i), row).await }),
     )
-    .await?;
-    Ok(r)
+    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
