@@ -7,11 +7,10 @@ mod credit_capping;
 
 #[derive(Debug, Clone)]
 pub struct AttributionInputRow<F: Field> {
-    is_trigger_bit: Replicated<F>,
-    helper_bit: Replicated<F>,
-    #[allow(dead_code)]
-    breakdown_key: Replicated<F>,
-    credit: Replicated<F>,
+    pub is_trigger_bit: Replicated<F>,
+    pub helper_bit: Replicated<F>,
+    pub breakdown_key: Replicated<F>,
+    pub credit: Replicated<F>,
 }
 
 pub struct InteractionPatternInputRow<F: Field> {
@@ -43,6 +42,27 @@ impl AsRef<str> for InteractionPatternStep {
         ];
         match self {
             Self::Depth(i) => DEPTH[*i],
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AttributionInputRowResharableStep {
+    IsTriggerBit,
+    HelperBit,
+    BreakdownKey,
+    Credit,
+}
+
+impl Substep for AttributionInputRowResharableStep {}
+
+impl AsRef<str> for AttributionInputRowResharableStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::IsTriggerBit => "is_trigger_bit",
+            Self::HelperBit => "helper_bit",
+            Self::BreakdownKey => "breakdown_key",
+            Self::Credit => "credit",
         }
     }
 }

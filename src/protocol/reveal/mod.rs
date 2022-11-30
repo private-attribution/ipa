@@ -112,9 +112,9 @@ pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Sha
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use crate::rand::thread_rng;
     use futures::future::{try_join, try_join3};
     use proptest::prelude::Rng;
-    use rand::thread_rng;
     use std::iter::zip;
 
     use crate::{
