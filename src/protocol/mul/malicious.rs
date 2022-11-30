@@ -175,7 +175,7 @@ mod regular_mul_tests {
     use crate::{
         ff::Fp31,
         protocol::{mul::SecureMul, QueryId, RecordId},
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -208,7 +208,7 @@ mod specialized_mul_tests {
             },
             QueryId, RecordId,
         },
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
