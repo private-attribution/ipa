@@ -10,12 +10,7 @@ use crate::{ff::Field, protocol::context::Context, secret_sharing::SecretSharing
 pub trait Resharable<F: Field>: Sized {
     type Share: SecretSharing<F>;
 
-    async fn resharable<C>(
-        &self,
-        ctx: C,
-        record_id: RecordId,
-        to_helper: Role,
-    ) -> Result<Self, Error>
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
 }
@@ -34,9 +29,7 @@ where
     let reshares = zip(repeat(ctx), input)
         .enumerate()
         .map(|(index, (ctx, input))| async move {
-            input
-                .resharable(ctx, RecordId::from(index), to_helper)
-                .await
+            input.reshare(ctx, RecordId::from(index), to_helper).await
         });
     try_join_all(reshares).await
 }

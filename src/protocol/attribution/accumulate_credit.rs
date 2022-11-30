@@ -50,12 +50,7 @@ impl AsRef<str> for Step {
 impl<F: Field> Resharable<F> for AttributionInputRow<F> {
     type Share = Replicated<F>;
 
-    async fn resharable<C>(
-        &self,
-        ctx: C,
-        record_id: RecordId,
-        to_helper: Role,
-    ) -> Result<Self, Error>
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
     {
@@ -246,6 +241,7 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use crate::rand::{thread_rng, Rng};
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
@@ -255,7 +251,7 @@ mod tests {
         },
         test_fixture::{share, Reconstruct, Runner, TestWorld},
     };
-    use rand::{rngs::mock::StepRng, Rng};
+    use rand::rngs::mock::StepRng;
     use std::iter::zip;
     use tokio::try_join;
 
@@ -375,8 +371,8 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn test_resharable() {
-        let mut rng = rand::thread_rng();
+    pub async fn test_reshare() {
+        let mut rng = thread_rng();
         let secret: [Fp31; 4] = [(); 4].map(|_| rng.gen::<Fp31>());
 
         let world = TestWorld::<Fp31>::new(QueryId);
@@ -384,10 +380,7 @@ mod tests {
         for &role in Role::all() {
             let new_shares = world
                 .semi_honest(secret, |ctx, share: AttributionInputRow<Fp31>| async move {
-                    share
-                        .resharable(ctx, RecordId::from(0), role)
-                        .await
-                        .unwrap()
+                    share.reshare(ctx, RecordId::from(0), role).await.unwrap()
                 })
                 .await;
             assert_eq!(secret, new_shares.reconstruct());

@@ -194,11 +194,11 @@ mod tests {
         },
         QueryId, RecordId,
     };
+    use crate::rand::thread_rng;
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::{IntoShares, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
-    use rand::thread_rng;
 
     #[derive(Clone, Copy)]
     struct SpecializedA(Fp31);
@@ -249,7 +249,7 @@ mod tests {
         const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let a: Vec<_> = (0..COUNT)
             .map(|_| SpecializedA(rng.gen::<Fp31>()))
             .collect();
@@ -313,7 +313,7 @@ mod tests {
         const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
         let b: Vec<_> = (0..COUNT)
             .map(|_| SpecializedC(rng.gen::<Fp31>()))

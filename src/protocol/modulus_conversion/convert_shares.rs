@@ -200,6 +200,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
+    use crate::rand::thread_rng;
     use crate::{
         error::Error,
         ff::{Field, Fp31},
@@ -210,7 +211,7 @@ mod tests {
         test_fixture::{join3, Reconstruct, TestWorld},
     };
     use futures::future::join_all;
-    use proptest::prelude::Rng;
+    use rand::Rng;
     use std::iter::{repeat, zip};
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -220,7 +221,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn convert_one_bit_of_many_match_keys() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let world = TestWorld::<Fp31>::new(QueryId);
         let context = world.contexts();
