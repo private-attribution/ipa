@@ -267,16 +267,14 @@ async fn compute_final_credits<F: Field>(
     let num_rows: RecordIndex = input.len().try_into().unwrap();
     let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
 
-    // Below is the logic from MP-SPDZ prototype, which this part of the
-    // protocol implements.
+    // This method implements the logic from MP-SPDZ code below.
     //
     // // next line computes:
-    // //
-    // // if next.helper_bit==0 then d=cap <-no previous event with same match key
-    // // else if next.compare_bit==0 then d=0 <-previous event used up all budget
-    // //      else d=cap-next.current_contribution <-use remaining budget, up to cap
+    // // if next.helper_bit==0 then d=cap <- no previous event with same match key
+    // // else if next.compare_bit==0 then d=0 <- previous event used up all budget
+    // // else d=cap-next.current_contribution <- use remaining budget, up to cap
     //
-    // d = cap - next.helper_bit * (cap + next.compare_bit * (next.current_contribution-cap))
+    // d = cap - next.helper_bit * (cap + next.compare_bit * (next.current_contribution - cap))
     //
     // // next line computes:
     // // if (compare_bit==0) then final_credit=d
