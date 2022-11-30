@@ -1,5 +1,4 @@
-use super::dumb_bitwise_lt::BitwiseLessThan;
-use super::local_secret_shared_bits;
+use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::BitOpStep;
@@ -126,9 +125,9 @@ impl SolvedBits {
         record_id: RecordId,
         b_b: &[Replicated<F>],
     ) -> Result<bool, Error> {
-        let p_b = local_secret_shared_bits(F::PRIME.into(), ctx.role());
         let c_b =
-            BitwiseLessThan::execute(ctx.narrow(&Step::IsPLessThanB), record_id, b_b, &p_b).await?;
+            BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
+                .await?;
         if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
             return Ok(false);
         }
