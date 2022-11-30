@@ -158,9 +158,9 @@ impl crate::protocol::Substep for UpgradeTripleStep {}
 impl AsRef<str> for UpgradeTripleStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::V0 => "v0",
-            Self::V1 => "v1",
-            Self::V2 => "v2",
+            Self::V0 => "upgrade_bit_triple0",
+            Self::V1 => "upgrade_bit_triple1",
+            Self::V2 => "upgrade_bit_triple2",
         }
     }
 }
