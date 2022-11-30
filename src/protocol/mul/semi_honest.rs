@@ -212,11 +212,9 @@ mod regular_mul_tests {
     use crate::ff::{Field, Fp31};
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{QueryId, RecordId};
-
-    use crate::rand::thread_rng;
+    use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
-    use proptest::prelude::Rng;
     use rand::distributions::Standard;
     use rand::prelude::Distribution;
     use std::iter::{repeat, zip};
@@ -307,10 +305,9 @@ mod specialized_mul_tests {
     use crate::ff::Fp31;
     use crate::protocol::mul::test::{SpecializedA, SpecializedB, SpecializedC};
     use crate::protocol::{QueryId, RecordId};
+    use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
-    use proptest::prelude::Rng;
-    use rand::thread_rng;
 
     #[tokio::test]
     async fn specialized_1() {
@@ -386,7 +383,7 @@ mod specialized_mul_tests {
         const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
         let b: Vec<_> = (0..COUNT)
             .map(|_| SpecializedC(rng.gen::<Fp31>()))

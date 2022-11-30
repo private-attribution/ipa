@@ -37,7 +37,7 @@ pub trait SecureMul<F: Field> {
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
-pub use {
+use {
     malicious::multiply_one_share_mostly_zeroes as maliciously_secure_multiply_one_share_mostly_zeroes,
     malicious::multiply_two_shares_mostly_zeroes as maliciously_secure_multiply_two_shares_mostly_zeroes,
     malicious::secure_mul as maliciously_secure_mul,
