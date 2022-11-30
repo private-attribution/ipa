@@ -112,6 +112,13 @@ async fn compute_current_contribution<'a, F: Field>(
     let mut current_contribution = current_contribution;
     let num_rows: RecordIndex = input.len().try_into().unwrap();
 
+    // Below is the logic from MP-SPDZ prototype, which this part of the
+    // protocol implements.
+    //
+    // b = stop_bit * successor.helper_bit
+    // current_contribution += b * successor.current_contribution
+    // stop_bit = b * successor.stop_bit
+
     for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
@@ -217,21 +224,23 @@ async fn compute_final_credits<F: Field>(
     // Below is the logic from MP-SPDZ prototype, which this part of the
     // protocol implements.
     //
-    // d = (cap - helperbits.get_vector(base = 1, size = numrows -1 )
-    //         * (cap + compare_bit.get_vector(base = 1, size = numrows -1)
-    //             * ((cap - current_contribution.get_vector(base = 1, size = numrows-1)).get_vector())
-    //             )
-    //         )
-    // final_credits.assign_vector(
-    //     d.get_vector() + compare_bit.get_vector(base = 1, size = numrows-1)
-    //         * (final_credits.get_vector(base = 1, size = numrows - 1) - d.get_vector())
-    //     , base = 1)
+    // // next line computes:
+    // //
+    // // if next.helper_bit==0 then d=cap <-no previous event with same match key
+    // // else if next.compare_bit==0 then d=0 <-previous event used up all budget
+    // //      else d=cap-next.current_contribution <-use remaining budget, up to cap
     //
-    // TODO(taikiy): In the above logic, all vectors have "base = 1". Why are we skipping final_credits[0]??
+    // d = cap - next.helper_bit * (cap + next.compare_bit * (next.current_contribution-cap))
+    //
+    // // next line computes:
+    // // if (compare_bit==0) then final_credit=d
+    // // else final_credit=final_credit
+    //
+    // final_credit = d + compare_bit * (final_credit - d)
 
     for i in 0..(num_rows - 1) {
-        let a = cap.clone() - &current_contribution[i + 1].clone();
-        let b = cap.clone()
+        let a = &current_contribution[i + 1] - &cap;
+        let b = &cap
             + &ctx
                 .narrow(&Step::FinalCreditsSourceContribution)
                 .multiply(RecordId::from(i), &a, &compare_bits[i + 1])
@@ -240,15 +249,15 @@ async fn compute_final_credits<F: Field>(
             .narrow(&Step::FinalCreditsNextContribution)
             .multiply(RecordId::from(i), &input[i + 1].helper_bit, &b)
             .await?;
-        let d = cap.clone() - &c;
+        let d = &cap - &c;
 
-        final_credits[i + 1] = d.clone()
+        final_credits[i] = &d
             + &ctx
                 .narrow(&Step::FinalCreditsCompareBitTimesBudget)
                 .multiply(
                     RecordId::from(i),
-                    &compare_bits[i + 1],
-                    &(final_credits[i + 1].clone() - &d),
+                    &compare_bits[i],
+                    &(final_credits[i].clone() - &d),
                 )
                 .await?;
     }
@@ -439,25 +448,8 @@ mod tests {
             [0, 1, 5, 6],
             [1, 1, 0, 6],
         ];
-        const CAP: u32 = 20;
-        //
-        // Currently, this protocol doesn't produce outputs that we expect for
-        // some cases. One example is seen with this test case, where we have
-        // multiple source-trigger events sequences:
-        //
-        // Example:
-        // All events are from match key "1234".
-        // s = Source event, t = Trigger event
-        //
-        // s -> t -> t -> s -> s -> t -> t -> t -> ...
-        // ___________    _____________________
-        //   block 1             block 2
-        //
-        // A total contribution from this user "1243" should be capped at X,
-        // but the current logic caps the credits within each s-t "block",
-        //
-        // const EXPECTED: &[u128] = &[0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 5, 0, 0, 0, 0];
-        const EXPECTED: &[u128] = &[0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 0, 10, 0, 0, 6, 0];
+        const CAP: u32 = 18;
+        const EXPECTED: &[u128] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
 
         let world = TestWorld::<Fp32BitPrime>::new(QueryId);
         let context = world.contexts();
