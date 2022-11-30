@@ -5,7 +5,7 @@ use crate::protocol::RecordId;
 use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
 
-mod malicious;
+pub(crate) mod malicious;
 mod semi_honest;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.

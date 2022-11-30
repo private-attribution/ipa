@@ -1,6 +1,5 @@
 use raw_ipa::error::Error;
-use raw_ipa::ff::Field;
-use raw_ipa::ff::Fp32BitPrime;
+use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
 use raw_ipa::protocol::QueryId;
 use raw_ipa::secret_sharing::XorReplicated;
@@ -51,13 +50,13 @@ async fn main() -> Result<(), Error> {
     let duration = start.elapsed().as_secs_f32();
     println!("benchmark complete after {duration}s");
 
-    assert_eq!(result[0].len(), input_len);
-    assert_eq!(result[1].len(), input_len);
-    assert_eq!(result[2].len(), input_len);
+    assert_eq!(result[0].0.len(), input_len);
+    assert_eq!(result[1].0.len(), input_len);
+    assert_eq!(result[2].0.len(), input_len);
 
     let mut mpc_sorted_list: Vec<u128> = (0..input_len).map(|i| i as u128).collect();
     for (i, match_key) in match_keys.iter().enumerate() {
-        let index = (&result[0][i], &result[1][i], &result[2][i]).reconstruct();
+        let index = (&result[0].0[i], &result[1].0[i], &result[2].0[i]).reconstruct();
         mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
     }
 
