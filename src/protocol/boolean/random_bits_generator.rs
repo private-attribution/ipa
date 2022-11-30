@@ -177,9 +177,10 @@ impl<F: Field> Clone for RandomBitsGenerator<F> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use super::RandomBitsGenerator;
     use crate::{
         ff::Fp31,
-        protocol::{context::Context, QueryId},
+        protocol::QueryId,
         test_fixture::{join3, TestWorld},
     };
 
@@ -188,12 +189,12 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn basic() {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let [c0, c1, c2] = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let [c0, c1, c2] = world.contexts::<Fp31>();
 
-        let rbg0 = c0.random_bits_generator();
-        let rbg1 = c1.random_bits_generator();
-        let rbg2 = c2.random_bits_generator();
+        let rbg0 = RandomBitsGenerator::new();
+        let rbg1 = RandomBitsGenerator::new();
+        let rbg2 = RandomBitsGenerator::new();
 
         let _result = join3(
             rbg0.take_one(c0.clone()),
