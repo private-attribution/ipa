@@ -35,7 +35,6 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 }
 
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
-#[allow(clippy::cast_possible_truncation)]
 pub fn get_two_of_three_random_permutations(
     batch_size: u32,
     mut rng: (SequentialSharedRandomness, SequentialSharedRandomness),
@@ -62,7 +61,6 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
 async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     input: &[S],
     ctx: C,
@@ -80,7 +78,6 @@ async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 /// i)   2 helpers receive permutation pair and choose the permutation to be applied
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
-#[allow(clippy::cast_possible_truncation)]
 async fn shuffle_or_unshuffle_once<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     mut input: Vec<S>,
     random_permutations: (&[u32], &[u32]),
@@ -185,7 +182,7 @@ mod tests {
 
     use crate::{
         protocol::{sort::shuffle::get_two_of_three_random_permutations, Step},
-        test_fixture::{ParticipantSetup, permutation_valid},
+        test_fixture::{permutation_valid, ParticipantSetup},
     };
 
     #[test]

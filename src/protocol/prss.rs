@@ -420,11 +420,11 @@ impl Generator {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test {
-    use super::{Generator, KeyExchange, SequentialSharedRandomness, Endpoint};
+    use super::{Endpoint, Generator, KeyExchange, SequentialSharedRandomness};
+    use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::ParticipantSetup;
     use crate::{ff::Fp31, protocol::Step};
     use rand::prelude::SliceRandom;
-    use rand::{thread_rng, Rng};
     use std::mem::drop;
 
     fn make() -> (Generator, Generator) {
