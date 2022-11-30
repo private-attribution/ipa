@@ -27,6 +27,15 @@ use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
+#[derive(Debug)]
+/// This object contains the output of `shuffle_and_reveal_permutation`
+/// i) `revealed` permutation after shuffling
+/// ii) Random permutations: each helper knows 2/3 of random permutations. This is then used for shuffle protocol.
+pub struct RevealedAndRandomPermutations {
+    pub revealed: Vec<u32>,
+    pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
+}
+
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -39,7 +48,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
     ctx: C,
     input_len: u32,
     input_permutation: Vec<S>,
-) -> Result<(Vec<u32>, (Vec<u32>, Vec<u32>)), Error> {
+) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
         ctx.narrow(&GeneratePermutation).prss_rng(),
@@ -59,7 +68,10 @@ pub(super) async fn shuffle_and_reveal_permutation<
     let revealed_permutation =
         reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
 
-    Ok((revealed_permutation, random_permutations_for_shuffle))
+    Ok(RevealedAndRandomPermutations {
+        revealed: revealed_permutation,
+        randoms_for_shuffle: random_permutations_for_shuffle,
+    })
 }
 
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
@@ -94,7 +106,7 @@ pub async fn generate_permutation<F: Field>(
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
-        let ((shuffled_compose_permutation, random_permutations_for_shuffle), bit_i) = try_join(
+        let (revealed_and_random_permutations, bit_i) = try_join(
             shuffle_and_reveal_permutation(
                 ctx_bit.narrow(&ShuffleRevealPermutation),
                 input_len,
@@ -108,10 +120,16 @@ pub async fn generate_permutation<F: Field>(
             ctx_bit.narrow(&ApplyInv),
             bit_i,
             (
-                random_permutations_for_shuffle.0.as_slice(),
-                random_permutations_for_shuffle.1.as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
             ),
-            &shuffled_compose_permutation,
+            &revealed_and_random_permutations.revealed,
         )
         .await?;
 
@@ -124,10 +142,16 @@ pub async fn generate_permutation<F: Field>(
         let composed_i_permutation = compose(
             ctx_bit.narrow(&ComposeStep),
             (
-                random_permutations_for_shuffle.0.as_slice(),
-                random_permutations_for_shuffle.1.as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
             ),
-            &shuffled_compose_permutation,
+            &revealed_and_random_permutations.revealed,
             bit_i_permutation,
         )
         .await?;
@@ -211,11 +235,20 @@ mod tests {
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
-        assert_eq!(perms_and_randoms[0].0, perms_and_randoms[1].0);
-        assert_eq!(perms_and_randoms[1].0, perms_and_randoms[2].0);
+        assert_eq!(perms_and_randoms[0].revealed, perms_and_randoms[1].revealed);
+        assert_eq!(perms_and_randoms[1].revealed, perms_and_randoms[2].revealed);
 
-        assert_eq!(perms_and_randoms[0].1 .0, perms_and_randoms[2].1 .1);
-        assert_eq!(perms_and_randoms[1].1 .0, perms_and_randoms[0].1 .1);
-        assert_eq!(perms_and_randoms[2].1 .0, perms_and_randoms[1].1 .1);
+        assert_eq!(
+            perms_and_randoms[0].randoms_for_shuffle.0,
+            perms_and_randoms[2].randoms_for_shuffle.1
+        );
+        assert_eq!(
+            perms_and_randoms[1].randoms_for_shuffle.0,
+            perms_and_randoms[0].randoms_for_shuffle.1
+        );
+        assert_eq!(
+            perms_and_randoms[2].randoms_for_shuffle.0,
+            perms_and_randoms[1].randoms_for_shuffle.1
+        );
     }
 }

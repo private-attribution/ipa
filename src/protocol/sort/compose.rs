@@ -92,10 +92,10 @@ mod tests {
                     compose(
                         ctx,
                         (
-                            sigma_and_randoms.1 .0.as_slice(),
-                            sigma_and_randoms.1 .1.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.0.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.1.as_slice(),
                         ),
-                        &sigma_and_randoms.0,
+                        &sigma_and_randoms.revealed,
                         m_rho_shares,
                     )
                     .await
