@@ -165,6 +165,7 @@ mod tests {
     use std::iter::zip;
 
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::Replicated;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
@@ -183,7 +184,7 @@ mod tests {
         const COUNT: usize = 5;
 
         logging::setup();
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -195,7 +196,7 @@ mod tests {
             .collect::<Vec<_>>();
         expected.sort_unstable();
 
-        let result = world
+        let result: [Vec<Replicated<Fp32BitPrime>>; 3] = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
                     .await

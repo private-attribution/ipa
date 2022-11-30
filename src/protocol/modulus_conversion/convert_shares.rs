@@ -165,6 +165,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
 mod tests {
 
     use crate::rand::thread_rng;
+    use crate::secret_sharing::Replicated;
     use crate::{
         ff::Fp31,
         protocol::{modulus_conversion::convert_one_bit, QueryId, RecordId},
@@ -177,9 +178,9 @@ mod tests {
         const BITNUM: u32 = 4;
         let mut rng = thread_rng();
 
-        let world = TestWorld::<Fp31>::new(QueryId);
+        let world = TestWorld::new(QueryId);
         let match_key = MaskedMatchKey::mask(rng.gen());
-        let result = world
+        let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 convert_one_bit(ctx, RecordId::from(0), &mk_share, BITNUM)
                     .await
