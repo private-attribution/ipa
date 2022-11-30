@@ -9,8 +9,7 @@ use crate::protocol::attribution::AttributionInputRowResharableStep::{
 };
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
-
-use crate::protocol::sort::shuffle_objects::Resharable;
+use crate::protocol::sort::apply_sort::shuffle_objects::Resharable;
 use crate::{
     error::Error,
     ff::Field,
@@ -240,9 +239,10 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
-    use crate::protocol::sort::shuffle_objects::Resharable;
+pub(crate) mod tests {
+    use crate::protocol::sort::apply_sort::shuffle_objects::Resharable;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::Replicated;
     use crate::test_fixture::IntoShares;
     use crate::{
         ff::{Field, Fp31},
@@ -253,6 +253,8 @@ mod tests {
         },
         test_fixture::{share, Reconstruct, Runner, TestWorld},
     };
+    use rand::distributions::Standard;
+    use rand::prelude::Distribution;
     use rand::rngs::mock::StepRng;
     use std::iter::zip;
     use tokio::try_join;
@@ -262,11 +264,15 @@ mod tests {
     const H: [u128; 2] = [0, 1];
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
-    #[derive(Clone, Copy)]
-    struct Fp31AttributionInputRow([Fp31; 4]);
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct FAttributionInputRow<F: Field>(pub [F; 4]);
 
-    impl IntoShares<AttributionInputRow<Fp31>> for Fp31AttributionInputRow {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<Fp31>; 3] {
+    impl<F: Field + IntoShares<Replicated<F>>> IntoShares<AttributionInputRow<F>>
+        for FAttributionInputRow<F>
+    where
+        Standard: Distribution<F>,
+    {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
             let [a0, a1, a2] = self.0[0].share_with(rng);
             let [b0, b1, b2] = self.0[1].share_with(rng);
             let [c0, c1, c2] = self.0[2].share_with(rng);
@@ -291,6 +297,31 @@ mod tests {
                     credit: d2,
                 },
             ]
+        }
+    }
+
+    impl<F: Field> Reconstruct<FAttributionInputRow<F>> for [AttributionInputRow<F>; 3] {
+        fn reconstruct(&self) -> FAttributionInputRow<F> {
+            [&self[0], &self[1], &self[2]].reconstruct()
+        }
+    }
+
+    impl<F: Field> Reconstruct<FAttributionInputRow<F>> for [&AttributionInputRow<F>; 3] {
+        fn reconstruct(&self) -> FAttributionInputRow<F> {
+            let s0 = &self[0];
+            let s1 = &self[1];
+            let s2 = &self[2];
+
+            let is_trigger_bit =
+                (&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit).reconstruct();
+
+            let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
+
+            let breakdown_key =
+                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
+            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+
+            FAttributionInputRow([is_trigger_bit, helper_bit, breakdown_key, credit])
         }
     }
 
@@ -414,13 +445,13 @@ mod tests {
         for &role in Role::all() {
             let new_shares = world
                 .semi_honest(
-                    Fp31AttributionInputRow(secret),
+                    FAttributionInputRow(secret),
                     |ctx, share: AttributionInputRow<Fp31>| async move {
                         share.reshare(ctx, RecordId::from(0), role).await.unwrap()
                     },
                 )
                 .await;
-            assert_eq!(secret, new_shares.reconstruct());
+            assert_eq!(secret, new_shares.reconstruct().0);
         }
     }
 }

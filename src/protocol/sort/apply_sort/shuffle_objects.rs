@@ -1,37 +1,21 @@
 use std::iter::{repeat, zip};
 
-use async_trait::async_trait;
-use embed_doc_image::embed_doc_image;
-use futures::future::try_join_all;
 use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::Context, RecordId, Substep},
+    protocol::{context::Context, RecordId},
 };
+use async_trait::async_trait;
+use embed_doc_image::embed_doc_image;
+use futures::future::try_join_all;
 
-use super::shuffle::shuffle_for_helper;
-use super::{
+use crate::protocol::sort::shuffle::{shuffle_for_helper, ShuffleOrUnshuffle};
+use crate::protocol::sort::{
     apply::{apply, apply_inv},
     ShuffleStep::{self, Step1, Step2, Step3},
 };
-
-#[derive(Debug)]
-enum ShuffleOrUnshuffle {
-    Shuffle,
-    Unshuffle,
-}
-
-impl Substep for ShuffleOrUnshuffle {}
-impl AsRef<str> for ShuffleOrUnshuffle {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::Shuffle => "shuffle",
-            Self::Unshuffle => "unshuffle",
-        }
-    }
-}
 
 #[async_trait]
 pub trait Resharable<F: Field>: Sized {
@@ -42,11 +26,7 @@ pub trait Resharable<F: Field>: Sized {
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
 }
 
-async fn reshare_objects<F, C, S, T>(
-    input: &[T],
-    ctx: C,
-    to_helper: Role,
-) -> Result<Vec<T>, Error>
+async fn reshare_objects<F, C, S, T>(input: &[T], ctx: C, to_helper: Role) -> Result<Vec<T>, Error>
 where
     C: Context<F, Share = S> + Send,
     F: Field,
@@ -108,13 +88,13 @@ pub async fn shuffle_object_shares<C, F, I, S>(
     input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
     ctx: C,
-) -> Result<Vec<I>, Error> 
+) -> Result<Vec<I>, Error>
 where
     C: Context<F, Share = S> + Send,
     F: Field,
     I: Resharable<F, Share = S>,
     S: SecretSharing<F>,
-    {
+{
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,

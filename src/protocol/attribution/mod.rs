@@ -2,7 +2,7 @@ use crate::{ff::Field, secret_sharing::Replicated};
 
 use super::Substep;
 
-mod accumulate_credit;
+pub(crate) mod accumulate_credit;
 
 #[derive(Debug, Clone)]
 pub struct AttributionInputRow<F: Field> {

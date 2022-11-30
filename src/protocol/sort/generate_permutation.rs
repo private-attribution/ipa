@@ -14,8 +14,10 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{Replicated, SecretSharing, XorReplicated},
+    secret_sharing::{SecretSharing, XorReplicated},
 };
+
+use crate::protocol::sort::apply_sort::apply_sort_permutation::SortPermutation;
 
 use super::{
     compose::compose,
@@ -74,9 +76,6 @@ pub(super) async fn shuffle_and_reveal_permutation<
     })
 }
 
-struct SortPermutation<F: Field>(Vec<Replicated<F>>);
-
-
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -99,7 +98,7 @@ pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[XorReplicated],
     num_bits: u32,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<SortPermutation<F>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
     let bit_0 =
         convert_shares_for_a_bit(ctx_0.narrow(&ModulusConversion), input, num_bits, 0).await?;
@@ -167,6 +166,7 @@ pub async fn generate_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
+    use crate::protocol::sort::apply_sort::apply_sort_permutation::SortPermutation;
     use crate::rand::{thread_rng, Rng};
     use rand::seq::SliceRandom;
 
@@ -178,14 +178,19 @@ mod tests {
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, logging, Reconstruct, TestWorld},
+        test_fixture::{generate_shares, Reconstruct, TestWorld},
     };
+
+    impl<F: Field> Reconstruct<Vec<F>> for [SortPermutation<F>; 3] {
+        fn reconstruct(&self) -> Vec<F> {
+            [&self[0].0, &self[1].0, &self[2].0].reconstruct()
+        }
+    }
 
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        logging::setup();
         let world = TestWorld::<Fp32BitPrime>::new(QueryId);
         let mut rng = thread_rng();
 

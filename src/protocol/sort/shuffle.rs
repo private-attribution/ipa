@@ -19,7 +19,7 @@ use super::{
 };
 
 #[derive(Debug)]
-enum ShuffleOrUnshuffle {
+pub enum ShuffleOrUnshuffle {
     Shuffle,
     Unshuffle,
 }
