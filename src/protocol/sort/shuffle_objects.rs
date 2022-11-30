@@ -1,10 +1,8 @@
 use std::iter::{repeat, zip};
 
+use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-use rand::seq::SliceRandom;
-
-use crate::protocol::prss::SequentialSharedRandomness;
 use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
@@ -13,6 +11,7 @@ use crate::{
     protocol::{context::Context, RecordId, Substep},
 };
 
+use super::shuffle::shuffle_for_helper;
 use super::{
     apply::{apply, apply_inv},
     ShuffleStep::{self, Step1, Step2, Step3},
@@ -34,42 +33,31 @@ impl AsRef<str> for ShuffleOrUnshuffle {
     }
 }
 
-/// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
-pub fn get_two_of_three_random_permutations(
-    batch_size: u32,
-    mut rng: (SequentialSharedRandomness, SequentialSharedRandomness),
-) -> (Vec<u32>, Vec<u32>) {
-    let mut left_permutation = (0..batch_size).collect::<Vec<_>>();
-    let mut right_permutation = left_permutation.clone();
+#[async_trait]
+pub trait Resharable<F: Field>: Sized {
+    type Share: SecretSharing<F>;
 
-    left_permutation.shuffle(&mut rng.0);
-    right_permutation.shuffle(&mut rng.1);
-
-    (left_permutation, right_permutation)
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
 }
 
-/// This is SHUFFLE(Algorithm 1) described in <https://eprint.iacr.org/2019/695.pdf>.
-/// This protocol shuffles the given inputs across 3 helpers making them indistinguishable to the helpers
-
-// We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
-// H1, H2 and H3 respectively (since they do not participate in the step) and hence are the recipients of the shuffle.
-pub(super) fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
-    match which_step {
-        Step1 => Role::H1,
-        Step2 => Role::H2,
-        Step3 => Role::H3,
-    }
-}
-
-async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
-    input: &[S],
+#[allow(dead_code)]
+async fn reshare_objects<F, C, S, T>(
+    input: &[T],
     ctx: C,
     to_helper: Role,
-) -> Result<Vec<S>, Error> {
+) -> Result<Vec<T>, Error>
+where
+    C: Context<F, Share = S> + Send,
+    F: Field,
+    S: SecretSharing<F>,
+    T: Resharable<F, Share = S>,
+{
     let reshares = zip(repeat(ctx), input)
         .enumerate()
         .map(|(index, (ctx, input))| async move {
-            ctx.reshare(input, RecordId::from(index), to_helper).await
+            input.reshare(ctx, RecordId::from(index), to_helper).await
         });
     try_join_all(reshares).await
 }
@@ -78,13 +66,19 @@ async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 /// i)   2 helpers receive permutation pair and choose the permutation to be applied
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
-async fn shuffle_or_unshuffle_once<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
-    mut input: Vec<S>,
+async fn shuffle_or_unshuffle_once<F, S, C, I>(
+    mut input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
     ctx: &C,
     which_step: ShuffleStep,
-) -> Result<Vec<S>, Error> {
+) -> Result<Vec<I>, Error>
+where
+    C: Context<F, Share = S> + Send,
+    F: Field,
+    I: Resharable<F, Share = S>,
+    S: SecretSharing<F>,
+{
     let to_helper = shuffle_for_helper(which_step);
     let ctx = ctx.narrow(&which_step);
 
@@ -100,7 +94,7 @@ async fn shuffle_or_unshuffle_once<F: Field, S: SecretSharing<F>, C: Context<F, 
             ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut input),
         }
     }
-    reshare_all_shares(&input, ctx, to_helper).await
+    reshare_objects(&input, ctx, to_helper).await
 }
 
 #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
@@ -111,11 +105,17 @@ async fn shuffle_or_unshuffle_once<F: Field, S: SecretSharing<F>, C: Context<F, 
 /// For this, we have three shuffle steps one per `shuffle_or_unshuffle_once` i.e. Step1, Step2 and Step3.
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
 /// ![Shuffle steps][shuffle]
-pub async fn shuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
-    input: Vec<S>,
+pub async fn shuffle_object_shares<C, F, I, S>(
+    input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
     ctx: C,
-) -> Result<Vec<S>, Error> {
+) -> Result<Vec<I>, Error> 
+where
+    C: Context<F, Share = S> + Send,
+    F: Field,
+    I: Resharable<F, Share = S>,
+    S: SecretSharing<F>,
+    {
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
@@ -146,11 +146,17 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 /// Unshuffle calls `shuffle_or_unshuffle_once` three times with 2 helpers shuffling the shares each time in the opposite order to shuffle.
 /// Order of calling `shuffle_or_unshuffle_once` is shuffle with (H1, H2), (H3, H1) and (H2, H3)
 /// ![Unshuffle steps][unshuffle]
-pub async fn unshuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
-    input: Vec<S>,
+pub async fn unshuffle_object_shares<F, S, C, I>(
+    input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
     ctx: C,
-) -> Result<Vec<S>, Error> {
+) -> Result<Vec<I>, Error>
+where
+    C: Context<F, Share = S> + Send,
+    F: Field,
+    I: Resharable<F, Share = S>,
+    S: SecretSharing<F>,
+{
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,

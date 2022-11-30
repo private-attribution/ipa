@@ -6,9 +6,10 @@ pub mod bit_permutation;
 mod compose;
 pub mod generate_permutation;
 pub mod reshare;
-pub mod reshare_objects;
+pub mod shuffle_objects;
 mod secureapplyinv;
 mod shuffle;
+mod sort_objects;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {

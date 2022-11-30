@@ -9,8 +9,8 @@ use crate::protocol::attribution::AttributionInputRowResharableStep::{
 };
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
-use crate::protocol::sort::reshare_objects::Resharable;
 
+use crate::protocol::sort::shuffle_objects::Resharable;
 use crate::{
     error::Error,
     ff::Field,
@@ -241,6 +241,7 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use crate::protocol::sort::shuffle_objects::Resharable;
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::IntoShares;
     use crate::{
@@ -248,7 +249,7 @@ mod tests {
         helpers::Role,
         protocol::{
             attribution::accumulate_credit::accumulate_credit, attribution::AttributionInputRow,
-            batch::Batch, sort::reshare_objects::Resharable, QueryId, RecordId,
+            batch::Batch, QueryId, RecordId,
         },
         test_fixture::{share, Reconstruct, Runner, TestWorld},
     };
