@@ -80,7 +80,7 @@ impl TestWorld {
             .build()
             .expect("failed to create metrics receiver");
 
-        let participants = ParticipantSetup::new_with(metrics_receiver.sink()).into_participants();
+        let participants = ParticipantSetup::new(metrics_receiver.sink()).into_participants();
 
         let network = InMemoryNetwork::new();
         let gateways = network
