@@ -8,7 +8,7 @@ use crate::protocol::mul::SecureMul;
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
-use crate::protocol::{RecordId, Step, Substep};
+use crate::protocol::{BitOpStep, RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
 
@@ -51,6 +51,20 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner.upgrade(record_id, input).await
+    }
+
+    /// Upgrade an input for a specific bit index using this context.  Use this for
+    /// inputs that have multiple bit positions in place of `upgrade()`.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade_bit(
+        &self,
+        record_id: RecordId,
+        bit_index: u32,
+        input: Replicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner.upgrade_bit(record_id, bit_index, input).await
     }
 }
 
@@ -151,6 +165,21 @@ impl<'a, F: Field> ContextInner<'a, F> {
     ) -> Result<MaliciousReplicated<F>, Error> {
         let rx = self
             .upgrade_ctx
+            .clone()
+            .multiply(record_id, &x, &self.r_share)
+            .await?;
+        Ok(MaliciousReplicated::new(x, rx))
+    }
+
+    async fn upgrade_bit(
+        &self,
+        record_id: RecordId,
+        bit_index: u32,
+        x: Replicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        let rx = self
+            .upgrade_ctx
+            .narrow(&BitOpStep::from(bit_index))
             .clone()
             .multiply(record_id, &x, &self.r_share)
             .await?;

@@ -241,7 +241,6 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::super::tests::generate_shared_input;
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::IntoShares;
     use crate::{
@@ -253,8 +252,8 @@ mod tests {
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::rngs::mock::StepRng;
-    use tokio::try_join;
+    use rand::distributions::Standard;
+    use rand::prelude::Distribution;
 
     const S: u128 = 0;
     const T: u128 = 1;
@@ -262,10 +261,14 @@ mod tests {
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     #[derive(Clone, Copy)]
-    struct Fp31AttributionInputRow([Fp31; 4]);
+    struct AttributionTestInput<F>([F; 4]);
 
-    impl IntoShares<AttributionInputRow<Fp31>> for Fp31AttributionInputRow {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<Fp31>; 3] {
+    impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>
+    where
+        F: Field,
+        Standard: Distribution<F>,
+    {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
             let [a0, a1, a2] = self.0[0].share_with(rng);
             let [b0, b1, b2] = self.0[1].share_with(rng);
             let [c0, c1, c2] = self.0[2].share_with(rng);
@@ -334,30 +337,33 @@ mod tests {
         ];
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
+        let input = TEST_CASE.map(|x| {
+            AttributionTestInput([
+                Fp31::from(x[0]),
+                Fp31::from(x[1]),
+                Fp31::from(x[2]),
+                Fp31::from(x[3]),
+            ])
+        });
+
         let world = TestWorld::new(QueryId);
-        let context = world.contexts::<Fp31>();
-        let mut rng = StepRng::new(100, 1);
+        let result = world
+            .semi_honest(input, |ctx, input| async move {
+                accumulate_credit(ctx, &input.try_into().unwrap())
+                    .await
+                    .unwrap()
+            })
+            .await;
 
-        let shares = generate_shared_input(TEST_CASE, &mut rng);
-
-        let [c0, c1, c2] = context;
-        let [s0, s1, s2] = shares;
-
-        let h0_future = accumulate_credit(c0, &s0);
-        let h1_future = accumulate_credit(c1, &s1);
-        let h2_future = accumulate_credit(c2, &s2);
-
-        let result = try_join!(h0_future, h1_future, h2_future).unwrap();
-
-        assert_eq!(result.0.len(), TEST_CASE.len());
-        assert_eq!(result.1.len(), TEST_CASE.len());
-        assert_eq!(result.2.len(), TEST_CASE.len());
+        assert_eq!(result[0].len(), TEST_CASE.len());
+        assert_eq!(result[1].len(), TEST_CASE.len());
+        assert_eq!(result[2].len(), TEST_CASE.len());
 
         for (i, expected) in expected.iter().enumerate() {
             let v = (
-                &result.0[i].credit,
-                &result.1[i].credit,
-                &result.2[i].credit,
+                &result[0][i].credit,
+                &result[1][i].credit,
+                &result[2][i].credit,
             )
                 .reconstruct();
             assert_eq!(v.as_u128(), *expected);
@@ -374,7 +380,7 @@ mod tests {
         for &role in Role::all() {
             let new_shares = world
                 .semi_honest(
-                    Fp31AttributionInputRow(secret),
+                    AttributionTestInput(secret),
                     |ctx, share: AttributionInputRow<Fp31>| async move {
                         share.reshare(ctx, RecordId::from(0), role).await.unwrap()
                     },

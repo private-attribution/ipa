@@ -180,7 +180,7 @@ async fn compute_compare_bits<F: Field>(
 ) -> Result<Batch<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator = RandomBitsGenerator::new();
-    let cap = local_secret_shared_bits(cap.into(), ctx.role());
+    let cap = local_secret_shared_bits(&ctx, cap.into());
     let one = Replicated::one(ctx.role());
     let compare_bits: Batch<_> = try_join_all(
         current_contribution

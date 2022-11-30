@@ -1,9 +1,12 @@
+use super::align_bit_lengths;
 use super::xor::xor;
-use super::{align_bit_lengths, BitOpStep};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
+use crate::protocol::{
+    context::{Context, SemiHonestContext},
+    mul::SecureMul,
+    BitOpStep, RecordId,
+};
 use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::zip;
@@ -44,7 +47,7 @@ impl BitwiseLessThan {
             .skip(1)
             .rev()
             .map(|(i, (a_bit, b_bit))| {
-                let c = ctx.narrow(&BitOpStep::Step(i));
+                let c = ctx.narrow(&BitOpStep::from(i));
                 async move { xor(c, record_id, a_bit, b_bit).await }
             });
         try_join_all(xor).await
@@ -67,7 +70,7 @@ impl BitwiseLessThan {
         record_id: RecordId,
     ) -> Result<Vec<Replicated<F>>, Error> {
         let less_than = zip(a, b).enumerate().rev().map(|(i, (a_bit, b_bit))| {
-            let c = ctx.narrow(&BitOpStep::Step(i));
+            let c = ctx.narrow(&BitOpStep::from(i));
             let one = c.share_of_one();
             async move { c.multiply(record_id, &(one - a_bit), b_bit).await }
         });
@@ -108,12 +111,12 @@ impl BitwiseLessThan {
         let prefix_equal_context = ctx.narrow(&Step::PrefixEqual);
         for i in 1..(less_thaned_bits.len() - 1) {
             let (ith_bit_condition, prefix) = try_join(
-                check_each_bit_context.narrow(&BitOpStep::Step(i)).multiply(
+                check_each_bit_context.narrow(&BitOpStep::from(i)).multiply(
                     record_id,
                     &less_thaned_bits[i],
                     &all_preceeding_bits_the_same,
                 ),
-                prefix_equal_context.narrow(&BitOpStep::Step(i)).multiply(
+                prefix_equal_context.narrow(&BitOpStep::from(i)).multiply(
                     record_id,
                     &(one.clone() - &xored_bits[i]),
                     &all_preceeding_bits_the_same,
@@ -125,7 +128,7 @@ impl BitwiseLessThan {
         }
         let final_index = a.len() - 1;
         let final_bit_condition = check_each_bit_context
-            .narrow(&BitOpStep::Step(final_index))
+            .narrow(&BitOpStep::from(final_index))
             .multiply(
                 record_id,
                 &less_thaned_bits[final_index],

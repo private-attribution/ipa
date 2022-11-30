@@ -14,17 +14,22 @@ pub use xor::XorReplicated;
 pub trait SecretSharing<F>:
     for<'a> Add<&'a Self, Output = Self>
     + for<'a> AddAssign<&'a Self>
-    + Neg
+    + Neg<Output = Self>
     + for<'a> Sub<&'a Self, Output = Self>
     + for<'a> SubAssign<&'a Self>
-    + Mul<F>
+    + Mul<F, Output = Self>
     + Clone
     + Debug
-    + Default
     + Sized
+    + Send
     + Sync
 {
+    const ZERO: Self;
 }
 
-impl<F: Field> SecretSharing<F> for Replicated<F> {}
-impl<F: Field> SecretSharing<F> for MaliciousReplicated<F> {}
+impl<F: Field> SecretSharing<F> for Replicated<F> {
+    const ZERO: Self = Replicated::ZERO;
+}
+impl<F: Field> SecretSharing<F> for MaliciousReplicated<F> {
+    const ZERO: Self = MaliciousReplicated::ZERO;
+}

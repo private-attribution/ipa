@@ -41,6 +41,11 @@ impl<F: Field> Default for MaliciousReplicated<F> {
 }
 
 impl<F: Field> MaliciousReplicated<F> {
+    pub const ZERO: Self = Self {
+        x: Replicated::ZERO,
+        rx: Replicated::ZERO,
+    };
+
     #[must_use]
     pub fn new(x: Replicated<F>, rx: Replicated<F>) -> Self {
         Self { x, rx }
