@@ -3,10 +3,10 @@ use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::BitOpStep;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
+use crate::protocol::modulus_conversion::convert_one_bit;
 use crate::protocol::reveal::Reveal;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, XorReplicated};
 use futures::future::try_join_all;
 use std::iter::repeat;
 
@@ -91,8 +91,10 @@ impl SolvedBits {
             .generate_values(record_id);
 
         // Same here. For now, 256-bit is enough for our F_p
-        #[allow(clippy::cast_possible_truncation)]
-        let xor_shares = XorShares::new(l as u8, b_bits_left as u64, b_bits_right as u64);
+        let xor_share = XorReplicated::new(
+            u64::try_from(b_bits_left & u128::from(u64::MAX)).unwrap(),
+            u64::try_from(b_bits_right & u128::from(u64::MAX)).unwrap(),
+        );
 
         // Convert each bit to secret sharings of that bit in the target field
         let c = ctx.narrow(&Step::ConvertShares);
@@ -100,20 +102,14 @@ impl SolvedBits {
             // again, we don't expect our prime field to be > 2^64
             #[allow(clippy::cast_possible_truncation)]
             let c = c.narrow(&BitOpStep::Step(i as usize));
-            async move {
-                #[allow(clippy::cast_possible_truncation)]
-                ConvertShares::new(xor_shares)
-                    .execute_one_bit(c, record_id, i as u8)
-                    .await
-            }
+            async move { convert_one_bit(c, record_id, &xor_share, i).await }
         });
 
         // Pad 0's at the end to return `F::Integer::BITS` long bits
         let mut b_b = try_join_all(futures).await?;
-        #[allow(clippy::cast_possible_truncation)]
         b_b.append(
             &mut repeat(Replicated::ZERO)
-                .take(leading_zero_bits as usize)
+                .take(usize::try_from(leading_zero_bits).unwrap())
                 .collect::<Vec<_>>(),
         );
 

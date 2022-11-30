@@ -1,8 +1,7 @@
 use crate::ff::Field;
-use crate::protocol::context::MaliciousContext;
-use crate::protocol::RecordId;
+use crate::protocol::{context::MaliciousContext, RecordId};
 use crate::rand::thread_rng;
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, XorReplicated};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use rand::{
@@ -11,6 +10,30 @@ use rand::{
 };
 use std::borrow::Borrow;
 use std::iter::{repeat, zip};
+
+#[derive(Clone, Copy)]
+pub struct MaskedMatchKey(u64);
+
+impl MaskedMatchKey {
+    pub const BITS: u32 = 23;
+    const MASK: u64 = u64::MAX >> (64 - Self::BITS);
+
+    #[must_use]
+    pub fn mask(v: u64) -> Self {
+        Self(v & Self::MASK)
+    }
+
+    #[must_use]
+    pub fn bit(self, bit_num: u32) -> u64 {
+        (self.0 >> bit_num) & 1
+    }
+}
+
+impl From<MaskedMatchKey> for u64 {
+    fn from(v: MaskedMatchKey) -> Self {
+        v.0
+    }
+}
 
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {
@@ -62,6 +85,20 @@ where
         let [a0, a1, a2] = self.0.share_with(rng);
         let [b0, b1, b2] = self.1.share_with(rng);
         [(a0, b0), (a1, b1), (a2, b2)]
+    }
+}
+
+impl IntoShares<XorReplicated> for MaskedMatchKey {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [XorReplicated; 3] {
+        debug_assert_eq!(self.0, self.0 & Self::MASK);
+        let s0 = rng.gen::<u64>() & Self::MASK;
+        let s1 = rng.gen::<u64>() & Self::MASK;
+        let s2 = self.0 ^ s0 ^ s1;
+        [
+            XorReplicated::new(s0, s1),
+            XorReplicated::new(s1, s2),
+            XorReplicated::new(s2, s0),
+        ]
     }
 }
 
