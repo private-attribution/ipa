@@ -25,7 +25,7 @@ mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    async fn xor_fp31(world: &TestWorld<Fp31>, a: Fp31, b: Fp31) -> Fp31 {
+    async fn xor_fp31(world: &TestWorld, a: Fp31, b: Fp31) -> Fp31 {
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
                 xor(ctx, RecordId::from(0), &a_share, &b_share)

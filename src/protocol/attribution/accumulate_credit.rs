@@ -373,7 +373,7 @@ mod tests {
         ];
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
-        let world = TestWorld::<Fp31>::new(QueryId);
+        let world = TestWorld::new(QueryId);
         let context = world.contexts();
         let mut rng = StepRng::new(100, 1);
 
@@ -408,7 +408,7 @@ mod tests {
         let mut rng = thread_rng();
         let secret: [Fp31; 4] = [(); 4].map(|_| rng.gen::<Fp31>());
 
-        let world = TestWorld::<Fp31>::new(QueryId);
+        let world = TestWorld::new(QueryId);
 
         for &role in Role::all() {
             let new_shares = world

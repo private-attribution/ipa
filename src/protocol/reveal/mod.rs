@@ -133,8 +133,8 @@ mod tests {
     #[tokio::test]
     pub async fn simple() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
@@ -158,8 +158,8 @@ mod tests {
     #[tokio::test]
     pub async fn malicious() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let sh_ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
 
         for i in 0..10_u32 {
@@ -188,8 +188,8 @@ mod tests {
     #[tokio::test]
     pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let sh_ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
 
         for i in 0..10 {

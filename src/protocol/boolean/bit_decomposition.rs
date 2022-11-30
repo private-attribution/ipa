@@ -1,5 +1,6 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use super::dumb_bitwise_sum::BitwiseSum;
+use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
@@ -21,6 +22,7 @@ pub struct BitDecomposition {}
 impl BitDecomposition {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
+        rbg: RandomBitsGenerator<F>,
         ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
         a_p: &Replicated<F>,
@@ -28,10 +30,7 @@ impl BitDecomposition {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = ctx
-            .random_bits_generator()
-            .take_one(ctx.narrow(&Step::GenerateRandomBits))
-            .await?;
+        let r = rbg.take_one(ctx.narrow(&Step::GenerateRandomBits)).await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
@@ -105,19 +104,21 @@ mod tests {
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Int},
-        protocol::{QueryId, RecordId},
+        protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, RecordId},
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bit_decomposition<F: Field>(world: &TestWorld<F>, a: F) -> Vec<F>
+    async fn bit_decomposition<F: Field>(world: &TestWorld, a: F) -> Vec<F>
     where
         F: Sized,
         Standard: Distribution<F>,
     {
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
-                BitDecomposition::execute(ctx, RecordId::from(0), &a_p)
+                let rbg = RandomBitsGenerator::new();
+
+                BitDecomposition::execute(rbg, ctx, RecordId::from(0), &a_p)
                     .await
                     .unwrap()
             })

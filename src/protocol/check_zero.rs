@@ -93,8 +93,8 @@ mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
         let mut counter = 0_u32;
 
