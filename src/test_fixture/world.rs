@@ -20,7 +20,13 @@ use crate::{
     secret_sharing::DowngradeMalicious,
     test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
 };
-use std::{fmt::Debug, iter::zip, sync::Arc};
+use std::{fmt::Debug, iter::zip, ptr, sync::Arc};
+use std::any::{Any};
+use std::io::stdout;
+use std::mem::ManuallyDrop;
+use metrics_util::debugging::DebuggingRecorder;
+use crate::cli::Metrics;
+use crate::test_fixture::metrics::snapshot;
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},
@@ -31,14 +37,13 @@ use super::{
 /// For now the messages sent through it never leave the test infra memory perimeter, so
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
-#[derive(Debug)]
 pub struct TestWorld<F: Field> {
-    pub query_id: QueryId,
-    pub gateways: [Gateway; 3],
-    pub participants: [PrssEndpoint; 3],
-    pub(super) executions: AtomicUsize,
+    _query_id: QueryId,
+    gateways: [Gateway; 3],
+    participants: [PrssEndpoint; 3],
+    executions: AtomicUsize,
     _network: Arc<InMemoryNetwork>,
-    pub rbg: [RandomBitsGenerator<F>; 3],
+    rbg: [RandomBitsGenerator<F>; 3],
 }
 
 #[derive(Copy, Clone)]
@@ -74,10 +79,19 @@ impl<F: Field> TestWorld<F> {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld<F> {
+        // setup logging
         logging::setup();
 
+        // setup metrics
+        crate::test_fixture::metrics::setup();
+
+        // PRSS
         let participants = make_participants();
+
+        // Network
         let network = InMemoryNetwork::new();
+
+        // Infra
         let gateways = network
             .endpoints
             .iter()
@@ -85,6 +99,7 @@ impl<F: Field> TestWorld<F> {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
+
         let rbg = (0..)
             .take(3)
             .map(|_| RandomBitsGenerator::new())
@@ -93,7 +108,7 @@ impl<F: Field> TestWorld<F> {
             .unwrap();
 
         TestWorld {
-            query_id,
+            _query_id: query_id,
             gateways,
             participants,
             executions: AtomicUsize::new(0),
@@ -152,6 +167,15 @@ pub trait Runner<I, A, F> {
         P: DowngradeMalicious<Target = O> + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
+}
+
+impl <F: Field> Drop for TestWorld<F> {
+    fn drop(&mut self) {
+        // let recorder = &metrics::try_recorder().unwrap() as &dyn Any;
+        // let recorder = recorder.downcast_ref::<Box<DebuggingRecorder>>().unwrap();
+        let metrics = Metrics::from_snapshot(snapshot());
+        metrics.print(&mut stdout()).unwrap();
+    }
 }
 
 #[async_trait]
