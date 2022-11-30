@@ -22,9 +22,9 @@ pub struct BitDecomposition {}
 impl BitDecomposition {
     #[allow(dead_code)]
     pub async fn execute<F: Field>(
-        rbg: RandomBitsGenerator<F>,
         ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
+        rbg: RandomBitsGenerator<F>,
         a_p: &Replicated<F>,
     ) -> Result<Vec<Replicated<F>>, Error> {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
@@ -118,7 +118,7 @@ mod tests {
             .semi_honest(a, |ctx, a_p| async move {
                 let rbg = RandomBitsGenerator::new();
 
-                BitDecomposition::execute(rbg, ctx, RecordId::from(0), &a_p)
+                BitDecomposition::execute(ctx, RecordId::from(0), rbg, &a_p)
                     .await
                     .unwrap()
             })
