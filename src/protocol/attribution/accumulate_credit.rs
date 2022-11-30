@@ -240,6 +240,9 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
+    use rand::distributions::Standard;
+    use rand::prelude::Distribution;
+
     use crate::protocol::sort::apply_sort::shuffle_objects::Resharable;
     use crate::rand::{thread_rng, Rng};
     use crate::secret_sharing::Replicated;
@@ -249,15 +252,10 @@ pub(crate) mod tests {
         helpers::Role,
         protocol::{
             attribution::accumulate_credit::accumulate_credit, attribution::AttributionInputRow,
-            batch::Batch, QueryId, RecordId,
+            QueryId, RecordId,
         },
-        test_fixture::{share, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
-    use rand::rngs::mock::StepRng;
-    use std::iter::zip;
-    use tokio::try_join;
 
     const S: u128 = 0;
     const T: u128 = 1;
@@ -265,11 +263,11 @@ pub(crate) mod tests {
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct FAttributionInputRow<F: Field>(pub [F; 4]);
+    pub struct AttributionTestInput<F>(pub [F; 4]);
 
-    impl<F: Field + IntoShares<Replicated<F>>> IntoShares<AttributionInputRow<F>>
-        for FAttributionInputRow<F>
+    impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>
     where
+        F: Field + IntoShares<Replicated<F>>,
         Standard: Distribution<F>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
@@ -300,14 +298,14 @@ pub(crate) mod tests {
         }
     }
 
-    impl<F: Field> Reconstruct<FAttributionInputRow<F>> for [AttributionInputRow<F>; 3] {
-        fn reconstruct(&self) -> FAttributionInputRow<F> {
+    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AttributionInputRow<F>; 3] {
+        fn reconstruct(&self) -> AttributionTestInput<F> {
             [&self[0], &self[1], &self[2]].reconstruct()
         }
     }
 
-    impl<F: Field> Reconstruct<FAttributionInputRow<F>> for [&AttributionInputRow<F>; 3] {
-        fn reconstruct(&self) -> FAttributionInputRow<F> {
+    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AttributionInputRow<F>; 3] {
+        fn reconstruct(&self) -> AttributionTestInput<F> {
             let s0 = &self[0];
             let s1 = &self[1];
             let s2 = &self[2];
@@ -321,47 +319,8 @@ pub(crate) mod tests {
                 (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
             let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
 
-            FAttributionInputRow([is_trigger_bit, helper_bit, breakdown_key, credit])
+            AttributionTestInput([is_trigger_bit, helper_bit, breakdown_key, credit])
         }
-    }
-
-    /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
-    /// shares of `AttributionInputRow`.
-    // TODO(taikiy): Implement a `IntoShares` for any struct
-    fn generate_shared_input(
-        input: &[[u128; 5]],
-        rng: &mut StepRng,
-    ) -> [Batch<AttributionInputRow<Fp31>>; 3] {
-        let num_rows = input.len();
-        let mut shares = [
-            Vec::with_capacity(num_rows),
-            Vec::with_capacity(num_rows),
-            Vec::with_capacity(num_rows),
-        ];
-
-        for x in input {
-            let itb = share(Fp31::from(x[0]), rng);
-            let hb = share(Fp31::from(x[1]), rng);
-            let bk = share(Fp31::from(x[2]), rng);
-            let val = share(Fp31::from(x[3]), rng);
-            for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
-                shares[i].push(AttributionInputRow {
-                    is_trigger_bit: itb,
-                    helper_bit: hb,
-                    breakdown_key: bk,
-                    credit: val,
-                });
-            }
-        }
-
-        assert_eq!(shares[0].len(), shares[1].len());
-        assert_eq!(shares[1].len(), shares[2].len());
-
-        [
-            Batch::try_from(shares[0].clone()).unwrap(),
-            Batch::try_from(shares[1].clone()).unwrap(),
-            Batch::try_from(shares[2].clone()).unwrap(),
-        ]
     }
 
     #[tokio::test]
@@ -405,30 +364,33 @@ pub(crate) mod tests {
         ];
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
-        let mut rng = StepRng::new(100, 1);
+        let input = TEST_CASE.map(|x| {
+            AttributionTestInput([
+                Fp31::from(x[0]),
+                Fp31::from(x[1]),
+                Fp31::from(x[2]),
+                Fp31::from(x[3]),
+            ])
+        });
 
-        let shares = generate_shared_input(TEST_CASE, &mut rng);
+        let world = TestWorld::new(QueryId);
+        let result = world
+            .semi_honest(input, |ctx, input| async move {
+                accumulate_credit(ctx, &input.try_into().unwrap())
+                    .await
+                    .unwrap()
+            })
+            .await;
 
-        let [c0, c1, c2] = context;
-        let [s0, s1, s2] = shares;
-
-        let h0_future = accumulate_credit(c0, &s0);
-        let h1_future = accumulate_credit(c1, &s1);
-        let h2_future = accumulate_credit(c2, &s2);
-
-        let result = try_join!(h0_future, h1_future, h2_future).unwrap();
-
-        assert_eq!(result.0.len(), TEST_CASE.len());
-        assert_eq!(result.1.len(), TEST_CASE.len());
-        assert_eq!(result.2.len(), TEST_CASE.len());
+        assert_eq!(result[0].len(), TEST_CASE.len());
+        assert_eq!(result[1].len(), TEST_CASE.len());
+        assert_eq!(result[2].len(), TEST_CASE.len());
 
         for (i, expected) in expected.iter().enumerate() {
             let v = (
-                &result.0[i].credit,
-                &result.1[i].credit,
-                &result.2[i].credit,
+                &result[0][i].credit,
+                &result[1][i].credit,
+                &result[2][i].credit,
             )
                 .reconstruct();
             assert_eq!(v.as_u128(), *expected);
@@ -440,12 +402,12 @@ pub(crate) mod tests {
         let mut rng = thread_rng();
         let secret: [Fp31; 4] = [(); 4].map(|_| rng.gen::<Fp31>());
 
-        let world = TestWorld::<Fp31>::new(QueryId);
+        let world = TestWorld::new(QueryId);
 
         for &role in Role::all() {
             let new_shares = world
                 .semi_honest(
-                    FAttributionInputRow(secret),
+                    AttributionTestInput(secret),
                     |ctx, share: AttributionInputRow<Fp31>| async move {
                         share.reshare(ctx, RecordId::from(0), role).await.unwrap()
                     },

@@ -1,9 +1,8 @@
-use super::specialized_mul::{multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes};
 use crate::{
     error::Error,
     ff::{BinaryField, Field},
     helpers::Role,
-    protocol::{context::Context, RecordId},
+    protocol::{context::Context, mul::SecureMul, RecordId},
     secret_sharing::{Replicated, XorReplicated},
 };
 
@@ -76,7 +75,9 @@ async fn xor_specialized_1<F: Field>(
     a: &Replicated<F>,
     b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
-    let result = multiply_two_shares_mostly_zeroes(ctx, record_id, a, b).await?;
+    let result = ctx
+        .multiply_two_shares_mostly_zeroes(record_id, a, b)
+        .await?;
 
     Ok(a + b - &(result * F::from(2)))
 }
@@ -102,7 +103,9 @@ async fn xor_specialized_2<F: Field>(
     a: &Replicated<F>,
     b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
-    let result = multiply_one_share_mostly_zeroes(ctx, record_id, a, b).await?;
+    let result = ctx
+        .multiply_one_share_mostly_zeroes(record_id, a, b)
+        .await?;
 
     Ok(a + b - &(result * F::from(2)))
 }
@@ -162,6 +165,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
 mod tests {
 
     use crate::rand::thread_rng;
+    use crate::secret_sharing::Replicated;
     use crate::{
         ff::Fp31,
         protocol::{modulus_conversion::convert_one_bit, QueryId, RecordId},
@@ -174,9 +178,9 @@ mod tests {
         const BITNUM: u32 = 4;
         let mut rng = thread_rng();
 
-        let world = TestWorld::<Fp31>::new(QueryId);
+        let world = TestWorld::new(QueryId);
         let match_key = MaskedMatchKey::mask(rng.gen());
-        let result = world
+        let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 convert_one_bit(ctx, RecordId::from(0), &mk_share, BITNUM)
                     .await

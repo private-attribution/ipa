@@ -170,10 +170,10 @@ mod tests {
     use crate::rand::{thread_rng, Rng};
     use rand::seq::SliceRandom;
 
-    use crate::protocol::context::Context;
+    use crate::protocol::context::{Context, SemiHonestContext};
     use crate::test_fixture::{join3, MaskedMatchKey, Runner};
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31},
         protocol::{
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
@@ -191,7 +191,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -204,11 +204,15 @@ mod tests {
         expected.sort_unstable();
 
         let result = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
-                    .await
-                    .unwrap()
-            })
+            .semi_honest(
+                match_keys.clone(),
+                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
+                    generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
+                        .await
+                        .unwrap()
+                        .0
+                },
+            )
             .await;
 
         let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();

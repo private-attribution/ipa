@@ -12,8 +12,8 @@ async fn main() -> Result<(), Error> {
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = 1;
     config.gateway_config.send_buffer_config.batch_count = 1000;
-    let world = TestWorld::<Fp32BitPrime>::new_with(QueryId, config);
-    let [ctx0, ctx1, ctx2] = world.contexts();
+    let world = TestWorld::new_with(QueryId, config);
+    let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
     let num_bits = 64;
     let mut rng = thread_rng();
 

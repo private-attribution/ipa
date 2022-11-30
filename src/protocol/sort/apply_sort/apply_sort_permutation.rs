@@ -56,7 +56,7 @@ impl<F: Field> SortPermutation<F> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::protocol::attribution::accumulate_credit::tests::FAttributionInputRow;
+    use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
     use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
     use crate::protocol::sort::generate_permutation::generate_permutation;
@@ -70,7 +70,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -83,9 +83,9 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let mut sidecar: Vec<FAttributionInputRow<Fp32BitPrime>> = Vec::with_capacity(COUNT);
+        let mut sidecar: Vec<AttributionTestInput<Fp32BitPrime>> = Vec::with_capacity(COUNT);
         sidecar.resize_with(COUNT, || {
-            FAttributionInputRow([(); 4].map(|_| rng.gen::<Fp32BitPrime>()))
+            AttributionTestInput([(); 4].map(|_| rng.gen::<Fp32BitPrime>()))
         });
         let expected = permutation.apply_slice(&sidecar);
 
@@ -111,6 +111,6 @@ mod tests {
                 },
             )
             .await;
-        assert_eq!(&expected[..], &result.reconstruct());
+        assert_eq!(&expected[..], &result.reconstruct()[..]);
     }
 }

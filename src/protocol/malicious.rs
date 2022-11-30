@@ -274,8 +274,8 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -342,8 +342,8 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);

@@ -1,9 +1,8 @@
 use super::or::or;
-use super::BitOpStep;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
+use crate::protocol::{context::Context, mul::SecureMul, BitOpStep, RecordId};
 use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
 use std::cmp::Ordering;
@@ -130,13 +129,13 @@ impl BitwiseLessThanPrime {
         x: &[Replicated<F>],
     ) -> Result<Replicated<F>, Error> {
         let mut todo = x.to_vec();
-        let mut mult_count = 0;
+        let mut mult_count = 0_u32;
 
         while todo.len() > 1 {
             let half = todo.len() / 2;
             let mut multiplications = Vec::with_capacity(half);
             for i in 0..half {
-                multiplications.push(ctx.narrow(&BitOpStep::Step(mult_count)).multiply(
+                multiplications.push(ctx.narrow(&BitOpStep::from(mult_count)).multiply(
                     record_id,
                     &todo[2 * i],
                     &todo[2 * i + 1],
@@ -185,12 +184,12 @@ impl BitwiseLessThanPrime {
         debug_assert!(prime & 0b111 == 0b011);
         debug_assert!(x.len() == 3);
         let least_significant_two_bits_both_one = ctx
-            .narrow(&BitOpStep::Step(0))
+            .narrow(&BitOpStep::from(0))
             .multiply(record_id, &x[0], &x[1])
             .await?;
         let pivot_bit = &x[2];
         let least_significant_three_bits_all_equal_to_prime = ctx
-            .narrow(&BitOpStep::Step(1))
+            .narrow(&BitOpStep::from(1))
             .multiply(
                 record_id,
                 &least_significant_two_bits_both_one,
@@ -198,7 +197,7 @@ impl BitwiseLessThanPrime {
             )
             .await?;
         or(
-            ctx.narrow(&BitOpStep::Step(2)),
+            ctx.narrow(&BitOpStep::from(2)),
             record_id,
             pivot_bit,
             &least_significant_three_bits_all_equal_to_prime,

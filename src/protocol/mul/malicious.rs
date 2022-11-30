@@ -1,7 +1,10 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::semi_honest_mul;
+use crate::protocol::mul::{
+    semi_honest_mul, semi_honest_multiply_one_share_mostly_zeroes,
+    semi_honest_multiply_two_shares_mostly_zeroes,
+};
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
@@ -92,12 +95,87 @@ where
     Ok(malicious_ab)
 }
 
+/// ## Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+pub async fn multiply_one_share_mostly_zeroes<F: Field>(
+    ctx: MaliciousContext<'_, F>,
+    record_id: RecordId,
+    a: &MaliciousReplicated<F>,
+    b: &MaliciousReplicated<F>,
+) -> Result<MaliciousReplicated<F>, Error> {
+    use crate::protocol::context::SpecialAccessToMaliciousContext;
+    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+    let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
+    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let (ab, rab) = try_join(
+        semi_honest_multiply_one_share_mostly_zeroes(
+            ctx.semi_honest_context(),
+            record_id,
+            a.x().access_without_downgrade(),
+            b.x().access_without_downgrade(),
+        ),
+        semi_honest_multiply_one_share_mostly_zeroes(
+            duplicate_multiply_ctx.semi_honest_context(),
+            record_id,
+            a.rx(),
+            b.x().access_without_downgrade(), // This is still the share of mostly zeroes, so we can still use this specialized mul
+        ),
+    )
+    .await?;
+
+    let malicious_ab = MaliciousReplicated::new(ab, rab);
+
+    random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
+
+    Ok(malicious_ab)
+}
+
+/// ## Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
+    ctx: MaliciousContext<'_, F>,
+    record_id: RecordId,
+    a: &MaliciousReplicated<F>,
+    b: &MaliciousReplicated<F>,
+) -> Result<MaliciousReplicated<F>, Error> {
+    use crate::protocol::context::SpecialAccessToMaliciousContext;
+    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+    let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
+    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
+    let (ab, rab) = try_join(
+        semi_honest_multiply_two_shares_mostly_zeroes(
+            ctx.semi_honest_context(),
+            record_id,
+            a.x().access_without_downgrade(),
+            b.x().access_without_downgrade(),
+        ),
+        semi_honest_mul(
+            // TODO: We can probably use a variant of the "one share mostly zeroes" protocol here
+            duplicate_multiply_ctx.semi_honest_context(),
+            record_id,
+            a.rx(),
+            b.x().access_without_downgrade(),
+        ),
+    )
+    .await?;
+
+    let malicious_ab = MaliciousReplicated::new(ab, rab);
+
+    random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
+
+    Ok(malicious_ab)
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
-mod test {
-    use crate::rand::{thread_rng, Rng};
+mod regular_mul_tests {
     use crate::{
         ff::Fp31,
         protocol::{mul::SecureMul, QueryId, RecordId},
+        rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -112,6 +190,64 @@ mod test {
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {
                 ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
+            })
+            .await;
+
+        assert_eq!(a * b, res.reconstruct());
+    }
+}
+
+#[cfg(all(test, not(feature = "shuttle")))]
+mod specialized_mul_tests {
+    use crate::{
+        ff::Fp31,
+        protocol::{
+            mul::{
+                test::{SpecializedA, SpecializedB, SpecializedC},
+                SecureMul,
+            },
+            QueryId, RecordId,
+        },
+        rand::{thread_rng, Rng},
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
+
+    #[tokio::test]
+    pub async fn two_shares_mostly_zero() {
+        let world = TestWorld::new(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+
+        let input = (SpecializedA(a), SpecializedB(b));
+
+        let res = world
+            .malicious(input, |ctx, (a, b)| async move {
+                ctx.multiply_two_shares_mostly_zeroes(RecordId::from(0), &a, &b)
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        assert_eq!(a * b, res.reconstruct());
+    }
+
+    #[tokio::test]
+    pub async fn one_share_mostly_zero() {
+        let world = TestWorld::new(QueryId);
+
+        let mut rng = thread_rng();
+        let a = rng.gen::<Fp31>();
+        let b = rng.gen::<Fp31>();
+
+        let input = (a, SpecializedC(b));
+
+        let res = world
+            .malicious(input, |ctx, (a, b)| async move {
+                ctx.multiply_one_share_mostly_zeroes(RecordId::from(0), &a, &b)
+                    .await
+                    .unwrap()
             })
             .await;
 

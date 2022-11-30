@@ -84,7 +84,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     //use super::BitwiseSum;
-    use crate::protocol::boolean::dumb_bitwise_sum::BitwiseSum;
+    use crate::protocol::boolean::dumb_bitwise_sum::bitwise_sum;
     use crate::rand::thread_rng;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
@@ -102,8 +102,7 @@ mod tests {
         values
     }
 
-    #[allow(clippy::many_single_char_names)]
-    async fn bitwise_sum<F: Field>(a: F, b: F) -> Vec<F>
+    async fn sum<F: Field>(a: F, b: F) -> Vec<F>
     where
         (F, F): Sized,
         Standard: Distribution<F>,
@@ -112,13 +111,24 @@ mod tests {
         let input = (into_bits(a), into_bits(b));
         let n_bits = input.0.len();
         let sum = world
-            .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                BitwiseSum::execute(ctx, RecordId::from(0), &a_share, &b_share)
+            .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
+                bitwise_sum(ctx, RecordId::from(0), &a_share, &b_share)
                     .await
                     .unwrap()
             })
             .await
             .reconstruct();
+
+        let m_sum = world
+            .malicious(input, |ctx, (a_share, b_share)| async move {
+                bitwise_sum(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(sum, m_sum);
 
         // Output's bit length should be `input.len() + 1`
         assert_eq!(n_bits + 1, sum.len());
@@ -129,33 +139,33 @@ mod tests {
     pub async fn fp31_basic() {
         let c = Fp31::from;
 
-        assert_eq!(0, bits_to_value(&bitwise_sum(c(0_u32), c(0)).await));
-        assert_eq!(1, bits_to_value(&bitwise_sum(c(0), c(1)).await));
-        assert_eq!(1, bits_to_value(&bitwise_sum(c(1), c(0)).await));
-        assert_eq!(2, bits_to_value(&bitwise_sum(c(1), c(1)).await));
-        assert_eq!(32, bits_to_value(&bitwise_sum(c(16), c(16)).await));
-        assert_eq!(60, bits_to_value(&bitwise_sum(c(30), c(30)).await));
+        assert_eq!(0, bits_to_value(&sum(c(0_u32), c(0)).await));
+        assert_eq!(1, bits_to_value(&sum(c(0), c(1)).await));
+        assert_eq!(1, bits_to_value(&sum(c(1), c(0)).await));
+        assert_eq!(2, bits_to_value(&sum(c(1), c(1)).await));
+        assert_eq!(32, bits_to_value(&sum(c(16), c(16)).await));
+        assert_eq!(60, bits_to_value(&sum(c(30), c(30)).await));
     }
 
     #[tokio::test]
     pub async fn fp_32bit_prime_basic() {
         let c = Fp32BitPrime::from;
 
-        assert_eq!(0, bits_to_value(&bitwise_sum(c(0_u32), c(0)).await));
-        assert_eq!(1, bits_to_value(&bitwise_sum(c(0), c(1)).await));
-        assert_eq!(1, bits_to_value(&bitwise_sum(c(1), c(0)).await));
-        assert_eq!(2, bits_to_value(&bitwise_sum(c(1), c(1)).await));
+        assert_eq!(0, bits_to_value(&sum(c(0_u32), c(0)).await));
+        assert_eq!(1, bits_to_value(&sum(c(0), c(1)).await));
+        assert_eq!(1, bits_to_value(&sum(c(1), c(0)).await));
+        assert_eq!(2, bits_to_value(&sum(c(1), c(1)).await));
         assert_eq!(
             2_147_483_648,
-            bits_to_value(&bitwise_sum(c(2_147_483_647), c(1)).await)
+            bits_to_value(&sum(c(2_147_483_647), c(1)).await)
         );
         assert_eq!(
             4_294_967_290,
-            bits_to_value(&bitwise_sum(c(2_147_483_645), c(2_147_483_645)).await)
+            bits_to_value(&sum(c(2_147_483_645), c(2_147_483_645)).await)
         );
         assert_eq!(
             4_294_967_291,
-            bits_to_value(&bitwise_sum(c(2_147_483_645), c(2_147_483_646)).await)
+            bits_to_value(&sum(c(2_147_483_645), c(2_147_483_646)).await)
         );
     }
 
@@ -170,7 +180,7 @@ mod tests {
         let l = input.0.len();
         let sum = world
             .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                BitwiseSum::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                bitwise_sum(ctx, RecordId::from(0), &a_share, &b_share)
                     .await
                     .unwrap()
             })
@@ -190,10 +200,7 @@ mod tests {
         for _ in 0..10 {
             let a = c(rng.gen::<u128>());
             let b = c(rng.gen());
-            assert_eq!(
-                a.as_u128() + b.as_u128(),
-                bits_to_value(&bitwise_sum(a, b).await)
-            );
+            assert_eq!(a.as_u128() + b.as_u128(), bits_to_value(&sum(a, b).await));
         }
     }
 
@@ -205,7 +212,7 @@ mod tests {
             for b in 0..Fp31::PRIME {
                 assert_eq!(
                     u128::from(a + b),
-                    bits_to_value(&bitwise_sum(Fp31::from(a), Fp31::from(b)).await)
+                    bits_to_value(&sum(Fp31::from(a), Fp31::from(b)).await)
                 );
             }
         }
