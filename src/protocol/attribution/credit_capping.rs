@@ -5,6 +5,7 @@ use super::{
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::batch::{Batch, RecordIndex};
+use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::mul::SecureMul;
@@ -178,6 +179,7 @@ async fn compute_compare_bits<F: Field>(
     cap: u32,
 ) -> Result<Batch<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
+    let random_bits_generator = RandomBitsGenerator::new();
     let cap = local_secret_shared_bits(cap.into(), ctx.role());
     let one = Replicated::one(ctx.role());
     let compare_bits: Batch<_> = try_join_all(
@@ -185,22 +187,28 @@ async fn compute_compare_bits<F: Field>(
             .iter()
             .zip(zip(repeat(ctx.clone()), zip(repeat(cap), repeat(one))))
             .enumerate()
-            .map(|(i, (contrib, (ctx, (cap, one))))| async move {
-                let contrib_b = BitDecomposition::execute(
-                    ctx.narrow(&Step::BitDecomposeCurrentContribution),
-                    RecordId::from(i),
-                    contrib,
-                )
-                .await?;
-                let lt_b = one.clone()
-                    - &BitwiseLessThan::execute(
-                        ctx.narrow(&Step::IsCapLessThanCurrentContribution),
+            .map(|(i, (contrib, (ctx, (cap, one))))| {
+                // The buffer inside the generator is `Arc`, so these clones
+                // just increment the reference.
+                let rbg = random_bits_generator.clone();
+                async move {
+                    let contrib_b = BitDecomposition::execute(
+                        ctx.narrow(&Step::BitDecomposeCurrentContribution),
                         RecordId::from(i),
-                        &cap,
-                        &contrib_b,
+                        rbg,
+                        contrib,
                     )
                     .await?;
-                Ok::<_, Error>(lt_b)
+                    let lt_b = one.clone()
+                        - &BitwiseLessThan::execute(
+                            ctx.narrow(&Step::IsCapLessThanCurrentContribution),
+                            RecordId::from(i),
+                            &cap,
+                            &contrib_b,
+                        )
+                        .await?;
+                    Ok::<_, Error>(lt_b)
+                }
             }),
     )
     .await?
@@ -413,8 +421,8 @@ mod tests {
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         //TODO: move to the new test framework
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp32BitPrime>();
         let mut rng = StepRng::new(100, 1);
 
         let shares = generate_shared_input(TEST_CASE, &mut rng);

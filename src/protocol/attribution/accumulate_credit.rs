@@ -335,7 +335,7 @@ mod tests {
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         let world = TestWorld::new(QueryId);
-        let context = world.contexts();
+        let context = world.contexts::<Fp31>();
         let mut rng = StepRng::new(100, 1);
 
         let shares = generate_shared_input(TEST_CASE, &mut rng);
