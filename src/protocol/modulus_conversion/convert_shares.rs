@@ -187,10 +187,15 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
+    use crate::ff::{Field, Fp32BitPrime};
+    use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;
+    use crate::protocol::malicious::MaliciousValidator;
     use crate::rand::thread_rng;
     use crate::secret_sharing::Replicated;
+    use crate::test_fixture::join3;
     use crate::{
+        error::Error,
         ff::Fp31,
         protocol::{
             modulus_conversion::{convert_bit, convert_bit_local},
@@ -214,5 +219,97 @@ mod tests {
             })
             .await;
         assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
+    }
+
+    #[tokio::test]
+    pub async fn one_bit_malicious() {
+        const BITNUM: u32 = 4;
+        let mut rng = thread_rng();
+
+        let world = TestWorld::new(QueryId);
+        let match_key = MaskedMatchKey::mask(rng.gen());
+        let result: [Replicated<Fp31>; 3] = world
+            .semi_honest(match_key, |ctx, mk_share| async move {
+                let [x0, x1, x2] = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
+
+                let v = MaliciousValidator::new(ctx);
+                let m_triple = join3(
+                    v.context().upgrade(RecordId::from(0), x0),
+                    v.context().upgrade(RecordId::from(1), x1),
+                    v.context().upgrade(RecordId::from(2), x2),
+                )
+                .await;
+                let m_bit = convert_bit(v.context(), RecordId::from(0), &m_triple)
+                    .await
+                    .unwrap();
+                v.validate(m_bit).await.unwrap()
+            })
+            .await;
+        assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
+    }
+
+    #[tokio::test]
+    pub async fn one_bit_malicious_tweaks() {
+        struct Tweak {
+            role: Role,
+            value: usize,
+            dir: Direction,
+        }
+        impl Tweak {
+            fn flip_bit<F: Field>(
+                &self,
+                role: Role,
+                mut v: [Replicated<F>; 3],
+            ) -> [Replicated<F>; 3] {
+                if role != self.role {
+                    return v;
+                }
+                let t = &mut v[self.value];
+                *t = match self.dir {
+                    Direction::Left => Replicated::new(F::ONE - t.left(), t.right()),
+                    Direction::Right => Replicated::new(t.left(), F::ONE - t.right()),
+                };
+                v
+            }
+        }
+        const fn t(role: Role, value: usize, dir: Direction) -> Tweak {
+            Tweak { role, value, dir }
+        }
+
+        const TWEAKS: &[Tweak] = &[
+            t(Role::H1, 0, Direction::Left),
+            t(Role::H1, 1, Direction::Right),
+            t(Role::H2, 1, Direction::Left),
+            t(Role::H2, 2, Direction::Right),
+            t(Role::H3, 0, Direction::Right),
+            t(Role::H3, 2, Direction::Left),
+        ];
+        const BITNUM: u32 = 4;
+
+        let mut rng = thread_rng();
+        let world = TestWorld::new(QueryId);
+        for tweak in TWEAKS {
+            let match_key = MaskedMatchKey::mask(rng.gen());
+            let _ = world
+                .semi_honest(match_key, |ctx, mk_share| async move {
+                    let triple = convert_bit_local::<Fp32BitPrime>(ctx.role(), BITNUM, &mk_share);
+                    let [x0, x1, x2] = tweak.flip_bit(ctx.role(), triple);
+
+                    let v = MaliciousValidator::new(ctx);
+                    let m_ctx = v.context();
+                    let m_triple = join3(
+                        m_ctx.upgrade(RecordId::from(0), x0),
+                        m_ctx.upgrade(RecordId::from(1), x1),
+                        m_ctx.upgrade(RecordId::from(2), x2),
+                    )
+                    .await;
+                    let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
+                        .await
+                        .unwrap();
+                    let err = v.validate(m_bit).await.unwrap_err();
+                    assert!(matches!(err, Error::MaliciousSecurityCheckFailed));
+                })
+                .await;
+        }
     }
 }
