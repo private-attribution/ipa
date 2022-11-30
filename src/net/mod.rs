@@ -101,7 +101,7 @@ impl LastSeenMessages {
     /// ensures that incoming message follows last seen message
     /// # Panics
     /// if messages arrive out of order
-    pub fn update_in_place(&self, channel_id: &ChannelId, next_seen: u32) {
+    pub fn ensure_ordering(&self, channel_id: &ChannelId, next_seen: u32) {
         let mut messages = self.messages.lock().unwrap();
         let last_seen = messages.entry(channel_id.clone()).or_default();
         if *last_seen == next_seen {

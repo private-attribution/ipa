@@ -20,15 +20,14 @@ use hyper_tls::HttpsConnector;
 pub struct HttpSendMessagesArgs<'a> {
     pub query_id: QueryId,
     pub step: &'a Step,
-    pub role: Role,
     pub offset: u32,
-    pub data_size: u32,
     pub messages: Bytes,
 }
 
 #[allow(clippy::module_name_repetitions)] // follows standard naming convention
 #[derive(Debug, Clone)]
 pub struct MpcHelperClient {
+    role: Role,
     client: Client<HttpsConnector<HttpConnector>>,
     scheme: uri::Scheme,
     authority: uri::Authority,
@@ -39,12 +38,13 @@ impl MpcHelperClient {
     /// # Panics
     /// if addr does not have scheme and authority
     #[must_use]
-    pub fn new(addr: Uri) -> Self {
+    pub fn new(addr: Uri, role: Role) -> Self {
         // this works for both http and https
         let https = HttpsConnector::new();
         let client = Client::builder().build::<_, Body>(https);
         let parts = addr.into_parts();
         Self {
+            role,
             client,
             scheme: parts.scheme.unwrap(),
             authority: parts.authority.unwrap(),
@@ -54,8 +54,8 @@ impl MpcHelperClient {
     /// same as new, but first parses the addr from a [&str]
     /// # Errors
     /// if addr is an invalid [Uri], this will fail
-    pub fn with_str_addr(addr: &str) -> Result<Self, MpcHelperClientError> {
-        Ok(Self::new(addr.parse()?))
+    pub fn with_str_addr(addr: &str, role: Role) -> Result<Self, MpcHelperClientError> {
+        Ok(Self::new(addr.parse()?, role))
     }
 
     fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, MpcHelperClientError>
@@ -94,7 +94,7 @@ impl MpcHelperClient {
             "/query/{}/step/{}?role={}",
             args.query_id.as_ref(),
             args.step.as_ref(),
-            args.role.as_ref(),
+            self.role.as_ref(),
         ))?;
         #[allow(clippy::cast_possible_truncation)] // `messages.len` is known to be smaller than u32
         let headers = RecordHeaders {
@@ -120,32 +120,39 @@ mod tests {
     use crate::{
         helpers::{
             network::{ChannelId, MessageChunks, Network},
-            Role,
+            Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer},
     };
     use futures::{Stream, StreamExt};
     use hyper_tls::native_tls::TlsConnector;
 
-    async fn mul_req<St: Stream<Item = MessageChunks> + Unpin>(
+    async fn setup_server(bind_target: BindTarget) -> (u16, impl Stream<Item = MessageChunks>) {
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
+        // setup server
+        let (addr, _) = server.bind(bind_target).await;
+        (addr.port(), rx_stream)
+    }
+
+    async fn send_messages_req<St: Stream<Item = MessageChunks> + Unpin>(
         client: MpcHelperClient,
         mut rx_stream: St,
     ) {
-        const DATA_SIZE: u32 = 8;
         const DATA_LEN: u32 = 3;
         let query_id = QueryId;
         let step = Step::default().narrow("mul_test");
         let role = Role::H1;
         let offset = 0;
-        let body = &[123; (DATA_SIZE * DATA_LEN) as usize];
+        let body = &[123; MESSAGE_PAYLOAD_SIZE_BYTES * (DATA_LEN as usize)];
 
         client
             .send_messages(HttpSendMessagesArgs {
                 query_id,
                 step: &step,
-                role,
                 offset,
-                data_size: DATA_SIZE,
                 messages: Bytes::from_static(body),
             })
             .await
@@ -157,37 +164,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mul_req_http() {
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let rx_stream = network.recv_stream();
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
-        // setup server
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
+    async fn send_messages_req_http() {
+        let (port, rx_stream) =
+            setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
 
         // setup client
         let client =
-            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", addr.port())).unwrap();
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", port), Role::H1)
+                .unwrap();
 
         // test
-        mul_req(client, rx_stream).await;
+        send_messages_req(client, rx_stream).await;
     }
 
     #[tokio::test]
-    async fn mul_req_https() {
-        // setup server
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let rx = network.recv_stream();
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
+    async fn send_messages_req_https() {
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (addr, _) = server
-            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
-            .await;
+        let (port, rx_stream) =
+            setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
 
         // setup client
         // requires custom client to use self signed certs
@@ -200,12 +196,13 @@ mod tests {
         let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
         let hyper_client = hyper::Client::builder().build(https);
         let client = MpcHelperClient {
+            role: Role::H1,
             client: hyper_client,
             scheme: uri::Scheme::HTTPS,
-            authority: uri::Authority::try_from(format!("localhost:{}", addr.port())).unwrap(),
+            authority: uri::Authority::try_from(format!("localhost:{}", port)).unwrap(),
         };
 
         // test
-        mul_req(client, rx).await;
+        send_messages_req(client, rx_stream).await;
     }
 }
