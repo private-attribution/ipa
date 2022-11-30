@@ -2,13 +2,12 @@ mod network;
 mod prss_exchange_protocol;
 
 pub use network::HttpNetwork;
+pub use prss_exchange_protocol::PrssExchangeStep;
 
+use crate::helpers::http::prss_exchange_protocol::PublicKeyBytesBuilder;
 use crate::{
     ff::Field,
-    helpers::{
-        messaging::{Gateway, Message},
-        Direction, Error, GatewayConfig, Role,
-    },
+    helpers::{messaging::Gateway, Direction, Error, GatewayConfig, Role},
     net::{
         discovery::{peer, PeerDiscovery},
         BindTarget, MessageSendMap, MpcHelperServer,
@@ -19,11 +18,10 @@ use crate::{
     },
     task::JoinHandle,
 };
-use prss_exchange_protocol::{PrssExchangeStep, PublicKeyChunk};
-use rand::thread_rng;
+use prss_exchange_protocol::PublicKeyChunk;
+use rand_core::{CryptoRng, RngCore};
 use std::iter::zip;
 use std::net::SocketAddr;
-use x25519_dalek::PublicKey;
 
 pub struct HttpHelper {
     role: Role,
@@ -76,15 +74,19 @@ impl HttpHelper {
     /// establish the prss endpoint by exchanging public keys with the other helpers
     /// # Errors
     /// if communication with other helpers fails
-    pub async fn prss_endpoint(&self, gateway: &Gateway) -> Result<prss::Endpoint, Error> {
+    pub async fn prss_endpoint<R: RngCore + CryptoRng>(
+        &self,
+        gateway: &Gateway,
+        step: &Step,
+        rng: &mut R,
+    ) -> Result<prss::Endpoint, Error> {
         // setup protocol to exchange prss public keys
-        let step = Step::default().narrow(&PrssExchangeStep);
-        let channel = gateway.mesh(&step);
+        let channel = gateway.mesh(step);
         let left_peer = self.role.peer(Direction::Left);
         let right_peer = self.role.peer(Direction::Right);
 
         // setup local prss endpoint
-        let ep_setup = prss::Endpoint::prepare(&mut thread_rng());
+        let ep_setup = prss::Endpoint::prepare(rng);
         let (send_left_pk, send_right_pk) = ep_setup.public_keys();
         let send_left_pk_chunks = PublicKeyChunk::chunks(send_left_pk);
         let send_right_pk_chunks = PublicKeyChunk::chunks(send_right_pk);
@@ -93,8 +95,8 @@ impl HttpHelper {
         // TODO: since we have a limitation that max message size is 8 bytes, we must send 4
         //       messages to completely send the public key. If that max message size is removed, we
         //       can eliminate the chunking
-        let mut recv_left_pk_bytes = [0; 32];
-        let mut recv_right_pk_bytes = [0; 32];
+        let mut recv_left_pk_builder = PublicKeyBytesBuilder::empty();
+        let mut recv_right_pk_builder = PublicKeyBytesBuilder::empty();
 
         for (i, (send_left_chunk, send_right_chunk)) in
             zip(send_left_pk_chunks, send_right_pk_chunks).enumerate()
@@ -106,15 +108,16 @@ impl HttpHelper {
             let recv_from_right = channel.receive::<PublicKeyChunk>(right_peer, record_id);
             let (_, _, recv_left_key_chunk, recv_right_key_chunk) =
                 tokio::try_join!(send_to_left, send_to_right, recv_from_left, recv_from_right)?;
-
-            let lower = i * PublicKeyChunk::SIZE_IN_BYTES as usize;
-            let upper = lower + PublicKeyChunk::SIZE_IN_BYTES as usize;
-            recv_left_pk_bytes[lower..upper].copy_from_slice(&recv_left_key_chunk.into_inner());
-            recv_right_pk_bytes[lower..upper].copy_from_slice(&recv_right_key_chunk.into_inner());
+            recv_left_pk_builder.append_chunk(recv_left_key_chunk);
+            recv_right_pk_builder.append_chunk(recv_right_key_chunk);
         }
 
-        let recv_left_pk = PublicKey::from(recv_left_pk_bytes);
-        let recv_right_pk = PublicKey::from(recv_right_pk_bytes);
+        let recv_left_pk = recv_left_pk_builder
+            .build()
+            .map_err(|err| Error::serialization_error(err.record_id(), step, err))?;
+        let recv_right_pk = recv_right_pk_builder
+            .build()
+            .map_err(|err| Error::serialization_error(err.record_id(), step, err))?;
 
         Ok(ep_setup.setup(&recv_left_pk, &recv_right_pk))
     }
@@ -140,6 +143,8 @@ mod e2e_tests {
         test_fixture::{logging, share, Reconstruct},
     };
     use rand::rngs::mock::StepRng;
+    use rand::rngs::StdRng;
+    use rand_core::SeedableRng;
     use x25519_dalek::PublicKey;
 
     fn public_key_from_hex(hex: &str) -> PublicKey {
@@ -215,9 +220,14 @@ mod e2e_tests {
         let gateway2 = h2.query(QueryId).unwrap();
         let gateway3 = h3.query(QueryId).unwrap();
 
-        let participant1 = h1.prss_endpoint(&gateway1);
-        let participant2 = h2.prss_endpoint(&gateway2);
-        let participant3 = h3.prss_endpoint(&gateway3);
+        let step = Step::default().narrow(&PrssExchangeStep);
+        let mut rng1 = StdRng::from_entropy();
+        let mut rng2 = StdRng::from_entropy();
+        let mut rng3 = StdRng::from_entropy();
+
+        let participant1 = h1.prss_endpoint(&gateway1, &step, &mut rng1);
+        let participant2 = h2.prss_endpoint(&gateway2, &step, &mut rng2);
+        let participant3 = h3.prss_endpoint(&gateway3, &step, &mut rng3);
         let (participant1, participant2, participant3) =
             tokio::try_join!(participant1, participant2, participant3).unwrap();
 
@@ -234,6 +244,35 @@ mod e2e_tests {
         assert_eq!(left1, right3);
         assert_eq!(right1, left2);
         assert_eq!(right2, left3);
+
+        // recreate participants and ensure values are different
+        let step = step.narrow("second_time");
+        let participant1 = h1.prss_endpoint(&gateway1, &step, &mut rng1);
+        let participant2 = h2.prss_endpoint(&gateway2, &step, &mut rng2);
+        let participant3 = h3.prss_endpoint(&gateway3, &step, &mut rng3);
+        let (participant1, participant2, participant3) =
+            tokio::try_join!(participant1, participant2, participant3).unwrap();
+
+        let ctx1 = h1.context(&gateway1, &participant1, &rbg);
+        let ctx2 = h2.context(&gateway2, &participant2, &rbg);
+        let ctx3 = h3.context(&gateway3, &participant3, &rbg);
+
+        let idx = 0u128;
+        let (second_left1, second_right1) = ctx1.prss().generate_values(idx);
+        let (second_left2, second_right2) = ctx2.prss().generate_values(idx);
+        let (second_left3, second_right3) = ctx3.prss().generate_values(idx);
+
+        assert_eq!(second_left1, second_right3);
+        assert_eq!(second_right1, second_left2);
+        assert_eq!(second_right2, second_left3);
+
+        // different from first instantiation
+        assert_ne!(left1, second_left1);
+        assert_ne!(right1, second_right1);
+        assert_ne!(left2, second_left2);
+        assert_ne!(right2, second_right2);
+        assert_ne!(left3, second_left3);
+        assert_ne!(right3, second_right3);
     }
 
     #[tokio::test]
@@ -249,9 +288,14 @@ mod e2e_tests {
         let gateway2 = h2.query(QueryId).unwrap();
         let gateway3 = h3.query(QueryId).unwrap();
 
-        let participant1 = h1.prss_endpoint(&gateway1);
-        let participant2 = h2.prss_endpoint(&gateway2);
-        let participant3 = h3.prss_endpoint(&gateway3);
+        let step = Step::default().narrow(&PrssExchangeStep);
+        let mut rng1 = StdRng::from_entropy();
+        let mut rng2 = StdRng::from_entropy();
+        let mut rng3 = StdRng::from_entropy();
+
+        let participant1 = h1.prss_endpoint(&gateway1, &step, &mut rng1);
+        let participant2 = h2.prss_endpoint(&gateway2, &step, &mut rng2);
+        let participant3 = h3.prss_endpoint(&gateway3, &step, &mut rng3);
         let (participant1, participant2, participant3) =
             tokio::try_join!(participant1, participant2, participant3).unwrap();
 

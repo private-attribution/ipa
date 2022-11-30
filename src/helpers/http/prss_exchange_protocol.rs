@@ -1,9 +1,22 @@
 use crate::{
     helpers::{messaging::Message, MESSAGE_PAYLOAD_SIZE_BYTES},
-    protocol::Substep,
+    protocol::{RecordId, Substep},
 };
 use std::io::ErrorKind;
+use tinyvec::ArrayVec;
 use x25519_dalek::PublicKey;
+
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[error("missing {} chunks when trying to build public key", PublicKeyBytesBuilder::FULL_COUNT - incomplete_count)]
+pub struct IncompletePublicKey {
+    incomplete_count: u8,
+}
+
+impl IncompletePublicKey {
+    pub fn record_id(&self) -> RecordId {
+        RecordId::from(u32::from(self.incomplete_count))
+    }
+}
 
 pub struct PrssExchangeStep;
 
@@ -15,8 +28,8 @@ impl AsRef<str> for PrssExchangeStep {
 
 impl Substep for PrssExchangeStep {}
 
-#[derive(Debug)]
-pub struct PublicKeyChunk([u8; MESSAGE_PAYLOAD_SIZE_BYTES]);
+#[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+pub struct PublicKeyChunk([u8; 8]);
 
 impl PublicKeyChunk {
     pub fn chunks(pk: PublicKey) -> [PublicKeyChunk; 4] {
@@ -26,15 +39,15 @@ impl PublicKeyChunk {
         assert_eq!(MESSAGE_PAYLOAD_SIZE_BYTES, 8);
         assert_eq!(pk_bytes.len(), 32);
 
-        let mut chunks = Vec::with_capacity(4);
-        for i in 0..4 {
-            let lower = i * MESSAGE_PAYLOAD_SIZE_BYTES;
-            let upper = lower + MESSAGE_PAYLOAD_SIZE_BYTES;
-            let mut chunk_bytes = [0; MESSAGE_PAYLOAD_SIZE_BYTES];
-            chunk_bytes.copy_from_slice(&pk_bytes[lower..upper]);
-            chunks.push(PublicKeyChunk(chunk_bytes));
-        }
-        chunks.try_into().unwrap()
+        pk_bytes
+            .chunks(MESSAGE_PAYLOAD_SIZE_BYTES)
+            .map(|chunk| {
+                let mut chunk_bytes = [0u8; MESSAGE_PAYLOAD_SIZE_BYTES];
+                chunk_bytes.copy_from_slice(chunk);
+                PublicKeyChunk(chunk_bytes)
+            })
+            .collect::<ArrayVec<[PublicKeyChunk; 4]>>()
+            .into_inner()
     }
 
     pub fn into_inner(self) -> [u8; MESSAGE_PAYLOAD_SIZE_BYTES] {
@@ -47,7 +60,7 @@ impl Message for PublicKeyChunk {
     const SIZE_IN_BYTES: u32 = MESSAGE_PAYLOAD_SIZE_BYTES as u32;
 
     fn deserialize(buf: &mut [u8]) -> std::io::Result<Self> {
-        if Self::SIZE_IN_BYTES as usize == buf.len() {
+        if Self::SIZE_IN_BYTES as usize <= buf.len() {
             let mut chunk = [0; Self::SIZE_IN_BYTES as usize];
             chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES as usize]);
             Ok(PublicKeyChunk(chunk))
@@ -77,5 +90,84 @@ impl Message for PublicKeyChunk {
                 ),
             ))
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct PublicKeyBytesBuilder {
+    bytes: ArrayVec<[u8; 32]>,
+    count: u8,
+}
+
+impl PublicKeyBytesBuilder {
+    const FULL_COUNT: u8 = 4;
+
+    pub fn empty() -> Self {
+        PublicKeyBytesBuilder {
+            bytes: ArrayVec::new(),
+            count: 0,
+        }
+    }
+    pub fn append_chunk(&mut self, chunk: PublicKeyChunk) {
+        self.bytes.extend_from_slice(&chunk.into_inner());
+        self.count += 1;
+    }
+    pub fn build(self) -> Result<PublicKey, IncompletePublicKey> {
+        if self.count == PublicKeyBytesBuilder::FULL_COUNT {
+            Ok(self.bytes.into_inner().into())
+        } else {
+            Err(IncompletePublicKey {
+                incomplete_count: self.count,
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rand::thread_rng;
+    use x25519_dalek::EphemeralSecret;
+
+    #[test]
+    fn chunk_ser_de() {
+        let chunk_bytes = [1, 2, 3, 4, 5, 6, 7, 8];
+        let chunk = PublicKeyChunk(chunk_bytes);
+
+        let mut serialized = [0u8; 8];
+        chunk.serialize(&mut serialized).unwrap();
+        assert_eq!(chunk_bytes, serialized);
+
+        let deserialized = PublicKeyChunk::deserialize(&mut serialized).unwrap();
+        assert_eq!(chunk, deserialized);
+    }
+
+    #[test]
+    fn incomplete_pk() {
+        let secret = EphemeralSecret::new(thread_rng());
+        let pk = PublicKey::from(&secret);
+
+        let chunks = PublicKeyChunk::chunks(pk);
+
+        // check incomplete keys fail
+        for i in 0..chunks.len() {
+            let mut builder = PublicKeyBytesBuilder::empty();
+            for chunk in chunks.iter().take(i) {
+                builder.append_chunk(*chunk);
+            }
+            let built = builder.build();
+            #[allow(clippy::cast_possible_truncation)] // size is <= 4
+            let expected_err = Err(IncompletePublicKey {
+                incomplete_count: i as u8,
+            });
+            assert_eq!(built, expected_err);
+        }
+
+        // check complete key succeeds
+        let mut builder = PublicKeyBytesBuilder::empty();
+        for chunk in chunks {
+            builder.append_chunk(chunk);
+        }
+        assert_eq!(builder.build(), Ok(pk));
     }
 }

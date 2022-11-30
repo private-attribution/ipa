@@ -1,11 +1,15 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
+use rand::thread_rng;
 use raw_ipa::{
     cli::Verbosity,
     ff::Fp31,
-    helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
+    helpers::{
+        http::{HttpHelper, PrssExchangeStep},
+        GatewayConfig, Role, SendBufferConfig,
+    },
     net::discovery,
-    protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId},
+    protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, Step},
 };
 use std::error::Error;
 use std::str::FromStr;
@@ -49,8 +53,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let helper = HttpHelper::new(args.role, &peer_discovery, gateway_config);
     let (addr, server_handle) = helper.bind().await;
     let gateway = helper.query(QueryId).expect("unable to create gateway");
+    let step = Step::default().narrow(&PrssExchangeStep);
     let prss_endpoint = helper
-        .prss_endpoint(&gateway)
+        .prss_endpoint(&gateway, &step, &mut thread_rng())
         .await
         .expect("unable to setup prss");
     let rbg = RandomBitsGenerator::<Fp31>::new();
