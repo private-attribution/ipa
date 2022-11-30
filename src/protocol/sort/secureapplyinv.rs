@@ -97,10 +97,10 @@ mod tests {
                             ctx,
                             m_shares,
                             (
-                                perm_and_randoms.1 .0.as_slice(),
-                                perm_and_randoms.1 .1.as_slice(),
+                                perm_and_randoms.randoms_for_shuffle.0.as_slice(),
+                                perm_and_randoms.randoms_for_shuffle.1.as_slice(),
                             ),
-                            &perm_and_randoms.0,
+                            &perm_and_randoms.revealed,
                         )
                         .await
                         .unwrap()
