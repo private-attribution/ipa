@@ -49,7 +49,7 @@ pub struct ParticipantSetup {
 
 impl ParticipantSetup {
     #[must_use]
-    pub fn new_with(metrics_sink: Sink) -> Self {
+    pub fn new(metrics_sink: Sink) -> Self {
         Self {
             metrics_sink: Some(metrics_sink),
         }
