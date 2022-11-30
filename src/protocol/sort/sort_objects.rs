@@ -1,4 +1,6 @@
-use crate::secret_sharing::SecretSharing;
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::{sort::SortStep::ShuffleRevealPermutation, IpaProtocolStep::SortPreAccumulation};
+use crate::secret_sharing::{XorReplicated, Replicated};
 use crate::{
     error::Error,
     ff::Field,
@@ -7,6 +9,7 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 
 use super::apply::apply_inv;
+use super::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation};
 use super::shuffle_objects::{shuffle_object_shares, Resharable};
 
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
@@ -29,27 +32,34 @@ use super::shuffle_objects::{shuffle_object_shares, Resharable};
 /// 3. Secret shared value is shuffled using the same random permutations
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
-pub async fn sort_objects<C, F, I, S>(
-    ctx: C,
+#[allow(dead_code)]
+pub async fn apply_sort_permutation<F, I>(
+    ctx: SemiHonestContext<'_, F>,
     input: Vec<I>,
-    random_permutations_for_shuffle: (&[u32], &[u32]),
-    shuffled_sort_permutation: &[u32],
+    match_key: &[XorReplicated],
+    num_bits: u32,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context<F, Share = S> + Send,
     F: Field,
-    I: Resharable<F, Share = S>,
-    S: SecretSharing<F>,
+    I: Resharable<F, Share = Replicated<F>>,
 {
-    let mut shuffled_input = shuffle_object_shares(
+    let sort_permutation = generate_permutation(ctx.narrow(&SortPreAccumulation), match_key, num_bits).await?;
+    
+    let revealed_and_random_permutation = shuffle_and_reveal_permutation(
+        ctx.narrow(&ShuffleRevealPermutation),
+        input.len().try_into().unwrap(),
+        sort_permutation,
+    ).await?;
+
+    let mut shuffled_objects = shuffle_object_shares(
         input,
-        random_permutations_for_shuffle,
+        (&revealed_and_random_permutation.randoms_for_shuffle.0, &revealed_and_random_permutation.randoms_for_shuffle.1),
         ctx.narrow(&ShuffleInputs),
     )
     .await?;
 
-    apply_inv(shuffled_sort_permutation, &mut shuffled_input);
-    Ok(shuffled_input)
+    apply_inv(&revealed_and_random_permutation.revealed, &mut shuffled_objects);
+    Ok(shuffled_objects)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -104,10 +114,10 @@ mod tests {
                             ctx,
                             m_shares,
                             (
-                                perm_and_randoms.1 .0.as_slice(),
-                                perm_and_randoms.1 .1.as_slice(),
+                                perm_and_randoms.randoms_for_shuffle.0.as_slice(),
+                                perm_and_randoms.randoms_for_shuffle.1.as_slice(),
                             ),
-                            &perm_and_randoms.0,
+                            &perm_and_randoms.revealed,
                         )
                         .await
                         .unwrap()

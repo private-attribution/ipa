@@ -42,7 +42,6 @@ pub trait Resharable<F: Field>: Sized {
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
 }
 
-#[allow(dead_code)]
 async fn reshare_objects<F, C, S, T>(
     input: &[T],
     ctx: C,

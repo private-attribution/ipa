@@ -71,6 +71,9 @@ pub(super) async fn shuffle_and_reveal_permutation<
     })
 }
 
+struct SortPermutation<F: Field>(Vec<Replicated<F>>);
+
+
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -154,7 +157,7 @@ pub async fn generate_permutation<F: Field>(
         .await?;
         composed_less_significant_bits_permutation = composed_i_permutation;
     }
-    Ok(composed_less_significant_bits_permutation)
+    Ok(SortPermutation(composed_less_significant_bits_permutation))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
