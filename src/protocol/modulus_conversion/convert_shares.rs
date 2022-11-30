@@ -233,13 +233,14 @@ mod tests {
                 let [x0, x1, x2] = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
+                let m_ctx = v.context();
                 let m_triple = join3(
-                    v.context().upgrade(RecordId::from(0), x0),
-                    v.context().upgrade(RecordId::from(1), x1),
-                    v.context().upgrade(RecordId::from(2), x2),
+                    m_ctx.upgrade(RecordId::from(0), x0),
+                    m_ctx.upgrade(RecordId::from(1), x1),
+                    m_ctx.upgrade(RecordId::from(2), x2),
                 )
                 .await;
-                let m_bit = convert_bit(v.context(), RecordId::from(0), &m_triple)
+                let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
                     .unwrap();
                 v.validate(m_bit).await.unwrap()
@@ -252,28 +253,28 @@ mod tests {
     pub async fn one_bit_malicious_tweaks() {
         struct Tweak {
             role: Role,
-            value: usize,
+            index: usize,
             dir: Direction,
         }
         impl Tweak {
             fn flip_bit<F: Field>(
                 &self,
                 role: Role,
-                mut v: [Replicated<F>; 3],
+                mut triple: [Replicated<F>; 3],
             ) -> [Replicated<F>; 3] {
                 if role != self.role {
-                    return v;
+                    return triple;
                 }
-                let t = &mut v[self.value];
-                *t = match self.dir {
-                    Direction::Left => Replicated::new(F::ONE - t.left(), t.right()),
-                    Direction::Right => Replicated::new(t.left(), F::ONE - t.right()),
+                let v = &mut triple[self.index];
+                *v = match self.dir {
+                    Direction::Left => Replicated::new(F::ONE - v.left(), v.right()),
+                    Direction::Right => Replicated::new(v.left(), F::ONE - v.right()),
                 };
-                v
+                triple
             }
         }
-        const fn t(role: Role, value: usize, dir: Direction) -> Tweak {
-            Tweak { role, value, dir }
+        const fn t(role: Role, index: usize, dir: Direction) -> Tweak {
+            Tweak { role, index, dir }
         }
 
         const TWEAKS: &[Tweak] = &[
@@ -281,8 +282,8 @@ mod tests {
             t(Role::H1, 1, Direction::Right),
             t(Role::H2, 1, Direction::Left),
             t(Role::H2, 2, Direction::Right),
-            t(Role::H3, 0, Direction::Right),
             t(Role::H3, 2, Direction::Left),
+            t(Role::H3, 0, Direction::Right),
         ];
         const BITNUM: u32 = 4;
 
@@ -290,7 +291,7 @@ mod tests {
         let world = TestWorld::new(QueryId);
         for tweak in TWEAKS {
             let match_key = MaskedMatchKey::mask(rng.gen());
-            let _ = world
+            world
                 .semi_honest(match_key, |ctx, mk_share| async move {
                     let triple = convert_bit_local::<Fp32BitPrime>(ctx.role(), BITNUM, &mk_share);
                     let [x0, x1, x2] = tweak.flip_bit(ctx.role(), triple);
@@ -306,7 +307,10 @@ mod tests {
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await
                         .unwrap();
-                    let err = v.validate(m_bit).await.unwrap_err();
+                    let err = v
+                        .validate(m_bit)
+                        .await
+                        .expect_err("This should fail validation");
                     assert!(matches!(err, Error::MaliciousSecurityCheckFailed));
                 })
                 .await;
