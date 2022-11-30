@@ -28,6 +28,9 @@ use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
 
 #[derive(Debug)]
+/// This object contains the output of `shuffle_and_reveal_permutation`
+/// i) `revealed` permutation after shuffling
+/// ii) Random permutations: each helper knows 2/3 of random permutations. This is then used for shuffle protocol.
 pub struct RevealedAndRandomPermutations {
     pub revealed: Vec<u32>,
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
