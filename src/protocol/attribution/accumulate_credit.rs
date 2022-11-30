@@ -242,6 +242,7 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::rand::{thread_rng, Rng};
+    use crate::test_fixture::IntoShares;
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
@@ -259,6 +260,38 @@ mod tests {
     const T: u128 = 1;
     const H: [u128; 2] = [0, 1];
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
+
+    #[derive(Clone, Copy)]
+    struct Fp31AttributionInputRow([Fp31; 4]);
+
+    impl IntoShares<AttributionInputRow<Fp31>> for Fp31AttributionInputRow {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<Fp31>; 3] {
+            let [a0, a1, a2] = self.0[0].share_with(rng);
+            let [b0, b1, b2] = self.0[1].share_with(rng);
+            let [c0, c1, c2] = self.0[2].share_with(rng);
+            let [d0, d1, d2] = self.0[3].share_with(rng);
+            [
+                AttributionInputRow {
+                    is_trigger_bit: a0,
+                    helper_bit: b0,
+                    breakdown_key: c0,
+                    credit: d0,
+                },
+                AttributionInputRow {
+                    is_trigger_bit: a1,
+                    helper_bit: b1,
+                    breakdown_key: c1,
+                    credit: d1,
+                },
+                AttributionInputRow {
+                    is_trigger_bit: a2,
+                    helper_bit: b2,
+                    breakdown_key: c2,
+                    credit: d2,
+                },
+            ]
+        }
+    }
 
     /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
     /// shares of `AttributionInputRow`.
@@ -379,9 +412,12 @@ mod tests {
 
         for &role in Role::all() {
             let new_shares = world
-                .semi_honest(secret, |ctx, share: AttributionInputRow<Fp31>| async move {
-                    share.reshare(ctx, RecordId::from(0), role).await.unwrap()
-                })
+                .semi_honest(
+                    Fp31AttributionInputRow(secret),
+                    |ctx, share: AttributionInputRow<Fp31>| async move {
+                        share.reshare(ctx, RecordId::from(0), role).await.unwrap()
+                    },
+                )
                 .await;
             assert_eq!(secret, new_shares.reconstruct());
         }

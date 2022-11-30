@@ -290,35 +290,3 @@ impl<F: Field> Reconstruct<[F; 4]> for [AttributionInputRow<F>; 3] {
         [is_trigger_bit, helper_bit, breakdown_key, credit]
     }
 }
-
-impl<F> IntoShares<AttributionInputRow<F>> for [F; 4]
-where
-    F: Field + IntoShares<Replicated<F>>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
-        let [a0, a1, a2] = self[0].share_with(rng);
-        let [b0, b1, b2] = self[1].share_with(rng);
-        let [c0, c1, c2] = self[2].share_with(rng);
-        let [d0, d1, d2] = self[3].share_with(rng);
-        [
-            AttributionInputRow {
-                is_trigger_bit: a0,
-                helper_bit: b0,
-                breakdown_key: c0,
-                credit: d0,
-            },
-            AttributionInputRow {
-                is_trigger_bit: a1,
-                helper_bit: b1,
-                breakdown_key: c1,
-                credit: d1,
-            },
-            AttributionInputRow {
-                is_trigger_bit: a2,
-                helper_bit: b2,
-                breakdown_key: c2,
-                credit: d2,
-            },
-        ]
-    }
-}
