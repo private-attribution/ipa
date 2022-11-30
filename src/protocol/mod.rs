@@ -120,7 +120,7 @@ pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
     /// Sort shares by the match key
-    Sort(u8),
+    Sort(u32),
     /// Perform attribution.
     Attribution,
     SortPreAccumulation,
@@ -142,7 +142,7 @@ impl AsRef<str> for IpaProtocolStep {
         ];
         match self {
             Self::ConvertShares => "convert",
-            Self::Sort(i) => SORT[usize::from(*i)],
+            Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],
             Self::Attribution => "attribution",
             Self::SortPreAccumulation => "sort_pre_accumulation",
         }

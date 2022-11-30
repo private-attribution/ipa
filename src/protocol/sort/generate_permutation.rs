@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::Context,
-        modulus_conversion::convert_shares::convert_shares_for_a_bit,
+        modulus_conversion::convert_shares_for_a_bit,
         reveal::reveal_permutation,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion, ShuffleRevealPermutation,
@@ -14,7 +14,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{Replicated, SecretSharing},
+    secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 
 use super::{
@@ -82,8 +82,8 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
 pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: &[(u64, u64)],
-    num_bits: u8,
+    input: &[XorReplicated],
+    num_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
     let bit_0 =
@@ -144,9 +144,8 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
+    use crate::test_fixture::{join3, MaskedMatchKey, Runner};
     use crate::{
-        error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
@@ -156,62 +155,36 @@ mod tests {
     };
 
     #[tokio::test]
-    pub async fn semi_honest() -> Result<(), Error> {
-        const ROUNDS: usize = 50;
-        const NUM_BITS: u8 = 24;
-        const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
+    pub async fn semi_honest() {
+        const COUNT: usize = 5;
 
         logging::setup();
         let world = TestWorld::<Fp32BitPrime>::new(QueryId);
-        let [ctx0, ctx1, ctx2] = world.contexts();
         let mut rng = thread_rng();
 
-        let mut match_keys: Vec<u64> = Vec::new();
-        for _ in 0..ROUNDS {
-            match_keys.push(rng.gen::<u64>() & MASK);
+        let mut match_keys = Vec::with_capacity(COUNT);
+        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+
+        let mut expected = match_keys
+            .iter()
+            .map(|mk| u64::from(*mk))
+            .collect::<Vec<_>>();
+        expected.sort_unstable();
+
+        let result = world
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
+                    .await
+                    .unwrap()
+            })
+            .await;
+
+        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        for (match_key, index) in zip(match_keys, result.reconstruct()) {
+            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
         }
 
-        let mut shares = [
-            Vec::with_capacity(ROUNDS),
-            Vec::with_capacity(ROUNDS),
-            Vec::with_capacity(ROUNDS),
-        ];
-        for match_key in match_keys.clone() {
-            let share_0 = rng.gen::<u64>() & MASK;
-            let share_1 = rng.gen::<u64>() & MASK;
-            let share_2 = match_key ^ share_0 ^ share_1;
-
-            shares[0].push((share_0, share_1));
-            shares[1].push((share_1, share_2));
-            shares[2].push((share_2, share_0));
-        }
-
-        let [result0, result1, result2] = join3(
-            generate_permutation(ctx0, &shares[0], NUM_BITS),
-            generate_permutation(ctx1, &shares[1], NUM_BITS),
-            generate_permutation(ctx2, &shares[2], NUM_BITS),
-        )
-        .await;
-
-        assert_eq!(result0.len(), ROUNDS);
-        assert_eq!(result1.len(), ROUNDS);
-        assert_eq!(result2.len(), ROUNDS);
-
-        let mut mpc_sorted_list: Vec<u128> = (0..ROUNDS).map(|i| i as u128).collect();
-        for (match_key, (r0, (r1, r2))) in
-            zip(match_keys.iter(), zip(result0, zip(result1, result2)))
-        {
-            let index = (&r0, &r1, &r2).reconstruct();
-            mpc_sorted_list[index.as_u128() as usize] = u128::from(*match_key);
-        }
-
-        let mut sorted_match_keys = match_keys.clone();
-        sorted_match_keys.sort_unstable();
-        for i in 0..ROUNDS {
-            assert_eq!(u128::from(sorted_match_keys[i]), mpc_sorted_list[i]);
-        }
-
-        Ok(())
+        assert_eq!(expected, mpc_sorted_list);
     }
 
     #[tokio::test]
