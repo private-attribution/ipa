@@ -140,7 +140,8 @@ pub async fn generate_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
-    use rand::{seq::SliceRandom, Rng};
+    use crate::rand::{thread_rng, Rng};
+    use rand::seq::SliceRandom;
 
     use crate::protocol::context::Context;
     use crate::test_fixture::{join3, MaskedMatchKey, Runner};
@@ -159,7 +160,7 @@ mod tests {
 
         logging::setup();
         let world = TestWorld::<Fp32BitPrime>::new(QueryId);
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
         match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
@@ -190,7 +191,7 @@ mod tests {
     pub async fn test_shuffle_and_reveal_permutation() {
         const BATCHSIZE: u32 = 25;
 
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
         permutation.shuffle(&mut rng);

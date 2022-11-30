@@ -1,4 +1,4 @@
-mod attribution;
+pub mod attribution;
 mod batch;
 pub mod boolean;
 mod check_zero;
@@ -123,6 +123,7 @@ pub enum IpaProtocolStep {
     Sort(u32),
     /// Perform attribution.
     Attribution,
+    SortPreAccumulation,
 }
 
 impl Substep for IpaProtocolStep {}
@@ -143,6 +144,7 @@ impl AsRef<str> for IpaProtocolStep {
             Self::ConvertShares => "convert",
             Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],
             Self::Attribution => "attribution",
+            Self::SortPreAccumulation => "sort_pre_accumulation",
         }
     }
 }

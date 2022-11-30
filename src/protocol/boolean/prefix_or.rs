@@ -305,6 +305,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::PrefixOr;
     use crate::protocol::context::Context;
+    use crate::rand::thread_rng;
     use crate::{
         error::Error,
         ff::{Field, Fp2, Fp31},
@@ -314,7 +315,8 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
-    use rand::{rngs::mock::StepRng, Rng};
+    use rand::rngs::mock::StepRng;
+    use rand::Rng;
     use std::iter::zip;
 
     const BITS: [usize; 2] = [16, 32];
@@ -360,7 +362,7 @@ mod tests {
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_2
     pub async fn fp2() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
@@ -390,7 +392,7 @@ mod tests {
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_p (i.e. Fp31)
     pub async fn fp31() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,

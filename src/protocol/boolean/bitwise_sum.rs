@@ -85,12 +85,14 @@ impl AsRef<str> for Step {
 mod tests {
     //use super::BitwiseSum;
     use crate::protocol::boolean::dumb_bitwise_sum::BitwiseSum;
+    use crate::rand::thread_rng;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{QueryId, RecordId},
         test_fixture::{bits_to_value, into_bits, Reconstruct, Runner, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution, Rng};
+    use rand::Rng;
+    use rand::{distributions::Standard, prelude::Distribution};
 
     /// This protocol requires a number of inputs that are equal to a power of 2.
     /// This functions pads those inputs.
@@ -183,7 +185,7 @@ mod tests {
     #[tokio::test]
     pub async fn fp_32bit_prime_random() {
         let c = Fp32BitPrime::from;
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         for _ in 0..10 {
             let a = c(rng.gen::<u128>());

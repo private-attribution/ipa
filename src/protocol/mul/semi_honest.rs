@@ -58,12 +58,12 @@ mod tests {
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{QueryId, RecordId};
 
+    use crate::rand::thread_rng;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
     use rand::distributions::Standard;
     use rand::prelude::Distribution;
-    use rand::thread_rng;
     use std::iter::{repeat, zip};
 
     #[tokio::test]
@@ -101,7 +101,6 @@ mod tests {
     /// `TestHelper`'s ability to distinguish messages of the same type sent towards helpers
     /// executing multiple same type protocols
     #[tokio::test]
-    #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);

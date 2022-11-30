@@ -94,12 +94,12 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
+    use crate::rand::{thread_rng, Rng};
     use crate::{
         ff::Fp31,
         protocol::{mul::SecureMul, QueryId, RecordId},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::{thread_rng, Rng};
 
     #[tokio::test]
     pub async fn simple() {

@@ -161,6 +161,7 @@ pub async fn convert_shares_for_a_bit<F: Field>(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
+    use crate::rand::thread_rng;
     use crate::{
         ff::Fp31,
         protocol::{modulus_conversion::convert_one_bit, QueryId, RecordId},
@@ -168,15 +169,10 @@ mod tests {
     };
     use proptest::prelude::Rng;
 
-    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-    struct ModulusConversionTestStep {
-        prss_space_number: u8,
-    }
-
     #[tokio::test]
     pub async fn one_bit() {
         const BITNUM: u32 = 4;
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         let world = TestWorld::<Fp31>::new(QueryId);
         let match_key = MaskedMatchKey::mask(rng.gen());

@@ -1,4 +1,3 @@
-use rand::Rng;
 use raw_ipa::error::Error;
 use raw_ipa::ff::Field;
 use raw_ipa::ff::Fp32BitPrime;
@@ -6,6 +5,7 @@ use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
 use raw_ipa::protocol::QueryId;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
+use shuttle_crate::rand::{thread_rng, Rng};
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Error> {
     let world = TestWorld::<Fp32BitPrime>::new_with(QueryId, config);
     let [ctx0, ctx1, ctx2] = world.contexts();
     let num_bits = 64;
-    let mut rng = rand::thread_rng();
+    let mut rng = thread_rng();
 
     let batchsize = 100;
 
