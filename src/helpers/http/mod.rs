@@ -18,18 +18,18 @@ use crate::{
 use rand::thread_rng;
 use std::net::SocketAddr;
 
-pub struct HttpHelper {
+pub struct HttpHelper<'p> {
     role: Role,
-    peers: [peer::Config; 3],
+    peers: &'p [peer::Config; 3],
     gateway_config: GatewayConfig,
     participant: prss::Endpoint,
     server: MpcHelperServer,
 }
 
-impl HttpHelper {
+impl<'p> HttpHelper<'p> {
     pub fn new<D: PeerDiscovery>(
         role: Role,
-        peer_discovery: &D,
+        peer_discovery: &'p D,
         gateway_config: GatewayConfig,
     ) -> Self {
         // Prss
@@ -65,7 +65,7 @@ impl HttpHelper {
     /// if a query has been previously added
     pub fn query(&self, query_id: QueryId) -> Result<Gateway, Error> {
         tracing::debug!("starting query {}", query_id.as_ref());
-        let network = HttpNetwork::new(self.role, &self.peers, query_id);
+        let network = HttpNetwork::new(self.role, self.peers, query_id);
 
         let gateway = Gateway::new(self.role, &network, self.gateway_config);
         // allow for server to forward requests to this network
@@ -104,8 +104,8 @@ mod e2e_tests {
     }
 
     fn peer_discovery() -> discovery::literal::Literal {
-        discovery::literal::Literal {
-            h1: peer::Config {
+        discovery::literal::Literal::new(
+            peer::Config {
                 http: peer::HttpConfig {
                     origin: "http://127.0.0.1:3000".parse().unwrap(),
                     public_key: public_key_from_hex(
@@ -118,7 +118,7 @@ mod e2e_tests {
                     ),
                 },
             },
-            h2: peer::Config {
+            peer::Config {
                 http: peer::HttpConfig {
                     origin: "http://127.0.0.1:3001".parse().unwrap(),
                     public_key: public_key_from_hex(
@@ -131,7 +131,7 @@ mod e2e_tests {
                     ),
                 },
             },
-            h3: peer::Config {
+            peer::Config {
                 http: peer::HttpConfig {
                     origin: "http://127.0.0.1:3002".parse().unwrap(),
                     public_key: public_key_from_hex(
@@ -144,7 +144,7 @@ mod e2e_tests {
                     ),
                 },
             },
-        }
+        )
     }
 
     fn gateway_config() -> GatewayConfig {

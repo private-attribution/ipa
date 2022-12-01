@@ -177,7 +177,7 @@ mod tests {
         // only H2 is valid
         let peer_discovery = localhost_peers(0, addr.port(), 0);
 
-        (Role::H2, peer_discovery.peers(), rx_stream)
+        (Role::H2, peer_discovery.peers().clone(), rx_stream)
     }
 
     #[tokio::test]

@@ -41,5 +41,5 @@ pub mod peer {
 /// Any potential failures should be captured in the initialization of the implementer.
 #[allow(clippy::module_name_repetitions)] // following standard naming convention
 pub trait PeerDiscovery {
-    fn peers(&self) -> [peer::Config; 3];
+    fn peers(&self) -> &[peer::Config; 3];
 }

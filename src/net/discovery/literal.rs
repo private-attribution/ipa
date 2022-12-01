@@ -1,13 +1,19 @@
 use crate::net::discovery::{peer, PeerDiscovery};
 
 pub struct Literal {
-    pub h1: peer::Config,
-    pub h2: peer::Config,
-    pub h3: peer::Config,
+    peers: [peer::Config; 3],
+}
+
+impl Literal {
+    pub fn new(h1: peer::Config, h2: peer::Config, h3: peer::Config) -> Self {
+        Self {
+            peers: [h1, h2, h3],
+        }
+    }
 }
 
 impl PeerDiscovery for Literal {
-    fn peers(&self) -> [peer::Config; 3] {
-        [self.h1.clone(), self.h2.clone(), self.h3.clone()]
+    fn peers(&self) -> &[peer::Config; 3] {
+        &self.peers
     }
 }
