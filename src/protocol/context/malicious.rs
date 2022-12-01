@@ -1,9 +1,12 @@
+use futures::future::try_join_all;
+
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
+use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::mul::{malicious::Step::RandomnessForValidation, SecureMul};
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
@@ -65,6 +68,18 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner.upgrade_bit(record_id, bit_index, input).await
+    }
+
+    /// Upgrade an bit conversion triple for a specific bit.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade_bit_triple(
+        &self,
+        record_id: RecordId,
+        triple: BitConversionTriple<Replicated<F>>,
+    ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
+        self.inner.upgrade_bit_triple(record_id, triple).await
     }
 }
 
@@ -132,6 +147,24 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     }
 }
 
+enum UpgradeTripleStep {
+    V0,
+    V1,
+    V2,
+}
+
+impl crate::protocol::Substep for UpgradeTripleStep {}
+
+impl AsRef<str> for UpgradeTripleStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::V0 => "upgrade_bit_triple0",
+            Self::V1 => "upgrade_bit_triple1",
+            Self::V2 => "upgrade_bit_triple2",
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ContextInner<'a, F: Field> {
     role: Role,
@@ -158,17 +191,26 @@ impl<'a, F: Field> ContextInner<'a, F> {
         })
     }
 
-    async fn upgrade(
+    async fn upgrade_one(
         &self,
+        ctx: SemiHonestContext<'a, F>,
         record_id: RecordId,
         x: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let ctx = self.upgrade_ctx.clone();
         let prss = ctx.narrow(&RandomnessForValidation).prss();
         let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
         let m = MaliciousReplicated::new(x, rx);
         self.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
+    }
+
+    async fn upgrade(
+        &self,
+        record_id: RecordId,
+        x: Replicated<F>,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.upgrade_one(self.upgrade_ctx.clone(), record_id, x)
+            .await
     }
 
     async fn upgrade_bit(
@@ -177,11 +219,41 @@ impl<'a, F: Field> ContextInner<'a, F> {
         bit_index: u32,
         x: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let ctx = self.upgrade_ctx.narrow(&BitOpStep::from(bit_index));
-        let prss = ctx.narrow(&RandomnessForValidation).prss();
-        let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
-        let m = MaliciousReplicated::new(x, rx);
-        self.accumulator.accumulate_macs(&prss, record_id, &m);
-        Ok(m)
+        self.upgrade_one(
+            self.upgrade_ctx.narrow(&BitOpStep::from(bit_index)),
+            record_id,
+            x,
+        )
+        .await
+    }
+
+    async fn upgrade_bit_triple(
+        &self,
+        record_id: RecordId,
+        triple: BitConversionTriple<Replicated<F>>,
+    ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
+        let [v0, v1, v2] = triple.0;
+        Ok(BitConversionTriple(
+            try_join_all([
+                self.upgrade_one(
+                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
+                    record_id,
+                    v0,
+                ),
+                self.upgrade_one(
+                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
+                    record_id,
+                    v1,
+                ),
+                self.upgrade_one(
+                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
+                    record_id,
+                    v2,
+                ),
+            ])
+            .await?
+            .try_into()
+            .unwrap(),
+        ))
     }
 }
