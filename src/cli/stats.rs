@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use comfy_table::Table;
-use metrics::{KeyName, SharedString};
+use metrics::{KeyName, Label, SharedString};
 
 use metrics_util::debugging::{DebugValue, Snapshot};
 use metrics_util::{CompositeKey, MetricKind};
@@ -60,8 +60,14 @@ impl CounterDetails {
 }
 
 impl Metrics {
-    #[must_use]
+
     pub fn from_snapshot(snapshot: Snapshot) -> Self {
+        const ALWAYS_TRUE: fn(&[Label]) -> bool = |labels| { true };
+        Self::with_filter(snapshot, ALWAYS_TRUE)
+    }
+
+    #[must_use]
+    pub fn with_filter<F: Fn(&[Label]) -> bool>(snapshot: Snapshot, filter_fn: F) -> Self {
         let mut this = Metrics {
             counters: HashMap::new(),
             metric_description: HashMap::new(),
@@ -69,7 +75,10 @@ impl Metrics {
 
         let snapshot = snapshot.into_vec();
         for (ckey, _, descr, val) in snapshot {
-            let (key_name, _) = ckey.key().clone().into_parts();
+            let (key_name, labels) = ckey.key().clone().into_parts();
+            if !filter_fn(labels.as_slice()) {
+                continue
+            }
             let entry = this
                 .counters
                 .entry(key_name.clone())

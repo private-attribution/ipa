@@ -11,7 +11,9 @@ use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
+use tracing::instrument;
 use x25519_dalek::{EphemeralSecret, PublicKey};
+use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
 
 use super::Step;
 
@@ -85,6 +87,8 @@ impl IndexedSharedRandomness {
         {
             self.used.insert(index);
         }
+
+        metrics::increment_counter!(INDEXED_PRSS_GENERATED);
 
         (self.left.generate(index), self.right.generate(index))
     }
@@ -183,6 +187,8 @@ impl RngCore for SequentialSharedRandomness {
     // That is OK for the same reason that we use in converting a `u128` to a small `Field`.
     #[allow(clippy::cast_possible_truncation)]
     fn next_u64(&mut self) -> u64 {
+        metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED);
+
         let v = self.generator.generate(self.counter);
         self.counter += 1;
         v as u64
@@ -312,6 +318,7 @@ impl EndpointSetup {
     /// Provide the left and right public keys to construct a functioning
     /// participant instance.
     #[must_use]
+    #[instrument(skip_all)]
     pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);

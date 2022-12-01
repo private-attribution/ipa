@@ -143,7 +143,7 @@ mod tests {
     use rand::{seq::SliceRandom, Rng};
 
     use crate::protocol::context::Context;
-    use crate::test_fixture::join3;
+    use crate::test_fixture::{join3, TestWorldConfig};
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -160,8 +160,9 @@ mod tests {
         const NUM_BITS: u8 = 24;
         const MASK: u64 = u64::MAX >> (64 - NUM_BITS);
 
-        logging::setup();
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
+        let mut config = TestWorldConfig::default();
+        config.print_metrics = true;
+        let world = TestWorld::<Fp32BitPrime>::new_with(QueryId, config);
         let [ctx0, ctx1, ctx2] = world.contexts();
         let mut rng = rand::thread_rng();
 

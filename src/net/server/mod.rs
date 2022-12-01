@@ -518,9 +518,11 @@ mod e2e_tests {
     /// tested that, so better to stick with default behavior of tokio:test macro
     #[tokio::test]
     async fn requests_received_metric() {
+        todo!();
         // as per metric's crate recommendation, we have to install the per-thread recorder, but
         // need to ignore errors because there might be other threads installing it as well.
-        DebuggingRecorder::per_thread().install().unwrap_or(());
+        // DebuggingRecorder::per_thread().install().unwrap_or(());
+        crate::test_fixture::metrics::setup();
 
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let message_send_map = MessageSendMap::filled(network);
@@ -556,6 +558,7 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn request_version_metric() {
+        todo!();
         DebuggingRecorder::per_thread().install().unwrap_or(());
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let message_send_map = MessageSendMap::filled(network);
