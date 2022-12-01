@@ -4,10 +4,7 @@ use rand::thread_rng;
 use raw_ipa::{
     cli::Verbosity,
     ff::Fp31,
-    helpers::{
-        http::{HttpHelper, PrssExchangeStep},
-        GatewayConfig, Role, SendBufferConfig,
-    },
+    helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
     net::discovery,
     protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, Step},
 };
@@ -53,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let helper = HttpHelper::new(args.role, &peer_discovery, gateway_config);
     let (addr, server_handle) = helper.bind().await;
     let gateway = helper.query(QueryId).expect("unable to create gateway");
-    let step = Step::default().narrow(&PrssExchangeStep);
+    let step = Step::default();
     let prss_endpoint = helper
         .prss_endpoint(&gateway, &step, &mut thread_rng())
         .await

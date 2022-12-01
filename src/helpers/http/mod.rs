@@ -2,9 +2,7 @@ mod network;
 mod prss_exchange_protocol;
 
 pub use network::HttpNetwork;
-pub use prss_exchange_protocol::PrssExchangeStep;
 
-use crate::helpers::http::prss_exchange_protocol::PublicKeyBytesBuilder;
 use crate::{
     ff::Field,
     helpers::{messaging::Gateway, Direction, Error, GatewayConfig, Role},
@@ -18,7 +16,7 @@ use crate::{
     },
     task::JoinHandle,
 };
-use prss_exchange_protocol::PublicKeyChunk;
+use prss_exchange_protocol::{PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk};
 use rand_core::{CryptoRng, RngCore};
 use std::iter::zip;
 use std::net::SocketAddr;
@@ -81,7 +79,8 @@ impl<'p> HttpHelper<'p> {
         rng: &mut R,
     ) -> Result<prss::Endpoint, Error> {
         // setup protocol to exchange prss public keys
-        let channel = gateway.mesh(step);
+        let step = step.narrow(&PrssExchangeStep);
+        let channel = gateway.mesh(&step);
         let left_peer = self.role.peer(Direction::Left);
         let right_peer = self.role.peer(Direction::Right);
 
@@ -114,10 +113,10 @@ impl<'p> HttpHelper<'p> {
 
         let recv_left_pk = recv_left_pk_builder
             .build()
-            .map_err(|err| Error::serialization_error(err.record_id(), step, err))?;
+            .map_err(|err| Error::serialization_error(err.record_id(), &step, err))?;
         let recv_right_pk = recv_right_pk_builder
             .build()
-            .map_err(|err| Error::serialization_error(err.record_id(), step, err))?;
+            .map_err(|err| Error::serialization_error(err.record_id(), &step, err))?;
 
         Ok(ep_setup.setup(&recv_left_pk, &recv_right_pk))
     }
@@ -220,7 +219,7 @@ mod e2e_tests {
         let gateway2 = h2.query(QueryId).unwrap();
         let gateway3 = h3.query(QueryId).unwrap();
 
-        let step = Step::default().narrow(&PrssExchangeStep);
+        let step = Step::default();
         let mut rng1 = StdRng::from_entropy();
         let mut rng2 = StdRng::from_entropy();
         let mut rng3 = StdRng::from_entropy();
