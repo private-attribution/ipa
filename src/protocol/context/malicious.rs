@@ -211,7 +211,6 @@ impl<'a, F: Field> ContextInner<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        println!("r {:?} {:?}", ctx.role(), self.r_share);
         let prss = ctx.narrow(&RandomnessForValidation).prss();
         let rx = ctx
             .multiply_sparse(

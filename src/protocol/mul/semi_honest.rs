@@ -37,21 +37,16 @@ where
     zeros.0.check(role, "a", a);
     zeros.1.check(role, "b", b);
 
-    println!("{role:?} {a:?} x {b:?}");
-    println!("{role:?} {zeros:?} -> work: {:?}", zeros.work_for(role));
-
     // generate shared randomness.
     let prss = ctx.prss();
     let (s0, s1) = prss.generate_fields(record_id);
     // let (s0, s1) = (F::ZERO, F::ZERO);
-    println!("{role:?} s0 {s0:?} s1 {s1:?}");
 
     let channel = ctx.mesh();
     let mut rhs = a.right() * b.right();
     if need_to_send {
         // compute the value (d_i) we want to send to the right helper (i+1)
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
-        println!("{role:?} d {right_d:?}");
 
         // notify helper on the right that we've computed our value
         println!(
@@ -95,10 +90,7 @@ where
         lhs += s0;
     }
 
-    let ab = Replicated::new(lhs, rhs);
-    println!("{role:?} => {ab:?}");
-
-    Ok(ab)
+    Ok(Replicated::new(lhs, rhs))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

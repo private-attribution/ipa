@@ -125,8 +125,6 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
         let random_constant = prss.generate_replicated(record_id);
 
-        println!("accumulate randomness {random_constant:?}");
-
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
             &random_constant,
@@ -137,10 +135,6 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         // LOCK BEGIN
         let mut accumulator_state = arc_mutex.lock().unwrap();
 
-        println!(
-            "accumulate {:?} += {u_contribution:?}; {:?} += {w_contribution:?}",
-            accumulator_state.u, accumulator_state.w
-        );
         accumulator_state.u += u_contribution;
         accumulator_state.w += w_contribution;
         // LOCK END
@@ -206,15 +200,10 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
-        println!(
-            "{:?} final accumulator state {u_share:?} {w_share:?}",
-            self.validate_ctx.role()
-        );
 
         // This should probably be done in parallel with the futures above
         let narrow_ctx = self.validate_ctx.narrow(&ValidateStep::RevealR);
         let r = narrow_ctx.reveal(RECORD_0, &self.r_share).await?;
-        println!("{:?} revealed r {r:?}", self.validate_ctx.role());
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self.validate_ctx.narrow(&ValidateStep::CheckZero);

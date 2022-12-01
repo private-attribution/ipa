@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{context::Context, mul::ZeroPositions, RecordId, boolean::xor_sparse},
+    protocol::{boolean::xor_sparse, context::Context, mul::ZeroPositions, RecordId},
     secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 
@@ -110,8 +110,18 @@ where
     let ctx1 = ctx.narrow(&Step::Xor1);
     let ctx2 = ctx.narrow(&Step::Xor2);
     let sh0_xor_sh1 = xor_sparse(ctx1, record_id, sh0, sh1, &ZeroPositions::AVZZ_BZVZ).await?;
-    debug_assert_eq!(ZeroPositions::mul_output(&ZeroPositions::AVZZ_BZVZ), ZeroPositions::Pvvz);
-    xor_sparse(ctx2, record_id, &sh0_xor_sh1, sh2, &ZeroPositions::AVVZ_BZZV).await
+    debug_assert_eq!(
+        ZeroPositions::mul_output(&ZeroPositions::AVZZ_BZVZ),
+        ZeroPositions::Pvvz
+    );
+    xor_sparse(
+        ctx2,
+        record_id,
+        &sh0_xor_sh1,
+        sh2,
+        &ZeroPositions::AVVZ_BZZV,
+    )
+    .await
 }
 
 pub async fn convert_bit_list<F, C, S>(

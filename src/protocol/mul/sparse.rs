@@ -39,55 +39,55 @@ impl ZeroPositions {
     /// the current role is interpreted as `[recv, send, add_random_rhs]`.
     fn work(zeros_at: &MultiplyZeroPositions) -> [bool; 3] {
         match zeros_at {
-            (Self::Pvzz, Self::Pvzz) => [false, false, false],
-            (Self::Pzvz, Self::Pzvz) => [false, false, false],
-            (Self::Pzzv, Self::Pzzv) => [false, false, false],
-            (Self::Pzvv, Self::Pzvv) => [false, false, true],
-            (Self::Pzvv, Self::Pzvz) => [false, false, true],
-            (Self::Pzvv, Self::Pzzv) => [false, false, true],
-            (Self::Pzvz, Self::Pzvv) => [false, false, true],
-            (Self::Pzvz, Self::Pzzv) => [false, false, true],
-            (Self::Pzzv, Self::Pzvv) => [false, false, true],
-            (Self::Pzzv, Self::Pzvz) => [false, false, true],
-            (Self::Pvvz, Self::Pvvz) => [false, true, false],
-            (Self::Pvvz, Self::Pvzz) => [false, true, false],
-            (Self::Pvvz, Self::Pzvz) => [false, true, false],
-            (Self::Pvzz, Self::Pvvz) => [false, true, false],
-            (Self::Pvzz, Self::Pzvz) => [false, true, false],
-            (Self::Pzvz, Self::Pvvz) => [false, true, false],
-            (Self::Pzvz, Self::Pvzz) => [false, true, false],
-            (Self::Pvvv, Self::Pzvz) => [false, true, true],
-            (Self::Pvzv, Self::Pzvz) => [false, true, true],
-            (Self::Pzvz, Self::Pvvv) => [false, true, true],
-            (Self::Pzvz, Self::Pvzv) => [false, true, true],
-            (Self::Pvzv, Self::Pvzv) => [true, false, false],
-            (Self::Pvzv, Self::Pvzz) => [true, false, false],
-            (Self::Pvzv, Self::Pzzv) => [true, false, false],
-            (Self::Pvzz, Self::Pvzv) => [true, false, false],
-            (Self::Pvzz, Self::Pzzv) => [true, false, false],
-            (Self::Pzzv, Self::Pvzv) => [true, false, false],
-            (Self::Pzzv, Self::Pvzz) => [true, false, false],
-            (Self::Pvvv, Self::Pzzv) => [true, false, true],
-            (Self::Pvvz, Self::Pzzv) => [true, false, true],
-            (Self::Pzzv, Self::Pvvv) => [true, false, true],
-            (Self::Pzzv, Self::Pvvz) => [true, false, true],
-            (Self::Pvvv, Self::Pvzz) => [true, true, false],
-            (Self::Pvzz, Self::Pvvv) => [true, true, false],
-            (Self::Pvzz, Self::Pzvv) => [true, true, false],
-            (Self::Pzvv, Self::Pvzz) => [true, true, false],
-            (Self::Pvvv, Self::Pvvv) => [true, true, true],
-            (Self::Pvvv, Self::Pvvz) => [true, true, true],
-            (Self::Pvvv, Self::Pvzv) => [true, true, true],
-            (Self::Pvvv, Self::Pzvv) => [true, true, true],
-            (Self::Pvvz, Self::Pvvv) => [true, true, true],
-            (Self::Pvvz, Self::Pvzv) => [true, true, true],
-            (Self::Pvvz, Self::Pzvv) => [true, true, true],
-            (Self::Pvzv, Self::Pvvv) => [true, true, true],
-            (Self::Pvzv, Self::Pvvz) => [true, true, true],
-            (Self::Pvzv, Self::Pzvv) => [true, true, true],
-            (Self::Pzvv, Self::Pvvv) => [true, true, true],
-            (Self::Pzvv, Self::Pvvz) => [true, true, true],
-            (Self::Pzvv, Self::Pvzv) => [true, true, true],
+            (Self::Pvzz, Self::Pvzz) | (Self::Pzvz, Self::Pzvz) | (Self::Pzzv, Self::Pzzv) => {
+                panic!("this multiplication always produces zero");
+            }
+            (Self::Pzvv, Self::Pzvv)
+            | (Self::Pzvv, Self::Pzvz)
+            | (Self::Pzvv, Self::Pzzv)
+            | (Self::Pzvz, Self::Pzvv)
+            | (Self::Pzvz, Self::Pzzv)
+            | (Self::Pzzv, Self::Pzvv)
+            | (Self::Pzzv, Self::Pzvz) => [false, false, true],
+            (Self::Pvvz, Self::Pvvz)
+            | (Self::Pvvz, Self::Pvzz)
+            | (Self::Pvvz, Self::Pzvz)
+            | (Self::Pvzz, Self::Pvvz)
+            | (Self::Pvzz, Self::Pzvz)
+            | (Self::Pzvz, Self::Pvvz)
+            | (Self::Pzvz, Self::Pvzz) => [false, true, false],
+            (Self::Pvvv, Self::Pzvz)
+            | (Self::Pvzv, Self::Pzvz)
+            | (Self::Pzvz, Self::Pvvv)
+            | (Self::Pzvz, Self::Pvzv) => [false, true, true],
+            (Self::Pvzv, Self::Pvzv)
+            | (Self::Pvzv, Self::Pvzz)
+            | (Self::Pvzv, Self::Pzzv)
+            | (Self::Pvzz, Self::Pvzv)
+            | (Self::Pvzz, Self::Pzzv)
+            | (Self::Pzzv, Self::Pvzv)
+            | (Self::Pzzv, Self::Pvzz) => [true, false, false],
+            (Self::Pvvv, Self::Pzzv)
+            | (Self::Pvvz, Self::Pzzv)
+            | (Self::Pzzv, Self::Pvvv)
+            | (Self::Pzzv, Self::Pvvz) => [true, false, true],
+            (Self::Pvvv, Self::Pvzz)
+            | (Self::Pvzz, Self::Pvvv)
+            | (Self::Pvzz, Self::Pzvv)
+            | (Self::Pzvv, Self::Pvzz) => [true, true, false],
+            (Self::Pvvv, Self::Pvvv)
+            | (Self::Pvvv, Self::Pvvz)
+            | (Self::Pvvv, Self::Pvzv)
+            | (Self::Pvvv, Self::Pzvv)
+            | (Self::Pvvz, Self::Pvvv)
+            | (Self::Pvvz, Self::Pvzv)
+            | (Self::Pvvz, Self::Pzvv)
+            | (Self::Pvzv, Self::Pvvv)
+            | (Self::Pvzv, Self::Pvvz)
+            | (Self::Pvzv, Self::Pzvv)
+            | (Self::Pzvv, Self::Pvvv)
+            | (Self::Pzvv, Self::Pvvz)
+            | (Self::Pzvv, Self::Pvzv) => [true, true, true],
         }
     }
 
@@ -306,10 +306,10 @@ mod test {
         T: Borrow<Replicated<F>>,
     {
         for (&role, expect_zero) in zip(Role::all(), <[bool; 3]>::from(work.output())) {
-            // if expect_zero {
-            //     assert_eq!(F::ZERO, v[role as usize].borrow().left());
-            //     assert_eq!(F::ZERO, v[role.peer(Left) as usize].borrow().right());
-            // }
+            if expect_zero {
+                assert_eq!(F::ZERO, v[role as usize].borrow().left());
+                assert_eq!(F::ZERO, v[role.peer(Left) as usize].borrow().right());
+            }
         }
     }
 
@@ -374,9 +374,12 @@ mod test {
 
     #[tokio::test]
     async fn check_output_malicious() {
-        let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
+        let mut counter = 0;
 
+        // Taking only three items here always works.
+        // More fails.
+        // for &a in all_zps().into_iter().take(3) {
         for &a in all_zps() {
             let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
@@ -389,8 +392,12 @@ mod test {
                     continue; // This combination produces zero, always.
                 }
 
+                println!("--------{counter}--------");
+                counter += 1;
+
                 let v1 = rng.gen::<Fp31>();
                 let v2 = rng.gen::<Fp31>();
+                let world = TestWorld::new(QueryId);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
                         let v_a = puncture(ctx.role(), a, &v_a);
