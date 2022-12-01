@@ -9,8 +9,7 @@ use crate::protocol::attribution::AttributionInputRowResharableStep::{
 };
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
-use crate::protocol::sort::reshare_objects::Resharable;
-
+use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::{
     error::Error,
     ff::Field,
@@ -240,32 +239,35 @@ async fn accumulate_credit_interaction_pattern<F: Field>(
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
+pub(crate) mod tests {
+    use rand::distributions::Standard;
+    use rand::prelude::Distribution;
+
+    use crate::protocol::sort::apply_sort::shuffle::Resharable;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::Replicated;
     use crate::test_fixture::IntoShares;
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
         protocol::{
             attribution::accumulate_credit::accumulate_credit, attribution::AttributionInputRow,
-            sort::reshare_objects::Resharable, QueryId, RecordId,
+            QueryId, RecordId,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
 
     const S: u128 = 0;
     const T: u128 = 1;
     const H: [u128; 2] = [0, 1];
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
-    #[derive(Clone, Copy)]
-    struct AttributionTestInput<F>([F; 4]);
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct AttributionTestInput<F>(pub [F; 4]);
 
     impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>
     where
-        F: Field,
+        F: Field + IntoShares<Replicated<F>>,
         Standard: Distribution<F>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
@@ -296,6 +298,47 @@ mod tests {
         }
     }
 
+    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AttributionInputRow<F>; 3] {
+        fn reconstruct(&self) -> AttributionTestInput<F> {
+            [&self[0], &self[1], &self[2]].reconstruct()
+        }
+    }
+
+    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AttributionInputRow<F>; 3] {
+        fn reconstruct(&self) -> AttributionTestInput<F> {
+            let s0 = &self[0];
+            let s1 = &self[1];
+            let s2 = &self[2];
+
+            let is_trigger_bit =
+                (&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit).reconstruct();
+
+            let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
+
+            let breakdown_key =
+                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
+            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+
+            AttributionTestInput([is_trigger_bit, helper_bit, breakdown_key, credit])
+        }
+    }
+
+    impl From<AttributionTestInput<Fp31>> for [u8; 4] {
+        fn from(v: AttributionTestInput<Fp31>) -> Self {
+            Self::from(&v)
+        }
+    }
+
+    impl From<&AttributionTestInput<Fp31>> for [u8; 4] {
+        fn from(v: &AttributionTestInput<Fp31>) -> Self {
+            [
+                u8::from(v.0[0]),
+                u8::from(v.0[1]),
+                u8::from(v.0[2]),
+                u8::from(v.0[3]),
+            ]
+        }
+    }
     #[tokio::test]
     pub async fn accumulate() {
         const TEST_CASE: &[[u128; 5]; 19] = &[
@@ -386,7 +429,7 @@ mod tests {
                     },
                 )
                 .await;
-            assert_eq!(secret, new_shares.reconstruct());
+            assert_eq!(secret, new_shares.reconstruct().0);
         }
     }
 }

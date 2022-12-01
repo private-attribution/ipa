@@ -1,7 +1,7 @@
 use super::Substep;
 use crate::{ff::Field, secret_sharing::Replicated};
 
-mod accumulate_credit;
+pub(crate) mod accumulate_credit;
 mod credit_capping;
 
 #[derive(Debug, Clone)]

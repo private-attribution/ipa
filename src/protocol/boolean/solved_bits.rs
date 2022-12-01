@@ -1,7 +1,7 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::protocol::modulus_conversion::convert_one_bit;
+use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local};
 use crate::protocol::reveal::Reveal;
 use crate::protocol::{
     context::{Context, SemiHonestContext},
@@ -101,7 +101,8 @@ impl SolvedBits {
         let c = ctx.narrow(&Step::ConvertShares);
         let futures = (0..l).map(|i| {
             let c = c.narrow(&BitOpStep::from(i));
-            async move { convert_one_bit(c, record_id, &xor_share, i).await }
+            let triple = convert_bit_local::<F>(c.role(), i, &xor_share);
+            async move { convert_bit(c, record_id, &triple).await }
         });
 
         // Pad 0's at the end to return `F::Integer::BITS` long bits
