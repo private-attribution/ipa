@@ -22,7 +22,7 @@ pub async fn credit_capping<F: Field>(
     //
     // * `original_credits` will have credit values of only source events
     //
-    let mut original_credits = mask_source_credits(input, ctx.clone()).await?;
+    let original_credits = mask_source_credits(input, ctx.clone()).await?;
 
     //
     // Step 2. Compute user-level reversed prefix-sums
@@ -43,42 +43,41 @@ pub async fn credit_capping<F: Field>(
     //
     // We compute capped credits in the method, and writes to `original_credits`.
     //
-    compute_final_credits(
+    let final_credits = compute_final_credits(
         ctx.clone(),
         input,
         &prefix_summed_credits,
         &exceeds_cap_bits,
-        &mut original_credits,
+        &original_credits,
         cap,
     )
     .await?;
 
-    let final_credits: Batch<CreditCappingOutputRow<F>> = input
+    let output: Batch<CreditCappingOutputRow<F>> = input
         .iter()
         .enumerate()
         .map(|(i, x)| CreditCappingOutputRow {
-            is_trigger_bit: input[i].is_trigger_bit.clone(),
-            helper_bit: input[i].helper_bit.clone(),
+            helper_bit: x.helper_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
-            credit: original_credits[i].clone(),
+            credit: final_credits[i].clone(),
         })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
 
-    Ok(final_credits)
+    Ok(output)
 }
 
 async fn mask_source_credits<F: Field>(
     input: &Batch<CreditCappingInputRow<F>>,
     ctx: SemiHonestContext<'_, F>,
 ) -> Result<Batch<Replicated<F>>, Error> {
-    let final_credits = try_join_all(
+    let masked_credits = try_join_all(
         input
             .iter()
             .zip(zip(
                 repeat(ctx.narrow(&Step::MaskSourceCredits)),
-                repeat(Replicated::one(ctx.role())),
+                repeat(ctx.share_of_one()),
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
@@ -87,7 +86,7 @@ async fn mask_source_credits<F: Field>(
             }),
     )
     .await?;
-    Ok(final_credits.try_into().unwrap())
+    Ok(masked_credits.try_into().unwrap())
 }
 
 async fn credit_prefix_sum<'a, F: Field>(
@@ -95,7 +94,7 @@ async fn credit_prefix_sum<'a, F: Field>(
     input: &Batch<CreditCappingInputRow<F>>,
     mut original_credits: Batch<Replicated<F>>,
 ) -> Result<Batch<Replicated<F>>, Error> {
-    let one = Replicated::one(ctx.role());
+    let one = ctx.share_of_one();
     let mut stop_bits: Batch<Replicated<F>> = repeat(one.clone())
         .take(input.len())
         .collect::<Vec<_>>()
@@ -119,6 +118,7 @@ async fn credit_prefix_sum<'a, F: Field>(
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &original_credits[i + step_size];
+            let sibling_helper_bit = &input[i + step_size].helper_bit;
             futures.push(async move {
                 // This block implements the below logic from MP-SPDZ code.
                 //
@@ -130,7 +130,7 @@ async fn credit_prefix_sum<'a, F: Field>(
                     c.narrow(&Step::BTimesStopBit),
                     record_id,
                     current_stop_bit,
-                    &input[i + step_size].helper_bit,
+                    sibling_helper_bit,
                     depth == 0,
                 )
                 .await?;
@@ -249,11 +249,12 @@ async fn compute_final_credits<F: Field>(
     input: &Batch<CreditCappingInputRow<F>>,
     prefix_summed_credits: &Batch<Replicated<F>>,
     exceeds_cap_bits: &Batch<Replicated<F>>,
-    original_credits: &mut Batch<Replicated<F>>,
+    original_credits: &Batch<Replicated<F>>,
     cap: u32,
 ) -> Result<Batch<Replicated<F>>, Error> {
     let num_rows: RecordIndex = input.len().try_into().unwrap();
     let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
+    let mut final_credits = original_credits.clone();
 
     // This method implements the logic below:
     //
@@ -305,10 +306,10 @@ async fn compute_final_credits<F: Field>(
         )
         .await?;
 
-        original_credits[i] = capped_credit;
+        final_credits[i] = capped_credit;
     }
 
-    Ok(original_credits.clone())
+    Ok(final_credits)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

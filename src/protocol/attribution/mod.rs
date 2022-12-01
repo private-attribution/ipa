@@ -26,7 +26,12 @@ pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 
-pub type CreditCappingOutputRow<F> = CreditCappingInputRow<F>;
+#[allow(dead_code)]
+pub struct CreditCappingOutputRow<F: Field> {
+    helper_bit: Replicated<F>,
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
+}
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F: Field>(
