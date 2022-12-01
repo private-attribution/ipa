@@ -1,4 +1,4 @@
-use super::{CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternStep};
+use super::{if_else, CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::batch::{Batch, RecordIndex};
@@ -18,56 +18,55 @@ pub async fn credit_capping<F: Field>(
     cap: u32,
 ) -> Result<Batch<CreditCappingOutputRow<F>>, Error> {
     //
-    // Step 1. Initialize two local vectors for the capping computation.
+    // Step 1. Initialize a local vector for the capping computation.
     //
-    // * `final_credits` will have credit values of only source events
+    // * `original_credits` will have credit values of only source events
     //
-    let mut final_credits = mask_source_credits(input, ctx.clone()).await?;
+    let mut original_credits = mask_source_credits(input, ctx.clone()).await?;
 
     //
-    // Step 2. Compute the current_contribution for each event.
+    // Step 2. Compute user-level reversed prefix-sums
     //
-    // We follow the approach used in the `AccumulateCredit` protocol. It's a
-    // reversed Prefix Sum of `final_credits`.
-    //
-    let current_contribution =
-        compute_current_contribution(ctx.clone(), input, final_credits.clone()).await?;
+    let prefix_summed_credits =
+        credit_prefix_sum(ctx.clone(), input, original_credits.clone()).await?;
 
     //
-    // 3. Compute compare_bits
+    // 3. Compute `prefix_summed_credits` >? `cap`
     //
-    // `compare_bit` = 0 if `current_contribution > cap`, or all following
-    // events with the same match key has reached the cap.
+    // `exceeds_cap_bits` = 1 if `prefix_summed_credits` > `cap`
     //
-    let compare_bits = compute_compare_bits(ctx.clone(), &current_contribution, cap).await?;
+    let exceeds_cap_bits =
+        is_credit_larger_than_cap(ctx.clone(), &prefix_summed_credits, cap).await?;
 
     //
     // 4. Compute the `final_credit`
     //
+    // We compute capped credits in the method, and writes to `original_credits`.
+    //
     compute_final_credits(
         ctx.clone(),
         input,
-        &current_contribution,
-        &compare_bits,
-        &mut final_credits,
+        &prefix_summed_credits,
+        &exceeds_cap_bits,
+        &mut original_credits,
         cap,
     )
     .await?;
 
-    let output: Batch<CreditCappingOutputRow<F>> = input
+    let final_credits: Batch<CreditCappingOutputRow<F>> = input
         .iter()
         .enumerate()
         .map(|(i, x)| CreditCappingOutputRow {
             is_trigger_bit: input[i].is_trigger_bit.clone(),
             helper_bit: input[i].helper_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
-            credit: final_credits[i].clone(),
+            credit: original_credits[i].clone(),
         })
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
 
-    Ok(output)
+    Ok(final_credits)
 }
 
 async fn mask_source_credits<F: Field>(
@@ -91,10 +90,10 @@ async fn mask_source_credits<F: Field>(
     Ok(final_credits.try_into().unwrap())
 }
 
-async fn compute_current_contribution<'a, F: Field>(
+async fn credit_prefix_sum<'a, F: Field>(
     ctx: SemiHonestContext<'a, F>,
     input: &Batch<CreditCappingInputRow<F>>,
-    mut current_contribution: Batch<Replicated<F>>,
+    mut original_credits: Batch<Replicated<F>>,
 ) -> Result<Batch<Replicated<F>>, Error> {
     let one = Replicated::one(ctx.role());
     let mut stop_bits: Batch<Replicated<F>> = repeat(one.clone())
@@ -111,7 +110,7 @@ async fn compute_current_contribution<'a, F: Field>(
     {
         let end = num_rows - step_size;
         let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
-        let mut interaction_futures = Vec::with_capacity(end as usize);
+        let mut futures = Vec::with_capacity(end as usize);
 
         // for each input row, create a future to execute secure multiplications
         for i in 0..end {
@@ -119,12 +118,12 @@ async fn compute_current_contribution<'a, F: Field>(
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_contribution = &current_contribution[i + step_size];
-            interaction_futures.push(async move {
+            let sibling_credit = &original_credits[i + step_size];
+            futures.push(async move {
                 // This block implements the below logic from MP-SPDZ code.
                 //
                 // b = stop_bit * successor.helper_bit
-                // current_contribution += b * successor.current_contribution
+                // original_credit += b * successor.original_credit
                 // stop_bit = b * successor.stop_bit
 
                 let b = compute_b_bit(
@@ -138,7 +137,7 @@ async fn compute_current_contribution<'a, F: Field>(
 
                 try_join(
                     c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_contribution),
+                        .multiply(record_id, &b, sibling_credit),
                     compute_stop_bit(
                         c.narrow(&Step::BTimesSuccessorStopBit),
                         record_id,
@@ -151,19 +150,19 @@ async fn compute_current_contribution<'a, F: Field>(
             });
         }
 
-        let results = try_join_all(interaction_futures).await?;
+        let results = try_join_all(futures).await?;
 
         // accumulate the contribution from this iteration
         results
             .into_iter()
             .enumerate()
             .for_each(|(i, (credit, stop_bit))| {
-                current_contribution[i] += &credit;
+                original_credits[i] += &credit;
                 stop_bits[i] = stop_bit;
             });
     }
 
-    Ok(current_contribution.clone())
+    Ok(original_credits.clone())
 }
 
 async fn compute_b_bit<F: Field>(
@@ -200,22 +199,21 @@ async fn compute_stop_bit<F: Field>(
     ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
 
-async fn compute_compare_bits<F: Field>(
+async fn is_credit_larger_than_cap<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    current_contribution: &Batch<Replicated<F>>,
+    prefix_summed_credits: &Batch<Replicated<F>>,
     cap: u32,
 ) -> Result<Batch<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let cap = local_secret_shared_bits(&ctx, cap.into());
-    let one = Replicated::one(ctx.role());
 
     let random_bits_generator = RandomBitsGenerator::new();
-    let compare_bits: Batch<_> = try_join_all(
-        current_contribution
+    let result: Batch<_> = try_join_all(
+        prefix_summed_credits
             .iter()
-            .zip(zip(repeat(ctx.clone()), zip(repeat(cap), repeat(one))))
+            .zip(zip(repeat(ctx.clone()), repeat(cap)))
             .enumerate()
-            .map(|(i, (credit, (ctx, (cap, one))))| {
+            .map(|(i, (credit, (ctx, cap)))| {
                 // The buffer inside the generator is `Arc`, so these clones
                 // just increment the reference.
                 let rbg = random_bits_generator.clone();
@@ -228,15 +226,14 @@ async fn compute_compare_bits<F: Field>(
                     )
                     .await?;
 
-                    // compare_bit = current_contribution <=? cap
-                    let compare_bit = one.clone()
-                        - &BitwiseLessThan::execute(
-                            ctx.narrow(&Step::IsCapLessThanCurrentContribution),
-                            RecordId::from(i),
-                            &cap,
-                            &credit_bits,
-                        )
-                        .await?;
+                    // compare_bit = current_contribution > cap
+                    let compare_bit = BitwiseLessThan::execute(
+                        ctx.narrow(&Step::IsCapLessThanCurrentContribution),
+                        RecordId::from(i),
+                        &cap,
+                        &credit_bits,
+                    )
+                    .await?;
                     Ok::<_, Error>(compare_bit)
                 }
             }),
@@ -244,60 +241,74 @@ async fn compute_compare_bits<F: Field>(
     .await?
     .try_into()
     .unwrap();
-    Ok(compare_bits)
+    Ok(result)
 }
 
 async fn compute_final_credits<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &Batch<CreditCappingInputRow<F>>,
-    current_contribution: &Batch<Replicated<F>>,
-    compare_bits: &Batch<Replicated<F>>,
-    final_credits: &mut Batch<Replicated<F>>,
+    prefix_summed_credits: &Batch<Replicated<F>>,
+    exceeds_cap_bits: &Batch<Replicated<F>>,
+    original_credits: &mut Batch<Replicated<F>>,
     cap: u32,
 ) -> Result<Batch<Replicated<F>>, Error> {
     let num_rows: RecordIndex = input.len().try_into().unwrap();
     let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
 
-    // This method implements the logic from MP-SPDZ code below.
+    // This method implements the logic below:
     //
-    // // next line computes:
-    // // if next.helper_bit==0 then d=cap <- no previous event with same match key
-    // // else if next.compare_bit==0 then d=0 <- previous event used up all budget
-    // // else d=cap-next.current_contribution <- use remaining budget, up to cap
-    //
-    // d = cap - next.helper_bit * (cap + next.compare_bit * (next.current_contribution - cap))
-    //
-    // // next line computes:
-    // // if (compare_bit==0) then final_credit=d
-    // // else final_credit=final_credit
-    //
-    // final_credit = d + compare_bit * (final_credit - d)
+    //   if current_credit_exceeds_cap {
+    //     if next_event_has_same_match_key {
+    //       if next_credit_exceeds_cap {
+    //         0
+    //       } else {
+    //         cap - next_prefix_summed_credit
+    //       }
+    //     } else {
+    //       cap
+    //     }
+    //   } else {
+    //     current_credit
+    //   }
 
     for i in 0..(num_rows - 1) {
-        let a = &current_contribution[i + 1] - &cap;
-        let b = &cap
-            + &ctx
-                .narrow(&Step::FinalCreditsSourceContribution)
-                .multiply(RecordId::from(i), &a, &compare_bits[i + 1])
-                .await?;
-        let c = ctx
-            .narrow(&Step::FinalCreditsNextContribution)
-            .multiply(RecordId::from(i), &input[i + 1].helper_bit, &b)
-            .await?;
-        let d = &cap - &c;
+        let record_id = RecordId::from(i);
 
-        final_credits[i] = &d
-            + &ctx
-                .narrow(&Step::FinalCreditsCompareBitTimesBudget)
-                .multiply(
-                    RecordId::from(i),
-                    &compare_bits[i],
-                    &(final_credits[i].clone() - &d),
-                )
-                .await?;
+        let original_credit = &original_credits[i];
+        let next_prefix_summed_credit = &prefix_summed_credits[i + 1];
+        let current_prefix_summed_credit_exceeds_cap = &exceeds_cap_bits[i];
+        let next_credit_exceeds_cap = &exceeds_cap_bits[i + 1];
+        let next_event_has_same_match_key = &input[i + 1].helper_bit;
+
+        let remaining_budget = if_else(
+            ctx.narrow(&Step::IfNextEventHasSameMatchKeyOrElse),
+            record_id,
+            next_event_has_same_match_key,
+            &if_else(
+                ctx.narrow(&Step::IfNextExceedsCapOrElse),
+                record_id,
+                next_credit_exceeds_cap,
+                &Replicated::ZERO,
+                &(cap.clone() - next_prefix_summed_credit),
+            )
+            .await?,
+            &cap,
+        )
+        .await?;
+
+        let capped_credit = if_else(
+            ctx.narrow(&Step::IfCurrentExceedsCapOrElse),
+            record_id,
+            current_prefix_summed_credit_exceeds_cap,
+            &remaining_budget,
+            original_credit,
+        )
+        .await?;
+
+        original_credits[i] = capped_credit;
     }
 
-    Ok(final_credits.clone())
+    Ok(original_credits.clone())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -308,9 +319,9 @@ enum Step {
     CurrentContributionBTimesSuccessorCredit,
     BitDecomposeCurrentContribution,
     IsCapLessThanCurrentContribution,
-    FinalCreditsSourceContribution,
-    FinalCreditsNextContribution,
-    FinalCreditsCompareBitTimesBudget,
+    IfCurrentExceedsCapOrElse,
+    IfNextExceedsCapOrElse,
+    IfNextEventHasSameMatchKeyOrElse,
 }
 
 impl Substep for Step {}
@@ -326,9 +337,9 @@ impl AsRef<str> for Step {
             }
             Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
-            Self::FinalCreditsSourceContribution => "final_credits_source_contribution",
-            Self::FinalCreditsNextContribution => "final_credits_next_contribution",
-            Self::FinalCreditsCompareBitTimesBudget => "final_credits_compare_bit_times_budget",
+            Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
+            Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
+            Self::IfNextEventHasSameMatchKeyOrElse => "if_next_event_has_same_match_key_or_else",
         }
     }
 }

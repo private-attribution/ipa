@@ -1,4 +1,7 @@
 use super::Substep;
+use super::{context::SemiHonestContext, RecordId};
+use crate::error::Error;
+use crate::protocol::mul::SecureMul;
 use crate::{ff::Field, secret_sharing::Replicated};
 
 pub(crate) mod accumulate_credit;
@@ -24,6 +27,28 @@ pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 
 pub type CreditCappingOutputRow<F> = CreditCappingInputRow<F>;
+
+/// Returns `true_value` if `condition` is a share of 1, else `false_value`.
+async fn if_else<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
+    record_id: RecordId,
+    condition: &Replicated<F>,
+    true_value: &Replicated<F>,
+    false_value: &Replicated<F>,
+) -> Result<Replicated<F>, Error> {
+    // If `condition` is a share of 1 (true), then
+    //   = false_value + 1 * (true_value - false_value)
+    //   = false_value + true_value - false_value
+    //   = true_value
+    //
+    // If `condition` is a share of 0 (false), then
+    //   = false_value + 0 * (true_value - false_value)
+    //   = false_value
+    Ok(false_value
+        + &ctx
+            .multiply(record_id, condition, &(true_value - false_value))
+            .await?)
+}
 
 enum InteractionPatternStep {
     Depth(usize),
