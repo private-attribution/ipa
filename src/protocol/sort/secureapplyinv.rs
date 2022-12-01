@@ -108,8 +108,7 @@ mod tests {
                 )
                 .await;
 
-            let abd = result.reconstruct();
-            assert_eq!(&expected_result[..], &abd);
+            assert_eq!(&expected_result[..], &result.reconstruct());
         }
     }
 }

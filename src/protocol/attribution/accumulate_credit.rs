@@ -9,7 +9,7 @@ use crate::protocol::attribution::AttributionInputRowResharableStep::{
 };
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
-use crate::protocol::sort::apply_sort::shuffle_objects::Resharable;
+use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::{
     error::Error,
     ff::Field,
@@ -243,7 +243,7 @@ pub(crate) mod tests {
     use rand::distributions::Standard;
     use rand::prelude::Distribution;
 
-    use crate::protocol::sort::apply_sort::shuffle_objects::Resharable;
+    use crate::protocol::sort::apply_sort::shuffle::Resharable;
     use crate::rand::{thread_rng, Rng};
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::IntoShares;
@@ -262,7 +262,7 @@ pub(crate) mod tests {
     const H: [u128; 2] = [0, 1];
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct AttributionTestInput<F>(pub [F; 4]);
 
     impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>

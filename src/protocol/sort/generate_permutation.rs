@@ -17,7 +17,7 @@ use crate::{
     secret_sharing::{SecretSharing, XorReplicated},
 };
 
-use crate::protocol::sort::apply_sort::apply_sort_permutation::SortPermutation;
+use crate::protocol::sort::apply_sort::SortPermutation;
 
 use super::{
     compose::compose,
@@ -166,7 +166,7 @@ pub async fn generate_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
-    use crate::protocol::sort::apply_sort::apply_sort_permutation::SortPermutation;
+    use crate::protocol::sort::apply_sort::SortPermutation;
     use crate::rand::{thread_rng, Rng};
     use rand::seq::SliceRandom;
 
