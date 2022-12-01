@@ -121,11 +121,11 @@ async fn compute_current_contribution<'a, F: Field>(
 
         // for each input row, create a future to execute secure multiplications
         for i in 0..end {
-            let c = c.clone();
+            let c = &c;
             let record_id = RecordId::from(i);
-            let current_stop_bit = stop_bits[i].clone();
-            let sibling_stop_bit = stop_bits[i + step_size].clone();
-            let sibling_contribution = current_contribution[i + step_size].clone();
+            let current_stop_bit = &stop_bits[i];
+            let sibling_stop_bit = &stop_bits[i + step_size];
+            let sibling_contribution = &current_contribution[i + step_size];
             interaction_futures.push(async move {
                 // This block implements the below logic from MP-SPDZ code.
                 //
@@ -136,7 +136,7 @@ async fn compute_current_contribution<'a, F: Field>(
                 let b = compute_b_bit(
                     c.narrow(&Step::BTimesStopBit),
                     record_id,
-                    &current_stop_bit,
+                    current_stop_bit,
                     &input[i + step_size].helper_bit,
                     depth == 0,
                 )
@@ -145,12 +145,12 @@ async fn compute_current_contribution<'a, F: Field>(
 
                 try_join(
                     c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
-                        .multiply(record_id, &b, &sibling_contribution),
+                        .multiply(record_id, &b, sibling_contribution),
                     compute_stop_bit(
                         c.narrow(&Step::BTimesSuccessorStopBit),
                         record_id,
                         &b,
-                        &sibling_stop_bit,
+                        sibling_stop_bit,
                         depth == 0,
                     ),
                 )
