@@ -4,7 +4,7 @@ use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
-use crate::protocol::mul::SecureMul;
+use crate::protocol::mul::{malicious::Step::RandomnessForValidation, SecureMul};
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
@@ -163,12 +163,12 @@ impl<'a, F: Field> ContextInner<'a, F> {
         record_id: RecordId,
         x: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = self
-            .upgrade_ctx
-            .clone()
-            .multiply(record_id, &x, &self.r_share)
-            .await?;
-        Ok(MaliciousReplicated::new(x, rx))
+        let ctx = self.upgrade_ctx.clone();
+        let prss = ctx.narrow(&RandomnessForValidation).prss();
+        let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
+        let m = MaliciousReplicated::new(x, rx);
+        self.accumulator.accumulate_macs(&prss, record_id, &m);
+        Ok(m)
     }
 
     async fn upgrade_bit(
@@ -177,12 +177,11 @@ impl<'a, F: Field> ContextInner<'a, F> {
         bit_index: u32,
         x: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = self
-            .upgrade_ctx
-            .narrow(&BitOpStep::from(bit_index))
-            .clone()
-            .multiply(record_id, &x, &self.r_share)
-            .await?;
-        Ok(MaliciousReplicated::new(x, rx))
+        let ctx = self.upgrade_ctx.narrow(&BitOpStep::from(bit_index));
+        let prss = ctx.narrow(&RandomnessForValidation).prss();
+        let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
+        let m = MaliciousReplicated::new(x, rx);
+        self.accumulator.accumulate_macs(&prss, record_id, &m);
+        Ok(m)
     }
 }

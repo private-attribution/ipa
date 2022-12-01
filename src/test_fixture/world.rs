@@ -151,7 +151,6 @@ where
 {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
-        F: Field,
         O: Send + Debug,
         H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
         R: Future<Output = O> + Send,
@@ -171,7 +170,6 @@ where
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
         A: IntoMalicious<F, M>,
-        F: Field,
         O: Send + Debug,
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
