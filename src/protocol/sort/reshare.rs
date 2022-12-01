@@ -4,7 +4,11 @@ use crate::secret_sharing::{MaliciousReplicated, SecretSharing};
 use crate::{
     error::Error,
     helpers::{Direction, Role},
-    protocol::{context::SemiHonestContext, sort::ReshareStep::ReshareMAC, RecordId},
+    protocol::{
+        context::SemiHonestContext,
+        sort::ReshareStep::{ReshareInput, ReshareMAC},
+        RecordId,
+    },
     secret_sharing::Replicated,
 };
 use async_trait::async_trait;
@@ -104,7 +108,7 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
         let rx_ctx = self.narrow(&ReshareMAC);
         let (x, rx) = try_join(
-            self.semi_honest_context().reshare(
+            self.narrow(&ReshareInput).semi_honest_context().reshare(
                 input.x().access_without_downgrade(),
                 record_id,
                 to_helper,
@@ -114,7 +118,9 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
                 .reshare(input.rx(), record_id, to_helper),
         )
         .await?;
-        Ok(MaliciousReplicated::new(x, rx))
+        let malicious_input = MaliciousReplicated::new(x, rx);
+        self.accumulate_macs(record_id, &malicious_input);
+        Ok(malicious_input)
     }
 }
 
