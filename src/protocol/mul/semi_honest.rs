@@ -32,6 +32,7 @@ where
     F: Field,
 {
     let role = ctx.role();
+    // let [need_to_recv, need_to_send, need_random_right] = [true, true, true];
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
     zeros.0.check(role, "a", a);
     zeros.1.check(role, "b", b);
@@ -43,38 +44,54 @@ where
     let prss = ctx.prss();
     let (s0, s1) = prss.generate_fields(record_id);
     // let (s0, s1) = (F::ZERO, F::ZERO);
+    println!("{role:?} s0 {s0:?} s1 {s1:?}");
 
     let channel = ctx.mesh();
-    let mut rhs = F::ZERO;
-    if true /*need_to_send*/ {
+    let mut rhs = a.right() * b.right();
+    if need_to_send {
         // compute the value (d_i) we want to send to the right helper (i+1)
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
         println!("{role:?} d {right_d:?}");
 
         // notify helper on the right that we've computed our value
+        println!(
+            "{:?} -> {:?} {:?} {:?}",
+            role,
+            role.peer(Direction::Right),
+            ctx.step(),
+            record_id
+        );
         channel
             .send(role.peer(Direction::Right), record_id, right_d)
             .await?;
-        rhs += a.right() * b.right() + right_d
+        rhs += right_d
     } else {
         debug_assert_eq!(a.left() * b.right() + a.right() * b.left(), F::ZERO);
     }
     // Add randomness to this value whether we sent or not, depending on whether the
     // peer to the right needed to send.  If they send, they subtract randomness,
     // and we need to add to our share to compensate.
-    if true /*need_random_right*/ {
+    if need_random_right {
         rhs += s1;
     }
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let mut lhs = F::ZERO;
-    if true /*need_to_recv */ {
+    let mut lhs = a.left() * b.left();
+    if need_to_recv {
+        println!(
+            "{:?} <- {:?} {:?} {:?}",
+            role,
+            role.peer(Direction::Left),
+            ctx.step(),
+            record_id
+        );
         let left_d = channel
             .receive(role.peer(Direction::Left), record_id)
             .await?;
-        lhs += a.left() * b.left() + left_d
-    } // If we send, we subtract randomness, so we need to add to our share.
-    if true /*need_to_send */{
+        lhs += left_d
+    }
+    // If we send, we subtract randomness, so we need to add to our share.
+    if need_to_send {
         lhs += s0;
     }
 
