@@ -8,48 +8,86 @@ use crate::secret_sharing::Replicated;
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-
 /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
 /// their part, eventually producing 2/3 shares of the product and that is what this function
 /// returns.
 ///
+///
+/// The `who_sends` argument indicates who is sending (self, left, right),
+/// which we interpret as (we send, we receive, we add randomness to our right).
+///
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn secure_mul<F>(
+pub async fn multiply<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
+    who_sends: (bool, bool, bool),
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
-    let channel = ctx.mesh();
+    let role = ctx.role();
+    let (need_to_send, need_to_recv, need_random_right) = who_sends;
 
     // generate shared randomness.
     let prss = ctx.prss();
     let (s0, s1) = prss.generate_fields(record_id);
-    let role = ctx.role();
 
-    // compute the value (d_i) we want to send to the right helper (i+1)
-    let right_d = a.left() * b.right() + a.right() * b.left() - s0;
+    let channel = ctx.mesh();
+    let rhs = if need_to_send {
+        // compute the value (d_i) we want to send to the right helper (i+1)
+        let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
-    // notify helper on the right that we've computed our value
-    channel
-        .send(role.peer(Direction::Right), record_id, right_d)
-        .await?;
+        // notify helper on the right that we've computed our value
+        channel
+            .send(role.peer(Direction::Right), record_id, right_d)
+            .await?;
+        a.right() * b.right() + right_d
+    } else {
+        debug_assert_eq!(a.left() * b.right() + a.right() * b.left(), F::ZERO);
+        F::ZERO
+    };
+    // Add randomness to this value whether we sent or not, depending on whether the
+    // peer to the right needed to send.  If they send, they subtract randomness,
+    // and we need to add to our share to compensate.
+    let rhs = rhs + if need_random_right { s1 } else { F::ZERO };
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let left_d = channel
-        .receive(role.peer(Direction::Left), record_id)
-        .await?;
-
-    // now we are ready to construct the result - 2/3 secret shares of a * b.
-    let lhs = a.left() * b.left() + left_d + s0;
-    let rhs = a.right() * b.right() + right_d + s1;
+    let lhs = if need_to_recv {
+        let left_d = channel
+            .receive(role.peer(Direction::Left), record_id)
+            .await?;
+        a.left() * b.left() + left_d
+    } else {
+        F::ZERO
+    };
+    // If we send, we subtract randomness, so we need to add to our share.
+    let lhs = lhs + if need_to_send { s0 } else { F::ZERO };
 
     Ok(Replicated::new(lhs, rhs))
+}
+
+/// Determine whether multiplication for helper X requires sending or receiving.
+/// Argument is a description of which items are zero for shares at each helper.
+/// This indicates whether the left share is zero at each.
+/// Setting a = [true, false, true] means:
+///    H1 has (0, ?), H2 has (?, 0), and H3 has (0, 0)
+/// Return value is (self, left, right)
+#[must_use]
+pub fn sparse_mul_work(role: Role, a: [bool; 3], b: [bool; 3]) -> (bool, bool, bool) {
+    let a_left_left = a[role.peer(Direction::Left) as usize];
+    let b_left_left = b[role.peer(Direction::Left) as usize];
+    let a_left = a[role as usize];
+    let b_left = b[role as usize];
+    let a_right = a[role.peer(Direction::Right) as usize];
+    let b_right = b[role.peer(Direction::Right) as usize];
+    let can_skip_send = (a_left || b_right) && (a_right || b_left);
+    let can_skip_recv = (a_left_left || b_left) && (a_left || b_left_left);
+    let can_skip_rand = (a_right || b_left_left) && (a_left_left || b_right);
+    (!can_skip_send, !can_skip_recv, !can_skip_rand)
 }
 
 /// ## Errors
@@ -109,100 +147,6 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
             let (_, s_3_1) = prss.generate_fields(record_id);
 
             Ok(Replicated::new(F::ZERO, s_3_1))
-        }
-    }
-}
-
-/// Another highly specialized variant of the IKHC multiplication protocol which is only valid
-/// in the case where one of the two secret sharings has 2 of the 3 shares set to zero.
-///
-/// Original IKHC multiplication protocol from:
-/// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-///
-/// Optimizations taken from Appendix F: "Conversion Protocols" from the paper:
-/// "Adam in Private: Secure and Fast Training of Deep Neural Networks with Adaptive Moment Estimation"
-/// by Nuttapong Attrapadung, Koki Hamada, Dai Ikarashi, Ryo Kikuchi*, Takahiro Matsuda,
-/// Ibuki Mishina, Hiraku Morita, and Jacob C. N. Schuldt
-///
-/// This protocol can only be used in the case where:
-/// Helper 1 has shares `(a_1, a_2)` and `(0, 0)`
-/// Helper 2 has shares `(a_2, a_3)` and `(0, b)`
-/// Helper 3 has shares `(a_3, a_1)` and `(b, 0)`
-///
-/// In the IKHC multiplication protocol, each helper computes `d_i` as
-/// `d_i = a_i * b_i+1 + a_i+1 * b_i - s_i+2,i`
-/// and sends it to the next helper.
-/// But in this case, `d_1` is publicly known to all the helper parties
-/// and can be replaced with a constant, e.g. 0. Therefore, it does not need to be sent.
-///
-/// ## Errors
-/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
-/// back via the error response
-pub async fn multiply_one_share_mostly_zeroes<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    record_id: RecordId,
-    a: &Replicated<F>,
-    b: &Replicated<F>,
-) -> Result<Replicated<F>, Error> {
-    let prss = &ctx.prss();
-    let (s_left, s_right) = prss.generate_fields(record_id);
-
-    match ctx.role() {
-        Role::H1 => {
-            // d_1 = a_1 * b_2 + a_2 * b_1 - s_3,1
-            // d_1 = a_1 * 0 + a_2 * 0 - s_3,1
-            // d_1 = - s_3,1
-            // d_2 is a constant, known in advance. So we can replace it with zero
-            // And there is no need to send it.
-
-            // Sleep until helper on the left sends us their (d_i-1) value
-            let channel = ctx.mesh();
-            let d_3 = channel
-                .receive(ctx.role().peer(Direction::Left), record_id)
-                .await?;
-
-            Ok(Replicated::new(d_3, s_right))
-        }
-        Role::H2 => {
-            // d_2 = a_2 * b_3 + a_3 * b_2 - s_1,2
-            // d_2 = a_2 * b_3 + a_3 * 0 - s_1,2
-            // d_2 = a_2 * b_3 - s_1,2
-            let (a_2, a_3) = a.as_tuple();
-            let (b_2, b_3) = b.as_tuple();
-            debug_assert!(b_2 == F::ZERO);
-
-            let d_2 = a_2 * b_3 - s_left;
-
-            // notify helper on the right that we've computed our value
-            let channel = ctx.mesh();
-            channel
-                .send(ctx.role().peer(Direction::Right), record_id, d_2)
-                .await?;
-
-            Ok(Replicated::new(s_left, a_3 * b_3 + d_2 + s_right))
-        }
-        Role::H3 => {
-            // d_3 = a_3 * b_1 + a_1 * b_3 - s_2,3
-            // d_3 = a_3 * 0 + a_1 * b_3 - s_2,3
-            // d_3 = a_1 * b_3 - s_2,3
-            let (a_3, a_1) = a.as_tuple();
-            let (b_3, b_1) = b.as_tuple();
-            debug_assert!(b_1 == F::ZERO);
-
-            let d_3 = a_1 * b_3 - s_left;
-
-            // notify helper on the right that we've computed our value
-            let channel = ctx.mesh();
-            channel
-                .send(ctx.role().peer(Direction::Right), record_id, d_3)
-                .await?;
-
-            // Sleep until helper on the left sends us their (d_i-1) value
-            let d_2 = channel
-                .receive(ctx.role().peer(Direction::Left), record_id)
-                .await?;
-
-            Ok(Replicated::new(a_3 * b_3 + d_2 + s_left, d_3))
         }
     }
 }
@@ -301,13 +245,51 @@ mod regular_mul_tests {
 mod specialized_mul_tests {
     use std::iter::{repeat, zip};
 
-    use super::{multiply_one_share_mostly_zeroes, multiply_two_shares_mostly_zeroes};
+    use super::multiply_two_shares_mostly_zeroes;
     use crate::ff::Fp31;
+    use crate::helpers::Role;
+    use crate::protocol::context::Context;
     use crate::protocol::mul::test::{SpecializedA, SpecializedB, SpecializedC};
+    use crate::protocol::mul::{sparse_mul_work, SecureMul};
     use crate::protocol::{QueryId, RecordId};
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
+
+    #[test]
+    fn work_profile() {
+        for role in Role::all() {
+            assert_eq!(
+                (true, true, true),
+                sparse_mul_work(*role, [false, false, false], [false, false, false])
+            );
+        }
+        // Now do profile for b having two known zero values.
+        assert_eq!(
+            (false, true, true),
+            sparse_mul_work(Role::H1, [false, false, false], [true, true, false])
+        );
+        assert_eq!(
+            (true, false, true),
+            sparse_mul_work(Role::H2, [false, false, false], [true, true, false])
+        );
+        assert_eq!(
+            (true, true, false),
+            sparse_mul_work(Role::H3, [false, false, false], [true, true, false])
+        );
+        assert_eq!(
+            (true, false, true),
+            sparse_mul_work(Role::H1, [false, false, false], [true, false, true])
+        );
+        assert_eq!(
+            (true, true, false),
+            sparse_mul_work(Role::H2, [false, false, false], [true, false, true])
+        );
+        assert_eq!(
+            (false, true, true),
+            sparse_mul_work(Role::H3, [false, false, false], [true, false, true])
+        );
+    }
 
     #[tokio::test]
     async fn specialized_1() {
@@ -370,7 +352,9 @@ mod specialized_mul_tests {
         let input = (a, SpecializedC(b));
         let result = world
             .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                multiply_one_share_mostly_zeroes(ctx, RecordId::from(0), &a_share, &b_share)
+                let profile =
+                    sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
+                ctx.multiply_sparse(RecordId::from(0), &a_share, &b_share, profile)
                     .await
                     .unwrap()
             })
@@ -393,7 +377,9 @@ mod specialized_mul_tests {
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
                 try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
                     |(i, (ctx, (a_share, b_share)))| async move {
-                        multiply_one_share_mostly_zeroes(ctx, RecordId::from(i), &a_share, &b_share)
+                        let profile =
+                            sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
+                        ctx.multiply_sparse(RecordId::from(i), &a_share, &b_share, profile)
                             .await
                     },
                 ))

@@ -8,9 +8,11 @@ use async_trait::async_trait;
 pub(crate) mod malicious;
 mod semi_honest;
 
+pub use semi_honest::sparse_mul_work;
+
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-pub trait SecureMul<F: Field> {
+pub trait SecureMul<F: Field>: Sized {
     type Share: SecretSharing<F>;
 
     /// Multiply and return the result of `a` * `b`.
@@ -19,13 +21,17 @@ pub trait SecureMul<F: Field> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-    ) -> Result<Self::Share, Error>;
+    ) -> Result<Self::Share, Error> {
+        self.multiply_sparse(record_id, a, b, (true, true, true))
+            .await
+    }
 
-    async fn multiply_one_share_mostly_zeroes(
+    async fn multiply_sparse(
         self,
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
+        who_sends: (bool, bool, bool),
     ) -> Result<Self::Share, Error>;
 
     async fn multiply_two_shares_mostly_zeroes(
@@ -38,12 +44,9 @@ pub trait SecureMul<F: Field> {
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
 use {
-    malicious::multiply_one_share_mostly_zeroes as maliciously_secure_multiply_one_share_mostly_zeroes,
     malicious::multiply_two_shares_mostly_zeroes as maliciously_secure_multiply_two_shares_mostly_zeroes,
-    malicious::secure_mul as maliciously_secure_mul,
-    semi_honest::multiply_one_share_mostly_zeroes as semi_honest_multiply_one_share_mostly_zeroes,
+    malicious::secure_mul as maliciously_secure_mul, semi_honest::multiply as semi_honest_mul,
     semi_honest::multiply_two_shares_mostly_zeroes as semi_honest_multiply_two_shares_mostly_zeroes,
-    semi_honest::secure_mul as semi_honest_mul,
 };
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
@@ -51,22 +54,14 @@ use {
 impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
     type Share = Replicated<F>;
 
-    async fn multiply(
+    async fn multiply_sparse(
         self,
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
+        who_sends: (bool, bool, bool),
     ) -> Result<Self::Share, Error> {
-        semi_honest_mul(self, record_id, a, b).await
-    }
-
-    async fn multiply_one_share_mostly_zeroes(
-        self,
-        record_id: RecordId,
-        a: &Self::Share,
-        b: &Self::Share,
-    ) -> Result<Self::Share, Error> {
-        semi_honest_multiply_one_share_mostly_zeroes(self, record_id, a, b).await
+        semi_honest_mul(self, record_id, a, b, who_sends).await
     }
 
     async fn multiply_two_shares_mostly_zeroes(
@@ -84,22 +79,15 @@ impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
 impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
-    async fn multiply(
+    async fn multiply_sparse(
         self,
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
+        _who_sends: (bool, bool, bool),
     ) -> Result<Self::Share, Error> {
+        // TODO use `who_sends` for something
         maliciously_secure_mul(self, record_id, a, b).await
-    }
-
-    async fn multiply_one_share_mostly_zeroes(
-        self,
-        record_id: RecordId,
-        a: &Self::Share,
-        b: &Self::Share,
-    ) -> Result<Self::Share, Error> {
-        maliciously_secure_multiply_one_share_mostly_zeroes(self, record_id, a, b).await
     }
 
     async fn multiply_two_shares_mostly_zeroes(
