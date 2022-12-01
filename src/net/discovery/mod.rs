@@ -23,7 +23,7 @@ pub mod peer {
 
     #[derive(Clone)]
     pub struct Config {
-        pub http: [HttpConfig; 3],
+        pub http: HttpConfig,
     }
 }
 
@@ -35,5 +35,5 @@ pub mod peer {
 /// Any potential failures should be captured in the initialization of the implementer.
 #[allow(clippy::module_name_repetitions)] // following standard naming convention
 pub trait PeerDiscovery {
-    fn peers(&self) -> &peer::Config;
+    fn peers(&self) -> &[peer::Config; 3];
 }

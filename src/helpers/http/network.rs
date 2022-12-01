@@ -31,11 +31,11 @@ impl HttpNetwork {
     /// # Panics
     /// if client is unable to send message to other helper
     #[must_use]
-    pub fn new(role: Role, http_peers_conf: &[peer::HttpConfig; 3], query_id: QueryId) -> Self {
+    pub fn new(role: Role, peers_conf: &[peer::Config; 3], query_id: QueryId) -> Self {
         let (stx, mut srx) = mpsc::channel::<MessageChunks>(1);
         let (mstx, msrx) = mpsc::channel(1);
 
-        let clients = Self::clients(role, http_peers_conf);
+        let clients = Self::clients(role, peers_conf);
         tokio::spawn(
             async move {
                 let mut last_seen_messages = HashMap::new();
@@ -86,12 +86,12 @@ impl HttpNetwork {
         self.message_stream_sender.clone()
     }
 
-    fn clients(role: Role, http_peers_conf: &[peer::HttpConfig; 3]) -> [MpcHelperClient; 3] {
-        http_peers_conf
+    fn clients(role: Role, peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+        peers_conf
             .iter()
-            .map(|http_peer_conf| {
+            .map(|peer_conf| {
                 // no https for now
-                MpcHelperClient::new(http_peer_conf.origin.clone(), role)
+                MpcHelperClient::new(peer_conf.http.origin.clone(), role)
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -137,17 +137,25 @@ mod tests {
     fn localhost_peers(h1_port: u16, h2_port: u16, h3_port: u16) -> Conf {
         let peer_discovery_str = format!(
             r#"
-[http]
-    [http.h1]
+[h1]
+    [h1.http]
         origin = "http://localhost:{}"
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
+    [h1.prss]
+        public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
 
-    [http.h2]
+[h2]
+    [h2.http]
         origin = "http://localhost:{}"
         public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
+    [h2.prss]
+        public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
 
-    [http.h3]
+[h3]
+    [h3.http]
         origin = "http://localhost:{}"
+        public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
+    [h3.prss]
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#,
             h1_port, h2_port, h3_port
@@ -155,7 +163,7 @@ mod tests {
         Conf::from_str(&peer_discovery_str).unwrap()
     }
 
-    async fn setup() -> (Role, peer::Config, impl Stream<Item = MessageChunks>) {
+    async fn setup() -> (Role, [peer::Config; 3], impl Stream<Item = MessageChunks>) {
         // setup server
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let rx_stream = network.recv_stream();
@@ -177,7 +185,7 @@ mod tests {
         const DATA_LEN: usize = 3;
         let (target_role, peers_conf, mut rx_stream) = setup().await;
         let self_role = target_role.peer(Direction::Left);
-        let network = HttpNetwork::new(self_role, &peers_conf.http, QueryId);
+        let network = HttpNetwork::new(self_role, &peers_conf, QueryId);
         let mut sink = network.sink();
 
         // build request
