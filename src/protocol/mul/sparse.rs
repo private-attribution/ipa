@@ -374,12 +374,9 @@ mod test {
 
     #[tokio::test]
     async fn check_output_malicious() {
+        let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
-        let mut counter = 0;
 
-        // Taking only three items here always works.
-        // More fails.
-        // for &a in all_zps().into_iter().take(3) {
         for &a in all_zps() {
             let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
@@ -392,24 +389,12 @@ mod test {
                     continue; // This combination produces zero, always.
                 }
 
-                println!("--------{counter}--------");
-                counter += 1;
-
                 let v1 = rng.gen::<Fp31>();
                 let v2 = rng.gen::<Fp31>();
-                let world = TestWorld::new(QueryId);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
                         let v_a = puncture(ctx.role(), a, &v_a);
                         let v_b = puncture(ctx.role(), b, &v_b);
-
-                        // let reveal_ctx = ctx.narrow("reveal");
-                        // let revealed_a = reveal_ctx
-                        //     .clone()
-                        //     .reveal(RecordId::from(0), &v_a)
-                        //     .await
-                        //     .unwrap();
-                        // let revealed_b = reveal_ctx.reveal(RecordId::from(1), &v_b).await.unwrap();
 
                         println!(
                             "{:?} {a:?}_{b:?} {v_a:?} x\n   {v_b:?}: {:?}",
@@ -430,15 +415,10 @@ mod test {
 
                         println!("{:?} {m_a:?} x\n      {m_b:?}", m_ctx.role());
 
-                        // let m_reveal_ctx = m_ctx.narrow("reveal");
                         let m_ab = m_ctx
                             .multiply_sparse(RecordId::from(0), &m_a, &m_b, &(a, b))
                             .await
                             .unwrap();
-
-                        // let revealed_ab =
-                        //     m_reveal_ctx.reveal(RecordId::from(0), &m_ab).await.unwrap();
-                        // assert_eq!(revealed_a * revealed_b, revealed_ab);
 
                         v.validate(m_ab).await.unwrap()
                     })
@@ -446,5 +426,41 @@ mod test {
                 check_punctured_output(&result, &(a, b));
             }
         }
+    }
+
+    #[tokio::test]
+    async fn check_failing_mul() {
+        let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
+
+        let (a, b) = (ZeroPositions::Pvzz, ZeroPositions::Pzvv);
+
+        let v1 = rng.gen::<Fp31>();
+        let v2 = rng.gen::<Fp31>();
+        let result = world
+            .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
+                let v_a = puncture(ctx.role(), a, &v_a);
+                let v_b = puncture(ctx.role(), b, &v_b);
+
+                let v = MaliciousValidator::new(ctx);
+                let m_ctx = v.context();
+                let m_a = m_ctx
+                    .upgrade_sparse(RecordId::from(0), v_a, a)
+                    .await
+                    .unwrap();
+                let m_b = m_ctx
+                    .upgrade_sparse(RecordId::from(1), v_b, b)
+                    .await
+                    .unwrap();
+
+                let m_ab = m_ctx
+                    .multiply_sparse(RecordId::from(0), &m_a, &m_b, &(a, b))
+                    .await
+                    .unwrap();
+
+                v.validate(m_ab).await.unwrap()
+            })
+            .await;
+        check_punctured_output(&result, &(a, b));
     }
 }

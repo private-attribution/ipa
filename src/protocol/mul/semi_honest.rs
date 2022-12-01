@@ -36,6 +36,13 @@ where
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
     zeros.0.check(role, "a", a);
     zeros.1.check(role, "b", b);
+    println!(
+        "{role:?} {:?} {:?}_{:?} {:?}",
+        ctx.step(),
+        zeros.0,
+        zeros.1,
+        zeros.work_for(role)
+    );
 
     // generate shared randomness.
     let prss = ctx.prss();
