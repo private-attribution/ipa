@@ -11,8 +11,8 @@ use metrics_util::{CompositeKey, MetricKind};
 /// Simple counter stats
 #[derive(Debug, Default)]
 pub struct CounterDetails {
-    total_value: u64,
-    dimensions: HashMap<SharedString, HashMap<SharedString, u64>>,
+    pub total_value: u64,
+    pub dimensions: HashMap<SharedString, HashMap<SharedString, u64>>,
 }
 
 /// Container for metrics, their descriptions and values they've accumulated.
@@ -30,8 +30,8 @@ pub struct CounterDetails {
 ///
 /// X1 and X2 cannot be greater than X, but these values may overlap, i.e. X1 + X2 >= X
 pub struct Metrics {
-    counters: HashMap<KeyName, CounterDetails>,
-    metric_description: HashMap<KeyName, SharedString>,
+    pub counters: HashMap<KeyName, CounterDetails>,
+    pub metric_description: HashMap<KeyName, SharedString>,
 }
 
 impl CounterDetails {

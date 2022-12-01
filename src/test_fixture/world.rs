@@ -28,7 +28,7 @@ use metrics_util::debugging::DebuggingRecorder;
 use tracing::{Instrument, Level, span};
 use tracing::span::{Entered, EnteredSpan};
 use crate::cli::Metrics;
-use crate::test_fixture::metrics::snapshot;
+use crate::test_fixture::metrics::{MetricsHandle};
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},
@@ -44,11 +44,10 @@ pub struct TestWorld<F: Field> {
     gateways: [Gateway; 3],
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
+    metrics_handle: MetricsHandle,
     _network: Arc<InMemoryNetwork>,
-    _enter: EnteredSpan,
     rbg: [RandomBitsGenerator<F>; 3],
-    pub world_id: u128,
-    pub print_metrics: bool,
+    print_metrics: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -90,10 +89,7 @@ impl<F: Field> TestWorld<F> {
         logging::setup();
 
         // setup metrics
-        crate::test_fixture::metrics::setup();
-        // unique id is required to filter out metrics produced by this test
-        let world_id = thread_rng().gen::<u128>();
-        let span = tracing::debug_span!("test_world", world_id = world_id).entered();
+        let metrics_handle = MetricsHandle::new(Level::DEBUG);
 
         // PRSS
         let participants = make_participants();
@@ -124,10 +120,9 @@ impl<F: Field> TestWorld<F> {
             gateways,
             participants,
             executions: AtomicUsize::new(0),
-            world_id,
             print_metrics: config.print_metrics,
+            metrics_handle,
             _network: network,
-            _enter: span,
             rbg,
         }
     }
@@ -188,11 +183,12 @@ impl <F: Field> Drop for TestWorld<F> {
     fn drop(&mut self) {
         // let recorder = &metrics::try_recorder().unwrap() as &dyn Any;
         // let recorder = recorder.downcast_ref::<Box<DebuggingRecorder>>().unwrap();
-        let world_id = self.world_id.to_string();
-        let metrics = Metrics::with_filter(snapshot(), |labels| {
-            // true
-            labels.iter().any(|label| label.value().eq(&world_id))
-        });
+        // let world_id = self.world_id.to_string();
+        // let metrics = Metrics::with_filter(snapshot(), |labels| {
+        //     // true
+        //     labels.iter().any(|label| label.value().eq(&world_id))
+        // });
+        let metrics = self.metrics_handle.snapshot();
         if self.print_metrics {
             metrics.print(&mut stdout()).unwrap();
         }

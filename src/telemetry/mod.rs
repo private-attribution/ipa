@@ -65,28 +65,4 @@ pub mod metrics {
             "Total number of HTTP/2 requests received"
         );
     }
-
-    #[cfg(test)]
-    #[must_use]
-    pub fn get_counter_value<K: Into<KeyName>>(
-        snapshot: metrics_util::debugging::Snapshot,
-        metric_name: K,
-    ) -> Option<u64> {
-        use metrics_util::debugging::DebugValue;
-        use metrics_util::MetricKind;
-
-        let snapshot = snapshot.into_vec();
-        let metric_name = metric_name.into();
-
-        for (key, _unit, _, val) in snapshot {
-            if key.kind() == MetricKind::Counter && key.key().name() == metric_name.as_str() {
-                match val {
-                    DebugValue::Counter(v) => return Some(v),
-                    _ => unreachable!(),
-                }
-            }
-        }
-
-        None
-    }
 }

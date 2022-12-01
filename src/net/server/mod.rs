@@ -402,7 +402,7 @@ mod e2e_tests {
     use crate::net::server::handlers::EchoData;
     use crate::net::server::{BindTarget, MessageSendMap, MpcHelperServer};
     use crate::protocol::QueryId;
-    use crate::telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED};
+    use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
     use hyper::{
         body,
         client::HttpConnector,
@@ -414,6 +414,9 @@ mod e2e_tests {
     use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
     use std::collections::HashMap;
     use std::str::FromStr;
+    use tracing::Level;
+    use crate::test_fixture::logging;
+    use crate::test_fixture::metrics::MetricsHandle;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -518,11 +521,7 @@ mod e2e_tests {
     /// tested that, so better to stick with default behavior of tokio:test macro
     #[tokio::test]
     async fn requests_received_metric() {
-        todo!();
-        // as per metric's crate recommendation, we have to install the per-thread recorder, but
-        // need to ignore errors because there might be other threads installing it as well.
-        // DebuggingRecorder::per_thread().install().unwrap_or(());
-        crate::test_fixture::metrics::setup();
+        let handle = MetricsHandle::new(Level::INFO);
 
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let message_send_map = MessageSendMap::filled(network);
@@ -549,17 +548,13 @@ mod e2e_tests {
 
         assert_eq!(
             Some(request_count),
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                REQUESTS_RECEIVED,
-            )
+            handle.get_counter_value(REQUESTS_RECEIVED)
         );
     }
 
     #[tokio::test]
     async fn request_version_metric() {
-        todo!();
-        DebuggingRecorder::per_thread().install().unwrap_or(());
+        let handle = MetricsHandle::new(Level::INFO);
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
@@ -588,24 +583,15 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_11),
-            )
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11))
         );
         assert_eq!(
             Some(1),
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_2),
-            )
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
         );
         assert_eq!(
             None,
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_3),
-            )
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3))
         );
     }
 }
