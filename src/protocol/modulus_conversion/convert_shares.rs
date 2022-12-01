@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{context::Context, mul::sparse_mul_work, RecordId},
+    protocol::{context::Context, mul::ZeroPositions, RecordId},
     secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 
@@ -113,8 +113,9 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let work = sparse_mul_work(ctx.role(), [false, true, true], [true, false, true]);
-    let result = ctx.multiply_sparse(record_id, a, b, work).await?;
+    let result = ctx
+        .multiply_sparse(record_id, a, b, &ZeroPositions::AVZZ_BZVZ)
+        .await?;
 
     Ok(-(result * F::from(2)) + a + b)
 }
@@ -140,9 +141,9 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let work = sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
-    let result = ctx.multiply_sparse(record_id, a, b, work).await?;
-
+    let result = ctx
+        .multiply_sparse(record_id, a, b, &ZeroPositions::AVVV_BZZV)
+        .await?;
     Ok(-(result * F::from(2)) + a + b)
 }
 

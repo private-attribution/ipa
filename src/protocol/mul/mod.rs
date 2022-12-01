@@ -7,8 +7,9 @@ use async_trait::async_trait;
 
 pub(crate) mod malicious;
 mod semi_honest;
+mod sparse;
 
-pub use semi_honest::sparse_mul_work;
+pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
@@ -22,7 +23,7 @@ pub trait SecureMul<F: Field>: Sized {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error> {
-        self.multiply_sparse(record_id, a, b, (true, true, true))
+        self.multiply_sparse(record_id, a, b, &ZeroPositions::ALL)
             .await
     }
 
@@ -36,12 +37,12 @@ pub trait SecureMul<F: Field>: Sized {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-        who_sends: (bool, bool, bool),
+        zeros_at: &MultiplyZeroPositions,
     ) -> Result<Self::Share, Error>;
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
-use {malicious::secure_mul as maliciously_secure_mul, semi_honest::multiply as semi_honest_mul};
+use {malicious::multiply as malicious_mul, semi_honest::multiply as semi_honest_mul};
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
@@ -53,9 +54,9 @@ impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-        who_sends: (bool, bool, bool),
+        zeros_at: &MultiplyZeroPositions,
     ) -> Result<Self::Share, Error> {
-        semi_honest_mul(self, record_id, a, b, who_sends).await
+        semi_honest_mul(self, record_id, a, b, zeros_at).await
     }
 }
 
@@ -69,10 +70,9 @@ impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-        _who_sends: (bool, bool, bool),
+        zeros_at: &MultiplyZeroPositions,
     ) -> Result<Self::Share, Error> {
-        // TODO use `who_sends` for something
-        maliciously_secure_mul(self, record_id, a, b).await
+        malicious_mul(self, record_id, a, b, zeros_at).await
     }
 }
 

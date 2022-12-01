@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::SecureMul;
+use crate::protocol::mul::{sparse::MultiplyWork, MultiplyZeroPositions, SecureMul};
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
@@ -55,11 +55,12 @@ impl AsRef<str> for Step {
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn secure_mul<F>(
+pub async fn multiply<F>(
     ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
+    zeros_at: &MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
@@ -70,16 +71,20 @@ where
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
     let (ab, rab) = try_join(
-        ctx.semi_honest_context().multiply(
+        ctx.semi_honest_context().multiply_sparse(
             record_id,
             a.x().access_without_downgrade(),
             b.x().access_without_downgrade(),
+            zeros_at,
         ),
-        duplicate_multiply_ctx.semi_honest_context().multiply(
-            record_id,
-            a.rx(),
-            b.x().access_without_downgrade(),
-        ),
+        duplicate_multiply_ctx
+            .semi_honest_context()
+            .multiply_sparse(
+                record_id,
+                a.rx(),
+                b.x().access_without_downgrade(),
+                &zeros_at.upgraded(),
+            ),
     )
     .await?;
 
@@ -122,11 +127,9 @@ mod specialized_mul_tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            context::Context,
             mul::{
-                sparse_mul_work,
                 test::{SpecializedA, SpecializedB, SpecializedC},
-                SecureMul,
+                SecureMul, ZeroPositions,
             },
             QueryId, RecordId,
         },
@@ -146,8 +149,7 @@ mod specialized_mul_tests {
 
         let res = world
             .malicious(input, |ctx, (a, b)| async move {
-                let work = sparse_mul_work(ctx.role(), [false, true, true], [true, false, true]);
-                ctx.multiply_sparse(RecordId::from(0), &a, &b, work)
+                ctx.multiply_sparse(RecordId::from(0), &a, &b, &ZeroPositions::AVZZ_BZVZ)
                     .await
                     .unwrap()
             })
@@ -168,9 +170,7 @@ mod specialized_mul_tests {
 
         let res = world
             .malicious(input, |ctx, (a, b)| async move {
-                let profile =
-                    sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
-                ctx.multiply_sparse(RecordId::from(0), &a, &b, profile)
+                ctx.multiply_sparse(RecordId::from(0), &a, &b, &ZeroPositions::AVVV_BZZV)
                     .await
                     .unwrap()
             })
