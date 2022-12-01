@@ -20,15 +20,8 @@ pub async fn credit_capping<F: Field>(
     //
     // Step 1. Initialize two local vectors for the capping computation.
     //
-    // * `stop_bits` is used to determine when to stop the computation
     // * `final_credits` will have credit values of only source events
     //
-    let one = Replicated::one(ctx.role());
-    let stop_bits: Batch<Replicated<F>> = repeat(one.clone())
-        .take(input.len())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
     let mut final_credits = mask_source_credits(input, ctx.clone()).await?;
 
     //
@@ -37,13 +30,8 @@ pub async fn credit_capping<F: Field>(
     // We follow the approach used in the `AccumulateCredit` protocol. It's a
     // reversed Prefix Sum of `final_credits`.
     //
-    let current_contribution = compute_current_contribution(
-        ctx.clone(),
-        input,
-        &mut stop_bits.clone(),
-        &mut final_credits.clone(),
-    )
-    .await?;
+    let current_contribution =
+        compute_current_contribution(ctx.clone(), input, final_credits.clone()).await?;
 
     //
     // 3. Compute compare_bits
@@ -106,9 +94,15 @@ async fn mask_source_credits<F: Field>(
 async fn compute_current_contribution<'a, F: Field>(
     ctx: SemiHonestContext<'a, F>,
     input: &Batch<CreditCappingInputRow<F>>,
-    stop_bits: &mut Batch<Replicated<F>>,
-    current_contribution: &mut Batch<Replicated<F>>,
+    mut current_contribution: Batch<Replicated<F>>,
 ) -> Result<Batch<Replicated<F>>, Error> {
+    let one = Replicated::one(ctx.role());
+    let mut stop_bits: Batch<Replicated<F>> = repeat(one.clone())
+        .take(input.len())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+
     let num_rows: RecordIndex = input.len().try_into().unwrap();
 
     for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
@@ -140,8 +134,7 @@ async fn compute_current_contribution<'a, F: Field>(
                     &input[i + step_size].helper_bit,
                     depth == 0,
                 )
-                .await
-                .unwrap();
+                .await?;
 
                 try_join(
                     c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
