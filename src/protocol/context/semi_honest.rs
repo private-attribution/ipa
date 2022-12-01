@@ -11,6 +11,8 @@ use crate::protocol::{Step, Substep};
 use crate::secret_sharing::Replicated;
 use crate::sync::Arc;
 use std::marker::PhantomData;
+use tracing::{Instrument, Span};
+use tracing::span::{Entered, EnteredSpan};
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
@@ -67,18 +69,21 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self {
+        let step = self.step.narrow(step);
         Self {
             inner: Arc::clone(&self.inner),
-            step: self.step.narrow(step),
+            step: step.clone(),
             _marker: PhantomData::default(),
         }
     }
 
     fn prss(&self) -> Arc<IndexedSharedRandomness> {
+        // let span = tracing::info_span!("prss", role=?self.role(),step=?self.step).entered();
         self.inner.prss.indexed(self.step())
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
+        // let span = tracing::info_span!("prss_rng", role=?self.role(),step=?self.step).entered();
         self.inner.prss.sequential(self.step())
     }
 

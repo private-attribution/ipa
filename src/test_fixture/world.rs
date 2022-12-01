@@ -25,7 +25,7 @@ use std::any::{Any};
 use std::io::stdout;
 use std::mem::ManuallyDrop;
 use metrics_util::debugging::DebuggingRecorder;
-use tracing::{Level, span};
+use tracing::{Instrument, Level, span};
 use tracing::span::{Entered, EnteredSpan};
 use crate::cli::Metrics;
 use crate::test_fixture::metrics::snapshot;
@@ -221,7 +221,10 @@ where
         };
 
         let output =
-            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
+            join_all(zip(contexts, input_shares).map(|(ctx, shares)| {
+                let role =ctx.role();
+                helper_fn(ctx, shares).instrument(tracing::info_span!("helper", role=?role))
+            })).await;
         <[_; 3]>::try_from(output).unwrap()
     }
 

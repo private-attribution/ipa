@@ -11,9 +11,10 @@ use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
-use tracing::instrument;
+use tracing::{instrument, Instrument};
+use tracing::span::EnteredSpan;
 use x25519_dalek::{EphemeralSecret, PublicKey};
-use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
+use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED, STEP_LABEL};
 
 use super::Step;
 
@@ -70,6 +71,7 @@ pub struct IndexedSharedRandomness {
     right: Generator,
     #[cfg(debug_assertions)]
     used: UsedSet,
+    scope: String,
 }
 
 /// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
@@ -88,7 +90,7 @@ impl IndexedSharedRandomness {
             self.used.insert(index);
         }
 
-        metrics::increment_counter!(INDEXED_PRSS_GENERATED);
+        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP_LABEL => self.scope.clone());
 
         (self.left.generate(index), self.right.generate(index))
     }
@@ -164,14 +166,16 @@ impl IndexedSharedRandomness {
 /// in APIs that expect `Rng`.
 pub struct SequentialSharedRandomness {
     generator: Generator,
+    scope: String,
     counter: u128,
 }
 
 impl SequentialSharedRandomness {
     /// Private constructor.
-    fn new(generator: Generator) -> Self {
+    fn new(generator: Generator, scope: String) -> Self {
         Self {
             generator,
+            scope,
             counter: 0,
         }
     }
@@ -187,7 +191,7 @@ impl RngCore for SequentialSharedRandomness {
     // That is OK for the same reason that we use in converting a `u128` to a small `Field`.
     #[allow(clippy::cast_possible_truncation)]
     fn next_u64(&mut self) -> u64 {
-        metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED);
+        metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED, STEP_LABEL => self.scope.clone());
 
         let v = self.generator.generate(self.counter);
         self.counter += 1;
@@ -274,6 +278,7 @@ impl EndpointInner {
                     right: self.right.generator(k.as_bytes()),
                     #[cfg(debug_assertions)]
                     used: UsedSet::new(key.to_owned()),
+                    scope: key.to_owned(),
                 }))
             })
         };
@@ -294,8 +299,8 @@ impl EndpointInner {
             "Attempt access a sequential PRSS for {key} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
-            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(self.left.generator(key.as_bytes()), key.to_owned()),
+            SequentialSharedRandomness::new(self.right.generator(key.as_bytes()), key.to_owned()),
         )
     }
 }
@@ -318,7 +323,6 @@ impl EndpointSetup {
     /// Provide the left and right public keys to construct a functioning
     /// participant instance.
     #[must_use]
-    #[instrument(skip_all)]
     pub fn setup(self, left_pk: &PublicKey, right_pk: &PublicKey) -> Endpoint {
         let fl = self.left.key_exchange(left_pk);
         let fr = self.right.key_exchange(right_pk);
