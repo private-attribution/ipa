@@ -11,7 +11,7 @@ use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
-use tracing::{instrument, Instrument};
+use tracing::{instrument, Instrument, Span};
 use tracing::span::EnteredSpan;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED, STEP_LABEL};
@@ -166,17 +166,17 @@ impl IndexedSharedRandomness {
 /// in APIs that expect `Rng`.
 pub struct SequentialSharedRandomness {
     generator: Generator,
-    scope: String,
     counter: u128,
+    _span: EnteredSpan,
 }
 
 impl SequentialSharedRandomness {
     /// Private constructor.
-    fn new(generator: Generator, scope: String) -> Self {
+    fn new(generator: Generator) -> Self {
         Self {
             generator,
-            scope,
             counter: 0,
+            _span: Span::current().entered()
         }
     }
 }
@@ -191,7 +191,7 @@ impl RngCore for SequentialSharedRandomness {
     // That is OK for the same reason that we use in converting a `u128` to a small `Field`.
     #[allow(clippy::cast_possible_truncation)]
     fn next_u64(&mut self) -> u64 {
-        metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED, STEP_LABEL => self.scope.clone());
+        metrics::increment_counter!(SEQUENTIAL_PRSS_GENERATED);
 
         let v = self.generator.generate(self.counter);
         self.counter += 1;
@@ -299,8 +299,8 @@ impl EndpointInner {
             "Attempt access a sequential PRSS for {key} after another access"
         );
         (
-            SequentialSharedRandomness::new(self.left.generator(key.as_bytes()), key.to_owned()),
-            SequentialSharedRandomness::new(self.right.generator(key.as_bytes()), key.to_owned()),
+            SequentialSharedRandomness::new(self.left.generator(key.as_bytes())),
+            SequentialSharedRandomness::new(self.right.generator(key.as_bytes())),
         )
     }
 }

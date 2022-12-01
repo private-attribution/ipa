@@ -83,7 +83,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        // let span = tracing::info_span!("prss_rng", role=?self.role(),step=?self.step).entered();
+        let _span = tracing::info_span!("prss_rng", role=?self.role(),step=self.step.as_ref()).entered();
         self.inner.prss.sequential(self.step())
     }
 
