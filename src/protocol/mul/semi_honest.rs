@@ -90,67 +90,6 @@ pub fn sparse_mul_work(role: Role, a: [bool; 3], b: [bool; 3]) -> (bool, bool, b
     (!can_skip_send, !can_skip_recv, !can_skip_rand)
 }
 
-/// ## Errors
-/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
-/// back via the error response
-pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    record_id: RecordId,
-    a: &Replicated<F>,
-    b: &Replicated<F>,
-) -> Result<Replicated<F>, Error> {
-    match ctx.role() {
-        Role::H1 => {
-            let prss = &ctx.prss();
-            let (s_3_1, _) = prss.generate_fields(record_id);
-
-            // d_1 = a_1 * b_2 + a_2 * b_1 - s_3,1
-            // d_1 = a_1 * b_2 + 0 * 0 - s_3,1
-            let (a_1, a_2) = a.as_tuple();
-            let (b_1, b_2) = b.as_tuple();
-            debug_assert!(a_2 == F::ZERO);
-            debug_assert!(b_1 == F::ZERO);
-
-            let d_1 = a_1 * b_2 - s_3_1;
-
-            // notify helper on the right that we've computed our value
-            let channel = ctx.mesh();
-            channel
-                .send(ctx.role().peer(Direction::Right), record_id, d_1)
-                .await?;
-
-            Ok(Replicated::new(s_3_1, d_1))
-        }
-        Role::H2 => {
-            // d_2 = a_2 * b_3 + a_3 * b_2 - s_1,2
-            // d_2 = 0 * 0 + 0 * b - s_1,2
-            // d_2 = s_1,2
-            // d_2 is a constant, known in advance. So we can replace it with zero
-            // And there is no need to send it.
-
-            // Sleep until helper on the left sends us their (d_i-1) value
-            let channel = ctx.mesh();
-            let d_1 = channel
-                .receive(ctx.role().peer(Direction::Left), record_id)
-                .await?;
-
-            Ok(Replicated::new(d_1, F::ZERO))
-        }
-        Role::H3 => {
-            // d_3 = a_3 * b_1 + a_1 * b_3 - s_2,3
-            // d_3 = 0 * 0 + a * 0 - s_2,3
-            // d_3 = s_2,3
-            // d_3 is a constant, known in advance. So we can replace it with zero
-            // And there is no need to send it.
-
-            let prss = &ctx.prss();
-            let (_, s_3_1) = prss.generate_fields(record_id);
-
-            Ok(Replicated::new(F::ZERO, s_3_1))
-        }
-    }
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod regular_mul_tests {
     use crate::ff::{Field, Fp31};
@@ -245,7 +184,6 @@ mod regular_mul_tests {
 mod specialized_mul_tests {
     use std::iter::{repeat, zip};
 
-    use super::multiply_two_shares_mostly_zeroes;
     use crate::ff::Fp31;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
@@ -301,7 +239,8 @@ mod specialized_mul_tests {
         let input = (SpecializedA(a), SpecializedB(b));
         let result = world
             .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                multiply_two_shares_mostly_zeroes(ctx, RecordId::from(0), &a_share, &b_share)
+                let work = sparse_mul_work(ctx.role(), [false, true, true], [true, false, true]);
+                ctx.multiply_sparse(RecordId::from(0), &a_share, &b_share, work)
                     .await
                     .unwrap()
             })
@@ -326,13 +265,10 @@ mod specialized_mul_tests {
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
                 try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
                     |(i, (ctx, (a_share, b_share)))| async move {
-                        multiply_two_shares_mostly_zeroes(
-                            ctx,
-                            RecordId::from(i),
-                            &a_share,
-                            &b_share,
-                        )
-                        .await
+                        let work =
+                            sparse_mul_work(ctx.role(), [false, true, true], [true, false, true]);
+                        ctx.multiply_sparse(RecordId::from(i), &a_share, &b_share, work)
+                            .await
                     },
                 ))
                 .await
@@ -352,9 +288,8 @@ mod specialized_mul_tests {
         let input = (a, SpecializedC(b));
         let result = world
             .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                let profile =
-                    sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
-                ctx.multiply_sparse(RecordId::from(0), &a_share, &b_share, profile)
+                let work = sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
+                ctx.multiply_sparse(RecordId::from(0), &a_share, &b_share, work)
                     .await
                     .unwrap()
             })
@@ -377,9 +312,9 @@ mod specialized_mul_tests {
             .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
                 try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
                     |(i, (ctx, (a_share, b_share)))| async move {
-                        let profile =
+                        let work =
                             sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
-                        ctx.multiply_sparse(RecordId::from(i), &a_share, &b_share, profile)
+                        ctx.multiply_sparse(RecordId::from(i), &a_share, &b_share, work)
                             .await
                     },
                 ))

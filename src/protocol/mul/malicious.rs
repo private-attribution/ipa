@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::{semi_honest_multiply_two_shares_mostly_zeroes, SecureMul};
+use crate::protocol::mul::SecureMul;
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
@@ -90,43 +90,6 @@ where
     Ok(malicious_ab)
 }
 
-/// ## Errors
-/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
-/// back via the error response
-pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
-    ctx: MaliciousContext<'_, F>,
-    record_id: RecordId,
-    a: &MaliciousReplicated<F>,
-    b: &MaliciousReplicated<F>,
-) -> Result<MaliciousReplicated<F>, Error> {
-    use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-
-    let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
-    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
-    let (ab, rab) = try_join(
-        semi_honest_multiply_two_shares_mostly_zeroes(
-            ctx.semi_honest_context(),
-            record_id,
-            a.x().access_without_downgrade(),
-            b.x().access_without_downgrade(),
-        ),
-        // TODO: We can probably use a variant of the "one share mostly zeroes" protocol here
-        duplicate_multiply_ctx.semi_honest_context().multiply(
-            record_id,
-            a.rx(),
-            b.x().access_without_downgrade(),
-        ),
-    )
-    .await?;
-
-    let malicious_ab = MaliciousReplicated::new(ab, rab);
-
-    random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
-
-    Ok(malicious_ab)
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod regular_mul_tests {
     use crate::{
@@ -183,7 +146,8 @@ mod specialized_mul_tests {
 
         let res = world
             .malicious(input, |ctx, (a, b)| async move {
-                ctx.multiply_two_shares_mostly_zeroes(RecordId::from(0), &a, &b)
+                let work = sparse_mul_work(ctx.role(), [false, true, true], [true, false, true]);
+                ctx.multiply_sparse(RecordId::from(0), &a, &b, work)
                     .await
                     .unwrap()
             })

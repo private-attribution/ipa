@@ -113,9 +113,8 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let result = ctx
-        .multiply_two_shares_mostly_zeroes(record_id, a, b)
-        .await?;
+    let work = sparse_mul_work(ctx.role(), [false, true, true], [true, false, true]);
+    let result = ctx.multiply_sparse(record_id, a, b, work).await?;
 
     Ok(-(result * F::from(2)) + a + b)
 }
@@ -141,8 +140,8 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let profile = sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
-    let result = ctx.multiply_sparse(record_id, a, b, profile).await?;
+    let work = sparse_mul_work(ctx.role(), [false, false, false], [true, true, false]);
+    let result = ctx.multiply_sparse(record_id, a, b, work).await?;
 
     Ok(-(result * F::from(2)) + a + b)
 }
