@@ -2,48 +2,48 @@ use crate::net::discovery::{peer, Error, PeerDiscovery};
 use std::str::FromStr;
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-struct ToPeerHttpConfig {
+struct ToHttpPeerConfig {
     origin: String,
     #[serde(with = "hex")]
     public_key: [u8; 32],
 }
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-struct ToPeerConfig {
-    http: ToPeerHttpConfig,
+struct ToHttpConfig {
+    h1: ToHttpPeerConfig,
+    h2: ToHttpPeerConfig,
+    h3: ToHttpPeerConfig,
 }
 
 /// Values that are serializable and read from config. May need further processing when translating
 /// to [`peer::Config`].
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToConf {
-    h1: ToPeerConfig,
-    h2: ToPeerConfig,
-    h3: ToPeerConfig,
+    http: ToHttpConfig,
 }
 
 /// All config value necessary to discover other peer helpers of the MPC ring
 pub struct Conf {
-    peers: [peer::Config; 3],
+    peers: peer::Config,
 }
 
 impl Conf {
     fn from_file_conf(to_conf: &ToConf) -> Result<Self, Error> {
         Ok(Self {
-            peers: [
-                Self::peer_config(&to_conf.h1)?,
-                Self::peer_config(&to_conf.h2)?,
-                Self::peer_config(&to_conf.h3)?,
-            ],
+            peers: peer::Config {
+                http: [
+                    Self::http_peer_config(&to_conf.http.h1)?,
+                    Self::http_peer_config(&to_conf.http.h2)?,
+                    Self::http_peer_config(&to_conf.http.h3)?,
+                ],
+            },
         })
     }
 
-    fn peer_config(to_peer_config: &ToPeerConfig) -> Result<peer::Config, Error> {
-        Ok(peer::Config {
-            http: peer::HttpConfig {
-                origin: to_peer_config.http.origin.parse()?,
-                public_key: to_peer_config.http.public_key.into(),
-            },
+    fn http_peer_config(to_http_peer_config: &ToHttpPeerConfig) -> Result<peer::HttpConfig, Error> {
+        Ok(peer::HttpConfig {
+            origin: to_http_peer_config.origin.parse()?,
+            public_key: to_http_peer_config.public_key.into(),
         })
     }
 }
@@ -68,7 +68,7 @@ impl FromStr for Conf {
 }
 
 impl PeerDiscovery for Conf {
-    fn peers(&self) -> &[peer::Config; 3] {
+    fn peers(&self) -> &peer::Config {
         &self.peers
     }
 }
@@ -86,18 +86,16 @@ mod tests {
     const H2_URI: &str = "http://localhost:3001/";
     const H3_URI: &str = "http://localhost:3002/";
     const EXAMPLE_CONFIG: &str = r#"
-[h1]
-    [h1.http]
+[http]
+    [http.h1]
         origin = "http://localhost:3000"
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
 
-[h2]
-    [h2.http]
+    [http.h2]
         origin = "http://localhost:3001"
         public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
 
-[h3]
-    [h3.http]
+    [http.h3]
         origin = "http://localhost:3002"
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
@@ -124,31 +122,31 @@ mod tests {
 
         // H1
         assert_eq!(
-            conf.peers[Role::H1].http.origin,
+            conf.peers.http[Role::H1].origin,
             H1_URI.parse::<Uri>().unwrap()
         );
         assert_eq!(
-            conf.peers[Role::H1].http.public_key,
+            conf.peers.http[Role::H1].public_key,
             hex_str_to_public_key(H1_PUBLIC_KEY)
         );
 
         // H2
         assert_eq!(
-            conf.peers[Role::H2].http.origin,
+            conf.peers.http[Role::H2].origin,
             H2_URI.parse::<Uri>().unwrap()
         );
         assert_eq!(
-            conf.peers[Role::H2].http.public_key,
+            conf.peers.http[Role::H2].public_key,
             hex_str_to_public_key(H2_PUBLIC_KEY)
         );
 
         // H3
         assert_eq!(
-            conf.peers[Role::H3].http.origin,
+            conf.peers.http[Role::H3].origin,
             H3_URI.parse::<Uri>().unwrap()
         );
         assert_eq!(
-            conf.peers[Role::H3].http.public_key,
+            conf.peers.http[Role::H3].public_key,
             hex_str_to_public_key(H3_PUBLIC_KEY)
         );
     }
