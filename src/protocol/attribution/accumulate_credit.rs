@@ -1,21 +1,16 @@
-use super::{
-    AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternInputRow,
-    InteractionPatternStep,
-};
-
+use super::{AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternStep};
+use crate::error::Error;
+use crate::ff::Field;
 use crate::helpers::Role;
 use crate::protocol::attribution::AttributionInputRowResharableStep::{
     BreakdownKey, Credit, HelperBit, IsTriggerBit,
 };
+use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
-use crate::{
-    error::Error,
-    ff::Field,
-    protocol::{context::Context, RecordId},
-    secret_sharing::Replicated,
-};
+use crate::protocol::RecordId;
+use crate::secret_sharing::Replicated;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -92,8 +87,8 @@ pub async fn accumulate_credit<F: Field>(
     // These vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
 
-    let one = Replicated::one(ctx.role());
-    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
+    let one = ctx.share_of_one();
+    let mut stop_bits: Vec<Replicated<F>> = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
 
     let mut credits = input.iter().map(|x| x.credit.clone()).collect::<Vec<_>>();
 
@@ -117,36 +112,41 @@ pub async fn accumulate_credit<F: Field>(
         .enumerate()
     {
         let end = num_rows - step_size;
-        let mut accumulation_futures = Vec::with_capacity(end as usize);
-
+        let mut futures = Vec::with_capacity(end as usize);
         let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
 
-        // for each input row, create a future to execute secure multiplications
         for i in 0..end {
-            // TODO - see if making so many copies can be reduced
-            let current = InteractionPatternInputRow {
-                is_trigger_bit: input[i].is_trigger_bit.clone(),
-                helper_bit: input[i].helper_bit.clone(),
-                stop_bit: stop_bits[i].clone(),
-                interaction_value: credits[i].clone(),
-            };
-            let successor = InteractionPatternInputRow {
-                is_trigger_bit: input[i + step_size].is_trigger_bit.clone(),
-                helper_bit: input[i + step_size].helper_bit.clone(),
-                stop_bit: stop_bits[i + step_size].clone(),
-                interaction_value: credits[i + step_size].clone(),
-            };
+            let c = c.clone();
+            let record_id = RecordId::from(i);
+            let current_stop_bit = &stop_bits[i];
+            let sibling_stop_bit = &stop_bits[i + step_size];
+            let sibling_helper_bit = &input[i + step_size].helper_bit;
+            let sibling_is_trigger_bit = &input[i + step_size].is_trigger_bit;
+            let sibling_credit = &credits[i + step_size];
+            futures.push(async move {
+                // b = if [next event has the same match key]  AND
+                //        [next event is a trigger event]      AND
+                //        [accumulation has not completed yet]
+                let b = compute_b_bit(
+                    c.clone(),
+                    record_id,
+                    current_stop_bit,
+                    sibling_helper_bit,
+                    sibling_is_trigger_bit,
+                    depth == 0,
+                )
+                .await?;
 
-            accumulation_futures.push(accumulate_credit_interaction_pattern(
-                c.clone(),
-                RecordId::from(i),
-                current,
-                successor,
-                depth == 0,
-            ));
+                try_join(
+                    c.narrow(&Step::BTimesSuccessorCredit)
+                        .multiply(record_id, &b, sibling_credit),
+                    compute_stop_bit(c.clone(), record_id, &b, sibling_stop_bit, depth == 0),
+                )
+                .await
+            });
         }
 
-        let results = try_join_all(accumulation_futures).await?;
+        let results = try_join_all(futures).await?;
 
         // accumulate the credit from this iteration into the accumulation vectors
         results
@@ -169,58 +169,62 @@ pub async fn accumulate_credit<F: Field>(
         })
         .collect::<Vec<_>>();
 
-    // TODO: Append unique breakdown_key values at the end of the output vector for the next step
-    // Since we cannot see the actual breakdown key values, we'll append shares of [0..MAX]. Adding u8::MAX
-    // number of elements to the output won't be a problem. Adding u32::MAX elements will be 1B + u32::MAX, which
-    // exceeds our current assumption of `input.len() < 1B`.
-
     Ok(output)
 }
 
-async fn accumulate_credit_interaction_pattern<F: Field>(
+async fn compute_b_bit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    current: InteractionPatternInputRow<F>,
-    successor: InteractionPatternInputRow<F>,
+    current_stop_bit: &Replicated<F>,
+    sibling_helper_bit: &Replicated<F>,
+    sibling_is_trigger_bit: &Replicated<F>,
     first_iteration: bool,
-) -> Result<(Replicated<F>, Replicated<F>), Error> {
-    // For each input row, we execute the accumulation logic in this method
-    // `log2(input.len())` times. Each accumulation logic is executed with
-    // the unique iteration/row pair sub-context. There are 2~4 multiplications
-    // in this accumulation logic, and each is tagged with a unique `RecordID`.
-
-    // first, calculate [successor.helper_bit * successor.trigger_bit]
+) -> Result<Replicated<F>, Error> {
+    // Compute `b = current_stop_bit * sibling_helper_bit * sibling_trigger_bit`.
+    // Since `current_stop_bit` is initialized with 1, we only multiply it in
+    // the second and later iterations.
     let mut b = ctx
         .narrow(&Step::HelperBitTimesIsTriggerBit)
-        .multiply(record_id, &successor.helper_bit, &successor.is_trigger_bit)
+        .multiply(record_id, sibling_helper_bit, sibling_is_trigger_bit)
         .await?;
 
-    // since `stop_bits` is initialized with `[1]`s, we only multiply `stop_bit` in the second and later iterations
     if !first_iteration {
         b = ctx
             .narrow(&Step::BTimesCurrentStopBit)
-            .multiply(record_id, &b, &current.stop_bit)
+            .multiply(record_id, &b, current_stop_bit)
             .await?;
     }
 
-    let credit_future = ctx.narrow(&Step::BTimesSuccessorCredit).multiply(
-        record_id,
-        &b,
-        &successor.interaction_value,
-    );
+    Ok(b)
+}
 
-    // for the same reason as calculating [b], we skip the multiplication in the first iteration
-    let stop_bit_future = if first_iteration {
-        futures::future::Either::Left(futures::future::ok(b.clone()))
-    } else {
-        futures::future::Either::Right(ctx.narrow(&Step::BTimesSuccessorStopBit).multiply(
-            record_id,
-            &b,
-            &successor.stop_bit,
-        ))
-    };
-
-    try_join(credit_future, stop_bit_future).await
+async fn compute_stop_bit<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
+    record_id: RecordId,
+    b_bit: &Replicated<F>,
+    sibling_stop_bit: &Replicated<F>,
+    first_iteration: bool,
+) -> Result<Replicated<F>, Error> {
+    // This method computes:
+    //   if b == 1
+    //     sibling_stop_bit
+    //   else
+    //     0
+    //
+    // Since `sibling_stop_bit` is initialize with 1, the computation is:
+    //
+    //   if b == 1
+    //     1
+    //   else
+    //     0
+    //
+    // which is `b` itself.
+    if first_iteration {
+        return Ok(b_bit.clone());
+    }
+    ctx.narrow(&Step::BTimesSuccessorStopBit)
+        .multiply(record_id, b_bit, sibling_stop_bit)
+        .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
