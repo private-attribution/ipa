@@ -16,7 +16,7 @@ pub enum ZeroPositions {
     Pvzv,
     /// Zero at H1 left, H2 right
     Pzvv,
-    // Note: all zeros is invalid
+    // Note: all zero values are invalid (you don't need to multiply these)
 }
 
 pub type MultiplyZeroPositions = (ZeroPositions, ZeroPositions);
@@ -32,8 +32,7 @@ impl ZeroPositions {
     fn work(a: Self, b: Self) -> [bool; 3] {
         match (a, b) {
             (Self::Pvzz, Self::Pvzz) | (Self::Pzvz, Self::Pzvz) | (Self::Pzzv, Self::Pzzv) => {
-                // TODO panic!("this multiplication always produces zero");
-                [false, false, false]
+                panic!("this multiplication always produces zero");
             }
             (Self::Pzvv, Self::Pzvv | Self::Pzvz | Self::Pzzv)
             | (Self::Pzvz, Self::Pzvv | Self::Pzzv)
@@ -62,10 +61,9 @@ impl ZeroPositions {
     }
 
     fn output(a: Self, b: Self) -> Self {
-        let work = Self::work(a, b);
         // A zero only appears on the lhs of the output if the helper is neither
         // sending nor receiving.
-        match work {
+        match Self::work(a, b) {
             [false, false, true] => Self::Pzvv,
             [false, true, false] => Self::Pvvz,
             [true, false, false] => Self::Pvzv,
@@ -93,9 +91,6 @@ impl MultiplyWork for MultiplyZeroPositions {
         let need_to_recv = work[i];
         let need_to_send = work[(i + 1) % 3];
         let need_random_right = work[(i + 2) % 3];
-        println!(
-            "{role:?} recv {need_to_recv:?} send {need_to_send:?} random {need_random_right:?}"
-        );
         [need_to_recv, need_to_send, need_random_right]
     }
 
@@ -180,15 +175,39 @@ mod test {
             for &b in all_zps() {
                 let b_flags = <[bool; 3]>::from(b);
                 for &role in Role::all() {
-                    println!("{role:?}: {a:?}, {b:?}:");
-                    assert_eq!(
-                        (a, b).work_for(role),
-                        calculate_work(role, a_flags, b_flags),
-                        "{role:?}: {a:?}={a_flags:?}, {b:?}={b_flags:?}"
-                    );
+                    let expected = calculate_work(role, a_flags, b_flags);
+                    if expected.iter().any(|&x| x) {
+                        assert_eq!(
+                            (a, b).work_for(role),
+                            expected,
+                            "{role:?}: {a:?}={a_flags:?}, {b:?}={b_flags:?}"
+                        );
+                    } else {
+                        println!("skip value with no work");
+                    }
                 }
             }
         }
+    }
+
+    // Asking for work with these combinations is pointless.  The answer is always zero.
+
+    #[test]
+    #[should_panic]
+    fn no_work1() {
+        (ZeroPositions::Pvzz, ZeroPositions::Pvzz).work_for(Role::H1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn no_work2() {
+        (ZeroPositions::Pzvz, ZeroPositions::Pzvz).work_for(Role::H2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn no_work3() {
+        (ZeroPositions::Pzzv, ZeroPositions::Pzzv).work_for(Role::H3);
     }
 
     /// Use this test to get mappings for `ZeroPositions`.
@@ -230,7 +249,18 @@ mod test {
 
         let world = TestWorld::new(QueryId);
         for &a in all_zps() {
+            let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
+                let b_flags = <[bool; 3]>::from(b);
+
+                if calculate_work(Role::H1, a_flags, b_flags)
+                    .iter()
+                    .all(|&x| !x)
+                {
+                    // This combination produces zero, always.
+                    continue;
+                }
+
                 let mut rng = thread_rng();
                 let v1 = rng.gen::<Fp31>();
                 let v2 = rng.gen::<Fp31>();
