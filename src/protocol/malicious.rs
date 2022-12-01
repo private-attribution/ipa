@@ -117,14 +117,11 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     /// Will panic if the mutex is poisoned
     pub fn accumulate_macs(
         &self,
-        prss: &Arc<IndexedSharedRandomness>,
+        random_constant: Replicated<F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
     ) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-
-        let random_constant = prss.generate_replicated(record_id);
-
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
             &random_constant,
@@ -154,12 +151,11 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let prss = ctx.prss();
-        let r_share = prss.generate_replicated(RECORD_0);
-        let state = AccumulatorState {
+        let r_share = ctx.prss(|prss| prss.generate_replicated(RECORD_0));
+        let state = ctx.prss(|prss| AccumulatorState {
             u: prss.zero(RECORD_1),
             w: prss.zero(RECORD_2),
-        };
+        });
 
         let u_and_w = Arc::new(Mutex::new(state));
         let accumulator = MaliciousValidatorAccumulator {

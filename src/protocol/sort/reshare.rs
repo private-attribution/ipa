@@ -51,8 +51,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
         let channel = self.mesh();
-        let prss = self.prss();
-        let (r0, r1) = prss.generate_fields(record_id);
+        let (r0, r1) = self.prss(|prss| prss.generate_fields(record_id));
 
         // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
         // This is same as (a1 + a2) - r2 in the diagram
@@ -147,7 +146,7 @@ mod tests {
                         // run reshare protocol for all helpers except the one that does not know the input
                         if ctx.role() == target {
                             // test follows the reshare protocol
-                            ctx.prss().generate_fields(record_id).into()
+                            ctx.prss(|prss| prss.generate_fields(record_id).into())
                         } else {
                             ctx.reshare(&share, record_id, target).await.unwrap()
                         }

@@ -28,8 +28,7 @@ where
     let channel = ctx.mesh();
 
     // generate shared randomness.
-    let prss = ctx.prss();
-    let (s0, s1) = prss.generate_fields(record_id);
+    let (s0, s1) = ctx.prss(|prss| prss.generate_fields(record_id));
     let role = ctx.role();
 
     // compute the value (d_i) we want to send to the right helper (i+1)
