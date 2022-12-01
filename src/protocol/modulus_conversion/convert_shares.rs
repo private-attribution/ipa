@@ -47,6 +47,8 @@ impl AsRef<str> for Step {
     }
 }
 
+pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
+
 /// Convert one bit of an XOR sharing into a triple of replicated sharings of that bit.
 /// This is not a usable construct, but it can be used with `convert_one_bit` to produce
 /// a single replicated sharing of that bit.
@@ -57,10 +59,10 @@ pub fn convert_bit_local<F: Field>(
     helper_role: Role,
     bit_index: u32,
     input: &XorReplicated,
-) -> [Replicated<F>; 3] {
+) -> BitConversionTriple<Replicated<F>> {
     let left = u128::from(input.left() >> bit_index) & 1;
     let right = u128::from(input.right() >> bit_index) & 1;
-    match helper_role {
+    BitConversionTriple(match helper_role {
         Role::H1 => [
             Replicated::new(F::from(left), F::ZERO),
             Replicated::new(F::ZERO, F::from(right)),
@@ -76,14 +78,14 @@ pub fn convert_bit_local<F: Field>(
             Replicated::new(F::ZERO, F::ZERO),
             Replicated::new(F::from(left), F::ZERO),
         ],
-    }
+    })
 }
 
 pub fn convert_bit_local_list<F: Field>(
     helper_role: Role,
     bit_index: u32,
     input: &[XorReplicated],
-) -> Vec<[Replicated<F>; 3]> {
+) -> Vec<BitConversionTriple<Replicated<F>>> {
     input
         .iter()
         .map(|v| convert_bit_local::<F>(helper_role, bit_index, v))
@@ -149,7 +151,7 @@ where
 pub async fn convert_bit<F, C, S>(
     ctx: C,
     record_id: RecordId,
-    locally_converted_bits: &[S; 3],
+    locally_converted_bits: &BitConversionTriple<S>,
 ) -> Result<S, Error>
 where
     F: Field,
@@ -157,9 +159,9 @@ where
     S: SecretSharing<F>,
 {
     let (sh0, sh1, sh2) = (
-        &locally_converted_bits[0],
-        &locally_converted_bits[1],
-        &locally_converted_bits[2],
+        &locally_converted_bits.0[0],
+        &locally_converted_bits.0[1],
+        &locally_converted_bits.0[2],
     );
     let ctx1 = ctx.narrow(&Step::Xor1);
     let ctx2 = ctx.narrow(&Step::Xor2);
@@ -169,7 +171,7 @@ where
 
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
-    locally_converted_bits: &[[S; 3]],
+    locally_converted_bits: &[BitConversionTriple<S>],
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -193,12 +195,11 @@ mod tests {
     use crate::protocol::malicious::MaliciousValidator;
     use crate::rand::thread_rng;
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::join3;
     use crate::{
         error::Error,
         ff::Fp31,
         protocol::{
-            modulus_conversion::{convert_bit, convert_bit_local},
+            modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             QueryId, RecordId,
         },
         test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
@@ -230,16 +231,14 @@ mod tests {
         let match_key = MaskedMatchKey::mask(rng.gen());
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let [x0, x1, x2] = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
+                let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
-                let m_triple = join3(
-                    m_ctx.upgrade(RecordId::from(0), x0),
-                    m_ctx.upgrade(RecordId::from(1), x1),
-                    m_ctx.upgrade(RecordId::from(2), x2),
-                )
-                .await;
+                let m_triple = m_ctx
+                    .upgrade_bit_triple(RecordId::from(0), triple)
+                    .await
+                    .unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
                     .unwrap();
@@ -260,12 +259,12 @@ mod tests {
             fn flip_bit<F: Field>(
                 &self,
                 role: Role,
-                mut triple: [Replicated<F>; 3],
-            ) -> [Replicated<F>; 3] {
+                mut triple: BitConversionTriple<Replicated<F>>,
+            ) -> BitConversionTriple<Replicated<F>> {
                 if role != self.role {
                     return triple;
                 }
-                let v = &mut triple[self.index];
+                let v = &mut triple.0[self.index];
                 *v = match self.dir {
                     Direction::Left => Replicated::new(F::ONE - v.left(), v.right()),
                     Direction::Right => Replicated::new(v.left(), F::ONE - v.right()),
@@ -294,16 +293,14 @@ mod tests {
             world
                 .semi_honest(match_key, |ctx, mk_share| async move {
                     let triple = convert_bit_local::<Fp32BitPrime>(ctx.role(), BITNUM, &mk_share);
-                    let [x0, x1, x2] = tweak.flip_bit(ctx.role(), triple);
+                    let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = MaliciousValidator::new(ctx);
                     let m_ctx = v.context();
-                    let m_triple = join3(
-                        m_ctx.upgrade(RecordId::from(0), x0),
-                        m_ctx.upgrade(RecordId::from(1), x1),
-                        m_ctx.upgrade(RecordId::from(2), x2),
-                    )
-                    .await;
+                    let m_triple = m_ctx
+                        .upgrade_bit_triple(RecordId::from(0), tweaked)
+                        .await
+                        .unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await
                         .unwrap();

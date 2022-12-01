@@ -191,7 +191,7 @@ mod tests {
     }
 
     mod malicious {
-        use futures::future::{try_join};
+        use futures::future::try_join;
 
         use crate::error::Error;
         use crate::ff::{Field, Fp32BitPrime};
@@ -275,7 +275,9 @@ mod tests {
                                 record_id,
                                 role,
                                 Fp32BitPrime::ONE,
-                            ).await.unwrap()
+                            )
+                            .await
+                            .unwrap()
                         } else {
                             v.context().reshare(&m_a, record_id, role).await.unwrap()
                         };
