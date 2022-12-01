@@ -93,7 +93,7 @@ impl<F: Field> TestWorld<F> {
         crate::test_fixture::metrics::setup();
         // unique id is required to filter out metrics produced by this test
         let world_id = thread_rng().gen::<u128>();
-        let span = tracing::span!(Level::INFO, "test_world", world_id = world_id).entered();
+        let span = tracing::debug_span!("test_world", world_id = world_id).entered();
 
         // PRSS
         let participants = make_participants();
@@ -221,10 +221,7 @@ where
         };
 
         let output =
-            join_all(zip(contexts, input_shares).map(|(ctx, shares)| {
-                let role =ctx.role();
-                helper_fn(ctx, shares).instrument(tracing::info_span!("helper", role=?role))
-            })).await;
+            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
         <[_; 3]>::try_from(output).unwrap()
     }
 

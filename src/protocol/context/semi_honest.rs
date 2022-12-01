@@ -78,13 +78,13 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
-        let _span = tracing::info_span!("prss", role=?self.role(),step=self.step.as_ref()).entered();
+        let _span = tracing::debug_span!("malicious_prss", role=?self.role(),step=self.step.as_ref()).entered();
         let prss = self.inner.prss.indexed(self.step());
         handler(&prss)
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let _span = tracing::info_span!("prss_rng", role=?self.role(),step=self.step.as_ref()).entered();
+        let _span = tracing::debug_span!("malicious_prss_rng", role=?self.role(),step=self.step.as_ref()).entered();
         self.inner.prss.sequential(self.step())
     }
 

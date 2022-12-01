@@ -127,7 +127,7 @@ impl InMemoryEndpoint {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("in_memory_helper_event_loop", role=?id)));
+        }.instrument(tracing::debug_span!("in_memory_helper_event_loop", role=?id)));
 
         this
     }

@@ -192,7 +192,7 @@ impl Gateway {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("gateway_loop", role=?role)));
+        }.instrument(tracing::debug_span!("gateway_loop", role=?role)));
 
         Self {
             tx,
