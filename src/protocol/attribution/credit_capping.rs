@@ -194,12 +194,10 @@ async fn compute_stop_bit<F: Field>(
 ) -> Result<Replicated<F>, Error> {
     // Since `compute_b_bit()` will always return 1 in the first found, we can
     // skip the multiplication in the first round.
-    let stop_bit_future = if first_iteration {
-        futures::future::Either::Left(futures::future::ok(b_bit.clone()))
-    } else {
-        futures::future::Either::Right(ctx.multiply(record_id, b_bit, sibling_stop_bit))
-    };
-    stop_bit_future.await
+    if first_iteration {
+        return Ok(b_bit.clone());
+    }
+    ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
 
 async fn compute_compare_bits<F: Field>(
