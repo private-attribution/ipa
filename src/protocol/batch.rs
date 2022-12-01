@@ -6,7 +6,7 @@ pub type RecordIndex = u32;
 /// `Batch` offers access to inner vector items through `Index`/`IndexMut`/`iter()`. Once a `Batch`
 /// is created, however, adding new items to it is not allowed.
 #[derive(Debug, Clone)]
-pub struct Batch<T>(Vec<T>);
+pub struct Batch<T>(pub Vec<T>);
 
 impl<T> Batch<T> {
     pub fn len(&self) -> usize {

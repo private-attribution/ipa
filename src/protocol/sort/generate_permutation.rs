@@ -14,8 +14,10 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{Replicated, SecretSharing, XorReplicated},
+    secret_sharing::{SecretSharing, XorReplicated},
 };
+
+use crate::protocol::sort::apply_sort::SortPermutation;
 
 use super::{
     compose::compose,
@@ -96,7 +98,7 @@ pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[XorReplicated],
     num_bits: u32,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<SortPermutation<F>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
     let bit_0 =
         convert_shares_for_a_bit(ctx_0.narrow(&ModulusConversion), input, num_bits, 0).await?;
@@ -157,33 +159,38 @@ pub async fn generate_permutation<F: Field>(
         .await?;
         composed_less_significant_bits_permutation = composed_i_permutation;
     }
-    Ok(composed_less_significant_bits_permutation)
+    Ok(SortPermutation(composed_less_significant_bits_permutation))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::iter::zip;
 
+    use crate::protocol::sort::apply_sort::SortPermutation;
     use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::Replicated;
     use rand::seq::SliceRandom;
 
-    use crate::protocol::context::Context;
+    use crate::protocol::context::{Context, SemiHonestContext};
     use crate::test_fixture::{join3, MaskedMatchKey, Runner};
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31},
         protocol::{
             sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
             QueryId,
         },
-        test_fixture::{generate_shares, logging, Reconstruct, TestWorld},
+        test_fixture::{generate_shares, Reconstruct, TestWorld},
     };
+
+    impl<F: Field> Reconstruct<Vec<F>> for [SortPermutation<F>; 3] {
+        fn reconstruct(&self) -> Vec<F> {
+            [&self[0].0, &self[1].0, &self[2].0].reconstruct()
+        }
+    }
 
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        logging::setup();
         let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
 
@@ -196,12 +203,16 @@ mod tests {
             .collect::<Vec<_>>();
         expected.sort_unstable();
 
-        let result: [Vec<Replicated<Fp32BitPrime>>; 3] = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
-                    .await
-                    .unwrap()
-            })
+        let result = world
+            .semi_honest(
+                match_keys.clone(),
+                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
+                    generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
+                        .await
+                        .unwrap()
+                        .0
+                },
+            )
             .await;
 
         let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
