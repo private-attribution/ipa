@@ -74,13 +74,15 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     }
 
     fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
-        let _span = tracing::debug_span!("prss", role=?self.role(),step=self.step.as_ref()).entered();
+        let _span =
+            tracing::debug_span!("prss", role=?self.role(),step=self.step.as_ref()).entered();
         let prss = self.inner.prss.indexed(self.step());
         handler(&prss)
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let _span = tracing::debug_span!("prss_rng", role=?self.role(),step=self.step.as_ref()).entered();
+        let _span =
+            tracing::debug_span!("prss_rng", role=?self.role(),step=self.step.as_ref()).entered();
         self.inner.prss.sequential(self.step())
     }
 
@@ -107,7 +109,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
         self.inner
             .accumulator
-            .accumulate_macs(self.prss(|prss| prss.generate_replicated(record_id)), record_id, x);
+            .accumulate_macs(&self.prss(|prss| prss.generate_replicated(record_id)), x);
     }
 
     /// Get a semi-honest context that is an  exact copy of this malicious

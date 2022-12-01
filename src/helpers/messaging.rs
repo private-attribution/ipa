@@ -26,10 +26,10 @@ use std::io;
 use tinyvec::array_vec;
 use tracing::Instrument;
 
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
 use crate::telemetry::metrics::RECORDS_SENT;
 use crate::telemetry::metrics::STEP_LABEL;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {

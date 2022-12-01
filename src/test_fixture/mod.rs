@@ -3,8 +3,8 @@ mod world;
 
 pub mod circuit;
 pub mod logging;
-pub mod network;
 pub mod metrics;
+pub mod network;
 
 use crate::ff::{Field, Fp31};
 use crate::protocol::context::Context;

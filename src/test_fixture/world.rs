@@ -1,9 +1,10 @@
 use crate::rand::thread_rng;
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
-use rand::{distributions::Standard, prelude::Distribution, Rng};
+use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::sync::atomic::{AtomicUsize, Ordering};
+use crate::test_fixture::metrics::MetricsHandle;
 use crate::{
     ff::Field,
     helpers::{
@@ -20,15 +21,12 @@ use crate::{
     secret_sharing::DowngradeMalicious,
     test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
 };
-use std::{fmt::Debug, iter::zip, ptr, sync::Arc};
-use std::any::{Any};
+
 use std::io::stdout;
-use std::mem::ManuallyDrop;
-use metrics_util::debugging::DebuggingRecorder;
-use tracing::{Instrument, Level, span};
-use tracing::span::{Entered, EnteredSpan};
-use crate::cli::Metrics;
-use crate::test_fixture::metrics::{MetricsHandle};
+
+use std::{fmt::Debug, iter::zip, sync::Arc};
+
+use tracing::Level;
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},
@@ -47,19 +45,16 @@ pub struct TestWorld<F: Field> {
     metrics_handle: MetricsHandle,
     _network: Arc<InMemoryNetwork>,
     rbg: [RandomBitsGenerator<F>; 3],
-    print_metrics: bool,
 }
 
 #[derive(Copy, Clone)]
 pub struct TestWorldConfig {
     pub gateway_config: GatewayConfig,
-    pub print_metrics: bool
 }
 
 impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
-            print_metrics: false,
             gateway_config: GatewayConfig {
                 send_buffer_config: SendBufferConfig {
                     /// This value set to 1 effectively means no buffering. This is the desired mode
@@ -101,9 +96,7 @@ impl<F: Field> TestWorld<F> {
         let gateways = network
             .endpoints
             .iter()
-            .map(|endpoint| {
-                Gateway::new(endpoint.role, endpoint, config.gateway_config)
-            })
+            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -120,7 +113,6 @@ impl<F: Field> TestWorld<F> {
             gateways,
             participants,
             executions: AtomicUsize::new(0),
-            print_metrics: config.print_metrics,
             metrics_handle,
             _network: network,
             rbg,
@@ -179,7 +171,7 @@ pub trait Runner<I, A, F> {
         Standard: Distribution<F>;
 }
 
-impl <F: Field> Drop for TestWorld<F> {
+impl<F: Field> Drop for TestWorld<F> {
     fn drop(&mut self) {
         // let recorder = &metrics::try_recorder().unwrap() as &dyn Any;
         // let recorder = recorder.downcast_ref::<Box<DebuggingRecorder>>().unwrap();
@@ -189,9 +181,9 @@ impl <F: Field> Drop for TestWorld<F> {
         //     labels.iter().any(|label| label.value().eq(&world_id))
         // });
         let metrics = self.metrics_handle.snapshot();
-        if self.print_metrics {
-            metrics.print(&mut stdout()).unwrap();
-        }
+        // if self.print_metrics {
+        metrics.print(&mut stdout()).unwrap();
+        // }
     }
 }
 

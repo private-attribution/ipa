@@ -2,6 +2,7 @@ use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
+use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED, STEP_LABEL};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -11,10 +12,9 @@ use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
-use tracing::{instrument, Instrument, Span};
 use tracing::span::EnteredSpan;
+use tracing::Span;
 use x25519_dalek::{EphemeralSecret, PublicKey};
-use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED, STEP_LABEL};
 
 use super::Step;
 
@@ -176,7 +176,7 @@ impl SequentialSharedRandomness {
         Self {
             generator,
             counter: 0,
-            _span: Span::current().entered()
+            _span: Span::current().entered(),
         }
     }
 }

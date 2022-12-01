@@ -5,10 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{
-        check_zero::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId,
-        RECORD_0, RECORD_1, RECORD_2,
-    },
+    protocol::{check_zero::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
     secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
@@ -115,16 +112,11 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub fn accumulate_macs(
-        &self,
-        random_constant: Replicated<F>,
-        record_id: RecordId,
-        input: &MaliciousReplicated<F>,
-    ) {
+    pub fn accumulate_macs(&self, random_constant: &Replicated<F>, input: &MaliciousReplicated<F>) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-        let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
+        let u_contribution = Self::compute_dot_product_contribution(random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
-            &random_constant,
+            random_constant,
             input.x().access_without_downgrade(),
         );
 

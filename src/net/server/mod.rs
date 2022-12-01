@@ -403,6 +403,8 @@ mod e2e_tests {
     use crate::net::server::{BindTarget, MessageSendMap, MpcHelperServer};
     use crate::protocol::QueryId;
     use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
+
+    use crate::test_fixture::metrics::MetricsHandle;
     use hyper::{
         body,
         client::HttpConnector,
@@ -411,12 +413,10 @@ mod e2e_tests {
         Body, Request, Response, StatusCode, Version,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
-    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
+    use metrics_util::debugging::Snapshotter;
     use std::collections::HashMap;
     use std::str::FromStr;
     use tracing::Level;
-    use crate::test_fixture::logging;
-    use crate::test_fixture::metrics::MetricsHandle;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {

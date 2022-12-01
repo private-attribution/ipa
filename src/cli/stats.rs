@@ -60,9 +60,8 @@ impl CounterDetails {
 }
 
 impl Metrics {
-
     pub fn from_snapshot(snapshot: Snapshot) -> Self {
-        const ALWAYS_TRUE: fn(&[Label]) -> bool = |labels| { true };
+        const ALWAYS_TRUE: fn(&[Label]) -> bool = |_| true;
         Self::with_filter(snapshot, ALWAYS_TRUE)
     }
 
@@ -77,7 +76,7 @@ impl Metrics {
         for (ckey, _, descr, val) in snapshot {
             let (key_name, labels) = ckey.key().clone().into_parts();
             if !filter_fn(labels.as_slice()) {
-                continue
+                continue;
             }
             let entry = this
                 .counters

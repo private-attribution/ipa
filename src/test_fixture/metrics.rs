@@ -1,23 +1,23 @@
-use metrics::KeyName;
-use metrics_tracing_context::TracingContextLayer;
-use metrics_util::debugging::{DebuggingRecorder, Snapshot, Snapshotter};
-use metrics_util::layers::Layer;
-use once_cell::sync::OnceCell;
-use rand::{Rng, thread_rng};
-use tracing::{Level, level_enabled, Metadata, Span};
-use tracing::span::EnteredSpan;
 use crate::cli::Metrics;
 use crate::test_fixture::logging;
-
+use metrics::KeyName;
+use metrics_tracing_context::TracingContextLayer;
+use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
+use metrics_util::layers::Layer;
+use once_cell::sync::OnceCell;
+use rand::{thread_rng, Rng};
+use tracing::span::EnteredSpan;
+use tracing::Level;
 
 // TODO: move to OnceCell from std once it is stabilized
 static ONCE: OnceCell<Snapshotter> = OnceCell::new();
 
 fn setup() {
     ONCE.get_or_init(|| {
-        if metrics::try_recorder().is_some() {
-            panic!("metric recorder has already been installed");
-        }
+        assert!(
+            metrics::try_recorder().is_none(),
+            "metric recorder has already been installed"
+        );
 
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
@@ -34,6 +34,11 @@ pub struct MetricsHandle {
 }
 
 impl MetricsHandle {
+    /// Creates a new handle
+    ///
+    /// ## Panics
+    /// If the provided level is not set to either debug or info
+    #[must_use]
     pub fn new(level: Level) -> Self {
         setup();
 
@@ -60,10 +65,15 @@ impl MetricsHandle {
 
         MetricsHandle {
             id,
-            _span: span.entered()
+            _span: span.entered(),
         }
     }
 
+    /// Returns the current snapshot. Only metrics associated with this handle will be included
+    ///
+    /// ## Panics
+    /// if metrics recorder is not installed
+    #[must_use]
     pub fn snapshot(&self) -> Metrics {
         let snapshot = ONCE.get().unwrap().snapshot();
         let id = self.id.to_string();
@@ -75,6 +85,9 @@ impl MetricsHandle {
 
     pub fn get_counter_value<K: Into<KeyName>>(&self, key_name: K) -> Option<u64> {
         let snapshot = self.snapshot();
-        snapshot.counters.get(&key_name.into()).map(|v| v.total_value)
+        snapshot
+            .counters
+            .get(&key_name.into())
+            .map(|v| v.total_value)
     }
 }
