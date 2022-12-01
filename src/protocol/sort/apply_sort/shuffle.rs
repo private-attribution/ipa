@@ -124,128 +124,49 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
-    use crate::{
-        protocol::{sort::shuffle::get_two_of_three_random_permutations, Step},
-        test_fixture::{make_participants, permutation_valid},
-    };
-
-    #[test]
-    fn random_sequence_generated() {
-        const BATCH_SIZE: u32 = 10000;
-
-        let [p1, p2, p3] = make_participants();
-        let step = Step::default();
-        let perm1 = get_two_of_three_random_permutations(BATCH_SIZE, p1.sequential(&step));
-        let perm2 = get_two_of_three_random_permutations(BATCH_SIZE, p2.sequential(&step));
-        let perm3 = get_two_of_three_random_permutations(BATCH_SIZE, p3.sequential(&step));
-
-        assert_eq!(perm1.1, perm2.0);
-        assert_eq!(perm2.1, perm3.0);
-        assert_eq!(perm3.1, perm1.0);
-
-        // Due to less randomness, the below three asserts can fail. However, the chance of failure is
-        // 1/18Quintillian (a billion billion since u64 is used to generate randomness)! Hopefully we should not hit that
-        assert_ne!(perm1.0, perm1.1);
-        assert_ne!(perm2.0, perm2.1);
-        assert_ne!(perm3.0, perm3.1);
-
-        assert!(permutation_valid(&perm1.0));
-        assert!(permutation_valid(&perm2.0));
-        assert!(permutation_valid(&perm3.0));
-    }
-
     mod semi_honest {
+        use crate::rand::{thread_rng, Rng};
+
         use crate::ff::Fp31;
+        use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
         use crate::protocol::context::Context;
-        use crate::protocol::sort::shuffle::{
-            get_two_of_three_random_permutations, shuffle_shares,
-        };
+        use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
+        use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
         use crate::protocol::QueryId;
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
-        async fn semi_honest() {
+        async fn shuffle_attribution_input_row() {
             const BATCHSIZE: u8 = 25;
             let world = TestWorld::new(QueryId);
+            let mut rng = thread_rng();
 
-            let input: Vec<u8> = (0..BATCHSIZE).collect();
-            let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
+            let mut input: Vec<AttributionTestInput<Fp31>> = Vec::with_capacity(BATCHSIZE.into());
+            input.resize_with(BATCHSIZE.into(), || {
+                AttributionTestInput([(); 4].map(|_| rng.gen::<Fp31>()))
+            });
+            let hashed_input: HashSet<[u8; 4]> = input.iter().map(Into::into).collect();
 
             let result = world
-                .semi_honest(
-                    input.clone().into_iter().map(u128::from).map(Fp31::from),
-                    |ctx, m_shares| async move {
-                        let perms =
-                            get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
-                        shuffle_shares(
-                            m_shares,
-                            (perms.0.as_slice(), perms.1.as_slice()),
-                            ctx.clone(),
-                        )
-                        .await
-                        .unwrap()
-                    },
-                )
+                .semi_honest(input.clone(), |ctx, m_shares| async move {
+                    let perms =
+                        get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
+                    shuffle_shares(
+                        m_shares,
+                        (perms.0.as_slice(), perms.1.as_slice()),
+                        ctx.clone(),
+                    )
+                    .await
+                    .unwrap()
+                })
                 .await;
 
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
             for val in result.reconstruct() {
-                output_secret.push(u8::from(val));
-                hashed_output_secret.insert(u8::from(val));
-            }
-
-            // Secrets should be shuffled
-            assert_ne!(output_secret, input);
-
-            // Shuffled output should have same inputs
-            assert_eq!(hashed_output_secret, hashed_input);
-        }
-    }
-
-    mod malicious {
-        use crate::ff::Fp31;
-        use crate::protocol::context::Context;
-        use crate::protocol::sort::shuffle::{
-            get_two_of_three_random_permutations, shuffle_shares,
-        };
-        use crate::protocol::QueryId;
-        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
-        use std::collections::HashSet;
-
-        #[tokio::test]
-        async fn malicious() {
-            const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new(QueryId);
-
-            let input: Vec<u8> = (0..BATCHSIZE).collect();
-            let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
-
-            let input_u128: Vec<u128> = input.iter().map(|x| u128::from(*x)).collect();
-
-            let result = world
-                .malicious(
-                    input_u128.clone().into_iter().map(Fp31::from),
-                    |ctx, m_shares| async move {
-                        let perms =
-                            get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
-                        shuffle_shares(
-                            m_shares,
-                            (perms.0.as_slice(), perms.1.as_slice()),
-                            ctx.clone(),
-                        )
-                        .await
-                        .unwrap()
-                    },
-                )
-                .await;
-
-            let mut hashed_output_secret = HashSet::new();
-            let mut output_secret = Vec::new();
-            for val in result.reconstruct() {
-                output_secret.push(u8::from(val));
-                hashed_output_secret.insert(u8::from(val));
+                output_secret.push(val.clone());
+                hashed_output_secret.insert(val.into());
             }
 
             // Secrets should be shuffled

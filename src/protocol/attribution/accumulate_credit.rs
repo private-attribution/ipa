@@ -323,6 +323,22 @@ pub(crate) mod tests {
         }
     }
 
+    impl From<AttributionTestInput<Fp31>> for [u8; 4] {
+        fn from(v: AttributionTestInput<Fp31>) -> Self {
+            Self::from(&v)
+        }
+    }
+
+    impl From<&AttributionTestInput<Fp31>> for [u8; 4] {
+        fn from(v: &AttributionTestInput<Fp31>) -> Self {
+            [
+                u8::from(v.0[0]),
+                u8::from(v.0[1]),
+                u8::from(v.0[2]),
+                u8::from(v.0[3]),
+            ]
+        }
+    }
     #[tokio::test]
     pub async fn accumulate() {
         const TEST_CASE: &[[u128; 5]; 19] = &[
