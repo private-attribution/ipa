@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{context::Context, mul::ZeroPositions, RecordId},
+    protocol::{context::Context, mul::ZeroPositions, RecordId, boolean::xor_sparse},
     secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 
@@ -92,61 +92,6 @@ pub fn convert_bit_local_list<F: Field>(
         .collect::<Vec<_>>()
 }
 
-///
-/// Internal use only
-/// When both inputs are known to be secret shares of either '1' or '0',
-/// XOR can be computed as:
-/// a + b - 2*a*b
-///
-/// This variant is only to be used for the first XOR
-/// Where helper 1 has shares:
-/// a: (x1, 0) and b: (0, x2)
-///
-/// And helper 2 has shares:
-/// a: (0, 0) and b: (x2, 0)
-///
-/// And helper 3 has shares:
-/// a: (0, x1) and b: (0, 0)
-async fn xor_specialized_1<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    let result = ctx
-        .multiply_sparse(record_id, a, b, &ZeroPositions::AVZZ_BZVZ)
-        .await?;
-
-    Ok(-(result * F::from(2)) + a + b)
-}
-
-///
-/// Internal use only
-/// When both inputs are known to be secret share of either '1' or '0',
-/// XOR can be computed as:
-/// a + b - 2*a*b
-///
-/// This variant is only to be used for the second XOR
-/// Where helper 1 has shares:
-/// b: (0, 0)
-///
-/// And helper 2 has shares:
-/// (0, x3)
-///
-/// And helper 3 has shares:
-/// (x3, 0)
-async fn xor_specialized_2<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    let result = ctx
-        .multiply_sparse(record_id, a, b, &ZeroPositions::AVVV_BZZV)
-        .await?;
-    Ok(-(result * F::from(2)) + a + b)
-}
-
 pub async fn convert_bit<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -164,8 +109,9 @@ where
     );
     let ctx1 = ctx.narrow(&Step::Xor1);
     let ctx2 = ctx.narrow(&Step::Xor2);
-    let sh0_xor_sh1 = xor_specialized_1(ctx1, record_id, sh0, sh1).await?;
-    xor_specialized_2(ctx2, record_id, &sh0_xor_sh1, sh2).await
+    let sh0_xor_sh1 = xor_sparse(ctx1, record_id, sh0, sh1, &ZeroPositions::AVZZ_BZVZ).await?;
+    debug_assert_eq!(ZeroPositions::mul_output(&ZeroPositions::AVZZ_BZVZ), ZeroPositions::Pvvz);
+    xor_sparse(ctx2, record_id, &sh0_xor_sh1, sh2, &ZeroPositions::AVVZ_BZZV).await
 }
 
 pub async fn convert_bit_list<F, C, S>(

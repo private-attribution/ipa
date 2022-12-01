@@ -23,7 +23,7 @@ pub trait SecureMul<F: Field>: Sized {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error> {
-        self.multiply_sparse(record_id, a, b, &ZeroPositions::ALL)
+        self.multiply_sparse(record_id, a, b, &ZeroPositions::NONE)
             .await
     }
 

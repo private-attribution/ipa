@@ -7,6 +7,7 @@ use crate::helpers::Role;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
+use crate::protocol::mul::ZeroPositions;
 use crate::protocol::mul::{malicious::Step::RandomnessForValidation, SecureMul};
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
@@ -53,7 +54,17 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         record_id: RecordId,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner.upgrade(record_id, input).await
+        self.upgrade_sparse(record_id, input, ZeroPositions::Pvvv)
+            .await
+    }
+
+    pub async fn upgrade_sparse(
+        &self,
+        record_id: RecordId,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner.upgrade(record_id, input, zeros_at).await
     }
 
     /// Upgrade an input for a specific bit index using this context.  Use this for
@@ -67,7 +78,9 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         bit_index: u32,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner.upgrade_bit(record_id, bit_index, input).await
+        self.inner
+            .upgrade_bit(record_id, bit_index, input, ZeroPositions::Pvvv)
+            .await
     }
 
     /// Upgrade an bit conversion triple for a specific bit.
@@ -196,9 +209,18 @@ impl<'a, F: Field> ContextInner<'a, F> {
         ctx: SemiHonestContext<'a, F>,
         record_id: RecordId,
         x: Replicated<F>,
+        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
+        println!("r {:?} {:?}", ctx.role(), self.r_share);
         let prss = ctx.narrow(&RandomnessForValidation).prss();
-        let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
+        let rx = ctx
+            .multiply_sparse(
+                record_id,
+                &x,
+                &self.r_share,
+                &(zeros_at, ZeroPositions::Pvvv),
+            )
+            .await?;
         let m = MaliciousReplicated::new(x, rx);
         self.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
@@ -208,8 +230,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
+        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_one(self.upgrade_ctx.clone(), record_id, x)
+        self.upgrade_one(self.upgrade_ctx.clone(), record_id, x, zeros_at)
             .await
     }
 
@@ -218,11 +241,13 @@ impl<'a, F: Field> ContextInner<'a, F> {
         record_id: RecordId,
         bit_index: u32,
         x: Replicated<F>,
+        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.upgrade_one(
             self.upgrade_ctx.narrow(&BitOpStep::from(bit_index)),
             record_id,
             x,
+            zeros_at,
         )
         .await
     }
@@ -239,16 +264,19 @@ impl<'a, F: Field> ContextInner<'a, F> {
                     self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
                     record_id,
                     v0,
+                    ZeroPositions::Pvzz,
                 ),
                 self.upgrade_one(
                     self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
                     record_id,
                     v1,
+                    ZeroPositions::Pzvz,
                 ),
                 self.upgrade_one(
                     self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
                     record_id,
                     v2,
+                    ZeroPositions::Pzzv,
                 ),
             ])
             .await?

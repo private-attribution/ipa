@@ -1,8 +1,10 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::{sparse::MultiplyWork, MultiplyZeroPositions, SecureMul};
-use crate::protocol::{context::Context, RecordId};
+use crate::protocol::{
+    context::{Context, MaliciousContext},
+    mul::{MultiplyZeroPositions, SecureMul, ZeroPositions},
+    RecordId,
+};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
@@ -83,10 +85,12 @@ where
                 record_id,
                 a.rx(),
                 b.x().access_without_downgrade(),
-                &zeros_at.upgraded(),
+                &(ZeroPositions::Pvvv, zeros_at.1),
             ),
     )
     .await?;
+
+    println!("{:?} ab {ab:?} rab {rab:?}", random_constant_ctx.role());
 
     let malicious_ab = MaliciousReplicated::new(ab, rab);
 

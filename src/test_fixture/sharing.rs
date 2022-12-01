@@ -268,6 +268,21 @@ where
     }
 }
 
+impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
+where
+    for<'t> [&'t T; 3]: Reconstruct<V>,
+    for<'u> [&'u U; 3]: Reconstruct<W>,
+    V: Sized,
+    W: Sized,
+{
+    fn reconstruct(&self) -> (V, W) {
+        (
+            [&self[0].0, &self[1].0, &self[2].0].reconstruct(),
+            [&self[0].1, &self[1].1, &self[2].1].reconstruct(),
+        )
+    }
+}
+
 impl<I, T> Reconstruct<T> for [Vec<I>; 3]
 where
     for<'v> [&'v Vec<I>; 3]: Reconstruct<T>,

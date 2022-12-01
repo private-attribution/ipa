@@ -1,6 +1,9 @@
-use crate::helpers::Role;
+use crate::{ff::Field, helpers::Role, secret_sharing::Replicated};
 
-#[derive(Clone, Copy, Debug)]
+/// A description of a replicated secret sharing, with zero values at known positions.
+/// Convention here is to refer to the "left" share available at each helper, with
+/// helpers taken in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZeroPositions {
     /// No zeros
     Pvvv,
@@ -22,15 +25,20 @@ pub enum ZeroPositions {
 pub type MultiplyZeroPositions = (ZeroPositions, ZeroPositions);
 
 impl ZeroPositions {
-    pub const ALL: (Self, Self) = (Self::Pvvv, Self::Pvvv);
+    /// Both arguments have values in all positions.  This should be the default.
+    pub const NONE: (Self, Self) = (Self::Pvvv, Self::Pvvv);
+    /// The second argument has two zero-valued positions.
     pub const AVVV_BZZV: (Self, Self) = (Self::Pvvv, Self::Pzzv);
+    /// Both arguments have two zero-valued positions arranged for minimal work.
     pub const AVZZ_BZVZ: (Self, Self) = (Self::Pvzz, Self::Pzvz);
+    /// Both arguments have zero-valued positions, but not optimally arranged.
+    pub const AVVZ_BZZV: (Self, Self) = (Self::Pvvz, Self::Pzzv);
 
     /// Get the work that `Role::H1` would perform given two values with known zero values
     /// in the identified positions.  Work is who sends: `[left, self, right]`, which for
     /// the current role is interpreted as `[recv, send, add_random_rhs]`.
-    fn work(a: Self, b: Self) -> [bool; 3] {
-        match (a, b) {
+    fn work(zeros_at: &MultiplyZeroPositions) -> [bool; 3] {
+        match zeros_at {
             (Self::Pvzz, Self::Pvzz) | (Self::Pzvz, Self::Pzvz) | (Self::Pzzv, Self::Pzzv) => {
                 panic!("this multiplication always produces zero");
             }
@@ -60,14 +68,54 @@ impl ZeroPositions {
         }
     }
 
-    fn output(a: Self, b: Self) -> Self {
+    /// Determine where the zero positions are in the output of a multiplication.
+    pub fn mul_output(zeros_at: &MultiplyZeroPositions) -> Self {
         // A zero only appears on the lhs of the output if the helper is neither
         // sending nor receiving.
-        match Self::work(a, b) {
+        match Self::work(zeros_at) {
             [false, false, true] => Self::Pzvv,
             [false, true, false] => Self::Pvvz,
             [true, false, false] => Self::Pvzv,
             _ => Self::Pvvv,
+        }
+    }
+
+    /// Sanity check a value at a given helper.
+    /// Debug code only as this is unnecessary work.
+    pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
+        #[cfg(debug_assertions)]
+        {
+            use crate::helpers::Direction::Right;
+            let flags = <[bool; 3]>::from(self);
+            if flags[role as usize] {
+                assert_eq!(
+                    F::ZERO,
+                    v.left(),
+                    "expected a zero on the left for input {which}"
+                );
+            }
+            if flags[role.peer(Right) as usize] {
+                assert_eq!(
+                    F::ZERO,
+                    v.right(),
+                    "expected a zero on the right for input {which}"
+                );
+            }
+        }
+    }
+}
+
+// Code for testing and debugging only.
+impl From<ZeroPositions> for [bool; 3] {
+    fn from(zp: ZeroPositions) -> Self {
+        match zp {
+            ZeroPositions::Pvvv => [false, false, false],
+            ZeroPositions::Pzzv => [true, true, false],
+            ZeroPositions::Pzvz => [true, false, true],
+            ZeroPositions::Pvzz => [false, true, true],
+            ZeroPositions::Pvvz => [false, false, true],
+            ZeroPositions::Pvzv => [false, true, false],
+            ZeroPositions::Pzvv => [true, false, false],
         }
     }
 }
@@ -80,13 +128,11 @@ pub(super) trait MultiplyWork {
     fn work_for(&self, role: Role) -> [bool; 3];
     /// Determines where there are known zeros in the output of a multiplication.
     fn output(&self) -> ZeroPositions;
-    /// Determines what an upgraded multiply (as used by the malicious code) would need to use.
-    fn upgraded(&self) -> MultiplyZeroPositions;
 }
 
 impl MultiplyWork for MultiplyZeroPositions {
     fn work_for(&self, role: Role) -> [bool; 3] {
-        let work = ZeroPositions::work(self.0, self.1);
+        let work = ZeroPositions::work(self);
         let i = role as usize;
         let need_to_recv = work[i];
         let need_to_send = work[(i + 1) % 3];
@@ -95,46 +141,32 @@ impl MultiplyWork for MultiplyZeroPositions {
     }
 
     fn output(&self) -> ZeroPositions {
-        ZeroPositions::output(self.0, self.1)
-    }
-
-    fn upgraded(&self) -> MultiplyZeroPositions {
-        ((self.0, ZeroPositions::Pvvv).output(), self.1)
+        ZeroPositions::mul_output(self)
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Fp32BitPrime},
         helpers::{
             Direction::{Left, Right},
             Role,
         },
         protocol::{
             context::Context,
+            malicious::MaliciousValidator,
             mul::{sparse::MultiplyWork, SecureMul, ZeroPositions},
+            reveal::Reveal,
             QueryId, RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
-        test_fixture::{Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use std::iter::zip;
+    use std::{borrow::Borrow, iter::zip};
 
-    impl From<ZeroPositions> for [bool; 3] {
-        fn from(zp: ZeroPositions) -> Self {
-            match zp {
-                ZeroPositions::Pvvv => [false, false, false],
-                ZeroPositions::Pzzv => [true, true, false],
-                ZeroPositions::Pzvz => [true, false, true],
-                ZeroPositions::Pvzz => [false, true, true],
-                ZeroPositions::Pvvz => [false, false, true],
-                ZeroPositions::Pvzv => [false, true, false],
-                ZeroPositions::Pzvv => [true, false, false],
-            }
-        }
-    }
+    use super::MultiplyZeroPositions;
 
     /// Determine whether multiplication for helper X requires sending or receiving.
     /// Argument is a description of which items are zero for shares at each helper.
@@ -228,26 +260,41 @@ mod test {
         }
     }
 
+    /// For the role and the zero positions provided, put holes in this replicated share
+    /// as necessary so that the value has zeros in those places.
+    fn puncture<F: Field>(role: Role, zp: ZeroPositions, v: &Replicated<F>) -> Replicated<F> {
+        let zero_slots = <[bool; 3]>::from(zp);
+        let v_left = if zero_slots[role as usize] {
+            F::ZERO
+        } else {
+            v.left()
+        };
+        let v_right = if zero_slots[role.peer(Right) as usize] {
+            F::ZERO
+        } else {
+            v.right()
+        };
+        Replicated::new(v_left, v_right)
+    }
+
+    fn check_punctured_output<F, T>(v: &[T; 3], work: &MultiplyZeroPositions)
+    where
+        F: Field,
+        T: Borrow<Replicated<F>>,
+    {
+        for (&role, expect_zero) in zip(Role::all(), <[bool; 3]>::from(work.output())) {
+            if expect_zero {
+                assert_eq!(F::ZERO, v[role as usize].borrow().left());
+                assert_eq!(F::ZERO, v[role.peer(Left) as usize].borrow().right());
+            }
+        }
+    }
+
     #[tokio::test]
     async fn check_output() {
-        /// For the role and the zero positions provided, put holes in this replicated share
-        /// as necessary so that the value has zeros in those places.
-        fn puncture<F: Field>(role: Role, zp: ZeroPositions, v: &Replicated<F>) -> Replicated<F> {
-            let zero_slots = <[bool; 3]>::from(zp);
-            let v_left = if zero_slots[role as usize] {
-                F::ZERO
-            } else {
-                v.left()
-            };
-            let v_right = if zero_slots[role.peer(Right) as usize] {
-                F::ZERO
-            } else {
-                v.right()
-            };
-            Replicated::new(v_left, v_right)
-        }
-
         let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
+
         for &a in all_zps() {
             let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
@@ -261,24 +308,114 @@ mod test {
                     continue;
                 }
 
-                let mut rng = thread_rng();
                 let v1 = rng.gen::<Fp31>();
                 let v2 = rng.gen::<Fp31>();
+                // println!("{v1:?} x {v2:?}");
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
                         let v_a = puncture(ctx.role(), a, &v_a);
                         let v_b = puncture(ctx.role(), b, &v_b);
-                        ctx.multiply_sparse(RecordId::from(0), &v_a, &v_b, &(a, b))
+
+                        let revealed_a = ctx
+                            .narrow("reveal_a")
+                            .reveal(RecordId::from(0), &v_a)
                             .await
-                            .unwrap()
+                            .unwrap();
+                        println!("a = {revealed_a:?}");
+                        let revealed_b = ctx
+                            .narrow("reveal_b")
+                            .reveal(RecordId::from(0), &v_b)
+                            .await
+                            .unwrap();
+                        println!("b = {revealed_b:?}");
+
+                        let reveal_ctx = ctx.narrow("reveal_ab");
+                        let ab = ctx
+                            .multiply_sparse(RecordId::from(0), &v_a, &v_b, &(a, b))
+                            .await
+                            .unwrap();
+                        let revealed_ab = reveal_ctx.reveal(RecordId::from(0), &ab).await.unwrap();
+                        println!("ab = {revealed_ab:?}");
+
+                        assert_eq!(revealed_a * revealed_b, revealed_ab);
+                        ab
                     })
                     .await;
-                for (&role, expect_zero) in zip(Role::all(), <[bool; 3]>::from((a, b).output())) {
-                    if expect_zero {
-                        assert_eq!(Fp31::ZERO, result[role as usize].left());
-                        assert_eq!(Fp31::ZERO, result[role.peer(Left) as usize].right());
-                    }
+                println!("ab = {:?}", result.clone().reconstruct());
+                // check_punctured_output(&result, &(a, b));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn check_output_malicious() {
+        let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
+
+        for &a in all_zps() {
+            let a_flags = <[bool; 3]>::from(a);
+            for &b in all_zps() {
+                let b_flags = <[bool; 3]>::from(b);
+
+                if calculate_work(Role::H1, a_flags, b_flags)
+                    .iter()
+                    .all(|&x| !x)
+                {
+                    // This combination produces zero, always.
+                    continue;
                 }
+
+                println!("--------");
+                let v1 = rng.gen::<Fp31>();
+                let v2 = rng.gen::<Fp31>();
+                let result = world
+                    .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
+                        println!("{:?} {v_a:?} x {v_b:?}", ctx.role());
+
+                        let v_a = puncture(ctx.role(), a, &v_a);
+                        let v_b = puncture(ctx.role(), b, &v_b);
+
+                        let reveal_ctx = ctx.narrow("reveal");
+                        let revealed_a = reveal_ctx
+                            .clone()
+                            .reveal(RecordId::from(0), &v_a)
+                            .await
+                            .unwrap();
+                        let revealed_b = reveal_ctx.reveal(RecordId::from(1), &v_b).await.unwrap();
+
+                        println!(
+                            "{:?} {a:?}_{b:?} {v_a:?} x {v_b:?}: {:?}",
+                            ctx.role(),
+                            (a, b).work_for(ctx.role())
+                        );
+
+                        let v = MaliciousValidator::new(ctx);
+                        let m_ctx = v.context();
+                        let m_a = m_ctx
+                            .upgrade_sparse(RecordId::from(0), v_a, a)
+                            .await
+                            .unwrap();
+                        let m_b = m_ctx
+                            .upgrade_sparse(RecordId::from(1), v_b, b)
+                            .await
+                            .unwrap();
+
+                        println!("{:?} {m_a:?} x {m_b:?}", m_ctx.role());
+
+                        let m_reveal_ctx = m_ctx.narrow("reveal");
+                        let m_ab = m_ctx
+                            .multiply_sparse(RecordId::from(0), &m_a, &m_b, &(a, b))
+                            .await
+                            .unwrap();
+
+                        let revealed_ab =
+                            m_reveal_ctx.reveal(RecordId::from(0), &m_ab).await.unwrap();
+                        assert_eq!(revealed_a * revealed_b, revealed_ab);
+
+                        v.validate(m_ab).await.unwrap()
+                    })
+                    .await;
+                check_punctured_output(&result, &(a, b));
             }
         }
     }

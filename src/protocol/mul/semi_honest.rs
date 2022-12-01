@@ -33,43 +33,55 @@ where
 {
     let role = ctx.role();
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
+    zeros.0.check(role, "a", a);
+    zeros.1.check(role, "b", b);
+
+    println!("{role:?} {a:?} x {b:?}");
+    println!("{role:?} {zeros:?} -> work: {:?}", zeros.work_for(role));
 
     // generate shared randomness.
     let prss = ctx.prss();
     let (s0, s1) = prss.generate_fields(record_id);
+    // let (s0, s1) = (F::ZERO, F::ZERO);
 
     let channel = ctx.mesh();
-    let rhs = if need_to_send {
+    let mut rhs = F::ZERO;
+    if true /*need_to_send*/ {
         // compute the value (d_i) we want to send to the right helper (i+1)
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
+        println!("{role:?} d {right_d:?}");
 
         // notify helper on the right that we've computed our value
         channel
             .send(role.peer(Direction::Right), record_id, right_d)
             .await?;
-        a.right() * b.right() + right_d
+        rhs += a.right() * b.right() + right_d
     } else {
         debug_assert_eq!(a.left() * b.right() + a.right() * b.left(), F::ZERO);
-        F::ZERO
-    };
+    }
     // Add randomness to this value whether we sent or not, depending on whether the
     // peer to the right needed to send.  If they send, they subtract randomness,
     // and we need to add to our share to compensate.
-    let rhs = rhs + if need_random_right { s1 } else { F::ZERO };
+    if true /*need_random_right*/ {
+        rhs += s1;
+    }
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let lhs = if need_to_recv {
+    let mut lhs = F::ZERO;
+    if true /*need_to_recv */ {
         let left_d = channel
             .receive(role.peer(Direction::Left), record_id)
             .await?;
-        a.left() * b.left() + left_d
-    } else {
-        F::ZERO
-    };
-    // If we send, we subtract randomness, so we need to add to our share.
-    let lhs = lhs + if need_to_send { s0 } else { F::ZERO };
+        lhs += a.left() * b.left() + left_d
+    } // If we send, we subtract randomness, so we need to add to our share.
+    if true /*need_to_send */{
+        lhs += s0;
+    }
 
-    Ok(Replicated::new(lhs, rhs))
+    let ab = Replicated::new(lhs, rhs);
+    println!("{role:?} => {ab:?}");
+
+    Ok(ab)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

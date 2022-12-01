@@ -17,6 +17,8 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
+pub use xor::{xor, xor_sparse};
+
 /// Internal use only.
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.

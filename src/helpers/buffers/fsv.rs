@@ -95,7 +95,7 @@ mod tests {
     const ELEMENT_SIZE: usize = 8;
     fn test_data_at(mut index: usize) -> [u8; ELEMENT_SIZE] {
         if index == 0 {
-            // zeroes are bad as test data
+            // zeros are bad as test data
             index = 255;
         }
         #[allow(clippy::cast_possible_truncation)]
