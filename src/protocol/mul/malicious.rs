@@ -11,7 +11,7 @@ use futures::future::try_join;
 use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     DuplicateMultiply,
     RandomnessForValidation,
 }
