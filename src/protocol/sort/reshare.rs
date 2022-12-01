@@ -191,11 +191,17 @@ mod tests {
     }
 
     mod malicious {
-        use crate::ff::Fp32BitPrime;
+        use futures::future::{try_join};
+
+        use crate::error::Error;
+        use crate::ff::{Field, Fp32BitPrime};
         use crate::helpers::Role;
+        use crate::protocol::context::{Context, MaliciousContext};
+        use crate::protocol::malicious::MaliciousValidator;
         use crate::protocol::sort::reshare::Reshare;
         use crate::protocol::{QueryId, RecordId};
         use crate::rand::{thread_rng, Rng};
+        use crate::secret_sharing::{MaliciousReplicated, Replicated};
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
@@ -217,6 +223,68 @@ mod tests {
                     .await;
 
                 assert_eq!(secret, new_shares.reconstruct());
+            }
+        }
+
+        async fn reshare_with_additive_attack<F: Field>(
+            ctx: MaliciousContext<'_, F>,
+            input: &MaliciousReplicated<F>,
+            record_id: RecordId,
+            to_helper: Role,
+            additive_error: F,
+        ) -> Result<MaliciousReplicated<F>, Error> {
+            use crate::protocol::context::SpecialAccessToMaliciousContext;
+            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            let rx_ctx = ctx.narrow("reshare_mac");
+            let (x, rx) = try_join(
+                ctx.narrow("reshare_input").semi_honest_context().reshare(
+                    input.x().access_without_downgrade(),
+                    record_id,
+                    to_helper,
+                ),
+                rx_ctx
+                    .semi_honest_context()
+                    .reshare(input.rx(), record_id, to_helper),
+            )
+            .await?;
+            let malicious_input =
+                MaliciousReplicated::new(x + &Replicated::new(additive_error, additive_error), rx);
+            // ctx.accumulate_macs(record_id, &malicious_input);
+            Ok(malicious_input)
+        }
+
+        #[tokio::test]
+        async fn malicious_validation_fail() {
+            let world = TestWorld::new(QueryId);
+            let mut rng = thread_rng();
+
+            let a = rng.gen::<Fp32BitPrime>();
+
+            for &role in Role::all() {
+                world
+                    .semi_honest(a, |ctx, a| async move {
+                        let v = MaliciousValidator::new(ctx);
+                        let record_id = RecordId::from(0);
+                        let m_a = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+
+                        let m_a = if v.context().role() == role {
+                            // This role is spoiling the value.
+                            reshare_with_additive_attack(
+                                v.context(),
+                                &m_a,
+                                record_id,
+                                role,
+                                Fp32BitPrime::ONE,
+                            ).await.unwrap()
+                        } else {
+                            v.context().reshare(&m_a, record_id, role).await.unwrap()
+                        };
+                        match v.validate(m_a).await {
+                            Ok(result) => panic!("Got a result {:?}", result),
+                            Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
+                        }
+                    })
+                    .await;
             }
         }
     }
