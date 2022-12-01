@@ -26,6 +26,7 @@ use std::iter::{repeat, zip};
 /// I. Damgård et al.
 pub struct BitwiseLessThan {}
 
+#[allow(dead_code)]
 impl BitwiseLessThan {
     /// Step 1. `for i=0..l-1, [e_i] = XOR([a_i], [b_i])`
     ///
@@ -128,6 +129,12 @@ impl BitwiseLessThan {
             .fold(Replicated::new(F::ZERO, F::ZERO), |acc, x| acc + x)
     }
 
+    /// Takes two bitwise shares, `[a]` and `[b]`, and returns 1 if and only if
+    /// their reconstructed values, `a` and `b`, satisfies `a < b`.
+    ///
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
     #[allow(dead_code)]
     #[allow(clippy::many_single_char_names)]
     pub async fn execute<F: Field>(

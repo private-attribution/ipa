@@ -17,10 +17,11 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
-/// Internal use only.
+pub use {bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan};
+
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
-fn local_secret_shared_bits<F, C, S>(ctx: &C, x: u128) -> Vec<S>
+pub fn local_secret_shared_bits<F, C, S>(ctx: &C, x: u128) -> Vec<S>
 where
     F: Field,
     C: Context<F, Share = S>,
