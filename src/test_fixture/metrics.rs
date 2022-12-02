@@ -1,3 +1,5 @@
+use crate::telemetry::metrics::register;
+use crate::telemetry::stats::Metrics;
 use crate::test_fixture::logging;
 use metrics::KeyName;
 use metrics_tracing_context::TracingContextLayer;
@@ -7,7 +9,6 @@ use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
 use tracing::span::EnteredSpan;
 use tracing::Level;
-use crate::telemetry::stats::Metrics;
 
 // TODO: move to OnceCell from std once it is stabilized
 static ONCE: OnceCell<Snapshotter> = OnceCell::new();
@@ -23,6 +24,9 @@ fn setup() {
         let snapshotter = recorder.snapshotter();
         let recorder = Box::leak(Box::new(TracingContextLayer::all().layer(recorder)));
         metrics::set_recorder(recorder).unwrap();
+
+        // register metrics
+        register();
 
         snapshotter
     });

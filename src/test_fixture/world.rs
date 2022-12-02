@@ -26,6 +26,7 @@ use std::io::stdout;
 
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
+use crate::telemetry::StepStatsCsvExporter;
 use tracing::Level;
 
 use super::{
@@ -173,17 +174,10 @@ pub trait Runner<I, A, F> {
 
 impl<F: Field> Drop for TestWorld<F> {
     fn drop(&mut self) {
-        // let recorder = &metrics::try_recorder().unwrap() as &dyn Any;
-        // let recorder = recorder.downcast_ref::<Box<DebuggingRecorder>>().unwrap();
-        // let world_id = self.world_id.to_string();
-        // let metrics = Metrics::with_filter(snapshot(), |labels| {
-        //     // true
-        //     labels.iter().any(|label| label.value().eq(&world_id))
-        // });
-        let metrics = self.metrics_handle.snapshot();
-        // if self.print_metrics {
-        metrics.print(&mut stdout()).unwrap();
-        // }
+        if tracing::span_enabled!(Level::DEBUG) {
+            let metrics = self.metrics_handle.snapshot();
+            metrics.export(&mut stdout()).unwrap();
+        }
     }
 }
 

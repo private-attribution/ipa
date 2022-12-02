@@ -1,4 +1,7 @@
 pub mod stats;
+mod step_stats;
+
+pub use step_stats::CsvExporter as StepStatsCsvExporter;
 
 pub mod labels {
     pub const STEP: &str = "step";
@@ -9,15 +12,11 @@ pub mod metrics {
     use axum::http::Version;
     use metrics::Unit;
     use metrics::{describe_counter, KeyName};
-    use tracing::span::EnteredSpan;
-    use crate::helpers::Role;
-    use crate::telemetry::labels;
 
     pub const REQUESTS_RECEIVED: &str = "requests.received";
     pub const RECORDS_SENT: &str = "records.sent";
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
-
 
     /// Metric that records the version of HTTP protocol used for a particular request.
     #[cfg(feature = "web-app")]

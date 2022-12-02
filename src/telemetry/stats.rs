@@ -1,14 +1,13 @@
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
-use std::io;
-use std::io::{Error, Write};
+
+use std::io::Write;
 
 use comfy_table::Table;
 use metrics::{KeyName, Label, SharedString};
 
 use metrics_util::debugging::{DebugValue, Snapshot};
 use metrics_util::{CompositeKey, MetricKind};
-use crate::protocol::malicious::Step;
 
 /// Simple counter stats
 #[derive(Debug, Default)]
@@ -126,28 +125,6 @@ impl Metrics {
         }
 
         writeln!(w, "{metrics_table}")?;
-
-        Ok(())
-    }
-}
-
-trait MetricExporter {
-    fn export(&mut self, stats: &Metrics, w: &mut impl Write) -> Result<(), io::Error>;
-}
-
-struct StepsStatisticsExporter;
-
-impl MetricExporter for StepsStatisticsExporter {
-    fn export(&mut self, stats: &Metrics, w: &mut impl Write) -> Result<(), Error> {
-        // first thing is to collect all the steps
-        // let steps_map = HashMap::new();
-        for (counter_name, details) in stats.counters.iter() {
-            for (d, v) in details.dimensions.iter() {
-                writeln!(w, "{counter_name:?} - {d}")?;
-                // for
-                writeln!(w, "-- {counter_name:?} - {d}")?;
-            }
-        }
 
         Ok(())
     }

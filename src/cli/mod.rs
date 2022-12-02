@@ -1,9 +1,9 @@
 mod hexarg;
 mod metric_collector;
-mod verbosity;
 mod stringn;
+mod verbosity;
 
-pub use stringn::StringN;
 pub use hexarg::HexArg;
-pub use metric_collector::{CollectorHandle, install_collector};
+pub use metric_collector::{install_collector, CollectorHandle};
+pub use stringn::StringN;
 pub use verbosity::Verbosity;

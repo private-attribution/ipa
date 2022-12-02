@@ -1,7 +1,9 @@
+use super::Step;
 use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
+use crate::telemetry::labels::STEP;
 use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
@@ -15,8 +17,6 @@ use std::{collections::HashSet, fmt::Formatter};
 use tracing::span::EnteredSpan;
 use tracing::Span;
 use x25519_dalek::{EphemeralSecret, PublicKey};
-use crate::telemetry::labels::STEP;
-use super::Step;
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
 /// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.

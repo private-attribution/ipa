@@ -6,6 +6,11 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC protocols to do.
 //!
+use crate::ff::{Field, Int};
+use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
+use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
+use crate::task::JoinHandle;
+use crate::telemetry::labels::STEP;
 use crate::{
     helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
@@ -13,11 +18,6 @@ use crate::{
     helpers::Role,
     protocol::{RecordId, Step},
 };
-use crate::telemetry::labels::STEP;
-use crate::ff::{Field, Int};
-use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
-use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
-use crate::task::JoinHandle;
 use ::tokio::sync::{mpsc, oneshot};
 use futures::SinkExt;
 use futures::StreamExt;
