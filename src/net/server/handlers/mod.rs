@@ -1,5 +1,7 @@
+mod create_query;
 mod echo;
-mod query;
+mod process_query;
 
+pub use create_query::handler as create_query_handler;
 pub use echo::{handler as echo_handler, Payload as EchoData};
-pub use query::{handler as query_handler, obtain_permit_mw};
+pub use process_query::{handler as process_query_handler, obtain_permit_mw};
