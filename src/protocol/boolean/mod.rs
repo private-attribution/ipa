@@ -75,27 +75,27 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let mut todo = x.to_vec();
+    let mut shares_to_multiply = x.to_vec();
     let mut mult_count = 0_u32;
 
-    while todo.len() > 1 {
-        let half = todo.len() / 2;
+    while shares_to_multiply.len() > 1 {
+        let half = shares_to_multiply.len() / 2;
         let mut multiplications = Vec::with_capacity(half);
         for i in 0..half {
             multiplications.push(ctx.narrow(&BitOpStep::from(mult_count)).multiply(
                 record_id,
-                &todo[2 * i],
-                &todo[2 * i + 1],
+                &shares_to_multiply[2 * i],
+                &shares_to_multiply[2 * i + 1],
             ));
             mult_count += 1;
         }
         let mut results = try_join_all(multiplications).await?;
-        if todo.len() % 2 == 1 {
-            results.push(todo.pop().unwrap());
+        if shares_to_multiply.len() % 2 == 1 {
+            results.push(shares_to_multiply.pop().unwrap());
         }
-        todo = results;
+        shares_to_multiply = results;
     }
-    Ok(todo[0].clone())
+    Ok(shares_to_multiply[0].clone())
 }
 
 fn flip_bits<F, S>(one: S, x: &[S]) -> Vec<S>
