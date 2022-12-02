@@ -4,7 +4,7 @@ pub mod boolean;
 mod check_zero;
 pub mod context;
 pub mod malicious;
-mod modulus_conversion;
+pub mod modulus_conversion;
 pub mod mul;
 pub mod prss;
 mod reveal;
@@ -165,6 +165,7 @@ impl From<usize> for BitOpStep {
 pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
+    ModulusConversion(u32),
     /// Sort shares by the match key
     Sort(u32),
     /// Perform attribution.
@@ -176,6 +177,14 @@ impl Substep for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
+        const MODULUS_CONVERSION: [&str; 64] = [
+            "mc0", "mc1", "mc2", "mc3", "mc4", "mc5", "mc6", "mc7", "mc8", "mc9", "mc10", "mc11",
+            "mc12", "mc13", "mc14", "mc15", "mc16", "mc17", "mc18", "mc19", "mc20", "mc21", "mc22",
+            "mc23", "mc24", "mc25", "mc26", "mc27", "mc28", "mc29", "mc30", "mc31", "mc32", "mc33",
+            "mc34", "mc35", "mc36", "mc37", "mc38", "mc39", "mc40", "mc41", "mc42", "mc43", "mc44",
+            "mc45", "mc46", "mc47", "mc48", "mc49", "mc50", "mc51", "mc52", "mc53", "mc54", "mc55",
+            "mc56", "mc57", "mc58", "mc59", "mc60", "mc61", "mc62", "mc63",
+        ];
         const SORT: [&str; 64] = [
             "sort0", "sort1", "sort2", "sort3", "sort4", "sort5", "sort6", "sort7", "sort8",
             "sort9", "sort10", "sort11", "sort12", "sort13", "sort14", "sort15", "sort16",
@@ -189,6 +198,7 @@ impl AsRef<str> for IpaProtocolStep {
         match self {
             Self::ConvertShares => "convert",
             Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],
+            Self::ModulusConversion(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
             Self::Attribution => "attribution",
             Self::SortPreAccumulation => "sort_pre_accumulation",
         }

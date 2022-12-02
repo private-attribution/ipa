@@ -61,6 +61,7 @@ impl<F: Field> SortPermutation<F> {
 mod tests {
     use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
     use crate::protocol::context::Context;
+    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::generate_permutation;
     use crate::protocol::IpaProtocolStep::SortPreAccumulation;
     use crate::protocol::QueryId;
@@ -94,9 +95,15 @@ mod tests {
             .semi_honest(
                 (match_keys, sidecar),
                 |ctx, (mk_shares, secret)| async move {
+                    let local_lists =
+                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let converted_shares =
+                        convert_all_bits(&ctx.narrow("convert_all_bits"), &local_lists)
+                            .await
+                            .unwrap();
                     let sort_permutation = generate_permutation(
                         ctx.narrow(&SortPreAccumulation),
-                        &mk_shares,
+                        &converted_shares,
                         MaskedMatchKey::BITS,
                     )
                     .await
