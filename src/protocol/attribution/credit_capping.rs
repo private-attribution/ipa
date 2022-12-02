@@ -1,7 +1,6 @@
 use super::{if_else, CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternStep};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::batch::{Batch, RecordIndex};
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
@@ -14,9 +13,9 @@ use std::iter::{repeat, zip};
 #[allow(dead_code)]
 pub async fn credit_capping<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: &Batch<CreditCappingInputRow<F>>,
+    input: &[CreditCappingInputRow<F>],
     cap: u32,
-) -> Result<Batch<CreditCappingOutputRow<F>>, Error> {
+) -> Result<Vec<CreditCappingOutputRow<F>>, Error> {
     //
     // Step 1. Initialize a local vector for the capping computation.
     //
@@ -53,7 +52,7 @@ pub async fn credit_capping<F: Field>(
     )
     .await?;
 
-    let output: Batch<CreditCappingOutputRow<F>> = input
+    let output = input
         .iter()
         .enumerate()
         .map(|(i, x)| CreditCappingOutputRow {
@@ -61,18 +60,16 @@ pub async fn credit_capping<F: Field>(
             breakdown_key: x.breakdown_key.clone(),
             credit: final_credits[i].clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+        .collect::<Vec<_>>();
 
     Ok(output)
 }
 
 async fn mask_source_credits<F: Field>(
-    input: &Batch<CreditCappingInputRow<F>>,
+    input: &[CreditCappingInputRow<F>],
     ctx: SemiHonestContext<'_, F>,
-) -> Result<Batch<Replicated<F>>, Error> {
-    let masked_credits = try_join_all(
+) -> Result<Vec<Replicated<F>>, Error> {
+    try_join_all(
         input
             .iter()
             .zip(zip(
@@ -85,25 +82,20 @@ async fn mask_source_credits<F: Field>(
                     .await
             }),
     )
-    .await?;
-    Ok(masked_credits.try_into().unwrap())
+    .await
 }
 
 async fn credit_prefix_sum<'a, F: Field>(
     ctx: SemiHonestContext<'a, F>,
-    input: &Batch<CreditCappingInputRow<F>>,
-    mut original_credits: Batch<Replicated<F>>,
-) -> Result<Batch<Replicated<F>>, Error> {
+    input: &[CreditCappingInputRow<F>],
+    mut original_credits: Vec<Replicated<F>>,
+) -> Result<Vec<Replicated<F>>, Error> {
     let one = ctx.share_of_one();
-    let mut stop_bits: Batch<Replicated<F>> = repeat(one.clone())
-        .take(input.len())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+    let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
 
-    let num_rows: RecordIndex = input.len().try_into().unwrap();
+    let num_rows = input.len();
 
-    for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
@@ -201,14 +193,14 @@ async fn compute_stop_bit<F: Field>(
 
 async fn is_credit_larger_than_cap<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    prefix_summed_credits: &Batch<Replicated<F>>,
+    prefix_summed_credits: &[Replicated<F>],
     cap: u32,
-) -> Result<Batch<Replicated<F>>, Error> {
+) -> Result<Vec<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let cap = local_secret_shared_bits(&ctx, cap.into());
-
     let random_bits_generator = RandomBitsGenerator::new();
-    let result: Batch<_> = try_join_all(
+
+    try_join_all(
         prefix_summed_credits
             .iter()
             .zip(zip(repeat(ctx.clone()), repeat(cap)))
@@ -238,23 +230,20 @@ async fn is_credit_larger_than_cap<F: Field>(
                 }
             }),
     )
-    .await?
-    .try_into()
-    .unwrap();
-    Ok(result)
+    .await
 }
 
 async fn compute_final_credits<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: &Batch<CreditCappingInputRow<F>>,
-    prefix_summed_credits: &Batch<Replicated<F>>,
-    exceeds_cap_bits: &Batch<Replicated<F>>,
-    original_credits: &Batch<Replicated<F>>,
+    input: &[CreditCappingInputRow<F>],
+    prefix_summed_credits: &[Replicated<F>],
+    exceeds_cap_bits: &[Replicated<F>],
+    original_credits: &[Replicated<F>],
     cap: u32,
-) -> Result<Batch<Replicated<F>>, Error> {
-    let num_rows: RecordIndex = input.len().try_into().unwrap();
+) -> Result<Vec<Replicated<F>>, Error> {
+    let num_rows = input.len();
     let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
-    let mut final_credits = original_credits.clone();
+    let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:
     //

@@ -13,11 +13,7 @@ use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{
-        batch::{Batch, RecordIndex},
-        context::Context,
-        RecordId,
-    },
+    protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
 use async_trait::async_trait;
@@ -88,27 +84,18 @@ impl<F: Field> Resharable<F> for AttributionInputRow<F> {
 #[allow(dead_code)]
 pub async fn accumulate_credit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: &Batch<AttributionInputRow<F>>,
-) -> Result<Batch<AccumulateCreditOutputRow<F>>, Error> {
-    let num_rows: RecordIndex = input.len().try_into().unwrap();
+    input: &[AttributionInputRow<F>],
+) -> Result<Vec<AccumulateCreditOutputRow<F>>, Error> {
+    let num_rows = input.len();
 
     // 1. Create stop_bit vector.
     // These vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
 
     let one = Replicated::one(ctx.role());
-    let mut stop_bits: Batch<Replicated<F>> = repeat(one.clone())
-        .take(usize::try_from(num_rows).unwrap())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
 
-    let mut credits: Batch<Replicated<F>> = input
-        .iter()
-        .map(|x| x.credit.clone())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+    let mut credits = input.iter().map(|x| x.credit.clone()).collect::<Vec<_>>();
 
     // 2. Accumulate (up to 4 multiplications)
     //
@@ -125,7 +112,7 @@ pub async fn accumulate_credit<F: Field>(
     // of other elements, allowing the algorithm to be executed in parallel.
 
     // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-    for (depth, step_size) in std::iter::successors(Some(1u32), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
@@ -171,7 +158,7 @@ pub async fn accumulate_credit<F: Field>(
             });
     }
 
-    let output: Batch<AccumulateCreditOutputRow<F>> = input
+    let output = input
         .iter()
         .enumerate()
         .map(|(i, x)| AccumulateCreditOutputRow {
@@ -180,9 +167,7 @@ pub async fn accumulate_credit<F: Field>(
             breakdown_key: x.breakdown_key.clone(),
             credit: credits[i].clone(),
         })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+        .collect::<Vec<_>>();
 
     // TODO: Append unique breakdown_key values at the end of the output vector for the next step
     // Since we cannot see the actual breakdown key values, we'll append shares of [0..MAX]. Adding u8::MAX
@@ -392,9 +377,7 @@ pub(crate) mod tests {
         let world = TestWorld::new(QueryId);
         let result = world
             .semi_honest(input, |ctx, input| async move {
-                accumulate_credit(ctx, &input.try_into().unwrap())
-                    .await
-                    .unwrap()
+                accumulate_credit(ctx, &input).await.unwrap()
             })
             .await;
 
