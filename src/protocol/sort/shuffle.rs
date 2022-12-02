@@ -19,7 +19,7 @@ use super::{
 };
 
 #[derive(Debug)]
-enum ShuffleOrUnshuffle {
+pub enum ShuffleOrUnshuffle {
     Shuffle,
     Unshuffle,
 }
@@ -35,7 +35,6 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 }
 
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
-#[allow(clippy::cast_possible_truncation)]
 pub fn get_two_of_three_random_permutations(
     batch_size: u32,
     mut rng: (SequentialSharedRandomness, SequentialSharedRandomness),
@@ -54,7 +53,7 @@ pub fn get_two_of_three_random_permutations(
 
 // We call shuffle with helpers involved as (H2, H3), (H3, H1) and (H1, H2). In other words, the shuffle is being called for
 // H1, H2 and H3 respectively (since they do not participate in the step) and hence are the recipients of the shuffle.
-fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
+pub(super) fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
     match which_step {
         Step1 => Role::H1,
         Step2 => Role::H2,
@@ -62,7 +61,6 @@ fn shuffle_for_helper(which_step: ShuffleStep) -> Role {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
 async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     input: &[S],
     ctx: C,
@@ -80,7 +78,6 @@ async fn reshare_all_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 /// i)   2 helpers receive permutation pair and choose the permutation to be applied
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
-#[allow(clippy::cast_possible_truncation)]
 async fn shuffle_or_unshuffle_once<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     mut input: Vec<S>,
     random_permutations: (&[u32], &[u32]),

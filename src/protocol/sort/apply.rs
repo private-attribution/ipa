@@ -47,6 +47,7 @@ pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{apply, apply_inv};
+    use crate::rand::thread_rng;
     use rand::seq::SliceRandom;
 
     #[test]
@@ -113,7 +114,7 @@ mod tests {
         let mut permutation: Vec<u32> = (0..SUPER_LONG)
             .map(|i| usize::try_into(i).unwrap())
             .collect();
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         permutation.shuffle(&mut rng);
 
         let mut after_apply = original_values.clone();

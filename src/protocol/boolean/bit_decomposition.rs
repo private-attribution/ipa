@@ -1,5 +1,6 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
-use super::dumb_bitwise_sum::BitwiseSum;
+use super::dumb_bitwise_sum::bitwise_sum;
+use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
@@ -19,31 +20,33 @@ use crate::secret_sharing::Replicated;
 pub struct BitDecomposition {}
 
 impl BitDecomposition {
-    #[allow(dead_code)]
+    /// Converts the input field value to bitwise secret shares.
+    ///
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
     pub async fn execute<F: Field>(
         ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
+        rbg: RandomBitsGenerator<F>,
         a_p: &Replicated<F>,
     ) -> Result<Vec<Replicated<F>>, Error> {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = ctx
-            .random_bits_generator()
-            .take_one(ctx.narrow(&Step::GenerateRandomBits))
-            .await?;
+        let r = rbg.take_one(ctx.narrow(&Step::GenerateRandomBits)).await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
             .narrow(&Step::RevealAMinusB)
             .reveal(record_id, &(a_p - &r.b_p))
             .await?;
-        let c_b = local_secret_shared_bits(c.as_u128(), ctx.role());
+        let c_b = local_secret_shared_bits(&ctx, c.as_u128());
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //
         // `BitwiseSum` outputs `l + 1` bits, so [d]_B is (l + 1)-bit long.
-        let d_b = BitwiseSum::execute(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
+        let d_b = bitwise_sum(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
 
         // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
         let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
@@ -68,7 +71,7 @@ impl BitDecomposition {
         //
         // Again, `BitwiseSum` outputs `l + 1` bits. Since [d]_B is already
         // `l + 1` bit long, [h]_B will be `l + 2`-bit long.
-        let h_b = BitwiseSum::execute(ctx.narrow(&Step::AddDtoG), record_id, &d_b, &g_b).await?;
+        let h_b = bitwise_sum(ctx.narrow(&Step::AddDtoG), record_id, &d_b, &g_b).await?;
 
         // Step 11. [a]_B = ([h]_0,...[h]_(l-1))
         let a_b = h_b[0..l as usize].to_vec();
@@ -105,19 +108,21 @@ mod tests {
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Int},
-        protocol::{QueryId, RecordId},
+        protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, RecordId},
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bit_decomposition<F: Field>(world: &TestWorld<F>, a: F) -> Vec<F>
+    async fn bit_decomposition<F: Field>(world: &TestWorld, a: F) -> Vec<F>
     where
         F: Sized,
         Standard: Distribution<F>,
     {
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
-                BitDecomposition::execute(ctx, RecordId::from(0), &a_p)
+                let rbg = RandomBitsGenerator::new();
+
+                BitDecomposition::execute(ctx, RecordId::from(0), rbg, &a_p)
                     .await
                     .unwrap()
             })

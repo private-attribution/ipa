@@ -17,7 +17,7 @@ use futures::TryFuture;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
-pub use sharing::{get_bits, into_bits, share, IntoShares, Reconstruct};
+pub use sharing::{get_bits, into_bits, share, IntoShares, MaskedMatchKey, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 

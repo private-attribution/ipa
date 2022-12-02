@@ -1,12 +1,13 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::protocol::boolean::BitOpStep;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::modulus_conversion::convert_shares::{ConvertShares, XorShares};
+use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local};
 use crate::protocol::reveal::Reveal;
-use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::protocol::{
+    context::{Context, SemiHonestContext},
+    BitOpStep, RecordId,
+};
+use crate::secret_sharing::{Replicated, XorReplicated};
 use futures::future::try_join_all;
 use std::iter::repeat;
 
@@ -90,29 +91,24 @@ impl SolvedBits {
             .prss(|prss| prss.generate_values(record_id));
 
         // Same here. For now, 256-bit is enough for our F_p
-        #[allow(clippy::cast_possible_truncation)]
-        let xor_shares = XorShares::new(l as u8, b_bits_left as u64, b_bits_right as u64);
+        let xor_share = XorReplicated::new(
+            u64::try_from(b_bits_left & u128::from(u64::MAX)).unwrap(),
+            u64::try_from(b_bits_right & u128::from(u64::MAX)).unwrap(),
+        );
 
         // Convert each bit to secret sharings of that bit in the target field
         let c = ctx.narrow(&Step::ConvertShares);
         let futures = (0..l).map(|i| {
-            // again, we don't expect our prime field to be > 2^64
-            #[allow(clippy::cast_possible_truncation)]
-            let c = c.narrow(&BitOpStep::Step(i as usize));
-            async move {
-                #[allow(clippy::cast_possible_truncation)]
-                ConvertShares::new(xor_shares)
-                    .execute_one_bit(c, record_id, i as u8)
-                    .await
-            }
+            let c = c.narrow(&BitOpStep::from(i));
+            let triple = convert_bit_local::<F>(c.role(), i, &xor_share);
+            async move { convert_bit(c, record_id, &triple).await }
         });
 
         // Pad 0's at the end to return `F::Integer::BITS` long bits
         let mut b_b = try_join_all(futures).await?;
-        #[allow(clippy::cast_possible_truncation)]
         b_b.append(
             &mut repeat(Replicated::ZERO)
-                .take(leading_zero_bits as usize)
+                .take(usize::try_from(leading_zero_bits).unwrap())
                 .collect::<Vec<_>>(),
         );
 
@@ -215,8 +211,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;
@@ -239,8 +235,8 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world = TestWorld::<Fp32BitPrime>::new(QueryId);
-        let ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp32BitPrime>();
         let [c0, c1, c2] = ctx;
 
         let mut success = 0;

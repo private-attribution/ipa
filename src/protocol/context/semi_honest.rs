@@ -1,7 +1,6 @@
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
-use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::prss::{
@@ -19,20 +18,15 @@ use std::marker::PhantomData;
 pub struct SemiHonestContext<'a, F: Field> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
-    pub(super) inner: Arc<ContextInner<'a, F>>,
+    pub(super) inner: Arc<ContextInner<'a>>,
     pub(super) step: Step,
     _marker: PhantomData<F>,
 }
 
 impl<'a, F: Field> SemiHonestContext<'a, F> {
-    pub fn new(
-        role: Role,
-        participant: &'a PrssEndpoint,
-        gateway: &'a Gateway,
-        random_bits_generator: &'a RandomBitsGenerator<F>,
-    ) -> Self {
+    pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            inner: ContextInner::new(role, participant, gateway, random_bits_generator),
+            inner: ContextInner::new(role, participant, gateway),
             step: Step::default(),
             _marker: PhantomData::default(),
         }
@@ -95,34 +89,21 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         Replicated::one(self.role())
     }
-
-    fn random_bits_generator(&self) -> RandomBitsGenerator<F> {
-        // RandomBitsGenerator has only one direct member which is wrapped in
-        // `Arc`. This `clone()` will only increment the ref count.
-        self.inner.random_bits_generator.clone()
-    }
 }
 
 #[derive(Debug)]
-pub(super) struct ContextInner<'a, F: Field> {
+pub(super) struct ContextInner<'a> {
     pub role: Role,
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
-    pub random_bits_generator: &'a RandomBitsGenerator<F>,
 }
 
-impl<'a, F: Field> ContextInner<'a, F> {
-    fn new(
-        role: Role,
-        prss: &'a PrssEndpoint,
-        gateway: &'a Gateway,
-        random_bits_generator: &'a RandomBitsGenerator<F>,
-    ) -> Arc<Self> {
+impl<'a> ContextInner<'a> {
+    fn new(role: Role, prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
         Arc::new(Self {
             role,
             prss,
             gateway,
-            random_bits_generator,
         })
     }
 }

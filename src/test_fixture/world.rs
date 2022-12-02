@@ -12,7 +12,6 @@ use crate::{
         Role, SendBufferConfig,
     },
     protocol::{
-        boolean::random_bits_generator::RandomBitsGenerator,
         context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
@@ -38,14 +37,13 @@ use super::{
 /// For now the messages sent through it never leave the test infra memory perimeter, so
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
-pub struct TestWorld<F: Field> {
+pub struct TestWorld {
     _query_id: QueryId,
     gateways: [Gateway; 3],
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     _network: Arc<InMemoryNetwork>,
-    rbg: [RandomBitsGenerator<F>; 3],
 }
 
 #[derive(Copy, Clone)]
@@ -76,11 +74,11 @@ impl Default for TestWorldConfig {
     }
 }
 
-impl<F: Field> TestWorld<F> {
+impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld<F> {
+    pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
         // setup logging
         logging::setup();
 
@@ -102,13 +100,6 @@ impl<F: Field> TestWorld<F> {
             .try_into()
             .unwrap();
 
-        let rbg = (0..)
-            .take(3)
-            .map(|_| RandomBitsGenerator::new())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-
         TestWorld {
             _query_id: query_id,
             gateways,
@@ -116,14 +107,13 @@ impl<F: Field> TestWorld<F> {
             executions: AtomicUsize::new(0),
             metrics_handle,
             _network: network,
-            rbg,
         }
     }
 
     /// Creates a new `TestWorld` instance.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn new(query_id: QueryId) -> TestWorld<F> {
+    pub fn new(query_id: QueryId) -> TestWorld {
         let config = TestWorldConfig::default();
         Self::new_with(query_id, config)
     }
@@ -133,19 +123,16 @@ impl<F: Field> TestWorld<F> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts(&self) -> [SemiHonestContext<'_, F>; 3] {
+    pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
         let run = format!("run-{execution}");
-        zip(
-            Role::all(),
-            zip(&self.participants, zip(&self.gateways, &self.rbg)),
-        )
-        .map(|(role, (participant, (gateway, rbg)))| {
-            SemiHonestContext::new(*role, participant, gateway, rbg).narrow(&run)
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
+        zip(Role::all(), zip(&self.participants, &self.gateways))
+            .map(|(role, (participant, gateway))| {
+                SemiHonestContext::new(*role, participant, gateway).narrow(&run)
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 }
 
@@ -172,7 +159,7 @@ pub trait Runner<I, A, F> {
         Standard: Distribution<F>;
 }
 
-impl<F: Field> Drop for TestWorld<F> {
+impl Drop for TestWorld {
     fn drop(&mut self) {
         if tracing::span_enabled!(Level::DEBUG) {
             let metrics = self.metrics_handle.snapshot();
@@ -182,7 +169,7 @@ impl<F: Field> Drop for TestWorld<F> {
 }
 
 #[async_trait]
-impl<I, A, F> Runner<I, A, F> for TestWorld<F>
+impl<I, A, F> Runner<I, A, F> for TestWorld
 where
     I: 'static + IntoShares<A> + Send,
     A: Send,
@@ -190,7 +177,6 @@ where
 {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
-        F: Field,
         O: Send + Debug,
         H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
         R: Future<Output = O> + Send,
@@ -210,7 +196,6 @@ where
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
         A: IntoMalicious<F, M>,
-        F: Field,
         O: Send + Debug,
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,

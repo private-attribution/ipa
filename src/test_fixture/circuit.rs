@@ -29,7 +29,7 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
     assert_eq!(sum, u128::from(width));
 }
 
-async fn circuit(world: &TestWorld<Fp31>, record_id: RecordId, depth: u8) -> [Replicated<Fp31>; 3] {
+async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicated<Fp31>; 3] {
     let top_ctx = world.contexts();
     let mut a = share(Fp31::ONE, &mut thread_rng());
 
