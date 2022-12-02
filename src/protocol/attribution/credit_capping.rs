@@ -6,14 +6,14 @@ use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, Bitwi
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::mul::SecureMul;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
 #[allow(dead_code)]
-pub async fn credit_capping<F: Field>(
+pub async fn credit_capping<F: Field, S: SecretSharing<F>>(
     ctx: SemiHonestContext<'_, F>,
-    input: &[CreditCappingInputRow<F>],
+    input: &[CreditCappingInputRow<F, S>],
     cap: u32,
 ) -> Result<Vec<CreditCappingOutputRow<F>>, Error> {
     //
@@ -65,8 +65,8 @@ pub async fn credit_capping<F: Field>(
     Ok(output)
 }
 
-async fn mask_source_credits<F: Field>(
-    input: &[CreditCappingInputRow<F>],
+async fn mask_source_credits<F: Field, S: SecretSharing<F>>(
+    input: &[CreditCappingInputRow<F, S>],
     ctx: SemiHonestContext<'_, F>,
 ) -> Result<Vec<Replicated<F>>, Error> {
     try_join_all(
@@ -85,9 +85,9 @@ async fn mask_source_credits<F: Field>(
     .await
 }
 
-async fn credit_prefix_sum<'a, F: Field>(
+async fn credit_prefix_sum<'a, F: Field, S: SecretSharing<F>>(
     ctx: SemiHonestContext<'a, F>,
-    input: &[CreditCappingInputRow<F>],
+    input: &[CreditCappingInputRow<F, S>],
     mut original_credits: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let one = ctx.share_of_one();
@@ -233,9 +233,9 @@ async fn is_credit_larger_than_cap<F: Field>(
     .await
 }
 
-async fn compute_final_credits<F: Field>(
+async fn compute_final_credits<F: Field, S: SecretSharing<F>>(
     ctx: SemiHonestContext<'_, F>,
-    input: &[CreditCappingInputRow<F>],
+    input: &[CreditCappingInputRow<F, S>],
     prefix_summed_credits: &[Replicated<F>],
     exceeds_cap_bits: &[Replicated<F>],
     original_credits: &[Replicated<F>],

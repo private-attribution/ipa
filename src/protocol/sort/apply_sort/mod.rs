@@ -1,11 +1,16 @@
 pub mod shuffle;
 
+use async_trait::async_trait;
+use futures::future::try_join_all;
+
 use crate::{
     error::Error,
     ff::Field,
+    helpers::Role,
     protocol::{
         context::{Context, SemiHonestContext},
         sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
+        BitOpStep, RecordId,
     },
     secret_sharing::Replicated,
 };
@@ -30,7 +35,7 @@ impl<F: Field> SortPermutation<F> {
         input: Vec<I>,
     ) -> Result<Vec<I>, Error>
     where
-        I: Resharable<F, Share = Replicated<F>>,
+        I: Resharable,
     {
         let revealed_and_random_permutation = shuffle_and_reveal_permutation(
             ctx.narrow(&ShuffleRevealPermutation),
@@ -54,6 +59,29 @@ impl<F: Field> SortPermutation<F> {
             &mut shuffled_objects,
         );
         Ok(shuffled_objects)
+    }
+}
+
+#[async_trait]
+impl<T> Resharable for Vec<T>
+where
+    T: Resharable,
+{
+    async fn reshare<F, C>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
+    where
+        F: Field,
+        C: Context<F> + Send,
+    {
+        try_join_all(self.iter().enumerate().map(|(i, x)| {
+            let c = ctx.narrow(BitOpStep::from(i));
+            async move { c.reshare(x, record_id, to_helper).await }
+        }))
+        .await
     }
 }
 

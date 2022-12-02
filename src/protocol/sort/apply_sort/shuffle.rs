@@ -18,12 +18,17 @@ use crate::protocol::sort::{
 };
 
 #[async_trait]
-pub trait Resharable<F: Field>: Sized {
-    type Share: SecretSharing<F>;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+pub trait Resharable: Sized {
+    async fn reshare<F, C, S>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
+        F: Field,
+        C: Context<F, Share = S> + Send,
+        S: SecretSharing<F>;
 }
 
 async fn reshare<F, C, S, T>(input: &[T], ctx: C, to_helper: Role) -> Result<Vec<T>, Error>
@@ -31,7 +36,7 @@ where
     C: Context<F, Share = S> + Send,
     F: Field,
     S: SecretSharing<F>,
-    T: Resharable<F, Share = S>,
+    T: Resharable,
 {
     let reshares = zip(repeat(ctx), input)
         .enumerate()
@@ -55,7 +60,7 @@ async fn shuffle_once<F, S, C, I>(
 where
     C: Context<F, Share = S> + Send,
     F: Field,
-    I: Resharable<F, Share = S>,
+    I: Resharable,
     S: SecretSharing<F>,
 {
     let to_helper = shuffle_for_helper(which_step);
@@ -92,7 +97,7 @@ pub async fn shuffle_shares<C, F, I, S>(
 where
     C: Context<F, Share = S> + Send,
     F: Field,
-    I: Resharable<F, Share = S>,
+    I: Resharable,
     S: SecretSharing<F>,
 {
     let input = shuffle_once(

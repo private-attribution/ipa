@@ -1,23 +1,27 @@
+use std::marker::PhantomData;
+
 use super::Substep;
 use super::{context::SemiHonestContext, RecordId};
 use crate::error::Error;
 use crate::protocol::mul::SecureMul;
+use crate::secret_sharing::SecretSharing;
 use crate::{ff::Field, secret_sharing::Replicated};
 
 pub(crate) mod accumulate_credit;
 mod credit_capping;
 
 #[derive(Debug, Clone)]
-pub struct AttributionInputRow<F: Field> {
-    pub is_trigger_bit: Replicated<F>,
-    pub helper_bit: Replicated<F>,
-    pub breakdown_key: Replicated<F>,
-    pub credit: Replicated<F>,
+pub struct AttributionInputRow<F: Field, S: SecretSharing<F>> {
+    pub is_trigger_bit: S,
+    pub helper_bit: S,
+    pub breakdown_key: S,
+    pub credit: S,
+    _marker: PhantomData<F>,
 }
 
-pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
+pub type AccumulateCreditOutputRow<F, S> = AttributionInputRow<F, S>;
 
-pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
+pub type CreditCappingInputRow<F, S> = AccumulateCreditOutputRow<F, S>;
 
 #[allow(dead_code)]
 pub struct CreditCappingOutputRow<F: Field> {
@@ -91,17 +95,20 @@ impl AsRef<str> for AttributionInputRowResharableStep {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ff::Field, protocol::attribution::AttributionInputRow, test_fixture::share};
+    use crate::{
+        ff::Field, protocol::attribution::AttributionInputRow, secret_sharing::SecretSharing,
+        test_fixture::share,
+    };
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
     use std::iter::zip;
 
     /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
     /// shares of `AttributionInputRow`.
     // TODO: Implement a `IntoShares` for any struct
-    pub fn generate_shared_input<F: Field>(
+    pub fn generate_shared_input<F: Field, S: SecretSharing<F>>(
         input: &[[u128; 5]],
         rng: &mut StepRng,
-    ) -> [Vec<AttributionInputRow<F>>; 3]
+    ) -> [Vec<AttributionInputRow<F, S>>; 3]
     where
         Standard: Distribution<F>,
     {

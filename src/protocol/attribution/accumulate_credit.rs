@@ -9,8 +9,13 @@ use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::mul::SecureMul;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::SecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, RecordId},
+    secret_sharing::Replicated,
+};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -37,12 +42,10 @@ impl AsRef<str> for Step {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for AttributionInputRow<F> {
-    type Share = Replicated<F>;
-
+impl<F: Field, S: SecretSharing<F>> Resharable for AttributionInputRow<F, S> {
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context<F, Share = S> + Send,
     {
         let f_trigger_bit =
             ctx.narrow(&IsTriggerBit)
@@ -77,10 +80,10 @@ impl<F: Field> Resharable<F> for AttributionInputRow<F> {
 /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
 /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
 #[allow(dead_code)]
-pub async fn accumulate_credit<F: Field>(
+pub async fn accumulate_credit<F: Field, S: SecretSharing<F>>(
     ctx: SemiHonestContext<'_, F>,
-    input: &[AttributionInputRow<F>],
-) -> Result<Vec<AccumulateCreditOutputRow<F>>, Error> {
+    input: &[AttributionInputRow<F, S>],
+) -> Result<Vec<AccumulateCreditOutputRow<F, S>>, Error> {
     let num_rows = input.len();
 
     // 1. Create stop_bit vector.
@@ -234,7 +237,7 @@ pub(crate) mod tests {
 
     use crate::protocol::sort::apply_sort::shuffle::Resharable;
     use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::{Replicated, SecretSharing};
     use crate::test_fixture::IntoShares;
     use crate::{
         ff::{Field, Fp31},
@@ -246,20 +249,21 @@ pub(crate) mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    const S: u128 = 0;
-    const T: u128 = 1;
+    const SE: u128 = 0;
+    const TE: u128 = 1;
     const H: [u128; 2] = [0, 1];
     const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct AttributionTestInput<F>(pub [F; 4]);
 
-    impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>
+    impl<F, S> IntoShares<AttributionInputRow<F, S>> for AttributionTestInput<F>
     where
         F: Field + IntoShares<Replicated<F>>,
+        S: SecretSharing<F>,
         Standard: Distribution<F>,
     {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F, S>; 3] {
             let [a0, a1, a2] = self.0[0].share_with(rng);
             let [b0, b1, b2] = self.0[1].share_with(rng);
             let [c0, c1, c2] = self.0[2].share_with(rng);
@@ -287,13 +291,17 @@ pub(crate) mod tests {
         }
     }
 
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AttributionInputRow<F>; 3] {
+    impl<F: Field, S: SecretSharing<F>> Reconstruct<AttributionTestInput<F>>
+        for [AttributionInputRow<F, S>; 3]
+    {
         fn reconstruct(&self) -> AttributionTestInput<F> {
             [&self[0], &self[1], &self[2]].reconstruct()
         }
     }
 
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AttributionInputRow<F>; 3] {
+    impl<F: Field, S: SecretSharing<F>> Reconstruct<AttributionTestInput<F>>
+        for [&AttributionInputRow<F, S>; 3]
+    {
         fn reconstruct(&self) -> AttributionTestInput<F> {
             let s0 = &self[0];
             let s1 = &self[1];
@@ -343,29 +351,29 @@ pub(crate) mod tests {
             // attribution model.
 
             // match key 1
-            [S, H[0], BD[3], 0, 0],
+            [SE, H[0], BD[3], 0, 0],
             // match key 2
-            [S, H[0], BD[4], 0, 0],
-            [S, H[1], BD[4], 0, 19],
-            [T, H[1], BD[0], 10, 19],
-            [T, H[1], BD[0], 2, 9],
-            [T, H[1], BD[0], 1, 7],
-            [T, H[1], BD[0], 5, 6],
-            [T, H[1], BD[0], 1, 1],
+            [SE, H[0], BD[4], 0, 0],
+            [SE, H[1], BD[4], 0, 19],
+            [TE, H[1], BD[0], 10, 19],
+            [TE, H[1], BD[0], 2, 9],
+            [TE, H[1], BD[0], 1, 7],
+            [TE, H[1], BD[0], 5, 6],
+            [TE, H[1], BD[0], 1, 1],
             // match key 3
-            [S, H[0], BD[1], 0, 0],
+            [SE, H[0], BD[1], 0, 0],
             // match key 4
-            [T, H[0], BD[0], 10, 10],
+            [TE, H[0], BD[0], 10, 10],
             // match key 5
-            [S, H[0], BD[2], 0, 15],
-            [T, H[1], BD[0], 3, 15],
-            [T, H[1], BD[0], 12, 12],
-            [S, H[1], BD[2], 0, 0],
-            [S, H[1], BD[2], 0, 10],
-            [T, H[1], BD[0], 6, 10],
-            [T, H[1], BD[0], 4, 4],
-            [S, H[1], BD[5], 0, 6],
-            [T, H[1], BD[5], 6, 6],
+            [SE, H[0], BD[2], 0, 15],
+            [TE, H[1], BD[0], 3, 15],
+            [TE, H[1], BD[0], 12, 12],
+            [SE, H[1], BD[2], 0, 0],
+            [SE, H[1], BD[2], 0, 10],
+            [TE, H[1], BD[0], 6, 10],
+            [TE, H[1], BD[0], 4, 4],
+            [SE, H[1], BD[5], 0, 6],
+            [TE, H[1], BD[5], 6, 6],
         ];
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
