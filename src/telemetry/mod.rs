@@ -73,6 +73,24 @@ pub mod metrics {
             Unit::Count,
             "Total number of HTTP/2 requests received"
         );
+
+        describe_counter!(
+            RECORDS_SENT,
+            Unit::Count,
+            "Number of unique records sent from the infrastructure layer to the network"
+        );
+
+        describe_counter!(
+            INDEXED_PRSS_GENERATED,
+            Unit::Count,
+            "Number of times shared randomness is requested by the protocols"
+        );
+
+        describe_counter!(
+            SEQUENTIAL_PRSS_GENERATED,
+            Unit::Count,
+            "Number of times PRSS is used as CPRNG to generate a random value"
+        );
     }
 
     // assumption: labels::STEP is set to "step" and labels::ROLE is set to "role"
