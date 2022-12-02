@@ -98,10 +98,7 @@ impl AsRef<str> for AttributionInputRowResharableStep {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        ff::Field, protocol::attribution::AttributionInputRow, protocol::batch::Batch,
-        test_fixture::share,
-    };
+    use crate::{ff::Field, protocol::attribution::AttributionInputRow, test_fixture::share};
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
     use std::iter::zip;
 
@@ -111,7 +108,7 @@ mod tests {
     pub fn generate_shared_input<F: Field>(
         input: &[[u128; 5]],
         rng: &mut StepRng,
-    ) -> [Batch<AttributionInputRow<F>>; 3]
+    ) -> [Vec<AttributionInputRow<F>>; 3]
     where
         Standard: Distribution<F>,
     {
@@ -140,10 +137,6 @@ mod tests {
         assert_eq!(shares[0].len(), shares[1].len());
         assert_eq!(shares[1].len(), shares[2].len());
 
-        [
-            Batch::try_from(shares[0].clone()).unwrap(),
-            Batch::try_from(shares[1].clone()).unwrap(),
-            Batch::try_from(shares[2].clone()).unwrap(),
-        ]
+        shares
     }
 }

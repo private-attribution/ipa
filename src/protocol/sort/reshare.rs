@@ -194,11 +194,11 @@ mod tests {
 
         use crate::error::Error;
         use crate::ff::{Field, Fp32BitPrime};
-        use crate::helpers::{Role, Direction};
+        use crate::helpers::{Direction, Role};
         use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
         use crate::protocol::malicious::MaliciousValidator;
         use crate::protocol::sort::reshare::Reshare;
-        use crate::protocol::sort::ReshareStep::{ReshareX, ReshareRx};
+        use crate::protocol::sort::ReshareStep::{ReshareRx, ReshareX};
         use crate::protocol::{QueryId, RecordId};
         use crate::rand::{thread_rng, Rng};
         use crate::secret_sharing::{MaliciousReplicated, Replicated};
@@ -235,7 +235,7 @@ mod tests {
             let channel = ctx.mesh();
             let prss = ctx.prss();
             let (r0, r1) = prss.generate_fields(record_id);
-    
+
             // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
             // This is same as (a1 + a2) - r2 in the diagram
             if ctx.role() == to_helper.peer(Direction::Left) {
@@ -243,12 +243,12 @@ mod tests {
                 channel
                     .send(to_helper.peer(Direction::Right), record_id, part1)
                     .await?;
-    
+
                 // Sleep until `to_helper.right` sends us their part2 value
                 let part2 = channel
                     .receive(to_helper.peer(Direction::Right), record_id)
                     .await?;
-    
+
                 Ok(Replicated::new(part1 + part2 + additive_error, r1))
             } else if ctx.role() == to_helper.peer(Direction::Right) {
                 // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
@@ -257,12 +257,12 @@ mod tests {
                 channel
                     .send(to_helper.peer(Direction::Left), record_id, part2)
                     .await?;
-    
+
                 // Sleep until `to_helper.left` sends us their part1 value
                 let part1: F = channel
                     .receive(to_helper.peer(Direction::Left), record_id)
                     .await?;
-    
+
                 Ok(Replicated::new(r0, part1 + part2 + additive_error))
             } else {
                 Ok(Replicated::new(r0 + additive_error, r1 - additive_error))
@@ -313,7 +313,7 @@ mod tests {
                         let v = MaliciousValidator::new(ctx);
                         let record_id = RecordId::from(0);
                         let m_a = v.context().upgrade(RecordId::from(0), a).await.unwrap();
-                        
+
                         let m_a = if v.context().role() == role {
                             // This role is spoiling the value.
                             reshare_malicious_with_additive_attack(
@@ -326,7 +326,10 @@ mod tests {
                             .await
                             .unwrap()
                         } else {
-                            v.context().reshare(&m_a, record_id, Role::H1).await.unwrap()
+                            v.context()
+                                .reshare(&m_a, record_id, Role::H1)
+                                .await
+                                .unwrap()
                         };
                         match v.validate(m_a).await {
                             Ok(result) => panic!("Got a result {:?}", result),
