@@ -20,7 +20,11 @@ use crate::secret_sharing::Replicated;
 pub struct BitDecomposition {}
 
 impl BitDecomposition {
-    #[allow(dead_code)]
+    /// Converts the input field value to bitwise secret shares.
+    ///
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
     pub async fn execute<F: Field>(
         ctx: SemiHonestContext<'_, F>,
         record_id: RecordId,
