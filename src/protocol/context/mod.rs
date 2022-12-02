@@ -41,14 +41,14 @@ pub trait Context<F: Field>:
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
 
-    /// Obtain the indexed PRSS instance and pass it to `handler` function. It is safe to call this
+    /// Obtain indexed PRSS instance and pass it to the `handler` function. It is safe to call this
     /// function multiple times.
     ///
     /// # Panics
     /// If `prss_rng()` is invoked for the same context, this will panic.  Use of
     /// these two functions are mutually exclusive.
     #[must_use]
-    fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T;
+    fn with_prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T;
 
     /// Get a pair of PRSS-based RNGs.  The first is shared with the helper to the "left",
     /// the second is shared with the helper to the "right".

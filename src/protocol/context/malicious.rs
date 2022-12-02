@@ -102,7 +102,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         }
     }
 
-    fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
+    fn with_prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
         let _span =
             telemetry::metrics::span!("mal_prss", step = self.step(), role = self.role()).entered();
         let prss = self.inner.prss.indexed(self.step());
@@ -131,9 +131,10 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
 /// this implementation makes it easier to reinterpret the context as semi-honest.
 impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'a, F> {
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
-        self.inner
-            .accumulator
-            .accumulate_macs(&self.prss(|prss| prss.generate_replicated(record_id)), x);
+        self.inner.accumulator.accumulate_macs(
+            &self.with_prss(|prss| prss.generate_replicated(record_id)),
+            x,
+        );
     }
 
     /// Get a semi-honest context that is an  exact copy of this malicious
@@ -204,8 +205,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
         record_id: RecordId,
         x: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let constant = ctx.narrow(&RandomnessForValidation)
-            .prss(|prss| prss.generate_replicated(record_id));
+        let constant = ctx
+            .narrow(&RandomnessForValidation)
+            .with_prss(|prss| prss.generate_replicated(record_id));
         let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
         let m = MaliciousReplicated::new(x, rx);
         self.accumulator.accumulate_macs(&constant, &m);

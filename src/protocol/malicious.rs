@@ -143,8 +143,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let r_share = ctx.prss(|prss| prss.generate_replicated(RECORD_0));
-        let state = ctx.prss(|prss| AccumulatorState {
+        let r_share = ctx.with_prss(|prss| prss.generate_replicated(RECORD_0));
+        let state = ctx.with_prss(|prss| AccumulatorState {
             u: prss.zero(RECORD_1),
             w: prss.zero(RECORD_2),
         });

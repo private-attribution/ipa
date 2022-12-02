@@ -28,7 +28,7 @@ where
     let channel = ctx.mesh();
 
     // generate shared randomness.
-    let (s0, s1) = ctx.prss(|prss| prss.generate_fields(record_id));
+    let (s0, s1) = ctx.with_prss(|prss| prss.generate_fields(record_id));
     let role = ctx.role();
 
     // compute the value (d_i) we want to send to the right helper (i+1)
@@ -62,7 +62,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 ) -> Result<Replicated<F>, Error> {
     match ctx.role() {
         Role::H1 => {
-            let (s_3_1, _) = ctx.prss(|prss| prss.generate_fields(record_id));
+            let (s_3_1, _) = ctx.with_prss(|prss| prss.generate_fields(record_id));
 
             // d_1 = a_1 * b_2 + a_2 * b_1 - s_3,1
             // d_1 = a_1 * b_2 + 0 * 0 - s_3,1
@@ -103,7 +103,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
             // d_3 is a constant, known in advance. So we can replace it with zero
             // And there is no need to send it.
 
-            let (_, s_3_1) = ctx.prss(|prss| prss.generate_fields(record_id));
+            let (_, s_3_1) = ctx.with_prss(|prss| prss.generate_fields(record_id));
 
             Ok(Replicated::new(F::ZERO, s_3_1))
         }
@@ -141,7 +141,7 @@ pub async fn multiply_one_share_mostly_zeroes<F: Field>(
     a: &Replicated<F>,
     b: &Replicated<F>,
 ) -> Result<Replicated<F>, Error> {
-    let (s_left, s_right) = ctx.prss(|prss| prss.generate_fields(record_id));
+    let (s_left, s_right) = ctx.with_prss(|prss| prss.generate_fields(record_id));
 
     match ctx.role() {
         Role::H1 => {

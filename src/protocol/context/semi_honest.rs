@@ -69,7 +69,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         }
     }
 
-    fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
+    fn with_prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
         let _span =
             telemetry::metrics::span!("prss", step = self.step(), role = self.role()).entered();
         let prss = self.inner.prss.indexed(self.step());

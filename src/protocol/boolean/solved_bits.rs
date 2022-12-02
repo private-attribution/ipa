@@ -88,7 +88,7 @@ impl SolvedBits {
         // the source of `l`-bit long uniformly random sequence of bits.
         let (b_bits_left, b_bits_right) = ctx
             .narrow(&Step::RandomValues)
-            .prss(|prss| prss.generate_values(record_id));
+            .with_prss(|prss| prss.generate_values(record_id));
 
         // Same here. For now, 256-bit is enough for our F_p
         let xor_share = XorReplicated::new(
