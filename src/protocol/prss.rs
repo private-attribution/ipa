@@ -2,7 +2,7 @@ use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
-use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED, STEP_LABEL};
+use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -15,7 +15,7 @@ use std::{collections::HashSet, fmt::Formatter};
 use tracing::span::EnteredSpan;
 use tracing::Span;
 use x25519_dalek::{EphemeralSecret, PublicKey};
-
+use crate::telemetry::labels::STEP;
 use super::Step;
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
@@ -90,7 +90,7 @@ impl IndexedSharedRandomness {
             self.used.insert(index);
         }
 
-        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP_LABEL => self.scope.clone());
+        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => self.scope.clone());
 
         (self.left.generate(index), self.right.generate(index))
     }
@@ -176,6 +176,7 @@ impl SequentialSharedRandomness {
         Self {
             generator,
             counter: 0,
+            // to carry over metrics context and have dimensionality for emitted metrics (role and step)
             _span: Span::current().entered(),
         }
     }

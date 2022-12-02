@@ -11,6 +11,8 @@ use crate::protocol::{Step, Substep};
 use crate::secret_sharing::Replicated;
 use crate::sync::Arc;
 use std::marker::PhantomData;
+use crate::telemetry;
+use crate::telemetry::labels::{ROLE, STEP};
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
@@ -75,17 +77,13 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
-        let _span =
-            tracing::debug_span!("malicious_prss", role=?self.role(),step=self.step.as_ref())
-                .entered();
+        let _span = telemetry::metrics::span!("prss", step=self.step(), role=self.role()).entered();
         let prss = self.inner.prss.indexed(self.step());
         handler(&prss)
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let _span =
-            tracing::debug_span!("malicious_prss_rng", role=?self.role(),step=self.step.as_ref())
-                .entered();
+        let _span = telemetry::metrics::span!("prss_rng", step=self.step(), role=self.role()).entered();
         self.inner.prss.sequential(self.step())
     }
 

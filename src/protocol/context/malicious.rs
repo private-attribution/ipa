@@ -12,6 +12,7 @@ use crate::protocol::prss::{
 use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
+use crate::telemetry;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -74,15 +75,13 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     }
 
     fn prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
-        let _span =
-            tracing::debug_span!("prss", role=?self.role(),step=self.step.as_ref()).entered();
+        let _span = telemetry::metrics::span!("mal_prss", step=self.step(), role=self.role()).entered();
         let prss = self.inner.prss.indexed(self.step());
         handler(&prss)
     }
 
     fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let _span =
-            tracing::debug_span!("prss_rng", role=?self.role(),step=self.step.as_ref()).entered();
+        let _span = telemetry::metrics::span!("mal_prss_rng", step=self.step(), role=self.role()).entered();
         self.inner.prss.sequential(self.step())
     }
 

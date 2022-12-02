@@ -13,7 +13,7 @@ use crate::{
     helpers::Role,
     protocol::{RecordId, Step},
 };
-
+use crate::telemetry::labels::STEP;
 use crate::ff::{Field, Int};
 use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
 use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
@@ -27,7 +27,6 @@ use tinyvec::array_vec;
 use tracing::Instrument;
 
 use crate::telemetry::metrics::RECORDS_SENT;
-use crate::telemetry::metrics::STEP_LABEL;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -178,7 +177,7 @@ impl Gateway {
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
                     Some((channel_id, msg)) = envelope_rx.recv() => {
-                        metrics::increment_counter!(RECORDS_SENT, STEP_LABEL => channel_id.step.as_ref().to_string());
+                        metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
                         tracing::trace!("new SendRequest({channel_id:?}, {:?}", msg.record_id);
                         if let Some(buf_to_send) = send_buf.push(&channel_id, &msg).expect("Failed to append data to the send buffer") {
                             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);

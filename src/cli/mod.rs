@@ -1,10 +1,9 @@
 mod hexarg;
 mod metric_collector;
-mod stats;
 mod verbosity;
+mod stringn;
 
-pub use self::stats::{CounterDetails, Metrics};
-pub use crate::telemetry::stringn::StringN;
+pub use stringn::StringN;
 pub use hexarg::HexArg;
-pub use metric_collector::{install_collector, CollectorHandle};
+pub use metric_collector::{CollectorHandle, install_collector};
 pub use verbosity::Verbosity;

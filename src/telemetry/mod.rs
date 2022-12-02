@@ -1,15 +1,23 @@
-pub mod stringn;
+pub mod stats;
+
+pub mod labels {
+    pub const STEP: &str = "step";
+    pub const ROLE: &str = "role";
+}
 
 pub mod metrics {
     use axum::http::Version;
     use metrics::Unit;
     use metrics::{describe_counter, KeyName};
+    use tracing::span::EnteredSpan;
+    use crate::helpers::Role;
+    use crate::telemetry::labels;
 
     pub const REQUESTS_RECEIVED: &str = "requests.received";
     pub const RECORDS_SENT: &str = "records.sent";
     pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
     pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
-    pub const STEP_LABEL: &str = "step";
+
 
     /// Metric that records the version of HTTP protocol used for a particular request.
     #[cfg(feature = "web-app")]
@@ -67,4 +75,22 @@ pub mod metrics {
             "Total number of HTTP/2 requests received"
         );
     }
+
+    // assumption: labels::STEP is "step" and labels::ROLE is "role"
+    #[macro_export]
+    macro_rules! span {
+        ($name:expr, step=$step:expr) => {{
+            let span = tracing::debug_span!($name, step=$step.as_ref());
+
+            span
+        }};
+        ($name:expr, step=$step:expr, role=$role:expr) => {{
+            // assumption: labels::STEP is "step" and labels::ROLE is "role"
+            let span = tracing::debug_span!($name, step=$step.as_ref(), role=?$role);
+
+            span
+        }}
+    }
+
+    pub(crate) use span;
 }
