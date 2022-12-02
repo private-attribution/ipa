@@ -103,16 +103,16 @@ impl AsRef<str> for ShuffleRevealStep {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ReshareStep {
-    ReshareInput,
-    ReshareMAC,
+    ReshareX,
+    ReshareRx,
 }
 impl Substep for ReshareStep {}
 
 impl AsRef<str> for ReshareStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ReshareInput => "reshare_input",
-            Self::ReshareMAC => "reshare_mac",
+            Self::ReshareX => "reshare_x",
+            Self::ReshareRx => "reshare_rx",
         }
     }
 }

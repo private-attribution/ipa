@@ -6,7 +6,7 @@ use crate::{
     helpers::{Direction, Role},
     protocol::{
         context::SemiHonestContext,
-        sort::ReshareStep::{ReshareInput, ReshareMAC},
+        sort::ReshareStep::{ReshareRx, ReshareX},
         RecordId,
     },
     secret_sharing::Replicated,
@@ -106,14 +106,13 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     ) -> Result<Self::Share, Error> {
         use crate::protocol::context::SpecialAccessToMaliciousContext;
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-        let rx_ctx = self.narrow(&ReshareMAC);
         let (x, rx) = try_join(
-            self.narrow(&ReshareInput).semi_honest_context().reshare(
+            self.narrow(&ReshareX).semi_honest_context().reshare(
                 input.x().access_without_downgrade(),
                 record_id,
                 to_helper,
             ),
-            rx_ctx
+            self.narrow(&ReshareRx)
                 .semi_honest_context()
                 .reshare(input.rx(), record_id, to_helper),
         )
@@ -195,15 +194,15 @@ mod tests {
 
         use crate::error::Error;
         use crate::ff::{Field, Fp32BitPrime};
-        use crate::helpers::Role;
-        use crate::protocol::context::{Context, MaliciousContext};
+        use crate::helpers::{Role, Direction};
+        use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
         use crate::protocol::malicious::MaliciousValidator;
         use crate::protocol::sort::reshare::Reshare;
+        use crate::protocol::sort::ReshareStep::{ReshareX, ReshareRx};
         use crate::protocol::{QueryId, RecordId};
         use crate::rand::{thread_rng, Rng};
         use crate::secret_sharing::{MaliciousReplicated, Replicated};
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
-
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
         /// new shares.
         /// TODO: It would be great to have a test to validate that helpers cannot cheat. In this
@@ -227,6 +226,50 @@ mod tests {
         }
 
         async fn reshare_with_additive_attack<F: Field>(
+            ctx: SemiHonestContext<'_, F>,
+            input: &Replicated<F>,
+            record_id: RecordId,
+            to_helper: Role,
+            additive_error: F,
+        ) -> Result<Replicated<F>, Error> {
+            let channel = ctx.mesh();
+            let prss = ctx.prss();
+            let (r0, r1) = prss.generate_fields(record_id);
+    
+            // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
+            // This is same as (a1 + a2) - r2 in the diagram
+            if ctx.role() == to_helper.peer(Direction::Left) {
+                let part1 = input.left() + input.right() - r1;
+                channel
+                    .send(to_helper.peer(Direction::Right), record_id, part1)
+                    .await?;
+    
+                // Sleep until `to_helper.right` sends us their part2 value
+                let part2 = channel
+                    .receive(to_helper.peer(Direction::Right), record_id)
+                    .await?;
+    
+                Ok(Replicated::new(part1 + part2 + additive_error, r1))
+            } else if ctx.role() == to_helper.peer(Direction::Right) {
+                // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
+                // This is same as (a3 - r3) in the diagram
+                let part2 = input.left() - r0;
+                channel
+                    .send(to_helper.peer(Direction::Left), record_id, part2)
+                    .await?;
+    
+                // Sleep until `to_helper.left` sends us their part1 value
+                let part1: F = channel
+                    .receive(to_helper.peer(Direction::Left), record_id)
+                    .await?;
+    
+                Ok(Replicated::new(r0, part1 + part2 + additive_error))
+            } else {
+                Ok(Replicated::new(r0 + additive_error, r1 - additive_error))
+            }
+        }
+
+        async fn reshare_malicious_with_additive_attack<F: Field>(
             ctx: MaliciousContext<'_, F>,
             input: &MaliciousReplicated<F>,
             record_id: RecordId,
@@ -235,21 +278,25 @@ mod tests {
         ) -> Result<MaliciousReplicated<F>, Error> {
             use crate::protocol::context::SpecialAccessToMaliciousContext;
             use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            let rx_ctx = ctx.narrow("reshare_mac");
             let (x, rx) = try_join(
-                ctx.narrow("reshare_input").semi_honest_context().reshare(
+                reshare_with_additive_attack(
+                    ctx.narrow(&ReshareX).semi_honest_context(),
                     input.x().access_without_downgrade(),
                     record_id,
                     to_helper,
+                    additive_error,
                 ),
-                rx_ctx
-                    .semi_honest_context()
-                    .reshare(input.rx(), record_id, to_helper),
+                reshare_with_additive_attack(
+                    ctx.narrow(&ReshareRx).semi_honest_context(),
+                    input.rx(),
+                    record_id,
+                    to_helper,
+                    additive_error,
+                ),
             )
             .await?;
-            let malicious_input =
-                MaliciousReplicated::new(x + &Replicated::new(additive_error, additive_error), rx);
-            // ctx.accumulate_macs(record_id, &malicious_input);
+            let malicious_input = MaliciousReplicated::new(x, rx);
+            ctx.accumulate_macs(record_id, &malicious_input);
             Ok(malicious_input)
         }
 
@@ -266,20 +313,20 @@ mod tests {
                         let v = MaliciousValidator::new(ctx);
                         let record_id = RecordId::from(0);
                         let m_a = v.context().upgrade(RecordId::from(0), a).await.unwrap();
-
+                        
                         let m_a = if v.context().role() == role {
                             // This role is spoiling the value.
-                            reshare_with_additive_attack(
+                            reshare_malicious_with_additive_attack(
                                 v.context(),
                                 &m_a,
                                 record_id,
-                                role,
+                                Role::H1,
                                 Fp32BitPrime::ONE,
                             )
                             .await
                             .unwrap()
                         } else {
-                            v.context().reshare(&m_a, record_id, role).await.unwrap()
+                            v.context().reshare(&m_a, record_id, Role::H1).await.unwrap()
                         };
                         match v.validate(m_a).await {
                             Ok(result) => panic!("Got a result {:?}", result),
