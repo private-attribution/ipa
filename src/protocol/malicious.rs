@@ -346,10 +346,10 @@ mod tests {
 
         let a = rng.gen::<Fp32BitPrime>();
 
-        for role in Role::all() {
+        for malicious_actor in Role::all() {
             world
                 .semi_honest(a, |ctx, a| async move {
-                    let a = if ctx.role() == *role {
+                    let a = if ctx.role() == *malicious_actor {
                         // This role is spoiling the value.
                         Replicated::new(a.left(), a.right() + Fp32BitPrime::ONE)
                     } else {
