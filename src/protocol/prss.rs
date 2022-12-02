@@ -3,7 +3,6 @@ use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
-use crate::telemetry::labels::STEP;
 use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
@@ -71,7 +70,6 @@ pub struct IndexedSharedRandomness {
     right: Generator,
     #[cfg(debug_assertions)]
     used: UsedSet,
-    scope: String,
 }
 
 /// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
@@ -90,7 +88,7 @@ impl IndexedSharedRandomness {
             self.used.insert(index);
         }
 
-        metrics::increment_counter!(INDEXED_PRSS_GENERATED, STEP => self.scope.clone());
+        metrics::increment_counter!(INDEXED_PRSS_GENERATED);
 
         (self.left.generate(index), self.right.generate(index))
     }
@@ -279,7 +277,6 @@ impl EndpointInner {
                     right: self.right.generator(k.as_bytes()),
                     #[cfg(debug_assertions)]
                     used: UsedSet::new(key.to_owned()),
-                    scope: key.to_owned(),
                 }))
             })
         };

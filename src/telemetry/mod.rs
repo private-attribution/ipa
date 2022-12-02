@@ -75,7 +75,8 @@ pub mod metrics {
         );
     }
 
-    // assumption: labels::STEP is "step" and labels::ROLE is "role"
+    // assumption: labels::STEP is set to "step" and labels::ROLE is set to "role"
+    // tracing macros take fields as literals, so I couldn't make it dynamic.
     #[macro_export]
     macro_rules! span {
         ($name:expr, step=$step:expr) => {{
@@ -84,7 +85,6 @@ pub mod metrics {
             span
         }};
         ($name:expr, step=$step:expr, role=$role:expr) => {{
-            // assumption: labels::STEP is "step" and labels::ROLE is "role"
             let span = tracing::debug_span!($name, step=$step.as_ref(), role=?$role);
 
             span

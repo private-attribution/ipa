@@ -38,11 +38,11 @@ use super::{
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
 pub struct TestWorld {
-    _query_id: QueryId,
     gateways: [Gateway; 3],
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
+    _query_id: QueryId,
     _network: Arc<InMemoryNetwork>,
 }
 
@@ -101,11 +101,11 @@ impl TestWorld {
             .unwrap();
 
         TestWorld {
-            _query_id: query_id,
             gateways,
             participants,
             executions: AtomicUsize::new(0),
             metrics_handle,
+            _query_id: query_id,
             _network: network,
         }
     }

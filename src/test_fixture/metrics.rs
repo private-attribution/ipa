@@ -38,7 +38,13 @@ pub struct MetricsHandle {
 }
 
 impl MetricsHandle {
-    /// Creates a new handle
+    /// Creates a new metrics handle with a unique id. Id is used to partition metrics emitted while
+    /// this handle is not dropped. Handle holds onto a tracing span and every metric emitted inside
+    /// any children span will have a label associated with this handle's identifier.
+    ///
+    /// There must be additional support for components that use multithreading/async because they
+    /// break span hierarchy. Most infrastructure components (Gateway, PRSS) support it, but others
+    /// may not.
     ///
     /// ## Panics
     /// If the provided level is not set to either debug or info
@@ -52,9 +58,12 @@ impl MetricsHandle {
         let id = thread_rng().gen::<u128>();
 
         // Metrics collection with attributes/labels is expensive. Enabling it for all tests
-        // resulted in 100% penalty, so tests must explicitly opt-in to it.
-        // Some tests that check metric values would want to set the span level to Info.
-        // others, where metrics are optional, will use `RUST_LOG=raw_ipa::debug` environment variable
+        // resulted in doubling the time it takes to finish them. Tests must explicitly opt-in to
+        // use this feature.
+        // Tests that verify metric values must set the span verbosity level to Info.
+        // Tests that don't care will set the verbosity level to Debug. In case if metrics need
+        // to be seen by a human `RUST_LOG=raw_ipa::debug` environment variable must be set to
+        // print them
         let span = match level {
             Level::INFO => {
                 tracing::info_span!("", "metric_handle_id" = id.to_string())

@@ -66,6 +66,8 @@ impl Metrics {
         Self::with_filter(snapshot, ALWAYS_TRUE)
     }
 
+    /// Consumes the provided snapshot and filters out metrics that don't satisfy `filter_fn`
+    /// conditions.
     #[must_use]
     pub fn with_filter<F: Fn(&[Label]) -> bool>(snapshot: Snapshot, filter_fn: F) -> Self {
         let mut this = Metrics {
