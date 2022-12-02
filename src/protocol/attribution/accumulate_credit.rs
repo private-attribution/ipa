@@ -88,7 +88,7 @@ pub async fn accumulate_credit<F: Field>(
     // and determine when to stop accumulating.
 
     let one = ctx.share_of_one();
-    let mut stop_bits: Vec<Replicated<F>> = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
+    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
 
     let mut credits = input.iter().map(|x| x.credit.clone()).collect::<Vec<_>>();
 
