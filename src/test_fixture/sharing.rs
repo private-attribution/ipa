@@ -128,10 +128,12 @@ pub fn into_bits<F: Field>(x: F) -> Vec<F> {
         .collect::<Vec<_>>()
 }
 
-/// Deconstructs a value into N values, one for each bit.
+/// Deconstructs a value into N values, one for each bi3t.
+/// # Panics
+/// It won't
 #[must_use]
-pub fn get_bits<F: Field>(x: u32, num_bits: usize) -> Vec<F> {
-    (0..num_bits)
+pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
+    (0..num_bits.try_into().unwrap())
         .map(|i| F::from(((x >> i) & 1).into()))
         .collect::<Vec<_>>()
 }

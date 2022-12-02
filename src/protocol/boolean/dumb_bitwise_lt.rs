@@ -1,5 +1,5 @@
 use super::align_bit_lengths;
-use super::xor::xor;
+use super::xor;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{
