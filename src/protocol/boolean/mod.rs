@@ -14,7 +14,6 @@ mod bitwise_less_than_prime;
 mod dumb_bitwise_lt;
 mod dumb_bitwise_sum;
 mod or;
-mod prefix_or;
 pub mod random_bits_generator;
 mod solved_bits;
 
