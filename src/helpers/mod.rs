@@ -40,9 +40,9 @@ pub enum Direction {
 }
 
 impl Role {
-    const H1_STR: &'static str = "h1";
-    const H2_STR: &'static str = "h2";
-    const H3_STR: &'static str = "h3";
+    const H1_STR: &'static str = "H1";
+    const H2_STR: &'static str = "H2";
+    const H3_STR: &'static str = "H3";
 
     #[must_use]
     pub fn all() -> &'static [Role; 3] {

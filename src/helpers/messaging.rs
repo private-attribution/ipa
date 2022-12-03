@@ -17,6 +17,7 @@ use crate::{
     helpers::network::{ChannelId, MessageEnvelope, Network},
     helpers::Role,
     protocol::{RecordId, Step},
+    telemetry,
 };
 use ::tokio::sync::{mpsc, oneshot};
 use futures::SinkExt;
@@ -191,7 +192,7 @@ impl Gateway {
                     }
                 }
             }
-        }.instrument(tracing::debug_span!("gateway_loop", role=?role)));
+        }.instrument(telemetry::metrics::span!("gateway_loop", role=role)));
 
         Self {
             tx,
@@ -255,10 +256,12 @@ impl Debug for ReceiveRequest {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+
     use crate::ff::Fp31;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
     use crate::protocol::{QueryId, RecordId};
+
     use crate::test_fixture::{TestWorld, TestWorldConfig};
 
     #[tokio::test]

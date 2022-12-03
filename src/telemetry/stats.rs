@@ -1,11 +1,15 @@
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use std::io::Write;
 
 use comfy_table::Table;
 use metrics::{KeyName, Label, SharedString};
 
+use crate::helpers::Role;
+use crate::protocol::Step;
+use crate::telemetry::labels;
 use metrics_util::debugging::{DebugValue, Snapshot};
 use metrics_util::{CompositeKey, MetricKind};
 
@@ -99,6 +103,30 @@ impl Metrics {
         this
     }
 
+    #[must_use]
+    pub fn get_counter(&self, name: &'static str) -> u64 {
+        self.counters
+            .get(&name.into())
+            .map_or(0, |details| details.total_value)
+    }
+
+    /// Creates a new assertion object that later can be used to validate assumptions about the
+    /// given metric
+    ///
+    /// ## Panics
+    /// Panics if metric does not exist in the snapshot
+    #[must_use]
+    pub fn assert_metric(&self, name: &'static str) -> MetricAssertion {
+        let details = self
+            .counters
+            .get(&name.into())
+            .unwrap_or_else(|| panic!("{name} metric does not exist in the snapshot"));
+        MetricAssertion {
+            name,
+            snapshot: details,
+        }
+    }
+
     /// Dumps the stats to the provided Write interface.
     ///
     /// ## Errors
@@ -129,5 +157,63 @@ impl Metrics {
         writeln!(w, "{metrics_table}")?;
 
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct MetricAssertion<'a> {
+    name: &'static str,
+    snapshot: &'a CounterDetails,
+}
+
+impl<'a> MetricAssertion<'a> {
+    /// Validates metric total value (i.e. ignoring dimensionality)
+    /// ## Panics
+    /// Panics if value is not equal to expected
+    #[allow(clippy::return_self_not_must_use)]
+    pub fn total<I: TryInto<u64>>(&self, expected: I) -> Self {
+        let expected = expected.try_into().ok().unwrap();
+        let actual = self.snapshot.total_value;
+        assert_eq!(
+            expected, actual,
+            "expected {} to be emitted exactly {expected} times, got {actual}",
+            self.name
+        );
+        self.clone()
+    }
+
+    /// Validates metric value per step dimension.
+    /// ## Panics
+    /// Panics if value is not equal to expected
+    #[allow(clippy::return_self_not_must_use)]
+    pub fn per_step<I: TryInto<u64>>(&self, step: &Step, expected: I) -> Self {
+        let actual = self.get_dimension(labels::STEP).get(step.as_ref()).copied();
+
+        let expected = expected.try_into().ok();
+
+        assert_eq!(expected, actual);
+        self.clone()
+    }
+
+    /// Validates metric value per helper dimension.
+    /// ## Panics
+    /// Panics if value is not equal to expected
+    #[allow(clippy::return_self_not_must_use)]
+    pub fn per_helper<I: TryInto<u64>>(&self, role: &Role, expected: I) -> Self {
+        let actual = self.get_dimension(labels::ROLE).get(role.as_ref()).copied();
+        let expected = expected.try_into().ok();
+
+        assert_eq!(expected, actual);
+        self.clone()
+    }
+
+    #[allow(clippy::return_self_not_must_use)]
+    fn get_dimension(&self, name: &'static str) -> &HashMap<SharedString, u64> {
+        self.snapshot.dimensions.get(name).unwrap_or_else(|| {
+            panic!(
+                "No metric '{}' recorded per dimension '{name:?}'",
+                self.name
+            )
+        })
     }
 }
