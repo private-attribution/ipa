@@ -169,8 +169,7 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    //use super::BitwiseLessThan;
-    use crate::protocol::boolean::dumb_bitwise_lt::BitwiseLessThan;
+    use super::BitwiseLessThan;
     use crate::rand::thread_rng;
     use crate::test_fixture::{get_bits, Runner};
     use crate::{
