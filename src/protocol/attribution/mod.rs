@@ -15,13 +15,6 @@ pub struct AttributionInputRow<F: Field> {
     pub credit: Replicated<F>,
 }
 
-pub struct InteractionPatternInputRow<F: Field> {
-    is_trigger_bit: Replicated<F>,
-    helper_bit: Replicated<F>,
-    stop_bit: Replicated<F>,
-    interaction_value: Replicated<F>,
-}
-
 pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;

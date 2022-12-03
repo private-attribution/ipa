@@ -2,12 +2,11 @@ use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local};
-use crate::protocol::reveal::Reveal;
 use crate::protocol::{
     context::{Context, SemiHonestContext},
     BitOpStep, RecordId,
 };
-use crate::secret_sharing::{Replicated, XorReplicated};
+use crate::secret_sharing::{Replicated, SecretSharing, XorReplicated};
 use futures::future::try_join_all;
 use std::iter::repeat;
 
@@ -115,11 +114,12 @@ impl SolvedBits {
         Ok(b_b)
     }
 
-    async fn is_less_than_p<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
-        record_id: RecordId,
-        b_b: &[Replicated<F>],
-    ) -> Result<bool, Error> {
+    async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Result<bool, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let c_b =
             BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
                 .await?;
