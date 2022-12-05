@@ -1,3 +1,5 @@
+use std::iter::{repeat, zip};
+
 use futures::future::try_join_all;
 
 use crate::error::Error;
@@ -80,6 +82,20 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
         self.inner.upgrade_bit_triple(record_id, triple).await
+    }
+
+    /// Upgrade an input vector using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade_vec(
+        &self,
+        input: Vec<Replicated<F>>,
+    ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
+        try_join_all(zip(repeat(self), input.into_iter().enumerate()).map(
+            |(ctx, (i, share))| async move { ctx.inner.upgrade(RecordId::from(i), share).await },
+        ))
+        .await
     }
 }
 
