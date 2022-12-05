@@ -1,5 +1,6 @@
 use std::iter::{repeat, zip};
 
+use crate::repeat64str;
 use crate::secret_sharing::{Replicated, SecretSharing};
 use crate::{
     error::Error,
@@ -32,16 +33,7 @@ impl crate::protocol::Substep for InnerVectorElementStep {}
 
 impl AsRef<str> for InnerVectorElementStep {
     fn as_ref(&self) -> &str {
-        const VEC_ELEM: [&str; 64] = [
-            "elem0", "elem1", "elem2", "elem3", "elem4", "elem5", "elem6", "elem7", "elem8",
-            "elem9", "elem10", "elem11", "elem12", "elem13", "elem14", "elem15", "elem16",
-            "elem17", "elem18", "elem19", "elem20", "elem21", "elem22", "elem23", "elem24",
-            "elem25", "elem26", "elem27", "elem28", "elem29", "elem30", "elem31", "elem32",
-            "elem33", "elem34", "elem35", "elem36", "elem37", "elem38", "elem39", "elem40",
-            "elem41", "elem42", "elem43", "elem44", "elem45", "elem46", "elem47", "elem48",
-            "elem49", "elem50", "elem51", "elem52", "elem53", "elem54", "elem55", "elem56",
-            "elem57", "elem58", "elem59", "elem60", "elem61", "elem62", "elem63",
-        ];
+        const VEC_ELEM: [&str; 64] = repeat64str!["elem"];
         VEC_ELEM[self.0]
     }
 }
