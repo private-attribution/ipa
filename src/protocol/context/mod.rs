@@ -25,6 +25,7 @@ pub trait Context<F: Field>:
     + Reveal<F, Share = <Self as Context<F>>::Share>
     + Clone
     + Send
+    + Sync
 {
     /// Secret sharing type this context supports.
     type Share: SecretSharing<F>;
