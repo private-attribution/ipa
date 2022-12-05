@@ -2,6 +2,7 @@ pub mod attribution;
 pub mod basics;
 pub mod boolean;
 pub mod context;
+mod ipa;
 pub mod malicious;
 pub mod modulus_conversion;
 pub mod prss;
