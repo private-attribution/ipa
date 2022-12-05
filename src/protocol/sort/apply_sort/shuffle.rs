@@ -1,6 +1,6 @@
 use std::iter::{repeat, zip};
 
-use crate::secret_sharing::{SecretSharing, Replicated};
+use crate::secret_sharing::{Replicated, SecretSharing};
 use crate::{
     error::Error,
     ff::Field,
@@ -34,14 +34,11 @@ impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
     where
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
     {
-        try_join_all(
-            self.iter().map(|x| {
-                let c = ctx.narrow("foo");
-                async move {
-                    c.reshare(x, record_id, to_helper).await
-                }
-            })
-        ).await
+        try_join_all(self.iter().map(|x| {
+            let c = ctx.narrow("foo");
+            async move { c.reshare(x, record_id, to_helper).await }
+        }))
+        .await
     }
 }
 
