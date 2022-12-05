@@ -1,3 +1,4 @@
+use crate::helpers::buffers::WaitingTasks;
 use crate::{
     helpers::{
         buffers::fsv::FixedSizeByteVec,
@@ -20,7 +21,7 @@ type ByteBuf = FixedSizeByteVec<{ MESSAGE_PAYLOAD_SIZE_BYTES }>;
 pub struct SendBuffer {
     items_in_batch: usize,
     batch_count: usize,
-    inner: HashMap<ChannelId, ByteBuf>,
+    pub(super) inner: HashMap<ChannelId, ByteBuf>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -83,26 +84,49 @@ impl SendBuffer {
         };
 
         // Make sure record id is within the accepted range and reject the request if it is not
-        let start = RecordId::from(u32::try_from(buf.taken()).unwrap());
-        let end = RecordId::from(u32::try_from(buf.taken() + buf.capacity()).unwrap());
+        let range = Range::from(&*buf);
 
-        if !(start..end).contains(&msg.record_id) {
+        if !range.contains(&msg.record_id) {
             return Err(PushError::OutOfRange {
                 channel_id: channel_id.clone(),
                 record_id: msg.record_id,
-                accepted_range: (start..end),
+                accepted_range: range,
             });
         }
 
         // Determine the offset for this record and insert the payload inside the buffer.
         // Message payload may be less than allocated capacity per element, if that's the case
         // payload will be extended to fill the gap.
-        let index = usize::from(msg.record_id) - usize::from(start);
+        let index = usize::from(msg.record_id) - usize::from(range.start);
         // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
         buf.insert(index, &payload);
         Ok(buf.take(self.items_in_batch))
+    }
+
+    #[cfg(debug_assertions)]
+    pub(in crate::helpers) fn waiting(&self) -> WaitingTasks {
+        let mut tasks = HashMap::new();
+        for (channel, buf) in &self.inner {
+            let range = Range::from(buf);
+            let range: Range<u32> = range.start.into()..range.end.into();
+            let mut records = Vec::new();
+            for i in range {
+                // we're only interested in things in the front of the buffer
+                if buf.added(usize::try_from(i).unwrap()) {
+                    break;
+                }
+
+                records.push(i);
+            }
+
+            if !records.is_empty() {
+                tasks.insert(channel, records);
+            }
+        }
+
+        WaitingTasks { tasks }
     }
 }
 
@@ -121,6 +145,14 @@ impl Config {
             items_in_batch,
             batch_count: self.batch_count,
         }
+    }
+}
+
+impl From<&ByteBuf> for Range<RecordId> {
+    fn from(buf: &ByteBuf) -> Self {
+        let start = RecordId::from(u32::try_from(buf.taken()).unwrap());
+        let end = RecordId::from(u32::try_from(buf.taken() + buf.capacity()).unwrap());
+        start..end
     }
 }
 

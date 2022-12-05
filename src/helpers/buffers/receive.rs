@@ -1,9 +1,11 @@
+use crate::helpers::buffers::WaitingTasks;
 use crate::{
     helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::RecordId,
 };
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use tokio::sync::oneshot;
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
@@ -86,5 +88,23 @@ impl ReceiveBuffer {
 
             *offset += 1;
         }
+    }
+
+    #[cfg(debug_assertions)]
+    pub(in crate::helpers) fn waiting(&self) -> WaitingTasks {
+        let mut tasks = HashMap::new();
+        for (channel, receive_items) in &self.inner {
+            let mut vec = receive_items
+                .iter()
+                .filter_map(|(record_id, item)| match item {
+                    ReceiveBufItem::Requested(_) => Some(u32::from(*record_id)),
+                    ReceiveBufItem::Received(_) => None,
+                })
+                .collect::<Vec<_>>();
+            vec.sort_unstable();
+            tasks.insert(channel, vec);
+        }
+
+        WaitingTasks { tasks }
     }
 }

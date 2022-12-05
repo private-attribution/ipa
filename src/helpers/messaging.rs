@@ -19,10 +19,12 @@ use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
 use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
 use crate::task::JoinHandle;
 use ::tokio::sync::{mpsc, oneshot};
+use ::tokio::time::Instant;
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::io;
+use std::time::Duration;
 use tinyvec::array_vec;
 use tracing::Instrument;
 
@@ -158,8 +160,13 @@ impl Gateway {
         let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
+            const INTERVAL: Duration = Duration::from_secs(10);
+
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
+
+            let sleep = tokio::time::sleep(INTERVAL);
+            tokio::pin!(sleep);
 
             loop {
                 // Make a random choice what to process next:
@@ -183,11 +190,29 @@ impl Gateway {
                                 .expect("Failed to send data to the network");
                         }
                     }
+                    _ = &mut sleep => {
+                        // TODO: split this large spawn task into smaller chunks and create a function
+                        // for it.
+                        if cfg!(debug_assertions) {
+                            let send_tasks_waiting = send_buf.waiting();
+                            let receive_tasks_waiting = receive_buf.waiting();
+                            if !send_tasks_waiting.is_empty() || !receive_tasks_waiting.is_empty() {
+                                tracing::error!("Nothing has happened on {:?} in the last {INTERVAL:?}. Here is the list of tasks pending completion:\n waiting to send: {:?},\n waiting to receive: {:?}",
+                                    role,
+                                    send_buf.waiting(),
+                                    receive_buf.waiting()
+                                );
+                            }
+                        }
+                    }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;
                     }
                 }
+
+                // reset the timer on every action
+                sleep.as_mut().reset(Instant::now() + INTERVAL);
             }
         }.instrument(tracing::info_span!("gateway_loop", role=?role)));
 
