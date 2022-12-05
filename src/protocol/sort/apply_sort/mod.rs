@@ -3,66 +3,51 @@ pub mod shuffle;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{
-        context::{Context, SemiHonestContext},
-        sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
-    },
-    secret_sharing::Replicated,
+    protocol::{context::Context, sort::apply::apply_inv},
+    secret_sharing::SecretSharing,
 };
 
 use crate::protocol::sort::ApplyInvStep::ShuffleInputs;
-use crate::protocol::sort::SortStep::ShuffleRevealPermutation;
 
 use self::shuffle::{shuffle_shares, Resharable};
 
-#[derive(Debug)]
-pub struct SortPermutation<F: Field>(pub Vec<Replicated<F>>);
+use super::generate_permutation::RevealedAndRandomPermutations;
 
-impl<F: Field> SortPermutation<F> {
-    #[allow(dead_code)]
-    /// ## Panics
-    /// It will propagate panics from sort
-    /// # Errors
-    /// it will propagate errors from sort
-    pub async fn apply<I>(
-        self,
-        ctx: SemiHonestContext<'_, F>,
-        input: Vec<I>,
-    ) -> Result<Vec<I>, Error>
-    where
-        I: Resharable<F, Share = Replicated<F>>,
-    {
-        let revealed_and_random_permutation = shuffle_and_reveal_permutation(
-            ctx.narrow(&ShuffleRevealPermutation),
-            input.len().try_into().unwrap(),
-            self.0,
-        )
-        .await?;
+/// # Errors
+/// Propagates errors from shuffle/reshare
+pub async fn apply<C, F, S, I>(
+    ctx: C,
+    input: Vec<I>,
+    sort_permutation: &RevealedAndRandomPermutations,
+) -> Result<Vec<I>, Error>
+where
+    C: Context<F, Share = S>,
+    F: Field,
+    S: SecretSharing<F>,
+    I: Resharable<F, Share = S> + Send + Sync,
+{
+    let mut shuffled_objects = shuffle_shares(
+        input,
+        (
+            &sort_permutation.randoms_for_shuffle.0,
+            &sort_permutation.randoms_for_shuffle.1,
+        ),
+        ctx.narrow(&ShuffleInputs),
+    )
+    .await?;
 
-        let mut shuffled_objects = shuffle_shares(
-            input,
-            (
-                &revealed_and_random_permutation.randoms_for_shuffle.0,
-                &revealed_and_random_permutation.randoms_for_shuffle.1,
-            ),
-            ctx.narrow(&ShuffleInputs),
-        )
-        .await?;
-
-        apply_inv(
-            &revealed_and_random_permutation.revealed,
-            &mut shuffled_objects,
-        );
-        Ok(shuffled_objects)
-    }
+    apply_inv(&sort_permutation.revealed, &mut shuffled_objects);
+    Ok(shuffled_objects)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+
     use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
     use crate::protocol::context::Context;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::generate_permutation::generate_permutation;
+    use crate::protocol::sort::apply_sort::apply;
+    use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
     use crate::protocol::IpaProtocolStep::SortPreAccumulation;
     use crate::protocol::QueryId;
     use crate::rand::{thread_rng, Rng};
@@ -101,14 +86,14 @@ mod tests {
                         convert_all_bits(&ctx.narrow("convert_all_bits"), &local_lists)
                             .await
                             .unwrap();
-                    let sort_permutation = generate_permutation(
+                    let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
                         &converted_shares,
                         MaskedMatchKey::BITS,
                     )
                     .await
                     .unwrap();
-                    sort_permutation.apply(ctx, secret).await.unwrap()
+                    apply(ctx, secret, &sort_permutation).await.unwrap()
                 },
             )
             .await;
