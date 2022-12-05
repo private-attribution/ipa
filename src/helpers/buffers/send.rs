@@ -1,4 +1,3 @@
-use crate::helpers::buffers::WaitingTasks;
 use crate::{
     helpers::{
         buffers::fsv::FixedSizeByteVec,
@@ -106,7 +105,9 @@ impl SendBuffer {
     }
 
     #[cfg(debug_assertions)]
-    pub(in crate::helpers) fn waiting(&self) -> WaitingTasks {
+    pub(in crate::helpers) fn waiting(&self) -> super::WaitingTasks {
+        use super::WaitingTasks;
+
         let mut tasks = HashMap::new();
         for (channel, buf) in &self.inner {
             let range = Range::from(buf);

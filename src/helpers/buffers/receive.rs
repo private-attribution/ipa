@@ -1,4 +1,3 @@
-use crate::helpers::buffers::WaitingTasks;
 use crate::{
     helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::RecordId,
@@ -91,7 +90,9 @@ impl ReceiveBuffer {
     }
 
     #[cfg(debug_assertions)]
-    pub(in crate::helpers) fn waiting(&self) -> WaitingTasks {
+    pub(in crate::helpers) fn waiting(&self) -> super::WaitingTasks {
+        use super::WaitingTasks;
+
         let mut tasks = HashMap::new();
         for (channel, receive_items) in &self.inner {
             let mut vec = receive_items

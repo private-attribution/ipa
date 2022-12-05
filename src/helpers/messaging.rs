@@ -193,7 +193,8 @@ impl Gateway {
                     _ = &mut sleep => {
                         // TODO: split this large spawn task into smaller chunks and create a function
                         // for it.
-                        if cfg!(debug_assertions) {
+                        #[cfg(debug_assertions)]
+                        {
                             let send_tasks_waiting = send_buf.waiting();
                             let receive_tasks_waiting = receive_buf.waiting();
                             if !send_tasks_waiting.is_empty() || !receive_tasks_waiting.is_empty() {
