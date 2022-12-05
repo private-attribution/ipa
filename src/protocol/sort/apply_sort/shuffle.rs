@@ -56,6 +56,9 @@ impl From<usize> for InnerVectorElementStep {
 impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
     type Share = Replicated<F>;
 
+    /// This is intended to be used for resharing vectors of bit-decomposed values.
+    /// # Errors
+    /// If the vector has more than 64 elements
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
@@ -254,11 +257,9 @@ mod tests {
                         .await
                         .unwrap();
 
-                        for row in &shuffled_shares {
-                            for share in row {
-                                assert!(!share_appears_anywhere(share, &copy_of_input));
-                            }
-                        }
+                        assert!(!shuffled_shares.iter().any(|row| row
+                            .iter()
+                            .any(|x| share_appears_anywhere(x, &copy_of_input))));
 
                         shuffled_shares
                     },
