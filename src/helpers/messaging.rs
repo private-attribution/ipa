@@ -165,8 +165,8 @@ impl Gateway {
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
 
-            let sleep = tokio::time::sleep(INTERVAL);
-            tokio::pin!(sleep);
+            let sleep = ::tokio::time::sleep(INTERVAL);
+            ::tokio::pin!(sleep);
 
             loop {
                 // Make a random choice what to process next:
