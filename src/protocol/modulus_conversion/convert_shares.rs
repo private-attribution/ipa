@@ -109,9 +109,9 @@ where
     );
     let ctx1 = ctx.narrow(&Step::Xor1);
     let ctx2 = ctx.narrow(&Step::Xor2);
-    let sh0_xor_sh1 = xor_sparse(ctx1, record_id, sh0, sh1, &ZeroPositions::AVZZ_BZVZ).await?;
+    let sh0_xor_sh1 = xor_sparse(ctx1, record_id, sh0, sh1, ZeroPositions::AVZZ_BZVZ).await?;
     debug_assert_eq!(
-        ZeroPositions::mul_output(&ZeroPositions::AVZZ_BZVZ),
+        ZeroPositions::mul_output(ZeroPositions::AVZZ_BZVZ),
         ZeroPositions::Pvvz
     );
     xor_sparse(
@@ -119,7 +119,7 @@ where
         record_id,
         &sh0_xor_sh1,
         sh2,
-        &ZeroPositions::AVVZ_BZZV,
+        ZeroPositions::AVVZ_BZZV,
     )
     .await
 }

@@ -58,6 +58,10 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
             .await
     }
 
+    /// Upgrade a sparse input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
     pub async fn upgrade_sparse(
         &self,
         record_id: RecordId,
@@ -217,7 +221,7 @@ impl<'a, F: Field> ContextInner<'a, F> {
                 record_id,
                 &x,
                 &self.r_share,
-                &(zeros_at, ZeroPositions::Pvvv),
+                (zeros_at, ZeroPositions::Pvvv),
             )
             .await?;
         let m = MaliciousReplicated::new(x, rx);

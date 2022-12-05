@@ -26,47 +26,30 @@ pub async fn multiply<F>(
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
-    zeros: &MultiplyZeroPositions,
+    zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
     let role = ctx.role();
-    // let [need_to_recv, need_to_send, need_random_right] = [true, true, true];
     let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
     zeros.0.check(role, "a", a);
     zeros.1.check(role, "b", b);
-    println!(
-        "{role:?} {:?} {:?}_{:?} {:?}",
-        ctx.step(),
-        zeros.0,
-        zeros.1,
-        zeros.work_for(role)
-    );
 
-    // generate shared randomness.
+    // Shared randomness used to mask the values that are sent.
     let prss = ctx.prss();
     let (s0, s1) = prss.generate_fields(record_id);
-    // let (s0, s1) = (F::ZERO, F::ZERO);
 
     let channel = ctx.mesh();
     let mut rhs = a.right() * b.right();
     if need_to_send {
-        // compute the value (d_i) we want to send to the right helper (i+1)
+        // Compute the value (d_i) we want to send to the right helper (i+1).
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
-        // notify helper on the right that we've computed our value
-        println!(
-            "{:?} -> {:?} {:?} {:?}",
-            role,
-            role.peer(Direction::Right),
-            ctx.step(),
-            record_id
-        );
         channel
             .send(role.peer(Direction::Right), record_id, right_d)
             .await?;
-        rhs += right_d
+        rhs += right_d;
     } else {
         debug_assert_eq!(a.left() * b.right() + a.right() * b.left(), F::ZERO);
     }
@@ -77,20 +60,13 @@ where
         rhs += s1;
     }
 
-    // Sleep until helper on the left sends us their (d_i-1) value
+    // Sleep until helper on the left sends us their (d_i-1) value.
     let mut lhs = a.left() * b.left();
     if need_to_recv {
-        println!(
-            "{:?} <- {:?} {:?} {:?}",
-            role,
-            role.peer(Direction::Left),
-            ctx.step(),
-            record_id
-        );
         let left_d = channel
             .receive(role.peer(Direction::Left), record_id)
             .await?;
-        lhs += left_d
+        lhs += left_d;
     }
     // If we send, we subtract randomness, so we need to add to our share.
     if need_to_send {
@@ -103,13 +79,11 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod regular_mul_tests {
     use crate::ff::{Field, Fp31};
-    use crate::protocol::mul::SecureMul;
-    use crate::protocol::{QueryId, RecordId};
+    use crate::protocol::{mul::SecureMul, QueryId, RecordId};
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
+    use rand::distributions::{Distribution, Standard};
     use std::iter::{repeat, zip};
 
     #[tokio::test]
@@ -215,7 +189,7 @@ mod specialized_mul_tests {
                     RecordId::from(0),
                     &a_share,
                     &b_share,
-                    &ZeroPositions::AVZZ_BZVZ,
+                    ZeroPositions::AVZZ_BZVZ,
                 )
                 .await
                 .unwrap()
@@ -245,7 +219,7 @@ mod specialized_mul_tests {
                             RecordId::from(i),
                             &a_share,
                             &b_share,
-                            &ZeroPositions::AVZZ_BZVZ,
+                            ZeroPositions::AVZZ_BZVZ,
                         )
                         .await
                     },
@@ -271,7 +245,7 @@ mod specialized_mul_tests {
                     RecordId::from(0),
                     &a_share,
                     &b_share,
-                    &ZeroPositions::AVVV_BZZV,
+                    ZeroPositions::AVVV_BZZV,
                 )
                 .await
                 .unwrap()
@@ -299,7 +273,7 @@ mod specialized_mul_tests {
                             RecordId::from(i),
                             &a_share,
                             &b_share,
-                            &ZeroPositions::AVVV_BZZV,
+                            ZeroPositions::AVVV_BZZV,
                         )
                         .await
                     },

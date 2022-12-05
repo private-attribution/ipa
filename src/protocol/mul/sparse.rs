@@ -37,62 +37,42 @@ impl ZeroPositions {
     /// Get the work that `Role::H1` would perform given two values with known zero values
     /// in the identified positions.  Work is who sends: `[left, self, right]`, which for
     /// the current role is interpreted as `[recv, send, add_random_rhs]`.
-    fn work(zeros_at: &MultiplyZeroPositions) -> [bool; 3] {
+    #[must_use]
+    fn work(zeros_at: MultiplyZeroPositions) -> [bool; 3] {
+        // This match looks scary, but it is the output of a test function,
+        // formatted with clippy's help.  See `print_mappings` below.
         match zeros_at {
             (Self::Pvzz, Self::Pvzz) | (Self::Pzvz, Self::Pzvz) | (Self::Pzzv, Self::Pzzv) => {
                 panic!("this multiplication always produces zero");
             }
-            (Self::Pzvv, Self::Pzvv)
-            | (Self::Pzvv, Self::Pzvz)
-            | (Self::Pzvv, Self::Pzzv)
-            | (Self::Pzvz, Self::Pzvv)
-            | (Self::Pzvz, Self::Pzzv)
-            | (Self::Pzzv, Self::Pzvv)
-            | (Self::Pzzv, Self::Pzvz) => [false, false, true],
-            (Self::Pvvz, Self::Pvvz)
-            | (Self::Pvvz, Self::Pvzz)
-            | (Self::Pvvz, Self::Pzvz)
-            | (Self::Pvzz, Self::Pvvz)
-            | (Self::Pvzz, Self::Pzvz)
-            | (Self::Pzvz, Self::Pvvz)
-            | (Self::Pzvz, Self::Pvzz) => [false, true, false],
-            (Self::Pvvv, Self::Pzvz)
-            | (Self::Pvzv, Self::Pzvz)
-            | (Self::Pzvz, Self::Pvvv)
-            | (Self::Pzvz, Self::Pvzv) => [false, true, true],
-            (Self::Pvzv, Self::Pvzv)
-            | (Self::Pvzv, Self::Pvzz)
-            | (Self::Pvzv, Self::Pzzv)
-            | (Self::Pvzz, Self::Pvzv)
-            | (Self::Pvzz, Self::Pzzv)
-            | (Self::Pzzv, Self::Pvzv)
-            | (Self::Pzzv, Self::Pvzz) => [true, false, false],
-            (Self::Pvvv, Self::Pzzv)
-            | (Self::Pvvz, Self::Pzzv)
-            | (Self::Pzzv, Self::Pvvv)
-            | (Self::Pzzv, Self::Pvvz) => [true, false, true],
-            (Self::Pvvv, Self::Pvzz)
-            | (Self::Pvzz, Self::Pvvv)
-            | (Self::Pvzz, Self::Pzvv)
-            | (Self::Pzvv, Self::Pvzz) => [true, true, false],
-            (Self::Pvvv, Self::Pvvv)
-            | (Self::Pvvv, Self::Pvvz)
-            | (Self::Pvvv, Self::Pvzv)
-            | (Self::Pvvv, Self::Pzvv)
-            | (Self::Pvvz, Self::Pvvv)
-            | (Self::Pvvz, Self::Pvzv)
-            | (Self::Pvvz, Self::Pzvv)
-            | (Self::Pvzv, Self::Pvvv)
-            | (Self::Pvzv, Self::Pvvz)
-            | (Self::Pvzv, Self::Pzvv)
-            | (Self::Pzvv, Self::Pvvv)
-            | (Self::Pzvv, Self::Pvvz)
-            | (Self::Pzvv, Self::Pvzv) => [true, true, true],
+            (Self::Pzvv | Self::Pzvz | Self::Pzzv, Self::Pzvv)
+            | (Self::Pzvv | Self::Pzzv, Self::Pzvz)
+            | (Self::Pzvv | Self::Pzvz, Self::Pzzv) => [false, false, true],
+            (Self::Pvvz | Self::Pvzz | Self::Pzvz, Self::Pvvz)
+            | (Self::Pvvz | Self::Pzvz, Self::Pvzz)
+            | (Self::Pvvz | Self::Pvzz, Self::Pzvz) => [false, true, false],
+            (Self::Pvvv | Self::Pvzv, Self::Pzvz) | (Self::Pzvz, Self::Pvvv | Self::Pvzv) => {
+                [false, true, true]
+            }
+            (Self::Pvzv | Self::Pvzz | Self::Pzzv, Self::Pvzv)
+            | (Self::Pvzv | Self::Pzzv, Self::Pvzz)
+            | (Self::Pvzv | Self::Pvzz, Self::Pzzv) => [true, false, false],
+            (Self::Pvvv | Self::Pvvz, Self::Pzzv) | (Self::Pzzv, Self::Pvvv | Self::Pvvz) => {
+                [true, false, true]
+            }
+            (Self::Pvvv | Self::Pzvv, Self::Pvzz) | (Self::Pvzz, Self::Pvvv | Self::Pzvv) => {
+                [true, true, false]
+            }
+            (Self::Pvvv | Self::Pvvz | Self::Pvzv | Self::Pzvv, Self::Pvvv)
+            | (Self::Pvvv | Self::Pvzv | Self::Pzvv, Self::Pvvz)
+            | (Self::Pvvv | Self::Pvvz | Self::Pzvv, Self::Pvzv)
+            | (Self::Pvvv | Self::Pvvz | Self::Pvzv, Self::Pzvv) => [true, true, true],
         }
     }
 
     /// Determine where the zero positions are in the output of a multiplication.
-    pub fn mul_output(zeros_at: &MultiplyZeroPositions) -> Self {
+    #[must_use]
+    pub fn mul_output(zeros_at: MultiplyZeroPositions) -> Self {
         // A zero only appears on the lhs of the output if the helper is neither
         // sending nor receiving.
         match Self::work(zeros_at) {
@@ -105,6 +85,8 @@ impl ZeroPositions {
 
     /// Sanity check a value at a given helper.
     /// Debug code only as this is unnecessary work.
+    /// # Panics
+    /// When the input value includes a non-zero value in a position marked as having a zero.
     pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
         #[cfg(debug_assertions)]
         {
@@ -148,13 +130,13 @@ impl From<ZeroPositions> for [bool; 3] {
 pub(super) trait MultiplyWork {
     /// Determine the work that is required for the identified role.
     /// Return value is who is sending relative to the given role [self, left, right].
-    fn work_for(&self, role: Role) -> [bool; 3];
+    fn work_for(self, role: Role) -> [bool; 3];
     /// Determines where there are known zeros in the output of a multiplication.
-    fn output(&self) -> ZeroPositions;
+    fn output(self) -> ZeroPositions;
 }
 
 impl MultiplyWork for MultiplyZeroPositions {
-    fn work_for(&self, role: Role) -> [bool; 3] {
+    fn work_for(self, role: Role) -> [bool; 3] {
         let work = ZeroPositions::work(self);
         let i = role as usize;
         let need_to_recv = work[i % 3];
@@ -163,7 +145,7 @@ impl MultiplyWork for MultiplyZeroPositions {
         [need_to_recv, need_to_send, need_random_right]
     }
 
-    fn output(&self) -> ZeroPositions {
+    fn output(self) -> ZeroPositions {
         ZeroPositions::mul_output(self)
     }
 }
@@ -180,12 +162,11 @@ mod test {
             context::Context,
             malicious::MaliciousValidator,
             mul::{sparse::MultiplyWork, SecureMul, ZeroPositions},
-            reveal::Reveal,
             QueryId, RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        test_fixture::{Runner, TestWorld},
     };
     use std::{borrow::Borrow, iter::zip};
 
@@ -300,7 +281,7 @@ mod test {
         Replicated::new(v_left, v_right)
     }
 
-    fn check_punctured_output<F, T>(v: &[T; 3], work: &MultiplyZeroPositions)
+    fn check_punctured_output<F, T>(v: &[T; 3], work: MultiplyZeroPositions)
     where
         F: Field,
         T: Borrow<Replicated<F>>,
@@ -322,7 +303,7 @@ mod test {
             let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
                 let b_flags = <[bool; 3]>::from(b);
-                println!("{a:?}={:?}; {b:?} {:?}", a_flags, b_flags);
+                println!("{a:?}={:?}; {b:?}={:?}", a_flags, b_flags);
 
                 if calculate_work(Role::H1, a_flags, b_flags)
                     .iter()
@@ -338,36 +319,12 @@ mod test {
                         let v_a = puncture(ctx.role(), a, &v_a);
                         let v_b = puncture(ctx.role(), b, &v_b);
 
-                        let work = calculate_work(ctx.role(), a_flags, b_flags);
-                        println!("{:?} work {work:?}", ctx.role());
-
-                        let revealed_a = ctx
-                            .narrow("reveal_a")
-                            .reveal(RecordId::from(0), &v_a)
+                        ctx.multiply_sparse(RecordId::from(0), &v_a, &v_b, (a, b))
                             .await
-                            .unwrap();
-                        println!("a = {revealed_a:?}");
-                        let revealed_b = ctx
-                            .narrow("reveal_b")
-                            .reveal(RecordId::from(0), &v_b)
-                            .await
-                            .unwrap();
-                        println!("b = {revealed_b:?}");
-
-                        let reveal_ctx = ctx.narrow("reveal_ab");
-                        let ab = ctx
-                            .multiply_sparse(RecordId::from(0), &v_a, &v_b, &(a, b))
-                            .await
-                            .unwrap();
-                        let revealed_ab = reveal_ctx.reveal(RecordId::from(0), &ab).await.unwrap();
-                        println!("ab = {revealed_ab:?}");
-
-                        assert_eq!(revealed_a * revealed_b, revealed_ab);
-                        ab
+                            .unwrap()
                     })
                     .await;
-                println!("ab = {:?}", result.clone().reconstruct());
-                check_punctured_output(&result, &(a, b));
+                check_punctured_output(&result, (a, b));
             }
         }
     }
@@ -396,12 +353,6 @@ mod test {
                         let v_a = puncture(ctx.role(), a, &v_a);
                         let v_b = puncture(ctx.role(), b, &v_b);
 
-                        println!(
-                            "{:?} {a:?}_{b:?} {v_a:?} x\n   {v_b:?}: {:?}",
-                            ctx.role(),
-                            (a, b).work_for(ctx.role())
-                        );
-
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context();
                         let m_a = m_ctx
@@ -413,17 +364,15 @@ mod test {
                             .await
                             .unwrap();
 
-                        println!("{:?} {m_a:?} x\n      {m_b:?}", m_ctx.role());
-
                         let m_ab = m_ctx
-                            .multiply_sparse(RecordId::from(0), &m_a, &m_b, &(a, b))
+                            .multiply_sparse(RecordId::from(0), &m_a, &m_b, (a, b))
                             .await
                             .unwrap();
 
                         v.validate(m_ab).await.unwrap()
                     })
                     .await;
-                check_punctured_output(&result, &(a, b));
+                check_punctured_output(&result, (a, b));
             }
         }
     }
@@ -454,13 +403,13 @@ mod test {
                     .unwrap();
 
                 let m_ab = m_ctx
-                    .multiply_sparse(RecordId::from(0), &m_a, &m_b, &(a, b))
+                    .multiply_sparse(RecordId::from(0), &m_a, &m_b, ZeroPositions::NONE)
                     .await
                     .unwrap();
 
                 v.validate(m_ab).await.unwrap()
             })
             .await;
-        check_punctured_output(&result, &(a, b));
+        check_punctured_output(&result, (a, b));
     }
 }

@@ -23,7 +23,7 @@ pub trait SecureMul<F: Field>: Sized {
         a: &Self::Share,
         b: &Self::Share,
     ) -> Result<Self::Share, Error> {
-        self.multiply_sparse(record_id, a, b, &ZeroPositions::NONE)
+        self.multiply_sparse(record_id, a, b, ZeroPositions::NONE)
             .await
     }
 
@@ -37,7 +37,7 @@ pub trait SecureMul<F: Field>: Sized {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-        zeros_at: &MultiplyZeroPositions,
+        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self::Share, Error>;
 }
 
@@ -54,7 +54,7 @@ impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-        zeros_at: &MultiplyZeroPositions,
+        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self::Share, Error> {
         semi_honest_mul(self, record_id, a, b, zeros_at).await
     }
@@ -70,7 +70,7 @@ impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         a: &Self::Share,
         b: &Self::Share,
-        zeros_at: &MultiplyZeroPositions,
+        zeros_at: MultiplyZeroPositions,
     ) -> Result<Self::Share, Error> {
         malicious_mul(self, record_id, a, b, zeros_at).await
     }

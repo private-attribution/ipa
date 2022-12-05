@@ -7,21 +7,26 @@ use crate::secret_sharing::SecretSharing;
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - 2[ab]`
+/// # Errors
+/// When communication fails.
 pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    xor_sparse(ctx, record_id, a, b, &ZeroPositions::NONE).await
+    xor_sparse(ctx, record_id, a, b, ZeroPositions::NONE).await
 }
 
+/// Secure XOR protocol with maybe sparse inputs.
+/// # Errors
+/// When communication fails.
 pub async fn xor_sparse<F, C, S>(
     ctx: C,
     record_id: RecordId,
     a: &S,
     b: &S,
-    zeros_at: &MultiplyZeroPositions,
+    zeros_at: MultiplyZeroPositions,
 ) -> Result<S, Error>
 where
     F: Field,

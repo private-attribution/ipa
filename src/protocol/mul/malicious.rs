@@ -62,7 +62,7 @@ pub async fn multiply<F>(
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
-    zeros_at: &MultiplyZeroPositions,
+    zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
@@ -85,15 +85,12 @@ where
                 record_id,
                 a.rx(),
                 b.x().access_without_downgrade(),
-                &(ZeroPositions::Pvvv, zeros_at.1),
+                (ZeroPositions::Pvvv, zeros_at.1),
             ),
     )
     .await?;
 
-    println!("{:?} ab {ab:?} rab {rab:?}", random_constant_ctx.role());
-
     let malicious_ab = MaliciousReplicated::new(ab, rab);
-
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)
@@ -153,7 +150,7 @@ mod specialized_mul_tests {
 
         let res = world
             .malicious(input, |ctx, (a, b)| async move {
-                ctx.multiply_sparse(RecordId::from(0), &a, &b, &ZeroPositions::AVZZ_BZVZ)
+                ctx.multiply_sparse(RecordId::from(0), &a, &b, ZeroPositions::AVZZ_BZVZ)
                     .await
                     .unwrap()
             })
@@ -174,7 +171,7 @@ mod specialized_mul_tests {
 
         let res = world
             .malicious(input, |ctx, (a, b)| async move {
-                ctx.multiply_sparse(RecordId::from(0), &a, &b, &ZeroPositions::AVVV_BZZV)
+                ctx.multiply_sparse(RecordId::from(0), &a, &b, ZeroPositions::AVVV_BZZV)
                     .await
                     .unwrap()
             })
