@@ -59,7 +59,6 @@ pub trait Field:
     /// Derived from the size of the backing field, this constant indicates how much
     /// space is required to store this field value
     const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
-    const STR_REPR: &'static str;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`

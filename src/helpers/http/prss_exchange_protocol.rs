@@ -156,9 +156,8 @@ mod test {
                 builder.append_chunk(*chunk);
             }
             let built = builder.build();
-            #[allow(clippy::cast_possible_truncation)] // size is <= 4
             let expected_err = Err(IncompletePublicKey {
-                incomplete_count: i as u8,
+                incomplete_count: u8::try_from(i).unwrap(),
             });
             assert_eq!(built, expected_err);
         }

@@ -1,25 +1,52 @@
+use crate::error::BoxError;
 use crate::{
     ff::{self, Field},
     net::MpcHelperServerError,
 };
 use async_trait::async_trait;
-use axum::{
-    body::{Bytes, HttpBody},
-    extract::{BodyStream, FromRequest, Query, RequestParts},
-};
+use axum::extract::{BodyStream, FromRequest, Query, RequestParts};
 use futures::{ready, Stream};
+use hyper::body::{Bytes, HttpBody};
 use pin_project::pin_project;
+use std::collections::VecDeque;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// the string repr of the field type from the query param of the request
-/// Possible values are currently:
+/// the size of the field type specified in the query param of the request
+/// Possible sizes are are currently from:
 /// * `fp2`
 /// * `fp31`
 /// * `fp32_bit_prime`
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct FieldStr {
-    field_type: String,
+struct FieldSize {
+    field_size: u32,
+}
+
+impl FieldSize {
+    const FP2_TYPE: &'static str = "fp2";
+    const FP31_TYPE: &'static str = "fp31";
+    const FP32_BIT_PRIME_TYPE: &'static str = "fp32_bit_prime";
+}
+
+#[async_trait]
+impl<B: Send> FromRequest<B> for FieldSize {
+    type Rejection = MpcHelperServerError;
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
+        struct FieldStr {
+            field_type: String,
+        }
+
+        let Query(FieldStr { field_type }) = req.extract().await?;
+        let field_size = match field_type.as_str() {
+            Self::FP2_TYPE => Ok(ff::Fp2::SIZE_IN_BYTES),
+            Self::FP31_TYPE => Ok(ff::Fp31::SIZE_IN_BYTES),
+            Self::FP32_BIT_PRIME_TYPE => Ok(ff::Fp32BitPrime::SIZE_IN_BYTES),
+            other => Err(MpcHelperServerError::bad_query_value(&field_type, other)),
+        }?;
+
+        Ok(Self { field_size })
+    }
 }
 
 /// Wraps a [`BodyStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
@@ -31,7 +58,7 @@ pub struct ByteArrStream {
     body: BodyStream,
     size_in_bytes: u32,
     buffered_size: u32,
-    buffered: Vec<Bytes>,
+    buffered: VecDeque<Bytes>,
 }
 
 impl ByteArrStream {
@@ -40,65 +67,61 @@ impl ByteArrStream {
             body,
             size_in_bytes,
             buffered_size: 0,
-            buffered: Vec::new(),
+            buffered: VecDeque::new(),
         }
     }
 
     /// returns [`Bytes`] of `size_in_bytes` length from the buffered chunks
     /// # Panics
     /// if the total length of byte buffers is smaller than `size_in_bytes`
-    fn take_bytes(size_in_bytes: u32, buffered: &mut Vec<Bytes>, buffered_size: &mut u32) -> Bytes {
+    fn take_bytes(
+        size_in_bytes: u32,
+        buffered: &mut VecDeque<Bytes>,
+        buffered_size: &mut u32,
+    ) -> Bytes {
         assert!(*buffered_size >= size_in_bytes);
 
-        // take from single buffer
-        // simply splits the first buffer in-place
+        // if the first buffer is large enough, simply split it in-place.
+        // This is O(1) operation, and should be true majority of the time, assuming large size
+        // buffers
         if buffered[0].len() > size_in_bytes as usize {
             let out_bytes = buffered[0].split_to(size_in_bytes as usize);
             *buffered_size -= size_in_bytes;
             out_bytes
         } else {
-            // take across buffers
-            // removes expended buffers after taking
-            let mut out_bytes = Vec::new();
-            let mut remaining_bytes = size_in_bytes as usize;
-            let mut i = 0;
+            // First buffer is too small, so we need to take across buffers.
+            // Will require a memcopy of u8's across buffers in order to create 1 contiguous buffer
+            // to return.
+            // Removes expended buffers after taking
+
+            let mut out_bytes = Vec::with_capacity(size_in_bytes as usize);
+            // this must loop through the bytes buffers because we don't know how many buffers will
+            // be needed to fulfill `size_in_bytes`. e.g. if every buffer had length 1, we'd need to
+            // visit `size_in_bytes` buffers in order to fill `out_bytes`
             loop {
+                let remaining_bytes = out_bytes.capacity() - out_bytes.len();
                 if remaining_bytes == 0 {
                     break;
                 }
-                let buffer = &mut buffered[i];
-                let buffer_len = buffer.len();
                 // current `buffer` has more bytes than needed
-                if buffer_len > remaining_bytes {
-                    out_bytes.push(buffer.split_to(remaining_bytes));
-                    remaining_bytes = 0;
+                if buffered[0].len() > remaining_bytes {
+                    let remaining = buffered[0].split_to(remaining_bytes);
+                    out_bytes.extend_from_slice(&remaining);
                 } else {
-                    // current `buffer` has <= bytes needed, needs removal
-                    out_bytes.push(buffer.clone());
-                    i += 1;
-                    remaining_bytes -= buffer.len();
+                    // current `buffer` has <= bytes needed, remove and append to out_bytes
+                    out_bytes.extend_from_slice(&buffered.pop_front().unwrap());
                 }
             }
-
-            // remove expended buffers
-            buffered.drain(0..i);
             // reduce size of total buffers accordingly
             *buffered_size -= size_in_bytes;
-            // create new `Bytes` that combines chunks
-            let bytes_vec = out_bytes.into_iter().fold(
-                Vec::with_capacity(size_in_bytes as usize),
-                |mut acc, n| {
-                    acc.extend_from_slice(&n);
-                    acc
-                },
-            );
-            Bytes::from(bytes_vec)
+
+            Bytes::from(out_bytes)
         }
     }
 }
 
 impl Stream for ByteArrStream {
-    type Item = Result<Bytes, MpcHelperServerError>;
+    type Item = Result<Bytes, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
@@ -112,23 +135,31 @@ impl Stream for ByteArrStream {
                 ))));
             }
             // if we need more bytes, poll the body
-            #[allow(clippy::cast_possible_truncation)] // bytes size will not exceed u32
             match ready!(this.body.as_mut().poll_next(cx)) {
                 // if body is expended, but we have some bytes leftover, error
                 None if *this.buffered_size > 0 => {
-                    return Poll::Ready(Some(Err(MpcHelperServerError::WrongBodyLen {
-                        body_len: *this.buffered_size,
-                        element_size: *this.size_in_bytes as usize,
-                    })));
+                    return Poll::Ready(Some(Err(std::io::Error::new::<BoxError>(
+                        std::io::ErrorKind::WriteZero,
+                        format!(
+                            "expected body to align on size {}, but has insufficient bytes {}",
+                            *this.size_in_bytes, *this.buffered_size
+                        )
+                        .into(),
+                    ))));
                 }
                 // if body is finished, this stream is finished
                 None => return Poll::Ready(None),
                 // if body produces error, forward the error
-                Some(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
+                Some(Err(err)) => {
+                    return Poll::Ready(Some(Err(std::io::Error::new::<BoxError>(
+                        std::io::ErrorKind::UnexpectedEof,
+                        err.into(),
+                    ))));
+                }
                 // if body has more bytes, push it into the buffer and loop
                 Some(Ok(bytes)) => {
-                    *this.buffered_size += bytes.len() as u32;
-                    this.buffered.push(bytes);
+                    *this.buffered_size += u32::try_from(bytes.len()).unwrap();
+                    this.buffered.push_back(bytes);
                 }
             }
         }
@@ -142,16 +173,9 @@ impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromReque
     type Rejection = MpcHelperServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Query(FieldStr { field_type }) = req.extract().await?;
+        let FieldSize { field_size } = req.extract().await?;
         let body: BodyStream = req.extract().await?;
-        match field_type.as_str() {
-            ff::Fp2::STR_REPR => Ok(ByteArrStream::new(body, ff::Fp2::SIZE_IN_BYTES)),
-            ff::Fp31::STR_REPR => Ok(ByteArrStream::new(body, ff::Fp31::SIZE_IN_BYTES)),
-            ff::Fp32BitPrime::STR_REPR => {
-                Ok(ByteArrStream::new(body, ff::Fp32BitPrime::SIZE_IN_BYTES))
-            }
-            other => Err(MpcHelperServerError::bad_query_value(&field_type, other)),
-        }
+        Ok(ByteArrStream::new(body, field_size))
     }
 }
 
@@ -166,14 +190,6 @@ mod test {
     use axum::http::Request;
     use futures_util::{StreamExt, TryStreamExt};
     use hyper::Body;
-    use rand::distributions::Uniform;
-    use rand::{thread_rng, Rng};
-    use rand_core::{CryptoRng, RngCore};
-
-    fn random_vec<R: RngCore + CryptoRng>(rng: &mut R, len: usize) -> Vec<u8> {
-        let range = Uniform::from(0..u8::MAX);
-        rng.sample_iter(&range).take(len).collect()
-    }
 
     async fn to_byte_arr_stream(
         slice: &[u8],
@@ -190,8 +206,8 @@ mod test {
 
     #[tokio::test]
     async fn byte_arr_stream_produces_bytes_fp2() {
-        let vec = random_vec(&mut thread_rng(), 10);
-        let stream = to_byte_arr_stream(&vec, ff::Fp2::STR_REPR).await.unwrap();
+        let vec = vec![3; 10];
+        let stream = to_byte_arr_stream(&vec, FieldSize::FP2_TYPE).await.unwrap();
         let collected = stream.try_collect::<Vec<_>>().await.unwrap();
         for (expected, got) in vec.chunks(ff::Fp2::SIZE_IN_BYTES as usize).zip(collected) {
             assert_eq!(expected, got.as_ref());
@@ -201,8 +217,8 @@ mod test {
     #[tokio::test]
     async fn byte_arr_stream_produces_bytes_fp32_bit_prime() {
         const ARR_SIZE: usize = 20;
-        let vec = random_vec(&mut thread_rng(), ARR_SIZE * 10);
-        let stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::STR_REPR)
+        let vec = vec![7; ARR_SIZE * 10];
+        let stream = to_byte_arr_stream(&vec, FieldSize::FP32_BIT_PRIME_TYPE)
             .await
             .unwrap();
         let collected = stream.try_collect::<Vec<_>>().await.unwrap();
@@ -216,7 +232,7 @@ mod test {
 
     #[tokio::test]
     async fn byte_arr_stream_fails_with_bad_field_type() {
-        let vec = random_vec(&mut thread_rng(), 8);
+        let vec = vec![6; 8];
         let stream = to_byte_arr_stream(&vec, "bad_field_type").await;
         assert!(matches!(
             stream,
@@ -229,7 +245,7 @@ mod test {
         const ARR_SIZE: usize = 2;
         // 1 extra byte
         let vec = vec![4u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize) + 1];
-        let mut stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::STR_REPR)
+        let mut stream = to_byte_arr_stream(&vec, FieldSize::FP32_BIT_PRIME_TYPE)
             .await
             .unwrap();
 
@@ -238,9 +254,11 @@ mod test {
             stream.next().await;
         }
         let failed = stream.next().await;
-        assert!(
-            matches!(failed, Some(Err(MpcHelperServerError::WrongBodyLen { .. }))),
-            "actually got {failed:?}"
+        let failed_kind = failed.map(|res| res.map_err(|err| err.kind()));
+        assert_eq!(
+            failed_kind,
+            Some(Err(std::io::ErrorKind::WriteZero)),
+            "actually got {failed_kind:?}"
         );
     }
 }

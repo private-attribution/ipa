@@ -86,6 +86,8 @@ impl MpcHelperClient {
     /// [`ChannelId`].
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
+    /// # Panics
+    /// If messages size > max u32 (unlikely)
     pub async fn send_messages(
         &self,
         args: HttpSendMessagesArgs<'_>,
@@ -96,9 +98,8 @@ impl MpcHelperClient {
             args.step.as_ref(),
             self.role.as_ref(),
         ))?;
-        #[allow(clippy::cast_possible_truncation)] // `messages.len` is known to be smaller than u32
         let headers = RecordHeaders {
-            content_length: args.messages.len() as u32,
+            content_length: u32::try_from(args.messages.len()).unwrap(),
             offset: args.offset,
         };
         let req = headers

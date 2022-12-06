@@ -125,7 +125,6 @@ impl Field for Fp2 {
     const PRIME: Self::Integer = 2;
     const ZERO: Self = Fp2(0);
     const ONE: Self = Fp2(1);
-    const STR_REPR: &'static str = "fp2";
 }
 
 impl BinaryField for Fp2 {}
@@ -191,7 +190,6 @@ impl Field for Fp31 {
     const PRIME: Self::Integer = 31;
     const ZERO: Self = Fp31(0);
     const ONE: Self = Fp31(1);
-    const STR_REPR: &'static str = "fp31";
 }
 
 field_impl! { Fp31, u8 }
@@ -204,7 +202,6 @@ impl Field for Fp32BitPrime {
     const PRIME: Self::Integer = 4_294_967_291; // 2^32 - 5
     const ZERO: Self = Fp32BitPrime(0);
     const ONE: Self = Fp32BitPrime(1);
-    const STR_REPR: &'static str = "fp32_bit_prime";
 }
 
 field_impl! { Fp32BitPrime, u32 }

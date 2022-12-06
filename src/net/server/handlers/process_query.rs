@@ -160,9 +160,8 @@ mod tests {
             step.as_ref(),
             role.as_ref(),
         );
-        #[allow(clippy::cast_possible_truncation)] // `body.len()` known to be less than u32
         let headers = RecordHeaders {
-            content_length: body.len() as u32,
+            content_length: u32::try_from(body.len()).unwrap(),
             offset,
         };
         let body = Body::from(Bytes::from_static(body));
