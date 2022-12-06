@@ -214,6 +214,7 @@ impl Gateway {
     ///
     /// ## Panics
     /// if control loop task panicked, the panic will be propagated to this thread
+    #[cfg(not(feature = "shuttle"))]
     pub async fn join(self) {
         self.control_handle
             .await
@@ -247,6 +248,13 @@ impl Gateway {
 
     async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
         Ok(self.envelope_tx.send((id, env)).await?)
+    }
+}
+
+#[cfg(feature = "shuttle")]
+impl Drop for Gateway {
+    fn drop(&mut self) {
+        self.control_handle.abort();
     }
 }
 
