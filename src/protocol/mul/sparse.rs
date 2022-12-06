@@ -43,7 +43,11 @@ impl ZeroPositions {
         // formatted with clippy's help.  See `print_mappings` below.
         match zeros_at {
             (Self::Pvzz, Self::Pvzz) | (Self::Pzvz, Self::Pzvz) | (Self::Pzzv, Self::Pzzv) => {
-                panic!("this multiplication always produces zero");
+                if cfg!(debug_assertions) {
+                    panic!("attempting to do a multiplication that can be performed locally");
+                } else {
+                    [false, false, false]
+                }
             }
             (Self::Pzvv | Self::Pzvz | Self::Pzzv, Self::Pzvv)
             | (Self::Pzvv | Self::Pzzv, Self::Pzvz)
@@ -226,29 +230,32 @@ mod test {
         }
     }
 
-    // Asking for work with these combinations is pointless.  The answer is always zero.
+    // These multiplications can be done locally, so don't allow them.
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic]
-    fn no_work1() {
+    fn no_work_vzz() {
         (ZeroPositions::Pvzz, ZeroPositions::Pvzz).work_for(Role::H1);
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic]
-    fn no_work2() {
+    fn no_work_vzv() {
         (ZeroPositions::Pzvz, ZeroPositions::Pzvz).work_for(Role::H2);
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic]
-    fn no_work3() {
+    fn no_work_zzv() {
         (ZeroPositions::Pzzv, ZeroPositions::Pzzv).work_for(Role::H3);
     }
 
     /// Use this test to get mappings for `ZeroPositions`.
     /// `cargo test -- print_mappings --nocapture --include-ignored | grep 'Self::' | sort -t '>' -k 2`
-    /// Then do a little cleanup.
+    /// Then do a little cleanup by taking suggestions from `cargo clippy --tests`.
     #[test]
     #[ignore]
     fn print_mappings() {
@@ -281,6 +288,14 @@ mod test {
         Replicated::new(v_left, v_right)
     }
 
+    fn is_pointless(zeros_at: MultiplyZeroPositions) -> bool {
+        let a_flags = <[bool; 3]>::from(zeros_at.0);
+        let b_flags = <[bool; 3]>::from(zeros_at.1);
+        calculate_work(Role::H1, a_flags, b_flags)
+            .iter()
+            .all(|&x| !x)
+    }
+
     fn check_punctured_output<F, T>(v: &[T; 3], work: MultiplyZeroPositions)
     where
         F: Field,
@@ -300,16 +315,9 @@ mod test {
         let mut rng = thread_rng();
 
         for &a in all_zps() {
-            let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
-                let b_flags = <[bool; 3]>::from(b);
-                println!("{a:?}={:?}; {b:?}={:?}", a_flags, b_flags);
-
-                if calculate_work(Role::H1, a_flags, b_flags)
-                    .iter()
-                    .all(|&x| !x)
-                {
-                    continue; // This combination produces zero, always.
+                if is_pointless((a, b)) {
+                    continue;
                 }
 
                 let v1 = rng.gen::<Fp31>();
@@ -335,15 +343,9 @@ mod test {
         let mut rng = thread_rng();
 
         for &a in all_zps() {
-            let a_flags = <[bool; 3]>::from(a);
             for &b in all_zps() {
-                let b_flags = <[bool; 3]>::from(b);
-
-                if calculate_work(Role::H1, a_flags, b_flags)
-                    .iter()
-                    .all(|&x| !x)
-                {
-                    continue; // This combination produces zero, always.
+                if is_pointless((a, b)) {
+                    continue;
                 }
 
                 let v1 = rng.gen::<Fp31>();
