@@ -103,7 +103,7 @@ async fn credit_prefix_sum<'a, F: Field>(
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
+        let c = ctx.narrow(&InteractionPatternStep::from(depth));
         let mut futures = Vec::with_capacity(end as usize);
 
         // for each input row, create a future to execute secure multiplications

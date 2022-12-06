@@ -115,7 +115,7 @@ pub async fn accumulate_credit<F: Field>(
     {
         let end = num_rows - step_size;
         let mut futures = Vec::with_capacity(end as usize);
-        let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
+        let c = ctx.narrow(&InteractionPatternStep::from(depth));
 
         for i in 0..end {
             let c = c.clone();
