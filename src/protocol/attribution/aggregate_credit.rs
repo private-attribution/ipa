@@ -17,7 +17,10 @@ use futures::future::try_join_all;
 use std::iter::repeat;
 
 #[async_trait]
-impl<F: Field> Resharable<F> for CappedCreditsWithAggregationBit<F> {
+impl<F: Field> Resharable<F> for CappedCreditsWithAggregationBit<F>
+where
+    F: Sized,
+{
     type Share = Replicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -175,7 +178,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
     use super::super::tests::{BD, H};
     use super::sort_by_aggregation_bit_and_breakdown_key;
@@ -327,16 +330,14 @@ pub(crate) mod tests {
             [H[0], BD[7], 0, 0],
         ];
 
-        let input = RAW_INPUT
-            .map(|x| {
-                AttributionTestInput([
-                    Fp31::from(x[0]),
-                    Fp31::from(x[1]),
-                    Fp31::from(x[2]),
-                    Fp31::from(x[3]),
-                ])
-            })
-            .to_vec();
+        let input = RAW_INPUT.map(|x| {
+            AttributionTestInput([
+                Fp31::from(x[0]),
+                Fp31::from(x[1]),
+                Fp31::from(x[2]),
+                Fp31::from(x[3]),
+            ])
+        });
 
         let world = TestWorld::new(QueryId);
         let result = world
