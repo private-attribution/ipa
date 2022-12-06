@@ -60,6 +60,7 @@ impl<F: Field> SortPermutation<F> {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
+    use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::generate_permutation;
@@ -91,7 +92,7 @@ mod tests {
         });
         let expected = permutation.apply_slice(&sidecar);
 
-        let result = world
+        let result: [Vec<AttributionInputRow<Fp32BitPrime>>; 3] = world
             .semi_honest(
                 (match_keys, sidecar),
                 |ctx, (mk_shares, secret)| async move {

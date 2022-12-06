@@ -5,6 +5,7 @@ use crate::repeat64str;
 use crate::secret_sharing::{Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
+mod aggregate_credit;
 mod credit_capping;
 
 #[derive(Debug, Clone)]
@@ -22,6 +23,15 @@ pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 #[allow(dead_code)]
 pub struct CreditCappingOutputRow<F: Field> {
     helper_bit: Replicated<F>,
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct CappedCreditsWithAggregationBit<F: Field> {
+    helper_bit: Replicated<F>,
+    aggregation_bit: Replicated<F>,
     breakdown_key: Replicated<F>,
     credit: Replicated<F>,
 }
@@ -92,22 +102,24 @@ impl From<usize> for InteractionPatternStep {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AttributionInputRowResharableStep {
+pub enum AttributionResharableStep {
     IsTriggerBit,
     HelperBit,
     BreakdownKey,
     Credit,
+    AggregationBit,
 }
 
-impl Substep for AttributionInputRowResharableStep {}
+impl Substep for AttributionResharableStep {}
 
-impl AsRef<str> for AttributionInputRowResharableStep {
+impl AsRef<str> for AttributionResharableStep {
     fn as_ref(&self) -> &str {
         match self {
             Self::IsTriggerBit => "is_trigger_bit",
             Self::HelperBit => "helper_bit",
             Self::BreakdownKey => "breakdown_key",
             Self::Credit => "credit",
+            Self::AggregationBit => "aggregation_bit",
         }
     }
 }
