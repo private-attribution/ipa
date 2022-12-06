@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::{Context, ContextType},
-        reveal::reveal_permutation,
+        basics::reveal_permutation,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
         },

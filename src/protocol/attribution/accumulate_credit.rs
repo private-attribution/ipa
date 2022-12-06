@@ -1,13 +1,15 @@
-use super::{AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternStep};
+use super::{
+    compute_stop_bit, AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternStep,
+};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Role;
 use crate::protocol::attribution::AttributionInputRowResharableStep::{
     BreakdownKey, Credit, HelperBit, IsTriggerBit,
 };
+use crate::protocol::basics::SecureMul;
 use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::mul::SecureMul;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Replicated;
@@ -113,7 +115,7 @@ pub async fn accumulate_credit<F: Field>(
     {
         let end = num_rows - step_size;
         let mut futures = Vec::with_capacity(end as usize);
-        let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
+        let c = ctx.narrow(&InteractionPatternStep::from(depth));
 
         for i in 0..end {
             let c = c.clone();
@@ -140,7 +142,13 @@ pub async fn accumulate_credit<F: Field>(
                 try_join(
                     c.narrow(&Step::BTimesSuccessorCredit)
                         .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(c.clone(), record_id, &b, sibling_stop_bit, depth == 0),
+                    compute_stop_bit(
+                        c.narrow(&Step::BTimesSuccessorStopBit),
+                        record_id,
+                        &b,
+                        sibling_stop_bit,
+                        depth == 0,
+                    ),
                 )
                 .await
             });
@@ -198,35 +206,6 @@ async fn compute_b_bit<F: Field>(
     Ok(b)
 }
 
-async fn compute_stop_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    record_id: RecordId,
-    b_bit: &Replicated<F>,
-    sibling_stop_bit: &Replicated<F>,
-    first_iteration: bool,
-) -> Result<Replicated<F>, Error> {
-    // This method computes:
-    //   if b == 1
-    //     sibling_stop_bit
-    //   else
-    //     0
-    //
-    // Since `sibling_stop_bit` is initialize with 1, the computation is:
-    //
-    //   if b == 1
-    //     1
-    //   else
-    //     0
-    //
-    // which is `b` itself.
-    if first_iteration {
-        return Ok(b_bit.clone());
-    }
-    ctx.narrow(&Step::BTimesSuccessorStopBit)
-        .multiply(record_id, b_bit, sibling_stop_bit)
-        .await
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
     use rand::distributions::Standard;
@@ -239,17 +218,14 @@ pub(crate) mod tests {
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
-        protocol::{
-            attribution::accumulate_credit::accumulate_credit, attribution::AttributionInputRow,
-            QueryId, RecordId,
+        protocol::attribution::{
+            accumulate_credit::accumulate_credit,
+            tests::{BD, H, S, T},
+            AttributionInputRow,
         },
+        protocol::{QueryId, RecordId},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-
-    const S: u128 = 0;
-    const T: u128 = 1;
-    const H: [u128; 2] = [0, 1];
-    const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct AttributionTestInput<F>(pub [F; 4]);

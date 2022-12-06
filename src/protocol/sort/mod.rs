@@ -6,7 +6,6 @@ pub mod apply_sort;
 pub mod bit_permutation;
 mod compose;
 pub mod generate_permutation;
-pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
 

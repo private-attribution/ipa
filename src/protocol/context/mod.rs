@@ -1,9 +1,8 @@
 use crate::ff::Field;
 use crate::helpers::messaging::Mesh;
 use crate::helpers::Role;
-use crate::protocol::mul::SecureMul;
+use crate::protocol::basics::{Reveal, SecureMul};
 use crate::protocol::prss::{IndexedSharedRandomness, SequentialSharedRandomness};
-use crate::protocol::reveal::Reveal;
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::SecretSharing;
 use crate::sync::Arc;
@@ -15,7 +14,7 @@ pub use malicious::MaliciousContext;
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use semi_honest::SemiHonestContext;
 
-use super::sort::reshare::Reshare;
+use super::basics::Reshare;
 
 pub enum ContextType {
     SemiHonest,
@@ -29,6 +28,7 @@ pub trait Context<F: Field>:
     + Reveal<F, Share = <Self as Context<F>>::Share>
     + Clone
     + Send
+    + Sync
 {
     /// Secret sharing type this context supports.
     type Share: SecretSharing<F>;

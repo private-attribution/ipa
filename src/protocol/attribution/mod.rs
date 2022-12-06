@@ -1,9 +1,8 @@
-use super::context::Context;
-use super::RecordId;
-use super::Substep;
 use crate::error::Error;
-use crate::secret_sharing::SecretSharing;
-use crate::{ff::Field, secret_sharing::Replicated};
+use crate::ff::Field;
+use crate::protocol::{context::Context, RecordId, Substep};
+use crate::repeat64str;
+use crate::secret_sharing::{Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
 mod credit_capping;
@@ -54,23 +53,41 @@ where
             .await?)
 }
 
-enum InteractionPatternStep {
-    Depth(usize),
+async fn compute_stop_bit<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    b_bit: &S,
+    sibling_stop_bit: &S,
+    first_iteration: bool,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    // This method computes `b == 1 ? sibling_stop_bit : 0`.
+    // Since `sibling_stop_bit` is initialize with 1, we return `b` if this is
+    // the first iteration.
+    if first_iteration {
+        return Ok(b_bit.clone());
+    }
+    ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
+
+struct InteractionPatternStep(usize);
 
 impl Substep for InteractionPatternStep {}
 
 impl AsRef<str> for InteractionPatternStep {
     fn as_ref(&self) -> &str {
-        const DEPTH: [&str; 32] = [
-            "depth0", "depth1", "depth2", "depth3", "depth4", "depth5", "depth6", "depth7",
-            "depth8", "depth9", "depth10", "depth11", "depth12", "depth13", "depth14", "depth15",
-            "depth16", "depth17", "depth18", "depth19", "depth20", "depth21", "depth22", "depth23",
-            "depth24", "depth25", "depth26", "depth27", "depth28", "depth29", "depth30", "depth31",
-        ];
-        match self {
-            Self::Depth(i) => DEPTH[*i],
-        }
+        const DEPTH: [&str; 64] = repeat64str!["depth"];
+        DEPTH[self.0]
+    }
+}
+
+impl From<usize> for InteractionPatternStep {
+    fn from(v: usize) -> Self {
+        Self(v)
     }
 }
 
@@ -100,6 +117,11 @@ mod tests {
     use crate::{ff::Field, protocol::attribution::AttributionInputRow, test_fixture::share};
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
     use std::iter::zip;
+
+    pub const S: u128 = 0;
+    pub const T: u128 = 1;
+    pub const H: [u128; 2] = [0, 1];
+    pub const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
     /// shares of `AttributionInputRow`.
