@@ -356,11 +356,11 @@ mod test {
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context();
                         let m_a = m_ctx
-                            .upgrade_sparse(RecordId::from(0), v_a, a)
+                            .upgrade_bit_sparse(RecordId::from(0), 0, v_a, a)
                             .await
                             .unwrap();
                         let m_b = m_ctx
-                            .upgrade_sparse(RecordId::from(1), v_b, b)
+                            .upgrade_bit_sparse(RecordId::from(0), 1, v_b, b)
                             .await
                             .unwrap();
 
@@ -392,17 +392,19 @@ mod test {
                 let v_b = puncture(ctx.role(), b, &v_b);
 
                 let v = MaliciousValidator::new(ctx);
-                let m_ctx = v.context();
-                let m_a = m_ctx
-                    .upgrade_sparse(RecordId::from(0), v_a, a)
+                let m_a = v
+                    .context()
+                    .upgrade_bit_sparse(RecordId::from(0), 0, v_a, a)
                     .await
                     .unwrap();
-                let m_b = m_ctx
-                    .upgrade_sparse(RecordId::from(1), v_b, b)
+                let m_b = v
+                    .context()
+                    .upgrade_bit_sparse(RecordId::from(0), 1, v_b, b)
                     .await
                     .unwrap();
 
-                let m_ab = m_ctx
+                let m_ab = v
+                    .context()
                     .multiply_sparse(RecordId::from(0), &m_a, &m_b, ZeroPositions::NONE)
                     .await
                     .unwrap();

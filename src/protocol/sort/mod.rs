@@ -12,7 +12,6 @@ mod shuffle;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
-    ModulusConversion,
     BitPermutationStep,
     ApplyInv,
     ComposeStep,
@@ -24,7 +23,6 @@ impl Substep for SortStep {}
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ModulusConversion => "mod_conv",
             Self::BitPermutationStep => "bit_permute",
             Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
@@ -103,14 +101,16 @@ impl AsRef<str> for ShuffleRevealStep {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum ReshareStep {
-    ReshareMAC,
+    RandomnessForValidation,
+    ReshareRx,
 }
 impl Substep for ReshareStep {}
 
 impl AsRef<str> for ReshareStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ReshareMAC => "reshare_mac",
+            Self::RandomnessForValidation => "randomness_for_validation",
+            Self::ReshareRx => "reshare_rx",
         }
     }
 }

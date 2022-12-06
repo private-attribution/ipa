@@ -1,3 +1,4 @@
+use crate::protocol::IpaProtocolStep::ModulusConversion;
 use crate::{
     error::Error,
     ff::Field,
@@ -5,7 +6,6 @@ use crate::{
     protocol::{boolean::xor_sparse, context::Context, mul::ZeroPositions, RecordId},
     secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
-
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -55,6 +55,7 @@ pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 ///
 /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
 ///
+#[must_use]
 pub fn convert_bit_local<F: Field>(
     helper_role: Role,
     bit_index: u32,
@@ -81,17 +82,26 @@ pub fn convert_bit_local<F: Field>(
     })
 }
 
-pub fn convert_bit_local_list<F: Field>(
+#[must_use]
+pub fn convert_all_bits_local<F: Field>(
     helper_role: Role,
-    bit_index: u32,
     input: &[XorReplicated],
-) -> Vec<BitConversionTriple<Replicated<F>>> {
-    input
-        .iter()
-        .map(|v| convert_bit_local::<F>(helper_role, bit_index, v))
-        .collect::<Vec<_>>()
+    num_bits: u32,
+) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
+    let mut total_list = Vec::new();
+    for bit_index in 0..num_bits {
+        let one_list = input
+            .iter()
+            .map(|v| convert_bit_local::<F>(helper_role, bit_index, v))
+            .collect::<Vec<_>>();
+        total_list.push(one_list);
+    }
+    total_list
 }
 
+/// Convert a locally-decomposed single bit into field elements.
+/// # Errors
+/// Fails only if multiplication fails.
 pub async fn convert_bit<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -114,16 +124,41 @@ where
         ZeroPositions::mul_output(ZeroPositions::AVZZ_BZVZ),
         ZeroPositions::Pvvz
     );
-    xor_sparse(
-        ctx2,
-        record_id,
-        &sh0_xor_sh1,
-        sh2,
-        ZeroPositions::AVVZ_BZZV,
-    )
-    .await
+    xor_sparse(ctx2, record_id, &sh0_xor_sh1, sh2, ZeroPositions::AVVZ_BZZV).await
 }
 
+#[allow(dead_code)]
+/// # Errors
+/// Propagates errors from convert shares
+/// # Panics
+/// Propagates panics from convert shares
+pub async fn convert_all_bits<F, C, S>(
+    ctx: &C,
+    locally_converted_bits: &[Vec<BitConversionTriple<S>>],
+) -> Result<Vec<Vec<S>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    let futures = locally_converted_bits
+        .iter()
+        .enumerate()
+        .map(|(bit_num, one_column)| {
+            convert_bit_list(
+                ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap())),
+                one_column,
+            )
+        })
+        .collect::<Vec<_>>();
+    let converted_shares = try_join_all(futures).await?;
+    Ok(converted_shares)
+}
+
+/// # Errors
+/// Propagates errors from convert shares
+/// # Panics
+/// Propagates panics from convert shares
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
     locally_converted_bits: &[BitConversionTriple<S>],

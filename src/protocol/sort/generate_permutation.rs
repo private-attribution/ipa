@@ -3,18 +3,15 @@ use crate::{
     ff::Field,
     protocol::{
         context::Context,
-        modulus_conversion::{convert_bit_list, convert_bit_local_list},
         reveal::reveal_permutation,
-        sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, ModulusConversion, ShuffleRevealPermutation,
-        },
+        sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation},
         sort::{
             bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{SecretSharing, XorReplicated},
+    secret_sharing::{Replicated, SecretSharing},
 };
 
 use crate::protocol::sort::apply_sort::SortPermutation;
@@ -27,7 +24,6 @@ use super::{
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
 
 #[derive(Debug)]
 /// This object contains the output of `shuffle_and_reveal_permutation`
@@ -96,33 +92,29 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
 pub async fn generate_permutation<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[XorReplicated],
+    sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<SortPermutation<F>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
-    let bit_0_triples = convert_bit_local_list(ctx_0.role(), 0, sort_keys);
-    let bit_0_shares = convert_bit_list(ctx_0.narrow(&ModulusConversion), &bit_0_triples).await?;
+    assert_eq!(sort_keys.len(), num_bits as usize);
+
     let bit_0_permutation =
-        bit_permutation(ctx_0.narrow(&BitPermutationStep), &bit_0_shares).await?;
-    let input_len = u32::try_from(sort_keys.len()).unwrap(); // safe, we don't sort more that 1B rows
+        bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
+    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
-        let bit_i_triples = convert_bit_local_list(ctx.role(), bit_num, sort_keys);
-        let (revealed_and_random_permutations, bit_i_shares) = try_join(
-            shuffle_and_reveal_permutation(
-                ctx_bit.narrow(&ShuffleRevealPermutation),
-                input_len,
-                composed_less_significant_bits_permutation,
-            ),
-            convert_bit_list(ctx_bit.narrow(&ModulusConversion), &bit_i_triples),
+        let revealed_and_random_permutations = shuffle_and_reveal_permutation(
+            ctx_bit.narrow(&ShuffleRevealPermutation),
+            input_len,
+            composed_less_significant_bits_permutation,
         )
         .await?;
 
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             ctx_bit.narrow(&ApplyInv),
-            bit_i_shares,
+            sort_keys[bit_num as usize].clone(),
             (
                 revealed_and_random_permutations
                     .randoms_for_shuffle
@@ -168,6 +160,7 @@ pub async fn generate_permutation<F: Field>(
 mod tests {
     use std::iter::zip;
 
+    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::apply_sort::SortPermutation;
     use crate::rand::{thread_rng, Rng};
     use rand::seq::SliceRandom;
@@ -209,10 +202,17 @@ mod tests {
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    generate_permutation(ctx, &mk_shares, MaskedMatchKey::BITS)
-                        .await
-                        .unwrap()
-                        .0
+                    let local_lists =
+                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
+                    generate_permutation(
+                        ctx.narrow("sort"),
+                        &converted_shares,
+                        MaskedMatchKey::BITS,
+                    )
+                    .await
+                    .unwrap()
+                    .0
                 },
             )
             .await;

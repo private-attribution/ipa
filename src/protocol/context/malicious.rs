@@ -82,8 +82,24 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         bit_index: u32,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
+        self.upgrade_bit_sparse(record_id, bit_index, input, ZeroPositions::Pvvv)
+            .await
+    }
+
+    /// Upgrade an input for a specific bit index using this context.  Use this for
+    /// inputs that have multiple bit positions in place of `upgrade()`.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade_bit_sparse(
+        &self,
+        record_id: RecordId,
+        bit_index: u32,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner
-            .upgrade_bit(record_id, bit_index, input, ZeroPositions::Pvvv)
+            .upgrade_bit(record_id, bit_index, input, zeros_at)
             .await
     }
 
