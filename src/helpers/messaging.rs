@@ -15,20 +15,19 @@ use crate::{
 };
 
 use crate::ff::{Field, Int};
-use crate::helpers::buffers::{PushError, SendBuffer, SendBufferConfig};
+use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
 use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
 use crate::task::JoinHandle;
 use ::tokio::sync::{mpsc, oneshot};
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
-use std::io;
+use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use crate::helpers::network::NetworkSink;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -85,11 +84,7 @@ pub struct Gateway {
     control_handle: JoinHandle<()>,
 }
 
-pub(super) type SendRequest = (
-    ChannelId,
-    MessageEnvelope,
-    oneshot::Sender<Option<PushError>>,
-);
+pub(super) type SendRequest = (ChannelId, MessageEnvelope);
 
 /// Channel end
 #[derive(Debug)]
@@ -184,7 +179,7 @@ impl Gateway {
                     }
                     Some(send_req) = send_rx.recv() => {
                         tracing::trace!("new SendRequest({:?})", send_req);
-                        send_message::<N>(&mut network_sink, &mut send_buf, send_req).await
+                        send_message::<N>(&mut network_sink, &mut send_buf, send_req).await;
                     }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
@@ -215,6 +210,23 @@ impl Gateway {
         }
     }
 
+    /// Join the control loop task and wait until its completed.
+    ///
+    /// ## Panics
+    /// if control loop task panicked, the panic will be propagated to this thread
+    pub async fn join(self) {
+        self.control_handle
+            .await
+            .map_err(|e| {
+                if e.is_panic() {
+                    panic::resume_unwind(e.into_panic())
+                } else {
+                    "Task cancelled".to_string()
+                }
+            })
+            .unwrap();
+    }
+
     async fn receive(
         &self,
         channel_id: ChannelId,
@@ -234,26 +246,7 @@ impl Gateway {
     }
 
     async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
-        let (status_tx, status_rx) = oneshot::channel();
-
-        self.envelope_tx.send((id.clone(), env, status_tx)).await?;
-
-        let status = match status_rx.await {
-            Ok(None) => Ok(()),
-            Ok(Some(err)) => Err(err.into()),
-            Err(err) => Err(err.into()),
-        };
-
-        status.map_err(|err| Error::SendError {
-            channel: id,
-            inner: err,
-        })
-    }
-}
-
-impl Drop for Gateway {
-    fn drop(&mut self) {
-        self.control_handle.abort();
+        Ok(self.envelope_tx.send((id, env)).await?)
     }
 }
 
@@ -268,29 +261,25 @@ impl Debug for ReceiveRequest {
 }
 
 async fn send_message<N: Network>(sink: &mut N::Sink, buf: &mut SendBuffer, req: SendRequest) {
-    let (channel_id, msg, status_tx) = req;
-    let status = match buf.push(&channel_id, &msg) {
+    let (channel_id, msg) = req;
+    match buf.push(&channel_id, &msg) {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            sink.send((channel_id.clone(), buf_to_send)).await
+            sink.send((channel_id.clone(), buf_to_send))
+                .await
                 .expect("Failed to send data to the network");
-            None
-        },
-        Ok(None) => None,
-        Err(err) => Some(err),
+        }
+        Ok(None) => {}
+        Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
     };
-
-    status_tx.send(status).unwrap_or_else(|_| {
-        tracing::warn!("No listener for send request {channel_id:?}/{:?}", msg.record_id);
-    });
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::ff::Fp31;
-    use crate::helpers::{Direction, Role};
+    use crate::helpers::Role;
     use crate::protocol::context::Context;
-    use crate::protocol::{QueryId, RecordId};
+    use crate::protocol::{QueryId, RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
 
     #[tokio::test]
@@ -332,17 +321,16 @@ mod tests {
     #[should_panic(expected = "Record RecordId(1) has been received twice")]
     async fn duplicate_message() {
         let world = TestWorld::new(QueryId);
-        let [ctx0, _, _] = world.contexts::<Fp31>();
+        let [g1, _, _] = world.gateways;
         let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));
-        let peer = ctx0.role().peer(Direction::Right);
+        let peer = Role::H2;
         let record_id = 1.into();
-        let channel = ctx0.mesh();
+        let step = Step::default();
+        let channel = g1.mesh(&step);
 
         channel.send(peer, record_id, v1).await.unwrap();
-        channel
-            .send(peer, record_id, v2)
-            .await
-            .map_err(|e| e.to_string())
-            .unwrap();
+        channel.send(peer, record_id, v2).await.unwrap();
+
+        g1.join().await;
     }
 }
