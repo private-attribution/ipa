@@ -28,6 +28,7 @@ use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use crate::helpers::network::NetworkSink;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -158,8 +159,8 @@ pub struct GatewayConfig {
 
 impl Gateway {
     pub fn new<N: Network>(role: Role, network: &N, config: GatewayConfig) -> Self {
-        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
-        let (envelope_tx, mut envelope_rx) = mpsc::channel::<SendRequest>(1);
+        let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(1);
+        let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(1);
         let mut message_stream = network.recv_stream();
         let mut network_sink = network.sink();
 
@@ -173,7 +174,7 @@ impl Gateway {
                 // * Handle the request to receive a message from another helper
                 // * Send a message
                 ::tokio::select! {
-                    Some(receive_request) = receive_rx.recv() => {
+                    Some(receive_request) = recv_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
                         receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender);
                     }
@@ -181,22 +182,9 @@ impl Gateway {
                         tracing::trace!("received {} bytes from {:?}", messages.len(), channel_id);
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
-                    Some((channel_id, msg, status_tx)) = envelope_rx.recv() => {
-                        tracing::trace!("new SendRequest({channel_id:?}, {:?}", msg.record_id);
-                        let status = match send_buf.push(&channel_id, &msg) {
-                            Ok(Some(buf_to_send)) => {
-                                tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-                                network_sink.send((channel_id.clone(), buf_to_send)).await
-                                    .expect("Failed to send data to the network");
-                                None
-                            },
-                            Ok(None) => None,
-                            Err(err) => Some(err),
-                        };
-
-                        status_tx.send(status).unwrap_or_else(|_| {
-                            tracing::warn!("No listener for send request {channel_id:?}/{:?}", msg.record_id);
-                        });
+                    Some(send_req) = send_rx.recv() => {
+                        tracing::trace!("new SendRequest({:?})", send_req);
+                        send_message::<N>(&mut network_sink, &mut send_buf, send_req).await
                     }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
@@ -207,8 +195,8 @@ impl Gateway {
         }.instrument(tracing::info_span!("gateway_loop", role=?role)));
 
         Self {
-            tx,
-            envelope_tx,
+            tx: recv_tx,
+            envelope_tx: send_tx,
             control_handle,
         }
     }
@@ -277,6 +265,24 @@ impl Debug for ReceiveRequest {
             self.channel_id, self.record_id
         )
     }
+}
+
+async fn send_message<N: Network>(sink: &mut N::Sink, buf: &mut SendBuffer, req: SendRequest) {
+    let (channel_id, msg, status_tx) = req;
+    let status = match buf.push(&channel_id, &msg) {
+        Ok(Some(buf_to_send)) => {
+            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
+            sink.send((channel_id.clone(), buf_to_send)).await
+                .expect("Failed to send data to the network");
+            None
+        },
+        Ok(None) => None,
+        Err(err) => Some(err),
+    };
+
+    status_tx.send(status).unwrap_or_else(|_| {
+        tracing::warn!("No listener for send request {channel_id:?}/{:?}", msg.record_id);
+    });
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
