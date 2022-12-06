@@ -11,9 +11,9 @@ use crate::{
             bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
         },
-        IpaProtocolStep::Sort,
+        IpaProtocolStep::Sort, malicious::MaliciousValidator,
     },
-    secret_sharing::{Replicated, SecretSharing},
+    secret_sharing::{Replicated, SecretSharing, MaliciousReplicated},
 };
 
 use super::{
@@ -100,6 +100,79 @@ pub async fn generate_permutation<F>(
 where
     F: Field,
 {
+    let ctx_0 = ctx.narrow(&Sort(0));
+    assert_eq!(sort_keys.len(), num_bits as usize);
+
+    let bit_0_permutation =
+        bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
+    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
+
+    let mut composed_less_significant_bits_permutation = bit_0_permutation;
+    for bit_num in 1..num_bits {
+        let ctx_bit = ctx.narrow(&Sort(bit_num));
+        let revealed_and_random_permutations = shuffle_and_reveal_permutation(
+            ctx_bit.narrow(&ShuffleRevealPermutation),
+            input_len,
+            composed_less_significant_bits_permutation,
+            ctx_type,
+        )
+        .await?;
+
+        let bit_i_sorted_by_less_significant_bits = secureapplyinv(
+            ctx_bit.narrow(&ApplyInv),
+            sort_keys[bit_num as usize].clone(),
+            (
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
+            ),
+            &revealed_and_random_permutations.revealed,
+        )
+        .await?;
+
+        let bit_i_permutation = bit_permutation(
+            ctx_bit.narrow(&BitPermutationStep),
+            &bit_i_sorted_by_less_significant_bits,
+        )
+        .await?;
+
+        let composed_i_permutation = compose(
+            ctx_bit.narrow(&ComposeStep),
+            (
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
+            ),
+            &revealed_and_random_permutations.revealed,
+            bit_i_permutation,
+        )
+        .await?;
+        composed_less_significant_bits_permutation = composed_i_permutation;
+    }
+    Ok(composed_less_significant_bits_permutation)
+}
+
+pub async fn malicious_generate_permutation<F>(
+    ctx: SemiHonestContext<'_, F>,
+    sort_keys: &[Vec<Replicated<F>>],
+    num_bits: u32,
+    ctx_type: &ContextType,
+) -> Result<Vec<MaliciousReplicated<F>>, Error>
+where
+    F: Field,
+{
+    let v = MaliciousValidator::new(ctx);
+
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
