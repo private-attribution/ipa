@@ -1,6 +1,7 @@
 use std::iter::{repeat, zip};
 
-use crate::secret_sharing::SecretSharing;
+use crate::repeat64str;
+use crate::secret_sharing::{Replicated, SecretSharing};
 use crate::{
     error::Error,
     ff::Field,
@@ -24,6 +25,42 @@ pub trait Resharable<F: Field>: Sized {
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
+}
+
+pub struct InnerVectorElementStep(usize);
+
+impl crate::protocol::Substep for InnerVectorElementStep {}
+
+impl AsRef<str> for InnerVectorElementStep {
+    fn as_ref(&self) -> &str {
+        const VEC_ELEM: [&str; 64] = repeat64str!["elem"];
+        VEC_ELEM[self.0]
+    }
+}
+
+impl From<usize> for InnerVectorElementStep {
+    fn from(v: usize) -> Self {
+        Self(v)
+    }
+}
+
+#[async_trait]
+impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
+    type Share = Replicated<F>;
+
+    /// This is intended to be used for resharing vectors of bit-decomposed values.
+    /// # Errors
+    /// If the vector has more than 64 elements
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+    {
+        try_join_all(self.iter().enumerate().map(|(i, x)| {
+            let c = ctx.narrow(&InnerVectorElementStep::from(i));
+            async move { c.reshare(x, record_id, to_helper).await }
+        }))
+        .await
+    }
 }
 
 async fn reshare<F, C, S, T>(input: &[T], ctx: C, to_helper: Role) -> Result<Vec<T>, Error>
@@ -127,13 +164,14 @@ mod tests {
     mod semi_honest {
         use crate::rand::{thread_rng, Rng};
 
-        use crate::ff::Fp31;
+        use crate::ff::{Fp31, Fp32BitPrime};
         use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
         use crate::protocol::QueryId;
-        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+        use crate::secret_sharing::Replicated;
+        use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
@@ -149,16 +187,12 @@ mod tests {
             let hashed_input: HashSet<[u8; 4]> = input.iter().map(Into::into).collect();
 
             let result = world
-                .semi_honest(input.clone(), |ctx, m_shares| async move {
+                .semi_honest(input.clone(), |ctx, shares| async move {
                     let perms =
                         get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
-                    shuffle_shares(
-                        m_shares,
-                        (perms.0.as_slice(), perms.1.as_slice()),
-                        ctx.clone(),
-                    )
-                    .await
-                    .unwrap()
+                    shuffle_shares(shares, (perms.0.as_slice(), perms.1.as_slice()), ctx)
+                        .await
+                        .unwrap()
                 })
                 .await;
 
@@ -174,6 +208,63 @@ mod tests {
 
             // Shuffled output should have same inputs
             assert_eq!(hashed_output_secret, hashed_input);
+        }
+
+        fn share_appears_anywhere(
+            x: &Replicated<Fp32BitPrime>,
+            inputs: &[Vec<Replicated<Fp32BitPrime>>],
+        ) -> bool {
+            inputs.iter().any(|row| {
+                row.iter()
+                    .any(|share| share.left() == x.left() && share.right() == x.right())
+            })
+        }
+
+        #[tokio::test]
+        async fn shuffle_vec_of_replicated() {
+            const BIT_LENGTH: u32 = 32;
+            let some_numbers = [
+                123_456_789,
+                234_567_890,
+                345_678_901,
+                456_789_012,
+                567_890_123,
+            ];
+            let some_numbers_as_bits =
+                some_numbers.map(|x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH));
+            let world = TestWorld::new(QueryId);
+
+            let result = world
+                .semi_honest(
+                    some_numbers_as_bits,
+                    |ctx, vec_of_vec_of_shares| async move {
+                        let copy_of_input = vec_of_vec_of_shares.clone();
+
+                        let perms = get_two_of_three_random_permutations(5, ctx.prss_rng());
+                        let shuffled_shares = shuffle_shares(
+                            vec_of_vec_of_shares,
+                            (perms.0.as_slice(), perms.1.as_slice()),
+                            ctx,
+                        )
+                        .await
+                        .unwrap();
+
+                        assert!(!shuffled_shares.iter().any(|row| row
+                            .iter()
+                            .any(|x| share_appears_anywhere(x, &copy_of_input))));
+
+                        shuffled_shares
+                    },
+                )
+                .await
+                .reconstruct();
+
+            let mut reconstructed_inputs = result
+                .iter()
+                .map(|vec| u32::try_from(bits_to_value(vec)).unwrap())
+                .collect::<Vec<_>>();
+            reconstructed_inputs.sort_unstable();
+            assert_eq!(reconstructed_inputs, some_numbers);
         }
     }
 }

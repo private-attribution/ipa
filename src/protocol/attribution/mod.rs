@@ -1,8 +1,8 @@
-use super::Substep;
-use super::{context::SemiHonestContext, RecordId};
 use crate::error::Error;
-use crate::protocol::mul::SecureMul;
-use crate::{ff::Field, secret_sharing::Replicated};
+use crate::ff::Field;
+use crate::protocol::{context::Context, RecordId, Substep};
+use crate::repeat64str;
+use crate::secret_sharing::{Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
 mod credit_capping;
@@ -27,13 +27,18 @@ pub struct CreditCappingOutputRow<F: Field> {
 }
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
-async fn if_else<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+async fn if_else<F, C, S>(
+    ctx: C,
     record_id: RecordId,
-    condition: &Replicated<F>,
-    true_value: &Replicated<F>,
-    false_value: &Replicated<F>,
-) -> Result<Replicated<F>, Error> {
+    condition: &S,
+    true_value: &S,
+    false_value: &S,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
     //   = false_value + true_value - false_value
@@ -42,29 +47,26 @@ async fn if_else<F: Field>(
     // If `condition` is a share of 0 (false), then
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
-    Ok(false_value
+    Ok(false_value.clone()
         + &ctx
-            .multiply(record_id, condition, &(true_value - false_value))
+            .multiply(record_id, condition, &(true_value.clone() - false_value))
             .await?)
 }
 
-enum InteractionPatternStep {
-    Depth(usize),
-}
+struct InteractionPatternStep(usize);
 
 impl Substep for InteractionPatternStep {}
 
 impl AsRef<str> for InteractionPatternStep {
     fn as_ref(&self) -> &str {
-        const DEPTH: [&str; 32] = [
-            "depth0", "depth1", "depth2", "depth3", "depth4", "depth5", "depth6", "depth7",
-            "depth8", "depth9", "depth10", "depth11", "depth12", "depth13", "depth14", "depth15",
-            "depth16", "depth17", "depth18", "depth19", "depth20", "depth21", "depth22", "depth23",
-            "depth24", "depth25", "depth26", "depth27", "depth28", "depth29", "depth30", "depth31",
-        ];
-        match self {
-            Self::Depth(i) => DEPTH[*i],
-        }
+        const DEPTH: [&str; 64] = repeat64str!["depth"];
+        DEPTH[self.0]
+    }
+}
+
+impl From<usize> for InteractionPatternStep {
+    fn from(v: usize) -> Self {
+        Self(v)
     }
 }
 
