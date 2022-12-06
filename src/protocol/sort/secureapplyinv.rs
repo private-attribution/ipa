@@ -90,6 +90,7 @@ mod tests {
                             ctx.narrow("shuffle_reveal"),
                             BATCHSIZE,
                             m_perms,
+                            &crate::protocol::context::ContextType::SemiHonest,
                         )
                         .await
                         .unwrap();

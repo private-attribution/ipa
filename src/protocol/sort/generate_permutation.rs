@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::Context,
+        context::{Context, ContextType},
         reveal::reveal_permutation,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
@@ -46,6 +46,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
     ctx: C,
     input_len: u32,
     input_permutation: Vec<S>,
+    _ctx_type: &ContextType,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
@@ -94,6 +95,7 @@ pub async fn generate_permutation<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
+    ctx_type: &ContextType,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
@@ -112,6 +114,7 @@ where
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
+            ctx_type,
         )
         .await?;
 
@@ -168,16 +171,34 @@ where
 /// If unable to convert sort keys length to u32
 pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     ctx: SemiHonestContext<'_, F>,
+    ctx_type: &ContextType,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error> {
-    let sort_permutation = generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits).await?;
-    shuffle_and_reveal_permutation(
-        ctx.narrow(&ShuffleRevealPermutation),
-        u32::try_from(sort_keys[0].len()).unwrap(),
-        sort_permutation,
-    )
-    .await
+    match ctx_type {
+        ContextType::SemiHonest => {
+            let sort_permutation =
+                generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits, ctx_type).await?;
+            shuffle_and_reveal_permutation(
+                ctx.narrow(&ShuffleRevealPermutation),
+                u32::try_from(sort_keys[0].len()).unwrap(),
+                sort_permutation,
+                ctx_type,
+            )
+            .await
+        }
+        ContextType::Malicious => {
+            let sort_permutation =
+                generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits, ctx_type).await?;
+            shuffle_and_reveal_permutation(
+                ctx.narrow(&ShuffleRevealPermutation),
+                u32::try_from(sort_keys[0].len()).unwrap(),
+                sort_permutation,
+                ctx_type,
+            )
+            .await
+        }
+    }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -188,6 +209,7 @@ mod tests {
     use crate::rand::{thread_rng, Rng};
     use rand::seq::SliceRandom;
 
+    use crate::protocol::context::ContextType::SemiHonest;
     use crate::protocol::context::{Context, SemiHonestContext};
     use crate::test_fixture::{join3, MaskedMatchKey, Runner};
     use crate::{
@@ -226,6 +248,7 @@ mod tests {
                         ctx.narrow("sort"),
                         &converted_shares,
                         MaskedMatchKey::BITS,
+                        &SemiHonest,
                     )
                     .await
                     .unwrap()
@@ -256,12 +279,24 @@ mod tests {
 
         let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-        let h0_future =
-            shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, perm0);
-        let h1_future =
-            shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, perm1);
-        let h2_future =
-            shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, perm2);
+        let h0_future = shuffle_and_reveal_permutation(
+            ctx0.narrow("shuffle_reveal"),
+            BATCHSIZE,
+            perm0,
+            &SemiHonest,
+        );
+        let h1_future = shuffle_and_reveal_permutation(
+            ctx1.narrow("shuffle_reveal"),
+            BATCHSIZE,
+            perm1,
+            &SemiHonest,
+        );
+        let h2_future = shuffle_and_reveal_permutation(
+            ctx2.narrow("shuffle_reveal"),
+            BATCHSIZE,
+            perm2,
+            &SemiHonest,
+        );
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 

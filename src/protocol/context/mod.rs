@@ -17,6 +17,10 @@ pub use semi_honest::SemiHonestContext;
 
 use super::sort::reshare::Reshare;
 
+pub enum ContextType {
+    SemiHonest,
+    Malicious,
+}
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait Context<F: Field>:
