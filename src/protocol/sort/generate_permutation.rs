@@ -2,8 +2,8 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
+        basics::reveal::reveal_permutation,
         context::Context,
-        reveal::reveal_permutation,
         sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation},
         sort::{
             bit_permutation::bit_permutation,

@@ -3,9 +3,9 @@ use super::dumb_bitwise_sum::bitwise_sum;
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::{Field, Int};
+use crate::protocol::basics::reveal::Reveal;
 use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::context::{Context, SemiHonestContext};
-use crate::protocol::reveal::Reveal;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Replicated;
 

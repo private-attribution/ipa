@@ -92,6 +92,10 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
 /// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
+/// # Errors
+/// If we cant convert F to u128
+/// # Panics
+/// If we cant convert F to u128
 pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     ctx: C,
     permutation: &[S],
@@ -121,11 +125,11 @@ mod tests {
         error::Error,
         ff::{Field, Fp31},
         helpers::Direction,
+        protocol::{basics::reveal::Reveal, malicious::MaliciousValidator},
         protocol::{
             context::{Context, MaliciousContext},
             QueryId, RecordId,
         },
-        protocol::{malicious::MaliciousValidator, reveal::Reveal},
         secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
         test_fixture::{join3, join3v, share, TestWorld},
     };

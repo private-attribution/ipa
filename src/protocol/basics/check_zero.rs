@@ -1,6 +1,6 @@
+use crate::protocol::basics::mul::SecureMul;
+use crate::protocol::basics::reveal::Reveal;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::mul::SecureMul;
-use crate::protocol::reveal::Reveal;
 use crate::{
     error::Error,
     ff::Field,
@@ -87,7 +87,7 @@ mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::context::Context;
-    use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
+    use crate::protocol::{basics::check_zero::check_zero, QueryId, RecordId};
     use crate::rand::thread_rng;
     use crate::test_fixture::{share, TestWorld};
 

@@ -1,6 +1,6 @@
 use crate::ff::Field;
+use crate::protocol::basics::mul::SecureMul;
 use crate::protocol::context::Context;
-use crate::protocol::mul::SecureMul;
 use crate::protocol::{QueryId, RecordId};
 use crate::rand::thread_rng;
 use crate::secret_sharing::Replicated;

@@ -1,10 +1,10 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::{
+use crate::protocol::basics::mul::{
     semi_honest_mul, semi_honest_multiply_one_share_mostly_zeroes,
     semi_honest_multiply_two_shares_mostly_zeroes,
 };
+use crate::protocol::context::MaliciousContext;
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
@@ -174,7 +174,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 mod regular_mul_tests {
     use crate::{
         ff::Fp31,
-        protocol::{mul::SecureMul, QueryId, RecordId},
+        protocol::{basics::mul::SecureMul, QueryId, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -202,7 +202,7 @@ mod specialized_mul_tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            mul::{
+            basics::mul::{
                 test::{SpecializedA, SpecializedB, SpecializedC},
                 SecureMul,
             },

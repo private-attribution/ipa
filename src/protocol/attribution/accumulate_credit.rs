@@ -5,9 +5,9 @@ use crate::helpers::Role;
 use crate::protocol::attribution::AttributionInputRowResharableStep::{
     BreakdownKey, Credit, HelperBit, IsTriggerBit,
 };
+use crate::protocol::basics::mul::SecureMul;
 use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::mul::SecureMul;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Replicated;
