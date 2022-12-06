@@ -133,35 +133,3 @@ where
     let inverted_elements = flip_bits(one.clone(), x);
     check_if_all_ones(ctx, record_id, &inverted_elements).await
 }
-
-#[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
-    use super::xor;
-    use crate::{
-        ff::{Field, Fp31},
-        protocol::{QueryId, RecordId},
-        test_fixture::{Reconstruct, Runner, TestWorld},
-    };
-
-    async fn xor_fp31(world: &TestWorld, a: Fp31, b: Fp31) -> Fp31 {
-        let result = world
-            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                xor(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
-            })
-            .await;
-
-        result.reconstruct()
-    }
-
-    #[tokio::test]
-    pub async fn all_combinations() {
-        let world = TestWorld::new(QueryId);
-
-        assert_eq!(Fp31::ZERO, xor_fp31(&world, Fp31::ZERO, Fp31::ZERO).await);
-        assert_eq!(Fp31::ONE, xor_fp31(&world, Fp31::ONE, Fp31::ZERO).await);
-        assert_eq!(Fp31::ONE, xor_fp31(&world, Fp31::ZERO, Fp31::ONE).await);
-        assert_eq!(Fp31::ZERO, xor_fp31(&world, Fp31::ONE, Fp31::ONE).await);
-    }
-}

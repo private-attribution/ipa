@@ -29,7 +29,7 @@ use std::ops::AddAssign;
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Substep: AsRef<str> {}
+pub trait Substep: AsRef<str> + Send + Sync {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]

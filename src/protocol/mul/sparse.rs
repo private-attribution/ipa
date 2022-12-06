@@ -161,16 +161,16 @@ mod test {
         protocol::{
             context::Context,
             malicious::MaliciousValidator,
-            mul::{sparse::MultiplyWork, SecureMul, ZeroPositions},
-            QueryId, RecordId,
+            mul::{sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
+            reveal::Reveal,
+            BitOpStep, QueryId, RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
         test_fixture::{Runner, TestWorld},
     };
+    use futures::future::try_join;
     use std::{borrow::Borrow, iter::zip};
-
-    use super::MultiplyZeroPositions;
 
     /// Determine whether multiplication for helper X requires sending or receiving.
     /// Argument is a description of which items are zero for shares at each helper.
@@ -353,14 +353,22 @@ mod test {
                         let v_a = puncture(ctx.role(), a, &v_a);
                         let v_b = puncture(ctx.role(), b, &v_b);
 
+                        let (revealed_a, revealed_b) = try_join(
+                            ctx.narrow("reveal_a").reveal(RecordId::from(0), &v_a),
+                            ctx.narrow("reveal_b").reveal(RecordId::from(0), &v_b),
+                        )
+                        .await
+                        .unwrap();
+                        let reveal_ab_ctx = ctx.narrow("reveal_ab");
+
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context();
                         let m_a = m_ctx
-                            .upgrade_bit_sparse(RecordId::from(0), 0, v_a, a)
+                            .upgrade_with_sparse(&BitOpStep::from(0), RecordId::from(0), v_a, a)
                             .await
                             .unwrap();
                         let m_b = m_ctx
-                            .upgrade_bit_sparse(RecordId::from(0), 1, v_b, b)
+                            .upgrade_with_sparse(&BitOpStep::from(1), RecordId::from(0), v_b, b)
                             .await
                             .unwrap();
 
@@ -369,49 +377,15 @@ mod test {
                             .await
                             .unwrap();
 
-                        v.validate(m_ab).await.unwrap()
+                        let ab = v.validate(m_ab).await.unwrap();
+                        let revealed_ab =
+                            reveal_ab_ctx.reveal(RecordId::from(0), &ab).await.unwrap();
+                        assert_eq!(revealed_a * revealed_b, revealed_ab);
+                        ab
                     })
                     .await;
                 check_punctured_output(&result, (a, b));
             }
         }
-    }
-
-    #[tokio::test]
-    async fn check_failing_mul() {
-        let world = TestWorld::new(QueryId);
-        let mut rng = thread_rng();
-
-        let (a, b) = (ZeroPositions::Pvzz, ZeroPositions::Pzvv);
-
-        let v1 = rng.gen::<Fp31>();
-        let v2 = rng.gen::<Fp31>();
-        let result = world
-            .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                let v_a = puncture(ctx.role(), a, &v_a);
-                let v_b = puncture(ctx.role(), b, &v_b);
-
-                let v = MaliciousValidator::new(ctx);
-                let m_a = v
-                    .context()
-                    .upgrade_bit_sparse(RecordId::from(0), 0, v_a, a)
-                    .await
-                    .unwrap();
-                let m_b = v
-                    .context()
-                    .upgrade_bit_sparse(RecordId::from(0), 1, v_b, b)
-                    .await
-                    .unwrap();
-
-                let m_ab = v
-                    .context()
-                    .multiply_sparse(RecordId::from(0), &m_a, &m_b, ZeroPositions::NONE)
-                    .await
-                    .unwrap();
-
-                v.validate(m_ab).await.unwrap()
-            })
-            .await;
-        check_punctured_output(&result, (a, b));
     }
 }

@@ -12,7 +12,7 @@ use crate::protocol::mul::{malicious::Step::RandomnessForValidation, SecureMul};
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
-use crate::protocol::{BitOpStep, RecordId, Step, Substep};
+use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
 
@@ -76,13 +76,14 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_bit(
+    pub async fn upgrade_with<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
-        bit_index: u32,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_bit_sparse(record_id, bit_index, input, ZeroPositions::Pvvv)
+        self.inner
+            .upgrade_with(step, record_id, input, ZeroPositions::Pvvv)
             .await
     }
 
@@ -91,15 +92,15 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_bit_sparse(
+    pub async fn upgrade_with_sparse<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
-        bit_index: u32,
         input: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner
-            .upgrade_bit(record_id, bit_index, input, zeros_at)
+            .upgrade_with(step, record_id, input, zeros_at)
             .await
     }
 
@@ -191,9 +192,9 @@ impl crate::protocol::Substep for UpgradeTripleStep {}
 impl AsRef<str> for UpgradeTripleStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::V0 => "upgrade_bit_triple0",
-            Self::V1 => "upgrade_bit_triple1",
-            Self::V2 => "upgrade_bit_triple2",
+            Self::V0 => "utrip0",
+            Self::V1 => "utrip1",
+            Self::V2 => "utrip2",
         }
     }
 }
@@ -255,20 +256,15 @@ impl<'a, F: Field> ContextInner<'a, F> {
             .await
     }
 
-    async fn upgrade_bit(
+    async fn upgrade_with<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
-        bit_index: u32,
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_one(
-            self.upgrade_ctx.narrow(&BitOpStep::from(bit_index)),
-            record_id,
-            x,
-            zeros_at,
-        )
-        .await
+        self.upgrade_one(self.upgrade_ctx.narrow(step), record_id, x, zeros_at)
+            .await
     }
 
     async fn upgrade_bit_triple(
