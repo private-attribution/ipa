@@ -1,18 +1,22 @@
-use crate::protocol::IpaProtocolStep::ModulusConversion;
+use std::iter::{repeat, zip};
+
 use crate::{
     error::Error,
     ff::Field,
-    helpers::Role,
-    protocol::{context::Context, RecordId},
-    secret_sharing::{Replicated, SecretSharing, XorReplicated},
+    protocol::{
+        attribution::{
+            accumulate_credit::accumulate_credit, credit_capping::credit_capping,
+            AttributionInputRow,
+        },
+        context::Context,
+        RecordId,
+    },
+    secret_sharing::{Replicated, XorReplicated},
 };
-use async_trait::async_trait;
 use futures::future::try_join_all;
-use std::iter::{repeat, zip};
 
 use super::context::SemiHonestContext;
 use super::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-use super::sort::apply_sort::shuffle::Resharable;
 use super::sort::generate_permutation::generate_permutation;
 use crate::protocol::boolean::bitwise_equal::bitwise_equal;
 
@@ -20,10 +24,9 @@ use crate::protocol::boolean::bitwise_equal::bitwise_equal;
 enum Step {
     ModulusConversionForMatchKeys,
     GenSortPermutationFromMatchKeys,
-    ApplySortToMatchKeys,
-    ApplySortToSidecarData,
+    ApplySortPermutation,
     ComputeHelperBits,
-    PerformAttribution,
+    AccumulateCredit,
     PerformUserCapping,
 }
 
@@ -34,52 +37,30 @@ impl AsRef<str> for Step {
         match self {
             Self::ModulusConversionForMatchKeys => "mod_conv_match_key",
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
-            Self::ApplySortToMatchKeys => "sort_keys",
-            Self::ApplySortToSidecarData => "sort_values",
+            Self::ApplySortPermutation => "apply_sort_permutation",
             Self::ComputeHelperBits => "compute_helper_bits",
-            Self::PerformAttribution => "attribution",
+            Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
         }
     }
 }
 
-#[async_trait]
-impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
-    type Share = Replicated<F>;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
-    where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
-    {
-        // try_join_all(
-        //     self.iter().map(|x| {
-        //         let c = ctx.narrow("foo");
-        //         async move {
-        //             c.reshare(x, record_id, to_helper).await
-        //         }
-        //     })
-        // ).await
-        let result = Vec::with_capacity(self.len());
-        for elem in self {
-            let r = ctx.reshare(elem, record_id, to_helper).await?;
-            result.push(r);
-        }
-        Ok(result)
-    }
-}
-
 /// # Errors
-/// Propagates errors from `xor_specialized_1`
-pub async fn ipa<F, S>(
+/// Propagates errors from multiplications
+#[allow(dead_code)]
+pub async fn ipa<F>(
     ctx: SemiHonestContext<'_, F>,
     mk_shares: &[XorReplicated],
     num_bits: u32,
-    _other_inputs: &[[F; 3]],
+    other_inputs: Vec<Vec<Replicated<F>>>,
+    per_user_credit_cap: u32,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
 {
-    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, num_bits);
+    debug_assert_eq!(mk_shares.len(), other_inputs.len());
+
+    let local_lists = convert_all_bits_local(ctx.role(), mk_shares, num_bits);
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &local_lists,
@@ -94,62 +75,99 @@ where
     .await
     .unwrap();
 
-    let sorted_match_keys = sort_permutation.apply(ctx.narrow(&Step::ApplySortToMatchKeys), converted_shares).await.unwrap();
-    //let sorted_other_inputs = sort_permutation.apply(ctx, shares_of_other_inputs).await.unwrap();
+    let num_bits: usize = usize::try_from(num_bits).unwrap();
 
-    let futures = zip(repeat(ctx), sorted_match_keys.iter())
-        .zip(sorted_match_keys.iter().skip(1))
+    let combined_match_keys_and_sidecar_data = other_inputs
+        .into_iter()
         .enumerate()
-        .map(|(i, ((ctx, mk), next_mk))| {
-            let record_id = RecordId::from(i);
-            async move { bitwise_equal(ctx, record_id, &mk, next_mk).await }
-        });
-    let mut is_trigger_bits = try_join_all(futures).await?;
-    Ok(is_trigger_bits)
+        .map(|(row_index, mut sidecar_data)| {
+            for i in 0..num_bits {
+                sidecar_data.push(converted_shares[i][row_index].clone());
+            }
+            sidecar_data
+        })
+        .collect::<Vec<_>>();
+
+    let sorted_rows = sort_permutation
+        .apply(
+            ctx.narrow(&Step::ApplySortPermutation),
+            combined_match_keys_and_sidecar_data,
+        )
+        .await
+        .unwrap();
+
+    let futures = zip(
+        repeat(ctx.narrow(&Step::ComputeHelperBits)),
+        sorted_rows.iter(),
+    )
+    .zip(sorted_rows.iter().skip(1))
+    .enumerate()
+    .map(|(i, ((ctx, row), next_row))| {
+        let record_id = RecordId::from(i);
+        async move { bitwise_equal(ctx, record_id, &row[3..], &next_row[3..]).await }
+    });
+    let helper_bits = try_join_all(futures).await?;
+
+    let attribution_input_rows = sorted_rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let hb = if i == 0 {
+                Replicated::ZERO
+            } else {
+                helper_bits[i - 1].clone()
+            };
+            AttributionInputRow {
+                is_trigger_bit: row[0].clone(),
+                helper_bit: hb,
+                breakdown_key: row[1].clone(),
+                credit: row[2].clone(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let accumulated_credits =
+        accumulate_credit(ctx.narrow(&Step::AccumulateCredit), &attribution_input_rows).await?;
+
+    let _user_capped_credits = credit_capping(
+        ctx.narrow(&Step::PerformUserCapping),
+        &accumulated_credits,
+        per_user_credit_cap,
+    )
+    .await?;
+
+    Ok(helper_bits)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::ipa;
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::helpers::{Direction, Role};
-    use crate::protocol::boolean::bitwise_equal::bitwise_equal;
-    use crate::protocol::context::Context;
-    use crate::protocol::malicious::MaliciousValidator;
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::Replicated;
     use crate::{
-        error::Error,
-        ff::Fp31,
-        protocol::{
-            modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
-            QueryId, RecordId,
-        },
+        ff::{Field, Fp32BitPrime},
+        protocol::QueryId,
         test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
     };
-    use proptest::prelude::Rng;
 
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
         let world = TestWorld::new(QueryId);
-        let mut rng = thread_rng();
 
         //   match key, is_trigger, breakdown_key, trigger_value
         let records = [
-            [123456789_u32, 0, 1, 0],
-            [123456789_u32, 0, 2, 0],
-            [683625482_u32, 0, 1, 0],
-            [123456789_u32, 1, 0, 5],
-            [683625482_u32, 1, 0, 2],
+            [12345_u64, 0, 1, 0],
+            [12345_u64, 0, 2, 0],
+            [68362_u64, 0, 1, 0],
+            [12345_u64, 1, 0, 5],
+            [68362_u64, 1, 0, 2],
         ];
         let match_keys = records
             .iter()
             .map(|record| MaskedMatchKey::mask(record[0]))
             .collect::<Vec<_>>();
 
-        let mut other_inputs = records
+        let other_inputs = records
             .iter()
             .map(|record| {
                 let c = Fp32BitPrime::from;
@@ -161,9 +179,22 @@ mod tests {
             .semi_honest(
                 (match_keys, other_inputs),
                 |ctx, (mk_shares, shares_of_other_inputs)| async move {
-                    ipa(ctx, &mk_shares, 40, &other_inputs).await.unwrap()
+                    ipa(ctx, &mk_shares, 20, shares_of_other_inputs, 3)
+                        .await
+                        .unwrap()
                 },
             )
             .await;
+
+        let helper_bits = result.reconstruct();
+        assert_eq!(
+            helper_bits,
+            vec![
+                Fp32BitPrime::ONE,
+                Fp32BitPrime::ONE,
+                Fp32BitPrime::ZERO,
+                Fp32BitPrime::ONE,
+            ]
+        );
     }
 }

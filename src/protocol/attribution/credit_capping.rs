@@ -13,6 +13,10 @@ use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
+///
+/// # Errors
+/// Propagates errors from multiplications
+///
 #[allow(dead_code)]
 pub async fn credit_capping<F: Field>(
     ctx: SemiHonestContext<'_, F>,
