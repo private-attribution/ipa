@@ -91,6 +91,7 @@ impl ZeroPositions {
     /// Debug code only as this is unnecessary work.
     /// # Panics
     /// When the input value includes a non-zero value in a position marked as having a zero.
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
         #[cfg(debug_assertions)]
         {
