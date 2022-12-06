@@ -125,7 +125,7 @@ mod tests {
         error::Error,
         ff::{Field, Fp31},
         helpers::Direction,
-        protocol::{basics::reveal::Reveal, malicious::MaliciousValidator},
+        protocol::{basics::Reveal, malicious::MaliciousValidator},
         protocol::{
             context::{Context, MaliciousContext},
             QueryId, RecordId,

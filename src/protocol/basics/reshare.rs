@@ -132,7 +132,7 @@ mod tests {
         use crate::protocol::context::Context;
         use crate::{
             helpers::Role,
-            protocol::{basics::reshare::Reshare, QueryId, RecordId},
+            protocol::{basics::Reshare, QueryId, RecordId},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -193,7 +193,7 @@ mod tests {
         use crate::error::Error;
         use crate::ff::{Field, Fp32BitPrime};
         use crate::helpers::{Direction, Role};
-        use crate::protocol::basics::reshare::Reshare;
+        use crate::protocol::basics::Reshare;
         use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
         use crate::protocol::malicious::MaliciousValidator;
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};

@@ -174,7 +174,7 @@ pub async fn multiply_two_shares_mostly_zeroes<F: Field>(
 mod regular_mul_tests {
     use crate::{
         ff::Fp31,
-        protocol::{basics::mul::SecureMul, QueryId, RecordId},
+        protocol::{basics::SecureMul, QueryId, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };

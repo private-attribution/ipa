@@ -4,7 +4,7 @@ use super::{
 };
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::basics::mul::SecureMul;
+use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};

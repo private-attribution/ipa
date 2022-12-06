@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::reveal::reveal_permutation,
+        basics::reveal_permutation,
         context::Context,
         sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation},
         sort::{
