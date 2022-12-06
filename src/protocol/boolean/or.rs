@@ -24,25 +24,42 @@ mod tests {
         protocol::{QueryId, RecordId},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+    use rand::distributions::{Distribution, Standard};
 
-    async fn or_fp31(a: Fp31, b: Fp31) -> Fp31 {
-        let world = TestWorld::new(QueryId);
-
+    async fn run<F>(world: &TestWorld, a: F, b: F) -> F
+    where
+        F: Field,
+        Standard: Distribution<F>,
+    {
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
                 or(ctx, RecordId::from(0_u32), &a_share, &b_share)
                     .await
                     .unwrap()
             })
-            .await;
-        result.reconstruct()
+            .await
+            .reconstruct();
+        let m_result = world
+            .malicious((a, b), |ctx, (a_share, b_share)| async move {
+                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+        result
     }
 
     #[tokio::test]
-    pub async fn basic() {
-        assert_eq!(Fp31::ZERO, or_fp31(Fp31::ZERO, Fp31::ZERO).await);
-        assert_eq!(Fp31::ONE, or_fp31(Fp31::ONE, Fp31::ZERO).await);
-        assert_eq!(Fp31::ONE, or_fp31(Fp31::ZERO, Fp31::ONE).await);
-        assert_eq!(Fp31::ONE, or_fp31(Fp31::ONE, Fp31::ONE).await);
+    pub async fn all() {
+        type F = Fp31;
+        let world = TestWorld::new(QueryId);
+
+        assert_eq!(F::ZERO, run(&world, F::ZERO, F::ZERO).await);
+        assert_eq!(F::ONE, run(&world, F::ONE, F::ZERO).await);
+        assert_eq!(F::ONE, run(&world, F::ZERO, F::ONE).await);
+        assert_eq!(F::ONE, run(&world, F::ONE, F::ONE).await);
     }
 }
