@@ -18,6 +18,7 @@ pub struct InstrumentedIndexedSharedRandomness<'a> {
 }
 
 impl<'a> InstrumentedIndexedSharedRandomness<'a> {
+    #[must_use]
     pub fn new(source: Arc<IndexedSharedRandomness>, step: &'a Step, role: Role) -> Self {
         Self {
             inner: source,
@@ -43,6 +44,7 @@ pub struct InstrumentedSequentialSharedRandomness<'a> {
 }
 
 impl<'a> InstrumentedSequentialSharedRandomness<'a> {
+    #[must_use]
     pub fn new(source: SequentialSharedRandomness, step: &'a Step, role: Role) -> Self {
         Self {
             inner: source,
@@ -64,7 +66,7 @@ impl RngCore for InstrumentedSequentialSharedRandomness<'_> {
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.inner.fill_bytes(dest)
+        self.inner.fill_bytes(dest);
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {

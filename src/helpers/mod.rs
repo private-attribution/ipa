@@ -61,6 +61,7 @@ impl Role {
         }
     }
 
+    #[must_use]
     pub fn as_static_str(&self) -> &'static str {
         match self {
             H1 => Role::H1_STR,

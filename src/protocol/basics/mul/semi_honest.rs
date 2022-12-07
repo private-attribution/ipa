@@ -1,12 +1,12 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{
     basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::protocol::prss::SharedRandomness;
 use crate::secret_sharing::Replicated;
 
 /// IKHC multiplication protocol
