@@ -97,19 +97,12 @@ impl TestWorld {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
-        // setup logging
         logging::setup();
 
-        // setup metrics
         let metrics_handle = MetricsHandle::new(config.metrics_level);
-
-        // PRSS
         let participants = make_participants();
-
-        // Network
         let network = InMemoryNetwork::new();
 
-        // Infra
         let gateways = network
             .endpoints
             .iter()

@@ -103,6 +103,10 @@ mod tests {
         }
     }
 
+    /// This looks weird because it uses `MaliciousReplicated::rx()` value instead of `x`.
+    /// Malicious context intentionally disallows access to `x` without validating first and
+    /// here it does not matter at all. It needs just some value to send (any value would do just
+    /// fine)
     impl<F: Field> AsReplicated<F> for MaliciousReplicated<F> {
         fn left(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().left()
