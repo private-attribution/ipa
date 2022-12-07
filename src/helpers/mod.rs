@@ -28,9 +28,9 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
     serde(try_from = "&str")
 )]
 pub enum Role {
-    H1,
-    H2,
-    H3,
+    H1 = 0,
+    H2 = 1,
+    H3 = 2,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
