@@ -13,6 +13,7 @@ use super::{apply::apply_inv, shuffle::shuffle_shares};
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>
+///
 /// This is a protocol that applies the inverse of a secret-shared permutation to a vector of secret-shared values
 /// Input: Each helpers know their own secret shares of input and permutation
 /// Output: At the end of the protocol, all helpers receive inputs after the permutation is applied
@@ -21,8 +22,11 @@ use super::{apply::apply_inv, shuffle::shuffle_shares};
 /// To keep the permutation secret, it (and the inputs) are first randomly securely shuffled.
 /// After this shuffle, the permutation can be revealed.
 /// An adversary can only obtain a shuffled permutation, which is just a random permutation.
-/// Steps
+///
 /// ![Secure Apply Inv steps][secureapplyinv]
+///
+/// Steps
+///
 /// 1. Generate random permutations using prss
 /// 2. Secret shared permutation is shuffled with random permutations
 /// 3. Secret shared value is shuffled using the same random permutations

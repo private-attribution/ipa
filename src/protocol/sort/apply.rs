@@ -4,6 +4,7 @@ use embed_doc_image::embed_doc_image;
 #[embed_doc_image("apply", "images/sort/apply.png")]
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
+///
 /// ![Apply steps][apply]
 pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
     debug_assert!(permutation.len() == values.len());
@@ -27,6 +28,7 @@ pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
 /// To compute `apply_inv` on values, permutation(i) can be regarded as the destination of i, i.e., the i-th item
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
+///
 /// ![Apply inv steps][applyinv]
 pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
     let mut permuted = bitvec![0; permutation.len()];

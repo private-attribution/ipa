@@ -9,6 +9,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>
+///
 /// This protocol composes two permutations by applying one secret-shared permutation(sigma) to another secret-shared permutation(rho)
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
@@ -16,12 +17,14 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
 /// and none of the helpers should learn it through this protocol.
 /// Steps
-/// ![Compose steps][compose]
+///
 /// 1. Generate random permutations using prss
 /// 2. First permutation (sigma) is shuffled with random permutations
 /// 3. Reveal the permutation
 /// 4. Revealed permutation is applied locally on another permutation shares (rho)
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
+///
+/// ![Compose steps][compose]
 pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     ctx: C,
     random_permutations_for_shuffle: (&[u32], &[u32]),
