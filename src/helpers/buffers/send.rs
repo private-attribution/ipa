@@ -124,10 +124,11 @@ impl SendBuffer {
         for (channel, buf) in &self.inner {
             let range = Range::from(buf);
             let range: Range<u32> = range.start.into()..range.end.into();
+            let offset = range.start;
             let mut records = Vec::new();
             for i in range {
                 // we're only interested in things in the front of the buffer
-                if buf.added(usize::try_from(i).unwrap()) {
+                if buf.added(usize::try_from(i - offset).unwrap()) {
                     break;
                 }
 
