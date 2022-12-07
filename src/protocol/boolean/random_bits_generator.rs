@@ -1,10 +1,12 @@
-use super::solved_bits::{RandomBitsShare, SolvedBits};
+use super::solved_bits::{solved_bits, RandomBitsShare};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
+use crate::protocol::context::Context;
 use crate::protocol::RecordId;
+use crate::secret_sharing::SecretSharing;
 use futures::{future::try_join_all, TryFutureExt};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -57,13 +59,22 @@ impl<T> RingBuffer<T> {
 }
 
 #[derive(Debug)]
-struct State<F: Field> {
-    buffer: RingBuffer<RandomBitsShare<F>>,
+struct State<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
+    buffer: RingBuffer<RandomBitsShare<F, S>>,
     next_index: u32,
     abort_count: u32,
+    _marker: PhantomData<F>,
 }
 
-impl<F: Field> State<F> {
+impl<F, S> State<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
     const REFILL_THRESHOLD: usize = 16;
 
     pub fn new() -> Self {
@@ -71,15 +82,16 @@ impl<F: Field> State<F> {
             buffer: RingBuffer::new(),
             next_index: 0,
             abort_count: 0,
+            _marker: PhantomData::default(),
         }
     }
 
     /// Returns a `RandomBitsShare` instance out of the buffer. If the number
     /// of buffered items fall below a threshold, it'll replenish.
-    pub async fn get(
+    pub async fn get<C: Context<F, Share = S>>(
         &mut self,
-        context: SemiHonestContext<'_, F>,
-    ) -> Result<RandomBitsShare<F>, Error> {
+        context: C,
+    ) -> Result<RandomBitsShare<F, S>, Error> {
         // If we have enough shares, take one immediately return
         if self.buffer.len() > Self::REFILL_THRESHOLD {
             return Ok(self.buffer.take());
@@ -97,7 +109,7 @@ impl<F: Field> State<F> {
             // after so many records being processed.
             self.next_index = self.next_index.wrapping_add(1);
 
-            async move { SolvedBits::execute(c, record_id).await }
+            async move { solved_bits(c, record_id).await }
         }))
         .and_then(|new_stock| async move {
             for x in new_stock {
@@ -120,17 +132,29 @@ impl<F: Field> State<F> {
 /// one by calling `take_one()`. It will call `SolvedBits` once the stock falls
 /// below `REFILL_THRESHOLD` until it fills up the empty slots.
 #[derive(Debug)]
-pub struct RandomBitsGenerator<F: Field> {
-    state: Arc<Mutex<State<F>>>,
+pub struct RandomBitsGenerator<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
+    state: Arc<Mutex<State<F, S>>>,
 }
 
-impl<F: Field> Default for RandomBitsGenerator<F> {
+impl<F, S> Default for RandomBitsGenerator<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<F: Field> RandomBitsGenerator<F> {
+impl<F, S> RandomBitsGenerator<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -144,10 +168,10 @@ impl<F: Field> RandomBitsGenerator<F> {
     /// This method mail fail for number of reasons. Errors include locking the
     /// inner members multiple times, I/O errors while executing MPC protocols,
     /// read from an empty buffer, etc.
-    pub async fn take_one(
+    pub async fn take_one<C: Context<F, Share = S>>(
         &self,
-        context: SemiHonestContext<'_, F>,
-    ) -> Result<RandomBitsShare<F>, Error> {
+        context: C,
+    ) -> Result<RandomBitsShare<F, S>, Error> {
         let mut state = self.state.lock().await;
         state.get(context).await
     }
@@ -167,7 +191,11 @@ impl<F: Field> RandomBitsGenerator<F> {
     }
 }
 
-impl<F: Field> Clone for RandomBitsGenerator<F> {
+impl<F, S> Clone for RandomBitsGenerator<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
     fn clone(&self) -> Self {
         Self {
             state: Arc::clone(&self.state),

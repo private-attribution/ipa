@@ -336,3 +336,13 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
         }
     }
 }
+
+impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
+    fn validate(&self, r: F) {
+        let [t0, t1, t2] = self;
+        let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
+
+        [s0, s1, s2].validate(r);
+        [v0.clone(), v1.clone(), v2.clone()].validate(r);
+    }
+}

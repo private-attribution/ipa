@@ -226,37 +226,29 @@ pub(in crate::protocol) mod test {
         // Create a sharing of `self.v` with zeros in positions determined by `self.z`.
         // This is a little inefficient, but it shouldn't be so bad in tests.
         fn share_with<R: rand::Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
-            let mut zeros = <[bool; 3]>::from(self.z).into_iter();
-            if let Some(first) = zeros.position(|x| x) {
-                if let Some(second) = zeros.position(|x| x) {
-                    // Two zeros, one value = simple sharing.
-                    let mut shares = [
-                        Replicated::new(self.v, F::ZERO),
-                        Replicated::new(F::ZERO, F::ZERO),
-                        Replicated::new(F::ZERO, self.v),
-                    ];
-                    // Rotate the value into position based on `first` and `second`.
-                    // Note that `second` is relative to `first + 1`, so:
-                    // Pzzv = (0,0) => 2, Pzvz = (0,1) => 1, Pvzz = (1,0) => 0
-                    shares.rotate_right(2 - (2 * first) - second);
-                    shares
-                } else {
-                    // One zero, two values.
-                    let r = rng.gen::<F>();
-                    let v_r = self.v - r;
-                    let mut shares = [
-                        Replicated::new(F::ZERO, r),
-                        Replicated::new(r, v_r),
-                        Replicated::new(v_r, F::ZERO),
-                    ];
-                    // Rotate the zero into position.
-                    shares.rotate_right(first);
-                    shares
-                }
-            } else {
-                // Three values needed, use normal sharing.
-                self.v.share_with(rng)
-            }
+            let zeros = <[bool; 3]>::from(self.z);
+            // Generate one fewer random value than there are values.
+            let mut randoms = zeros.iter().filter(|&x| !x).skip(1).map(|_| rng.gen::<F>());
+            let mut remainder = self.v;
+            let values = zeros
+                .into_iter()
+                .map(|z| {
+                    if z {
+                        F::ZERO
+                    } else if let Some(r) = randoms.next() {
+                        remainder -= r;
+                        r
+                    } else {
+                        remainder
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            [
+                Replicated::new(values[0], values[1]),
+                Replicated::new(values[1], values[2]),
+                Replicated::new(values[2], values[0]),
+            ]
         }
     }
 

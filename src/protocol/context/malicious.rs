@@ -107,12 +107,13 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_bit_triple(
+    pub async fn upgrade_bit_triple<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
-        self.inner.upgrade_bit_triple(record_id, triple).await
+        self.inner.upgrade_bit_triple(step, record_id, triple).await
     }
 }
 
@@ -266,28 +267,30 @@ impl<'a, F: Field> ContextInner<'a, F> {
             .await
     }
 
-    async fn upgrade_bit_triple(
+    async fn upgrade_bit_triple<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
         let [v0, v1, v2] = triple.0;
+        let c = self.upgrade_ctx.narrow(step);
         Ok(BitConversionTriple(
             try_join_all([
                 self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
+                    c.narrow(&UpgradeTripleStep::V0),
                     record_id,
                     v0,
                     ZeroPositions::Pvzz,
                 ),
                 self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
+                    c.narrow(&UpgradeTripleStep::V1),
                     record_id,
                     v1,
                     ZeroPositions::Pzvz,
                 ),
                 self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
+                    c.narrow(&UpgradeTripleStep::V2),
                     record_id,
                     v2,
                     ZeroPositions::Pzzv,
