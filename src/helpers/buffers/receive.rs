@@ -102,8 +102,11 @@ impl ReceiveBuffer {
                     ReceiveBufItem::Received(_) => None,
                 })
                 .collect::<Vec<_>>();
-            vec.sort_unstable();
-            tasks.insert(channel, vec);
+
+            if !vec.is_empty() {
+                vec.sort_unstable();
+                tasks.insert(channel, vec);
+            }
         }
 
         WaitingTasks { tasks }
