@@ -3,7 +3,7 @@ use super::{
     CreditCappingOutputRow, InteractionPatternStep,
 };
 use crate::error::Error;
-use crate::ff::{Field, Int};
+use crate::ff::Field;
 use crate::helpers::Role;
 use crate::protocol::attribution::AttributionResharableStep::{
     AggregationBit, BreakdownKey, Credit, HelperBit,
@@ -74,9 +74,10 @@ pub async fn aggregate_credit<F: Field>(
         add_aggregation_bits_and_breakdown_keys(&ctx, capped_credits);
 
     //
-    // 2. Sort by `aggregation_bit` first, then by `breakdown_key`.
+    // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
+    // precede all other rows in the input. (done in the previous step).
     //
-    let sorted_input = sort_by_aggregation_bit_and_breakdown_key(
+    let sorted_input = sort_by_breakdown_key(
         ctx.narrow(&Step::SortByBreakdownKeyAndAttributionBit),
         &capped_credits_with_aggregation_bits,
     )
@@ -187,32 +188,33 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field>(
     let zero = Replicated::ZERO;
     let one = ctx.share_of_one();
 
-    // Add aggregation bits and initialize with 1's. We create a new vector here
-    // because we need to push new rows needed for the aggregate computation.
-    let mut capped_credits_with_aggregation_bits = capped_credits
-        .iter()
-        .map(|x| CappedCreditsWithAggregationBit {
-            helper_bit: one.clone(),
-            aggregation_bit: one.clone(),
-            breakdown_key: x.breakdown_key.clone(),
-            credit: x.credit.clone(),
-        })
-        .collect::<Vec<_>>();
-
-    // Add additional breakdown_key values with all other fields initialized
-    // with 0's. Since we cannot see the actual breakdown key values, we'll
-    // need to append all possible values. For now, we assume breakdown_key
-    // is in the range of (0..MAX_BREAKDOWN_KEY).
-    (0..MAX_BREAKDOWN_KEY).for_each(|i| {
-        capped_credits_with_aggregation_bits.push(CappedCreditsWithAggregationBit {
+    // Unique breakdown_key values with all other fields initialized with 0's.
+    // Since we cannot see the actual breakdown key values, we'll need to
+    // append all possible values. For now, we assume breakdown_key is in the
+    // range of (0..MAX_BREAKDOWN_KEY).
+    let mut unique_breakdown_keys = (0..MAX_BREAKDOWN_KEY)
+        .map(|i| CappedCreditsWithAggregationBit {
             helper_bit: zero.clone(),
             aggregation_bit: zero.clone(),
             breakdown_key: Replicated::from_scalar(ctx.role(), F::from(i)),
             credit: zero.clone(),
-        });
-    });
+        })
+        .collect::<Vec<_>>();
 
-    capped_credits_with_aggregation_bits
+    // Add aggregation bits and initialize with 1's.
+    unique_breakdown_keys.append(
+        &mut capped_credits
+            .iter()
+            .map(|x| CappedCreditsWithAggregationBit {
+                helper_bit: one.clone(),
+                aggregation_bit: one.clone(),
+                breakdown_key: x.breakdown_key.clone(),
+                credit: x.credit.clone(),
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    unique_breakdown_keys
 }
 
 /// Transpose rows of bits into bits of rows
@@ -259,30 +261,23 @@ async fn bit_decompose_breakdown_key<F: Field>(
     .await
 }
 
-/// Sort the input by `aggregation_bit` first, then by `breakdown_key`
-async fn sort_by_aggregation_bit_and_breakdown_key<F: Field>(
+async fn sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
 ) -> Result<Vec<CappedCreditsWithAggregationBit<F>>, Error> {
-    // Prepend the aggregation_bit bits with breakdown_key bits. This results
-    // in sorting the sidecar by aggregation_bit first, and then by breakdown_key.
-
-    let mut permutation_keys = vec![input
-        .iter()
-        .map(|x| x.aggregation_bit.clone())
-        .collect::<Vec<_>>()];
-
     // TODO: Change breakdown_keys to use XorReplicated to avoid bit-decomposition calls
-    let mut breakdown_keys = transpose(
+    let breakdown_keys = transpose(
         &bit_decompose_breakdown_key(ctx.narrow(&Step::BitDecomposeBreakdownKey), input).await?,
     );
 
-    permutation_keys.append(&mut breakdown_keys);
+    // We only need to run a radix sort on the bits used by all possible
+    // breakdown key values.
+    let valid_bits_count = u128::BITS - (MAX_BREAKDOWN_KEY - 1).leading_zeros();
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        &permutation_keys,
-        F::Integer::BITS + 1, // breakdown_keys bits + aggregation_bit bit
+        &breakdown_keys[..valid_bits_count as usize],
+        valid_bits_count,
     )
     .await?;
 
@@ -358,7 +353,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
     use super::super::tests::{BD, H};
-    use super::{aggregate_credit, sort_by_aggregation_bit_and_breakdown_key};
+    use super::{aggregate_credit, sort_by_breakdown_key};
     use crate::ff::{Field, Fp31};
     use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
     use crate::protocol::attribution::{
@@ -552,6 +547,16 @@ pub(crate) mod tests {
         const RAW_INPUT: &[[u128; 4]; 27] = &[
             // helper_bit, breakdown_key, credit, aggregation_bit
 
+            // AggregateCredit protocol inserts unique breakdown_keys with all
+            // other fields with 0.
+            [H[0], BD[0], 0, 0],
+            [H[0], BD[1], 0, 0],
+            [H[0], BD[2], 0, 0],
+            [H[0], BD[3], 0, 0],
+            [H[0], BD[4], 0, 0],
+            [H[0], BD[5], 0, 0],
+            [H[0], BD[6], 0, 0],
+            [H[0], BD[7], 0, 0],
             // AggregateCredit protocol initializes helper_bits with 1 for all input rows.
             [H[1], BD[3], 0, 1],
             [H[1], BD[4], 0, 1],
@@ -572,16 +577,6 @@ pub(crate) mod tests {
             [H[1], BD[0], 0, 1],
             [H[1], BD[5], 6, 1],
             [H[1], BD[0], 0, 1],
-            // AggregateCredit protocol appends unique breakdown_keys with all
-            // other fields with 0.
-            [H[0], BD[0], 0, 0],
-            [H[0], BD[1], 0, 0],
-            [H[0], BD[2], 0, 0],
-            [H[0], BD[3], 0, 0],
-            [H[0], BD[4], 0, 0],
-            [H[0], BD[5], 0, 0],
-            [H[0], BD[6], 0, 0],
-            [H[0], BD[7], 0, 0],
         ];
 
         // sorted by aggregation_bit, then by breakdown_key
@@ -635,9 +630,7 @@ pub(crate) mod tests {
         let world = TestWorld::new(QueryId);
         let result = world
             .semi_honest(input, |ctx, share| async move {
-                sort_by_aggregation_bit_and_breakdown_key(ctx, &share)
-                    .await
-                    .unwrap()
+                sort_by_breakdown_key(ctx, &share).await.unwrap()
             })
             .await
             .reconstruct();
