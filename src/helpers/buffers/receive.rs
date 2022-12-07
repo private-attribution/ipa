@@ -90,8 +90,8 @@ impl ReceiveBuffer {
     }
 
     #[cfg(debug_assertions)]
-    pub(in crate::helpers) fn waiting(&self) -> super::WaitingTasks {
-        use super::WaitingTasks;
+    pub(in crate::helpers) fn waiting(&self) -> super::waiting::WaitingTasks {
+        use super::waiting::WaitingTasks;
 
         let mut tasks = HashMap::new();
         for (channel, receive_items) in &self.inner {
@@ -109,6 +109,6 @@ impl ReceiveBuffer {
             }
         }
 
-        WaitingTasks { tasks }
+        WaitingTasks::new(tasks)
     }
 }

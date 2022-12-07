@@ -117,30 +117,25 @@ impl SendBuffer {
     }
 
     #[cfg(debug_assertions)]
-    pub(in crate::helpers) fn waiting(&self) -> super::WaitingTasks {
-        use super::WaitingTasks;
+    pub(in crate::helpers) fn waiting(&self) -> super::waiting::WaitingTasks {
+        use super::waiting::WaitingTasks;
 
         let mut tasks = HashMap::new();
         for (channel, buf) in &self.inner {
             let range = Range::from(buf);
-            let range: Range<u32> = range.start.into()..range.end.into();
-            let offset = range.start;
-            let mut records = Vec::new();
-            for i in range {
-                // we're only interested in things in the front of the buffer
-                if buf.added(usize::try_from(i - offset).unwrap()) {
-                    break;
-                }
-
-                records.push(i);
-            }
-
-            if !records.is_empty() {
-                tasks.insert(channel, records);
+            let taken = u32::try_from(buf.taken()).unwrap();
+            let range = (u32::from(range.start) - taken)..(u32::from(range.end) - taken);
+            // Only report any gaps ahead of the first available value.
+            let missing = range
+                .take_while(|&i| !buf.added(usize::try_from(i).unwrap()))
+                .map(|i| taken + i)
+                .collect::<Vec<_>>();
+            if !missing.is_empty() {
+                tasks.insert(channel, missing);
             }
         }
 
-        WaitingTasks { tasks }
+        WaitingTasks::new(tasks)
     }
 }
 

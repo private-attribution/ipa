@@ -162,7 +162,7 @@ impl Gateway {
         let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
-            const INTERVAL: Duration = Duration::from_secs(10);
+            const INTERVAL: Duration = Duration::from_secs(3);
 
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
@@ -303,10 +303,8 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
     if !send_tasks_waiting.is_empty() || !receive_tasks_waiting.is_empty() {
         tracing::error!(
             "List of tasks pending completion on {role:?}:\
-        \nwaiting to send: {:?},\
-        \nwaiting to receive: {:?}",
-            send_buf.waiting(),
-            receive_buf.waiting()
+        \nwaiting to send: {send_tasks_waiting:?},\
+        \nwaiting to receive: {receive_tasks_waiting:?}"
         );
     }
 }
