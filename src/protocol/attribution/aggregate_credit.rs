@@ -67,15 +67,15 @@ pub async fn aggregate_credit<F: Field>(
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error> {
     let one = ctx.share_of_one();
 
-    // Add aggregation bits and initialize with 1's. We create a new vector here
-    // because we need to push new rows needed for the aggregate computation.
+    //
+    // 1. Add aggregation bits and new rows per unique breakdown_key
+    //
     let capped_credits_with_aggregation_bits =
         add_aggregation_bits_and_breakdown_keys(&ctx, capped_credits);
 
     //
     // 2. Sort by `aggregation_bit` first, then by `breakdown_key`.
     //
-
     let sorted_input = sort_by_aggregation_bit_and_breakdown_key(
         ctx.narrow(&Step::SortByBreakdownKeyAndAttributionBit),
         &capped_credits_with_aggregation_bits,
@@ -163,7 +163,6 @@ pub async fn aggregate_credit<F: Field>(
     //
     // 4. Sort by `aggregation_bit`
     //
-
     let sorted_output =
         sort_by_aggregation_bit(ctx.narrow(&Step::SortByAttributionBit), &aggregated_credits)
             .await?;
