@@ -49,7 +49,6 @@ pub struct InMemoryEndpoint {
 /// In memory channel is just a standard mpsc channel.
 #[derive(Debug, Clone)]
 pub struct InMemoryChannel {
-    dest: Role,
     tx: Sender<Vec<u8>>,
 }
 
@@ -136,11 +135,11 @@ impl InMemoryEndpoint {
 
 impl InMemoryEndpoint {
     async fn send_chunk(&self, chunk: MessageChunks) {
-        let conn = self.get_connection(chunk.0).await;
-        conn.send(chunk.1).await.unwrap();
+        let conn = self.get_connection(&chunk.0).await;
+        conn.send(chunk.0, chunk.1).await.unwrap();
     }
 
-    async fn get_connection(&self, addr: ChannelId) -> InMemoryChannel {
+    async fn get_connection(&self, addr: &ChannelId) -> InMemoryChannel {
         let mut new_rx = None;
 
         let channel = {
@@ -151,10 +150,7 @@ impl InMemoryEndpoint {
                 Entry::Occupied(entry) => entry.get().clone(),
                 Entry::Vacant(entry) => {
                     let (tx, rx) = mpsc::channel(1);
-                    let tx = InMemoryChannel {
-                        dest: addr.role,
-                        tx,
-                    };
+                    let tx = InMemoryChannel { tx };
                     entry.insert(tx.clone());
                     new_rx = Some(rx);
 
@@ -167,7 +163,7 @@ impl InMemoryEndpoint {
             self.network.upgrade().unwrap().endpoints[addr.role]
                 .tx
                 .send(ControlMessage::ConnectionRequest(
-                    ChannelId::new(self.role, addr.step),
+                    ChannelId::new(self.role, addr.step.clone()),
                     rx,
                 ))
                 .await
@@ -199,11 +195,11 @@ impl Network for Arc<InMemoryEndpoint> {
 }
 
 impl InMemoryChannel {
-    async fn send(&self, msg: Vec<u8>) -> helpers::Result<()> {
+    async fn send(&self, id: ChannelId, msg: Vec<u8>) -> helpers::Result<()> {
         self.tx
             .send(msg)
             .await
-            .map_err(|e| Error::send_error(self.dest, e))
+            .map_err(|e| Error::send_error(id, e))
     }
 }
 

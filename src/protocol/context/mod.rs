@@ -1,9 +1,8 @@
 use crate::ff::Field;
 use crate::helpers::messaging::Mesh;
 use crate::helpers::Role;
-use crate::protocol::mul::SecureMul;
+use crate::protocol::basics::{Reveal, SecureMul};
 use crate::protocol::prss::{IndexedSharedRandomness, SequentialSharedRandomness};
-use crate::protocol::reveal::Reveal;
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::SecretSharing;
 use crate::sync::Arc;
@@ -15,7 +14,8 @@ pub use malicious::MaliciousContext;
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use semi_honest::SemiHonestContext;
 
-use super::sort::reshare::Reshare;
+use super::basics::Reshare;
+use super::boolean::RandomBits;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -23,6 +23,7 @@ pub trait Context<F: Field>:
     SecureMul<F, Share = <Self as Context<F>>::Share>
     + Reshare<F, Share = <Self as Context<F>>::Share>
     + Reveal<F, Share = <Self as Context<F>>::Share>
+    + RandomBits<F, Share = <Self as Context<F>>::Share>
     + Clone
     + Send
     + Sync

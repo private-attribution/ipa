@@ -6,7 +6,6 @@ pub mod apply_sort;
 pub mod bit_permutation;
 mod compose;
 pub mod generate_permutation;
-pub mod reshare;
 mod secureapplyinv;
 mod shuffle;
 
@@ -16,6 +15,7 @@ pub enum SortStep {
     ApplyInv,
     ComposeStep,
     ShuffleRevealPermutation,
+    SortKeys,
 }
 
 impl Substep for SortStep {}
@@ -27,6 +27,7 @@ impl AsRef<str> for SortStep {
             Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
+            Self::SortKeys => "sort_keys",
         }
     }
 }

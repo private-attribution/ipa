@@ -23,6 +23,7 @@ use crate::{
 
 use std::io::stdout;
 
+use std::mem::ManuallyDrop;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
 use crate::protocol::Substep;
@@ -40,10 +41,11 @@ use super::{
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
 pub struct TestWorld {
-    gateways: [Gateway; 3],
+    gateways: ManuallyDrop<[Gateway; 3]>,
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
+    joined: bool,
     _query_id: QueryId,
     _network: Arc<InMemoryNetwork>,
 }
@@ -117,10 +119,11 @@ impl TestWorld {
             .unwrap();
 
         TestWorld {
-            gateways,
+            gateways: ManuallyDrop::new(gateways),
             participants,
             executions: AtomicUsize::new(0),
             metrics_handle,
+            joined: false,
             _query_id: query_id,
             _network: network,
         }
@@ -140,7 +143,7 @@ impl TestWorld {
     #[must_use]
     pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
-        zip(Role::all(), zip(&self.participants, &self.gateways))
+        zip(Role::all(), zip(&self.participants, &*self.gateways))
             .map(|(role, (participant, gateway))| {
                 SemiHonestContext::new(*role, participant, gateway)
                     .narrow(&Self::execution_step(execution))
@@ -158,6 +161,35 @@ impl TestWorld {
     #[must_use]
     pub fn execution_step(execution: usize) -> impl Substep {
         format!("run-{execution}")
+    }
+
+    pub fn gateway(&self, role: Role) -> &Gateway {
+        &self.gateways[role]
+    }
+
+    pub async fn join(mut self) {
+        // SAFETY: self is consumed by this method, so nobody can access gateways field after
+        // calling this method.
+        // joined flag is used inside the destructor to avoid double-free
+        let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
+        self.joined = true;
+        for gateway in gateways {
+            gateway.join().await;
+        }
+    }
+}
+
+impl Drop for TestWorld {
+    fn drop(&mut self) {
+        if !self.joined {
+            let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
+            drop(gateways);
+        }
+
+        if tracing::span_enabled!(Level::DEBUG) {
+            let metrics = self.metrics_handle.snapshot();
+            metrics.export(&mut stdout()).unwrap();
+        }
     }
 }
 
@@ -182,15 +214,6 @@ pub trait Runner<I, A, F> {
         P: DowngradeMalicious<Target = O> + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
-}
-
-impl Drop for TestWorld {
-    fn drop(&mut self) {
-        if tracing::span_enabled!(Level::DEBUG) {
-            let metrics = self.metrics_handle.snapshot();
-            metrics.export(&mut stdout()).unwrap();
-        }
-    }
 }
 
 #[async_trait]

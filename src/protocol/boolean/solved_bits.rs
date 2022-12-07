@@ -1,20 +1,20 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
-use crate::ff::{Field, Int};
-use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local};
-use crate::protocol::{
-    context::{Context, SemiHonestContext},
-    BitOpStep, RecordId,
-};
-use crate::secret_sharing::{Replicated, SecretSharing, XorReplicated};
-use futures::future::try_join_all;
-use std::iter::repeat;
+use crate::ff::Field;
+use crate::protocol::{context::Context, RecordId};
+use crate::secret_sharing::SecretSharing;
+use std::marker::PhantomData;
 
 #[allow(dead_code)]
 #[derive(Debug)]
-pub struct RandomBitsShare<F: Field> {
-    pub b_b: Vec<Replicated<F>>,
-    pub b_p: Replicated<F>,
+pub struct RandomBitsShare<F, S>
+where
+    F: Field,
+    S: SecretSharing<F>,
+{
+    pub b_b: Vec<S>,
+    pub b_p: S,
+    _marker: PhantomData<F>,
 }
 
 /// This protocol tries to generate a sequence of uniformly random sharing of
@@ -30,110 +30,74 @@ pub struct RandomBitsShare<F: Field> {
 /// 3.1 Generating random solved BITS
 /// "Unconditionally Secure Constant-Rounds Multi-party Computation for Equality, Comparison, Bits, and Exponentiation"
 /// I. Damgård et al.
-pub struct SolvedBits {}
 
-impl SolvedBits {
-    // Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
-    // Each bit has a 50% chance of being a 0 or 1, so there are
-    // `F::Integer::MAX - p` cases where `b` may become larger than `p`.
-    // However, we calculate the number of bits needed to form a random
-    // number that has the same number of bits as the prime.
-    // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
-    // 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
-    #[allow(dead_code)]
-    pub async fn execute<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
-        record_id: RecordId,
-    ) -> Result<Option<RandomBitsShare<F>>, Error> {
-        //
-        // step 1 & 2
-        //
-        let b_b = Self::generate_random_bits(ctx.clone(), record_id).await?;
+// Try generating random sharing of bits, `[b]_B`, and `l`-bit long.
+// Each bit has a 50% chance of being a 0 or 1, so there are
+// `F::Integer::MAX - p` cases where `b` may become larger than `p`.
+// However, we calculate the number of bits needed to form a random
+// number that has the same number of bits as the prime.
+// With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
+// 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
+#[allow(dead_code)]
+pub async fn solved_bits<F, S, C>(
+    ctx: C,
+    record_id: RecordId,
+) -> Result<Option<RandomBitsShare<F, S>>, Error>
+where
+    F: Field,
+    S: SecretSharing<F>,
+    C: Context<F, Share = S>,
+{
+    //
+    // step 1 & 2
+    //
+    let b_b = ctx
+        .narrow(&Step::RandomBits)
+        .generate_random_bits(record_id)
+        .await?;
 
-        //
-        // step 3, 4 & 5
-        //
-        // if b >= p, then abort by returning `None`
-        if !Self::is_less_than_p(ctx.clone(), record_id, &b_b).await? {
-            return Ok(None);
-        }
-
-        //
-        // step 6
-        //
-        // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
-        #[allow(clippy::cast_possible_truncation)]
-        let b_p: Replicated<F> = b_b
-            .iter()
-            .enumerate()
-            .fold(Replicated::ZERO, |acc, (i, x)| {
-                acc + &(x.clone() * F::from(2_u128.pow(i as u32)))
-            });
-
-        Ok(Some(RandomBitsShare { b_b, b_p }))
+    //
+    // step 3, 4 & 5
+    //
+    // if b >= p, then abort by returning `None`
+    if !is_less_than_p(ctx.clone(), record_id, &b_b).await? {
+        return Ok(None);
     }
 
-    /// Generates a sequence of `l` random bit sharings in the target field `F`.
-    async fn generate_random_bits<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
-        record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, Error> {
-        // Calculate the number of bits we need to form a random number that
-        // has the same number of bits as the prime.
-        let l = u128::BITS - F::PRIME.into().leading_zeros();
-        let leading_zero_bits = F::Integer::BITS - l;
+    //
+    // step 6
+    //
+    // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
+    #[allow(clippy::cast_possible_truncation)]
+    let b_p: S = b_b.iter().enumerate().fold(S::ZERO, |acc, (i, x)| {
+        acc + &(x.clone() * F::from(2_u128.pow(i as u32)))
+    });
 
-        // Generate a pair of random numbers. We'll use these numbers as
-        // the source of `l`-bit long uniformly random sequence of bits.
-        let (b_bits_left, b_bits_right) = ctx
-            .narrow(&Step::RandomValues)
-            .with_prss(|prss| prss.generate_values(record_id));
+    Ok(Some(RandomBitsShare {
+        b_b,
+        b_p,
+        _marker: PhantomData::default(),
+    }))
+}
 
-        // Same here. For now, 256-bit is enough for our F_p
-        let xor_share = XorReplicated::new(
-            u64::try_from(b_bits_left & u128::from(u64::MAX)).unwrap(),
-            u64::try_from(b_bits_right & u128::from(u64::MAX)).unwrap(),
-        );
-
-        // Convert each bit to secret sharings of that bit in the target field
-        let c = ctx.narrow(&Step::ConvertShares);
-        let futures = (0..l).map(|i| {
-            let c = c.narrow(&BitOpStep::from(i));
-            let triple = convert_bit_local::<F>(c.role(), i, &xor_share);
-            async move { convert_bit(c, record_id, &triple).await }
-        });
-
-        // Pad 0's at the end to return `F::Integer::BITS` long bits
-        let mut b_b = try_join_all(futures).await?;
-        b_b.append(
-            &mut repeat(Replicated::ZERO)
-                .take(usize::try_from(leading_zero_bits).unwrap())
-                .collect::<Vec<_>>(),
-        );
-
-        Ok(b_b)
+async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Result<bool, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    let c_b =
+        BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
+            .await?;
+    if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
+        return Ok(false);
     }
-
-    async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Result<bool, Error>
-    where
-        F: Field,
-        C: Context<F, Share = S>,
-        S: SecretSharing<F>,
-    {
-        let c_b =
-            BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
-                .await?;
-        if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
-            return Ok(false);
-        }
-        Ok(true)
-    }
+    Ok(true)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    RandomValues,
-    ConvertShares,
+    RandomBits,
     IsPLessThanB,
     RevealC,
 }
@@ -143,8 +107,7 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::RandomValues => "random_values",
-            Self::ConvertShares => "convert_shares",
+            Self::RandomBits => "random_bits",
             Self::IsPLessThanB => "is_p_less_than_b",
             Self::RevealC => "reveal_c",
         }
@@ -153,8 +116,9 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::SolvedBits;
+    use crate::protocol::boolean::solved_bits::solved_bits;
     use crate::protocol::context::SemiHonestContext;
+    use crate::test_fixture::Runner;
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -162,6 +126,7 @@ mod tests {
         test_fixture::{bits_to_value, join3, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
+    use std::iter::zip;
 
     async fn random_bits<F: Field>(
         ctx: [SemiHonestContext<'_, F>; 3],
@@ -174,9 +139,9 @@ mod tests {
 
         // Execute
         let [result0, result1, result2] = join3(
-            SolvedBits::execute(c0, record_id),
-            SolvedBits::execute(c1, record_id),
-            SolvedBits::execute(c2, record_id),
+            solved_bits(c0, record_id),
+            solved_bits(c1, record_id),
+            solved_bits(c2, record_id),
         )
         .await;
 
@@ -250,8 +215,63 @@ mod tests {
                 success += 1;
             }
         }
+        // The chance of this protocol aborting 4 out of 4 tries in Fp32BitPrime
+        // is about 2^-100. Assert that at least one run has succeeded.
         assert!(success > 0);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    pub async fn malicious() {
+        let world = TestWorld::new(QueryId);
+        let mut success = 0;
+
+        for _ in 0..4 {
+            let results = world
+                .malicious(Fp32BitPrime::ZERO, |ctx, share_of_zero| async move {
+                    let share_option = solved_bits(ctx, RecordId::from(0)).await.unwrap();
+                    match share_option {
+                        None => {
+                            // This is a 5 in 4B case where `solved_bits()`
+                            // generated a random number > prime.
+                            //
+                            // `malicious()` requires its closure to return `Downgrade`
+                            // so we indicate the abort case with (0, [0]), instead
+                            // of (0, [0, 32]). But this isn't ideal because we can't
+                            // catch a bug where solved_bits returns a 1-bit random bits
+                            // of 0.
+                            (share_of_zero.clone(), vec![share_of_zero.clone()])
+                        }
+                        Some(share) => (share.b_p, share.b_b),
+                    }
+                })
+                .await;
+
+            let [result0, result1, result2] = results;
+            let ((s0, v0), (s1, v1), (s2, v2)) = (result0, result1, result2);
+
+            // bit lengths must be the same
+            assert_eq!(v0.len(), v1.len());
+            assert_eq!(v0.len(), v2.len());
+
+            let s = (s0, s1, s2).reconstruct();
+            let v = zip(v0, zip(v1, v2))
+                .map(|(b0, (b1, b2))| {
+                    let bit = (b0, b1, b2).reconstruct();
+                    assert!(bit == Fp32BitPrime::ZERO || bit == Fp32BitPrime::ONE);
+                    bit
+                })
+                .collect::<Vec<_>>();
+
+            if v.len() > 1 {
+                // Base10 of `b_B ⊆ Z` must equal `b_P`
+                assert_eq!(s.as_u128(), bits_to_value(&v));
+                success += 1;
+            }
+        }
+        // The chance of this protocol aborting 4 out of 4 tries in Fp32BitPrime
+        // is about 2^-100. Assert that at least one run has succeeded.
+        assert!(success > 0);
     }
 }

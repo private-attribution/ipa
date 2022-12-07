@@ -23,7 +23,7 @@ use ::tokio::sync::{mpsc, oneshot};
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
-use std::io;
+use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
@@ -82,9 +82,11 @@ impl<F: Field> Message for F {
 pub struct Gateway {
     /// Sender end of the channel to send requests to receive messages from peers.
     tx: mpsc::Sender<ReceiveRequest>,
-    envelope_tx: mpsc::Sender<(ChannelId, MessageEnvelope)>,
+    envelope_tx: mpsc::Sender<SendRequest>,
     control_handle: JoinHandle<()>,
 }
+
+pub(super) type SendRequest = (ChannelId, MessageEnvelope);
 
 /// Channel end
 #[derive(Debug)]
@@ -154,8 +156,8 @@ pub struct GatewayConfig {
 
 impl Gateway {
     pub fn new<N: Network>(role: Role, network: &N, config: GatewayConfig) -> Self {
-        let (tx, mut receive_rx) = mpsc::channel::<ReceiveRequest>(1);
-        let (envelope_tx, mut envelope_rx) = mpsc::channel::<(ChannelId, MessageEnvelope)>(1);
+        let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(1);
+        let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(1);
         let mut message_stream = network.recv_stream();
         let mut network_sink = network.sink();
 
@@ -169,7 +171,7 @@ impl Gateway {
                 // * Handle the request to receive a message from another helper
                 // * Send a message
                 ::tokio::select! {
-                    Some(receive_request) = receive_rx.recv() => {
+                    Some(receive_request) = recv_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
                         receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender);
                     }
@@ -177,14 +179,9 @@ impl Gateway {
                         tracing::trace!("received {} bytes from {:?}", messages.len(), channel_id);
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
-                    Some((channel_id, msg)) = envelope_rx.recv() => {
-                        metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        tracing::trace!("new SendRequest({channel_id:?}, {:?}", msg.record_id);
-                        if let Some(buf_to_send) = send_buf.push(&channel_id, &msg).expect("Failed to append data to the send buffer") {
-                            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-                            network_sink.send((channel_id, buf_to_send)).await
-                                .expect("Failed to send data to the network");
-                        }
+                    Some(send_req) = send_rx.recv() => {
+                        tracing::trace!("new SendRequest({:?})", send_req);
+                        send_message::<N>(&mut network_sink, &mut send_buf, send_req).await;
                     }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
@@ -195,8 +192,8 @@ impl Gateway {
         }.instrument(telemetry::metrics::span!("gateway_loop", role=role)));
 
         Self {
-            tx,
-            envelope_tx,
+            tx: recv_tx,
+            envelope_tx: send_tx,
             control_handle,
         }
     }
@@ -213,6 +210,24 @@ impl Gateway {
             gateway: self,
             step,
         }
+    }
+
+    /// Join the control loop task and wait until its completed.
+    ///
+    /// ## Panics
+    /// if control loop task panicked, the panic will be propagated to this thread
+    #[cfg(not(feature = "shuttle"))]
+    pub async fn join(self) {
+        self.control_handle
+            .await
+            .map_err(|e| {
+                if e.is_panic() {
+                    panic::resume_unwind(e.into_panic())
+                } else {
+                    "Task cancelled".to_string()
+                }
+            })
+            .unwrap();
     }
 
     async fn receive(
@@ -238,6 +253,7 @@ impl Gateway {
     }
 }
 
+#[cfg(feature = "shuttle")]
 impl Drop for Gateway {
     fn drop(&mut self) {
         self.control_handle.abort();
@@ -254,14 +270,27 @@ impl Debug for ReceiveRequest {
     }
 }
 
+async fn send_message<N: Network>(sink: &mut N::Sink, buf: &mut SendBuffer, req: SendRequest) {
+    let (channel_id, msg) = req;
+    metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
+    match buf.push(&channel_id, &msg) {
+        Ok(Some(buf_to_send)) => {
+            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
+            sink.send((channel_id, buf_to_send))
+                .await
+                .expect("Failed to send data to the network");
+        }
+        Ok(None) => {}
+        Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
+    };
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
     use crate::ff::Fp31;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
-    use crate::protocol::{QueryId, RecordId};
-
+    use crate::protocol::{QueryId, RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
 
     #[tokio::test]
@@ -297,5 +326,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(Fp31::from(1_u128), v);
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Record RecordId(1) has been received twice")]
+    async fn duplicate_message() {
+        let world = TestWorld::new(QueryId);
+        let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));
+        let peer = Role::H2;
+        let record_id = 1.into();
+        let step = Step::default();
+        let channel = &world.gateway(Role::H1).mesh(&step);
+
+        channel.send(peer, record_id, v1).await.unwrap();
+        channel.send(peer, record_id, v2).await.unwrap();
+
+        world.join().await;
     }
 }

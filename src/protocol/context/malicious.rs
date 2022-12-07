@@ -4,10 +4,10 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
+use crate::protocol::basics::{mul::malicious::Step::RandomnessForValidation, SecureMul};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::mul::{malicious::Step::RandomnessForValidation, SecureMul};
 use crate::protocol::prss::{
     Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
 };
@@ -78,9 +78,12 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     pub async fn upgrade_bit_triple(
         &self,
         record_id: RecordId,
+        bit_index: u32,
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
-        self.inner.upgrade_bit_triple(record_id, triple).await
+        self.inner
+            .upgrade_bit_triple(record_id, bit_index, triple)
+            .await
     }
 }
 
@@ -240,26 +243,16 @@ impl<'a, F: Field> ContextInner<'a, F> {
     async fn upgrade_bit_triple(
         &self,
         record_id: RecordId,
+        bit_index: u32,
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
         let [v0, v1, v2] = triple.0;
+        let c = self.upgrade_ctx.narrow(&BitOpStep::from(bit_index));
         Ok(BitConversionTriple(
             try_join_all([
-                self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
-                    record_id,
-                    v0,
-                ),
-                self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
-                    record_id,
-                    v1,
-                ),
-                self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
-                    record_id,
-                    v2,
-                ),
+                self.upgrade_one(c.narrow(&UpgradeTripleStep::V0), record_id, v0),
+                self.upgrade_one(c.narrow(&UpgradeTripleStep::V1), record_id, v1),
+                self.upgrade_one(c.narrow(&UpgradeTripleStep::V2), record_id, v2),
             ])
             .await?
             .try_into()
