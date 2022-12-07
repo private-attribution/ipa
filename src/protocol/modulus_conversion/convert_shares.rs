@@ -277,7 +277,7 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
                 let m_triple = m_ctx
-                    .upgrade_bit_triple(RecordId::from(0), triple)
+                    .upgrade_bit_triple(RecordId::from(0), 0, triple)
                     .await
                     .unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
@@ -339,7 +339,7 @@ mod tests {
                     let v = MaliciousValidator::new(ctx);
                     let m_ctx = v.context();
                     let m_triple = m_ctx
-                        .upgrade_bit_triple(RecordId::from(0), tweaked)
+                        .upgrade_bit_triple(RecordId::from(0), 0, tweaked)
                         .await
                         .unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
