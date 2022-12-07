@@ -1,8 +1,8 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{
-    context::{Context, MaliciousContext},
     basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
+    context::{Context, MaliciousContext},
     RecordId,
 };
 use crate::secret_sharing::MaliciousReplicated;
