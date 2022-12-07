@@ -90,7 +90,7 @@ mod tests {
                 .semi_honest(
                     (input, permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
-                        let (_, perm_and_randoms) = shuffle_and_reveal_permutation(
+                        let reveal_permutation_output = shuffle_and_reveal_permutation(
                             ctx.narrow("shuffle_reveal"),
                             BATCHSIZE,
                             m_perms,
@@ -102,10 +102,20 @@ mod tests {
                             ctx,
                             m_shares,
                             (
-                                perm_and_randoms.randoms_for_shuffle.0.as_slice(),
-                                perm_and_randoms.randoms_for_shuffle.1.as_slice(),
+                                reveal_permutation_output
+                                    .reveal_and_random_permutation
+                                    .randoms_for_shuffle
+                                    .0
+                                    .as_slice(),
+                                reveal_permutation_output
+                                    .reveal_and_random_permutation
+                                    .randoms_for_shuffle
+                                    .1
+                                    .as_slice(),
                             ),
-                            &perm_and_randoms.revealed,
+                            &reveal_permutation_output
+                                .reveal_and_random_permutation
+                                .revealed,
                         )
                         .await
                         .unwrap()

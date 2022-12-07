@@ -17,7 +17,9 @@ mod generate_random_bits;
 mod or;
 pub mod random_bits_generator;
 mod solved_bits;
+mod xor;
 
+pub use xor::{xor, xor_sparse};
 pub use {
     bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan,
     generate_random_bits::RandomBits,
@@ -134,51 +136,4 @@ where
     let one = ctx.share_of_one();
     let inverted_elements = flip_bits(one.clone(), x);
     check_if_all_ones(ctx, record_id, &inverted_elements).await
-}
-
-/// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
-/// It computes `[a] + [b] - 2[ab]`
-///
-/// # Errors
-/// This does multiplications - which can error
-pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    let ab = ctx.multiply(record_id, a, b).await?;
-    Ok(-ab * F::from(2) + a + b)
-}
-
-#[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
-    use super::xor;
-    use crate::{
-        ff::{Field, Fp31},
-        protocol::{QueryId, RecordId},
-        test_fixture::{Reconstruct, Runner, TestWorld},
-    };
-
-    async fn xor_fp31(world: &TestWorld, a: Fp31, b: Fp31) -> Fp31 {
-        let result = world
-            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                xor(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
-            })
-            .await;
-
-        result.reconstruct()
-    }
-
-    #[tokio::test]
-    pub async fn all_combinations() {
-        let world = TestWorld::new(QueryId);
-
-        assert_eq!(Fp31::ZERO, xor_fp31(&world, Fp31::ZERO, Fp31::ZERO).await);
-        assert_eq!(Fp31::ONE, xor_fp31(&world, Fp31::ONE, Fp31::ZERO).await);
-        assert_eq!(Fp31::ONE, xor_fp31(&world, Fp31::ZERO, Fp31::ONE).await);
-        assert_eq!(Fp31::ZERO, xor_fp31(&world, Fp31::ONE, Fp31::ONE).await);
-    }
 }

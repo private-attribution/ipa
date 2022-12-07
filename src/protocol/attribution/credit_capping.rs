@@ -1,5 +1,5 @@
 use super::{
-    compute_stop_bit, if_else, CreditCappingInputRow, CreditCappingOutputRow,
+    compute_b_bit, compute_stop_bit, if_else, CreditCappingInputRow, CreditCappingOutputRow,
     InteractionPatternStep,
 };
 use crate::error::Error;
@@ -158,25 +158,6 @@ async fn credit_prefix_sum<'a, F: Field>(
     }
 
     Ok(original_credits.clone())
-}
-
-async fn compute_b_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    record_id: RecordId,
-    current_stop_bit: &Replicated<F>,
-    sibling_helper_bit: &Replicated<F>,
-    first_iteration: bool,
-) -> Result<Replicated<F>, Error> {
-    // Compute `b = [this.stop_bit * sibling.helper_bit]`.
-    // Since `stop_bit` is initialized with all 1's, we only multiply in
-    // the second and later iterations.
-    let mut b = sibling_helper_bit.clone();
-    if !first_iteration {
-        b = ctx
-            .multiply(record_id, sibling_helper_bit, current_stop_bit)
-            .await?;
-    }
-    Ok(b)
 }
 
 async fn is_credit_larger_than_cap<F: Field>(

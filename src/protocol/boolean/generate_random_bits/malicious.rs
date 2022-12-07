@@ -17,14 +17,13 @@ impl<F: Field> RandomBits<F> for MaliciousContext<'_, F> {
 
         // upgrade the replicated shares to malicious
         let c = self.narrow(&Step::UpgradeBitTriples);
-        let malicious_triples = try_join_all(triples.into_iter().enumerate().map(|(i, t)| {
-            let c = c.narrow(&BitOpStep::from(i));
-            async move {
-                c.upgrade_bit_triple(record_id, u32::try_from(i).unwrap(), t)
+        let ctx = &c;
+        let malicious_triples =
+            try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
+                ctx.upgrade_bit_triple(&BitOpStep::from(i), record_id, t)
                     .await
-            }
-        }))
-        .await?;
+            }))
+            .await?;
 
         convert_triples_to_shares(
             self.narrow(&Step::ConvertShares),

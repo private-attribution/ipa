@@ -1,10 +1,8 @@
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::RecordId;
+use crate::protocol::{BitOpStep, RecordId, Substep};
 use crate::rand::thread_rng;
-use crate::secret_sharing::{
-    MaliciousReplicated, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious, XorReplicated,
-};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, XorReplicated};
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
 use rand::{
@@ -140,31 +138,32 @@ pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
         .collect::<Vec<_>>()
 }
 
-/// For upgrading various shapes of replicated share to malicious.
-#[async_trait]
-pub trait IntoMalicious<F: Field, M> {
-    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M;
+/// Default step type for upgrades.
+struct IntoMaliciousStep;
+impl Substep for IntoMaliciousStep {}
+impl AsRef<str> for IntoMaliciousStep {
+    fn as_ref(&self) -> &str {
+        "malicious_upgrade"
+    }
 }
 
+/// For upgrading various shapes of replicated share to malicious.
 #[async_trait]
-pub trait IntoMaliciousBit<F: Field, M> {
-    async fn upgrade_bit(self, ctx: MaliciousContext<'_, F>, bit: u32) -> M;
+pub trait IntoMalicious<F: Field, M>: Sized {
+    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M {
+        self.upgrade_with(ctx, &IntoMaliciousStep).await
+    }
+    async fn upgrade_with<SS: Substep>(self, ctx: MaliciousContext<'_, F>, step: &SS) -> M;
 }
 
 #[async_trait]
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
-        ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
-    }
-}
-#[async_trait]
-impl<F: Field> IntoMaliciousBit<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade_bit<'a>(
+    async fn upgrade_with<'a, SS: Substep>(
         self,
         ctx: MaliciousContext<'a, F>,
-        bit: u32,
+        step: &SS,
     ) -> MaliciousReplicated<F> {
-        ctx.upgrade_bit(RecordId::from(0_u32), bit, self)
+        ctx.upgrade_with(step, RecordId::from(0_u32), self)
             .await
             .unwrap()
     }
@@ -174,15 +173,21 @@ impl<F: Field> IntoMaliciousBit<F, MaliciousReplicated<F>> for Replicated<F> {
 impl<F, T, TM, U, UM> IntoMalicious<F, (TM, UM)> for (T, U)
 where
     F: Field,
-    T: IntoMaliciousBit<F, TM> + Send,
-    U: IntoMaliciousBit<F, UM> + Send,
+    T: IntoMalicious<F, TM> + Send,
+    U: IntoMalicious<F, UM> + Send,
     TM: Sized + Send,
     UM: Sized + Send,
 {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> (TM, UM) {
+    // Note that this implementation doesn't work with arbitrary nesting.
+    // For that, we'd need a `.narrow_for_upgrade()` function on the context.
+    async fn upgrade_with<'a, SS: Substep>(
+        self,
+        ctx: MaliciousContext<'a, F>,
+        _step: &SS,
+    ) -> (TM, UM) {
         join(
-            self.0.upgrade_bit(ctx.clone(), 0),
-            self.1.upgrade_bit(ctx, 1),
+            self.0.upgrade_with(ctx.clone(), &BitOpStep::from(0)),
+            self.1.upgrade_with(ctx, &BitOpStep::from(1)),
         )
         .await
     }
@@ -195,32 +200,18 @@ where
     I: IntoIterator<Item = Replicated<F>> + Send,
     <I as IntoIterator>::IntoIter: Send,
 {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> Vec<MaliciousReplicated<F>> {
-        try_join_all(
-            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
-                ctx.upgrade(RecordId::from(i), share).await
-            }),
-        )
-        .await
-        .unwrap()
-    }
-}
-
-#[async_trait]
-impl<F, I> IntoMaliciousBit<F, Vec<MaliciousReplicated<F>>> for I
-where
-    F: Field,
-    I: IntoIterator<Item = Replicated<F>> + Send,
-    <I as IntoIterator>::IntoIter: Send,
-{
-    async fn upgrade_bit<'a>(
+    // Note that this implementation doesn't work with arbitrary nesting.
+    // For that, we'd need a `.narrow_for_upgrade()` function on the context.
+    async fn upgrade_with<'a, SS: Substep>(
         self,
         ctx: MaliciousContext<'a, F>,
-        bit: u32,
+        step: &SS,
     ) -> Vec<MaliciousReplicated<F>> {
-        try_join_all(zip(repeat(ctx), self.into_iter().enumerate()).map(
-            |(ctx, (i, share))| async move { ctx.upgrade_bit(RecordId::from(i), bit, share).await },
-        ))
+        try_join_all(
+            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
+                ctx.upgrade_with(step, RecordId::from(i), share).await
+            }),
+        )
         .await
         .unwrap()
     }
@@ -256,6 +247,7 @@ impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
 
 impl<F: Field> Reconstruct<F> for [&MaliciousReplicated<F>; 3] {
     fn reconstruct(&self) -> F {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
         let s0 = self[0];
         let s1 = self[1];
         let s2 = self[2];
@@ -293,6 +285,21 @@ where
     }
 }
 
+impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
+where
+    for<'t> [&'t T; 3]: Reconstruct<V>,
+    for<'u> [&'u U; 3]: Reconstruct<W>,
+    V: Sized,
+    W: Sized,
+{
+    fn reconstruct(&self) -> (V, W) {
+        (
+            [&self[0].0, &self[1].0, &self[2].0].reconstruct(),
+            [&self[0].1, &self[1].1, &self[2].1].reconstruct(),
+        )
+    }
+}
+
 impl<I, T> Reconstruct<T> for [Vec<I>; 3]
 where
     for<'v> [&'v Vec<I>; 3]: Reconstruct<T>,
@@ -325,6 +332,7 @@ where
     T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
         let x = (
             self[0].borrow().x().access_without_downgrade(),
             self[1].borrow().x().access_without_downgrade(),
