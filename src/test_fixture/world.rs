@@ -160,6 +160,7 @@ impl TestWorld {
         &self.gateways[role]
     }
 
+    #[cfg(not(feature = "shuttle"))]
     pub async fn join(mut self) {
         // SAFETY: self is consumed by this method, so nobody can access gateways field after
         // calling this method.
@@ -175,8 +176,7 @@ impl TestWorld {
 impl Drop for TestWorld {
     fn drop(&mut self) {
         if !self.joined {
-            let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
-            drop(gateways);
+            unsafe { ManuallyDrop::drop(&mut self.gateways) };
         }
 
         if tracing::span_enabled!(Level::DEBUG) {
