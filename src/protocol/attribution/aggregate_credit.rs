@@ -56,18 +56,18 @@ where
 ///
 /// input:
 /// `[`
-/// `[ row[0].bit0, row[0].bit1, ..., row[0].bit31 ]`,
-/// `[ row[1].bit0, row[1].bit1, ..., row[1].bit31 ]`,
-/// ...
-/// `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
-/// `]`
+///     `[ row[0].bit0, row[0].bit1, ..., row[0].bit31 ]`,
+///     `[ row[1].bit0, row[1].bit1, ..., row[1].bit31 ]`,
+///     ...
+///     `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
+///  `]`
 ///
 /// output:
 /// `[`
-/// `[ row[0].bit0, row[1].bit0, ..., row[n].bit0 ]`,
-/// `[ row[0].bit1, row[1].bit1, ..., row[n].bit1 ]`,
-/// ...
-/// `[ row[0].bit31, row[1].bit31, ..., row[n].bit31 ]`,
+///     `[ row[0].bit0, row[1].bit0, ..., row[n].bit0 ]`,
+///     `[ row[0].bit1, row[1].bit1, ..., row[n].bit1 ]`,
+///     ...
+///     `[ row[0].bit31, row[1].bit31, ..., row[n].bit31 ]`,
 /// `]`
 fn transpose<F: Field>(input: &[Vec<Replicated<F>>]) -> Vec<Vec<Replicated<F>>> {
     let bit_length = input[0].len();

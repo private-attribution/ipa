@@ -16,6 +16,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 ///
 /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
 /// and none of the helpers should learn it through this protocol.
+///
 /// Steps
 ///
 /// 1. Generate random permutations using prss
