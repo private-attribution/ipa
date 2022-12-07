@@ -4,7 +4,9 @@ use crate::{
     protocol::{
         basics::reveal_permutation,
         context::Context,
-        sort::SortStep::{ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation},
+        sort::SortStep::{
+            ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
+        },
         sort::{
             bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
@@ -13,8 +15,6 @@ use crate::{
     },
     secret_sharing::{Replicated, SecretSharing},
 };
-
-use crate::protocol::sort::apply_sort::SortPermutation;
 
 use super::{
     compose::compose,
@@ -90,11 +90,14 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// 4  Compute bit permutation that sorts ith bit
 /// 5. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-pub async fn generate_permutation<F: Field>(
+pub async fn generate_permutation<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
-) -> Result<SortPermutation<F>, Error> {
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    F: Field,
+{
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
@@ -153,7 +156,28 @@ pub async fn generate_permutation<F: Field>(
         .await?;
         composed_less_significant_bits_permutation = composed_i_permutation;
     }
-    Ok(SortPermutation(composed_less_significant_bits_permutation))
+    Ok(composed_less_significant_bits_permutation)
+}
+
+/// This function takes in a semihonest context and sort keys, generates a sort permutation, shuffles and reveals it and
+/// returns both shuffle-revealed permutation and 2/3 randoms which were used to shuffle the permutation
+/// The output of this can be applied to any of semihonest/malicious context
+/// # Panics
+/// If unable to convert sort keys length to u32
+/// # Errors
+/// If unable to convert sort keys length to u32
+pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
+    sort_keys: &[Vec<Replicated<F>>],
+    num_bits: u32,
+) -> Result<RevealedAndRandomPermutations, Error> {
+    let sort_permutation = generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits).await?;
+    shuffle_and_reveal_permutation(
+        ctx.narrow(&ShuffleRevealPermutation),
+        u32::try_from(sort_keys[0].len()).unwrap(),
+        sort_permutation,
+    )
+    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -161,7 +185,6 @@ mod tests {
     use std::iter::zip;
 
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::apply_sort::SortPermutation;
     use crate::rand::{thread_rng, Rng};
     use rand::seq::SliceRandom;
 
@@ -175,12 +198,6 @@ mod tests {
         },
         test_fixture::{generate_shares, Reconstruct, TestWorld},
     };
-
-    impl<F: Field> Reconstruct<Vec<F>> for [SortPermutation<F>; 3] {
-        fn reconstruct(&self) -> Vec<F> {
-            [&self[0].0, &self[1].0, &self[2].0].reconstruct()
-        }
-    }
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -212,7 +229,6 @@ mod tests {
                     )
                     .await
                     .unwrap()
-                    .0
                 },
             )
             .await;
