@@ -11,6 +11,7 @@ use crate::protocol::attribution::AttributionResharableStep::{
 use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::{random_bits_generator::RandomBitsGenerator, BitDecomposition};
 use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::modulus_conversion::transpose;
 use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
@@ -219,29 +220,6 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field>(
     );
 
     unique_breakdown_keys
-}
-
-/// Transpose rows of bits into bits of rows
-///
-/// input:
-/// `[`
-///     `[ row[0].bit0, row[0].bit1, ..., row[0].bit31 ]`,
-///     `[ row[1].bit0, row[1].bit1, ..., row[1].bit31 ]`,
-///     ...
-///     `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
-///  `]`
-///
-/// output:
-/// `[`
-///     `[ row[0].bit0, row[1].bit0, ..., row[n].bit0 ]`,
-///     `[ row[0].bit1, row[1].bit1, ..., row[n].bit1 ]`,
-///     ...
-///     `[ row[0].bit31, row[1].bit31, ..., row[n].bit31 ]`,
-/// `]`
-fn transpose<F: Field>(input: &[Vec<Replicated<F>>]) -> Vec<Vec<Replicated<F>>> {
-    (0..input[0].len())
-        .map(|i| input.iter().map(|b| b[i].clone()).collect::<Vec<_>>())
-        .collect::<Vec<_>>()
 }
 
 async fn bit_decompose_breakdown_key<F: Field>(

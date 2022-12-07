@@ -3,6 +3,7 @@ use std::iter::{repeat, zip};
 use crate::{
     error::Error,
     ff::Field,
+    helpers::Role,
     protocol::{
         attribution::{
             accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
@@ -17,10 +18,15 @@ use crate::{
     },
     secret_sharing::{Replicated, XorReplicated},
 };
-use futures::future::try_join_all;
+use async_trait::async_trait;
+use futures::future::{try_join, try_join_all};
 
-use super::modulus_conversion::{convert_all_bits, convert_all_bits_local};
 use super::{attribution::AggregateCreditOutputRow, context::SemiHonestContext};
+use super::{
+    modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
+    sort::apply_sort::shuffle::Resharable,
+    Substep,
+};
 use crate::protocol::boolean::bitwise_equal::bitwise_equal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,23 +55,97 @@ impl AsRef<str> for Step {
         }
     }
 }
+pub enum IPAInputRowResharableStep {
+    MatchKeyShares,
+    TriggerBit,
+    BreakdownKey,
+    TriggerValue,
+}
+
+impl Substep for IPAInputRowResharableStep {}
+
+impl AsRef<str> for IPAInputRowResharableStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::MatchKeyShares => "match_key_shares",
+            Self::TriggerBit => "is_trigger_bit",
+            Self::BreakdownKey => "breakdown_key",
+            Self::TriggerValue => "trigger_value",
+        }
+    }
+}
+
+pub struct IPAInputRow<F: Field> {
+    mk_shares: XorReplicated,
+    is_trigger_bit: Replicated<F>,
+    breakdown_key: Replicated<F>,
+    trigger_value: Replicated<F>,
+}
+
+struct IPAModulusConvertedInputRow<F: Field> {
+    mk_shares: Vec<Replicated<F>>,
+    is_trigger_bit: Replicated<F>,
+    breakdown_key: Replicated<F>,
+    trigger_value: Replicated<F>,
+}
+
+#[async_trait]
+impl<F: Field> Resharable<F> for IPAModulusConvertedInputRow<F>
+where
+    F: Sized,
+{
+    type Share = Replicated<F>;
+
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+    {
+        let f_mk_shares = self.mk_shares.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
+            record_id,
+            to_helper,
+        );
+        let f_is_trigger_bit = ctx.narrow(&IPAInputRowResharableStep::TriggerBit).reshare(
+            &self.is_trigger_bit,
+            record_id,
+            to_helper,
+        );
+        let f_breakdown_key = ctx
+            .narrow(&IPAInputRowResharableStep::BreakdownKey)
+            .reshare(&self.breakdown_key, record_id, to_helper);
+        let f_trigger_value = ctx
+            .narrow(&IPAInputRowResharableStep::TriggerValue)
+            .reshare(&self.trigger_value, record_id, to_helper);
+
+        let (mk_shares, mut outputs) = try_join(
+            f_mk_shares,
+            try_join_all([f_is_trigger_bit, f_breakdown_key, f_trigger_value]),
+        )
+        .await?;
+
+        Ok(IPAModulusConvertedInputRow {
+            mk_shares,
+            is_trigger_bit: outputs.remove(0),
+            breakdown_key: outputs.remove(0),
+            trigger_value: outputs.remove(0),
+        })
+    }
+}
 
 /// # Errors
 /// Propagates errors from multiplications
 #[allow(dead_code)]
 pub async fn ipa<F>(
     ctx: SemiHonestContext<'_, F>,
-    mk_shares: &[XorReplicated],
+    input_rows: &[IPAInputRow<F>],
     num_bits: u32,
-    other_inputs: Vec<Vec<Replicated<F>>>,
     per_user_credit_cap: u32,
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
 where
     F: Field,
 {
-    debug_assert_eq!(mk_shares.len(), other_inputs.len());
-
-    let local_lists = convert_all_bits_local(ctx.role(), mk_shares, num_bits);
+    let mk_shares = input_rows.iter().map(|x| x.mk_shares).collect::<Vec<_>>();
+    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, num_bits);
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &local_lists,
@@ -80,14 +160,16 @@ where
     .await
     .unwrap();
 
-    let combined_match_keys_and_sidecar_data = other_inputs
-        .into_iter()
-        .enumerate()
-        .map(|(row_index, mut sidecar_data)| {
-            for ith_bits in &converted_shares {
-                sidecar_data.push(ith_bits[row_index].clone());
-            }
-            sidecar_data
+    let converted_shares = transpose(&converted_shares);
+
+    let combined_match_keys_and_sidecar_data = input_rows
+        .iter()
+        .zip(converted_shares.into_iter())
+        .map(|(input_row, mk_shares)| IPAModulusConvertedInputRow {
+            mk_shares,
+            is_trigger_bit: input_row.is_trigger_bit.clone(),
+            breakdown_key: input_row.breakdown_key.clone(),
+            trigger_value: input_row.trigger_value.clone(),
         })
         .collect::<Vec<_>>();
 
@@ -107,25 +189,18 @@ where
     .enumerate()
     .map(|(i, ((ctx, row), next_row))| {
         let record_id = RecordId::from(i);
-        async move { bitwise_equal(ctx, record_id, &row[3..], &next_row[3..]).await }
+        async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
     });
-    let helper_bits = try_join_all(futures).await?;
+    let helper_bits = Some(Replicated::ZERO)
+        .into_iter()
+        .chain(try_join_all(futures).await?);
 
-    let attribution_input_rows = sorted_rows
-        .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            let hb = if i == 0 {
-                Replicated::ZERO
-            } else {
-                helper_bits[i - 1].clone()
-            };
-            AttributionInputRow {
-                is_trigger_bit: row[0].clone(),
-                helper_bit: hb,
-                breakdown_key: row[1].clone(),
-                credit: row[2].clone(),
-            }
+    let attribution_input_rows = zip(sorted_rows, helper_bits)
+        .map(|(row, hb)| AttributionInputRow {
+            is_trigger_bit: row.is_trigger_bit,
+            helper_bit: hb,
+            breakdown_key: row.breakdown_key,
+            credit: row.trigger_value,
         })
         .collect::<Vec<_>>();
 
@@ -144,12 +219,55 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::ipa;
+    use rand::{distributions::Standard, prelude::Distribution, Rng};
+
+    use super::{ipa, IPAInputRow};
     use crate::{
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp31},
         protocol::QueryId,
-        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
+        secret_sharing::Replicated,
+        test_fixture::{IntoShares, MaskedMatchKey, Reconstruct, Runner, TestWorld},
     };
+
+    struct IPAInputTestRow {
+        match_key: u64,
+        is_trigger_bit: u128,
+        breakdown_key: u128,
+        trigger_value: u128,
+    }
+
+    impl<F> IntoShares<IPAInputRow<F>> for IPAInputTestRow
+    where
+        F: Field + IntoShares<Replicated<F>>,
+        Standard: Distribution<F>,
+    {
+        fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F>; 3] {
+            let match_key_shares = MaskedMatchKey::mask(self.match_key).share_with(rng);
+            let [itb0, itb1, itb2] = F::from(self.is_trigger_bit).share_with(rng);
+            let [bdk0, bdk1, bdk2] = F::from(self.breakdown_key).share_with(rng);
+            let [tv0, tv1, tv2] = F::from(self.trigger_value).share_with(rng);
+            [
+                IPAInputRow {
+                    mk_shares: match_key_shares[0],
+                    is_trigger_bit: itb0,
+                    breakdown_key: bdk0,
+                    trigger_value: tv0,
+                },
+                IPAInputRow {
+                    mk_shares: match_key_shares[1],
+                    is_trigger_bit: itb1,
+                    breakdown_key: bdk1,
+                    trigger_value: tv1,
+                },
+                IPAInputRow {
+                    mk_shares: match_key_shares[2],
+                    is_trigger_bit: itb2,
+                    breakdown_key: bdk2,
+                    trigger_value: tv2,
+                },
+            ]
+        }
+    }
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -161,35 +279,44 @@ mod tests {
 
         //   match key, is_trigger, breakdown_key, trigger_value
         let records = [
-            [12345_u64, 0, 1, 0],
-            [12345_u64, 0, 2, 0],
-            [68362_u64, 0, 1, 0],
-            [12345_u64, 1, 0, 5],
-            [68362_u64, 1, 0, 2],
+            IPAInputTestRow {
+                match_key: 12345,
+                is_trigger_bit: 0,
+                breakdown_key: 1,
+                trigger_value: 0,
+            },
+            IPAInputTestRow {
+                match_key: 12345,
+                is_trigger_bit: 0,
+                breakdown_key: 2,
+                trigger_value: 0,
+            },
+            IPAInputTestRow {
+                match_key: 68362,
+                is_trigger_bit: 0,
+                breakdown_key: 1,
+                trigger_value: 0,
+            },
+            IPAInputTestRow {
+                match_key: 12345,
+                is_trigger_bit: 1,
+                breakdown_key: 0,
+                trigger_value: 5,
+            },
+            IPAInputTestRow {
+                match_key: 68362,
+                is_trigger_bit: 1,
+                breakdown_key: 0,
+                trigger_value: 2,
+            },
         ];
 
-        let match_keys = records
-            .iter()
-            .map(|record| MaskedMatchKey::mask(record[0]))
-            .collect::<Vec<_>>();
-
-        let other_inputs = records
-            .iter()
-            .map(|record| {
-                let c = Fp32BitPrime::from;
-                [c(record[1]), c(record[2]), c(record[3])]
-            })
-            .collect::<Vec<_>>();
-
         let result = world
-            .semi_honest(
-                (match_keys, other_inputs),
-                |ctx, (mk_shares, shares_of_other_inputs)| async move {
-                    ipa(ctx, &mk_shares, 20, shares_of_other_inputs, PER_USER_CAP)
-                        .await
-                        .unwrap()
-                },
-            )
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP)
+                    .await
+                    .unwrap()
+            })
             .await
             .reconstruct();
 
