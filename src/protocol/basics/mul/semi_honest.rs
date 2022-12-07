@@ -2,8 +2,8 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
 use crate::protocol::{
+    basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
     context::{Context, SemiHonestContext},
-    mul::{sparse::MultiplyWork, MultiplyZeroPositions},
     RecordId,
 };
 use crate::secret_sharing::Replicated;
@@ -79,7 +79,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod regular_mul_tests {
     use crate::ff::{Field, Fp31};
-    use crate::protocol::{mul::SecureMul, QueryId, RecordId};
+    use crate::protocol::{basics::SecureMul, QueryId, RecordId};
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
@@ -167,8 +167,8 @@ mod regular_mul_tests {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod specialized_mul_tests {
     use crate::ff::Fp31;
-    use crate::protocol::mul::test::{SpecializedA, SpecializedB, SpecializedC};
-    use crate::protocol::mul::{SecureMul, ZeroPositions};
+    use crate::protocol::basics::mul::test::{SpecializedA, SpecializedB, SpecializedC};
+    use crate::protocol::basics::{SecureMul, ZeroPositions};
     use crate::protocol::{QueryId, RecordId};
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};

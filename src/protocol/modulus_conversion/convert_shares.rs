@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{boolean::xor_sparse, context::Context, mul::ZeroPositions, RecordId},
+    protocol::{basics::ZeroPositions, boolean::xor_sparse, context::Context, RecordId},
     secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 use futures::future::try_join_all;

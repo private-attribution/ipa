@@ -189,8 +189,8 @@ pub(in crate::protocol) mod test {
             Role,
         },
         protocol::{
+            basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             malicious::MaliciousValidator,
-            mul::{sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             BitOpStep, QueryId, RecordId,
         },
         rand::{thread_rng, Rng},

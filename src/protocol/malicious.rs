@@ -1,13 +1,13 @@
+use crate::protocol::basics::Reveal;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::reveal::Reveal;
 use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
     protocol::{
-        check_zero::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId,
-        RECORD_0, RECORD_1, RECORD_2,
+        basics::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId, RECORD_0,
+        RECORD_1, RECORD_2,
     },
     secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
@@ -251,8 +251,8 @@ mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::helpers::Role;
+    use crate::protocol::basics::SecureMul;
     use crate::protocol::context::Context;
-    use crate::protocol::mul::SecureMul;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};

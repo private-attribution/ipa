@@ -1,12 +1,10 @@
 pub mod attribution;
+pub mod basics;
 pub mod boolean;
-mod check_zero;
 pub mod context;
 pub mod malicious;
 pub mod modulus_conversion;
-pub mod mul;
 pub mod prss;
-mod reveal;
 pub mod sort;
 
 use crate::error::Error;

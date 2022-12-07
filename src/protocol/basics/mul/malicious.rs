@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{
     context::{Context, MaliciousContext},
-    mul::{MultiplyZeroPositions, SecureMul, ZeroPositions},
+    basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
     RecordId,
 };
 use crate::secret_sharing::MaliciousReplicated;
@@ -100,7 +100,7 @@ where
 mod regular_mul_tests {
     use crate::{
         ff::Fp31,
-        protocol::{mul::SecureMul, QueryId, RecordId},
+        protocol::{basics::SecureMul, QueryId, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -128,7 +128,7 @@ mod specialized_mul_tests {
     use crate::{
         ff::Fp31,
         protocol::{
-            mul::{
+            basics::mul::{
                 test::{SpecializedA, SpecializedB, SpecializedC},
                 SecureMul, ZeroPositions,
             },

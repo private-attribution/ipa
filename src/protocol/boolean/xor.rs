@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::basics::{MultiplyZeroPositions, ZeroPositions};
 use crate::protocol::context::Context;
-use crate::protocol::mul::{MultiplyZeroPositions, ZeroPositions};
 use crate::protocol::RecordId;
 use crate::secret_sharing::SecretSharing;
 
@@ -43,8 +43,8 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
+            basics::{mul::sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             boolean::xor_sparse,
-            mul::{sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             QueryId, RecordId,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
