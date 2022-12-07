@@ -13,11 +13,15 @@ mod bitwise_equal;
 mod bitwise_less_than_prime;
 mod dumb_bitwise_lt;
 mod dumb_bitwise_sum;
+mod generate_random_bits;
 mod or;
 pub mod random_bits_generator;
 mod solved_bits;
 
-pub use {bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan};
+pub use {
+    bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan,
+    generate_random_bits::RandomBits,
+};
 
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
