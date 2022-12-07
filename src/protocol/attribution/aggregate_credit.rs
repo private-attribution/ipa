@@ -7,9 +7,9 @@ use crate::protocol::attribution::AttributionResharableStep::{
 };
 use crate::protocol::boolean::{random_bits_generator::RandomBitsGenerator, BitDecomposition};
 use crate::protocol::context::{Context, SemiHonestContext};
-use crate::protocol::sort::{
-    apply_sort::shuffle::Resharable, generate_permutation::generate_permutation,
-};
+use crate::protocol::sort::apply_sort::apply_sort_permutation;
+use crate::protocol::sort::apply_sort::shuffle::Resharable;
+use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::Replicated;
 use async_trait::async_trait;
@@ -118,15 +118,16 @@ async fn sort_by_aggregation_bit_and_breakdown_key<F: Field>(
         .await?,
     );
 
-    generate_permutation(
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
         &breakdown_keys,
         F::Integer::BITS,
     )
-    .await?
-    .apply_sort_permutation(
+    .await?;
+    apply_sort_permutation(
         ctx.narrow(&Step::ApplyPermutationOnBreakdownKey),
         sorted_by_aggregation_bit.clone(),
+        &sort_permutation,
     )
     .await
 }
@@ -142,15 +143,17 @@ async fn sort_by_aggregation_bit<F: Field>(
         .map(|x| x.aggregation_bit.clone())
         .collect::<Vec<_>>()];
 
-    generate_permutation(
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
         aggregation_bits,
         1,
     )
-    .await?
-    .apply_sort_permutation(
+    .await?;
+
+    apply_sort_permutation(
         ctx.narrow(&Step::ApplyPermutationOnAttributionBit),
         input.to_vec(),
+        &sort_permutation,
     )
     .await
 }
