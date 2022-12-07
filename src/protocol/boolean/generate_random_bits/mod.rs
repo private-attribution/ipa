@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::{Replicated, SecretSharing, XorReplicated};
 use async_trait::async_trait;
@@ -32,7 +33,7 @@ where
 
     // Generate a pair of random numbers. We'll use these numbers as
     // the source of `l`-bit long uniformly random sequence of bits.
-    let (b_bits_left, b_bits_right) = ctx.with_prss(|prss| prss.generate_values(record_id));
+    let (b_bits_left, b_bits_right) = ctx.prss().generate_values(record_id);
 
     // Same here. For now, 256-bit is enough for our F_p
     let xor_share = XorReplicated::new(

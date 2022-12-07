@@ -1,5 +1,6 @@
 use crate::protocol::basics::{reveal::Reveal, SecureMul};
 use crate::protocol::context::SemiHonestContext;
+use crate::protocol::prss::SharedRandomness;
 use crate::{
     error::Error,
     ff::Field,
@@ -66,7 +67,7 @@ pub async fn check_zero<F: Field>(
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
-    let r_sharing = ctx.with_prss(|prss| prss.generate_replicated(record_id));
+    let r_sharing = ctx.prss().generate_replicated(record_id);
 
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)

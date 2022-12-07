@@ -1,15 +1,16 @@
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
-use crate::protocol::context::{Context, MaliciousContext};
-use crate::protocol::malicious::MaliciousValidatorAccumulator;
-use crate::protocol::prss::{
-    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
+use crate::protocol::context::{
+    Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
+    MaliciousContext,
 };
+use crate::protocol::malicious::MaliciousValidatorAccumulator;
+use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::Replicated;
 use crate::sync::Arc;
-use crate::telemetry;
+
 use std::marker::PhantomData;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
@@ -69,17 +70,23 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         }
     }
 
-    fn with_prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
-        let _span =
-            telemetry::metrics::span!("prss", step = self.step(), role = self.role()).entered();
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness {
         let prss = self.inner.prss.indexed(self.step());
-        handler(&prss)
+
+        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
     }
 
-    fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let _span =
-            telemetry::metrics::span!("prss_rng", step = self.step(), role = self.role()).entered();
-        self.inner.prss.sequential(self.step())
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        let (left, right) = self.inner.prss.sequential(self.step());
+        (
+            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+        )
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {

@@ -5,16 +5,16 @@ use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::basics::{mul::malicious::Step::RandomnessForValidation, SecureMul};
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
+use crate::protocol::context::{
+    Context, InstrumentedSequentialSharedRandomness, SemiHonestContext,
+};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::prss::{
-    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
-};
+use crate::protocol::prss::{Endpoint as PrssEndpoint, SharedRandomness};
 use crate::protocol::{BitOpStep, RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
-use crate::telemetry;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -105,18 +105,23 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         }
     }
 
-    fn with_prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T {
-        let _span =
-            telemetry::metrics::span!("mal_prss", step = self.step(), role = self.role()).entered();
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
         let prss = self.inner.prss.indexed(self.step());
-        handler(&prss)
+
+        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
     }
 
-    fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        let _span =
-            telemetry::metrics::span!("mal_prss_rng", step = self.step(), role = self.role())
-                .entered();
-        self.inner.prss.sequential(self.step())
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        let (left, right) = self.inner.prss.sequential(self.step());
+        (
+            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+        )
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {
@@ -134,10 +139,9 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
 /// this implementation makes it easier to reinterpret the context as semi-honest.
 impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'a, F> {
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
-        self.inner.accumulator.accumulate_macs(
-            &self.with_prss(|prss| prss.generate_replicated(record_id)),
-            x,
-        );
+        self.inner
+            .accumulator
+            .accumulate_macs(&self.prss().generate_replicated(record_id), x);
     }
 
     /// Get a semi-honest context that is an  exact copy of this malicious
@@ -210,7 +214,8 @@ impl<'a, F: Field> ContextInner<'a, F> {
     ) -> Result<MaliciousReplicated<F>, Error> {
         let constant = ctx
             .narrow(&RandomnessForValidation)
-            .with_prss(|prss| prss.generate_replicated(record_id));
+            .prss()
+            .generate_replicated(record_id);
         let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
         let m = MaliciousReplicated::new(x, rx);
         self.accumulator.accumulate_macs(&constant, &m);

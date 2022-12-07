@@ -60,6 +60,14 @@ impl Role {
             (H3, Right) | (H2, Left) => H1,
         }
     }
+
+    pub fn as_static_str(&self) -> &'static str {
+        match self {
+            H1 => Role::H1_STR,
+            H2 => Role::H2_STR,
+            H3 => Role::H3_STR,
+        }
+    }
 }
 
 impl TryFrom<&str> for Role {

@@ -6,7 +6,6 @@ use crate::{
         Error, Role,
     },
     protocol::Step,
-    telemetry,
 };
 use ::tokio::sync::mpsc::{self, Receiver, Sender};
 use async_trait::async_trait;
@@ -127,7 +126,7 @@ impl InMemoryEndpoint {
                     }
                 }
             }
-        }.instrument(telemetry::metrics::span!("in_memory_helper_event_loop", role=id)));
+        }.instrument(tracing::info_span!("in_memory_helper_event_loop", role=id.as_static_str()).or_current()));
 
         this
     }

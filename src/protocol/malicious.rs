@@ -1,5 +1,6 @@
 use crate::protocol::basics::Reveal;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
+use crate::protocol::prss::SharedRandomness;
 use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
@@ -143,11 +144,12 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
-        let r_share = ctx.with_prss(|prss| prss.generate_replicated(RECORD_0));
-        let state = ctx.with_prss(|prss| AccumulatorState {
+        let r_share = ctx.prss().generate_replicated(RECORD_0);
+        let prss = ctx.prss();
+        let state = AccumulatorState {
             u: prss.zero(RECORD_1),
             w: prss.zero(RECORD_2),
-        });
+        };
 
         let u_and_w = Arc::new(Mutex::new(state));
         let accumulator = MaliciousValidatorAccumulator {

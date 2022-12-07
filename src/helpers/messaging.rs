@@ -17,7 +17,6 @@ use crate::{
     helpers::network::{ChannelId, MessageEnvelope, Network},
     helpers::Role,
     protocol::{RecordId, Step},
-    telemetry,
 };
 use ::tokio::sync::{mpsc, oneshot};
 use futures::SinkExt;
@@ -189,7 +188,7 @@ impl Gateway {
                     }
                 }
             }
-        }.instrument(telemetry::metrics::span!("gateway_loop", role=role)));
+        }.instrument(tracing::info_span!("gateway_loop", role=role.as_static_str()).or_current()));
 
         Self {
             tx: recv_tx,

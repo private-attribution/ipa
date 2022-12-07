@@ -2,16 +2,17 @@ use crate::ff::Field;
 use crate::helpers::messaging::Mesh;
 use crate::helpers::Role;
 use crate::protocol::basics::{Reveal, SecureMul};
-use crate::protocol::prss::{IndexedSharedRandomness, SequentialSharedRandomness};
+
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::SecretSharing;
-use crate::sync::Arc;
 
 mod malicious;
+mod prss;
 mod semi_honest;
 
 pub use malicious::MaliciousContext;
 pub(super) use malicious::SpecialAccessToMaliciousContext;
+pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 
 use super::basics::Reshare;
@@ -43,14 +44,14 @@ pub trait Context<F: Field>:
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
 
-    /// Obtain indexed PRSS instance and pass it to the `handler` function. It is safe to call this
-    /// function multiple times.
+    /// Get the indexed PRSS instance for this step.  It is safe to call this function
+    /// multiple times.
     ///
     /// # Panics
     /// If `prss_rng()` is invoked for the same context, this will panic.  Use of
     /// these two functions are mutually exclusive.
     #[must_use]
-    fn with_prss<T>(&self, handler: impl FnOnce(&Arc<IndexedSharedRandomness>) -> T) -> T;
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_>;
 
     /// Get a pair of PRSS-based RNGs.  The first is shared with the helper to the "left",
     /// the second is shared with the helper to the "right".
@@ -59,7 +60,12 @@ pub trait Context<F: Field>:
     /// This method can only be called once.  This is also mutually exclusive with `prss()`.
     /// This will panic if you have previously invoked `prss()`.
     #[must_use]
-    fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness);
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness,
+        InstrumentedSequentialSharedRandomness,
+    );
 
     /// Get a set of communications channels to different peers.
     #[must_use]
@@ -74,6 +80,7 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Direction;
     use crate::protocol::malicious::Step::MaliciousProtocol;
+    use crate::protocol::prss::SharedRandomness;
     use crate::protocol::{QueryId, RecordId};
     use crate::secret_sharing::{MaliciousReplicated, Replicated};
     use crate::telemetry::metrics::{
@@ -131,9 +138,11 @@ mod tests {
             ctx.role().peer(Direction::Right),
         );
         let record_id = RecordId::from(index);
-        let (l, r) = ctx.with_prss(|prss| prss.generate_fields(record_id));
+        let (l, r) = ctx.prss().generate_fields(record_id);
+
         let (seq_l, seq_r) = {
-            let (mut left_rng, mut right_rng) = ctx.narrow(&format!("seq-prss-{index}")).prss_rng();
+            let ctx = ctx.narrow(&format!("seq-prss-{index}"));
+            let (mut left_rng, mut right_rng) = ctx.prss_rng();
             (left_rng.gen::<F>(), right_rng.gen::<F>())
         };
         let channel = ctx.mesh();
