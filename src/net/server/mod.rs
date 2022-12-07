@@ -72,14 +72,12 @@ impl MpcHelperServerError {
     }
 }
 
-/// [`From`] implementation for [`MpcHelperServerError::InvalidHeader`]
 impl From<std::num::ParseIntError> for MpcHelperServerError {
     fn from(err: std::num::ParseIntError) -> Self {
         Self::InvalidHeader(err.into())
     }
 }
 
-/// [`From`] implementation for [`MpcHelperServerError::InvalidHeader`]
 impl From<axum::http::header::ToStrError> for MpcHelperServerError {
     fn from(err: axum::http::header::ToStrError) -> Self {
         Self::InvalidHeader(err.into())
@@ -92,7 +90,6 @@ impl From<axum::extract::rejection::PathRejection> for MpcHelperServerError {
     }
 }
 
-/// [`From`] implementation for [`MpcHelperServerError::SendError`].
 /// first call `to_string` so as to drop `T` from the [`MpcHelperServerError`]
 impl<T> From<mpsc::error::SendError<T>> for MpcHelperServerError {
     fn from(err: mpsc::error::SendError<T>) -> Self {
@@ -100,7 +97,6 @@ impl<T> From<mpsc::error::SendError<T>> for MpcHelperServerError {
     }
 }
 
-/// [`From`] implementation for [`MpcHelperServerError::SendError`].
 /// first call `to_string` to as to drop `T` from the [`MpcHelperServerError`]
 impl<T> From<tokio_util::sync::PollSendError<T>> for MpcHelperServerError {
     fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
@@ -127,9 +123,9 @@ impl IntoResponse for MpcHelperServerError {
     }
 }
 
-/// Provides a mapping of [`QueryId`]s to senders that forward data to a `Network`. Every time a
-/// new query is started, a `Network` is created to handle communication for that query. When the
-/// server receives a request, it must know which `Network` to forward that request to, so it
+/// Provides a mapping of [`QueryId`]s to senders that forward data to a [`HttpNetwork`]. Every time a
+/// new query is started, a [`HttpNetwork`] is created to handle communication for that query. When the
+/// server receives a request, it must know which [`HttpNetwork`] to forward that request to, so it
 /// holds this mapping to accomplish that.
 ///
 /// Is shareable by `clone()`ing.
