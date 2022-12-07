@@ -50,7 +50,7 @@ impl ByteArrStream {
     /// # Panics
     /// if `size_in_bytes` is 0
     pub fn new(body: BodyStream, size_in_bytes: u32) -> Self {
-        assert!(size_in_bytes != 0);
+        assert_ne!(size_in_bytes, 0);
         Self {
             body,
             size_in_bytes,
@@ -170,7 +170,7 @@ pub async fn handler(_body: ByteArrStream) -> Result<(), MpcHelperServerError> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use axum::http::Request;
+    use axum::http::{HeaderMap, Request};
     use ff::Field;
     use futures_util::{StreamExt, TryStreamExt};
     use hyper::Body;
@@ -244,5 +244,63 @@ mod test {
             Some(Err(std::io::ErrorKind::WriteZero)),
             "actually got {failed_kind:?}"
         );
+    }
+
+    // this test confirms that `ByteArrStream` doesn't buffer more than it needs to as it produces
+    // bytes
+    #[tokio::test]
+    async fn byte_arr_stream_buffers_optimally() {
+        /// Simple body that represents a stream of `Bytes` chunks.
+        /// Cannot use [`StreamBody`] because it has an error type of `axum::error::Error`, whereas
+        /// [`BodyStream`] expects a `hyper::Error`. Yes, this is confusing.
+        #[pin_project]
+        struct ChunkedBody<St>(#[pin] St);
+
+        impl<St: Stream<Item = Result<Bytes, hyper::Error>>> HttpBody for ChunkedBody<St> {
+            type Data = Bytes;
+            type Error = hyper::Error;
+
+            fn poll_data(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+                self.as_mut().project().0.poll_next(cx)
+            }
+
+            fn poll_trailers(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+                Poll::Ready(Ok(None))
+            }
+        }
+
+        const ARR_SIZE: usize = 20;
+        const CHUNK_SIZE: usize = 3;
+        let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
+        let chunks = futures::stream::iter(
+            vec.chunks(CHUNK_SIZE)
+                .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
+                .collect::<Vec<_>>(),
+        );
+        let mut req_parts = RequestParts::new(
+            Request::post(format!(
+                "/example?field_type={}",
+                ff::Fp32BitPrime::TYPE_STR
+            ))
+            .body(ChunkedBody(chunks))
+            .unwrap(),
+        );
+        let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
+        assert_eq!(byte_arr_stream.buffered.len(), 0);
+        for expected_chunk in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
+            let n = byte_arr_stream.next().await.unwrap().unwrap();
+            // `ByteArrStream` outputs correct value
+            assert_eq!(expected_chunk, &n);
+            // `ByteArrStream` only contains at most 1 buffered chunk
+            assert!(byte_arr_stream.buffered.len() <= 1);
+            // `ByteArrStream` only contains at most `CHUNK_SIZE` values in its buffer
+            assert!(byte_arr_stream.buffered_size <= u32::try_from(CHUNK_SIZE).unwrap());
+        }
     }
 }
