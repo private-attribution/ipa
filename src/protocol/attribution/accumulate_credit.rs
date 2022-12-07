@@ -4,7 +4,7 @@ use super::{
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Role;
-use crate::protocol::attribution::AttributionInputRowResharableStep::{
+use crate::protocol::attribution::AttributionResharableStep::{
     BreakdownKey, Credit, HelperBit, IsTriggerBit,
 };
 use crate::protocol::basics::SecureMul;

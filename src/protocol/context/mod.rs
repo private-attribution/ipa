@@ -15,6 +15,7 @@ pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use semi_honest::SemiHonestContext;
 
 use super::basics::Reshare;
+use super::boolean::RandomBits;
 
 pub enum ContextType {
     SemiHonest,
@@ -26,6 +27,7 @@ pub trait Context<F: Field>:
     SecureMul<F, Share = <Self as Context<F>>::Share>
     + Reshare<F, Share = <Self as Context<F>>::Share>
     + Reveal<F, Share = <Self as Context<F>>::Share>
+    + RandomBits<F, Share = <Self as Context<F>>::Share>
     + Clone
     + Send
     + Sync

@@ -3,11 +3,10 @@ use super::dumb_bitwise_sum::bitwise_sum;
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::protocol::basics::Reveal;
 use crate::protocol::boolean::local_secret_shared_bits;
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::SecretSharing;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -25,12 +24,17 @@ impl BitDecomposition {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    pub async fn execute<F, S, C>(
+        ctx: C,
         record_id: RecordId,
-        rbg: RandomBitsGenerator<F>,
-        a_p: &Replicated<F>,
-    ) -> Result<Vec<Replicated<F>>, Error> {
+        rbg: RandomBitsGenerator<F, S>,
+        a_p: &S,
+    ) -> Result<Vec<S>, Error>
+    where
+        F: Field,
+        S: SecretSharing<F>,
+        C: Context<F, Share = S>,
+    {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
@@ -39,7 +43,7 @@ impl BitDecomposition {
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
             .narrow(&Step::RevealAMinusB)
-            .reveal(record_id, &(a_p - &r.b_p))
+            .reveal(record_id, &(a_p.clone() - &r.b_p))
             .await?;
         let c_b = local_secret_shared_bits(&ctx, c.as_u128());
 

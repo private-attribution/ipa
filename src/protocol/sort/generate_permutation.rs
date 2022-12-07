@@ -47,7 +47,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
     ctx: C,
     input_len: u32,
     input_permutation: Vec<S>,
-    _ctx_type: &ContextType,
+    malicious_validator: Option<MaliciousValidator<'_, F>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
@@ -64,7 +64,12 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    // TODO: THIS IS WHERE VALIDATOR WILL BE CALLED!
+    match malicious_validator {
+        None => { // do nothing
+        },
+        Some(v) => v.validate(None).await?,
+    }
+
     let revealed_permutation =
         reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
 
@@ -115,7 +120,7 @@ where
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
-            ctx_type,
+            None
         )
         .await?;
 
@@ -163,12 +168,12 @@ where
     Ok(composed_less_significant_bits_permutation)
 }
 
-pub async fn malicious_generate_permutation<F>(
+pub async fn malicious_generate_permutation<'a, F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
     ctx_type: &ContextType,
-) -> Result<Vec<MaliciousReplicated<F>>, Error>
+) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
 where
     F: Field,
 {
@@ -189,14 +194,13 @@ where
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
-            ctx_type,
+            Some(v),
         )
         .await?;
-
+        let v = MaliciousValidator::new(ctx_bit);
         let upgraded_sort_keys = ctx_bit
             .upgrade_vec(0, sort_keys[bit_num as usize].clone())
             .await?;
-        v.validate(values);
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             ctx_bit.narrow(&ApplyInv),
             upgraded_sort_keys,
@@ -238,7 +242,7 @@ where
         .await?;
         composed_less_significant_bits_permutation = composed_i_permutation;
     }
-    Ok(composed_less_significant_bits_permutation)
+    Ok((v, composed_less_significant_bits_permutation))
 }
 
 /// This function takes in a semihonest context and sort keys, generates a sort permutation, shuffles and reveals it and
@@ -262,18 +266,18 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
                 ctx.narrow(&ShuffleRevealPermutation),
                 u32::try_from(sort_keys[0].len()).unwrap(),
                 sort_permutation,
-                ctx_type,
+                None,
             )
             .await
         }
         ContextType::Malicious => {
-            let sort_permutation =
-                generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits, ctx_type).await?;
+            let (v, sort_permutation) =
+                malicious_generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits, ctx_type).await?;
             shuffle_and_reveal_permutation(
                 ctx.narrow(&ShuffleRevealPermutation),
                 u32::try_from(sort_keys[0].len()).unwrap(),
                 sort_permutation,
-                ctx_type,
+                v,
             )
             .await
         }

@@ -15,7 +15,7 @@ use super::generate_permutation::RevealedAndRandomPermutations;
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
-pub async fn apply<C, F, S, I>(
+pub async fn apply_sort_permutation<C, F, S, I>(
     ctx: C,
     input: Vec<I>,
     sort_permutation: &RevealedAndRandomPermutations,
@@ -44,10 +44,11 @@ where
 mod tests {
 
     use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
+    use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
     use crate::protocol::context::ContextType::SemiHonest;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::apply_sort::apply;
+    use crate::protocol::sort::apply_sort::apply_sort_permutation;
     use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
     use crate::protocol::IpaProtocolStep::SortPreAccumulation;
     use crate::protocol::QueryId;
@@ -78,7 +79,7 @@ mod tests {
         });
         let expected = permutation.apply_slice(&sidecar);
 
-        let result = world
+        let result: [Vec<AttributionInputRow<Fp32BitPrime>>; 3] = world
             .semi_honest(
                 (match_keys, sidecar),
                 |ctx, (mk_shares, secret)| async move {
@@ -96,7 +97,9 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                    apply(ctx, secret, &sort_permutation).await.unwrap()
+                    apply_sort_permutation(ctx, secret, &sort_permutation)
+                        .await
+                        .unwrap()
                 },
             )
             .await;

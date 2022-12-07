@@ -277,13 +277,13 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
                 let m_triple = m_ctx
-                    .upgrade_bit_triple(RecordId::from(0), triple)
+                    .upgrade_bit_triple(RecordId::from(0), 0, triple)
                     .await
                     .unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
                     .unwrap();
-                v.validate(m_bit).await.unwrap()
+                v.validate(Some(m_bit)).await.unwrap().unwrap()
             })
             .await;
         assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
@@ -339,14 +339,14 @@ mod tests {
                     let v = MaliciousValidator::new(ctx);
                     let m_ctx = v.context();
                     let m_triple = m_ctx
-                        .upgrade_bit_triple(RecordId::from(0), tweaked)
+                        .upgrade_bit_triple(RecordId::from(0), 0, tweaked)
                         .await
                         .unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await
                         .unwrap();
                     let err = v
-                        .validate(m_bit)
+                        .validate(Some(m_bit))
                         .await
                         .expect_err("This should fail validation");
                     assert!(matches!(err, Error::MaliciousSecurityCheckFailed));

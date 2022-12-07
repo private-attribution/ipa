@@ -162,6 +162,7 @@ where
 mod tests {
 
     mod semi_honest {
+        use crate::protocol::attribution::AttributionInputRow;
         use crate::rand::{thread_rng, Rng};
 
         use crate::ff::{Fp31, Fp32BitPrime};
@@ -186,7 +187,7 @@ mod tests {
             });
             let hashed_input: HashSet<[u8; 4]> = input.iter().map(Into::into).collect();
 
-            let result = world
+            let result: [Vec<AttributionInputRow<Fp31>>; 3] = world
                 .semi_honest(input.clone(), |ctx, shares| async move {
                     let perms =
                         get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());

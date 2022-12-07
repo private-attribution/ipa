@@ -197,7 +197,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
+    pub async fn validate<D: DowngradeMalicious>(self, values: Option<D>) -> Result<Option<D::Target>, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 
@@ -212,7 +212,11 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         if is_valid {
             // Yes, we're allowed to downgrade here.
             use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            Ok(values.downgrade().access_without_downgrade())
+            match values {
+                Some(values) => Ok(Some(values.downgrade().access_without_downgrade())),
+                None => Ok(None)
+            }
+            
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
         }
@@ -300,7 +304,7 @@ mod tests {
 
                 // Save some cloned values so that we can check them.
                 let r_share = v.r_share().clone();
-                let result = v.validate(m_result.clone()).await?;
+                let Some(result) = v.validate(Some(m_result.clone())).await?;
                 assert_eq!(&result, m_result.x().access_without_downgrade());
                 Ok::<_, Error>((m_result, r_share))
             });
@@ -333,7 +337,7 @@ mod tests {
             .semi_honest(a, |ctx, a| async move {
                 let v = MaliciousValidator::new(ctx);
                 let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
-                v.validate(m).await.unwrap()
+                v.validate(Some(m)).await.unwrap().unwrap()
             })
             .await;
         assert_eq!(a, result.reconstruct());
@@ -357,7 +361,7 @@ mod tests {
                     };
                     let v = MaliciousValidator::new(ctx);
                     let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
-                    match v.validate(m).await {
+                    match v.validate(Some(m)).await {
                         Ok(result) => panic!("Got a result {:?}", result),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                     }
@@ -434,7 +438,7 @@ mod tests {
                 .await?;
 
                 let r_share = v.r_share().clone();
-                let results = v.validate(m_results.clone()).await?;
+                let Some(results) = v.validate(Some(m_results.clone())).await?;
                 assert_eq!(
                     results.iter().collect::<Vec<_>>(),
                     m_results

@@ -1,8 +1,9 @@
+use crate::helpers::messaging::SendRequest;
 use crate::{
     error::BoxError,
     helpers::{
         messaging::ReceiveRequest,
-        network::{ChannelId, MessageChunks, MessageEnvelope},
+        network::{ChannelId, MessageChunks},
         Role,
     },
     protocol::{RecordId, Step},
@@ -13,9 +14,9 @@ use tokio_util::sync::PollSendError;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("An error occurred while sending data to {dest:?}")]
+    #[error("An error occurred while sending data to {channel:?}: {inner}")]
     SendError {
-        dest: Role,
+        channel: ChannelId,
 
         #[source]
         inner: BoxError,
@@ -47,11 +48,11 @@ pub enum Error {
 
 impl Error {
     pub fn send_error<E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>>(
-        dest: Role,
+        channel: ChannelId,
         inner: E,
     ) -> Error {
         Self::SendError {
-            dest,
+            channel,
             inner: inner.into(),
         }
     }
@@ -83,17 +84,17 @@ impl Error {
 impl From<SendError<ReceiveRequest>> for Error {
     fn from(source: SendError<ReceiveRequest>) -> Self {
         Self::SendError {
-            dest: source.0.channel_id.role,
-            inner: source.to_string().into(),
+            channel: source.0.channel_id,
+            inner: "channel closed".into(),
         }
     }
 }
 
-impl From<SendError<(ChannelId, MessageEnvelope)>> for Error {
-    fn from(source: SendError<(ChannelId, MessageEnvelope)>) -> Self {
+impl From<SendError<SendRequest>> for Error {
+    fn from(source: SendError<SendRequest>) -> Self {
         Self::SendError {
-            dest: source.0 .0.role,
-            inner: source.to_string().into(),
+            channel: source.0 .0,
+            inner: "channel closed".into(),
         }
     }
 }
@@ -103,7 +104,7 @@ impl From<PollSendError<MessageChunks>> for Error {
         let err_msg = source.to_string();
         match source.into_inner() {
             Some(inner) => Self::SendError {
-                dest: inner.0.role,
+                channel: inner.0,
                 inner: err_msg.into(),
             },
             None => Self::PollSendError {
