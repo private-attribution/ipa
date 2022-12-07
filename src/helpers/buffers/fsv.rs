@@ -80,11 +80,6 @@ impl<const N: usize> FixedSizeByteVec<N> {
         Some(r)
     }
 
-    /// TODO: tests and documentation. Properly implemented in #314
-    pub fn added(&self, index: usize) -> bool {
-        self.added[index]
-    }
-
     /// Returns total number of elements evicted from this buffer since the creation.
     pub fn taken(&self) -> usize {
         self.taken
