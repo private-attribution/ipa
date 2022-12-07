@@ -33,7 +33,7 @@ pub mod peer {
 }
 
 /// Provides a set of peer helpers for an MPC computation. Also includes the client pointing to the
-/// running server. Since the running server is aware of which [`Identity`] it is (`H1`, `H2`, or
+/// running server. Since the running server is aware of which `Role` it is (`H1`, `H2`, or
 /// `H3`), it should be able to use only the references to other servers. However, it's possible for
 /// a server to send data to itself.
 ///

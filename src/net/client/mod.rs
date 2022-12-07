@@ -83,7 +83,7 @@ impl MpcHelperClient {
 
     /// Sends a batch of messages to another helper. Messages are a contiguous block of records in
     /// some state of transformation within a protocol. Also includes ['`RecordId`] information and
-    /// [`ChannelId`].
+    /// `ChannelId`.
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn send_messages(

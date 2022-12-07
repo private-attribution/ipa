@@ -4,6 +4,7 @@ use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 
+#[embed_doc_image("compose", "images/sort/compose.png")]
 /// This is an implementation of Compose (Algorithm 5) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -11,8 +12,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// This protocol composes two permutations by applying one secret-shared permutation(sigma) to another secret-shared permutation(rho)
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
-
-#[embed_doc_image("compose", "images/sort/compose.png")]
+///
 /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
 /// and none of the helpers should learn it through this protocol.
 /// Steps

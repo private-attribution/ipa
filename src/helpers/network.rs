@@ -55,9 +55,9 @@ impl Debug for ChannelId {
     }
 }
 
-/// Wrapper around a [`PollSender`] to modify the error message to match what the [`Network`] trait
+/// Wrapper around a [`PollSender`] to modify the error message to match what the `Network` trait
 /// requires. The only error that [`PollSender`] will generate is "channel closed", and thus is the
-/// only error message forwarded from this [`Sink`].
+/// only error message forwarded from this `Sink`.
 #[pin_project]
 pub struct NetworkSink<T> {
     #[pin]

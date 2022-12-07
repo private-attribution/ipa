@@ -24,11 +24,11 @@ pub trait Reshare<F: Field> {
     ) -> Result<Self::Share, Error>;
 }
 
+#[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Reshare(i, \[x\])
 // This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 // Input: Pi-1 and Pi+1 know their secret shares
 // Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
-#[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Steps
 /// ![Reshare steps][reshare]
 /// 1. While calculating for a helper, we call pseudo random secret sharing (prss) to get random values which match

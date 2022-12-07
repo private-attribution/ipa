@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-/// Http implementation of a [`Network`]. Uses channels for both [`Sink`] and [`Stream`]
+/// Http implementation of a `Network`. Uses channels for both `Sink` and `Stream`
 /// implementations.
 /// # Panics
 /// if `recv_stream` or `recv_messages` called more than once.
@@ -67,7 +67,7 @@ impl HttpNetwork {
     }
 
     /// as this does not initialize the clients, it does not initialize the read-side of the
-    /// [`Sink`]. This allows tests to grab the read-side directly, bypassing the HTTP layer.
+    /// `Sink`. This allows tests to grab the read-side directly, bypassing the HTTP layer.
     #[must_use]
     #[cfg(test)]
     pub fn new_without_clients(query_id: QueryId, buffer_size: Option<usize>) -> Self {

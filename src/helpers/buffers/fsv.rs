@@ -14,12 +14,12 @@ use bitvec::prelude::BitVec;
 /// vector has 3 regions and `X` indicates that space at that element is occupied.
 ///
 ///  region1  region2  region3
-/// [X,_,_,_][X,_,X,_][_,X,_,X]
+/// `\[` X,_,_,_`\]\[` X,_,X,_`\]\[`_,`X,_,X` `\]`
 ///
 /// Once `region1` is completely filled up, it is possible to drain the vector. Draining will cause
 /// **all** elements from the head of the queue to be removed
 ///
-/// [X,X,X,X][X,_,X,_][_,X,_,X] -> `take` -> [_,X,_,_][X,_,X,_][_,_,_,_]
+/// `\[` X,X,X,X `\]\[` X,_,X,_`\]\[`_,X,_,X `\]` -> `take` -> `\[`_,X,_,_`\]\[` X,_,X,_`\]\[`_,_,_,_`\]`
 ///
 /// This vector is used inside the send buffer to keep track of messages added to it. Once first
 /// batch of messages is ready (region1 is full), it drains this vector and send those messages
