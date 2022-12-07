@@ -17,7 +17,6 @@ use std::iter::{repeat, zip};
 /// # Errors
 /// Propagates errors from multiplications
 ///
-#[allow(dead_code)]
 pub async fn credit_capping<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CreditCappingInputRow<F>],
@@ -63,7 +62,6 @@ pub async fn credit_capping<F: Field>(
         .iter()
         .enumerate()
         .map(|(i, x)| CreditCappingOutputRow {
-            helper_bit: x.helper_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: final_credits[i].clone(),
         })

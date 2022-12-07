@@ -5,7 +5,6 @@ use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::SecretSharing;
 use std::marker::PhantomData;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct RandomBitsShare<F, S>
 where
@@ -38,7 +37,6 @@ where
 // number that has the same number of bits as the prime.
 // With `Fp32BitPrime` (prime is `2^32 - 5`), that chance is around
 // 1 * 10^-9. For Fp31, the chance is 1 out of 32 =~ 3%.
-#[allow(dead_code)]
 pub async fn solved_bits<F, S, C>(
     ctx: C,
     record_id: RecordId,

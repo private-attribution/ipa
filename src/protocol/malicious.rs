@@ -141,7 +141,6 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
-#[allow(dead_code)]
 pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,

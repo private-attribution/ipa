@@ -62,7 +62,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-#[allow(dead_code)]
 pub async fn aggregate_credit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     capped_credits: &[CreditCappingOutputRow<F>],
@@ -378,22 +377,18 @@ pub(crate) mod tests {
         Standard: Distribution<F>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [CreditCappingOutputRow<F>; 3] {
-            let [a0, a1, a2] = self.0[0].share_with(rng);
             let [b0, b1, b2] = self.0[1].share_with(rng);
             let [c0, c1, c2] = self.0[2].share_with(rng);
             [
                 CreditCappingOutputRow {
-                    helper_bit: a0,
                     breakdown_key: b0,
                     credit: c0,
                 },
                 CreditCappingOutputRow {
-                    helper_bit: a1,
                     breakdown_key: b1,
                     credit: c1,
                 },
                 CreditCappingOutputRow {
-                    helper_bit: a2,
                     breakdown_key: b2,
                     credit: c2,
                 },

@@ -20,14 +20,11 @@ pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 
-#[allow(dead_code)]
 pub struct CreditCappingOutputRow<F: Field> {
-    helper_bit: Replicated<F>,
     breakdown_key: Replicated<F>,
     credit: Replicated<F>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CappedCreditsWithAggregationBit<F: Field> {
     helper_bit: Replicated<F>,
