@@ -191,12 +191,13 @@ pub(in crate::protocol) mod test {
         protocol::{
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             malicious::MaliciousValidator,
-            BitOpStep, QueryId, RecordId,
+            BitOpStep, QueryId, RECORD_0,
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
         test_fixture::{IntoShares, Reconstruct, Runner, TestWorld},
     };
+    use futures::future::try_join;
     use rand::distributions::{Distribution, Standard};
     use std::{borrow::Borrow, iter::zip};
 
@@ -347,7 +348,7 @@ pub(in crate::protocol) mod test {
         }
     }
 
-    fn check_punctured_output<F, T>(v: &[T; 3], work: MultiplyZeroPositions)
+    fn check_output_zeros<F, T>(v: &[T; 3], work: MultiplyZeroPositions)
     where
         F: Field,
         T: Borrow<Replicated<F>>,
@@ -375,12 +376,12 @@ pub(in crate::protocol) mod test {
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        ctx.multiply_sparse(RecordId::from(0), &v_a, &v_b, (a, b))
+                        ctx.multiply_sparse(RECORD_0, &v_a, &v_b, (a, b))
                             .await
                             .unwrap()
                     })
                     .await;
-                check_punctured_output(&result, (a, b));
+                check_output_zeros(&result, (a, b));
                 assert_eq!(v1.value() * v2.value(), result.reconstruct());
             }
         }
@@ -403,24 +404,22 @@ pub(in crate::protocol) mod test {
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context();
-                        let m_a = m_ctx
-                            .upgrade_with_sparse(&BitOpStep::from(0), RecordId::from(0), v_a, a)
-                            .await
-                            .unwrap();
-                        let m_b = m_ctx
-                            .upgrade_with_sparse(&BitOpStep::from(1), RecordId::from(0), v_b, b)
-                            .await
-                            .unwrap();
+                        let (m_a, m_b) = try_join(
+                            m_ctx.upgrade_with_sparse(&BitOpStep::from(0), RECORD_0, v_a, a),
+                            m_ctx.upgrade_with_sparse(&BitOpStep::from(1), RECORD_0, v_b, b),
+                        )
+                        .await
+                        .unwrap();
 
                         let m_ab = m_ctx
-                            .multiply_sparse(RecordId::from(0), &m_a, &m_b, (a, b))
+                            .multiply_sparse(RECORD_0, &m_a, &m_b, (a, b))
                             .await
                             .unwrap();
 
                         v.validate(m_ab).await.unwrap()
                     })
                     .await;
-                check_punctured_output(&result, (a, b));
+                check_output_zeros(&result, (a, b));
                 assert_eq!(v1.value() * v2.value(), result.reconstruct());
             }
         }

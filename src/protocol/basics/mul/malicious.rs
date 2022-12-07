@@ -97,7 +97,7 @@ where
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-mod regular_mul_tests {
+mod test {
     use crate::{
         ff::Fp31,
         protocol::{basics::SecureMul, QueryId, RecordId},
@@ -116,64 +116,6 @@ mod regular_mul_tests {
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {
                 ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
-            })
-            .await;
-
-        assert_eq!(a * b, res.reconstruct());
-    }
-}
-
-#[cfg(all(test, not(feature = "shuttle")))]
-mod specialized_mul_tests {
-    use crate::{
-        ff::Fp31,
-        protocol::{
-            basics::mul::{
-                test::{SpecializedA, SpecializedB, SpecializedC},
-                SecureMul, ZeroPositions,
-            },
-            QueryId, RecordId,
-        },
-        rand::{thread_rng, Rng},
-        test_fixture::{Reconstruct, Runner, TestWorld},
-    };
-
-    #[tokio::test]
-    pub async fn two_shares_mostly_zero() {
-        let world = TestWorld::new(QueryId);
-
-        let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
-
-        let input = (SpecializedA(a), SpecializedB(b));
-
-        let res = world
-            .malicious(input, |ctx, (a, b)| async move {
-                ctx.multiply_sparse(RecordId::from(0), &a, &b, ZeroPositions::AVZZ_BZVZ)
-                    .await
-                    .unwrap()
-            })
-            .await;
-
-        assert_eq!(a * b, res.reconstruct());
-    }
-
-    #[tokio::test]
-    pub async fn one_share_mostly_zero() {
-        let world = TestWorld::new(QueryId);
-
-        let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
-
-        let input = (a, SpecializedC(b));
-
-        let res = world
-            .malicious(input, |ctx, (a, b)| async move {
-                ctx.multiply_sparse(RecordId::from(0), &a, &b, ZeroPositions::AVVV_BZZV)
-                    .await
-                    .unwrap()
             })
             .await;
 

@@ -77,7 +77,7 @@ where
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-mod regular_mul_tests {
+mod test {
     use crate::ff::{Field, Fp31};
     use crate::protocol::{basics::SecureMul, QueryId, RecordId};
     use crate::rand::{thread_rng, Rng};
@@ -161,127 +161,5 @@ mod regular_mul_tests {
             .await;
 
         result.reconstruct().as_u128()
-    }
-}
-
-#[cfg(all(test, not(feature = "shuttle")))]
-mod specialized_mul_tests {
-    use crate::ff::Fp31;
-    use crate::protocol::basics::mul::test::{SpecializedA, SpecializedB, SpecializedC};
-    use crate::protocol::basics::{SecureMul, ZeroPositions};
-    use crate::protocol::{QueryId, RecordId};
-    use crate::rand::{thread_rng, Rng};
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
-    use futures::future::try_join_all;
-    use std::iter::{repeat, zip};
-
-    #[tokio::test]
-    async fn specialized_1() {
-        let world = TestWorld::new(QueryId);
-
-        let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
-        let input = (SpecializedA(a), SpecializedB(b));
-        let result = world
-            .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                ctx.multiply_sparse(
-                    RecordId::from(0),
-                    &a_share,
-                    &b_share,
-                    ZeroPositions::AVZZ_BZVZ,
-                )
-                .await
-                .unwrap()
-            })
-            .await;
-        assert_eq!(a * b, result.reconstruct());
-    }
-
-    #[tokio::test]
-    async fn specialized_1_parallel() {
-        const COUNT: usize = 10;
-        let world = TestWorld::new(QueryId);
-
-        let mut rng = rand::thread_rng();
-        let a: Vec<_> = (0..COUNT)
-            .map(|_| SpecializedA(rng.gen::<Fp31>()))
-            .collect();
-        let b: Vec<_> = (0..COUNT)
-            .map(|_| SpecializedB(rng.gen::<Fp31>()))
-            .collect();
-        let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a.0 * b.0).collect();
-        let result = world
-            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
-                    |(i, (ctx, (a_share, b_share)))| async move {
-                        ctx.multiply_sparse(
-                            RecordId::from(i),
-                            &a_share,
-                            &b_share,
-                            ZeroPositions::AVZZ_BZVZ,
-                        )
-                        .await
-                    },
-                ))
-                .await
-                .unwrap()
-            })
-            .await;
-        assert_eq!(expected, result.reconstruct());
-    }
-
-    #[tokio::test]
-    async fn specialized_2() {
-        let world = TestWorld::new(QueryId);
-
-        let mut rng = thread_rng();
-        let a = rng.gen::<Fp31>();
-        let b = rng.gen::<Fp31>();
-        let input = (a, SpecializedC(b));
-        let result = world
-            .semi_honest(input, |ctx, (a_share, b_share)| async move {
-                ctx.multiply_sparse(
-                    RecordId::from(0),
-                    &a_share,
-                    &b_share,
-                    ZeroPositions::AVVV_BZZV,
-                )
-                .await
-                .unwrap()
-            })
-            .await;
-        assert_eq!(a * b, result.reconstruct());
-    }
-
-    #[tokio::test]
-    async fn specialized_2_parallel() {
-        const COUNT: usize = 10;
-        let world = TestWorld::new(QueryId);
-
-        let mut rng = thread_rng();
-        let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
-        let b: Vec<_> = (0..COUNT)
-            .map(|_| SpecializedC(rng.gen::<Fp31>()))
-            .collect();
-        let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b.0).collect();
-        let result = world
-            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
-                try_join_all(zip(repeat(ctx), zip(a_shares, b_shares)).enumerate().map(
-                    |(i, (ctx, (a_share, b_share)))| async move {
-                        ctx.multiply_sparse(
-                            RecordId::from(i),
-                            &a_share,
-                            &b_share,
-                            ZeroPositions::AVVV_BZZV,
-                        )
-                        .await
-                    },
-                ))
-                .await
-                .unwrap()
-            })
-            .await;
-        assert_eq!(expected, result.reconstruct());
     }
 }
