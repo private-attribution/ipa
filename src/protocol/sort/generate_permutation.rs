@@ -92,13 +92,13 @@ pub(super) async fn shuffle_and_reveal_permutation<
     ))
 }
 
+#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
 /// This is an implementation of `GenPerm` (Algorithm 6) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
-#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
 /// This protocol generates permutation of a stable sort for the given shares of inputs.
-/// ![Generate sort permutation steps][semi_honest_sort]
+///
 /// Steps
 /// For the 0th bit
 /// 1. Get replicated shares in Field using modulus conversion
@@ -110,6 +110,8 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// 4  Compute bit permutation that sorts ith bit
 /// 5. Compute ith composition by composing i-1th composition on ith permutation
 /// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
+///
+/// ![Generate sort permutation steps][semi_honest_sort]
 pub async fn generate_permutation<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],
@@ -205,6 +207,9 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 }
 
 #[allow(dead_code)]
+/// # Panics
+/// If sort keys dont have num of bits same as `num_bits`
+/// # Errors
 pub async fn malicious_generate_permutation<'a, F>(
     ctx: SemiHonestContext<'a, F>,
     sort_keys: &[Vec<Replicated<F>>],

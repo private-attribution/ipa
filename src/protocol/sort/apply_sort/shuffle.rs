@@ -120,6 +120,7 @@ where
 /// Infrastructure has a pre-requisite to distinguish each communication step uniquely.
 /// For this, we have three shuffle steps one per `shuffle_once` i.e. Step1, Step2 and Step3.
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
+///
 /// ![Shuffle steps][shuffle]
 pub async fn shuffle_shares<C, F, I, S>(
     input: Vec<I>,
