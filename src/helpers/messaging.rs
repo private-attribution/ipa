@@ -23,8 +23,8 @@ use ::tokio::time::Instant;
 use futures::SinkExt;
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
-use std::{io, panic};
 use std::time::Duration;
+use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
@@ -115,8 +115,8 @@ impl Mesh<'_, '_> {
     ) -> Result<(), Error> {
         if T::SIZE_IN_BYTES as usize > MESSAGE_PAYLOAD_SIZE_BYTES {
             Err(Error::serialization_error::<String>(record_id,
-                                      self.step,
-                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
+                                                     self.step,
+                                                     format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
             )?;
         }
 
@@ -189,20 +189,8 @@ impl Gateway {
                         send_message::<N>(&mut network_sink, &mut send_buf, send_req).await;
                     }
                     _ = &mut sleep => {
-                        // TODO: split this large spawn task into smaller chunks and create a function
-                        // for it.
                         #[cfg(debug_assertions)]
-                        {
-                            let send_tasks_waiting = send_buf.waiting();
-                            let receive_tasks_waiting = receive_buf.waiting();
-                            if !send_tasks_waiting.is_empty() || !receive_tasks_waiting.is_empty() {
-                                tracing::error!("Nothing has happened on {:?} in the last {INTERVAL:?}. Here is the list of tasks pending completion:\n waiting to send: {:?},\n waiting to receive: {:?}",
-                                    role,
-                                    send_buf.waiting(),
-                                    receive_buf.waiting()
-                                );
-                            }
-                        }
+                        print_state(role, &send_buf, &receive_buf);
                     }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
@@ -306,6 +294,21 @@ async fn send_message<N: Network>(sink: &mut N::Sink, buf: &mut SendBuffer, req:
         Ok(None) => {}
         Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
     };
+}
+
+#[cfg(debug_assertions)]
+fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
+    let send_tasks_waiting = send_buf.waiting();
+    let receive_tasks_waiting = receive_buf.waiting();
+    if !send_tasks_waiting.is_empty() || !receive_tasks_waiting.is_empty() {
+        tracing::error!(
+            "List of tasks pending completion on {role:?}:\
+        \nwaiting to send: {:?},\
+        \nwaiting to receive: {:?}",
+            send_buf.waiting(),
+            receive_buf.waiting()
+        );
+    }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
