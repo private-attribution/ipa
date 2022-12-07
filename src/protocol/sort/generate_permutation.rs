@@ -2,8 +2,9 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::{Context, ContextType},
         basics::reveal_permutation,
+        context::{Context, ContextType},
+        malicious::MaliciousValidator,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
         },
@@ -11,9 +12,9 @@ use crate::{
             bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
         },
-        IpaProtocolStep::Sort, malicious::MaliciousValidator,
+        IpaProtocolStep::Sort,
     },
-    secret_sharing::{Replicated, SecretSharing, MaliciousReplicated},
+    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
 };
 
 use super::{
@@ -172,12 +173,13 @@ where
     F: Field,
 {
     let v = MaliciousValidator::new(ctx);
-
+    let ctx = v.context();
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
+    let upgraded_sort_keys = ctx.upgrade_vec(0, sort_keys[0].clone()).await?;
     let bit_0_permutation =
-        bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
+        bit_permutation(ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
@@ -191,9 +193,13 @@ where
         )
         .await?;
 
+        let upgraded_sort_keys = ctx_bit
+            .upgrade_vec(0, sort_keys[bit_num as usize].clone())
+            .await?;
+        v.validate(values);
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             ctx_bit.narrow(&ApplyInv),
-            sort_keys[bit_num as usize].clone(),
+            upgraded_sort_keys,
             (
                 revealed_and_random_permutations
                     .randoms_for_shuffle
