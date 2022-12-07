@@ -46,7 +46,6 @@ mod tests {
     use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
     use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
-    use crate::protocol::context::ContextType::SemiHonest;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::apply_sort::apply_sort_permutation;
     use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
@@ -91,7 +90,6 @@ mod tests {
                             .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
-                        &SemiHonest,
                         &converted_shares,
                         MaskedMatchKey::BITS,
                     )

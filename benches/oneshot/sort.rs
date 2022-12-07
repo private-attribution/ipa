@@ -60,24 +60,9 @@ async fn main() -> Result<(), Error> {
 
     let start = Instant::now();
     let result = join3(
-        generate_permutation(
-            ctx0,
-            &converted_shares[0],
-            num_bits,
-            &raw_ipa::protocol::context::ContextType::SemiHonest,
-        ),
-        generate_permutation(
-            ctx1,
-            &converted_shares[1],
-            num_bits,
-            &raw_ipa::protocol::context::ContextType::SemiHonest,
-        ),
-        generate_permutation(
-            ctx2,
-            &converted_shares[2],
-            num_bits,
-            &raw_ipa::protocol::context::ContextType::SemiHonest,
-        ),
+        generate_permutation(ctx0, &converted_shares[0], num_bits),
+        generate_permutation(ctx1, &converted_shares[1], num_bits),
+        generate_permutation(ctx2, &converted_shares[2], num_bits),
     )
     .await;
     let duration = start.elapsed().as_secs_f32();

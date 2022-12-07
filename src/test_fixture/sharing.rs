@@ -2,7 +2,9 @@ use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, XorReplicated};
+use crate::secret_sharing::{
+    MaliciousReplicated, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious, XorReplicated,
+};
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
 use rand::{
@@ -252,7 +254,28 @@ impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
     }
 }
 
+impl<F: Field> Reconstruct<F> for [&MaliciousReplicated<F>; 3] {
+    fn reconstruct(&self) -> F {
+        let s0 = self[0];
+        let s1 = self[1];
+        let s2 = self[2];
+        [s0.rx(), s1.rx(), s2.rx()].reconstruct();
+        [
+            s0.x().access_without_downgrade(),
+            s1.x().access_without_downgrade(),
+            s2.x().access_without_downgrade(),
+        ]
+        .reconstruct()
+    }
+}
+
 impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
+    fn reconstruct(&self) -> F {
+        [&self[0], &self[1], &self[2]].reconstruct()
+    }
+}
+
+impl<F: Field> Reconstruct<F> for [MaliciousReplicated<F>; 3] {
     fn reconstruct(&self) -> F {
         [&self[0], &self[1], &self[2]].reconstruct()
     }
@@ -302,8 +325,6 @@ where
     T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-
         let x = (
             self[0].borrow().x().access_without_downgrade(),
             self[1].borrow().x().access_without_downgrade(),

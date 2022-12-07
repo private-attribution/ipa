@@ -81,11 +81,11 @@ mod tests {
                     rho.into_iter().map(Fp31::from),
                 ),
                 |ctx, (m_sigma_shares, m_rho_shares)| async move {
-                    let sigma_and_randoms = shuffle_and_reveal_permutation(
+                    let (_, sigma_and_randoms) = shuffle_and_reveal_permutation(
                         ctx.narrow("shuffle_reveal"),
                         BATCHSIZE,
                         m_sigma_shares,
-                        &crate::protocol::context::ContextType::SemiHonest,
+                        None,
                     )
                     .await
                     .unwrap();

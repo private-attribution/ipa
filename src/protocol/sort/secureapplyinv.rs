@@ -86,11 +86,11 @@ mod tests {
                 .semi_honest(
                     (input, permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
-                        let perm_and_randoms = shuffle_and_reveal_permutation(
+                        let (_, perm_and_randoms) = shuffle_and_reveal_permutation(
                             ctx.narrow("shuffle_reveal"),
                             BATCHSIZE,
                             m_perms,
-                            &crate::protocol::context::ContextType::SemiHonest,
+                            None,
                         )
                         .await
                         .unwrap();
