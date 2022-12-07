@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 pub(crate) mod malicious;
 mod semi_honest;
-mod sparse;
+pub(in crate::protocol) mod sparse;
 
 pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 

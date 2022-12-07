@@ -74,6 +74,17 @@ impl ZeroPositions {
         }
     }
 
+    /// Determine if the identified work is pointless.
+    /// That is, if the work could be done locally.
+    #[must_use]
+    pub fn is_pointless(zeros_at: MultiplyZeroPositions) -> bool {
+        zeros_at.0 == zeros_at.1
+            && matches!(
+                zeros_at.0,
+                ZeroPositions::Pvzz | ZeroPositions::Pzvz | ZeroPositions::Pzzv
+            )
+    }
+
     /// Determine where the zero positions are in the output of a multiplication.
     #[must_use]
     pub fn mul_output(zeros_at: MultiplyZeroPositions) -> Self {
@@ -112,6 +123,20 @@ impl ZeroPositions {
                 );
             }
         }
+    }
+
+    #[must_use]
+    pub fn all() -> &'static [ZeroPositions] {
+        const ALL: &[ZeroPositions] = &[
+            ZeroPositions::Pzvv,
+            ZeroPositions::Pvzv,
+            ZeroPositions::Pvvz,
+            ZeroPositions::Pvzz,
+            ZeroPositions::Pzvz,
+            ZeroPositions::Pzzv,
+            ZeroPositions::Pvvv,
+        ];
+        ALL
     }
 }
 
@@ -156,26 +181,97 @@ impl MultiplyWork for MultiplyZeroPositions {
 }
 
 #[cfg(test)]
-mod test {
+pub(in crate::protocol) mod test {
     use crate::{
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, Fp32BitPrime},
         helpers::{
             Direction::{Left, Right},
             Role,
         },
         protocol::{
-            context::Context,
             malicious::MaliciousValidator,
             mul::{sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
-            reveal::Reveal,
             BitOpStep, QueryId, RecordId,
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
-        test_fixture::{Runner, TestWorld},
+        test_fixture::{IntoShares, Reconstruct, Runner, TestWorld},
     };
-    use futures::future::try_join;
+    use rand::distributions::{Distribution, Standard};
     use std::{borrow::Borrow, iter::zip};
+
+    #[derive(Clone, Copy)]
+    pub struct SparseField<F> {
+        v: F,
+        z: ZeroPositions,
+    }
+
+    impl<F> SparseField<F> {
+        #[must_use]
+        pub fn new(v: F, z: ZeroPositions) -> Self {
+            Self { v, z }
+        }
+
+        #[must_use]
+        pub fn value(self) -> F {
+            self.v
+        }
+    }
+
+    impl<F> IntoShares<Replicated<F>> for SparseField<F>
+    where
+        F: Field,
+        Standard: Distribution<F>,
+    {
+        // Create a sharing of `self.v` with zeros in positions determined by `self.z`.
+        // This is a little inefficient, but it shouldn't be so bad in tests.
+        fn share_with<R: rand::Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
+            let mut zeros = <[bool; 3]>::from(self.z).into_iter();
+            if let Some(first) = zeros.position(|x| x) {
+                if let Some(second) = zeros.position(|x| x) {
+                    // Two zeros, one value = simple sharing.
+                    let mut shares = [
+                        Replicated::new(self.v, F::ZERO),
+                        Replicated::new(F::ZERO, F::ZERO),
+                        Replicated::new(F::ZERO, self.v),
+                    ];
+                    // Rotate the value into position based on `first` and `second`.
+                    // Note that `second` is relative to `first + 1`, so:
+                    // Pzzv = (0,0) => 2, Pzvz = (0,1) => 1, Pvzz = (1,0) => 0
+                    shares.rotate_right(2 - (2 * first) - second);
+                    shares
+                } else {
+                    // One zero, two values.
+                    let r = rng.gen::<F>();
+                    let v_r = self.v - r;
+                    let mut shares = [
+                        Replicated::new(F::ZERO, r),
+                        Replicated::new(r, v_r),
+                        Replicated::new(v_r, F::ZERO),
+                    ];
+                    // Rotate the zero into position.
+                    shares.rotate_right(first);
+                    shares
+                }
+            } else {
+                // Three values needed, use normal sharing.
+                self.v.share_with(rng)
+            }
+        }
+    }
+
+    #[test]
+    fn sparse_sharing() {
+        let mut rng = thread_rng();
+        for &zp in ZeroPositions::all() {
+            let v = rng.gen::<Fp32BitPrime>();
+            let shares = SparseField::new(v, zp).share_with(&mut rng);
+            for (&role, share) in zip(Role::all(), shares.iter()) {
+                zp.check(role, &format!("{role:?}-{zp:?}"), share);
+            }
+            assert_eq!(v, shares.reconstruct());
+        }
+    }
 
     /// Determine whether multiplication for helper X requires sending or receiving.
     /// Argument is a description of which items are zero for shares at each helper.
@@ -196,24 +292,11 @@ mod test {
         [!skip_recv, !skip_send, !skip_rand]
     }
 
-    fn all_zps() -> &'static [ZeroPositions] {
-        const ALL: &[ZeroPositions] = &[
-            ZeroPositions::Pzvv,
-            ZeroPositions::Pvzv,
-            ZeroPositions::Pvvz,
-            ZeroPositions::Pvzz,
-            ZeroPositions::Pzvz,
-            ZeroPositions::Pzzv,
-            ZeroPositions::Pvvv,
-        ];
-        ALL
-    }
-
     #[test]
     fn check_all_work() {
-        for &a in all_zps() {
+        for &a in ZeroPositions::all() {
             let a_flags = <[bool; 3]>::from(a);
-            for &b in all_zps() {
+            for &b in ZeroPositions::all() {
                 let b_flags = <[bool; 3]>::from(b);
                 for &role in Role::all() {
                     let expected = calculate_work(role, a_flags, b_flags);
@@ -224,7 +307,7 @@ mod test {
                             "{role:?}: {a:?}={a_flags:?}, {b:?}={b_flags:?}"
                         );
                     } else {
-                        println!("skip value with no work");
+                        assert!(ZeroPositions::is_pointless((a, b)));
                     }
                 }
             }
@@ -260,9 +343,9 @@ mod test {
     #[test]
     #[ignore]
     fn print_mappings() {
-        for &a in all_zps() {
+        for &a in ZeroPositions::all() {
             let a_flags = <[bool; 3]>::from(a);
-            for &b in all_zps() {
+            for &b in ZeroPositions::all() {
                 let b_flags = <[bool; 3]>::from(b);
                 println!(
                     "(Self::{a:?}, Self::{b:?}) => {:?},",
@@ -270,31 +353,6 @@ mod test {
                 );
             }
         }
-    }
-
-    /// For the role and the zero positions provided, put holes in this replicated share
-    /// as necessary so that the value has zeros in those places.
-    fn puncture<F: Field>(role: Role, zp: ZeroPositions, v: &Replicated<F>) -> Replicated<F> {
-        let zero_slots = <[bool; 3]>::from(zp);
-        let v_left = if zero_slots[role as usize] {
-            F::ZERO
-        } else {
-            v.left()
-        };
-        let v_right = if zero_slots[role.peer(Right) as usize] {
-            F::ZERO
-        } else {
-            v.right()
-        };
-        Replicated::new(v_left, v_right)
-    }
-
-    fn is_pointless(zeros_at: MultiplyZeroPositions) -> bool {
-        let a_flags = <[bool; 3]>::from(zeros_at.0);
-        let b_flags = <[bool; 3]>::from(zeros_at.1);
-        calculate_work(Role::H1, a_flags, b_flags)
-            .iter()
-            .all(|&x| !x)
     }
 
     fn check_punctured_output<F, T>(v: &[T; 3], work: MultiplyZeroPositions)
@@ -315,25 +373,23 @@ mod test {
         let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
 
-        for &a in all_zps() {
-            for &b in all_zps() {
-                if is_pointless((a, b)) {
+        for &a in ZeroPositions::all() {
+            for &b in ZeroPositions::all() {
+                if ZeroPositions::is_pointless((a, b)) {
                     continue;
                 }
 
-                let v1 = rng.gen::<Fp31>();
-                let v2 = rng.gen::<Fp31>();
+                let v1 = SparseField::new(rng.gen::<Fp31>(), a);
+                let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        let v_a = puncture(ctx.role(), a, &v_a);
-                        let v_b = puncture(ctx.role(), b, &v_b);
-
                         ctx.multiply_sparse(RecordId::from(0), &v_a, &v_b, (a, b))
                             .await
                             .unwrap()
                     })
                     .await;
                 check_punctured_output(&result, (a, b));
+                assert_eq!(v1.value() * v2.value(), result.reconstruct());
             }
         }
     }
@@ -343,27 +399,16 @@ mod test {
         let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
 
-        for &a in all_zps() {
-            for &b in all_zps() {
-                if is_pointless((a, b)) {
+        for &a in ZeroPositions::all() {
+            for &b in ZeroPositions::all() {
+                if ZeroPositions::is_pointless((a, b)) {
                     continue;
                 }
 
-                let v1 = rng.gen::<Fp31>();
-                let v2 = rng.gen::<Fp31>();
+                let v1 = SparseField::new(rng.gen::<Fp31>(), a);
+                let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        let v_a = puncture(ctx.role(), a, &v_a);
-                        let v_b = puncture(ctx.role(), b, &v_b);
-
-                        let (revealed_a, revealed_b) = try_join(
-                            ctx.narrow("reveal_a").reveal(RecordId::from(0), &v_a),
-                            ctx.narrow("reveal_b").reveal(RecordId::from(0), &v_b),
-                        )
-                        .await
-                        .unwrap();
-                        let reveal_ab_ctx = ctx.narrow("reveal_ab");
-
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context();
                         let m_a = m_ctx
@@ -380,14 +425,11 @@ mod test {
                             .await
                             .unwrap();
 
-                        let ab = v.validate(m_ab).await.unwrap();
-                        let revealed_ab =
-                            reveal_ab_ctx.reveal(RecordId::from(0), &ab).await.unwrap();
-                        assert_eq!(revealed_a * revealed_b, revealed_ab);
-                        ab
+                        v.validate(m_ab).await.unwrap()
                     })
                     .await;
                 check_punctured_output(&result, (a, b));
+                assert_eq!(v1.value() * v2.value(), result.reconstruct());
             }
         }
     }

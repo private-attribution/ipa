@@ -82,8 +82,7 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         record_id: RecordId,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner
-            .upgrade_with(step, record_id, input, ZeroPositions::Pvvv)
+        self.upgrade_with_sparse(step, record_id, input, ZeroPositions::Pvvv)
             .await
     }
 
