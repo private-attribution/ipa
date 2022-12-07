@@ -56,14 +56,17 @@ where
     }
 }
 
-// The number of breakdown keys we expect to see, from 0 up to (MAX_BREAKDOWN_KEY - 1).
-const MAX_BREAKDOWN_KEY: u128 = 8;
-
 /// Aggregation step for Oblivious Attribution protocol.
+/// # Panics
+/// It probably won't
+///
+/// # Errors
+/// propagates errors from multiplications
 #[allow(dead_code)]
 pub async fn aggregate_credit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     capped_credits: &[CreditCappingOutputRow<F>],
+    max_breakdown_key: u128,
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error> {
     let one = ctx.share_of_one();
 
@@ -71,7 +74,7 @@ pub async fn aggregate_credit<F: Field>(
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
     let capped_credits_with_aggregation_bits =
-        add_aggregation_bits_and_breakdown_keys(&ctx, capped_credits);
+        add_aggregation_bits_and_breakdown_keys(&ctx, capped_credits, max_breakdown_key);
 
     //
     // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
@@ -80,6 +83,7 @@ pub async fn aggregate_credit<F: Field>(
     let sorted_input = sort_by_breakdown_key(
         ctx.narrow(&Step::SortByBreakdownKeyAndAttributionBit),
         &capped_credits_with_aggregation_bits,
+        max_breakdown_key,
     )
     .await?;
 
@@ -171,7 +175,7 @@ pub async fn aggregate_credit<F: Field>(
     // Take the first k elements, where k is the amount of breakdown keys.
     let result = sorted_output
         .iter()
-        .take(MAX_BREAKDOWN_KEY.try_into().unwrap())
+        .take(max_breakdown_key.try_into().unwrap())
         .map(|x| AggregateCreditOutputRow {
             breakdown_key: x.breakdown_key.clone(),
             credit: x.credit.clone(),
@@ -184,6 +188,7 @@ pub async fn aggregate_credit<F: Field>(
 fn add_aggregation_bits_and_breakdown_keys<F: Field>(
     ctx: &SemiHonestContext<'_, F>,
     capped_credits: &[CreditCappingOutputRow<F>],
+    max_breakdown_key: u128,
 ) -> Vec<CappedCreditsWithAggregationBit<F>> {
     let zero = Replicated::ZERO;
     let one = ctx.share_of_one();
@@ -192,7 +197,7 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field>(
     // Since we cannot see the actual breakdown key values, we'll need to
     // append all possible values. For now, we assume breakdown_key is in the
     // range of (0..MAX_BREAKDOWN_KEY).
-    let mut unique_breakdown_keys = (0..MAX_BREAKDOWN_KEY)
+    let mut unique_breakdown_keys = (0..max_breakdown_key)
         .map(|i| CappedCreditsWithAggregationBit {
             helper_bit: zero.clone(),
             aggregation_bit: zero.clone(),
@@ -264,6 +269,7 @@ async fn bit_decompose_breakdown_key<F: Field>(
 async fn sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
+    max_breakdown_key: u128,
 ) -> Result<Vec<CappedCreditsWithAggregationBit<F>>, Error> {
     // TODO: Change breakdown_keys to use XorReplicated to avoid bit-decomposition calls
     let breakdown_keys = transpose(
@@ -272,7 +278,7 @@ async fn sort_by_breakdown_key<F: Field>(
 
     // We only need to run a radix sort on the bits used by all possible
     // breakdown key values.
-    let valid_bits_count = u128::BITS - (MAX_BREAKDOWN_KEY - 1).leading_zeros();
+    let valid_bits_count = u128::BITS - (max_breakdown_key - 1).leading_zeros();
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
@@ -524,7 +530,7 @@ pub(crate) mod tests {
         let world = TestWorld::new(QueryId);
         let result = world
             .semi_honest(input, |ctx, share| async move {
-                aggregate_credit(ctx, &share).await.unwrap()
+                aggregate_credit(ctx, &share, 8).await.unwrap()
             })
             .await
             .reconstruct();
@@ -630,7 +636,7 @@ pub(crate) mod tests {
         let world = TestWorld::new(QueryId);
         let result = world
             .semi_honest(input, |ctx, share| async move {
-                sort_by_breakdown_key(ctx, &share).await.unwrap()
+                sort_by_breakdown_key(ctx, &share, 8).await.unwrap()
             })
             .await
             .reconstruct();

@@ -5,19 +5,22 @@ use crate::{
     ff::Field,
     protocol::{
         attribution::{
-            accumulate_credit::accumulate_credit, credit_capping::credit_capping,
-            AttributionInputRow,
+            accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
+            credit_capping::credit_capping, AttributionInputRow,
         },
         context::Context,
+        sort::{
+            apply_sort::apply_sort_permutation,
+            generate_permutation::generate_permutation_and_reveal_shuffled,
+        },
         RecordId,
     },
     secret_sharing::{Replicated, XorReplicated},
 };
 use futures::future::try_join_all;
 
-use super::context::SemiHonestContext;
 use super::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-use super::sort::generate_permutation::generate_permutation;
+use super::{attribution::AggregateCreditOutputRow, context::SemiHonestContext};
 use crate::protocol::boolean::bitwise_equal::bitwise_equal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,6 +31,7 @@ enum Step {
     ComputeHelperBits,
     AccumulateCredit,
     PerformUserCapping,
+    AggregateCredit,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -41,6 +45,7 @@ impl AsRef<str> for Step {
             Self::ComputeHelperBits => "compute_helper_bits",
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
+            Self::AggregateCredit => "aggregate_credit",
         }
     }
 }
@@ -54,7 +59,7 @@ pub async fn ipa<F>(
     num_bits: u32,
     other_inputs: Vec<Vec<Replicated<F>>>,
     per_user_credit_cap: u32,
-) -> Result<Vec<Replicated<F>>, Error>
+) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
 where
     F: Field,
 {
@@ -67,7 +72,7 @@ where
     )
     .await
     .unwrap();
-    let sort_permutation = generate_permutation(
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,
         num_bits,
@@ -75,26 +80,24 @@ where
     .await
     .unwrap();
 
-    let num_bits: usize = usize::try_from(num_bits).unwrap();
-
     let combined_match_keys_and_sidecar_data = other_inputs
         .into_iter()
         .enumerate()
         .map(|(row_index, mut sidecar_data)| {
-            for i in 0..num_bits {
-                sidecar_data.push(converted_shares[i][row_index].clone());
+            for ith_bits in &converted_shares {
+                sidecar_data.push(ith_bits[row_index].clone());
             }
             sidecar_data
         })
         .collect::<Vec<_>>();
 
-    let sorted_rows = sort_permutation
-        .apply(
-            ctx.narrow(&Step::ApplySortPermutation),
-            combined_match_keys_and_sidecar_data,
-        )
-        .await
-        .unwrap();
+    let sorted_rows = apply_sort_permutation(
+        ctx.narrow(&Step::ApplySortPermutation),
+        combined_match_keys_and_sidecar_data,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
 
     let futures = zip(
         repeat(ctx.narrow(&Step::ComputeHelperBits)),
@@ -129,14 +132,14 @@ where
     let accumulated_credits =
         accumulate_credit(ctx.narrow(&Step::AccumulateCredit), &attribution_input_rows).await?;
 
-    let _user_capped_credits = credit_capping(
+    let user_capped_credits = credit_capping(
         ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
         per_user_credit_cap,
     )
     .await?;
 
-    Ok(helper_bits)
+    aggregate_credit(ctx.narrow(&Step::AggregateCredit), &user_capped_credits, 3).await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -151,6 +154,8 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
 
         let world = TestWorld::new(QueryId);
 
@@ -162,6 +167,7 @@ mod tests {
             [12345_u64, 1, 0, 5],
             [68362_u64, 1, 0, 2],
         ];
+
         let match_keys = records
             .iter()
             .map(|record| MaskedMatchKey::mask(record[0]))
@@ -179,22 +185,23 @@ mod tests {
             .semi_honest(
                 (match_keys, other_inputs),
                 |ctx, (mk_shares, shares_of_other_inputs)| async move {
-                    ipa(ctx, &mk_shares, 20, shares_of_other_inputs, 3)
+                    ipa(ctx, &mk_shares, 20, shares_of_other_inputs, PER_USER_CAP)
                         .await
                         .unwrap()
                 },
             )
-            .await;
+            .await
+            .reconstruct();
 
-        let helper_bits = result.reconstruct();
-        assert_eq!(
-            helper_bits,
-            vec![
-                Fp32BitPrime::ONE,
-                Fp32BitPrime::ONE,
-                Fp32BitPrime::ZERO,
-                Fp32BitPrime::ONE,
-            ]
-        );
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            // Each element in the `result` is a general purpose `[F; 4]`.
+            // For this test case, the first two elements are `breakdown_key`
+            // and `credit` as defined by the implementation of `Reconstruct`
+            // for `[AggregateCreditOutputRow<F>; 3]`.
+            let result = result[i].0.map(|x| x.as_u128());
+            assert_eq!(*expected, [result[0], result[1]]);
+        }
     }
 }
