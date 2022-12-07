@@ -1,3 +1,4 @@
+use crate::ff::{self, Error};
 use std::any::type_name;
 use std::fmt::Debug;
 use std::io;
@@ -60,6 +61,13 @@ pub trait Field:
     /// space is required to store this field value
     const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
 
+    /// str repr of the type of the [`Field`]; to be used with `size_from_type_str` to get the size
+    /// of a given [`Field`] from this value.
+    /// # Instruction For Authors
+    /// When creating a new [`Field`] type, modify the `size_from_type_str` function below this
+    /// trait definition to match on the newly created type
+    const TYPE_STR: &'static str;
+
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
     fn as_u128(&self) -> u128 {
@@ -116,6 +124,20 @@ pub trait Field:
             );
             Err(io::Error::new(ErrorKind::UnexpectedEof, error_text))
         }
+    }
+}
+
+/// Mapping between a [`Field`]'s `TYPE_STR` and its `SIZE_IN_BYTES`
+/// # Errors
+/// If unknown `type_str` is passed in
+pub fn size_in_bytes_from_type_str(type_str: &str) -> Result<u32, Error> {
+    match type_str {
+        ff::Fp2::TYPE_STR => Ok(ff::Fp2::SIZE_IN_BYTES),
+        ff::Fp31::TYPE_STR => Ok(ff::Fp31::SIZE_IN_BYTES),
+        ff::Fp32BitPrime::TYPE_STR => Ok(ff::Fp32BitPrime::SIZE_IN_BYTES),
+        other => Err(Error::UnknownField {
+            type_str: other.to_owned(),
+        }),
     }
 }
 

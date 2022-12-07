@@ -5,5 +5,11 @@
 mod field;
 mod prime_field;
 
-pub use field::{BinaryField, Field, Int};
+pub use field::{size_in_bytes_from_type_str, BinaryField, Field, Int};
 pub use prime_field::{Fp2, Fp31, Fp32BitPrime};
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("unknown field type {type_str}")]
+    UnknownField { type_str: String },
+}

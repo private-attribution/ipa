@@ -88,6 +88,15 @@ impl From<axum::extract::rejection::QueryRejection> for MpcHelperServerError {
     }
 }
 
+/// [`From`] implementation for [`MpcServerError::BadQueryString`]
+impl From<crate::ff::Error> for MpcHelperServerError {
+    fn from(err: crate::ff::Error) -> Self {
+        Self::BadQueryString(
+            format!("unknown value found for query param field_type: {err}").into(),
+        )
+    }
+}
+
 /// [`From`] implementation for [`MpcServerError::InvalidHeader`]
 impl From<std::num::ParseIntError> for MpcHelperServerError {
     fn from(err: std::num::ParseIntError) -> Self {
