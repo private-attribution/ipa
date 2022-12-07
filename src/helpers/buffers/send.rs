@@ -25,6 +25,11 @@ pub struct SendBuffer {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PushError {
+    #[error("Record {record_id:?} has been received twice")]
+    Duplicate {
+        channel_id: ChannelId,
+        record_id: RecordId,
+    },
     #[error("Record {record_id:?} is out of accepted range {accepted_range:?}")]
     OutOfRange {
         channel_id: ChannelId,
@@ -100,8 +105,15 @@ impl SendBuffer {
         // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
-        buf.insert(index, &payload);
-        Ok(buf.take(self.items_in_batch))
+        if buf.added(index) {
+            Err(PushError::Duplicate {
+                channel_id: channel_id.clone(),
+                record_id: msg.record_id,
+            })
+        } else {
+            buf.insert(index, &payload);
+            Ok(buf.take(self.items_in_batch))
+        }
     }
 
     #[cfg(debug_assertions)]
@@ -164,7 +176,7 @@ mod tests {
     use crate::helpers::network::{ChannelId, MessageEnvelope};
     use crate::helpers::Role;
     use crate::protocol::{RecordId, Step};
-    use std::mem::drop;
+
     use tinyvec::array_vec;
 
     impl Clone for MessageEnvelope {
@@ -231,7 +243,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn rejects_duplicates() {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
         let channel = ChannelId::new(Role::H1, Step::default());
@@ -240,7 +251,10 @@ mod tests {
         let m2 = empty_msg(record_id);
 
         assert!(matches!(buf.push(&channel, &m1), Ok(None)));
-        drop(buf.push(&channel, &m2));
+        assert!(matches!(
+            buf.push(&channel, &m2),
+            Err(PushError::Duplicate { .. })
+        ));
     }
 
     #[test]

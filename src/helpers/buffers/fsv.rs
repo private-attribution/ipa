@@ -56,6 +56,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
         self.data[offset].copy_from_slice(elem);
     }
 
+    /// Returns `true` if record at the given index exists.
+    pub fn added(&self, index: usize) -> bool {
+        self.added[index]
+    }
+
     /// Takes a block of elements from the beginning of the vector, or `None` if
     /// fewer than `min_count` elements have been inserted at the start of the buffer.
     pub fn take(&mut self, min_count: usize) -> Option<Vec<u8>> {
@@ -122,7 +127,10 @@ mod tests {
     fn insert() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
         v.insert_test_data(0);
+        assert!(v.added(0));
         v.insert_test_data(2);
+        assert!(v.added(2));
+        assert!(!v.added(1));
 
         assert_eq!(v.take(1), Some(test_data_at(0).to_vec()));
 
