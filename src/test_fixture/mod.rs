@@ -11,13 +11,13 @@ use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::{share, Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
-pub use sharing::{get_bits, into_bits, share, IntoShares, MaskedMatchKey, Reconstruct};
+pub use sharing::{get_bits, into_bits, MaskedMatchKey, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 

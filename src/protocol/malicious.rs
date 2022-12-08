@@ -252,8 +252,8 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
     use crate::rand::thread_rng;
-    use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::test_fixture::{join3v, share, Reconstruct, Runner, TestWorld};
+    use crate::secret_sharing::{share, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
+    use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 

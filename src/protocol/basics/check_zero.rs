@@ -87,7 +87,8 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{basics::check_zero, QueryId, RecordId};
     use crate::rand::thread_rng;
-    use crate::test_fixture::{share, TestWorld};
+    use crate::secret_sharing::share;
+    use crate::test_fixture::TestWorld;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {

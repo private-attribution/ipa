@@ -154,7 +154,7 @@ impl AsRef<str> for AttributionResharableStep {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ff::Field, protocol::attribution::AttributionInputRow, test_fixture::share};
+    use crate::{ff::Field, protocol::attribution::AttributionInputRow, secret_sharing::share};
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
     use std::iter::zip;
 

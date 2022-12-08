@@ -187,8 +187,8 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
     use crate::rand::thread_rng;
-    use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{share, Reconstruct};
+    use crate::secret_sharing::{share, Replicated};
+    use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;
 
     #[test]

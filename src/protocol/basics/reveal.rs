@@ -121,6 +121,7 @@ mod tests {
     use proptest::prelude::Rng;
     use std::iter::zip;
 
+    use crate::secret_sharing::share;
     use crate::{
         error::Error,
         ff::{Field, Fp31},
@@ -131,7 +132,7 @@ mod tests {
             QueryId, RecordId,
         },
         secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
-        test_fixture::{join3, join3v, share, TestWorld},
+        test_fixture::{join3, join3v, TestWorld},
     };
 
     #[tokio::test]

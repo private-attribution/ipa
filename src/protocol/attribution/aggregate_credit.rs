@@ -344,8 +344,8 @@ pub(crate) mod tests {
     };
     use crate::protocol::QueryId;
     use crate::rand::Rng;
-    use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{IntoShares, Reconstruct, Runner, TestWorld};
+    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::{distributions::Standard, prelude::Distribution};
 
     // TODO: There are now too many xxxInputRow and yyyOutputRow. Combine them into one
