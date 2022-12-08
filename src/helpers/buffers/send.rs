@@ -125,12 +125,14 @@ impl SendBuffer {
             let range = Range::from(buf);
             let taken = u32::try_from(buf.taken()).unwrap();
             let range = (u32::from(range.start) - taken)..(u32::from(range.end) - taken);
-            // Only report any gaps ahead of the first available value.
+            // Only report any gaps ahead of the first available value. If buffer is entirely empty
+            // there are no waiting tasks.
             let missing = range
                 .take_while(|&i| !buf.added(usize::try_from(i).unwrap()))
                 .map(|i| taken + i)
                 .collect::<Vec<_>>();
-            if !missing.is_empty() {
+
+            if !missing.is_empty() && missing.len() < buf.capacity() {
                 tasks.insert(channel, missing);
             }
         }
