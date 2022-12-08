@@ -61,7 +61,6 @@ impl AsRef<str> for Step {
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-#[allow(dead_code)]
 pub async fn check_zero<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,

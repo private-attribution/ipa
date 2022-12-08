@@ -9,7 +9,7 @@ use super::context::Context;
 use super::{BitOpStep, RecordId};
 
 mod bit_decomposition;
-mod bitwise_equal;
+pub mod bitwise_equal;
 mod bitwise_less_than_prime;
 mod dumb_bitwise_lt;
 mod dumb_bitwise_sum;

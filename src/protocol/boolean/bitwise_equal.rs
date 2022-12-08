@@ -7,7 +7,9 @@ use crate::secret_sharing::SecretSharing;
 use futures::future::try_join_all;
 use std::iter::zip;
 
-#[allow(dead_code)]
+/// # Errors
+/// Propagates errors from multiplications
+///
 pub async fn bitwise_equal<F, C, S>(
     ctx: C,
     record_id: RecordId,

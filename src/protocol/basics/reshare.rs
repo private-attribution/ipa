@@ -12,24 +12,9 @@ use crate::{
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
-/// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
-#[async_trait]
-pub trait Reshare<F: Field> {
-    type Share: SecretSharing<F>;
-
-    async fn reshare(
-        self,
-        input: &Self::Share,
-        record: RecordId,
-        to_helper: Role,
-    ) -> Result<Self::Share, Error>;
-}
-
-/// Reshare(i, \[x\])
-// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
-// Input: Pi-1 and Pi+1 know their secret shares
-// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
+/// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
+///
 /// Steps
 /// ![Reshare steps][reshare]
 /// 1. While calculating for a helper, we call pseudo random secret sharing (prss) to get random values which match
@@ -43,6 +28,22 @@ pub trait Reshare<F: Field> {
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
+pub trait Reshare<F: Field> {
+    type Share: SecretSharing<F>;
+
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error>;
+}
+
+#[async_trait]
+/// Reshare(i, \[x\])
+/// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
+/// Input: Pi-1 and Pi+1 know their secret shares
+/// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
     type Share = Replicated<F>;
     async fn reshare(
@@ -88,10 +89,10 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
     }
 }
 
+#[async_trait]
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-#[async_trait]
 impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
     async fn reshare(
