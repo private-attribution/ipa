@@ -1,14 +1,13 @@
 use crate::protocol::basics::Reveal;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
+use crate::protocol::prss::SharedRandomness;
+use crate::protocol::RecordId;
 use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{
-        basics::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId, RECORD_0,
-        RECORD_1, RECORD_2,
-    },
+    protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
     secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
@@ -115,16 +114,15 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub fn accumulate_macs(
+    pub fn accumulate_macs<I: SharedRandomness>(
         &self,
-        prss: &Arc<IndexedSharedRandomness>,
+        prss: &I,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
     ) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let random_constant = prss.generate_replicated(record_id);
-
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
             &random_constant,
@@ -153,8 +151,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
+        let r_share = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
-        let r_share = prss.generate_replicated(RECORD_0);
         let state = AccumulatorState {
             u: prss.zero(RECORD_1),
             w: prss.zero(RECORD_2),

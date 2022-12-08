@@ -6,6 +6,11 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC protocols to do.
 //!
+use crate::ff::{Field, Int};
+use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
+use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
+use crate::task::JoinHandle;
+use crate::telemetry::labels::STEP;
 use crate::{
     helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
@@ -13,11 +18,6 @@ use crate::{
     helpers::Role,
     protocol::{RecordId, Step},
 };
-
-use crate::ff::{Field, Int};
-use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
-use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
-use crate::task::JoinHandle;
 use ::tokio::sync::{mpsc, oneshot};
 use ::tokio::time::Instant;
 use futures::SinkExt;
@@ -28,6 +28,7 @@ use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
+use crate::telemetry::metrics::RECORDS_SENT;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -201,7 +202,7 @@ impl Gateway {
                 // reset the timer on every action
                 sleep.as_mut().reset(Instant::now() + INTERVAL);
             }
-        }.instrument(tracing::info_span!("gateway_loop", role=?role)));
+        }.instrument(tracing::info_span!("gateway_loop", role=role.as_static_str()).or_current()));
 
         Self {
             tx: recv_tx,
@@ -284,6 +285,7 @@ impl Debug for ReceiveRequest {
 
 async fn send_message<N: Network>(sink: &mut N::Sink, buf: &mut SendBuffer, req: SendRequest) {
     let (channel_id, msg) = req;
+    metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
     match buf.push(&channel_id, &msg) {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
@@ -356,16 +358,15 @@ mod tests {
     #[should_panic(expected = "Record RecordId(1) has been received twice")]
     async fn duplicate_message() {
         let world = TestWorld::new(QueryId);
-        let [g1, _, _] = world.gateways;
         let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));
         let peer = Role::H2;
         let record_id = 1.into();
         let step = Step::default();
-        let channel = g1.mesh(&step);
+        let channel = &world.gateway(Role::H1).mesh(&step);
 
         channel.send(peer, record_id, v1).await.unwrap();
         channel.send(peer, record_id, v2).await.unwrap();
 
-        g1.join().await;
+        world.join().await;
     }
 }

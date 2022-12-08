@@ -3,6 +3,7 @@ mod world;
 
 pub mod circuit;
 pub mod logging;
+pub mod metrics;
 pub mod network;
 
 use crate::ff::{Field, Fp31};
