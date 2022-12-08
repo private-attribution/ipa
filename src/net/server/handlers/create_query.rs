@@ -246,35 +246,35 @@ mod test {
         );
     }
 
+    /// Simple body that represents a stream of `Bytes` chunks.
+    /// Cannot use [`StreamBody`] because it has an error type of `axum::error::Error`, whereas
+    /// [`BodyStream`] expects a `hyper::Error`. Yes, this is confusing.
+    #[pin_project]
+    struct ChunkedBody<St>(#[pin] St);
+
+    impl<St: Stream<Item = Result<Bytes, hyper::Error>>> HttpBody for ChunkedBody<St> {
+        type Data = Bytes;
+        type Error = hyper::Error;
+
+        fn poll_data(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+            self.as_mut().project().0.poll_next(cx)
+        }
+
+        fn poll_trailers(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+            Poll::Ready(Ok(None))
+        }
+    }
+
     // this test confirms that `ByteArrStream` doesn't buffer more than it needs to as it produces
     // bytes
     #[tokio::test]
     async fn byte_arr_stream_buffers_optimally() {
-        /// Simple body that represents a stream of `Bytes` chunks.
-        /// Cannot use [`StreamBody`] because it has an error type of `axum::error::Error`, whereas
-        /// [`BodyStream`] expects a `hyper::Error`. Yes, this is confusing.
-        #[pin_project]
-        struct ChunkedBody<St>(#[pin] St);
-
-        impl<St: Stream<Item = Result<Bytes, hyper::Error>>> HttpBody for ChunkedBody<St> {
-            type Data = Bytes;
-            type Error = hyper::Error;
-
-            fn poll_data(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context<'_>,
-            ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-                self.as_mut().project().0.poll_next(cx)
-            }
-
-            fn poll_trailers(
-                self: Pin<&mut Self>,
-                _: &mut Context<'_>,
-            ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
-                Poll::Ready(Ok(None))
-            }
-        }
-
         const ARR_SIZE: usize = 20;
         const CHUNK_SIZE: usize = 3;
         let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
@@ -302,5 +302,68 @@ mod test {
             // `ByteArrStream` only contains at most `CHUNK_SIZE` values in its buffer
             assert!(byte_arr_stream.buffered_size <= u32::try_from(CHUNK_SIZE).unwrap());
         }
+    }
+
+    // this test confirms that `ByteArrStream` doesn't call on the buffer at all if the existing
+    // one is sufficient to produce bytes
+    // for the purposes of this test, assumes that chunks are of uniform size (until the last chunk)
+    #[tokio::test]
+    async fn byte_arr_stream_buffers_only_when_needed() {
+        const ARR_SIZE: usize = 20;
+        const CHUNK_SIZE: u32 = 9;
+        let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
+        let chunks = futures::stream::iter(
+            vec.chunks(CHUNK_SIZE as usize)
+                .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
+                .collect::<Vec<_>>(),
+        );
+        let mut req_parts = RequestParts::new(
+            Request::post(format!(
+                "/example?field_type={}",
+                ff::Fp32BitPrime::TYPE_STR
+            ))
+            .body(ChunkedBody(chunks))
+            .unwrap(),
+        );
+        let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
+        assert_eq!(byte_arr_stream.buffered.len(), 0);
+
+        // number of bytes pushed downstream
+        let mut num_downstream = 0;
+        // number of bytes pulled from upstream
+        let mut num_upstream = u32::try_from(ARR_SIZE).unwrap() * ff::Fp32BitPrime::SIZE_IN_BYTES;
+        // expected size of buffer inside
+        let mut expected_size = 0;
+        for expected_n in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
+            // check that bytes are as expected
+            let n = byte_arr_stream.next().await.unwrap().unwrap();
+            assert_eq!(expected_n, &n);
+            assert!(byte_arr_stream.buffered.len() <= 1);
+
+            // sent Fp32BitPrime downstream
+            num_downstream += ff::Fp32BitPrime::SIZE_IN_BYTES;
+            // remove those bytes from buffer
+            expected_size -= i32::try_from(ff::Fp32BitPrime::SIZE_IN_BYTES).unwrap();
+            // if no more bytes in buffer, get more
+            if expected_size < 0 {
+                // enough bytes upstream to pull a full chunk
+                if CHUNK_SIZE < num_upstream {
+                    num_upstream -= CHUNK_SIZE;
+                    expected_size += i32::try_from(CHUNK_SIZE).unwrap();
+                } else {
+                    // last chunk from upstream may be < full chunk size
+                    expected_size += i32::try_from(num_upstream).unwrap();
+                    num_upstream = 0;
+                }
+            }
+            assert_eq!(
+                byte_arr_stream.buffered_size,
+                u32::try_from(expected_size).unwrap()
+            );
+        }
+        assert_eq!(
+            num_downstream,
+            u32::try_from(ARR_SIZE).unwrap() * ff::Fp32BitPrime::SIZE_IN_BYTES
+        );
     }
 }
