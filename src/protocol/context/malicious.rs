@@ -12,7 +12,7 @@ use crate::protocol::context::{
 };
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::prss::{Endpoint as PrssEndpoint, SharedRandomness};
+use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
@@ -172,7 +172,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
         self.inner
             .accumulator
-            .accumulate_macs(&self.prss().generate_replicated(record_id), x);
+            .accumulate_macs(&self.prss(), record_id, x);
     }
 
     /// Get a semi-honest context that is an  exact copy of this malicious
@@ -244,11 +244,8 @@ impl<'a, F: Field> ContextInner<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let constant = ctx
-            .narrow(&RandomnessForValidation)
-            .prss()
-            .generate_replicated(record_id);
         let rx = ctx
+            .clone()
             .multiply_sparse(
                 record_id,
                 &x,
@@ -257,7 +254,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
             )
             .await?;
         let m = MaliciousReplicated::new(x, rx);
-        self.accumulator.accumulate_macs(&constant, &m);
+        let ctx = ctx.narrow(&RandomnessForValidation);
+        let prss = ctx.prss();
+        self.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
     }
 

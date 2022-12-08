@@ -1,6 +1,7 @@
 use crate::protocol::basics::Reveal;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::prss::SharedRandomness;
+use crate::protocol::RecordId;
 use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
@@ -113,11 +114,18 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub fn accumulate_macs(&self, random_constant: &Replicated<F>, input: &MaliciousReplicated<F>) {
+    pub fn accumulate_macs<I: SharedRandomness>(
+        &self,
+        prss: &I,
+        record_id: RecordId,
+        input: &MaliciousReplicated<F>,
+    ) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-        let u_contribution = Self::compute_dot_product_contribution(random_constant, input.rx());
+
+        let random_constant = prss.generate_replicated(record_id);
+        let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
-            random_constant,
+            &random_constant,
             input.x().access_without_downgrade(),
         );
 

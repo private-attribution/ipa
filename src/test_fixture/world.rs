@@ -24,8 +24,8 @@ use crate::{
 use std::io::stdout;
 
 use std::mem::ManuallyDrop;
-use std::{fmt::Debug, iter::zip, sync::Arc};
 use std::sync::atomic::AtomicBool;
+use std::{fmt::Debug, iter::zip, sync::Arc};
 
 use crate::protocol::Substep;
 use crate::telemetry::stats::Metrics;
