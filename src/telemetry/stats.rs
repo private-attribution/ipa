@@ -166,11 +166,11 @@ pub struct MetricAssertion<'a> {
     snapshot: &'a CounterDetails,
 }
 
+#[allow(clippy::return_self_not_must_use)]
 impl<'a> MetricAssertion<'a> {
     /// Validates metric total value (i.e. ignoring dimensionality)
     /// ## Panics
     /// Panics if value is not equal to expected
-    #[allow(clippy::return_self_not_must_use)]
     pub fn total<I: TryInto<u64>>(&self, expected: I) -> Self {
         let expected = expected.try_into().ok().unwrap();
         let actual = self.snapshot.total_value;
@@ -185,7 +185,6 @@ impl<'a> MetricAssertion<'a> {
     /// Validates metric value per step dimension.
     /// ## Panics
     /// Panics if value is not equal to expected
-    #[allow(clippy::return_self_not_must_use)]
     pub fn per_step<I: TryInto<u64>>(&self, step: &Step, expected: I) -> Self {
         let actual = self.get_dimension(labels::STEP).get(step.as_ref()).copied();
 
@@ -198,7 +197,6 @@ impl<'a> MetricAssertion<'a> {
     /// Validates metric value per helper dimension.
     /// ## Panics
     /// Panics if value is not equal to expected
-    #[allow(clippy::return_self_not_must_use)]
     pub fn per_helper<I: TryInto<u64>>(&self, role: &Role, expected: I) -> Self {
         let actual = self.get_dimension(labels::ROLE).get(role.as_ref()).copied();
         let expected = expected.try_into().ok();
@@ -207,7 +205,6 @@ impl<'a> MetricAssertion<'a> {
         self.clone()
     }
 
-    #[allow(clippy::return_self_not_must_use)]
     fn get_dimension(&self, name: &'static str) -> &HashMap<SharedString, u64> {
         self.snapshot.dimensions.get(name).unwrap_or_else(|| {
             panic!(

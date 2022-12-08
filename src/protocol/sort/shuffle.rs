@@ -3,7 +3,7 @@ use std::iter::{repeat, zip};
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 use rand::seq::SliceRandom;
-use rand_core::RngCore;
+use rand::Rng;
 
 use crate::secret_sharing::SecretSharing;
 use crate::{
@@ -35,7 +35,7 @@ impl AsRef<str> for ShuffleOrUnshuffle {
 }
 
 /// This implements Fisher Yates shuffle described here <https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle>
-pub fn get_two_of_three_random_permutations<R: RngCore>(
+pub fn get_two_of_three_random_permutations<R: Rng>(
     batch_size: u32,
     mut rng: (R, R),
 ) -> (Vec<u32>, Vec<u32>) {

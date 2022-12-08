@@ -29,7 +29,9 @@ impl CsvExporter for Metrics {
         }
 
         // then dump them to the provided Write interface
-        writeln!(w, "Step,Records sent,Indexed PRSS,Sequential PRSS")?;
+        // TODO: include role dimension. That requires rethinking `Metrics` implementation
+        // because it does not allow such breakdown atm.
+        writeln!(w, "Step,Records Sent,Indexed PRSS,Sequential PRSS")?;
         for (step, stats) in steps_stats.all_steps() {
             writeln!(
                 w,

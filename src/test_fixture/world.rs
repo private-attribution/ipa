@@ -25,6 +25,7 @@ use std::io::stdout;
 
 use std::mem::ManuallyDrop;
 use std::{fmt::Debug, iter::zip, sync::Arc};
+use std::sync::atomic::AtomicBool;
 
 use crate::protocol::Substep;
 use crate::telemetry::stats::Metrics;
@@ -45,7 +46,7 @@ pub struct TestWorld {
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
-    joined: bool,
+    joined: AtomicBool,
     _query_id: QueryId,
     _network: Arc<InMemoryNetwork>,
 }
@@ -116,7 +117,7 @@ impl TestWorld {
             participants,
             executions: AtomicUsize::new(0),
             metrics_handle,
-            joined: false,
+            joined: AtomicBool::new(false),
             _query_id: query_id,
             _network: network,
         }
@@ -165,17 +166,18 @@ impl TestWorld {
         // SAFETY: self is consumed by this method, so nobody can access gateways field after
         // calling this method.
         // joined flag is used inside the destructor to avoid double-free
-        let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
-        self.joined = true;
-        for gateway in gateways {
-            gateway.join().await;
+        if !self.joined.swap(true, Ordering::Release) {
+            let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
+            for gateway in gateways {
+                gateway.join().await;
+            }
         }
     }
 }
 
 impl Drop for TestWorld {
     fn drop(&mut self) {
-        if !self.joined {
+        if !self.joined.load(Ordering::Acquire) {
             unsafe { ManuallyDrop::drop(&mut self.gateways) };
         }
 
