@@ -333,6 +333,7 @@ where
 {
     fn validate(&self, r: F) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
         let x = (
             self[0].borrow().x().access_without_downgrade(),
             self[1].borrow().x().access_without_downgrade(),

@@ -5,8 +5,8 @@ use crate::repeat64str;
 use crate::secret_sharing::{Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
-mod aggregate_credit;
-mod credit_capping;
+pub mod aggregate_credit;
+pub mod credit_capping;
 
 #[derive(Debug, Clone)]
 pub struct AttributionInputRow<F: Field> {
@@ -20,14 +20,11 @@ pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 
-#[allow(dead_code)]
 pub struct CreditCappingOutputRow<F: Field> {
-    helper_bit: Replicated<F>,
     breakdown_key: Replicated<F>,
     credit: Replicated<F>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CappedCreditsWithAggregationBit<F: Field> {
     helper_bit: Replicated<F>,
