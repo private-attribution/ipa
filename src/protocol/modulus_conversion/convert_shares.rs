@@ -127,7 +127,6 @@ where
     xor_sparse(ctx2, record_id, &sh0_xor_sh1, sh2, ZeroPositions::AVVZ_BZZV).await
 }
 
-#[allow(dead_code)]
 /// # Errors
 /// Propagates errors from convert shares
 /// # Panics
