@@ -37,6 +37,7 @@ impl<B: Send> FromRequest<B> for FieldSize {
 /// Wraps a [`BodyStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
 /// # Errors
 /// If the downstream body is not a multiple of `size_in_bytes`.
+#[derive(Debug)]
 #[pin_project]
 pub struct ByteArrStream {
     #[pin]
@@ -172,7 +173,6 @@ mod test {
     use super::*;
     use axum::http::{HeaderMap, Request};
     use ff::Field;
-    use futures_util::{StreamExt, TryStreamExt};
     use hyper::Body;
 
     async fn to_byte_arr_stream(
@@ -186,64 +186,6 @@ mod test {
                 .unwrap(),
         );
         ByteArrStream::from_request(&mut req_parts).await
-    }
-
-    #[tokio::test]
-    async fn byte_arr_stream_produces_bytes_fp2() {
-        let vec = vec![3; 10];
-        let stream = to_byte_arr_stream(&vec, ff::Fp2::TYPE_STR).await.unwrap();
-        let collected = stream.try_collect::<Vec<_>>().await.unwrap();
-        for (expected, got) in vec.chunks(ff::Fp2::SIZE_IN_BYTES as usize).zip(collected) {
-            assert_eq!(expected, got.as_ref());
-        }
-    }
-
-    #[tokio::test]
-    async fn byte_arr_stream_produces_bytes_fp32_bit_prime() {
-        const ARR_SIZE: usize = 20;
-        let vec = vec![7; ARR_SIZE * 10];
-        let stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::TYPE_STR)
-            .await
-            .unwrap();
-        let collected = stream.try_collect::<Vec<_>>().await.unwrap();
-        for (expected, got) in vec
-            .chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize)
-            .zip(collected)
-        {
-            assert_eq!(expected, got.as_ref());
-        }
-    }
-
-    #[tokio::test]
-    async fn byte_arr_stream_fails_with_bad_field_type() {
-        let vec = vec![6; 8];
-        let stream = to_byte_arr_stream(&vec, "bad_field_type").await;
-        assert!(matches!(
-            stream,
-            Err(MpcHelperServerError::BadQueryString(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn byte_arr_stream_fails_on_invalid_size() {
-        const ARR_SIZE: usize = 2;
-        // 1 extra byte
-        let vec = vec![4u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize) + 1];
-        let mut stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::TYPE_STR)
-            .await
-            .unwrap();
-
-        // valid values
-        for _ in 0..ARR_SIZE {
-            stream.next().await;
-        }
-        let failed = stream.next().await;
-        let failed_kind = failed.map(|res| res.map_err(|err| err.kind()));
-        assert_eq!(
-            failed_kind,
-            Some(Err(std::io::ErrorKind::WriteZero)),
-            "actually got {failed_kind:?}"
-        );
     }
 
     /// Simple body that represents a stream of `Bytes` chunks.
@@ -271,99 +213,227 @@ mod test {
         }
     }
 
-    // this test confirms that `ByteArrStream` doesn't buffer more than it needs to as it produces
-    // bytes
-    #[tokio::test]
-    async fn byte_arr_stream_buffers_optimally() {
-        const ARR_SIZE: usize = 20;
-        const CHUNK_SIZE: usize = 3;
-        let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
-        let chunks = futures::stream::iter(
-            vec.chunks(CHUNK_SIZE)
-                .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
-                .collect::<Vec<_>>(),
-        );
-        let mut req_parts = RequestParts::new(
-            Request::post(format!(
-                "/example?field_type={}",
-                ff::Fp32BitPrime::TYPE_STR
-            ))
-            .body(ChunkedBody(chunks))
-            .unwrap(),
-        );
-        let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
-        assert_eq!(byte_arr_stream.buffered.len(), 0);
-        for expected_chunk in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
-            let n = byte_arr_stream.next().await.unwrap().unwrap();
-            // `ByteArrStream` outputs correct value
-            assert_eq!(expected_chunk, &n);
-            // `ByteArrStream` only contains at most 1 buffered chunk
-            assert!(byte_arr_stream.buffered.len() <= 1);
-            // `ByteArrStream` only contains at most `CHUNK_SIZE` values in its buffer
-            assert!(byte_arr_stream.buffered_size <= u32::try_from(CHUNK_SIZE).unwrap());
+    mod unit_test {
+        use super::*;
+        use futures_util::{StreamExt, TryStreamExt};
+
+        #[tokio::test]
+        async fn byte_arr_stream_produces_bytes_fp2() {
+            let vec = vec![3; 10];
+            let stream = to_byte_arr_stream(&vec, ff::Fp2::TYPE_STR).await.unwrap();
+            let collected = stream.try_collect::<Vec<_>>().await.unwrap();
+            for (expected, got) in vec.chunks(ff::Fp2::SIZE_IN_BYTES as usize).zip(collected) {
+                assert_eq!(expected, got.as_ref());
+            }
+        }
+
+        #[tokio::test]
+        async fn byte_arr_stream_produces_bytes_fp32_bit_prime() {
+            const ARR_SIZE: usize = 20;
+            let vec = vec![7; ARR_SIZE * 10];
+            let stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::TYPE_STR)
+                .await
+                .unwrap();
+            let collected = stream.try_collect::<Vec<_>>().await.unwrap();
+            for (expected, got) in vec
+                .chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize)
+                .zip(collected)
+            {
+                assert_eq!(expected, got.as_ref());
+            }
+        }
+
+        #[tokio::test]
+        async fn byte_arr_stream_fails_with_bad_field_type() {
+            let vec = vec![6; 8];
+            let stream = to_byte_arr_stream(&vec, "bad_field_type").await;
+            assert!(matches!(
+                stream,
+                Err(MpcHelperServerError::BadQueryString(_))
+            ));
+        }
+
+        #[tokio::test]
+        async fn byte_arr_stream_fails_on_invalid_size() {
+            const ARR_SIZE: usize = 2;
+            // 1 extra byte
+            let vec = vec![4u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize) + 1];
+            let mut stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::TYPE_STR)
+                .await
+                .unwrap();
+
+            // valid values
+            for _ in 0..ARR_SIZE {
+                stream.next().await;
+            }
+            let failed = stream.next().await;
+            let failed_kind = failed.map(|res| res.map_err(|err| err.kind()));
+            assert_eq!(
+                failed_kind,
+                Some(Err(std::io::ErrorKind::WriteZero)),
+                "actually got {failed_kind:?}"
+            );
+        }
+
+        // this test confirms that `ByteArrStream` doesn't buffer more than it needs to as it produces
+        // bytes
+        #[tokio::test]
+        async fn byte_arr_stream_buffers_optimally() {
+            const ARR_SIZE: usize = 20;
+            const CHUNK_SIZE: usize = 3;
+            let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
+            let chunks = futures::stream::iter(
+                vec.chunks(CHUNK_SIZE)
+                    .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
+                    .collect::<Vec<_>>(),
+            );
+            let mut req_parts = RequestParts::new(
+                Request::post(format!(
+                    "/example?field_type={}",
+                    ff::Fp32BitPrime::TYPE_STR
+                ))
+                .body(ChunkedBody(chunks))
+                .unwrap(),
+            );
+            let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
+            assert_eq!(byte_arr_stream.buffered.len(), 0);
+            for expected_chunk in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
+                let n = byte_arr_stream.next().await.unwrap().unwrap();
+                // `ByteArrStream` outputs correct value
+                assert_eq!(expected_chunk, &n);
+                // `ByteArrStream` only contains at most 1 buffered chunk
+                assert!(byte_arr_stream.buffered.len() <= 1);
+                // `ByteArrStream` only contains at most `CHUNK_SIZE` values in its buffer
+                assert!(byte_arr_stream.buffered_size <= u32::try_from(CHUNK_SIZE).unwrap());
+            }
+        }
+
+        // this test confirms that `ByteArrStream` doesn't call on the buffer at all if the existing
+        // one is sufficient to produce bytes
+        // for the purposes of this test, assumes that chunks are of uniform size (until the last chunk)
+        #[tokio::test]
+        async fn byte_arr_stream_buffers_only_when_needed() {
+            const ARR_SIZE: usize = 20;
+            const CHUNK_SIZE: u32 = 9;
+            let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
+            let chunks = futures::stream::iter(
+                vec.chunks(CHUNK_SIZE as usize)
+                    .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
+                    .collect::<Vec<_>>(),
+            );
+            let mut req_parts = RequestParts::new(
+                Request::post(format!(
+                    "/example?field_type={}",
+                    ff::Fp32BitPrime::TYPE_STR
+                ))
+                .body(ChunkedBody(chunks))
+                .unwrap(),
+            );
+            let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
+            assert_eq!(byte_arr_stream.buffered.len(), 0);
+
+            // number of bytes pushed downstream
+            let mut num_downstream = 0;
+            // number of bytes pulled from upstream
+            let mut num_upstream =
+                u32::try_from(ARR_SIZE).unwrap() * ff::Fp32BitPrime::SIZE_IN_BYTES;
+            // expected size of buffer inside
+            let mut expected_size = 0;
+            for expected_n in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
+                // check that bytes are as expected
+                let n = byte_arr_stream.next().await.unwrap().unwrap();
+                assert_eq!(expected_n, &n);
+                assert!(byte_arr_stream.buffered.len() <= 1);
+
+                // sent Fp32BitPrime downstream
+                num_downstream += ff::Fp32BitPrime::SIZE_IN_BYTES;
+                // remove those bytes from buffer
+                expected_size -= i32::try_from(ff::Fp32BitPrime::SIZE_IN_BYTES).unwrap();
+                // if no more bytes in buffer, get more
+                if expected_size < 0 {
+                    // enough bytes upstream to pull a full chunk
+                    if CHUNK_SIZE < num_upstream {
+                        num_upstream -= CHUNK_SIZE;
+                        expected_size += i32::try_from(CHUNK_SIZE).unwrap();
+                    } else {
+                        // last chunk from upstream may be < full chunk size
+                        expected_size += i32::try_from(num_upstream).unwrap();
+                        num_upstream = 0;
+                    }
+                }
+                assert_eq!(
+                    byte_arr_stream.buffered_size,
+                    u32::try_from(expected_size).unwrap()
+                );
+            }
+            assert_eq!(
+                num_downstream,
+                u32::try_from(ARR_SIZE).unwrap() * ff::Fp32BitPrime::SIZE_IN_BYTES
+            );
         }
     }
 
-    // this test confirms that `ByteArrStream` doesn't call on the buffer at all if the existing
-    // one is sufficient to produce bytes
-    // for the purposes of this test, assumes that chunks are of uniform size (until the last chunk)
-    #[tokio::test]
-    async fn byte_arr_stream_buffers_only_when_needed() {
-        const ARR_SIZE: usize = 20;
-        const CHUNK_SIZE: u32 = 9;
-        let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
-        let chunks = futures::stream::iter(
-            vec.chunks(CHUNK_SIZE as usize)
-                .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
-                .collect::<Vec<_>>(),
-        );
-        let mut req_parts = RequestParts::new(
-            Request::post(format!(
-                "/example?field_type={}",
-                ff::Fp32BitPrime::TYPE_STR
-            ))
-            .body(ChunkedBody(chunks))
-            .unwrap(),
-        );
-        let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
-        assert_eq!(byte_arr_stream.buffered.len(), 0);
+    mod prop_test {
+        use super::*;
+        use futures::TryStreamExt;
+        use proptest::prelude::*;
 
-        // number of bytes pushed downstream
-        let mut num_downstream = 0;
-        // number of bytes pulled from upstream
-        let mut num_upstream = u32::try_from(ARR_SIZE).unwrap() * ff::Fp32BitPrime::SIZE_IN_BYTES;
-        // expected size of buffer inside
-        let mut expected_size = 0;
-        for expected_n in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
-            // check that bytes are as expected
-            let n = byte_arr_stream.next().await.unwrap().unwrap();
-            assert_eq!(expected_n, &n);
-            assert!(byte_arr_stream.buffered.len() <= 1);
-
-            // sent Fp32BitPrime downstream
-            num_downstream += ff::Fp32BitPrime::SIZE_IN_BYTES;
-            // remove those bytes from buffer
-            expected_size -= i32::try_from(ff::Fp32BitPrime::SIZE_IN_BYTES).unwrap();
-            // if no more bytes in buffer, get more
-            if expected_size < 0 {
-                // enough bytes upstream to pull a full chunk
-                if CHUNK_SIZE < num_upstream {
-                    num_upstream -= CHUNK_SIZE;
-                    expected_size += i32::try_from(CHUNK_SIZE).unwrap();
-                } else {
-                    // last chunk from upstream may be < full chunk size
-                    expected_size += i32::try_from(num_upstream).unwrap();
-                    num_upstream = 0;
-                }
+        prop_compose! {
+            fn arb_aligned_bytes(size_in_bytes: u32, max_len: u32)
+                                (size_in_bytes in Just(size_in_bytes), len in 1..(max_len as usize))
+                                (vec in prop::collection::vec(any::<u8>(), len * size_in_bytes as usize))
+            -> Vec<u8> {
+                vec
             }
-            assert_eq!(
-                byte_arr_stream.buffered_size,
-                u32::try_from(expected_size).unwrap()
-            );
         }
-        assert_eq!(
-            num_downstream,
-            u32::try_from(ARR_SIZE).unwrap() * ff::Fp32BitPrime::SIZE_IN_BYTES
-        );
+        prop_compose! {
+            fn arb_chunked_body(vec: Vec<u8>, field_type: &'static str)
+                               (chunk_size in 1..vec.len(), vec in Just(vec))
+            -> ByteArrStream {
+                tokio::runtime::Runtime::new().unwrap().block_on(async move {
+                    let chunked_body = ChunkedBody(
+                        futures::stream::iter(
+                            vec.chunks(chunk_size)
+                                .map(|chunk| Result::<Bytes, hyper::Error>::Ok(Bytes::from(chunk.to_owned())))
+                                .collect::<Vec<_>>()
+                        )
+                    );
+
+                    let mut req_parts = RequestParts::new(
+                    Request::post(format!(
+                        "/example?field_type={}",
+                        field_type,
+                    ))
+                    .body(chunked_body)
+                    .unwrap(),
+                );
+
+                    ByteArrStream::from_request(&mut req_parts).await.unwrap()
+                })
+            }
+        }
+
+        prop_compose! {
+            fn arb_expected_and_chunked_body(size_in_bytes: u32, field_type: &'static str, max_len: u32)
+                                            (expected in arb_aligned_bytes(size_in_bytes, max_len))
+                                            (expected in Just(expected.clone()), chunked in arb_chunked_body(expected, field_type))
+            -> (Vec<u8>, ByteArrStream) {
+                (expected, chunked)
+            }
+        }
+
+        proptest::proptest! {
+            #[test]
+            fn test_byte_arr_stream_works_with_any_chunks(
+                (expected_bytes, chunked_bytes) in arb_expected_and_chunked_body(ff::Fp32BitPrime::SIZE_IN_BYTES, ff::Fp32BitPrime::TYPE_STR, 100)
+            ) {
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    let collected = chunked_bytes.try_collect::<Vec<_>>().await.unwrap();
+                    for (expected, got) in expected_bytes.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize).zip(collected) {
+                        assert_eq!(expected, got.as_ref());
+                    }
+                });
+            }
+        }
     }
 }
