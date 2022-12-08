@@ -215,6 +215,31 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 }
 
 #[allow(dead_code)]
+#[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
+/// Returns a sort permutation in a malicious context.
+/// This runs sort in a malicious context. The caller is responsible to validate the accumulater contents and downgrade context to Semi-honest before calling this function
+/// The function takes care of upgrading and validating while the sort protocol runs.
+/// It then returns a semi honest context with output in Replicated format. The caller should then upgrade the output and context before moving forward
+///
+/// Steps
+/// 1. [Malicious Special] Upgrade the context from semihonest to malicious and get a validator
+/// 2. [Malicious Special] Upgrade 0th sort bit keys
+/// 3. Compute bit permutation that sorts 0th bit
+///
+/// For 1st to N-1th bit of input share
+/// 1. i. Shuffle the i-1th composition
+///   ii. [Malicious Special] Validate the accumulator contents
+///  iii. [Malicious Special] Malicious reveal
+///   iv. [Malicious Special] Downgrade context to semihonest
+/// 2. i. [Malicious Special] Upgrade ith sort bit keys
+///   ii. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
+/// 3. Compute bit permutation that sorts ith bit
+/// 4. Compute ith composition by composing i-1th composition on ith permutation
+/// In the end, following is returned
+///    i. n-1th composition: This is the permutation which sorts the inputs
+///   ii. Validator which can be used to validate the leftover items in the accumulator
+///
+/// ![Malicious sort permutation steps][malicious_sort]
 /// # Panics
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
