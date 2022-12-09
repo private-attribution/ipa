@@ -110,7 +110,7 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
                 .semi_honest_context()
                 .reshare(input.rx(), record_id, to_helper),
             self.semi_honest_context().reshare(
-                input.x().access_without_downgrade(),
+                input.x().access_without_downgrade().await,
                 record_id,
                 to_helper,
             ),
@@ -291,7 +291,7 @@ mod tests {
                 ),
                 reshare_with_additive_attack(
                     ctx.semi_honest_context(),
-                    input.x().access_without_downgrade(),
+                    input.x().access_without_downgrade().await,
                     record_id,
                     to_helper,
                     additive_error,

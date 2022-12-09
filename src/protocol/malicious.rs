@@ -114,7 +114,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub fn accumulate_macs<I: SharedRandomness>(
+    pub async fn accumulate_macs<I: SharedRandomness>(
         &self,
         prss: &I,
         record_id: RecordId,
@@ -126,7 +126,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
             &random_constant,
-            input.x().access_without_downgrade(),
+            input.x().access_without_downgrade().await,
         );
 
         let arc_mutex = self.inner.upgrade().unwrap();
@@ -209,7 +209,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         if is_valid {
             // Yes, we're allowed to downgrade here.
             use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            Ok(values.downgrade().access_without_downgrade())
+            Ok(values.downgrade().await.access_without_downgrade().await)
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
         }
@@ -300,16 +300,16 @@ mod tests {
                 // Save some cloned values so that we can check them.
                 let r_share = v.r_share().clone();
                 let result = v.validate(m_result.clone()).await?;
-                assert_eq!(&result, m_result.x().access_without_downgrade());
+                assert_eq!(&result, m_result.x().access_without_downgrade().await);
                 Ok::<_, Error>((m_result, r_share))
             });
 
         let [ab0, ab1, ab2] = join3v(futures).await;
 
         let ab = (
-            ab0.0.x().access_without_downgrade(),
-            ab1.0.x().access_without_downgrade(),
-            ab2.0.x().access_without_downgrade(),
+            ab0.0.x().access_without_downgrade().await,
+            ab1.0.x().access_without_downgrade().await,
+            ab2.0.x().access_without_downgrade().await,
         )
             .reconstruct();
         let rab = (ab0.0.rx(), ab1.0.rx(), ab2.0.rx()).reconstruct();
@@ -434,13 +434,15 @@ mod tests {
 
                 let r_share = v.r_share().clone();
                 let results = v.validate(m_results.clone()).await?;
-                assert_eq!(
-                    results.iter().collect::<Vec<_>>(),
-                    m_results
+
+                let m_results = m_results
                         .iter()
-                        .map(|x| x.x().access_without_downgrade())
-                        .collect::<Vec<_>>()
-                );
+                        .map(|x| async move { 
+                            x.x().access_without_downgrade().await
+                        }
+                    ).collect::<Vec<_>>();
+
+                assert_eq!(results.iter().collect::<Vec<_>>(), try_join_all(m_results).await.unwrap());
                 Ok::<_, Error>((m_results, r_share))
             });
 
@@ -457,9 +459,18 @@ mod tests {
             let x1 = original_inputs[i];
             let x2 = original_inputs[i + 1];
             let x1_times_x2 = (
-                processed_outputs[0].0[i].x().access_without_downgrade(),
-                processed_outputs[1].0[i].x().access_without_downgrade(),
-                processed_outputs[2].0[i].x().access_without_downgrade(),
+                processed_outputs[0].0[i]
+                    .x()
+                    .access_without_downgrade()
+                    .await,
+                processed_outputs[1].0[i]
+                    .x()
+                    .access_without_downgrade()
+                    .await,
+                processed_outputs[2].0[i]
+                    .x()
+                    .access_without_downgrade()
+                    .await,
             )
                 .reconstruct();
             let r_times_x1_times_x2 = (

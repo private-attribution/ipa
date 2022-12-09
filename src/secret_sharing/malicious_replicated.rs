@@ -3,6 +3,9 @@ use std::{
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
+use async_trait::async_trait;
+use futures::future::try_join_all;
+
 use crate::ff::Field;
 use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
@@ -16,16 +19,18 @@ pub struct MaliciousReplicated<F: Field> {
 /// A trait that is implemented for various collections of `MaliciousReplicated`
 /// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
 /// when the protocol is done.  This should not be used directly.
+#[async_trait]
 pub trait Downgrade {
     type Target;
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
 
 #[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
 
+#[async_trait]
 pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
-    fn access_without_downgrade(self) -> T;
+    async fn access_without_downgrade(self) -> T;
 }
 
 impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
@@ -140,43 +145,47 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
     }
 }
 
+#[async_trait]
 impl<F: Field> Downgrade for MaliciousReplicated<F> {
     type Target = Replicated<F>;
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(self.x)
     }
 }
 
+#[async_trait]
 impl<T, U> Downgrade for (T, U)
 where
-    T: Downgrade,
-    U: Downgrade,
+    T: Downgrade + Send,
+    U: Downgrade + Send,
 {
-    type Target = (<T as Downgrade>::Target, <U as Downgrade>::Target);
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+    type Target = (<T>::Target, <U>::Target);
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper((
-            self.0.downgrade().access_without_downgrade(),
-            self.1.downgrade().access_without_downgrade(),
+            self.0.downgrade().await.access_without_downgrade().await,
+            self.1.downgrade().await.access_without_downgrade().await,
         ))
     }
 }
 
+#[async_trait]
 impl<T> Downgrade for Vec<T>
 where
-    T: Downgrade,
+    T: Downgrade + Send,
 {
-    type Target = Vec<<T as Downgrade>::Target>;
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper(
-            self.into_iter()
-                .map(|v| v.downgrade().access_without_downgrade())
-                .collect(),
-        )
+    type Target = Vec<<T>::Target>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let futures = self.into_iter().map(|v| async move {
+            v.downgrade().await.access_without_downgrade().await
+        }).collect();
+        let output = futures.await;
+        UnauthorizedDowngradeWrapper(output)
     }
 }
 
-impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
-    fn access_without_downgrade(self) -> T {
+#[async_trait]
+impl<T: Send> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
+    async fn access_without_downgrade(self) -> T {
         self.0
     }
 }
@@ -191,9 +200,9 @@ mod tests {
     use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;
 
-    #[test]
+    #[tokio::test]
     #[allow(clippy::many_single_char_names)]
-    fn test_local_operations() {
+    async fn test_local_operations() {
         let mut rng = rand::thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -258,9 +267,9 @@ mod tests {
 
         assert_eq!(
             (
-                results[0].x().access_without_downgrade(),
-                results[1].x().access_without_downgrade(),
-                results[2].x().access_without_downgrade(),
+                results[0].x().access_without_downgrade().await,
+                results[1].x().access_without_downgrade().await,
+                results[2].x().access_without_downgrade().await,
             )
                 .reconstruct(),
             correct,
@@ -271,12 +280,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn downgrade() {
+    #[tokio::test]
+    async fn downgrade() {
         let mut rng = thread_rng();
         let x = Replicated::new(rng.gen::<Fp31>(), rng.gen());
         let y = Replicated::new(rng.gen::<Fp31>(), rng.gen());
         let m = MaliciousReplicated::new(x.clone(), y);
-        assert_eq!(x, m.downgrade().access_without_downgrade());
+        assert_eq!(x, m.downgrade().access_without_downgrade().await);
     }
 }
