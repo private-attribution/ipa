@@ -222,11 +222,12 @@ mod tests {
     use rand::{distributions::Standard, prelude::Distribution, Rng};
 
     use super::{ipa, IPAInputRow};
+    use crate::secret_sharing::IntoShares;
     use crate::{
         ff::{Field, Fp31},
         protocol::QueryId,
         secret_sharing::Replicated,
-        test_fixture::{IntoShares, MaskedMatchKey, Reconstruct, Runner, TestWorld},
+        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
     };
 
     struct IPAInputTestRow {

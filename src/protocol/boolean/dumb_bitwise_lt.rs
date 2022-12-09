@@ -180,13 +180,11 @@ mod tests {
     use proptest::prelude::Rng;
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bitwise_lt<F: Field>(a: F, b: F) -> F
+    async fn bitwise_lt<F: Field>(world: &TestWorld, a: F, b: F) -> F
     where
         (F, F): Sized,
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new(QueryId);
-
         let input = (into_bits(a), into_bits(b));
         let result = world
             .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
@@ -216,17 +214,18 @@ mod tests {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
+        let world = TestWorld::new(QueryId);
 
-        assert_eq!(one, bitwise_lt(zero, one).await);
-        assert_eq!(zero, bitwise_lt(one, zero).await);
-        assert_eq!(zero, bitwise_lt(zero, zero).await);
-        assert_eq!(zero, bitwise_lt(one, one).await);
+        assert_eq!(one, bitwise_lt(&world, zero, one).await);
+        assert_eq!(zero, bitwise_lt(&world, one, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, one, one).await);
 
-        assert_eq!(one, bitwise_lt(c(3_u8), c(7)).await);
-        assert_eq!(zero, bitwise_lt(c(21), c(20)).await);
-        assert_eq!(zero, bitwise_lt(c(9), c(9)).await);
+        assert_eq!(one, bitwise_lt(&world, c(3_u8), c(7)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(21), c(20)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(9), c(9)).await);
 
-        assert_eq!(zero, bitwise_lt(zero, c(Fp31::PRIME)).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, c(Fp31::PRIME)).await);
     }
 
     #[tokio::test]
@@ -235,24 +234,25 @@ mod tests {
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
         let u16_max: u32 = u16::MAX.into();
+        let world = TestWorld::new(QueryId);
 
-        assert_eq!(one, bitwise_lt(zero, one).await);
-        assert_eq!(zero, bitwise_lt(one, zero).await);
-        assert_eq!(zero, bitwise_lt(zero, zero).await);
-        assert_eq!(zero, bitwise_lt(one, one).await);
+        assert_eq!(one, bitwise_lt(&world, zero, one).await);
+        assert_eq!(zero, bitwise_lt(&world, one, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, one, one).await);
 
-        assert_eq!(one, bitwise_lt(c(3_u32), c(7)).await);
-        assert_eq!(zero, bitwise_lt(c(21), c(20)).await);
-        assert_eq!(zero, bitwise_lt(c(9), c(9)).await);
+        assert_eq!(one, bitwise_lt(&world, c(3_u32), c(7)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(21), c(20)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(9), c(9)).await);
 
-        assert_eq!(one, bitwise_lt(c(u16_max), c(u16_max + 1)).await);
-        assert_eq!(zero, bitwise_lt(c(u16_max + 1), c(u16_max)).await);
+        assert_eq!(one, bitwise_lt(&world, c(u16_max), c(u16_max + 1)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(u16_max + 1), c(u16_max)).await);
         assert_eq!(
             one,
-            bitwise_lt(c(u16_max), c(Fp32BitPrime::PRIME - 1)).await
+            bitwise_lt(&world, c(u16_max), c(Fp32BitPrime::PRIME - 1)).await
         );
 
-        assert_eq!(zero, bitwise_lt(zero, c(Fp32BitPrime::PRIME)).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, c(Fp32BitPrime::PRIME)).await);
     }
 
     #[tokio::test]
@@ -290,13 +290,14 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn cmp_random_32_bit_prime_field_elements() {
+        let world = TestWorld::new(QueryId);
         let mut rand = thread_rng();
         for _ in 0..1000 {
             let a = rand.gen::<Fp32BitPrime>();
             let b = rand.gen::<Fp32BitPrime>();
             assert_eq!(
                 Fp32BitPrime::from(a.as_u128() < b.as_u128()),
-                bitwise_lt(a, b).await
+                bitwise_lt(&world, a, b).await
             );
         }
     }
@@ -305,11 +306,12 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn cmp_all_fp31() {
+        let world = TestWorld::new(QueryId);
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(
                     Fp31::from(a < b),
-                    bitwise_lt(Fp31::from(a), Fp31::from(b)).await
+                    bitwise_lt(&world, Fp31::from(a), Fp31::from(b)).await
                 );
             }
         }

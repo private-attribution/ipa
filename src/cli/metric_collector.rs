@@ -1,4 +1,4 @@
-use crate::cli::Metrics;
+use crate::telemetry::stats::Metrics;
 use metrics_tracing_context::TracingContextLayer;
 use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
 use metrics_util::layers::Layer;

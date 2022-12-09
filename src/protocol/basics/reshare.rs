@@ -1,5 +1,6 @@
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
 use crate::secret_sharing::{MaliciousReplicated, SecretSharing};
 use crate::{
@@ -52,8 +53,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
         let channel = self.mesh();
-        let prss = self.prss();
-        let (r0, r1) = prss.generate_fields(record_id);
+        let (r0, r1) = self.prss().generate_fields(record_id);
 
         // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
         // This is same as (a1 + a2) - r2 in the diagram
@@ -131,6 +131,7 @@ mod tests {
 
         use crate::ff::Fp32BitPrime;
         use crate::protocol::context::Context;
+        use crate::protocol::prss::SharedRandomness;
         use crate::{
             helpers::Role,
             protocol::{basics::Reshare, QueryId, RecordId},
@@ -197,6 +198,7 @@ mod tests {
         use crate::protocol::basics::Reshare;
         use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
         use crate::protocol::malicious::MaliciousValidator;
+        use crate::protocol::prss::SharedRandomness;
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
         use crate::protocol::{QueryId, RecordId};
         use crate::rand::{thread_rng, Rng};
@@ -233,8 +235,7 @@ mod tests {
             additive_error: F,
         ) -> Result<Replicated<F>, Error> {
             let channel = ctx.mesh();
-            let prss = ctx.prss();
-            let (r0, r1) = prss.generate_fields(record_id);
+            let (r0, r1) = ctx.prss().generate_fields(record_id);
 
             // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
             // This is same as (a1 + a2) - r2 in the diagram
