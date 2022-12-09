@@ -284,6 +284,7 @@ pub mod tests {
         const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u128 = 3;
 
         let world = TestWorld::new(QueryId);
 
@@ -323,7 +324,7 @@ pub mod tests {
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, 3)
+                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
                     .await
                     .unwrap()
             })
@@ -367,7 +368,6 @@ pub mod tests {
                 },
                 trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE), // Trigger value is only found in trigger events
             };
-            println!("{:?}", test_row);
             records.push(test_row);
         }
         let result = world
@@ -379,7 +379,6 @@ pub mod tests {
             .await
             .reconstruct();
 
-        println!("Attribution Result {:?}", result);
         assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
     }
 }

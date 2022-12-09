@@ -59,13 +59,13 @@ async fn main() -> Result<(), Error> {
     let world = TestWorld::new_with(QueryId, config);
     let mut rng = thread_rng();
 
-    const BATCHSIZE: u64 = 100_000;
+    const BATCHSIZE: u64 = 100;
     let matchkeys_upto: u64 = BATCHSIZE / 4;
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
     const MAX_BREAKDOWN_KEY: u128 = 4;
 
-    let mut records: Vec<IPAInputTestRow> = Vec::new();
+    let mut records: Vec<IPAInputTestRow> = Vec::with_capacity(BATCHSIZE.try_into().unwrap());
 
     for _ in 0..BATCHSIZE {
         let is_trigger_bit = u128::from(rng.gen::<bool>());
@@ -78,7 +78,8 @@ async fn main() -> Result<(), Error> {
             },
             trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE), // Trigger value is only found in trigger events
         };
-        println!("{:?}", test_row);
+        // TODO (richa) Once we have a way to programatically ensure expected results are same as obtained, will remove the debug messages
+        // println!("{:?}", test_row);
         records.push(test_row);
     }
 
@@ -93,9 +94,9 @@ async fn main() -> Result<(), Error> {
 
     let duration = start.elapsed().as_secs_f32();
     println!("rows {BATCHSIZE} benchmark complete after {duration}s");
-
-    println!("Result:");
-    println!("{:?}", result);
-    assert_eq!(MAX_BREAKDOWN_KEY, result.len().try_into().unwrap());
+    // TODO (richa) Once we have a way to programatically ensure expected results are same as obtained, will remove the debug messages
+    // println!("Result:");
+    // println!("{:?}", result);
+    assert_eq!(MAX_BREAKDOWN_KEY, result[0].len().try_into().unwrap());
     Ok(())
 }
