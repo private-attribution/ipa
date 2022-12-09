@@ -226,57 +226,14 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use super::{ipa, IPAInputRow};
-    use crate::secret_sharing::IntoShares;
+    use super::ipa;
+    use crate::test_fixture::ipa_input_row::IPAInputTestRow;
     use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
         ff::{Field, Fp31},
         protocol::QueryId,
-        secret_sharing::Replicated,
-        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::{distributions::Standard, prelude::Distribution, Rng};
-
-    #[derive(Debug)]
-    pub struct IPAInputTestRow {
-        match_key: u64,
-        is_trigger_bit: u128,
-        breakdown_key: u128,
-        trigger_value: u128,
-    }
-
-    impl<F> IntoShares<IPAInputRow<F>> for IPAInputTestRow
-    where
-        F: Field + IntoShares<Replicated<F>>,
-        Standard: Distribution<F>,
-    {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F>; 3] {
-            let match_key_shares = MaskedMatchKey::mask(self.match_key).share_with(rng);
-            let [itb0, itb1, itb2] = F::from(self.is_trigger_bit).share_with(rng);
-            let [bdk0, bdk1, bdk2] = F::from(self.breakdown_key).share_with(rng);
-            let [tv0, tv1, tv2] = F::from(self.trigger_value).share_with(rng);
-            [
-                IPAInputRow {
-                    mk_shares: match_key_shares[0],
-                    is_trigger_bit: itb0,
-                    breakdown_key: bdk0,
-                    trigger_value: tv0,
-                },
-                IPAInputRow {
-                    mk_shares: match_key_shares[1],
-                    is_trigger_bit: itb1,
-                    breakdown_key: bdk1,
-                    trigger_value: tv1,
-                },
-                IPAInputRow {
-                    mk_shares: match_key_shares[2],
-                    is_trigger_bit: itb2,
-                    breakdown_key: bdk2,
-                    trigger_value: tv2,
-                },
-            ]
-        }
-    }
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -350,7 +307,7 @@ pub mod tests {
         const PER_USER_CAP: u32 = 10;
         const MAX_BREAKDOWN_KEY: u128 = 8;
         const MAX_TRIGGER_VALUE: u128 = 5;
-        let matchkeys_upto: u64 = BATCHSIZE / 10;
+        let max_match_key: u64 = BATCHSIZE / 10;
 
         let world = TestWorld::new(QueryId);
         let mut rng = thread_rng();
@@ -358,17 +315,12 @@ pub mod tests {
         let mut records: Vec<IPAInputTestRow> = Vec::new();
 
         for _ in 0..BATCHSIZE {
-            let is_trigger_bit = u128::from(rng.gen::<bool>());
-            let test_row = IPAInputTestRow {
-                match_key: rng.gen_range(0..matchkeys_upto),
-                is_trigger_bit,
-                breakdown_key: match is_trigger_bit {
-                    0 => rng.gen_range(0..MAX_BREAKDOWN_KEY), // Breakdown key is only found in source events
-                    1_u128..=u128::MAX => 0,
-                },
-                trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE), // Trigger value is only found in trigger events
-            };
-            records.push(test_row);
+            records.push(IPAInputTestRow::random(
+                &mut rng,
+                max_match_key,
+                MAX_BREAKDOWN_KEY,
+                MAX_TRIGGER_VALUE,
+            ));
         }
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {

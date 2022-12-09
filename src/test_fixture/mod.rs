@@ -2,6 +2,7 @@ mod sharing;
 mod world;
 
 pub mod circuit;
+pub mod ipa_input_row;
 pub mod logging;
 pub mod metrics;
 pub mod network;
@@ -15,6 +16,7 @@ pub use crate::secret_sharing::IntoShares;
 use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
+pub use ipa_input_row::IPAInputTestRow;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
