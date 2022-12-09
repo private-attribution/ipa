@@ -1,5 +1,6 @@
 use crate::protocol::basics::{reveal::Reveal, SecureMul};
 use crate::protocol::context::SemiHonestContext;
+use crate::protocol::prss::SharedRandomness;
 use crate::{
     error::Error,
     ff::Field,
@@ -65,8 +66,7 @@ pub async fn check_zero<F: Field>(
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
-    let prss = &ctx.prss();
-    let r_sharing = prss.generate_replicated(record_id);
+    let r_sharing = ctx.prss().generate_replicated(record_id);
 
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
@@ -87,7 +87,8 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{basics::check_zero, QueryId, RecordId};
     use crate::rand::thread_rng;
-    use crate::test_fixture::{share, TestWorld};
+    use crate::secret_sharing::IntoShares;
+    use crate::test_fixture::TestWorld;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
@@ -100,7 +101,7 @@ mod tests {
             let v = Fp31::from(v);
             let mut num_false_positives = 0;
             for _ in 0..10 {
-                let v_shares = share(v, &mut rng);
+                let v_shares = v.share_with(&mut rng);
                 let record_id = RecordId::from(0_u32);
                 let iteration = format!("{}", counter);
                 counter += 1;

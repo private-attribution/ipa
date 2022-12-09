@@ -51,7 +51,7 @@ impl ChannelId {
 
 impl Debug for ChannelId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[peer={:?},step={:?}]", self.role, self.step)
+        write!(f, "channel[{:?},{:?}]", self.role, self.step)
     }
 }
 

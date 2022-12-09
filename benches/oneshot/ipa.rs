@@ -59,7 +59,7 @@ async fn main() -> Result<(), Error> {
     let world = TestWorld::new_with(QueryId, config);
     let mut rng = thread_rng();
 
-    const BATCHSIZE: u64 = 100;
+    const BATCHSIZE: u64 = 100_000;
     let matchkeys_upto: u64 = BATCHSIZE / 4;
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
@@ -72,8 +72,11 @@ async fn main() -> Result<(), Error> {
         let test_row = IPAInputTestRow {
             match_key: rng.gen_range(0..matchkeys_upto),
             is_trigger_bit,
-            breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-            trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE),
+            breakdown_key: match is_trigger_bit {
+                0 => rng.gen_range(0..MAX_BREAKDOWN_KEY), // Breakdown key is only found in source events
+                1_u128..=u128::MAX => 0,
+            },
+            trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE), // Trigger value is only found in trigger events
         };
         println!("{:?}", test_row);
         records.push(test_row);
@@ -82,7 +85,7 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP)
+            ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
                 .await
                 .unwrap()
         })
@@ -93,6 +96,6 @@ async fn main() -> Result<(), Error> {
 
     println!("Result:");
     println!("{:?}", result);
-    assert_ne!(result.len(), 0);
+    assert_eq!(MAX_BREAKDOWN_KEY, result.len().try_into().unwrap());
     Ok(())
 }

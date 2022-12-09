@@ -1,9 +1,22 @@
+pub mod stats;
+mod step_stats;
+
+pub use step_stats::CsvExporter as StepStatsCsvExporter;
+
+pub mod labels {
+    pub const STEP: &str = "step";
+    pub const ROLE: &str = "role";
+}
+
 pub mod metrics {
     use axum::http::Version;
     use metrics::Unit;
     use metrics::{describe_counter, KeyName};
 
     pub const REQUESTS_RECEIVED: &str = "requests.received";
+    pub const RECORDS_SENT: &str = "records.sent";
+    pub const INDEXED_PRSS_GENERATED: &str = "i.prss.gen";
+    pub const SEQUENTIAL_PRSS_GENERATED: &str = "s.prss.gen";
 
     /// Metric that records the version of HTTP protocol used for a particular request.
     #[cfg(feature = "web-app")]
@@ -60,29 +73,23 @@ pub mod metrics {
             Unit::Count,
             "Total number of HTTP/2 requests received"
         );
-    }
 
-    #[cfg(test)]
-    #[must_use]
-    pub fn get_counter_value<K: Into<KeyName>>(
-        snapshot: metrics_util::debugging::Snapshot,
-        metric_name: K,
-    ) -> Option<u64> {
-        use metrics_util::debugging::DebugValue;
-        use metrics_util::MetricKind;
+        describe_counter!(
+            RECORDS_SENT,
+            Unit::Count,
+            "Number of unique records sent from the infrastructure layer to the network"
+        );
 
-        let snapshot = snapshot.into_vec();
-        let metric_name = metric_name.into();
+        describe_counter!(
+            INDEXED_PRSS_GENERATED,
+            Unit::Count,
+            "Number of times shared randomness is requested by the protocols"
+        );
 
-        for (key, _unit, _, val) in snapshot {
-            if key.kind() == MetricKind::Counter && key.key().name() == metric_name.as_str() {
-                match val {
-                    DebugValue::Counter(v) => return Some(v),
-                    _ => unreachable!(),
-                }
-            }
-        }
-
-        None
+        describe_counter!(
+            SEQUENTIAL_PRSS_GENERATED,
+            Unit::Count,
+            "Number of times PRSS is used as CPRNG to generate a random value"
+        );
     }
 }

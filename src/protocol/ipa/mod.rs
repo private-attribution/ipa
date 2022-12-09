@@ -142,6 +142,7 @@ pub async fn ipa<F>(
     input_rows: &[IPAInputRow<F>],
     num_bits: u32,
     per_user_credit_cap: u32,
+    max_breakdown_key: u128,
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
 where
     F: Field,
@@ -215,18 +216,24 @@ where
     )
     .await?;
 
-    aggregate_credit(ctx.narrow(&Step::AggregateCredit), &user_capped_credits, 3).await
+    aggregate_credit(
+        ctx.narrow(&Step::AggregateCredit),
+        &user_capped_credits,
+        max_breakdown_key,
+    )
+    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::{ipa, IPAInputRow};
+    use crate::secret_sharing::IntoShares;
     use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
         ff::{Field, Fp31},
         protocol::QueryId,
         secret_sharing::Replicated,
-        test_fixture::{IntoShares, MaskedMatchKey, Reconstruct, Runner, TestWorld},
+        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution, Rng};
 
@@ -316,7 +323,7 @@ pub mod tests {
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP)
+                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, 3)
                     .await
                     .unwrap()
             })
@@ -354,22 +361,25 @@ pub mod tests {
             let test_row = IPAInputTestRow {
                 match_key: rng.gen_range(0..matchkeys_upto),
                 is_trigger_bit,
-                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE),
+                breakdown_key: match is_trigger_bit {
+                    0 => rng.gen_range(0..MAX_BREAKDOWN_KEY), // Breakdown key is only found in source events
+                    1_u128..=u128::MAX => 0,
+                },
+                trigger_value: is_trigger_bit * rng.gen_range(1..MAX_TRIGGER_VALUE), // Trigger value is only found in trigger events
             };
             println!("{:?}", test_row);
             records.push(test_row);
         }
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP)
+                ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
                     .await
                     .unwrap()
             })
             .await
             .reconstruct();
 
-        println!("{:?}", result);
-        assert_ne!(0, result.len());
+        println!("Attribution Result {:?}", result);
+        assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
     }
 }

@@ -103,16 +103,9 @@ where
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    // let sort_keys_revealed =
-    reveal_permutation(ctx_0.narrow("reveal_input"), &sort_keys[0]).await?;
-    // println!("sort_keys_revealed: {:?}", sort_keys_revealed);
-
     let bit_0_permutation =
         bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
-                                                                // let revealed_permutation =
-    reveal_permutation(ctx_0.narrow(&RevealPermutation), &bit_0_permutation).await?;
-    // println!("revealed_permutation: {:?}", revealed_permutation);
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
@@ -123,8 +116,6 @@ where
             composed_less_significant_bits_permutation,
         )
         .await?;
-
-        // println!("bit_num: {:?}", bit_num);
 
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             ctx_bit.narrow(&ApplyInv),

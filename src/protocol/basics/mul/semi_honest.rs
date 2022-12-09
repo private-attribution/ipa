@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{
     basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
     context::{Context, SemiHonestContext},
@@ -37,8 +38,7 @@ where
     zeros.1.check(role, "b", b);
 
     // Shared randomness used to mask the values that are sent.
-    let prss = ctx.prss();
-    let (s0, s1) = prss.generate_fields(record_id);
+    let (s0, s1) = ctx.prss().generate_fields(record_id);
 
     let channel = ctx.mesh();
     let mut rhs = a.right() * b.right();

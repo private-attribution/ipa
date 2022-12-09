@@ -81,7 +81,7 @@ pub async fn aggregate_credit<F: Field>(
     // precede all other rows in the input. (done in the previous step).
     //
     let sorted_input = sort_by_breakdown_key(
-        ctx.narrow(&Step::SortByBreakdownKeyAndAttributionBit),
+        ctx.narrow(&Step::SortByBreakdownKey),
         &capped_credits_with_aggregation_bits,
         max_breakdown_key,
     )
@@ -302,7 +302,7 @@ async fn sort_by_aggregation_bit<F: Field>(
 enum Step {
     ComputeBBit,
     ComputeStopBit,
-    SortByBreakdownKeyAndAttributionBit,
+    SortByBreakdownKey,
     SortByAttributionBit,
     AggregateCreditBTimesSuccessorCredit,
     BitDecomposeBreakdownKey,
@@ -319,7 +319,7 @@ impl AsRef<str> for Step {
         match self {
             Self::ComputeBBit => "compute_b_bit",
             Self::ComputeStopBit => "compute_stop_bit",
-            Self::SortByBreakdownKeyAndAttributionBit => "sort_by_breakdown_key_and_attribution",
+            Self::SortByBreakdownKey => "sort_by_breakdown_key",
             Self::SortByAttributionBit => "sort_by_attribution_bit",
             Self::AggregateCreditBTimesSuccessorCredit => {
                 "aggregate_credit_b_times_successor_credit"
@@ -327,7 +327,7 @@ impl AsRef<str> for Step {
             Self::BitDecomposeBreakdownKey => "bit_decompose_breakdown_key",
             Self::GeneratePermutationByBreakdownKey => "generate_permutation_by_breakdown_key",
             Self::ApplyPermutationOnBreakdownKey => "apply_permutation_by_breakdown_key",
-            Self::GeneratePermutationByAttributionBit => "apply_permutation_by_attribution_bit",
+            Self::GeneratePermutationByAttributionBit => "generate_permutation_by_attribution_bit",
             Self::ApplyPermutationOnAttributionBit => "apply_permutation_on_attribution_bit",
         }
     }
@@ -344,8 +344,8 @@ pub(crate) mod tests {
     };
     use crate::protocol::QueryId;
     use crate::rand::Rng;
-    use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{IntoShares, Reconstruct, Runner, TestWorld};
+    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::{distributions::Standard, prelude::Distribution};
 
     // TODO: There are now too many xxxInputRow and yyyOutputRow. Combine them into one

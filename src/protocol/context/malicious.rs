@@ -6,12 +6,13 @@ use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
 use crate::protocol::basics::mul::malicious::Step::RandomnessForValidation;
 use crate::protocol::basics::{SecureMul, ZeroPositions};
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
+use crate::protocol::context::{
+    Context, InstrumentedSequentialSharedRandomness, SemiHonestContext,
+};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::prss::{
-    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
-};
+use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
@@ -135,12 +136,23 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         }
     }
 
-    fn prss(&self) -> Arc<IndexedSharedRandomness> {
-        self.inner.prss.indexed(self.step())
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        let prss = self.inner.prss.indexed(self.step());
+
+        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
     }
 
-    fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        self.inner.prss.sequential(self.step())
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        let (left, right) = self.inner.prss.sequential(self.step());
+        (
+            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+        )
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {
@@ -232,8 +244,8 @@ impl<'a, F: Field> ContextInner<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let prss = ctx.narrow(&RandomnessForValidation).prss();
         let rx = ctx
+            .clone()
             .multiply_sparse(
                 record_id,
                 &x,
@@ -242,6 +254,8 @@ impl<'a, F: Field> ContextInner<'a, F> {
             )
             .await?;
         let m = MaliciousReplicated::new(x, rx);
+        let ctx = ctx.narrow(&RandomnessForValidation);
+        let prss = ctx.prss();
         self.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
     }
