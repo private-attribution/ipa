@@ -1,8 +1,11 @@
-use super::{or::or, BitOpStep};
+use super::or::or;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
+use crate::protocol::{
+    context::{Context, SemiHonestContext},
+    mul::SecureMul,
+    BitOpStep, RecordId,
+};
 use crate::secret_sharing::Replicated;
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -34,7 +37,7 @@ impl PrefixOr {
         #[allow(clippy::cast_possible_truncation)]
         let mut v = a[0].clone();
         for (i, bit) in a[1..].iter().enumerate() {
-            v = or(ctx.narrow(&BitOpStep::Step(k + i)), record_id, &v, bit).await?;
+            v = or(ctx.narrow(&BitOpStep::from(k + i)), record_id, &v, bit).await?;
         }
         Ok(v)
     }
@@ -82,7 +85,7 @@ impl PrefixOr {
         let mut y = Vec::with_capacity(lambda);
         y.push(x[0].clone());
         for i in 1..lambda {
-            let result = or(ctx.narrow(&BitOpStep::Step(i)), record_id, &y[i - 1], &x[i]).await?;
+            let result = or(ctx.narrow(&BitOpStep::from(i)), record_id, &y[i - 1], &x[i]).await?;
             y.push(result);
         }
         Ok(y)
@@ -123,7 +126,7 @@ impl PrefixOr {
         let lambda = f.len();
         let mul = zip(repeat(ctx), a).enumerate().map(|(i, (ctx, a_bit))| {
             let f_bit = &f[i / lambda];
-            let c = ctx.narrow(&BitOpStep::Step(i));
+            let c = ctx.narrow(&BitOpStep::from(i));
             async move { c.multiply(record_id, f_bit, a_bit).await }
         });
         try_join_all(mul).await
@@ -168,7 +171,7 @@ impl PrefixOr {
         let mut b = Vec::with_capacity(lambda);
         b.push(c[0].clone());
         for j in 1..lambda {
-            let result = or(ctx.narrow(&BitOpStep::Step(j)), record_id, &b[j - 1], &c[j]).await?;
+            let result = or(ctx.narrow(&BitOpStep::from(j)), record_id, &b[j - 1], &c[j]).await?;
             b.push(result);
         }
         Ok(b)
@@ -194,7 +197,7 @@ impl PrefixOr {
         let mut mul = Vec::new();
         for (i, f_bit) in f.iter().enumerate() {
             for (j, b_bit) in b.iter().enumerate() {
-                let c = ctx.narrow(&BitOpStep::Step(lambda * i + j));
+                let c = ctx.narrow(&BitOpStep::from(lambda * i + j));
                 mul.push(c.multiply(record_id, f_bit, b_bit));
             }
         }
@@ -305,6 +308,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::PrefixOr;
     use crate::protocol::context::Context;
+    use crate::rand::thread_rng;
     use crate::{
         error::Error,
         ff::{Field, Fp2, Fp31},
@@ -314,7 +318,8 @@ mod tests {
     };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
-    use rand::{rngs::mock::StepRng, Rng};
+    use rand::rngs::mock::StepRng;
+    use rand::Rng;
     use std::iter::zip;
 
     const BITS: [usize; 2] = [16, 32];
@@ -360,7 +365,7 @@ mod tests {
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_2
     pub async fn fp2() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,
@@ -390,7 +395,7 @@ mod tests {
     #[tokio::test]
     /// Test PrefixOr with the input ⊆ F_p (i.e. Fp31)
     pub async fn fp31() -> Result<(), Error> {
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
 
         // Test n-bit (n = BITS[i]) bitwise shares with randomly distributed
         // bits, for 16 times. The probability of i'th bit being 0 is 1/2^i,

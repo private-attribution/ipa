@@ -249,14 +249,16 @@ mod tests {
     use std::iter::{repeat, zip};
 
     use crate::error::Error;
-    use crate::ff::Fp31;
+    use crate::ff::{Field, Fp31, Fp32BitPrime};
+    use crate::helpers::Role;
+    use crate::protocol::context::Context;
     use crate::protocol::mul::SecureMul;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
+    use crate::rand::thread_rng;
     use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::test_fixture::{join3v, share, Reconstruct, TestWorld};
+    use crate::test_fixture::{join3v, share, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
-    use rand::thread_rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -274,8 +276,8 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -320,6 +322,50 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn upgrade_only() {
+        let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Fp32BitPrime>();
+
+        let result = world
+            .semi_honest(a, |ctx, a| async move {
+                let v = MaliciousValidator::new(ctx);
+                let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                v.validate(m).await.unwrap()
+            })
+            .await;
+        assert_eq!(a, result.reconstruct());
+    }
+
+    #[tokio::test]
+    async fn upgrade_only_tweaked() {
+        let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
+
+        let a = rng.gen::<Fp32BitPrime>();
+
+        for malicious_actor in Role::all() {
+            world
+                .semi_honest(a, |ctx, a| async move {
+                    let a = if ctx.role() == *malicious_actor {
+                        // This role is spoiling the value.
+                        Replicated::new(a.left(), a.right() + Fp32BitPrime::ONE)
+                    } else {
+                        a
+                    };
+                    let v = MaliciousValidator::new(ctx);
+                    let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                    match v.validate(m).await {
+                        Ok(result) => panic!("Got a result {:?}", result),
+                        Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
+                    }
+                })
+                .await;
+        }
+    }
+
     /// This is a big more complex arithmetic circuit that tests the validator a bit more thoroughly
     /// input1   -
     ///              input1 * input2
@@ -342,8 +388,8 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(100);

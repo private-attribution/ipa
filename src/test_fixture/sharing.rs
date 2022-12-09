@@ -2,15 +2,39 @@ use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::RecordId;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::secret_sharing::{MaliciousReplicated, Replicated, XorReplicated};
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{join, try_join_all};
 use rand::{
     distributions::{Distribution, Standard},
     Rng, RngCore,
 };
 use std::borrow::Borrow;
 use std::iter::{repeat, zip};
+
+#[derive(Clone, Copy)]
+pub struct MaskedMatchKey(u64);
+
+impl MaskedMatchKey {
+    pub const BITS: u32 = 23;
+    const MASK: u64 = u64::MAX >> (64 - Self::BITS);
+
+    #[must_use]
+    pub fn mask(v: u64) -> Self {
+        Self(v & Self::MASK)
+    }
+
+    #[must_use]
+    pub fn bit(self, bit_num: u32) -> u64 {
+        (self.0 >> bit_num) & 1
+    }
+}
+
+impl From<MaskedMatchKey> for u64 {
+    fn from(v: MaskedMatchKey) -> Self {
+        v.0
+    }
+}
 
 pub trait IntoShares<T>: Sized {
     fn share(self) -> [T; 3] {
@@ -53,15 +77,31 @@ where
 }
 
 // TODO: make a macro so we can use arbitrary-sized tuples
-impl<V, W, T> IntoShares<(T, T)> for (V, W)
+impl<T, U, V, W> IntoShares<(T, U)> for (V, W)
 where
+    T: Sized,
+    U: Sized,
     V: IntoShares<T>,
-    W: IntoShares<T>,
+    W: IntoShares<U>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [(T, T); 3] {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [(T, U); 3] {
         let [a0, a1, a2] = self.0.share_with(rng);
         let [b0, b1, b2] = self.1.share_with(rng);
         [(a0, b0), (a1, b1), (a2, b2)]
+    }
+}
+
+impl IntoShares<XorReplicated> for MaskedMatchKey {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [XorReplicated; 3] {
+        debug_assert_eq!(self.0, self.0 & Self::MASK);
+        let s0 = rng.gen::<u64>() & Self::MASK;
+        let s1 = rng.gen::<u64>() & Self::MASK;
+        let s2 = self.0 ^ s0 ^ s1;
+        [
+            XorReplicated::new(s0, s1),
+            XorReplicated::new(s1, s2),
+            XorReplicated::new(s2, s0),
+        ]
     }
 }
 
@@ -88,10 +128,12 @@ pub fn into_bits<F: Field>(x: F) -> Vec<F> {
         .collect::<Vec<_>>()
 }
 
-/// Deconstructs a value into N values, one for each bit.
+/// Deconstructs a value into N values, one for each bi3t.
+/// # Panics
+/// It won't
 #[must_use]
-pub fn get_bits<F: Field>(x: u32, num_bits: usize) -> Vec<F> {
-    (0..num_bits)
+pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
+    (0..num_bits.try_into().unwrap())
         .map(|i| F::from(((x >> i) & 1).into()))
         .collect::<Vec<_>>()
 }
@@ -103,26 +145,44 @@ pub trait IntoMalicious<F: Field, M> {
 }
 
 #[async_trait]
+pub trait IntoMaliciousBit<F: Field, M> {
+    async fn upgrade_bit(self, ctx: MaliciousContext<'_, F>, bit: u32) -> M;
+}
+
+#[async_trait]
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
     async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
         ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
     }
 }
-
 #[async_trait]
-impl<F: Field> IntoMalicious<F, (MaliciousReplicated<F>, MaliciousReplicated<F>)>
-    for (Replicated<F>, Replicated<F>)
-{
-    async fn upgrade<'a>(
+impl<F: Field> IntoMaliciousBit<F, MaliciousReplicated<F>> for Replicated<F> {
+    async fn upgrade_bit<'a>(
         self,
         ctx: MaliciousContext<'a, F>,
-    ) -> (MaliciousReplicated<F>, MaliciousReplicated<F>) {
-        try_join(
-            ctx.upgrade(RecordId::from(0_u32), self.0),
-            ctx.upgrade(RecordId::from(1_u32), self.1),
+        bit: u32,
+    ) -> MaliciousReplicated<F> {
+        ctx.upgrade_bit(RecordId::from(0_u32), bit, self)
+            .await
+            .unwrap()
+    }
+}
+
+#[async_trait]
+impl<F, T, TM, U, UM> IntoMalicious<F, (TM, UM)> for (T, U)
+where
+    F: Field,
+    T: IntoMaliciousBit<F, TM> + Send,
+    U: IntoMaliciousBit<F, UM> + Send,
+    TM: Sized + Send,
+    UM: Sized + Send,
+{
+    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> (TM, UM) {
+        join(
+            self.0.upgrade_bit(ctx.clone(), 0),
+            self.1.upgrade_bit(ctx, 1),
         )
         .await
-        .unwrap()
     }
 }
 
@@ -139,6 +199,26 @@ where
                 ctx.upgrade(RecordId::from(i), share).await
             }),
         )
+        .await
+        .unwrap()
+    }
+}
+
+#[async_trait]
+impl<F, I> IntoMaliciousBit<F, Vec<MaliciousReplicated<F>>> for I
+where
+    F: Field,
+    I: IntoIterator<Item = Replicated<F>> + Send,
+    <I as IntoIterator>::IntoIter: Send,
+{
+    async fn upgrade_bit<'a>(
+        self,
+        ctx: MaliciousContext<'a, F>,
+        bit: u32,
+    ) -> Vec<MaliciousReplicated<F>> {
+        try_join_all(zip(repeat(ctx), self.into_iter().enumerate()).map(
+            |(ctx, (i, share))| async move { ctx.upgrade_bit(RecordId::from(i), bit, share).await },
+        ))
         .await
         .unwrap()
     }
@@ -178,13 +258,28 @@ impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     }
 }
 
-impl<F: Field, T: Borrow<Replicated<F>>> Reconstruct<F> for (T, T, T) {
+impl<F, T, U, V> Reconstruct<F> for (T, U, V)
+where
+    F: Field,
+    T: Borrow<Replicated<F>>,
+    U: Borrow<Replicated<F>>,
+    V: Borrow<Replicated<F>>,
+{
     fn reconstruct(&self) -> F {
         [self.0.borrow(), self.1.borrow(), self.2.borrow()].reconstruct()
     }
 }
 
-impl<I, T> Reconstruct<Vec<T>> for [Vec<I>; 3]
+impl<I, T> Reconstruct<T> for [Vec<I>; 3]
+where
+    for<'v> [&'v Vec<I>; 3]: Reconstruct<T>,
+{
+    fn reconstruct(&self) -> T {
+        [&self[0], &self[1], &self[2]].reconstruct()
+    }
+}
+
+impl<I, T> Reconstruct<Vec<T>> for [&Vec<I>; 3]
 where
     for<'i> [&'i I; 3]: Reconstruct<T>,
 {

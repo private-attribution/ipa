@@ -1,13 +1,13 @@
+use super::any_ones;
 use super::or::or;
-use super::BitOpStep;
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::boolean::check_if_all_ones;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
+use crate::protocol::{context::Context, mul::SecureMul, BitOpStep, RecordId};
 use crate::secret_sharing::Replicated;
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join;
 use std::cmp::Ordering;
-use std::iter::repeat;
 
 /// This is an implementation of Bitwise Less-Than on bitwise-shared numbers.
 ///
@@ -44,8 +44,8 @@ impl BitwiseLessThanPrime {
         match x.len().cmp(&l_as_usize) {
             Ordering::Greater => {
                 let (leading_ones, normal_check) = try_join(
-                    Self::any_ones(
-                        &ctx.narrow(&Step::CheckIfAnyOnes),
+                    any_ones(
+                        ctx.narrow(&Step::CheckIfAnyOnes),
                         record_id,
                         &x[l_as_usize..],
                     ),
@@ -92,7 +92,7 @@ impl BitwiseLessThanPrime {
         // In that special case, the only way for `x >= p` is if `x == p`,
         // meaning all the bits of `x` are shares of one.
         if prime == (1 << l) - 1 {
-            return Self::check_if_all_ones(&ctx.narrow(&Step::CheckIfAllOnes), record_id, x).await;
+            return check_if_all_ones(ctx.narrow(&Step::CheckIfAllOnes), record_id, x).await;
         }
 
         // Assume this is an Fp32BitPrime
@@ -104,7 +104,7 @@ impl BitwiseLessThanPrime {
                     record_id,
                     &x[0..3],
                 ),
-                Self::check_if_all_ones(&ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
+                check_if_all_ones(ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
             )
             .await?;
             return ctx
@@ -119,52 +119,6 @@ impl BitwiseLessThanPrime {
         // Not implemented for any other type of prime. Please add to this if you create a new type of Field which
         // is neither a Mersenne Prime, nor which is equal to `2^n - 5` for some value of `n`
         panic!();
-    }
-
-    /// To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
-    /// We can minimize circuit depth by doing this in a binary-tree like fashion, where pairs of shares are multiplied together
-    /// and those results are recursively multiplied.
-    pub async fn check_if_all_ones<F: Field>(
-        ctx: &SemiHonestContext<'_, F>,
-        record_id: RecordId,
-        x: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
-        let mut todo = x.to_vec();
-        let mut mult_count = 0;
-
-        while todo.len() > 1 {
-            let half = todo.len() / 2;
-            let mut multiplications = Vec::with_capacity(half);
-            for i in 0..half {
-                multiplications.push(ctx.narrow(&BitOpStep::Step(mult_count)).multiply(
-                    record_id,
-                    &todo[2 * i],
-                    &todo[2 * i + 1],
-                ));
-                mult_count += 1;
-            }
-            let mut results = try_join_all(multiplications).await?;
-            if todo.len() % 2 == 1 {
-                results.push(todo.pop().unwrap());
-            }
-            todo = results;
-        }
-        Ok(todo[0].clone())
-    }
-
-    pub async fn any_ones<F: Field>(
-        ctx: &SemiHonestContext<'_, F>,
-        record_id: RecordId,
-        x: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
-        let one = ctx.share_of_one();
-        let inverted_elements = x
-            .iter()
-            .zip(repeat(one.clone()))
-            .map(|(a, one)| one - a)
-            .collect::<Vec<_>>();
-        let res = Self::check_if_all_ones(ctx, record_id, &inverted_elements).await?;
-        Ok(one - &res)
     }
 
     /// This is a *special case* implementation which assumes the prime is all ones except for the least significant bits which are: `[1 1 0]` (little-endian)
@@ -185,12 +139,12 @@ impl BitwiseLessThanPrime {
         debug_assert!(prime & 0b111 == 0b011);
         debug_assert!(x.len() == 3);
         let least_significant_two_bits_both_one = ctx
-            .narrow(&BitOpStep::Step(0))
+            .narrow(&BitOpStep::from(0))
             .multiply(record_id, &x[0], &x[1])
             .await?;
         let pivot_bit = &x[2];
         let least_significant_three_bits_all_equal_to_prime = ctx
-            .narrow(&BitOpStep::Step(1))
+            .narrow(&BitOpStep::from(1))
             .multiply(
                 record_id,
                 &least_significant_two_bits_both_one,
@@ -198,7 +152,7 @@ impl BitwiseLessThanPrime {
             )
             .await?;
         or(
-            ctx.narrow(&BitOpStep::Step(2)),
+            ctx.narrow(&BitOpStep::from(2)),
             record_id,
             pivot_bit,
             &least_significant_three_bits_all_equal_to_prime,
@@ -316,7 +270,7 @@ mod tests {
         );
     }
 
-    async fn bitwise_less_than_prime<F: Field>(a: u32, num_bits: usize) -> F
+    async fn bitwise_less_than_prime<F: Field>(a: u32, num_bits: u32) -> F
     where
         F: Sized,
         Standard: Distribution<F>,
