@@ -7,22 +7,26 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply_inv, shuffle::shuffle_shares};
+#[embed_doc_image("secureapplyinv", "images/sort/secureapplyinv.png")]
 
 /// This is an implementation of ApplyInv (Algorithm 4) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>
+///
 /// This is a protocol that applies the inverse of a secret-shared permutation to a vector of secret-shared values
 /// Input: Each helpers know their own secret shares of input and permutation
 /// Output: At the end of the protocol, all helpers receive inputs after the permutation is applied
-#[embed_doc_image("secureapplyinv", "images/sort/secureapplyinv.png")]
 /// This algorithm applies a permutation to the `input` vector. The permutation is secret-shared,
 /// and none of the helpers should learn it through this protocol.
 /// To keep the permutation secret, it (and the inputs) are first randomly securely shuffled.
 /// After this shuffle, the permutation can be revealed.
 /// An adversary can only obtain a shuffled permutation, which is just a random permutation.
-/// Steps
+///
 /// ![Secure Apply Inv steps][secureapplyinv]
+///
+/// Steps
+///
 /// 1. Generate random permutations using prss
 /// 2. Secret shared permutation is shuffled with random permutations
 /// 3. Secret shared value is shuffled using the same random permutations
@@ -97,10 +101,10 @@ mod tests {
                             ctx,
                             m_shares,
                             (
-                                perm_and_randoms.1 .0.as_slice(),
-                                perm_and_randoms.1 .1.as_slice(),
+                                perm_and_randoms.randoms_for_shuffle.0.as_slice(),
+                                perm_and_randoms.randoms_for_shuffle.1.as_slice(),
                             ),
-                            &perm_and_randoms.0,
+                            &perm_and_randoms.revealed,
                         )
                         .await
                         .unwrap()

@@ -14,12 +14,12 @@ use bitvec::prelude::BitVec;
 /// vector has 3 regions and `X` indicates that space at that element is occupied.
 ///
 ///  region1  region2  region3
-/// [X,_,_,_][X,_,X,_][_,X,_,X]
+/// `[X,_,_,_][X,_,X,_][_,X,_,X]`
 ///
 /// Once `region1` is completely filled up, it is possible to drain the vector. Draining will cause
 /// **all** elements from the head of the queue to be removed
 ///
-/// [X,X,X,X][X,_,X,_][_,X,_,X] -> `take` -> [_,X,_,_][X,_,X,_][_,_,_,_]
+/// `[X,X,X,X][X,_,X,_][_,X,_,X] -> `take` -> [_,X,_,_][X,_,X,_][_,_,_,_]`
 ///
 /// This vector is used inside the send buffer to keep track of messages added to it. Once first
 /// batch of messages is ready (region1 is full), it drains this vector and send those messages
@@ -54,6 +54,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
 
         self.added.set(index, true);
         self.data[offset].copy_from_slice(elem);
+    }
+
+    /// Returns `true` if record at the given index exists.
+    pub fn added(&self, index: usize) -> bool {
+        self.added[index]
     }
 
     /// Takes a block of elements from the beginning of the vector, or `None` if
@@ -95,7 +100,7 @@ mod tests {
     const ELEMENT_SIZE: usize = 8;
     fn test_data_at(mut index: usize) -> [u8; ELEMENT_SIZE] {
         if index == 0 {
-            // zeroes are bad as test data
+            // zeros are bad as test data
             index = 255;
         }
         #[allow(clippy::cast_possible_truncation)]
@@ -117,7 +122,10 @@ mod tests {
     fn insert() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
         v.insert_test_data(0);
+        assert!(v.added(0));
         v.insert_test_data(2);
+        assert!(v.added(2));
+        assert!(!v.added(1));
 
         assert_eq!(v.take(1), Some(test_data_at(0).to_vec()));
 

@@ -1,7 +1,9 @@
+use super::Step;
 use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
+
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -11,9 +13,8 @@ use sha2::Sha256;
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
-use x25519_dalek::{EphemeralSecret, PublicKey};
 
-use super::Step;
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 /// Keeps track of all indices used to generate shared randomness inside `IndexedSharedRandomness`.
 /// Any two indices provided to `IndexesSharedRandomness::generate_values` must be unique.
@@ -61,38 +62,16 @@ impl Debug for UsedSet {
     }
 }
 
-/// A participant in a 2-of-N replicated secret sharing.
-#[derive(Debug)] // TODO(mt) custom debug implementation
-pub struct IndexedSharedRandomness {
-    left: Generator,
-    right: Generator,
-    #[cfg(debug_assertions)]
-    used: UsedSet,
-}
-
-/// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
-/// You can read about it in the seminal paper:
-/// "Share Conversion, Pseudorandom Secret-Sharing and Applications to Secure Computation"
-/// by Ronald Cramer, Ivan Damgård, and Yuval Ishai - 2005
-/// <https://link.springer.com/content/pdf/10.1007/978-3-540-30576-7_19.pdf>
-impl IndexedSharedRandomness {
+pub trait SharedRandomness {
     /// Generate two random values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
-    pub fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
-        let index = index.into();
-        #[cfg(debug_assertions)]
-        {
-            self.used.insert(index);
-        }
-
-        (self.left.generate(index), self.right.generate(index))
-    }
+    fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128);
 
     /// Generate two random field values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
-    pub fn generate_fields<F: Field, I: Into<u128>>(&self, index: I) -> (F, F) {
+    fn generate_fields<F: Field, I: Into<u128>>(&self, index: I) -> (F, F) {
         let (l, r) = self.generate_values(index);
         (F::from(l), F::from(r))
     }
@@ -106,7 +85,7 @@ impl IndexedSharedRandomness {
     /// <https://eprint.iacr.org/2018/387.pdf>
     ///
     #[must_use]
-    pub fn generate_replicated<F: Field, I: Into<u128>>(&self, index: I) -> Replicated<F> {
+    fn generate_replicated<F: Field, I: Into<u128>>(&self, index: I) -> Replicated<F> {
         let (l, r) = self.generate_fields(index);
         Replicated::new(l, r)
     }
@@ -117,14 +96,14 @@ impl IndexedSharedRandomness {
     /// and subtract their right value, each share will be added once (as a left share)
     /// and subtracted once (as a right share), resulting in values that sum to zero.
     #[must_use]
-    pub fn zero_u128<I: Into<u128>>(&self, index: I) -> u128 {
+    fn zero_u128<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l.wrapping_sub(r)
     }
 
     /// Generate an XOR share of zero.
     #[must_use]
-    pub fn zero_xor<I: Into<u128>>(&self, index: I) -> u128 {
+    fn zero_xor<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l ^ r
     }
@@ -135,23 +114,49 @@ impl IndexedSharedRandomness {
     /// using a wrapping add, the result won't be even because the high bit will
     /// wrap around and populate the low bit.
     #[must_use]
-    pub fn random_u128<I: Into<u128>>(&self, index: I) -> u128 {
+    fn random_u128<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l.wrapping_add(r)
     }
 
     /// Generate additive shares of zero in a field.
     #[must_use]
-    pub fn zero<F: Field, I: Into<u128>>(&self, index: I) -> F {
+    fn zero<F: Field, I: Into<u128>>(&self, index: I) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
         l - r
     }
 
     /// Generate additive shares of a random field value.
     #[must_use]
-    pub fn random<F: Field, I: Into<u128>>(&self, index: I) -> F {
+    fn random<F: Field, I: Into<u128>>(&self, index: I) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
         l + r
+    }
+}
+
+/// A participant in a 2-of-N replicated secret sharing.
+/// Pseudorandom Secret-Sharing has many applications to the 3-party, replicated secret sharing scheme
+/// You can read about it in the seminal paper:
+/// "Share Conversion, Pseudorandom Secret-Sharing and Applications to Secure Computation"
+/// by Ronald Cramer, Ivan Damgård, and Yuval Ishai - 2005
+/// <https://link.springer.com/content/pdf/10.1007/978-3-540-30576-7_19.pdf>
+#[derive(Debug)] // TODO(mt) custom debug implementation
+pub struct IndexedSharedRandomness {
+    left: Generator,
+    right: Generator,
+    #[cfg(debug_assertions)]
+    used: UsedSet,
+}
+
+impl SharedRandomness for IndexedSharedRandomness {
+    fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128) {
+        let index = index.into();
+        #[cfg(debug_assertions)]
+        {
+            self.used.insert(index);
+        }
+
+        (self.left.generate(index), self.right.generate(index))
     }
 }
 
@@ -392,9 +397,10 @@ impl Generator {
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
+    use crate::protocol::prss::SharedRandomness;
+    use crate::rand::{thread_rng, Rng};
     use crate::{ff::Fp31, protocol::Step, test_fixture::make_participants};
     use rand::prelude::SliceRandom;
-    use rand::{thread_rng, Rng};
     use std::mem::drop;
 
     fn make() -> (Generator, Generator) {

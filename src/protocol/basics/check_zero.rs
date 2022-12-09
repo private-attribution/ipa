@@ -1,6 +1,6 @@
+use crate::protocol::basics::{reveal::Reveal, SecureMul};
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::mul::SecureMul;
-use crate::protocol::reveal::Reveal;
+use crate::protocol::prss::SharedRandomness;
 use crate::{
     error::Error,
     ff::Field,
@@ -61,14 +61,12 @@ impl AsRef<str> for Step {
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-#[allow(dead_code)]
 pub async fn check_zero<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
-    let prss = &ctx.prss();
-    let r_sharing = prss.generate_replicated(record_id);
+    let r_sharing = ctx.prss().generate_replicated(record_id);
 
     let rv_share = ctx
         .narrow(&Step::MultiplyWithR)
@@ -87,21 +85,23 @@ mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::context::Context;
-    use crate::protocol::{check_zero::check_zero, QueryId, RecordId};
-    use crate::test_fixture::{share, TestWorld};
+    use crate::protocol::{basics::check_zero, QueryId, RecordId};
+    use crate::rand::thread_rng;
+    use crate::secret_sharing::IntoShares;
+    use crate::test_fixture::TestWorld;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let context = world.contexts();
-        let mut rng = rand::thread_rng();
+        let world = TestWorld::new(QueryId);
+        let context = world.contexts::<Fp31>();
+        let mut rng = thread_rng();
         let mut counter = 0_u32;
 
         for v in 0..u32::from(Fp31::PRIME) {
             let v = Fp31::from(v);
             let mut num_false_positives = 0;
             for _ in 0..10 {
-                let v_shares = share(v, &mut rng);
+                let v_shares = v.share_with(&mut rng);
                 let record_id = RecordId::from(0_u32);
                 let iteration = format!("{}", counter);
                 counter += 1;

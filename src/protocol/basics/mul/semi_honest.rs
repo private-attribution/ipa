@@ -1,69 +1,89 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, RecordId};
+use crate::protocol::prss::SharedRandomness;
+use crate::protocol::{
+    basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
+    context::{Context, SemiHonestContext},
+    RecordId,
+};
 use crate::secret_sharing::Replicated;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
 /// K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, and B. Pinkas. High-throughput secure AES computation. In WAHC@CCS 2018, pp. 13–24, 2018
-
 /// Executes the secure multiplication on the MPC helper side. Each helper will proceed with
 /// their part, eventually producing 2/3 shares of the product and that is what this function
 /// returns.
 ///
+///
+/// The `zeros_at` argument indicates where there are known zeros in the inputs.
+///
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
-pub async fn secure_mul<F>(
+pub async fn multiply<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
+    zeros: MultiplyZeroPositions,
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
-    let channel = ctx.mesh();
-
-    // generate shared randomness.
-    let prss = ctx.prss();
-    let (s0, s1) = prss.generate_fields(record_id);
     let role = ctx.role();
+    let [need_to_recv, need_to_send, need_random_right] = zeros.work_for(role);
+    zeros.0.check(role, "a", a);
+    zeros.1.check(role, "b", b);
 
-    // compute the value (d_i) we want to send to the right helper (i+1)
-    let right_d = a.left() * b.right() + a.right() * b.left() - s0;
+    // Shared randomness used to mask the values that are sent.
+    let (s0, s1) = ctx.prss().generate_fields(record_id);
 
-    // notify helper on the right that we've computed our value
-    channel
-        .send(role.peer(Direction::Right), record_id, right_d)
-        .await?;
+    let channel = ctx.mesh();
+    let mut rhs = a.right() * b.right();
+    if need_to_send {
+        // Compute the value (d_i) we want to send to the right helper (i+1).
+        let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
-    // Sleep until helper on the left sends us their (d_i-1) value
-    let left_d = channel
-        .receive(role.peer(Direction::Left), record_id)
-        .await?;
+        channel
+            .send(role.peer(Direction::Right), record_id, right_d)
+            .await?;
+        rhs += right_d;
+    } else {
+        debug_assert_eq!(a.left() * b.right() + a.right() * b.left(), F::ZERO);
+    }
+    // Add randomness to this value whether we sent or not, depending on whether the
+    // peer to the right needed to send.  If they send, they subtract randomness,
+    // and we need to add to our share to compensate.
+    if need_random_right {
+        rhs += s1;
+    }
 
-    // now we are ready to construct the result - 2/3 secret shares of a * b.
-    let lhs = a.left() * b.left() + left_d + s0;
-    let rhs = a.right() * b.right() + right_d + s1;
+    // Sleep until helper on the left sends us their (d_i-1) value.
+    let mut lhs = a.left() * b.left();
+    if need_to_recv {
+        let left_d = channel
+            .receive(role.peer(Direction::Left), record_id)
+            .await?;
+        lhs += left_d;
+    }
+    // If we send, we subtract randomness, so we need to add to our share.
+    if need_to_send {
+        lhs += s0;
+    }
 
     Ok(Replicated::new(lhs, rhs))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
+mod test {
     use crate::ff::{Field, Fp31};
-    use crate::protocol::mul::SecureMul;
-    use crate::protocol::{QueryId, RecordId};
-
+    use crate::protocol::{basics::SecureMul, QueryId, RecordId};
+    use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
-    use proptest::prelude::Rng;
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
-    use rand::thread_rng;
+    use rand::distributions::{Distribution, Standard};
     use std::iter::{repeat, zip};
 
     #[tokio::test]
@@ -101,7 +121,6 @@ mod tests {
     /// `TestHelper`'s ability to distinguish messages of the same type sent towards helpers
     /// executing multiple same type protocols
     #[tokio::test]
-    #[allow(clippy::cast_possible_truncation)]
     pub async fn concurrent_mul() {
         const COUNT: usize = 10;
         let world = TestWorld::new(QueryId);
@@ -124,7 +143,7 @@ mod tests {
         assert_eq!(expected, results.reconstruct());
     }
 
-    async fn multiply_sync<F>(world: &TestWorld<F>, a: u128, b: u128) -> u128
+    async fn multiply_sync<F>(world: &TestWorld, a: u128, b: u128) -> u128
     where
         F: Field,
         (F, F): Sized,

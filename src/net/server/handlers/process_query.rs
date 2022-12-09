@@ -17,7 +17,7 @@ struct RoleQueryParam {
     role: Role,
 }
 
-/// After an [`OwnedPermit`] has been reserved, it can be used once to send an item on the channel.
+/// After an [`mpsc::OwnedPermit`] has been reserved, it can be used once to send an item on the channel.
 ///
 /// Panics if cloned while a permit exists. the `Clone` implementation must exist so that
 /// `ReservedPermit` can be added to a request via an `Extension`, which requires `Clone`. However,
@@ -85,9 +85,9 @@ pub async fn obtain_permit_mw<B: Send>(
 }
 
 /// extracts the [`MessageChunks`] from the request and forwards it to the Message layer via the
-/// `permit`. If we try to extract the `permit` via the `Extension`'s `FromRequest` implementation,
-/// it will call `.clone()` on it, which will remove the `OwnedPermit`. Thus, we must access the
-/// `permit` via `Request::extensions_mut`, which returns [`Extensions`] without cloning.
+/// `permit`. If we try to extract the [`ReservedPermit`] via the `Extensions`'s `FromRequest` implementation,
+/// it will call `.clone()` on it, which will remove the [`mpsc::OwnedPermit`]. Thus, we must access the
+/// `[ReservedPermit]` via [`Request::extensions_mut`], which returns `Extensions` without cloning.
 pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError> {
     // prepare data
     let channel_id = req.extensions().get::<ChannelId>().unwrap().clone();

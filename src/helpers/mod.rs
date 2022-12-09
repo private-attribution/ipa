@@ -31,9 +31,9 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
     serde(try_from = "&str")
 )]
 pub enum Role {
-    H1,
-    H2,
-    H3,
+    H1 = 0,
+    H2 = 1,
+    H3 = 2,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -43,9 +43,9 @@ pub enum Direction {
 }
 
 impl Role {
-    const H1_STR: &'static str = "h1";
-    const H2_STR: &'static str = "h2";
-    const H3_STR: &'static str = "h3";
+    const H1_STR: &'static str = "H1";
+    const H2_STR: &'static str = "H2";
+    const H3_STR: &'static str = "H3";
 
     #[must_use]
     pub fn all() -> &'static [Role; 3] {
@@ -61,6 +61,15 @@ impl Role {
             (H1, Left) | (H2, Right) => H3,
             (H1, Right) | (H3, Left) => H2,
             (H3, Right) | (H2, Left) => H1,
+        }
+    }
+
+    #[must_use]
+    pub fn as_static_str(&self) -> &'static str {
+        match self {
+            H1 => Role::H1_STR,
+            H2 => Role::H2_STR,
+            H3 => Role::H3_STR,
         }
     }
 }

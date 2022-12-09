@@ -1,13 +1,11 @@
-mod attribution;
-mod batch;
+pub mod attribution;
+pub mod basics;
 pub mod boolean;
-mod check_zero;
 pub mod context;
+pub mod ipa;
 pub mod malicious;
-mod modulus_conversion;
-pub mod mul;
+pub mod modulus_conversion;
 pub mod prss;
-mod reveal;
 pub mod sort;
 
 use crate::error::Error;
@@ -30,7 +28,7 @@ use std::ops::AddAssign;
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Substep: AsRef<str> {}
+pub trait Substep: AsRef<str> + Send + Sync {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
@@ -114,35 +112,81 @@ impl From<&str> for Step {
     }
 }
 
+/// A macro that helps in declaring steps that contain a small number of values.
+#[macro_export]
+macro_rules! repeat64str {
+    [$pfx:literal] => {
+        repeat64str![$pfx 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63]
+    };
+    [$pfx:literal $($v:literal)*] => {
+        [ $(concat!($pfx, stringify!($v))),* ]
+    }
+}
+
+/// A step generator for bitwise secure operations.
+///
+/// For each record, we decompose a value into bits (i.e. credits in the
+/// Attribution protocol), and execute some binary operations like OR'ing each
+/// bit. For each bitwise secure computation, we need to "narrow" the context
+/// with a new step to make sure we are using an unique PRSS.
+///
+/// This is a temporary solution for narrowing contexts until the infra is
+/// updated with a new step scheme.
+pub struct BitOpStep(usize);
+
+impl crate::protocol::Substep for BitOpStep {}
+
+impl AsRef<str> for BitOpStep {
+    fn as_ref(&self) -> &str {
+        const BIT_OP: [&str; 64] = repeat64str!["bit"];
+        BIT_OP[self.0]
+    }
+}
+
+impl From<i32> for BitOpStep {
+    fn from(v: i32) -> Self {
+        Self(usize::try_from(v).unwrap())
+    }
+}
+
+impl From<u32> for BitOpStep {
+    fn from(v: u32) -> Self {
+        Self(usize::try_from(v).unwrap())
+    }
+}
+
+impl From<usize> for BitOpStep {
+    fn from(v: usize) -> Self {
+        Self(v)
+    }
+}
+
 /// Set of steps that define the IPA protocol.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
+    ModulusConversion(u32),
     /// Sort shares by the match key
-    Sort(u8),
+    Sort(u32),
     /// Perform attribution.
     Attribution,
+    SortPreAccumulation,
 }
 
 impl Substep for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
-        const SORT: [&str; 64] = [
-            "sort0", "sort1", "sort2", "sort3", "sort4", "sort5", "sort6", "sort7", "sort8",
-            "sort9", "sort10", "sort11", "sort12", "sort13", "sort14", "sort15", "sort16",
-            "sort17", "sort18", "sort19", "sort20", "sort21", "sort22", "sort23", "sort24",
-            "sort25", "sort26", "sort27", "sort28", "sort29", "sort30", "sort31", "sort32",
-            "sort33", "sort34", "sort35", "sort36", "sort37", "sort38", "sort39", "sort40",
-            "sort41", "sort42", "sort43", "sort44", "sort45", "sort46", "sort47", "sort48",
-            "sort49", "sort50", "sort51", "sort52", "sort53", "sort54", "sort55", "sort56",
-            "sort57", "sort58", "sort59", "sort60", "sort61", "sort62", "sort63",
-        ];
+        const MODULUS_CONVERSION: [&str; 64] = repeat64str!["mc"];
+        const SORT: [&str; 64] = repeat64str!["sort"];
+
         match self {
             Self::ConvertShares => "convert",
-            Self::Sort(i) => SORT[usize::from(*i)],
+            Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],
+            Self::ModulusConversion(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
             Self::Attribution => "attribution",
+            Self::SortPreAccumulation => "sort_pre_accumulation",
         }
     }
 }

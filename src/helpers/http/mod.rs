@@ -10,10 +10,7 @@ use crate::{
         discovery::{peer, PeerDiscovery},
         BindTarget, MessageSendMap, MpcHelperServer,
     },
-    protocol::{
-        boolean::random_bits_generator::RandomBitsGenerator, context::SemiHonestContext, prss,
-        QueryId, RecordId, Step,
-    },
+    protocol::{context::SemiHonestContext, prss, QueryId, RecordId, Step},
     task::JoinHandle,
 };
 use prss_exchange_protocol::{PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk};
@@ -125,9 +122,8 @@ impl<'p> HttpHelper<'p> {
         &'b self,
         gateway: &'c Gateway,
         participant: &'d prss::Endpoint,
-        rbg: &'e RandomBitsGenerator<F>,
     ) -> SemiHonestContext<'a, F> {
-        SemiHonestContext::new(self.role, participant, gateway, rbg)
+        SemiHonestContext::new(self.role, participant, gateway)
     }
 }
 
@@ -138,8 +134,8 @@ mod e2e_tests {
         ff::Fp31,
         helpers::SendBufferConfig,
         net::discovery,
-        protocol::{context::Context, mul::SecureMul, RecordId},
-        test_fixture::{logging, share, Reconstruct},
+        protocol::{basics::mul::SecureMul, context::Context, prss::SharedRandomness, RecordId},
+        test_fixture::{logging, IntoShares, Reconstruct},
     };
     use rand::rngs::mock::StepRng;
     use rand::rngs::StdRng;
@@ -230,10 +226,9 @@ mod e2e_tests {
         let (participant1, participant2, participant3) =
             tokio::try_join!(participant1, participant2, participant3).unwrap();
 
-        let rbg = RandomBitsGenerator::<Fp31>::new();
-        let ctx1 = h1.context(&gateway1, &participant1, &rbg);
-        let ctx2 = h2.context(&gateway2, &participant2, &rbg);
-        let ctx3 = h3.context(&gateway3, &participant3, &rbg);
+        let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
+        let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
+        let ctx3 = h3.context::<Fp31>(&gateway3, &participant3);
 
         let idx = 0u128;
         let (left1, right1) = ctx1.prss().generate_values(idx);
@@ -252,9 +247,9 @@ mod e2e_tests {
         let (participant1, participant2, participant3) =
             tokio::try_join!(participant1, participant2, participant3).unwrap();
 
-        let ctx1 = h1.context(&gateway1, &participant1, &rbg);
-        let ctx2 = h2.context(&gateway2, &participant2, &rbg);
-        let ctx3 = h3.context(&gateway3, &participant3, &rbg);
+        let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
+        let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
+        let ctx3 = h3.context::<Fp31>(&gateway3, &participant3);
 
         let idx = 0u128;
         let (second_left1, second_right1) = ctx1.prss().generate_values(idx);
@@ -298,18 +293,18 @@ mod e2e_tests {
         let (participant1, participant2, participant3) =
             tokio::try_join!(participant1, participant2, participant3).unwrap();
 
-        let rbg = RandomBitsGenerator::<Fp31>::new();
-        let ctx1 = h1.context(&gateway1, &participant1, &rbg);
-        let ctx2 = h2.context(&gateway2, &participant2, &rbg);
-        let ctx3 = h3.context(&gateway3, &participant3, &rbg);
+        let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
+        let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
+        let ctx3 = h3.context::<Fp31>(&gateway3, &participant3);
 
         let mut rand = StepRng::new(1, 1);
 
         let record_id = RecordId::from(0u32);
         let a = 5u128;
         let b = 6u128;
-        let a_shared = share(Fp31::from(a), &mut rand);
-        let b_shared = share(Fp31::from(b), &mut rand);
+
+        let a_shared = Fp31::from(a).share_with(&mut rand);
+        let b_shared = Fp31::from(b).share_with(&mut rand);
 
         let input = tokio::try_join!(
             ctx1.multiply(record_id, &a_shared[0], &b_shared[0]),

@@ -4,6 +4,7 @@ use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::sync::atomic::{AtomicUsize, Ordering};
+use crate::test_fixture::metrics::MetricsHandle;
 use crate::{
     ff::Field,
     helpers::{
@@ -11,16 +12,26 @@ use crate::{
         Role, SendBufferConfig,
     },
     protocol::{
-        boolean::random_bits_generator::RandomBitsGenerator,
         context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
         QueryId,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
+    test_fixture::{logging, make_participants, network::InMemoryNetwork},
 };
+
+use std::io::stdout;
+
+use std::mem::ManuallyDrop;
+use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
+
+use crate::protocol::Substep;
+use crate::secret_sharing::IntoShares;
+use crate::telemetry::stats::Metrics;
+use crate::telemetry::StepStatsCsvExporter;
+use tracing::Level;
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},
@@ -31,19 +42,23 @@ use super::{
 /// For now the messages sent through it never leave the test infra memory perimeter, so
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
-#[derive(Debug)]
-pub struct TestWorld<F: Field> {
-    pub query_id: QueryId,
-    pub gateways: [Gateway; 3],
-    pub participants: [PrssEndpoint; 3],
-    pub(super) executions: AtomicUsize,
+pub struct TestWorld {
+    gateways: ManuallyDrop<[Gateway; 3]>,
+    participants: [PrssEndpoint; 3],
+    executions: AtomicUsize,
+    metrics_handle: MetricsHandle,
+    joined: AtomicBool,
+    _query_id: QueryId,
     _network: Arc<InMemoryNetwork>,
-    pub rbg: [RandomBitsGenerator<F>; 3],
 }
 
 #[derive(Copy, Clone)]
 pub struct TestWorldConfig {
     pub gateway_config: GatewayConfig,
+    /// Level for metrics span. If set to the tracing level or above (controlled by `RUST_LOG` and
+    /// `logging` module) will result in metrics being recorded by this test world instance.
+    /// recorded by this test world unless `RUST_LOG` for this crate is set to
+    pub metrics_level: Level,
 }
 
 impl Default for TestWorldConfig {
@@ -65,19 +80,31 @@ impl Default for TestWorldConfig {
                     batch_count: 40,
                 },
             },
+            /// Disable metrics by default because `logging` only enables `Level::INFO` spans.
+            /// Can be overridden by setting `RUST_LOG` environment variable to match this level.
+            metrics_level: Level::DEBUG,
         }
     }
 }
 
-impl<F: Field> TestWorld<F> {
+impl TestWorldConfig {
+    pub fn enable_metrics(&mut self) -> &mut Self {
+        self.metrics_level = Level::INFO;
+        self
+    }
+}
+
+impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld<F> {
+    pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
+        let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
         let network = InMemoryNetwork::new();
+
         let gateways = network
             .endpoints
             .iter()
@@ -85,27 +112,21 @@ impl<F: Field> TestWorld<F> {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let rbg = (0..)
-            .take(3)
-            .map(|_| RandomBitsGenerator::new())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
 
         TestWorld {
-            query_id,
-            gateways,
+            gateways: ManuallyDrop::new(gateways),
             participants,
             executions: AtomicUsize::new(0),
+            metrics_handle,
+            joined: AtomicBool::new(false),
+            _query_id: query_id,
             _network: network,
-            rbg,
         }
     }
 
-    /// Creates a new `TestWorld` instance.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn new(query_id: QueryId) -> TestWorld<F> {
+    pub fn new(query_id: QueryId) -> TestWorld {
         let config = TestWorldConfig::default();
         Self::new_with(query_id, config)
     }
@@ -115,19 +136,56 @@ impl<F: Field> TestWorld<F> {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts(&self) -> [SemiHonestContext<'_, F>; 3] {
+    pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
-        let run = format!("run-{execution}");
-        zip(
-            Role::all(),
-            zip(&self.participants, zip(&self.gateways, &self.rbg)),
-        )
-        .map(|(role, (participant, (gateway, rbg)))| {
-            SemiHonestContext::new(*role, participant, gateway, rbg).narrow(&run)
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
+        zip(Role::all(), zip(&self.participants, &*self.gateways))
+            .map(|(role, (participant, gateway))| {
+                SemiHonestContext::new(*role, participant, gateway)
+                    .narrow(&Self::execution_step(execution))
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+
+    #[must_use]
+    pub fn metrics_snapshot(&self) -> Metrics {
+        self.metrics_handle.snapshot()
+    }
+
+    #[must_use]
+    pub fn execution_step(execution: usize) -> impl Substep {
+        format!("run-{execution}")
+    }
+
+    pub fn gateway(&self, role: Role) -> &Gateway {
+        &self.gateways[role]
+    }
+
+    #[cfg(not(feature = "shuttle"))]
+    pub async fn join(mut self) {
+        // SAFETY: self is consumed by this method, so nobody can access gateways field after
+        // calling this method.
+        // joined flag is used inside the destructor to avoid double-free
+        if !self.joined.swap(true, Ordering::Release) {
+            let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
+            for gateway in gateways {
+                gateway.join().await;
+            }
+        }
+    }
+}
+
+impl Drop for TestWorld {
+    fn drop(&mut self) {
+        if !self.joined.load(Ordering::Acquire) {
+            unsafe { ManuallyDrop::drop(&mut self.gateways) };
+        }
+
+        if tracing::span_enabled!(Level::DEBUG) {
+            let metrics = self.metrics_handle.snapshot();
+            metrics.export(&mut stdout()).unwrap();
+        }
     }
 }
 
@@ -155,7 +213,7 @@ pub trait Runner<I, A, F> {
 }
 
 #[async_trait]
-impl<I, A, F> Runner<I, A, F> for TestWorld<F>
+impl<I, A, F> Runner<I, A, F> for TestWorld
 where
     I: 'static + IntoShares<A> + Send,
     A: Send,
@@ -163,7 +221,6 @@ where
 {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
-        F: Field,
         O: Send + Debug,
         H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
         R: Future<Output = O> + Send,
@@ -183,7 +240,6 @@ where
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
         A: IntoMalicious<F, M>,
-        F: Field,
         O: Send + Debug,
         M: Send,
         H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,

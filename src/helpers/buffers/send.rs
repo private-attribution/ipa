@@ -20,11 +20,16 @@ type ByteBuf = FixedSizeByteVec<{ MESSAGE_PAYLOAD_SIZE_BYTES }>;
 pub struct SendBuffer {
     items_in_batch: usize,
     batch_count: usize,
-    inner: HashMap<ChannelId, ByteBuf>,
+    pub(super) inner: HashMap<ChannelId, ByteBuf>,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum PushError {
+    #[error("Record {record_id:?} has been received twice")]
+    Duplicate {
+        channel_id: ChannelId,
+        record_id: RecordId,
+    },
     #[error("Record {record_id:?} is out of accepted range {accepted_range:?}")]
     OutOfRange {
         channel_id: ChannelId,
@@ -83,26 +88,56 @@ impl SendBuffer {
         };
 
         // Make sure record id is within the accepted range and reject the request if it is not
-        let start = RecordId::from(u32::try_from(buf.taken()).unwrap());
-        let end = RecordId::from(u32::try_from(buf.taken() + buf.capacity()).unwrap());
+        let range = Range::from(&*buf);
 
-        if !(start..end).contains(&msg.record_id) {
+        if !range.contains(&msg.record_id) {
             return Err(PushError::OutOfRange {
                 channel_id: channel_id.clone(),
                 record_id: msg.record_id,
-                accepted_range: (start..end),
+                accepted_range: range,
             });
         }
 
         // Determine the offset for this record and insert the payload inside the buffer.
         // Message payload may be less than allocated capacity per element, if that's the case
         // payload will be extended to fill the gap.
-        let index = usize::from(msg.record_id) - usize::from(start);
+        let index = usize::from(msg.record_id) - usize::from(range.start);
         // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
-        buf.insert(index, &payload);
-        Ok(buf.take(self.items_in_batch))
+        if buf.added(index) {
+            Err(PushError::Duplicate {
+                channel_id: channel_id.clone(),
+                record_id: msg.record_id,
+            })
+        } else {
+            buf.insert(index, &payload);
+            Ok(buf.take(self.items_in_batch))
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    pub(in crate::helpers) fn waiting(&self) -> super::waiting::WaitingTasks {
+        use super::waiting::WaitingTasks;
+
+        let mut tasks = HashMap::new();
+        for (channel, buf) in &self.inner {
+            let range = Range::from(buf);
+            let taken = u32::try_from(buf.taken()).unwrap();
+            let range = (u32::from(range.start) - taken)..(u32::from(range.end) - taken);
+            // Only report any gaps ahead of the first available value. If buffer is entirely empty
+            // there are no waiting tasks.
+            let missing = range
+                .take_while(|&i| !buf.added(usize::try_from(i).unwrap()))
+                .map(|i| taken + i)
+                .collect::<Vec<_>>();
+
+            if !missing.is_empty() && missing.len() < buf.capacity() {
+                tasks.insert(channel, missing);
+            }
+        }
+
+        WaitingTasks::new(tasks)
     }
 }
 
@@ -124,6 +159,14 @@ impl Config {
     }
 }
 
+impl From<&ByteBuf> for Range<RecordId> {
+    fn from(buf: &ByteBuf) -> Self {
+        let start = RecordId::from(u32::try_from(buf.taken()).unwrap());
+        let end = RecordId::from(u32::try_from(buf.taken() + buf.capacity()).unwrap());
+        start..end
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
@@ -131,7 +174,7 @@ mod tests {
     use crate::helpers::network::{ChannelId, MessageEnvelope};
     use crate::helpers::Role;
     use crate::protocol::{RecordId, Step};
-    use std::mem::drop;
+
     use tinyvec::array_vec;
 
     impl Clone for MessageEnvelope {
@@ -198,7 +241,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn rejects_duplicates() {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
         let channel = ChannelId::new(Role::H1, Step::default());
@@ -207,7 +249,10 @@ mod tests {
         let m2 = empty_msg(record_id);
 
         assert!(matches!(buf.push(&channel, &m1), Ok(None)));
-        drop(buf.push(&channel, &m2));
+        assert!(matches!(
+            buf.push(&channel, &m2),
+            Err(PushError::Duplicate { .. })
+        ));
     }
 
     #[test]

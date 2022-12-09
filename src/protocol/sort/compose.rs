@@ -4,24 +4,28 @@ use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 
+#[embed_doc_image("compose", "images/sort/compose.png")]
 /// This is an implementation of Compose (Algorithm 5) found in the paper:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>
+///
 /// This protocol composes two permutations by applying one secret-shared permutation(sigma) to another secret-shared permutation(rho)
 /// Input: First permutation(sigma) i.e. permutation that sorts all i-1th bits and other permutation(rho) i.e. sort permutation for ith bit
 /// Output: All helpers receive secret shares of permutation which sort inputs until ith bits.
-
-#[embed_doc_image("compose", "images/sort/compose.png")]
+///
 /// This algorithm composes two permutations (`rho` and `sigma`). Both permutations are secret-shared,
 /// and none of the helpers should learn it through this protocol.
+///
 /// Steps
-/// ![Compose steps][compose]
+///
 /// 1. Generate random permutations using prss
 /// 2. First permutation (sigma) is shuffled with random permutations
 /// 3. Reveal the permutation
 /// 4. Revealed permutation is applied locally on another permutation shares (rho)
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
+///
+/// ![Compose steps][compose]
 pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     ctx: C,
     random_permutations_for_shuffle: (&[u32], &[u32]),
@@ -43,6 +47,7 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::protocol::context::Context;
+    use crate::rand::thread_rng;
     use crate::test_fixture::{Reconstruct, Runner};
     use crate::{
         ff::Fp31,
@@ -61,8 +66,8 @@ mod tests {
     pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
         let world = TestWorld::new(QueryId);
-        let mut rng_sigma = rand::thread_rng();
-        let mut rng_rho = rand::thread_rng();
+        let mut rng_sigma = thread_rng();
+        let mut rng_rho = thread_rng();
 
         let mut sigma: Vec<u32> = (0..BATCHSIZE).collect();
         sigma.shuffle(&mut rng_sigma);
@@ -91,10 +96,10 @@ mod tests {
                     compose(
                         ctx,
                         (
-                            sigma_and_randoms.1 .0.as_slice(),
-                            sigma_and_randoms.1 .1.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.0.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.1.as_slice(),
                         ),
-                        &sigma_and_randoms.0,
+                        &sigma_and_randoms.revealed,
                         m_rho_shares,
                     )
                     .await

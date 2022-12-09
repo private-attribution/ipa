@@ -1,14 +1,16 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::MaliciousContext;
-use crate::protocol::mul::semi_honest_mul;
-use crate::protocol::{context::Context, RecordId};
+use crate::protocol::{
+    basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
+    context::{Context, MaliciousContext},
+    RecordId,
+};
 use crate::secret_sharing::MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub(crate) enum Step {
     DuplicateMultiply,
     RandomnessForValidation,
 }
@@ -55,11 +57,12 @@ impl AsRef<str> for Step {
 /// back via the error response
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
-pub async fn secure_mul<F>(
+pub async fn multiply<F>(
     ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
+    zeros_at: MultiplyZeroPositions,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
@@ -70,23 +73,24 @@ where
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
     let (ab, rab) = try_join(
-        semi_honest_mul(
-            ctx.semi_honest_context(),
+        ctx.semi_honest_context().multiply_sparse(
             record_id,
             a.x().access_without_downgrade(),
             b.x().access_without_downgrade(),
+            zeros_at,
         ),
-        semi_honest_mul(
-            duplicate_multiply_ctx.semi_honest_context(),
-            record_id,
-            a.rx(),
-            b.x().access_without_downgrade(),
-        ),
+        duplicate_multiply_ctx
+            .semi_honest_context()
+            .multiply_sparse(
+                record_id,
+                a.rx(),
+                b.x().access_without_downgrade(),
+                (ZeroPositions::Pvvv, zeros_at.1),
+            ),
     )
     .await?;
 
     let malicious_ab = MaliciousReplicated::new(ab, rab);
-
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)
@@ -96,10 +100,10 @@ where
 mod test {
     use crate::{
         ff::Fp31,
-        protocol::{mul::SecureMul, QueryId, RecordId},
+        protocol::{basics::SecureMul, QueryId, RecordId},
+        rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use rand::{thread_rng, Rng};
 
     #[tokio::test]
     pub async fn simple() {

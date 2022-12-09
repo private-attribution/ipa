@@ -2,10 +2,9 @@ use bitvec::bitvec;
 use embed_doc_image::embed_doc_image;
 
 #[embed_doc_image("apply", "images/sort/apply.png")]
-#[embed_doc_image("apply_inv", "images/sort/apply_inv.png")]
-
 /// Permutation reorders (1, 2, . . . , m) into (σ(1), σ(2), . . . , σ(m)).
 /// For example, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is reordered into (C, D, B, A) by σ.
+///
 /// ![Apply steps][apply]
 pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
     debug_assert!(permutation.len() == values.len());
@@ -25,10 +24,12 @@ pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
     }
 }
 
+#[embed_doc_image("applyinv", "images/sort/apply_inv.png")]
 /// To compute `apply_inv` on values, permutation(i) can be regarded as the destination of i, i.e., the i-th item
 /// is moved by `apply_inv` to be the σ(i)-th item. Therefore, if σ(1) = 2, σ(2) = 3, σ(3) = 1, and σ(4) = 0, an input (A, B, C, D) is
 /// reordered into (D, C, A, B).
-/// ![Apply inv steps][apply_inv]
+///
+/// ![Apply inv steps][applyinv]
 pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
     let mut permuted = bitvec![0; permutation.len()];
 
@@ -47,6 +48,7 @@ pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{apply, apply_inv};
+    use crate::rand::thread_rng;
     use rand::seq::SliceRandom;
 
     #[test]
@@ -113,7 +115,7 @@ mod tests {
         let mut permutation: Vec<u32> = (0..SUPER_LONG)
             .map(|i| usize::try_into(i).unwrap())
             .collect();
-        let mut rng = rand::thread_rng();
+        let mut rng = thread_rng();
         permutation.shuffle(&mut rng);
 
         let mut after_apply = original_values.clone();

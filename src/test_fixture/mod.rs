@@ -2,7 +2,9 @@ mod sharing;
 mod world;
 
 pub mod circuit;
+pub mod ipa_input_row;
 pub mod logging;
+pub mod metrics;
 pub mod network;
 
 use crate::ff::{Field, Fp31};
@@ -10,13 +12,15 @@ use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::rand::thread_rng;
+pub use crate::secret_sharing::IntoShares;
 use crate::secret_sharing::{Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
+pub use ipa_input_row::IPAInputTestRow;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
-pub use sharing::{get_bits, into_bits, share, IntoShares, Reconstruct};
+pub use sharing::{get_bits, into_bits, MaskedMatchKey, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 
@@ -74,7 +78,7 @@ where
     let mut shares2 = Vec::with_capacity(len);
 
     for i in input {
-        let [s0, s1, s2] = share(F::from(*i), &mut rand);
+        let [s0, s1, s2] = F::from(*i).share_with(&mut rand);
         shares0.push(s0);
         shares1.push(s1);
         shares2.push(s2);

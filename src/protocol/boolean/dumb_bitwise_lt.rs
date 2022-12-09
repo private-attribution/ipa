@@ -1,10 +1,9 @@
-use super::xor::xor;
-use super::{align_bit_lengths, BitOpStep};
+use super::align_bit_lengths;
+use super::xor;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::protocol::{context::Context, BitOpStep, RecordId};
+use crate::secret_sharing::SecretSharing;
 use futures::future::{try_join, try_join_all};
 use std::iter::zip;
 
@@ -33,18 +32,23 @@ impl BitwiseLessThan {
     ///   [b] = 1 1 0 0 1 0 0 1
     ///   =>    0 0 0 1 1 1 1 1
     /// ```
-    async fn xor_all_but_lsb<F: Field>(
-        a: &[Replicated<F>],
-        b: &[Replicated<F>],
-        ctx: SemiHonestContext<'_, F>,
+    async fn xor_all_but_lsb<F, C, S>(
+        a: &[S],
+        b: &[S],
+        ctx: C,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, Error> {
+    ) -> Result<Vec<S>, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let xor = zip(a, b)
             .enumerate()
             .skip(1)
             .rev()
             .map(|(i, (a_bit, b_bit))| {
-                let c = ctx.narrow(&BitOpStep::Step(i));
+                let c = ctx.narrow(&BitOpStep::from(i));
                 async move { xor(c, record_id, a_bit, b_bit).await }
             });
         try_join_all(xor).await
@@ -60,14 +64,19 @@ impl BitwiseLessThan {
     ///   [b] = 1 1 0 0 1 0 0 1
     ///   =>    0 0 0 0 1 0 0 1
     /// ```
-    async fn less_than_all_bits<F: Field>(
-        a: &[Replicated<F>],
-        b: &[Replicated<F>],
-        ctx: SemiHonestContext<'_, F>,
+    async fn less_than_all_bits<F, C, S>(
+        a: &[S],
+        b: &[S],
+        ctx: C,
         record_id: RecordId,
-    ) -> Result<Vec<Replicated<F>>, Error> {
+    ) -> Result<Vec<S>, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let less_than = zip(a, b).enumerate().rev().map(|(i, (a_bit, b_bit))| {
-            let c = ctx.narrow(&BitOpStep::Step(i));
+            let c = ctx.narrow(&BitOpStep::from(i));
             let one = c.share_of_one();
             async move { c.multiply(record_id, &(one - a_bit), b_bit).await }
         });
@@ -82,14 +91,17 @@ impl BitwiseLessThan {
     /// For any the other bit `j`: check if `a_i == b_i` for `i = 0..j-1` AND `(a_j == 0 && b_j == 1)`
     /// Finally, since at most one of these conditions can be true, it is sufficient to just add up
     /// all of these conditions. That sum is logically equivalent to an OR of all conditions.
-    #[allow(dead_code)]
+    ///
+    /// ## Errors
+    /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+    /// back via the error response
     #[allow(clippy::many_single_char_names)]
-    pub async fn execute<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
-        record_id: RecordId,
-        a: &[Replicated<F>],
-        b: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
+    pub async fn execute<F, C, S>(ctx: C, record_id: RecordId, a: &[S], b: &[S]) -> Result<S, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let (a, b) = align_bit_lengths(a, b);
 
         let (xored_bits, less_thaned_bits) = try_join(
@@ -105,12 +117,12 @@ impl BitwiseLessThan {
         let prefix_equal_context = ctx.narrow(&Step::PrefixEqual);
         for i in 1..(less_thaned_bits.len() - 1) {
             let (ith_bit_condition, prefix) = try_join(
-                check_each_bit_context.narrow(&BitOpStep::Step(i)).multiply(
+                check_each_bit_context.narrow(&BitOpStep::from(i)).multiply(
                     record_id,
                     &less_thaned_bits[i],
                     &all_preceeding_bits_the_same,
                 ),
-                prefix_equal_context.narrow(&BitOpStep::Step(i)).multiply(
+                prefix_equal_context.narrow(&BitOpStep::from(i)).multiply(
                     record_id,
                     &(one.clone() - &xored_bits[i]),
                     &all_preceeding_bits_the_same,
@@ -122,7 +134,7 @@ impl BitwiseLessThan {
         }
         let final_index = a.len() - 1;
         let final_bit_condition = check_each_bit_context
-            .narrow(&BitOpStep::Step(final_index))
+            .narrow(&BitOpStep::from(final_index))
             .multiply(
                 record_id,
                 &less_thaned_bits[final_index],
@@ -151,6 +163,157 @@ impl AsRef<str> for Step {
             Self::BitwiseALessThanB => "bitwise_a_lt_b",
             Self::CheckEachBit => "check_each_bit",
             Self::PrefixEqual => "prefix_equal",
+        }
+    }
+}
+
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
+    use super::BitwiseLessThan;
+    use crate::rand::thread_rng;
+    use crate::test_fixture::{get_bits, Runner};
+    use crate::{
+        ff::{Field, Fp31, Fp32BitPrime},
+        protocol::{QueryId, RecordId},
+        test_fixture::{into_bits, Reconstruct, TestWorld},
+    };
+    use proptest::prelude::Rng;
+    use rand::{distributions::Standard, prelude::Distribution};
+
+    async fn bitwise_lt<F: Field>(world: &TestWorld, a: F, b: F) -> F
+    where
+        (F, F): Sized,
+        Standard: Distribution<F>,
+    {
+        let input = (into_bits(a), into_bits(b));
+        let result = world
+            .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let m_result = world
+            .malicious(input, |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
+    }
+
+    #[tokio::test]
+    pub async fn fp31() {
+        let c = Fp31::from;
+        let zero = Fp31::ZERO;
+        let one = Fp31::ONE;
+        let world = TestWorld::new(QueryId);
+
+        assert_eq!(one, bitwise_lt(&world, zero, one).await);
+        assert_eq!(zero, bitwise_lt(&world, one, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, one, one).await);
+
+        assert_eq!(one, bitwise_lt(&world, c(3_u8), c(7)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(21), c(20)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(9), c(9)).await);
+
+        assert_eq!(zero, bitwise_lt(&world, zero, c(Fp31::PRIME)).await);
+    }
+
+    #[tokio::test]
+    pub async fn fp_32bit_prime() {
+        let c = Fp32BitPrime::from;
+        let zero = Fp32BitPrime::ZERO;
+        let one = Fp32BitPrime::ONE;
+        let u16_max: u32 = u16::MAX.into();
+        let world = TestWorld::new(QueryId);
+
+        assert_eq!(one, bitwise_lt(&world, zero, one).await);
+        assert_eq!(zero, bitwise_lt(&world, one, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, zero).await);
+        assert_eq!(zero, bitwise_lt(&world, one, one).await);
+
+        assert_eq!(one, bitwise_lt(&world, c(3_u32), c(7)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(21), c(20)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(9), c(9)).await);
+
+        assert_eq!(one, bitwise_lt(&world, c(u16_max), c(u16_max + 1)).await);
+        assert_eq!(zero, bitwise_lt(&world, c(u16_max + 1), c(u16_max)).await);
+        assert_eq!(
+            one,
+            bitwise_lt(&world, c(u16_max), c(Fp32BitPrime::PRIME - 1)).await
+        );
+
+        assert_eq!(zero, bitwise_lt(&world, zero, c(Fp32BitPrime::PRIME)).await);
+    }
+
+    #[tokio::test]
+    pub async fn cmp_different_bit_lengths() {
+        let world = TestWorld::new(QueryId);
+
+        let input = (
+            get_bits::<Fp31>(3, 8), // 8-bit
+            get_bits::<Fp31>(5, 5), // 5-bit
+        );
+        let result = world
+            .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let m_result = world
+            .malicious(input, |ctx, (a_share, b_share)| async move {
+                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        assert_eq!(Fp31::ONE, result);
+    }
+
+    // this test is for manual execution only
+    #[ignore]
+    #[tokio::test]
+    pub async fn cmp_random_32_bit_prime_field_elements() {
+        let world = TestWorld::new(QueryId);
+        let mut rand = thread_rng();
+        for _ in 0..1000 {
+            let a = rand.gen::<Fp32BitPrime>();
+            let b = rand.gen::<Fp32BitPrime>();
+            assert_eq!(
+                Fp32BitPrime::from(a.as_u128() < b.as_u128()),
+                bitwise_lt(&world, a, b).await
+            );
+        }
+    }
+
+    // this test is for manual execution only
+    #[ignore]
+    #[tokio::test]
+    pub async fn cmp_all_fp31() {
+        let world = TestWorld::new(QueryId);
+        for a in 0..Fp31::PRIME {
+            for b in 0..Fp31::PRIME {
+                assert_eq!(
+                    Fp31::from(a < b),
+                    bitwise_lt(&world, Fp31::from(a), Fp31::from(b)).await
+                );
+            }
         }
     }
 }

@@ -92,6 +92,10 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
 /// Given a vector containing secret shares of a permutation, this returns a revealed permutation.
 /// This executes `reveal` protocol on each row of the vector and then constructs a `Permutation` object
 /// from the revealed rows.
+/// # Errors
+/// If we cant convert F to u128
+/// # Panics
+/// If we cant convert F to u128
 pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     ctx: C,
     permutation: &[S],
@@ -112,34 +116,35 @@ pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Sha
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use crate::rand::thread_rng;
     use futures::future::{try_join, try_join3};
     use proptest::prelude::Rng;
-    use rand::thread_rng;
     use std::iter::zip;
 
+    use crate::secret_sharing::IntoShares;
     use crate::{
         error::Error,
         ff::{Field, Fp31},
         helpers::Direction,
+        protocol::{basics::Reveal, malicious::MaliciousValidator},
         protocol::{
             context::{Context, MaliciousContext},
             QueryId, RecordId,
         },
-        protocol::{malicious::MaliciousValidator, reveal::Reveal},
         secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
-        test_fixture::{join3, join3v, share, TestWorld},
+        test_fixture::{join3, join3v, TestWorld},
     };
 
     #[tokio::test]
     pub async fn simple() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let ctx = world.contexts::<Fp31>();
 
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
             let input = Fp31::from(secret);
-            let share = share(input, &mut rng);
+            let share = input.share_with(&mut rng);
             let record_id = RecordId::from(i);
             let results = join3(
                 ctx[0].clone().reveal(record_id, &share[0]),
@@ -158,8 +163,8 @@ mod tests {
     #[tokio::test]
     pub async fn malicious() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let sh_ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
 
         for i in 0..10_u32 {
@@ -167,7 +172,7 @@ mod tests {
             let input: Fp31 = rng.gen();
 
             let m_shares = join3v(
-                zip(v.iter(), share(input, &mut rng))
+                zip(v.iter(), input.share_with(&mut rng))
                     .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
             )
             .await;
@@ -188,8 +193,8 @@ mod tests {
     #[tokio::test]
     pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::<Fp31>::new(QueryId);
-        let sh_ctx = world.contexts();
+        let world = TestWorld::new(QueryId);
+        let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
 
         for i in 0..10 {
@@ -197,7 +202,7 @@ mod tests {
             let input: Fp31 = rng.gen();
 
             let m_shares = join3v(
-                zip(v.iter(), share(input, &mut rng))
+                zip(v.iter(), input.share_with(&mut rng))
                     .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
             )
             .await;

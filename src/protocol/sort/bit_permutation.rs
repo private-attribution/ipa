@@ -10,13 +10,13 @@ use crate::{
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
 
+#[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
 /// This is an implementation of `GenBitPerm` (Algorithm 3) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
 /// <https://eprint.iacr.org/2019/695.pdf>.
-#[embed_doc_image("bit_permutation", "images/sort/bit_permutations.png")]
-/// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
 ///
+/// Protocol to compute a secret sharing of a permutation, after sorting on just one bit.
 /// At a high level, the protocol works as follows:
 /// 1. Start with a list of `n` secret shares `[x_1]` ... `[x_n]` where each is a secret sharing of either zero or one.
 /// 2. Create a vector of length `2*n` where the first `n` rows have the values `[1 - x_1]` ... `[1 - x_n]`
@@ -41,7 +41,7 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
     let mult_input = zip(repeat(share_of_one.clone()), input)
         .map(|(one, x)| one - x)
         .chain(input.iter().cloned())
-        .scan(S::default(), |sum, x| {
+        .scan(S::ZERO, |sum, x| {
             *sum += &x;
             Some((x, sum.clone()))
         });

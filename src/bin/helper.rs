@@ -6,7 +6,7 @@ use raw_ipa::{
     ff::Fp31,
     helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
     net::discovery,
-    protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, Step},
+    protocol::{QueryId, Step},
 };
 use std::error::Error;
 use std::str::FromStr;
@@ -55,8 +55,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .prss_endpoint(&gateway, &step, &mut thread_rng())
         .await
         .expect("unable to setup prss");
-    let rbg = RandomBitsGenerator::<Fp31>::new();
-    let _ctx = helper.context(&gateway, &prss_endpoint, &rbg);
+    let _ctx = helper.context::<Fp31>(&gateway, &prss_endpoint);
 
     info!(
         "listening to {}://{}, press Enter to quit",
