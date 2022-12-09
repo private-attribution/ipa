@@ -208,6 +208,7 @@ field_impl! { Fp32BitPrime, u32 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
+    use proptest::proptest;
     use super::{Field, Fp2, Fp31, Fp32BitPrime};
 
     #[allow(clippy::eq_op)]
@@ -333,4 +334,40 @@ mod test {
         let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
         assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
     }
+
+    #[test]
+    fn ser_not_enough_capacity() {
+        let mut buf = [0; 0];
+        assert!(matches!(
+            Fp31::ONE.serialize(&mut buf),
+            Err(e) if e.kind() == std::io::ErrorKind::WriteZero));
+    }
+
+    #[test]
+    fn can_write_into_buf_larger_than_required() {
+        let mut buf = [0; 24];
+
+        // panic will show the error while assert will just tell us that something went wrong
+        Fp31::ONE.serialize(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn de_buf_too_small() {
+        let mut buf = [0; 0];
+        assert!(matches!(
+            Fp31::deserialize(&mut buf),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
+    }
+
+    proptest! {
+        #[test]
+        fn serde(v in 0..Fp31::PRIME) {
+            let field_v = Fp31(v);
+            let mut buf = vec![0; Fp31::SIZE_IN_BYTES as usize];
+            field_v.serialize(&mut buf).unwrap();
+
+            assert_eq!(field_v, Fp31::deserialize(&mut buf).unwrap());
+        }
+    }
+
 }
