@@ -232,7 +232,7 @@ mod tests {
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
                     .unwrap();
-                v.validate(Some(m_bit)).await.unwrap().1.unwrap()
+                v.validate(Some(m_bit)).await.unwrap().unwrap()
             })
             .await;
         assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());

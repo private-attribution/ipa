@@ -417,7 +417,7 @@ pub(in crate::protocol) mod test {
                             .await
                             .unwrap();
 
-                        v.validate(Some(m_ab)).await.unwrap().1.unwrap()
+                        v.validate(Some(m_ab)).await.unwrap().unwrap()
                     })
                     .await;
                 check_output_zeros(&result, (a, b));

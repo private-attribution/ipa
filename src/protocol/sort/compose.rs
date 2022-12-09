@@ -85,7 +85,7 @@ mod tests {
                     rho.into_iter().map(Fp31::from),
                 ),
                 |ctx, (m_sigma_shares, m_rho_shares)| async move {
-                    let reveal_permutation_output = shuffle_and_reveal_permutation(
+                    let sigma_and_randoms = shuffle_and_reveal_permutation(
                         ctx.narrow("shuffle_reveal"),
                         BATCHSIZE,
                         m_sigma_shares,
@@ -97,20 +97,10 @@ mod tests {
                     compose(
                         ctx,
                         (
-                            reveal_permutation_output
-                                .reveal_and_random_permutation
-                                .randoms_for_shuffle
-                                .0
-                                .as_slice(),
-                            reveal_permutation_output
-                                .reveal_and_random_permutation
-                                .randoms_for_shuffle
-                                .1
-                                .as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.0.as_slice(),
+                            sigma_and_randoms.randoms_for_shuffle.1.as_slice(),
                         ),
-                        &reveal_permutation_output
-                            .reveal_and_random_permutation
-                            .revealed,
+                        &sigma_and_randoms.revealed,
                         m_rho_shares,
                     )
                     .await

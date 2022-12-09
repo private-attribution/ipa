@@ -6,7 +6,8 @@ use crate::{
         context::Context,
         malicious::MaliciousValidator,
         sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
+            ApplyInv, BitPermutationStep, ComposeStep, Malicious, ShuffleRevealPermutation,
+            SortKeys,
         },
         sort::{
             bit_permutation::bit_permutation,
@@ -35,11 +36,6 @@ pub struct RevealedAndRandomPermutations {
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
 }
 
-#[derive(Debug)]
-pub struct RevealPermutationOutput<'a, F: Field> {
-    pub semihonest_context: Option<SemiHonestContext<'a, F>>,
-    pub reveal_and_random_permutation: RevealedAndRandomPermutations,
-}
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -53,7 +49,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
     input_len: u32,
     input_permutation: Vec<S>,
     malicious_validator: Option<MaliciousValidator<'_, F>>,
-) -> Result<RevealPermutationOutput<'_, F>, Error> {
+) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
         ctx.narrow(&GeneratePermutation).prss_rng(),
@@ -69,26 +65,19 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    let mut semihonest_context = None;
     if let Some(malicious_validator) = malicious_validator {
-        semihonest_context = Some(
-            malicious_validator
-                .validate::<MaliciousReplicated<F>>(None)
-                .await?
-                .0,
-        );
+        malicious_validator
+            .validate::<MaliciousReplicated<F>>(None)
+            .await?;
     }
 
     // Still using the malicious context to call the reveal. Not sure if this is correct
     let revealed_permutation =
         reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
 
-    Ok(RevealPermutationOutput {
-        semihonest_context,
-        reveal_and_random_permutation: RevealedAndRandomPermutations {
-            revealed: revealed_permutation,
-            randoms_for_shuffle: random_permutations_for_shuffle,
-        },
+    Ok(RevealedAndRandomPermutations {
+        revealed: revealed_permutation,
+        randoms_for_shuffle: random_permutations_for_shuffle,
     })
 }
 
@@ -130,7 +119,7 @@ where
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
-        let reveal_permutation_output = shuffle_and_reveal_permutation(
+        let reveal_and_random_permutation = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
@@ -142,20 +131,16 @@ where
             ctx_bit.narrow(&ApplyInv),
             sort_keys[bit_num as usize].clone(),
             (
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .0
                     .as_slice(),
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .1
                     .as_slice(),
             ),
-            &reveal_permutation_output
-                .reveal_and_random_permutation
-                .revealed,
+            &reveal_and_random_permutation.revealed,
         )
         .await?;
 
@@ -168,20 +153,16 @@ where
         let composed_i_permutation = compose(
             ctx_bit.narrow(&ComposeStep),
             (
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .0
                     .as_slice(),
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .1
                     .as_slice(),
             ),
-            &reveal_permutation_output
-                .reveal_and_random_permutation
-                .revealed,
+            &reveal_and_random_permutation.revealed,
             bit_i_permutation,
         )
         .await?;
@@ -203,15 +184,13 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     num_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let sort_permutation = generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits).await?;
-    Ok(shuffle_and_reveal_permutation(
+    shuffle_and_reveal_permutation(
         ctx.narrow(&ShuffleRevealPermutation),
         u32::try_from(sort_keys[0].len()).unwrap(),
         sort_permutation,
         None,
     )
     .await
-    .unwrap()
-    .reveal_and_random_permutation)
 }
 
 #[allow(dead_code)]
@@ -244,14 +223,14 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
 pub async fn malicious_generate_permutation<'a, F>(
-    ctx: SemiHonestContext<'a, F>,
+    sh_ctx: SemiHonestContext<'a, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
 where
     F: Field,
 {
-    let mut malicious_validator = MaliciousValidator::new(ctx);
+    let mut malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Malicious));
     let mut m_ctx = malicious_validator.context();
     let m_ctx_0 = m_ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
@@ -264,7 +243,7 @@ where
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let mut m_ctx_bit = m_ctx.narrow(&Sort(bit_num));
-        let reveal_permutation_output = shuffle_and_reveal_permutation(
+        let reveal_and_random_permutation = shuffle_and_reveal_permutation(
             m_ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
@@ -272,8 +251,7 @@ where
         )
         .await?;
 
-        malicious_validator =
-            MaliciousValidator::new(reveal_permutation_output.semihonest_context.unwrap());
+        malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num)));
         m_ctx_bit = malicious_validator.context();
         let upgraded_sort_keys = m_ctx_bit
             .upgrade_vec(0_usize, sort_keys[bit_num as usize].clone())
@@ -282,20 +260,16 @@ where
             m_ctx_bit.narrow(&ApplyInv),
             upgraded_sort_keys,
             (
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .0
                     .as_slice(),
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .1
                     .as_slice(),
             ),
-            &reveal_permutation_output
-                .reveal_and_random_permutation
-                .revealed,
+            &reveal_and_random_permutation.revealed,
         )
         .await?;
 
@@ -308,20 +282,16 @@ where
         let composed_i_permutation = compose(
             m_ctx_bit.narrow(&ComposeStep),
             (
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .0
                     .as_slice(),
-                reveal_permutation_output
-                    .reveal_and_random_permutation
+                reveal_and_random_permutation
                     .randoms_for_shuffle
                     .1
                     .as_slice(),
             ),
-            &reveal_permutation_output
-                .reveal_and_random_permutation
-                .revealed,
+            &reveal_and_random_permutation.revealed,
             bit_i_permutation,
         )
         .await?;
@@ -420,44 +390,20 @@ mod tests {
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 
-        assert_eq!(
-            perms_and_randoms[0].reveal_and_random_permutation.revealed,
-            perms_and_randoms[1].reveal_and_random_permutation.revealed
-        );
-        assert_eq!(
-            perms_and_randoms[1].reveal_and_random_permutation.revealed,
-            perms_and_randoms[2].reveal_and_random_permutation.revealed
-        );
+        assert_eq!(perms_and_randoms[0].revealed, perms_and_randoms[1].revealed);
+        assert_eq!(perms_and_randoms[1].revealed, perms_and_randoms[2].revealed);
 
         assert_eq!(
-            perms_and_randoms[0]
-                .reveal_and_random_permutation
-                .randoms_for_shuffle
-                .0,
-            perms_and_randoms[2]
-                .reveal_and_random_permutation
-                .randoms_for_shuffle
-                .1
+            perms_and_randoms[0].randoms_for_shuffle.0,
+            perms_and_randoms[2].randoms_for_shuffle.1
         );
         assert_eq!(
-            perms_and_randoms[1]
-                .reveal_and_random_permutation
-                .randoms_for_shuffle
-                .0,
-            perms_and_randoms[0]
-                .reveal_and_random_permutation
-                .randoms_for_shuffle
-                .1
+            perms_and_randoms[1].randoms_for_shuffle.0,
+            perms_and_randoms[0].randoms_for_shuffle.1
         );
         assert_eq!(
-            perms_and_randoms[2]
-                .reveal_and_random_permutation
-                .randoms_for_shuffle
-                .0,
-            perms_and_randoms[1]
-                .reveal_and_random_permutation
-                .randoms_for_shuffle
-                .1
+            perms_and_randoms[2].randoms_for_shuffle.0,
+            perms_and_randoms[1].randoms_for_shuffle.1
         );
     }
 

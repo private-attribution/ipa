@@ -14,6 +14,7 @@ pub enum SortStep {
     BitPermutationStep,
     ApplyInv,
     ComposeStep,
+    Malicious,
     ShuffleRevealPermutation,
     SortKeys,
 }
@@ -26,6 +27,7 @@ impl AsRef<str> for SortStep {
             Self::BitPermutationStep => "bit_permute",
             Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
+            Self::Malicious => "malicious",
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
             Self::SortKeys => "sort_keys",
         }
