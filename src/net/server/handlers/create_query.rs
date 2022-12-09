@@ -377,6 +377,7 @@ mod test {
         use super::*;
         use futures::TryStreamExt;
         use proptest::prelude::*;
+        use rand::{rngs::StdRng, SeedableRng};
 
         prop_compose! {
             fn arb_aligned_bytes(size_in_bytes: u32, max_len: u32)
@@ -386,46 +387,62 @@ mod test {
                 vec
             }
         }
-        prop_compose! {
-            fn arb_chunked_body(vec: Vec<u8>, field_type: &'static str)
-                               (chunk_size in 1..vec.len(), vec in Just(vec))
-            -> ByteArrStream {
-                tokio::runtime::Runtime::new().unwrap().block_on(async move {
-                    let chunked_body = ChunkedBody(
-                        futures::stream::iter(
-                            vec.chunks(chunk_size)
-                                .map(|chunk| Result::<Bytes, hyper::Error>::Ok(Bytes::from(chunk.to_owned())))
-                                .collect::<Vec<_>>()
-                        )
-                    );
 
+        fn random_chunks<R: RngCore>(mut slice: &[u8], rng: &mut R) -> Vec<Vec<u8>> {
+            let mut output = Vec::new();
+            loop {
+                let len = slice.len();
+                let idx = rng.gen_range(1..len);
+                match idx {
+                    split_idx if split_idx == len - 1 => {
+                        output.push(slice.to_vec());
+                        break;
+                    }
+                    split_idx => {
+                        let (next_chunk, remaining) = slice.split_at(split_idx);
+                        output.push(next_chunk.to_vec());
+                        slice = remaining;
+                    }
+                }
+            }
+            output
+        }
+
+        fn arb_chunked_body<R: RngCore>(
+            vec: Vec<u8>,
+            field_type: &'static str,
+            rng: &mut R,
+        ) -> ByteArrStream {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(async move {
+                    let chunked_body = ChunkedBody(futures::stream::iter(
+                        random_chunks(&vec, rng)
+                            .into_iter()
+                            .map(|chunk| Ok(Bytes::from(chunk))),
+                    ));
                     let mut req_parts = RequestParts::new(
-                    Request::post(format!(
-                        "/example?field_type={}",
-                        field_type,
-                    ))
-                    .body(chunked_body)
-                    .unwrap(),
-                );
+                        Request::post(format!("/example?field_type={}", field_type,))
+                            .body(chunked_body)
+                            .unwrap(),
+                    );
 
                     ByteArrStream::from_request(&mut req_parts).await.unwrap()
                 })
-            }
         }
 
         prop_compose! {
-            fn arb_expected_and_chunked_body(size_in_bytes: u32, field_type: &'static str, max_len: u32)
-                                            (expected in arb_aligned_bytes(size_in_bytes, max_len))
-                                            (expected in Just(expected.clone()), chunked in arb_chunked_body(expected, field_type))
-            -> (Vec<u8>, ByteArrStream) {
-                (expected, chunked)
+            fn arb_expected_and_chunked_body(size_in_bytes: u32, max_len: u32, field_type: &'static str)
+                                            (expected in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
+            -> (Vec<u8>, ByteArrStream, u64) {
+                (expected.clone(), arb_chunked_body(expected, field_type, &mut StdRng::seed_from_u64(seed)), seed)
             }
         }
 
         proptest::proptest! {
             #[test]
             fn test_byte_arr_stream_works_with_any_chunks(
-                (expected_bytes, chunked_bytes) in arb_expected_and_chunked_body(ff::Fp32BitPrime::SIZE_IN_BYTES, ff::Fp32BitPrime::TYPE_STR, 100)
+                (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(ff::Fp32BitPrime::SIZE_IN_BYTES, 100, ff::Fp32BitPrime::TYPE_STR)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     let collected = chunked_bytes.try_collect::<Vec<_>>().await.unwrap();
