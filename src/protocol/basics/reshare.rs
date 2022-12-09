@@ -336,7 +336,7 @@ mod tests {
                                 .await
                                 .unwrap()
                         };
-                        match v.validate(Some(m_reshared_a)).await {
+                        match v.validate(m_reshared_a).await {
                             Ok(result) => panic!("Got a result {:?}", result),
                             Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                         }

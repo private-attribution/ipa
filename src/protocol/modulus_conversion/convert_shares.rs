@@ -232,7 +232,7 @@ mod tests {
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
                     .unwrap();
-                v.validate(Some(m_bit)).await.unwrap().unwrap()
+                v.validate(m_bit).await.unwrap()
             })
             .await;
         assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
@@ -295,7 +295,7 @@ mod tests {
                         .await
                         .unwrap();
                     let err = v
-                        .validate(Some(m_bit))
+                        .validate(m_bit)
                         .await
                         .expect_err("This should fail validation");
                     assert!(matches!(err, Error::MaliciousSecurityCheckFailed));

@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         basics::reveal_permutation,
-        context::Context,
+        context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, Malicious, ShuffleRevealPermutation,
@@ -36,6 +36,11 @@ pub struct RevealedAndRandomPermutations {
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
 }
 
+pub struct ShuffledPermutationWrapper<'a, F: Field> {
+    pub val: Vec<MaliciousReplicated<F>>,
+    pub ctx: MaliciousContext<'a, F>,
+}
+
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -65,15 +70,18 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
+    let mut revealed_permutation = Vec::new();
     if let Some(malicious_validator) = malicious_validator {
-        malicious_validator
-            .validate::<MaliciousReplicated<F>>(None)
+        revealed_permutation = malicious_validator
+            .validate(ShuffledPermutationWrapper {
+                val: shuffled_permutation,
+                ctx: malicious_validator.context(),
+            })
             .await?;
-    }
-
-    // Still using the malicious context to call the reveal. Not sure if this is correct
-    let revealed_permutation =
-        reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
+    } else {
+        revealed_permutation =
+            reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
+    };
 
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
