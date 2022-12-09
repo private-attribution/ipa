@@ -10,7 +10,6 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::Extension;
 use hyper::Body;
-
 use tokio::sync::mpsc;
 
 /// Used in the axum handler to extract the `query_id` and `step` from the path of the request

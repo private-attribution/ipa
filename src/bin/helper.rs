@@ -1,13 +1,15 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
+use rand::thread_rng;
 use raw_ipa::{
     cli::Verbosity,
-    helpers::Role,
-    net::{BindTarget, MessageSendMap, MpcHelperServer},
+    ff::Fp31,
+    helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
+    net::discovery,
+    protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, Step},
 };
 use std::error::Error;
-use std::net::SocketAddr;
-use std::panic;
+use std::str::FromStr;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -35,24 +37,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    // decide what protocol we're going to use here
-    let addr = SocketAddr::from(([127, 0, 0, 1], args.port.unwrap_or(0)));
-    let target = match args.scheme.as_str() {
-        "http" => BindTarget::Http(addr),
-        #[cfg(feature = "self-signed-certs")]
-        "https" => {
-            let config = raw_ipa::net::tls_config_from_self_signed_cert().await?;
-            BindTarget::Https(addr, config)
-        }
-        _ => {
-            panic!("\"{}\" protocol is not supported", args.scheme)
-        }
+    let peer_discovery_str =
+        std::fs::read_to_string("./peer_conf.toml").expect("unable to read file");
+    let peer_discovery =
+        discovery::conf::Conf::from_str(&peer_discovery_str).expect("unable to parse config file");
+    let gateway_config = GatewayConfig {
+        send_buffer_config: SendBufferConfig {
+            items_in_batch: 1,
+            batch_count: 40,
+        },
     };
+    let helper = HttpHelper::new(args.role, &peer_discovery, gateway_config);
+    let (addr, server_handle) = helper.bind().await;
+    let gateway = helper.query(QueryId).expect("unable to create gateway");
+    let step = Step::default();
+    let prss_endpoint = helper
+        .prss_endpoint(&gateway, &step, &mut thread_rng())
+        .await
+        .expect("unable to setup prss");
+    let rbg = RandomBitsGenerator::<Fp31>::new();
+    let _ctx = helper.context(&gateway, &prss_endpoint, &rbg);
 
-    // start server
-    let message_send_map = MessageSendMap::default();
-    let server = MpcHelperServer::new(message_send_map);
-    let (addr, server_handle) = server.bind(target).await;
     info!(
         "listening to {}://{}, press Enter to quit",
         args.scheme, addr

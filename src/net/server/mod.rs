@@ -229,10 +229,12 @@ impl MpcHelperServer {
     #[must_use]
     pub(crate) fn router(&self) -> Router {
         Router::new()
+            // query handler
             .route("/query/:query_id/step/*step", post(handlers::query_handler))
             .layer(middleware::from_fn(handlers::obtain_permit_mw))
             .layer(Extension(self.last_seen_messages.clone()))
             .layer(Extension(self.message_send_map.clone()))
+            // echo
             .route("/echo", get(handlers::echo_handler))
     }
 
