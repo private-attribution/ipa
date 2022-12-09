@@ -252,7 +252,9 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
     use crate::rand::thread_rng;
-    use crate::secret_sharing::{share, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
+    use crate::secret_sharing::{
+        IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    };
     use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
@@ -280,8 +282,8 @@ mod tests {
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
 
-        let a_shares = share(a, &mut rng);
-        let b_shares = share(b, &mut rng);
+        let a_shares = a.share_with(&mut rng);
+        let b_shares = b.share_with(&mut rng);
 
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
@@ -396,7 +398,7 @@ mod tests {
         }
         let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
             .iter()
-            .map(|x| share(*x, &mut rng))
+            .map(|x| x.share_with(&mut rng))
             .collect();
         let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
         let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();

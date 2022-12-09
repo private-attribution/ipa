@@ -11,7 +11,7 @@ use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{share, Replicated, SecretSharing};
+use crate::secret_sharing::{IntoShares, Replicated, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
 use rand::distributions::Standard;
@@ -75,7 +75,7 @@ where
     let mut shares2 = Vec::with_capacity(len);
 
     for i in input {
-        let [s0, s1, s2] = share(F::from(*i), &mut rand);
+        let [s0, s1, s2] = F::from(*i).share_with(&mut rand);
         shares0.push(s0);
         shares1.push(s1);
         shares2.push(s2);

@@ -121,7 +121,7 @@ mod tests {
     use proptest::prelude::Rng;
     use std::iter::zip;
 
-    use crate::secret_sharing::share;
+    use crate::secret_sharing::IntoShares;
     use crate::{
         error::Error,
         ff::{Field, Fp31},
@@ -144,7 +144,7 @@ mod tests {
         for i in 0..10_u32 {
             let secret = rng.gen::<u128>();
             let input = Fp31::from(secret);
-            let share = share(input, &mut rng);
+            let share = input.share_with(&mut rng);
             let record_id = RecordId::from(i);
             let results = join3(
                 ctx[0].clone().reveal(record_id, &share[0]),
@@ -172,7 +172,7 @@ mod tests {
             let input: Fp31 = rng.gen();
 
             let m_shares = join3v(
-                zip(v.iter(), share(input, &mut rng))
+                zip(v.iter(), input.share_with(&mut rng))
                     .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
             )
             .await;
@@ -202,7 +202,7 @@ mod tests {
             let input: Fp31 = rng.gen();
 
             let m_shares = join3v(
-                zip(v.iter(), share(input, &mut rng))
+                zip(v.iter(), input.share_with(&mut rng))
                     .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
             )
             .await;

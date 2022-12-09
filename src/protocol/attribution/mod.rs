@@ -154,7 +154,8 @@ impl AsRef<str> for AttributionResharableStep {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ff::Field, protocol::attribution::AttributionInputRow, secret_sharing::share};
+    use crate::secret_sharing::IntoShares;
+    use crate::{ff::Field, protocol::attribution::AttributionInputRow};
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
     use std::iter::zip;
 
@@ -181,10 +182,10 @@ mod tests {
         ];
 
         for x in input {
-            let itb = share(F::from(x[0]), rng);
-            let hb = share(F::from(x[1]), rng);
-            let bk = share(F::from(x[2]), rng);
-            let val = share(F::from(x[3]), rng);
+            let itb = F::from(x[0]).share_with(rng);
+            let hb = F::from(x[1]).share_with(rng);
+            let bk = F::from(x[2]).share_with(rng);
+            let val = F::from(x[3]).share_with(rng);
             for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
                 shares[i].push(AttributionInputRow {
                     is_trigger_bit: itb,
