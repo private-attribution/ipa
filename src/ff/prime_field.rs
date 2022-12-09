@@ -1,5 +1,9 @@
 use super::{field::BinaryField, Field};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
+// something weird is happening and compiler does not see the use of this macro inside field_impl
+// but it happily complains if this import is removed.
+#[allow(unused_imports)]
+use paste::paste;
 
 macro_rules! field_impl {
     ( $field:ty, $int:ty ) => {
@@ -112,6 +116,60 @@ macro_rules! field_impl {
                 *self == other.as_u128()
             }
         }
+
+        #[cfg(test)]
+        paste! {
+            #[cfg(test)]
+            mod [< $field:lower _tests >] {
+                use super::*;
+                use proptest::proptest;
+
+                #[test]
+                fn zero() {
+                    let prime = u128::from($field::PRIME);
+                    assert_eq!($field::ZERO, $field::from(prime), "from takes a modulus",);
+                    assert_eq!($field::ZERO, $field::ZERO + $field::ZERO);
+                    assert_eq!($field::ZERO, $field::ZERO - $field::ZERO);
+                    assert_eq!($field::from(prime - 1), $field::ZERO - $field::ONE);
+                    assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
+                }
+
+                #[test]
+                fn ser_not_enough_capacity() {
+                    let mut buf = [0; 0];
+                    assert!(matches!(
+                        $field::ONE.serialize(&mut buf),
+                        Err(e) if e.kind() == std::io::ErrorKind::WriteZero));
+                }
+
+                #[test]
+                fn de_buf_too_small() {
+                    let mut buf = [0; 0];
+                    assert!(matches!(
+                                    $field::deserialize(&mut buf),
+                                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
+                }
+
+                #[test]
+                fn can_write_into_buf_larger_than_required() {
+                    let mut buf = vec![0_u8; $field::SIZE_IN_BYTES as usize + 1];
+
+                    // panic will show the error while assert will just tell us that something went wrong
+                    $field::ONE.serialize(&mut buf).unwrap();
+                }
+
+                proptest! {
+                    #[test]
+                    fn serde(v in 0..$field::PRIME) {
+                        let field_v = $field(v);
+                        let mut buf = vec![0; $field::SIZE_IN_BYTES as usize];
+                        field_v.serialize(&mut buf).unwrap();
+
+                        assert_eq!(field_v, $field::deserialize(&mut buf).unwrap());
+                    }
+                }
+            }
+        }
     };
 }
 
@@ -208,18 +266,9 @@ field_impl! { Fp32BitPrime, u32 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
-    use proptest::proptest;
     use super::{Field, Fp2, Fp31, Fp32BitPrime};
 
     #[allow(clippy::eq_op)]
-    fn zero_test<F: Field>(prime: u128) {
-        assert_eq!(F::ZERO, F::from(prime), "from takes a modulus",);
-        assert_eq!(F::ZERO, F::ZERO + F::ZERO);
-        assert_eq!(F::ZERO, F::ZERO - F::ZERO);
-        assert_eq!(F::from(prime - 1), F::ZERO - F::ONE);
-        assert_eq!(F::ZERO, F::ZERO * F::ONE);
-    }
-
     #[test]
     fn fp2() {
         let x = Fp2::from(false);
@@ -281,21 +330,6 @@ mod test {
     }
 
     #[test]
-    fn zero_fp2() {
-        zero_test::<Fp2>(u128::from(Fp2::PRIME));
-    }
-
-    #[test]
-    fn zero_fp31() {
-        zero_test::<Fp31>(u128::from(Fp31::PRIME));
-    }
-
-    #[test]
-    fn zero_fp32_bit_prime() {
-        zero_test::<Fp32BitPrime>(u128::from(Fp32BitPrime::PRIME));
-    }
-
-    #[test]
     fn thirty_two_bit_prime() {
         let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
         let y = Fp32BitPrime::from(4_294_967_289_u32); // PRIME - 2
@@ -334,40 +368,4 @@ mod test {
         let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
         assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
     }
-
-    #[test]
-    fn ser_not_enough_capacity() {
-        let mut buf = [0; 0];
-        assert!(matches!(
-            Fp31::ONE.serialize(&mut buf),
-            Err(e) if e.kind() == std::io::ErrorKind::WriteZero));
-    }
-
-    #[test]
-    fn can_write_into_buf_larger_than_required() {
-        let mut buf = [0; 24];
-
-        // panic will show the error while assert will just tell us that something went wrong
-        Fp31::ONE.serialize(&mut buf).unwrap();
-    }
-
-    #[test]
-    fn de_buf_too_small() {
-        let mut buf = [0; 0];
-        assert!(matches!(
-            Fp31::deserialize(&mut buf),
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
-    }
-
-    proptest! {
-        #[test]
-        fn serde(v in 0..Fp31::PRIME) {
-            let field_v = Fp31(v);
-            let mut buf = vec![0; Fp31::SIZE_IN_BYTES as usize];
-            field_v.serialize(&mut buf).unwrap();
-
-            assert_eq!(field_v, Fp31::deserialize(&mut buf).unwrap());
-        }
-    }
-
 }
