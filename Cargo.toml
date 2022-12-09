@@ -108,3 +108,9 @@ name = "oneshot_sort"
 path = "benches/oneshot/sort.rs"
 harness = false
 required-features = ["test-fixture"]
+
+[[bench]]
+name = "oneshot_ipa"
+path = "benches/oneshot/ipa.rs"
+harness = false
+required-features = ["test-fixture"]
