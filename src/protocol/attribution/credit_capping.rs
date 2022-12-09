@@ -1,16 +1,22 @@
-use super::{if_else, CreditCappingInputRow, CreditCappingOutputRow, InteractionPatternStep};
+use super::{
+    compute_b_bit, compute_stop_bit, if_else, CreditCappingInputRow, CreditCappingOutputRow,
+    InteractionPatternStep,
+};
 use crate::error::Error;
 use crate::ff::Field;
+use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
-use crate::protocol::mul::SecureMul;
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
-#[allow(dead_code)]
+///
+/// # Errors
+/// Propagates errors from multiplications
+///
 pub async fn credit_capping<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CreditCappingInputRow<F>],
@@ -56,7 +62,6 @@ pub async fn credit_capping<F: Field>(
         .iter()
         .enumerate()
         .map(|(i, x)| CreditCappingOutputRow {
-            helper_bit: x.helper_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: final_credits[i].clone(),
         })
@@ -100,7 +105,7 @@ async fn credit_prefix_sum<'a, F: Field>(
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::Depth(depth));
+        let c = ctx.narrow(&InteractionPatternStep::from(depth));
         let mut futures = Vec::with_capacity(end as usize);
 
         // for each input row, create a future to execute secure multiplications
@@ -155,40 +160,6 @@ async fn credit_prefix_sum<'a, F: Field>(
     }
 
     Ok(original_credits.clone())
-}
-
-async fn compute_b_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    record_id: RecordId,
-    current_stop_bit: &Replicated<F>,
-    sibling_helper_bit: &Replicated<F>,
-    first_iteration: bool,
-) -> Result<Replicated<F>, Error> {
-    // Compute `b = [this.stop_bit * sibling.helper_bit]`.
-    // Since `stop_bit` is initialized with all 1's, we only multiply in
-    // the second and later iterations.
-    let mut b = sibling_helper_bit.clone();
-    if !first_iteration {
-        b = ctx
-            .multiply(record_id, sibling_helper_bit, current_stop_bit)
-            .await?;
-    }
-    Ok(b)
-}
-
-async fn compute_stop_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    record_id: RecordId,
-    b_bit: &Replicated<F>,
-    sibling_stop_bit: &Replicated<F>,
-    first_iteration: bool,
-) -> Result<Replicated<F>, Error> {
-    // Since `compute_b_bit()` will always return 1 in the first found, we can
-    // skip the multiplication in the first round.
-    if first_iteration {
-        return Ok(b_bit.clone());
-    }
-    ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
 
 async fn is_credit_larger_than_cap<F: Field>(
@@ -339,17 +310,15 @@ mod tests {
     use super::super::tests::generate_shared_input;
     use crate::{
         ff::{Field, Fp32BitPrime},
-        protocol::attribution::credit_capping::credit_capping,
+        protocol::attribution::{
+            credit_capping::credit_capping,
+            tests::{BD, H, S, T},
+        },
         protocol::QueryId,
         test_fixture::{Reconstruct, TestWorld},
     };
     use rand::rngs::mock::StepRng;
     use tokio::try_join;
-
-    const S: u128 = 0;
-    const T: u128 = 1;
-    const H: [u128; 2] = [0, 1];
-    const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     #[tokio::test]
     pub async fn cap() {

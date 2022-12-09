@@ -4,14 +4,16 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh};
 use crate::helpers::Role;
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::basics::mul::malicious::Step::RandomnessForValidation;
+use crate::protocol::basics::{SecureMul, ZeroPositions};
+use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
+use crate::protocol::context::{
+    Context, InstrumentedSequentialSharedRandomness, SemiHonestContext,
+};
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::mul::{malicious::Step::RandomnessForValidation, SecureMul};
-use crate::protocol::prss::{
-    Endpoint as PrssEndpoint, IndexedSharedRandomness, SequentialSharedRandomness,
-};
-use crate::protocol::{BitOpStep, RecordId, Step, Substep};
+use crate::protocol::prss::Endpoint as PrssEndpoint;
+use crate::protocol::{RecordId, Step, Substep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
 
@@ -53,7 +55,21 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         record_id: RecordId,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner.upgrade(record_id, input).await
+        self.upgrade_sparse(record_id, input, ZeroPositions::Pvvv)
+            .await
+    }
+
+    /// Upgrade a sparse input using this context.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade_sparse(
+        &self,
+        record_id: RecordId,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner.upgrade(record_id, input, zeros_at).await
     }
 
     /// Upgrade an input for a specific bit index using this context.  Use this for
@@ -61,25 +77,44 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_bit(
+    pub async fn upgrade_with<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
-        bit_index: u32,
         input: Replicated<F>,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner.upgrade_bit(record_id, bit_index, input).await
+        self.upgrade_with_sparse(step, record_id, input, ZeroPositions::Pvvv)
+            .await
+    }
+
+    /// Upgrade an input for a specific bit index using this context.  Use this for
+    /// inputs that have multiple bit positions in place of `upgrade()`.
+    /// # Errors
+    /// When the multiplication fails. This does not include additive attacks
+    /// by other helpers.  These are caught later.
+    pub async fn upgrade_with_sparse<SS: Substep>(
+        &self,
+        step: &SS,
+        record_id: RecordId,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner
+            .upgrade_with(step, record_id, input, zeros_at)
+            .await
     }
 
     /// Upgrade an bit conversion triple for a specific bit.
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_bit_triple(
+    pub async fn upgrade_bit_triple<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
-        self.inner.upgrade_bit_triple(record_id, triple).await
+        self.inner.upgrade_bit_triple(step, record_id, triple).await
     }
 }
 
@@ -101,12 +136,23 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         }
     }
 
-    fn prss(&self) -> Arc<IndexedSharedRandomness> {
-        self.inner.prss.indexed(self.step())
+    fn prss(&self) -> InstrumentedIndexedSharedRandomness<'_> {
+        let prss = self.inner.prss.indexed(self.step());
+
+        InstrumentedIndexedSharedRandomness::new(prss, &self.step, self.role())
     }
 
-    fn prss_rng(&self) -> (SequentialSharedRandomness, SequentialSharedRandomness) {
-        self.inner.prss.sequential(self.step())
+    fn prss_rng(
+        &self,
+    ) -> (
+        InstrumentedSequentialSharedRandomness<'_>,
+        InstrumentedSequentialSharedRandomness<'_>,
+    ) {
+        let (left, right) = self.inner.prss.sequential(self.step());
+        (
+            InstrumentedSequentialSharedRandomness::new(left, self.step(), self.role()),
+            InstrumentedSequentialSharedRandomness::new(right, self.step(), self.role()),
+        )
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {
@@ -196,10 +242,20 @@ impl<'a, F: Field> ContextInner<'a, F> {
         ctx: SemiHonestContext<'a, F>,
         record_id: RecordId,
         x: Replicated<F>,
+        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let prss = ctx.narrow(&RandomnessForValidation).prss();
-        let rx = ctx.multiply(record_id, &x, &self.r_share).await?;
+        let rx = ctx
+            .clone()
+            .multiply_sparse(
+                record_id,
+                &x,
+                &self.r_share,
+                (zeros_at, ZeroPositions::Pvvv),
+            )
+            .await?;
         let m = MaliciousReplicated::new(x, rx);
+        let ctx = ctx.narrow(&RandomnessForValidation);
+        let prss = ctx.prss();
         self.accumulator.accumulate_macs(&prss, record_id, &m);
         Ok(m)
     }
@@ -208,47 +264,50 @@ impl<'a, F: Field> ContextInner<'a, F> {
         &self,
         record_id: RecordId,
         x: Replicated<F>,
+        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_one(self.upgrade_ctx.clone(), record_id, x)
+        self.upgrade_one(self.upgrade_ctx.clone(), record_id, x, zeros_at)
             .await
     }
 
-    async fn upgrade_bit(
+    async fn upgrade_with<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
-        bit_index: u32,
         x: Replicated<F>,
+        zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_one(
-            self.upgrade_ctx.narrow(&BitOpStep::from(bit_index)),
-            record_id,
-            x,
-        )
-        .await
+        self.upgrade_one(self.upgrade_ctx.narrow(step), record_id, x, zeros_at)
+            .await
     }
 
-    async fn upgrade_bit_triple(
+    async fn upgrade_bit_triple<SS: Substep>(
         &self,
+        step: &SS,
         record_id: RecordId,
         triple: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
         let [v0, v1, v2] = triple.0;
+        let c = self.upgrade_ctx.narrow(step);
         Ok(BitConversionTriple(
             try_join_all([
                 self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
+                    c.narrow(&UpgradeTripleStep::V0),
                     record_id,
                     v0,
+                    ZeroPositions::Pvzz,
                 ),
                 self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
+                    c.narrow(&UpgradeTripleStep::V1),
                     record_id,
                     v1,
+                    ZeroPositions::Pzvz,
                 ),
                 self.upgrade_one(
-                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
+                    c.narrow(&UpgradeTripleStep::V2),
                     record_id,
                     v2,
+                    ZeroPositions::Pzzv,
                 ),
             ])
             .await?

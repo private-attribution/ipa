@@ -1,14 +1,13 @@
+use crate::protocol::basics::Reveal;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::reveal::Reveal;
+use crate::protocol::prss::SharedRandomness;
+use crate::protocol::RecordId;
 use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{
-        check_zero::check_zero, context::Context, prss::IndexedSharedRandomness, RecordId,
-        RECORD_0, RECORD_1, RECORD_2,
-    },
+    protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
     secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
 };
 use futures::future::try_join;
@@ -115,16 +114,15 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub fn accumulate_macs(
+    pub fn accumulate_macs<I: SharedRandomness>(
         &self,
-        prss: &Arc<IndexedSharedRandomness>,
+        prss: &I,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
     ) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let random_constant = prss.generate_replicated(record_id);
-
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
         let w_contribution = Self::compute_dot_product_contribution(
             &random_constant,
@@ -141,7 +139,6 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
-#[allow(dead_code)]
 pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
@@ -154,8 +151,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
+        let r_share = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
-        let r_share = prss.generate_replicated(RECORD_0);
         let state = AccumulatorState {
             u: prss.zero(RECORD_1),
             w: prss.zero(RECORD_2),
@@ -251,12 +248,14 @@ mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::helpers::Role;
+    use crate::protocol::basics::SecureMul;
     use crate::protocol::context::Context;
-    use crate::protocol::mul::SecureMul;
     use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
     use crate::rand::thread_rng;
-    use crate::secret_sharing::{Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::test_fixture::{join3v, share, Reconstruct, Runner, TestWorld};
+    use crate::secret_sharing::{
+        IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    };
+    use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
@@ -283,8 +282,8 @@ mod tests {
         let a = rng.gen::<Fp31>();
         let b = rng.gen::<Fp31>();
 
-        let a_shares = share(a, &mut rng);
-        let b_shares = share(b, &mut rng);
+        let a_shares = a.share_with(&mut rng);
+        let b_shares = b.share_with(&mut rng);
 
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
@@ -399,7 +398,7 @@ mod tests {
         }
         let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
             .iter()
-            .map(|x| share(*x, &mut rng))
+            .map(|x| x.share_with(&mut rng))
             .collect();
         let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
         let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();

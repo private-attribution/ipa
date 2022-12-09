@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{context::Context, RecordId},
+    protocol::{basics::ZeroPositions, boolean::xor_sparse, context::Context, RecordId},
     secret_sharing::{Replicated, SecretSharing, XorReplicated},
 };
 use futures::future::try_join_all;
@@ -99,64 +99,9 @@ pub fn convert_all_bits_local<F: Field>(
     total_list
 }
 
-///
-/// Internal use only
-/// When both inputs are known to be secret shares of either '1' or '0',
-/// XOR can be computed as:
-/// a + b - 2*a*b
-///
-/// This variant is only to be used for the first XOR
-/// Where helper 1 has shares:
-/// a: (x1, 0) and b: (0, x2)
-///
-/// And helper 2 has shares:
-/// a: (0, 0) and b: (x2, 0)
-///
-/// And helper 3 has shares:
-/// a: (0, x1) and b: (0, 0)
-async fn xor_specialized_1<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    let result = ctx
-        .multiply_two_shares_mostly_zeroes(record_id, a, b)
-        .await?;
-
-    Ok(-(result * F::from(2)) + a + b)
-}
-
-///
-/// Internal use only
-/// When both inputs are known to be secret share of either '1' or '0',
-/// XOR can be computed as:
-/// a + b - 2*a*b
-///
-/// This variant is only to be used for the second XOR
-/// Where helper 1 has shares:
-/// b: (0, 0)
-///
-/// And helper 2 has shares:
-/// (0, x3)
-///
-/// And helper 3 has shares:
-/// (x3, 0)
-async fn xor_specialized_2<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    let result = ctx
-        .multiply_one_share_mostly_zeroes(record_id, a, b)
-        .await?;
-
-    Ok(-(result * F::from(2)) + a + b)
-}
-
+/// Convert a locally-decomposed single bit into field elements.
 /// # Errors
-/// Propagates errors from `xor_specialized_1`
+/// Fails only if multiplication fails.
 pub async fn convert_bit<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -174,11 +119,14 @@ where
     );
     let ctx1 = ctx.narrow(&Step::Xor1);
     let ctx2 = ctx.narrow(&Step::Xor2);
-    let sh0_xor_sh1 = xor_specialized_1(ctx1, record_id, sh0, sh1).await?;
-    xor_specialized_2(ctx2, record_id, &sh0_xor_sh1, sh2).await
+    let sh0_xor_sh1 = xor_sparse(ctx1, record_id, sh0, sh1, ZeroPositions::AVZZ_BZVZ).await?;
+    debug_assert_eq!(
+        ZeroPositions::mul_output(ZeroPositions::AVZZ_BZVZ),
+        ZeroPositions::Pvvz
+    );
+    xor_sparse(ctx2, record_id, &sh0_xor_sh1, sh2, ZeroPositions::AVVZ_BZZV).await
 }
 
-#[allow(dead_code)]
 /// # Errors
 /// Propagates errors from convert shares
 /// # Panics
@@ -234,6 +182,7 @@ mod tests {
     use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;
     use crate::protocol::malicious::MaliciousValidator;
+    use crate::protocol::BitOpStep;
     use crate::rand::thread_rng;
     use crate::secret_sharing::Replicated;
     use crate::{
@@ -277,7 +226,7 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
                 let m_triple = m_ctx
-                    .upgrade_bit_triple(RecordId::from(0), triple)
+                    .upgrade_bit_triple(&BitOpStep::from(0), RecordId::from(0), triple)
                     .await
                     .unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
@@ -339,7 +288,7 @@ mod tests {
                     let v = MaliciousValidator::new(ctx);
                     let m_ctx = v.context();
                     let m_triple = m_ctx
-                        .upgrade_bit_triple(RecordId::from(0), tweaked)
+                        .upgrade_bit_triple(&BitOpStep::from(0), RecordId::from(0), tweaked)
                         .await
                         .unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)

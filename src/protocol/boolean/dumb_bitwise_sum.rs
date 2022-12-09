@@ -47,7 +47,6 @@ where
 /// the second condition is `XOR(a_i, b_i) * carry_i`
 /// Finally, each digit of the output can be found by just summing up `a_i`, `b_i` and `carry_i`,
 /// then subtracting 2 if `carry_{i+1} == 1`.
-#[allow(dead_code)]
 #[allow(clippy::many_single_char_names)]
 pub async fn bitwise_sum<F, C, S>(
     ctx: C,

@@ -1,12 +1,11 @@
 pub mod attribution;
+pub mod basics;
 pub mod boolean;
-mod check_zero;
 pub mod context;
+pub mod ipa;
 pub mod malicious;
 pub mod modulus_conversion;
-pub mod mul;
 pub mod prss;
-mod reveal;
 pub mod sort;
 
 use crate::error::Error;
@@ -29,7 +28,7 @@ use std::ops::AddAssign;
 ///
 /// Steps are therefore composed into a `UniqueStepIdentifier`, which collects the complete
 /// hierarchy of steps at each layer into a unique identifier.
-pub trait Substep: AsRef<str> {}
+pub trait Substep: AsRef<str> + Send + Sync {}
 
 // In test code, allow a string (or string reference) to be used as a `Step`.
 #[cfg(any(feature = "test-fixture", debug_assertions))]
@@ -113,6 +112,17 @@ impl From<&str> for Step {
     }
 }
 
+/// A macro that helps in declaring steps that contain a small number of values.
+#[macro_export]
+macro_rules! repeat64str {
+    [$pfx:literal] => {
+        repeat64str![$pfx 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63]
+    };
+    [$pfx:literal $($v:literal)*] => {
+        [ $(concat!($pfx, stringify!($v))),* ]
+    }
+}
+
 /// A step generator for bitwise secure operations.
 ///
 /// For each record, we decompose a value into bits (i.e. credits in the
@@ -128,15 +138,7 @@ impl crate::protocol::Substep for BitOpStep {}
 
 impl AsRef<str> for BitOpStep {
     fn as_ref(&self) -> &str {
-        const BIT_OP: [&str; 64] = [
-            "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7", "bit8", "bit9",
-            "bit10", "bit11", "bit12", "bit13", "bit14", "bit15", "bit16", "bit17", "bit18",
-            "bit19", "bit20", "bit21", "bit22", "bit23", "bit24", "bit25", "bit26", "bit27",
-            "bit28", "bit29", "bit30", "bit31", "bit32", "bit33", "bit34", "bit35", "bit36",
-            "bit37", "bit38", "bit39", "bit40", "bit41", "bit42", "bit43", "bit44", "bit45",
-            "bit46", "bit47", "bit48", "bit49", "bit50", "bit51", "bit52", "bit53", "bit54",
-            "bit55", "bit56", "bit57", "bit58", "bit59", "bit60", "bit61", "bit62", "bit63",
-        ];
+        const BIT_OP: [&str; 64] = repeat64str!["bit"];
         BIT_OP[self.0]
     }
 }
@@ -176,24 +178,9 @@ impl Substep for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
-        const MODULUS_CONVERSION: [&str; 64] = [
-            "mc0", "mc1", "mc2", "mc3", "mc4", "mc5", "mc6", "mc7", "mc8", "mc9", "mc10", "mc11",
-            "mc12", "mc13", "mc14", "mc15", "mc16", "mc17", "mc18", "mc19", "mc20", "mc21", "mc22",
-            "mc23", "mc24", "mc25", "mc26", "mc27", "mc28", "mc29", "mc30", "mc31", "mc32", "mc33",
-            "mc34", "mc35", "mc36", "mc37", "mc38", "mc39", "mc40", "mc41", "mc42", "mc43", "mc44",
-            "mc45", "mc46", "mc47", "mc48", "mc49", "mc50", "mc51", "mc52", "mc53", "mc54", "mc55",
-            "mc56", "mc57", "mc58", "mc59", "mc60", "mc61", "mc62", "mc63",
-        ];
-        const SORT: [&str; 64] = [
-            "sort0", "sort1", "sort2", "sort3", "sort4", "sort5", "sort6", "sort7", "sort8",
-            "sort9", "sort10", "sort11", "sort12", "sort13", "sort14", "sort15", "sort16",
-            "sort17", "sort18", "sort19", "sort20", "sort21", "sort22", "sort23", "sort24",
-            "sort25", "sort26", "sort27", "sort28", "sort29", "sort30", "sort31", "sort32",
-            "sort33", "sort34", "sort35", "sort36", "sort37", "sort38", "sort39", "sort40",
-            "sort41", "sort42", "sort43", "sort44", "sort45", "sort46", "sort47", "sort48",
-            "sort49", "sort50", "sort51", "sort52", "sort53", "sort54", "sort55", "sort56",
-            "sort57", "sort58", "sort59", "sort60", "sort61", "sort62", "sort63",
-        ];
+        const MODULUS_CONVERSION: [&str; 64] = repeat64str!["mc"];
+        const SORT: [&str; 64] = repeat64str!["sort"];
+
         match self {
             Self::ConvertShares => "convert",
             Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],

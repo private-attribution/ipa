@@ -1,14 +1,10 @@
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::RecordId;
-use crate::rand::thread_rng;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, XorReplicated};
+use crate::protocol::{BitOpStep, RecordId, Substep};
+use crate::rand::Rng;
+use crate::secret_sharing::{IntoShares, MaliciousReplicated, Replicated, XorReplicated};
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
-use rand::{
-    distributions::{Distribution, Standard},
-    Rng, RngCore,
-};
 use std::borrow::Borrow;
 use std::iter::{repeat, zip};
 
@@ -36,61 +32,6 @@ impl From<MaskedMatchKey> for u64 {
     }
 }
 
-pub trait IntoShares<T>: Sized {
-    fn share(self) -> [T; 3] {
-        self.share_with(&mut thread_rng())
-    }
-    fn share_with<R: Rng>(self, rng: &mut R) -> [T; 3];
-}
-
-impl<F> IntoShares<Replicated<F>> for F
-where
-    F: Field,
-    Standard: Distribution<F>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
-        share(self, rng)
-    }
-}
-
-impl<U, V, T> IntoShares<Vec<T>> for V
-where
-    U: IntoShares<T>,
-    V: IntoIterator<Item = U>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Vec<T>; 3] {
-        let it = self.into_iter();
-        let (lower_bound, upper_bound) = it.size_hint();
-        let len = upper_bound.unwrap_or(lower_bound);
-        let mut res = [
-            Vec::with_capacity(len),
-            Vec::with_capacity(len),
-            Vec::with_capacity(len),
-        ];
-        for u in it {
-            for (i, s) in u.share_with(rng).into_iter().enumerate() {
-                res[i].push(s);
-            }
-        }
-        res
-    }
-}
-
-// TODO: make a macro so we can use arbitrary-sized tuples
-impl<T, U, V, W> IntoShares<(T, U)> for (V, W)
-where
-    T: Sized,
-    U: Sized,
-    V: IntoShares<T>,
-    W: IntoShares<U>,
-{
-    fn share_with<R: Rng>(self, rng: &mut R) -> [(T, U); 3] {
-        let [a0, a1, a2] = self.0.share_with(rng);
-        let [b0, b1, b2] = self.1.share_with(rng);
-        [(a0, b0), (a1, b1), (a2, b2)]
-    }
-}
-
 impl IntoShares<XorReplicated> for MaskedMatchKey {
     fn share_with<R: Rng>(self, rng: &mut R) -> [XorReplicated; 3] {
         debug_assert_eq!(self.0, self.0 & Self::MASK);
@@ -103,22 +44,6 @@ impl IntoShares<XorReplicated> for MaskedMatchKey {
             XorReplicated::new(s2, s0),
         ]
     }
-}
-
-/// Shares `input` into 3 replicated secret shares using the provided `rng` implementation
-pub fn share<F: Field, R: RngCore>(input: F, rng: &mut R) -> [Replicated<F>; 3]
-where
-    Standard: Distribution<F>,
-{
-    let x1 = rng.gen::<F>();
-    let x2 = rng.gen::<F>();
-    let x3 = input - (x1 + x2);
-
-    [
-        Replicated::new(x1, x2),
-        Replicated::new(x2, x3),
-        Replicated::new(x3, x1),
-    ]
 }
 
 /// Deconstructs a value into N values, one for each bit.
@@ -138,31 +63,32 @@ pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
         .collect::<Vec<_>>()
 }
 
-/// For upgrading various shapes of replicated share to malicious.
-#[async_trait]
-pub trait IntoMalicious<F: Field, M> {
-    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M;
+/// Default step type for upgrades.
+struct IntoMaliciousStep;
+impl Substep for IntoMaliciousStep {}
+impl AsRef<str> for IntoMaliciousStep {
+    fn as_ref(&self) -> &str {
+        "malicious_upgrade"
+    }
 }
 
+/// For upgrading various shapes of replicated share to malicious.
 #[async_trait]
-pub trait IntoMaliciousBit<F: Field, M> {
-    async fn upgrade_bit(self, ctx: MaliciousContext<'_, F>, bit: u32) -> M;
+pub trait IntoMalicious<F: Field, M>: Sized {
+    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M {
+        self.upgrade_with(ctx, &IntoMaliciousStep).await
+    }
+    async fn upgrade_with<SS: Substep>(self, ctx: MaliciousContext<'_, F>, step: &SS) -> M;
 }
 
 #[async_trait]
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> MaliciousReplicated<F> {
-        ctx.upgrade(RecordId::from(0_u32), self).await.unwrap()
-    }
-}
-#[async_trait]
-impl<F: Field> IntoMaliciousBit<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade_bit<'a>(
+    async fn upgrade_with<'a, SS: Substep>(
         self,
         ctx: MaliciousContext<'a, F>,
-        bit: u32,
+        step: &SS,
     ) -> MaliciousReplicated<F> {
-        ctx.upgrade_bit(RecordId::from(0_u32), bit, self)
+        ctx.upgrade_with(step, RecordId::from(0_u32), self)
             .await
             .unwrap()
     }
@@ -172,15 +98,21 @@ impl<F: Field> IntoMaliciousBit<F, MaliciousReplicated<F>> for Replicated<F> {
 impl<F, T, TM, U, UM> IntoMalicious<F, (TM, UM)> for (T, U)
 where
     F: Field,
-    T: IntoMaliciousBit<F, TM> + Send,
-    U: IntoMaliciousBit<F, UM> + Send,
+    T: IntoMalicious<F, TM> + Send,
+    U: IntoMalicious<F, UM> + Send,
     TM: Sized + Send,
     UM: Sized + Send,
 {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> (TM, UM) {
+    // Note that this implementation doesn't work with arbitrary nesting.
+    // For that, we'd need a `.narrow_for_upgrade()` function on the context.
+    async fn upgrade_with<'a, SS: Substep>(
+        self,
+        ctx: MaliciousContext<'a, F>,
+        _step: &SS,
+    ) -> (TM, UM) {
         join(
-            self.0.upgrade_bit(ctx.clone(), 0),
-            self.1.upgrade_bit(ctx, 1),
+            self.0.upgrade_with(ctx.clone(), &BitOpStep::from(0)),
+            self.1.upgrade_with(ctx, &BitOpStep::from(1)),
         )
         .await
     }
@@ -193,32 +125,18 @@ where
     I: IntoIterator<Item = Replicated<F>> + Send,
     <I as IntoIterator>::IntoIter: Send,
 {
-    async fn upgrade<'a>(self, ctx: MaliciousContext<'a, F>) -> Vec<MaliciousReplicated<F>> {
-        try_join_all(
-            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
-                ctx.upgrade(RecordId::from(i), share).await
-            }),
-        )
-        .await
-        .unwrap()
-    }
-}
-
-#[async_trait]
-impl<F, I> IntoMaliciousBit<F, Vec<MaliciousReplicated<F>>> for I
-where
-    F: Field,
-    I: IntoIterator<Item = Replicated<F>> + Send,
-    <I as IntoIterator>::IntoIter: Send,
-{
-    async fn upgrade_bit<'a>(
+    // Note that this implementation doesn't work with arbitrary nesting.
+    // For that, we'd need a `.narrow_for_upgrade()` function on the context.
+    async fn upgrade_with<'a, SS: Substep>(
         self,
         ctx: MaliciousContext<'a, F>,
-        bit: u32,
+        step: &SS,
     ) -> Vec<MaliciousReplicated<F>> {
-        try_join_all(zip(repeat(ctx), self.into_iter().enumerate()).map(
-            |(ctx, (i, share))| async move { ctx.upgrade_bit(RecordId::from(i), bit, share).await },
-        ))
+        try_join_all(
+            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
+                ctx.upgrade_with(step, RecordId::from(i), share).await
+            }),
+        )
         .await
         .unwrap()
     }
@@ -267,6 +185,21 @@ where
 {
     fn reconstruct(&self) -> F {
         [self.0.borrow(), self.1.borrow(), self.2.borrow()].reconstruct()
+    }
+}
+
+impl<T, U, V, W> Reconstruct<(V, W)> for [(T, U); 3]
+where
+    for<'t> [&'t T; 3]: Reconstruct<V>,
+    for<'u> [&'u U; 3]: Reconstruct<W>,
+    V: Sized,
+    W: Sized,
+{
+    fn reconstruct(&self) -> (V, W) {
+        (
+            [&self[0].0, &self[1].0, &self[2].0].reconstruct(),
+            [&self[0].1, &self[1].1, &self[2].1].reconstruct(),
+        )
     }
 }
 
@@ -326,5 +259,15 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
         for (m0, (m1, m2)) in zip(self[0].iter(), zip(self[1].iter(), self[2].iter())) {
             [m0, m1, m2].validate(r);
         }
+    }
+}
+
+impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
+    fn validate(&self, r: F) {
+        let [t0, t1, t2] = self;
+        let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
+
+        [s0, s1, s2].validate(r);
+        [v0.clone(), v1.clone(), v2.clone()].validate(r);
     }
 }

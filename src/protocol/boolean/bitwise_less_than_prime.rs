@@ -3,9 +3,8 @@ use super::or::or;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::check_if_all_ones;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{context::Context, mul::SecureMul, BitOpStep, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::protocol::{context::Context, BitOpStep, RecordId};
+use crate::secret_sharing::SecretSharing;
 use futures::future::try_join;
 use std::cmp::Ordering;
 
@@ -23,21 +22,27 @@ use std::cmp::Ordering;
 pub struct BitwiseLessThanPrime {}
 
 impl BitwiseLessThanPrime {
-    pub async fn less_than_prime<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
-        record_id: RecordId,
-        x: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
+    pub async fn less_than_prime<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let one = ctx.share_of_one();
         let gtoe = Self::greater_than_or_equal_to_prime(ctx, record_id, x).await?;
         Ok(one - &gtoe)
     }
 
-    pub async fn greater_than_or_equal_to_prime<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    pub async fn greater_than_or_equal_to_prime<F, C, S>(
+        ctx: C,
         record_id: RecordId,
-        x: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
+        x: &[S],
+    ) -> Result<S, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
         let l_as_usize = l.try_into().unwrap();
@@ -78,11 +83,16 @@ impl BitwiseLessThanPrime {
         }
     }
 
-    async fn greater_than_or_equal_to_prime_trimmed<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    async fn greater_than_or_equal_to_prime_trimmed<F, C, S>(
+        ctx: C,
         record_id: RecordId,
-        x: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
+        x: &[S],
+    ) -> Result<S, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
         let l_as_usize: usize = l.try_into().unwrap();
@@ -130,11 +140,16 @@ impl BitwiseLessThanPrime {
     /// 1.) Four of them look like [X X 1] (values of X are irrelevant)
     /// 2.) The final one is exactly [1 1 0]
     /// We can check if either of these conditions is true with just 3 multiplications
-    pub async fn check_least_significant_bits<F: Field>(
-        ctx: SemiHonestContext<'_, F>,
+    pub async fn check_least_significant_bits<F, C, S>(
+        ctx: C,
         record_id: RecordId,
-        x: &[Replicated<F>],
-    ) -> Result<Replicated<F>, Error> {
+        x: &[S],
+    ) -> Result<S, Error>
+    where
+        F: Field,
+        C: Context<F, Share = S>,
+        S: SecretSharing<F>,
+    {
         let prime = F::PRIME.into();
         debug_assert!(prime & 0b111 == 0b011);
         debug_assert!(x.len() == 3);
@@ -278,13 +293,25 @@ mod tests {
         let world = TestWorld::new(QueryId);
         let bits = get_bits::<F>(a, num_bits);
         let result = world
-            .semi_honest(bits, |ctx, x_share| async move {
+            .semi_honest(bits.clone(), |ctx, x_share| async move {
                 BitwiseLessThanPrime::less_than_prime(ctx, RecordId::from(0), &x_share)
                     .await
                     .unwrap()
             })
-            .await;
+            .await
+            .reconstruct();
 
-        result.reconstruct()
+        let m_result = world
+            .malicious(bits, |ctx, x_share| async move {
+                BitwiseLessThanPrime::less_than_prime(ctx, RecordId::from(0), &x_share)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
     }
 }

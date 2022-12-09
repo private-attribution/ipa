@@ -1,11 +1,12 @@
-use super::Substep;
-use super::{context::SemiHonestContext, RecordId};
 use crate::error::Error;
-use crate::protocol::mul::SecureMul;
-use crate::{ff::Field, secret_sharing::Replicated};
+use crate::ff::Field;
+use crate::protocol::{context::Context, RecordId, Substep};
+use crate::repeat64str;
+use crate::secret_sharing::{Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
-mod credit_capping;
+pub mod aggregate_credit;
+pub mod credit_capping;
 
 #[derive(Debug, Clone)]
 pub struct AttributionInputRow<F: Field> {
@@ -19,21 +20,39 @@ pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 
-#[allow(dead_code)]
 pub struct CreditCappingOutputRow<F: Field> {
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CappedCreditsWithAggregationBit<F: Field> {
     helper_bit: Replicated<F>,
+    aggregation_bit: Replicated<F>,
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct AggregateCreditOutputRow<F: Field> {
     breakdown_key: Replicated<F>,
     credit: Replicated<F>,
 }
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
-async fn if_else<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+async fn if_else<F, C, S>(
+    ctx: C,
     record_id: RecordId,
-    condition: &Replicated<F>,
-    true_value: &Replicated<F>,
-    false_value: &Replicated<F>,
-) -> Result<Replicated<F>, Error> {
+    condition: &S,
+    true_value: &S,
+    false_value: &S,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
     //   = false_value + true_value - false_value
@@ -42,58 +61,108 @@ async fn if_else<F: Field>(
     // If `condition` is a share of 0 (false), then
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
-    Ok(false_value
+    Ok(false_value.clone()
         + &ctx
-            .multiply(record_id, condition, &(true_value - false_value))
+            .multiply(record_id, condition, &(true_value.clone() - false_value))
             .await?)
 }
 
-enum InteractionPatternStep {
-    Depth(usize),
+async fn compute_stop_bit<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    b_bit: &S,
+    sibling_stop_bit: &S,
+    first_iteration: bool,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    // This method computes `b == 1 ? sibling_stop_bit : 0`.
+    // Since `sibling_stop_bit` is initialize with 1, we return `b` if this is
+    // the first iteration.
+    if first_iteration {
+        return Ok(b_bit.clone());
+    }
+    ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
+
+async fn compute_b_bit<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    current_stop_bit: &S,
+    sibling_helper_bit: &S,
+    first_iteration: bool,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    // Compute `b = [this.stop_bit * sibling.helper_bit]`.
+    // Since `stop_bit` is initialized with all 1's, we only multiply in
+    // the second and later iterations.
+    let mut b = sibling_helper_bit.clone();
+    if !first_iteration {
+        b = ctx
+            .multiply(record_id, sibling_helper_bit, current_stop_bit)
+            .await?;
+    }
+    Ok(b)
+}
+
+struct InteractionPatternStep(usize);
 
 impl Substep for InteractionPatternStep {}
 
 impl AsRef<str> for InteractionPatternStep {
     fn as_ref(&self) -> &str {
-        const DEPTH: [&str; 32] = [
-            "depth0", "depth1", "depth2", "depth3", "depth4", "depth5", "depth6", "depth7",
-            "depth8", "depth9", "depth10", "depth11", "depth12", "depth13", "depth14", "depth15",
-            "depth16", "depth17", "depth18", "depth19", "depth20", "depth21", "depth22", "depth23",
-            "depth24", "depth25", "depth26", "depth27", "depth28", "depth29", "depth30", "depth31",
-        ];
-        match self {
-            Self::Depth(i) => DEPTH[*i],
-        }
+        const DEPTH: [&str; 64] = repeat64str!["depth"];
+        DEPTH[self.0]
+    }
+}
+
+impl From<usize> for InteractionPatternStep {
+    fn from(v: usize) -> Self {
+        Self(v)
     }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AttributionInputRowResharableStep {
+pub enum AttributionResharableStep {
     IsTriggerBit,
     HelperBit,
     BreakdownKey,
     Credit,
+    AggregationBit,
 }
 
-impl Substep for AttributionInputRowResharableStep {}
+impl Substep for AttributionResharableStep {}
 
-impl AsRef<str> for AttributionInputRowResharableStep {
+impl AsRef<str> for AttributionResharableStep {
     fn as_ref(&self) -> &str {
         match self {
             Self::IsTriggerBit => "is_trigger_bit",
             Self::HelperBit => "helper_bit",
             Self::BreakdownKey => "breakdown_key",
             Self::Credit => "credit",
+            Self::AggregationBit => "aggregation_bit",
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{ff::Field, protocol::attribution::AttributionInputRow, test_fixture::share};
+    use crate::secret_sharing::IntoShares;
+    use crate::{ff::Field, protocol::attribution::AttributionInputRow};
     use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
     use std::iter::zip;
+
+    pub const S: u128 = 0;
+    pub const T: u128 = 1;
+    pub const H: [u128; 2] = [0, 1];
+    pub const BD: [u128; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     /// Takes a vector of 4-element vectors (e.g., `RAW_INPUT`), and create
     /// shares of `AttributionInputRow`.
@@ -113,10 +182,10 @@ mod tests {
         ];
 
         for x in input {
-            let itb = share(F::from(x[0]), rng);
-            let hb = share(F::from(x[1]), rng);
-            let bk = share(F::from(x[2]), rng);
-            let val = share(F::from(x[3]), rng);
+            let itb = F::from(x[0]).share_with(rng);
+            let hb = F::from(x[1]).share_with(rng);
+            let bk = F::from(x[2]).share_with(rng);
+            let val = F::from(x[3]).share_with(rng);
             for (i, ((itb, hb), (bk, val))) in zip(zip(itb, hb), zip(bk, val)).enumerate() {
                 shares[i].push(AttributionInputRow {
                     is_trigger_bit: itb,

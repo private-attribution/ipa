@@ -1,6 +1,9 @@
+mod into_shares;
 mod malicious_replicated;
 mod replicated;
 mod xor;
+#[cfg(any(feature = "test-fixture", feature = "cli"))]
+pub use into_shares::IntoShares;
 
 use crate::ff::Field;
 pub(crate) use malicious_replicated::ThisCodeIsAuthorizedToDowngradeFromMalicious;

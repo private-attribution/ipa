@@ -51,13 +51,13 @@ impl ChannelId {
 
 impl Debug for ChannelId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[peer={:?},step={:?}]", self.role, self.step)
+        write!(f, "channel[{:?},{:?}]", self.role, self.step)
     }
 }
 
-/// Wrapper around a [`PollSender`] to modify the error message to match what the [`Network`] trait
+/// Wrapper around a [`PollSender`] to modify the error message to match what the [`NetworkSink`]
 /// requires. The only error that [`PollSender`] will generate is "channel closed", and thus is the
-/// only error message forwarded from this [`Sink`].
+/// only error message forwarded from this [`NetworkSink`].
 #[pin_project]
 pub struct NetworkSink<T> {
     #[pin]

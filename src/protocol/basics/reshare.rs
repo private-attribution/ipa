@@ -1,5 +1,6 @@
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
 use crate::secret_sharing::{MaliciousReplicated, SecretSharing};
 use crate::{
@@ -11,24 +12,9 @@ use crate::{
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join;
-/// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
-#[async_trait]
-pub trait Reshare<F: Field> {
-    type Share: SecretSharing<F>;
-
-    async fn reshare(
-        self,
-        input: &Self::Share,
-        record: RecordId,
-        to_helper: Role,
-    ) -> Result<Self::Share, Error>;
-}
-
-/// Reshare(i, \[x\])
-// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
-// Input: Pi-1 and Pi+1 know their secret shares
-// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
+/// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
+///
 /// Steps
 /// ![Reshare steps][reshare]
 /// 1. While calculating for a helper, we call pseudo random secret sharing (prss) to get random values which match
@@ -42,6 +28,22 @@ pub trait Reshare<F: Field> {
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
+pub trait Reshare<F: Field> {
+    type Share: SecretSharing<F>;
+
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error>;
+}
+
+#[async_trait]
+/// Reshare(i, \[x\])
+/// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
+/// Input: Pi-1 and Pi+1 know their secret shares
+/// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
     type Share = Replicated<F>;
     async fn reshare(
@@ -51,8 +53,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
         let channel = self.mesh();
-        let prss = self.prss();
-        let (r0, r1) = prss.generate_fields(record_id);
+        let (r0, r1) = self.prss().generate_fields(record_id);
 
         // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
         // This is same as (a1 + a2) - r2 in the diagram
@@ -88,10 +89,10 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
     }
 }
 
+#[async_trait]
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-#[async_trait]
 impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
     async fn reshare(
@@ -130,9 +131,10 @@ mod tests {
 
         use crate::ff::Fp32BitPrime;
         use crate::protocol::context::Context;
+        use crate::protocol::prss::SharedRandomness;
         use crate::{
             helpers::Role,
-            protocol::{sort::reshare::Reshare, QueryId, RecordId},
+            protocol::{basics::Reshare, QueryId, RecordId},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -193,9 +195,10 @@ mod tests {
         use crate::error::Error;
         use crate::ff::{Field, Fp32BitPrime};
         use crate::helpers::{Direction, Role};
+        use crate::protocol::basics::Reshare;
         use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
         use crate::protocol::malicious::MaliciousValidator;
-        use crate::protocol::sort::reshare::Reshare;
+        use crate::protocol::prss::SharedRandomness;
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
         use crate::protocol::{QueryId, RecordId};
         use crate::rand::{thread_rng, Rng};
@@ -232,8 +235,7 @@ mod tests {
             additive_error: F,
         ) -> Result<Replicated<F>, Error> {
             let channel = ctx.mesh();
-            let prss = ctx.prss();
-            let (r0, r1) = prss.generate_fields(record_id);
+            let (r0, r1) = ctx.prss().generate_fields(record_id);
 
             // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
             // This is same as (a1 + a2) - r2 in the diagram

@@ -74,14 +74,12 @@ impl MpcHelperServerError {
     }
 }
 
-/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
 impl From<std::num::ParseIntError> for MpcHelperServerError {
     fn from(err: std::num::ParseIntError) -> Self {
         Self::InvalidHeader(err.into())
     }
 }
 
-/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
 impl From<axum::http::header::ToStrError> for MpcHelperServerError {
     fn from(err: axum::http::header::ToStrError) -> Self {
         Self::InvalidHeader(err.into())
@@ -94,16 +92,14 @@ impl From<axum::extract::rejection::PathRejection> for MpcHelperServerError {
     }
 }
 
-/// [`From`] implementation for [`MpcServerError::SendError`].
-/// first call `to_string` so as to drop `T` from the [`MpcServerError`]
+/// first call `to_string` so as to drop `T` from the [`MpcHelperServerError`]
 impl<T> From<mpsc::error::SendError<T>> for MpcHelperServerError {
     fn from(err: mpsc::error::SendError<T>) -> Self {
         Self::SendError(err.to_string().into())
     }
 }
 
-/// [`From`] implementation for [`MpcServerError::SendError`].
-/// first call `to_string` to as to drop `T` from the [`MpcServerError`]
+/// first call `to_string` to as to drop `T` from the [`MpcHelperServerError`]
 impl<T> From<tokio_util::sync::PollSendError<T>> for MpcHelperServerError {
     fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
         Self::SendError(err.to_string().into())
@@ -129,9 +125,9 @@ impl IntoResponse for MpcHelperServerError {
     }
 }
 
-/// Provides a mapping of [`QueryId`]s to senders that forward data to a [`Network`]. Every time a
-/// new query is started, a [`Network`] is created to handle communication for that query. When the
-/// server receives a request, it must know which [`Network`] to forward that request to, so it
+/// Provides a mapping of [`QueryId`]s to senders that forward data to a [`HttpNetwork`]. Every time a
+/// new query is started, a [`HttpNetwork`] is created to handle communication for that query. When the
+/// server receives a request, it must know which [`HttpNetwork`] to forward that request to, so it
 /// holds this mapping to accomplish that.
 ///
 /// Is shareable by `clone()`ing.
@@ -210,7 +206,7 @@ pub enum BindTarget {
 
 /// Contains all of the state needed to start the MPC server.
 /// For now, stub out gateway with simple send/receive
-/// TODO (ts): replace stub with real thing when [`Network`] is implemented
+/// TODO (ts): replace stub with real thing when `Network` is implemented
 pub struct MpcHelperServer {
     message_send_map: MessageSendMap,
     last_seen_messages: LastSeenMessages,
@@ -419,7 +415,8 @@ mod e2e_tests {
         helpers::http::HttpNetwork,
         net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::QueryId,
-        telemetry::metrics::{get_counter_value, RequestProtocolVersion, REQUESTS_RECEIVED},
+        telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
+        test_fixture::metrics::MetricsHandle,
     };
     use hyper::{
         body,
@@ -429,9 +426,10 @@ mod e2e_tests {
         Body, Request, Response, StatusCode, Version,
     };
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
-    use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
+    use metrics_util::debugging::Snapshotter;
     use std::collections::HashMap;
     use std::str::FromStr;
+    use tracing::Level;
 
     impl EchoData {
         pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
@@ -536,9 +534,7 @@ mod e2e_tests {
     /// tested that, so better to stick with default behavior of tokio:test macro
     #[tokio::test]
     async fn requests_received_metric() {
-        // as per metric's crate recommendation, we have to install the per-thread recorder, but
-        // need to ignore errors because there might be other threads installing it as well.
-        DebuggingRecorder::per_thread().install().unwrap_or(());
+        let handle = MetricsHandle::new(Level::INFO);
 
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let message_send_map = MessageSendMap::filled(network);
@@ -565,16 +561,13 @@ mod e2e_tests {
 
         assert_eq!(
             Some(request_count),
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                REQUESTS_RECEIVED,
-            )
+            handle.get_counter_value(REQUESTS_RECEIVED)
         );
     }
 
     #[tokio::test]
     async fn request_version_metric() {
-        DebuggingRecorder::per_thread().install().unwrap_or(());
+        let handle = MetricsHandle::new(Level::INFO);
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let message_send_map = MessageSendMap::filled(network);
         let server = MpcHelperServer::new(message_send_map);
@@ -603,24 +596,15 @@ mod e2e_tests {
 
         assert_eq!(
             Some(1),
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_11),
-            )
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_11))
         );
         assert_eq!(
             Some(1),
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_2),
-            )
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_2))
         );
         assert_eq!(
             None,
-            get_counter_value(
-                Snapshotter::current_thread_snapshot().unwrap(),
-                RequestProtocolVersion::from(Version::HTTP_3),
-            )
+            handle.get_counter_value(RequestProtocolVersion::from(Version::HTTP_3))
         );
     }
 }

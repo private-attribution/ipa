@@ -187,8 +187,8 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
     use crate::rand::thread_rng;
-    use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{share, Reconstruct};
+    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;
 
     #[test]
@@ -205,14 +205,14 @@ mod tests {
         // Randomization constant
         let r = rng.gen::<Fp31>();
 
-        let a_shared = share(a, &mut rng);
-        let b_shared = share(b, &mut rng);
-        let c_shared = share(c, &mut rng);
-        let d_shared = share(d, &mut rng);
-        let e_shared = share(e, &mut rng);
-        let f_shared = share(f, &mut rng);
+        let a_shared = a.share_with(&mut rng);
+        let b_shared = b.share_with(&mut rng);
+        let c_shared = c.share_with(&mut rng);
+        let d_shared = d.share_with(&mut rng);
+        let e_shared = e.share_with(&mut rng);
+        let f_shared = f.share_with(&mut rng);
         // Randomization constant
-        let r_shared = share(r, &mut rng);
+        let r_shared = r.share_with(&mut rng);
 
         let ra = a * r;
         let rb = b * r;
@@ -221,12 +221,12 @@ mod tests {
         let re = e * r;
         let rf = f * r;
 
-        let ra_shared = share(ra, &mut rng);
-        let rb_shared = share(rb, &mut rng);
-        let rc_shared = share(rc, &mut rng);
-        let rd_shared = share(rd, &mut rng);
-        let re_shared = share(re, &mut rng);
-        let rf_shared = share(rf, &mut rng);
+        let ra_shared = ra.share_with(&mut rng);
+        let rb_shared = rb.share_with(&mut rng);
+        let rc_shared = rc.share_with(&mut rng);
+        let rd_shared = rd.share_with(&mut rng);
+        let re_shared = re.share_with(&mut rng);
+        let rf_shared = rf.share_with(&mut rng);
 
         let roles = [Role::H1, Role::H2, Role::H3];
         let mut results = Vec::with_capacity(3);
