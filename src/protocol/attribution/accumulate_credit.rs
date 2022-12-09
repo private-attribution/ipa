@@ -212,8 +212,8 @@ pub(crate) mod tests {
 
     use crate::protocol::sort::apply_sort::shuffle::Resharable;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::IntoShares;
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::IntoShares;
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,

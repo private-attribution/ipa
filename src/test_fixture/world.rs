@@ -18,7 +18,7 @@ use crate::{
         QueryId,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork, sharing::IntoShares},
+    test_fixture::{logging, make_participants, network::InMemoryNetwork},
 };
 
 use std::io::stdout;
@@ -28,6 +28,7 @@ use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
 use crate::protocol::Substep;
+use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
 use tracing::Level;

@@ -87,7 +87,8 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{basics::check_zero, QueryId, RecordId};
     use crate::rand::thread_rng;
-    use crate::test_fixture::{share, TestWorld};
+    use crate::secret_sharing::IntoShares;
+    use crate::test_fixture::TestWorld;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
@@ -100,7 +101,7 @@ mod tests {
             let v = Fp31::from(v);
             let mut num_false_positives = 0;
             for _ in 0..10 {
-                let v_shares = share(v, &mut rng);
+                let v_shares = v.share_with(&mut rng);
                 let record_id = RecordId::from(0_u32);
                 let iteration = format!("{}", counter);
                 counter += 1;
