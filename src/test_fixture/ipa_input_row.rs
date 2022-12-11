@@ -1,8 +1,9 @@
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{ff::Field, protocol::ipa::IPAInputRow, rand::Rng, secret_sharing::Replicated};
+use crate::secret_sharing::IntoShares;
 
-use super::{IntoShares, MaskedMatchKey};
+use super::MaskedMatchKey;
 
 #[derive(Debug)]
 pub struct IPAInputTestRow {
