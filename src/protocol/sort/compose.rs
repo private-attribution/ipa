@@ -89,7 +89,6 @@ mod tests {
                         ctx.narrow("shuffle_reveal"),
                         BATCHSIZE,
                         m_sigma_shares,
-                        None,
                     )
                     .await
                     .unwrap();

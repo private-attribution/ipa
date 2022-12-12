@@ -19,8 +19,6 @@ use crate::{
     },
 };
 
-use super::SecretSharing;
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct MaliciousReplicated<F: Field> {
     x: Replicated<F>,
@@ -180,10 +178,10 @@ where
 }
 
 #[async_trait]
-impl<'a, F: Field, S: SecretSharing<F>> Downgrade for ShuffledPermutationWrapper<'a, F, S> {
+impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
     type Target = Vec<u32>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = reveal_permutation(self.ctx.context().narrow(&RevealPermutation), &self.val)
+        let output = reveal_permutation(self.ctx.narrow(&RevealPermutation), &self.val)
             .await
             .unwrap();
         UnauthorizedDowngradeWrapper(output)

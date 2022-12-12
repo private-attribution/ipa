@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         basics::reveal_permutation,
-        context::Context,
+        context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, Malicious, MaliciousInputUpgrade,
@@ -36,9 +36,9 @@ pub struct RevealedAndRandomPermutations {
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
 }
 
-pub struct ShuffledPermutationWrapper<'a, F: Field, S: SecretSharing<F>> {
-    pub val: Vec<S>,
-    pub ctx: &'a MaliciousValidator<'a, F>,
+pub struct ShuffledPermutationWrapper<'a, F: Field> {
+    pub val: Vec<MaliciousReplicated<F>>,
+    pub ctx: MaliciousContext<'a, F>,
 }
 
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
@@ -53,7 +53,6 @@ pub(super) async fn shuffle_and_reveal_permutation<
     ctx: C,
     input_len: u32,
     input_permutation: Vec<S>,
-    malicious_validator: Option<MaliciousValidator<'_, F>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
@@ -70,18 +69,47 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    let mut revealed_permutation = Vec::new();
-    if let Some(malicious_validator) = malicious_validator {
-        revealed_permutation = malicious_validator
-            .validate(ShuffledPermutationWrapper {
-                val: shuffled_permutation,
-                ctx: &malicious_validator,
-            })
-            .await?;
-    } else {
-        revealed_permutation =
-            reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
-    };
+    // TODO: THIS IS WHERE VALIDATOR WILL BE CALLED!
+    let revealed_permutation =
+        reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
+
+    Ok(RevealedAndRandomPermutations {
+        revealed: revealed_permutation,
+        randoms_for_shuffle: random_permutations_for_shuffle,
+    })
+}
+
+pub(super) async fn shuffle_and_reveal_permutation_malicious<
+    F: Field,
+    S: SecretSharing<F>,
+    C: Context<F, Share = S>,
+>(
+    ctx: C,
+    input_len: u32,
+    input_permutation: Vec<S>,
+    malicious_validator: MaliciousValidator<'_, F>,
+) -> Result<RevealedAndRandomPermutations, Error> {
+    let random_permutations_for_shuffle = get_two_of_three_random_permutations(
+        input_len,
+        ctx.narrow(&GeneratePermutation).prss_rng(),
+    );
+
+    let shuffled_permutation = shuffle_shares(
+        input_permutation,
+        (
+            random_permutations_for_shuffle.0.as_slice(),
+            random_permutations_for_shuffle.1.as_slice(),
+        ),
+        ctx.narrow(&ShufflePermutation),
+    )
+    .await?;
+
+    let mut revealed_permutation = malicious_validator
+        .validate(ShuffledPermutationWrapper {
+            val: shuffled_permutation,
+            ctx: malicious_validator.context(),
+        })
+        .await?;
 
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
@@ -131,7 +159,6 @@ where
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
-            None,
         )
         .await?;
 
@@ -196,7 +223,6 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
         ctx.narrow(&ShuffleRevealPermutation),
         u32::try_from(sort_keys[0].len()).unwrap(),
         sort_permutation,
-        None,
     )
     .await
 }
@@ -253,11 +279,11 @@ where
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let mut m_ctx_bit = m_ctx.narrow(&Sort(bit_num));
-        let reveal_and_random_permutation = shuffle_and_reveal_permutation(
+        let reveal_and_random_permutation = shuffle_and_reveal_permutation_malicious(
             m_ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
-            Some(malicious_validator),
+            malicious_validator,
         )
         .await?;
 
@@ -392,11 +418,11 @@ mod tests {
         let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
         let h0_future =
-            shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, perm0, None);
+            shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), BATCHSIZE, perm0);
         let h1_future =
-            shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, perm1, None);
+            shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), BATCHSIZE, perm1);
         let h2_future =
-            shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, perm2, None);
+            shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), BATCHSIZE, perm2);
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 

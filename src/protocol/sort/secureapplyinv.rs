@@ -94,7 +94,6 @@ mod tests {
                             ctx.narrow("shuffle_reveal"),
                             BATCHSIZE,
                             m_perms,
-                            None,
                         )
                         .await
                         .unwrap();
