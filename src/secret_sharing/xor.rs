@@ -29,6 +29,7 @@ impl XorReplicated {
 
 /// Bit store size of `XorSecretShare` in bytes.
 const BIT_STORE_SIZE_IN_BYTES: usize = 4;
+type BitStore = BitArr!(for BIT_STORE_SIZE_IN_BYTES * 8, in u8, Lsb0);
 
 /// XOR secret share.
 ///
@@ -47,12 +48,12 @@ const BIT_STORE_SIZE_IN_BYTES: usize = 4;
 /// assert_eq!(b1, 1);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct XorSecretShare(BitArray<[u8; BIT_STORE_SIZE_IN_BYTES], Lsb0>);
+pub struct XorSecretShare(BitStore);
 
 impl XorSecretShare {
     const SIZE_IN_BYTES: usize = BIT_STORE_SIZE_IN_BYTES;
     #[allow(dead_code)]
-    const ZERO: Self = Self(BitArray::<[u8; Self::SIZE_IN_BYTES], Lsb0>::ZERO);
+    const ZERO: Self = Self(BitStore::ZERO);
 }
 
 impl BitXor for XorSecretShare {
@@ -72,7 +73,7 @@ impl BitXorAssign for XorSecretShare {
 
 impl<T: Into<u128>> From<T> for XorSecretShare {
     fn from(v: T) -> Self {
-        Self(BitArray::<_, Lsb0>::new(
+        Self(BitStore::new(
             v.into().to_le_bytes()[0..Self::SIZE_IN_BYTES]
                 .try_into()
                 .unwrap(),
