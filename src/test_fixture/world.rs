@@ -301,8 +301,7 @@ where
 
         // Perform validation and convert the results we just got: P to O
         let output = join_all(
-            zip(v, m_results)
-                .map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
+            zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
         )
         .await;
         <[_; 3]>::try_from(output).unwrap()

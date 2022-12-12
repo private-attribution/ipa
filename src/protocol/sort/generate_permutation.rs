@@ -3,11 +3,11 @@ use crate::{
     ff::Field,
     protocol::{
         basics::reveal_permutation,
-        context::{Context, MaliciousContext},
+        context::Context,
         malicious::MaliciousValidator,
         sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, Malicious, MaliciousInputUpgrade, ShuffleRevealPermutation,
-            SortKeys,
+            ApplyInv, BitPermutationStep, ComposeStep, Malicious, MaliciousInputUpgrade,
+            ShuffleRevealPermutation, SortKeys,
         },
         sort::{
             bit_permutation::bit_permutation,
@@ -36,9 +36,9 @@ pub struct RevealedAndRandomPermutations {
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
 }
 
-pub struct ShuffledPermutationWrapper<'a, F: Field> {
-    pub val: Vec<MaliciousReplicated<F>>,
-    pub ctx: MaliciousContext<'a, F>,
+pub struct ShuffledPermutationWrapper<'a, F: Field, S: SecretSharing<F>> {
+    pub val: Vec<S>,
+    pub ctx: &'a MaliciousValidator<'a, F>,
 }
 
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
@@ -75,7 +75,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
         revealed_permutation = malicious_validator
             .validate(ShuffledPermutationWrapper {
                 val: shuffled_permutation,
-                ctx: malicious_validator.context(),
+                ctx: &malicious_validator,
             })
             .await?;
     } else {
@@ -243,7 +243,9 @@ where
     let m_ctx_0 = m_ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let upgraded_sort_keys = m_ctx.upgrade_vec(&MaliciousInputUpgrade, sort_keys[0].clone()).await?;
+    let upgraded_sort_keys = m_ctx
+        .upgrade_vec(&MaliciousInputUpgrade, sort_keys[0].clone())
+        .await?;
     let bit_0_permutation =
         bit_permutation(m_ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows

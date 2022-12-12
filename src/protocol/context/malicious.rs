@@ -83,12 +83,11 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         step: &SS,
         input: Vec<Replicated<F>>,
     ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
-        try_join_all(zip(repeat(self), input.into_iter().enumerate()).map(
-            |(ctx, (i, share))| async move {
-                ctx.upgrade_with(step, RecordId::from(i), share)
-                    .await
-            },
-        ))
+        try_join_all(
+            zip(repeat(self), input.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
+                ctx.upgrade_with(step, RecordId::from(i), share).await
+            }),
+        )
         .await
     }
 

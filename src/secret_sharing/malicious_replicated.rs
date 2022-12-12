@@ -6,9 +6,20 @@ use std::{
 use async_trait::async_trait;
 use futures::future::{join, join_all};
 
-use crate::{ff::Field, protocol::{sort::{generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation}, basics::reveal_permutation, context::Context}};
 use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
+use crate::{
+    ff::Field,
+    protocol::{
+        basics::reveal_permutation,
+        context::Context,
+        sort::{
+            generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
+        },
+    },
+};
+
+use super::SecretSharing;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MaliciousReplicated<F: Field> {
@@ -20,7 +31,7 @@ pub struct MaliciousReplicated<F: Field> {
 /// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
 /// when the protocol is done.  This should not be used directly.
 #[async_trait]
-pub trait Downgrade: Send {
+pub trait Downgrade {
     type Target: Send;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
@@ -153,8 +164,8 @@ impl<F: Field> Downgrade for MaliciousReplicated<F> {
 #[async_trait]
 impl<T, U> Downgrade for (T, U)
 where
-    T: Downgrade,
-    U: Downgrade,
+    T: Downgrade + Send,
+    U: Downgrade + Send,
 {
     type Target = (<T>::Target, <U>::Target);
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
@@ -169,10 +180,12 @@ where
 }
 
 #[async_trait]
-impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
+impl<'a, F: Field, S: SecretSharing<F>> Downgrade for ShuffledPermutationWrapper<'a, F, S> {
     type Target = Vec<u32>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = reveal_permutation(self.ctx.narrow(&RevealPermutation), &self.val).await.unwrap();
+        let output = reveal_permutation(self.ctx.context().narrow(&RevealPermutation), &self.val)
+            .await
+            .unwrap();
         UnauthorizedDowngradeWrapper(output)
     }
 }
@@ -180,7 +193,7 @@ impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
 #[async_trait]
 impl<T> Downgrade for Vec<T>
 where
-    T: Downgrade,
+    T: Downgrade + Send,
 {
     type Target = Vec<<T as Downgrade>::Target>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {

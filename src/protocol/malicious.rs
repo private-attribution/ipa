@@ -143,7 +143,7 @@ pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
     protocol_ctx: MaliciousContext<'a, F>,
-    pub validate_ctx: SemiHonestContext<'a, F>,
+    validate_ctx: SemiHonestContext<'a, F>,
 }
 
 impl<'a, F: Field> MaliciousValidator<'a, F> {
@@ -194,10 +194,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub async fn validate<D: DowngradeMalicious>(
-        self,
-        values: D,
-    ) -> Result<D::Target, Error> {
+    pub async fn validate<D: DowngradeMalicious>(&self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 
