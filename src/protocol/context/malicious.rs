@@ -78,7 +78,7 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_vec<SS: Substep>(
+    pub async fn upgrade_vector<SS: Substep>(
         &self,
         step: &SS,
         input: Vec<Replicated<F>>,
