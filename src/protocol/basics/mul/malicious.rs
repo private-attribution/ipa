@@ -75,8 +75,8 @@ where
     let (ab, rab) = try_join(
         ctx.semi_honest_context().multiply_sparse(
             record_id,
-            a.x().access_without_downgrade().await,
-            b.x().access_without_downgrade().await,
+            a.x().access_without_downgrade(),
+            b.x().access_without_downgrade(),
             zeros_at,
         ),
         duplicate_multiply_ctx
@@ -84,7 +84,7 @@ where
             .multiply_sparse(
                 record_id,
                 a.rx(),
-                b.x().access_without_downgrade().await,
+                b.x().access_without_downgrade(),
                 (ZeroPositions::Pvvv, zeros_at.1),
             ),
     )

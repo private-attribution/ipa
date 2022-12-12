@@ -22,15 +22,16 @@ pub struct MaliciousReplicated<F: Field> {
 #[async_trait]
 pub trait Downgrade {
     type Target;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
+    where
+        Self::Target: Send;
 }
 
 #[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
 
-#[async_trait]
 pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
-    async fn access_without_downgrade(self) -> T;
+    fn access_without_downgrade(self) -> T;
 }
 
 impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
@@ -148,7 +149,10 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
 #[async_trait]
 impl<F: Field> Downgrade for MaliciousReplicated<F> {
     type Target = Replicated<F>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
+    where
+        Self::Target: Send,
+    {
         UnauthorizedDowngradeWrapper(self.x)
     }
 }
@@ -160,11 +164,13 @@ where
     U: Downgrade + Send,
 {
     type Target = (<T>::Target, <U>::Target);
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper((
-            self.0.downgrade().await.access_without_downgrade().await,
-            self.1.downgrade().await.access_without_downgrade().await,
-        ))
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
+    where
+        Self::Target: Send,
+    {
+        let one = self.0.downgrade().await.access_without_downgrade();
+        let two = self.1.downgrade().await.access_without_downgrade();
+        UnauthorizedDowngradeWrapper((one, two))
     }
 }
 
@@ -174,18 +180,21 @@ where
     T: Downgrade + Send,
 {
     type Target = Vec<<T>::Target>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let futures = self.into_iter().map(|v| async move {
-            v.downgrade().await.access_without_downgrade().await
-        }).collect();
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
+    where
+        Self::Target: Send,
+    {
+        let futures = self
+            .into_iter()
+            .map(|v| async move { v.downgrade().await.access_without_downgrade() })
+            .collect();
         let output = futures.await;
         UnauthorizedDowngradeWrapper(output)
     }
 }
 
-#[async_trait]
-impl<T: Send> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
-    async fn access_without_downgrade(self) -> T {
+impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
+    fn access_without_downgrade(self) -> T {
         self.0
     }
 }
@@ -200,9 +209,9 @@ mod tests {
     use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;
 
-    #[tokio::test]
+    #[test]
     #[allow(clippy::many_single_char_names)]
-    async fn test_local_operations() {
+    fn test_local_operations() {
         let mut rng = rand::thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -267,9 +276,9 @@ mod tests {
 
         assert_eq!(
             (
-                results[0].x().access_without_downgrade().await,
-                results[1].x().access_without_downgrade().await,
-                results[2].x().access_without_downgrade().await,
+                results[0].x().access_without_downgrade(),
+                results[1].x().access_without_downgrade(),
+                results[2].x().access_without_downgrade(),
             )
                 .reconstruct(),
             correct,
@@ -286,6 +295,6 @@ mod tests {
         let x = Replicated::new(rng.gen::<Fp31>(), rng.gen());
         let y = Replicated::new(rng.gen::<Fp31>(), rng.gen());
         let m = MaliciousReplicated::new(x.clone(), y);
-        assert_eq!(x, m.downgrade().access_without_downgrade().await);
+        assert_eq!(x, m.downgrade().await.access_without_downgrade());
     }
 }

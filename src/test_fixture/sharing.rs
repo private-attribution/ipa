@@ -240,9 +240,9 @@ where
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
-            self[0].borrow().x().access_without_downgrade().await,
-            self[1].borrow().x().access_without_downgrade().await,
-            self[2].borrow().x().access_without_downgrade().await,
+            self[0].borrow().x().access_without_downgrade(),
+            self[1].borrow().x().access_without_downgrade(),
+            self[2].borrow().x().access_without_downgrade(),
         );
         let rx = (
             self[0].borrow().rx(),
