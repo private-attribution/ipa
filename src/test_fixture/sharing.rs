@@ -266,6 +266,7 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
 }
 
 #[async_trait]
+#[allow(unused_must_use)]
 impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
     async fn validate(&self, r: F) {
         let [t0, t1, t2] = self;

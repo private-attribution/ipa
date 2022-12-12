@@ -114,7 +114,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub async fn accumulate_macs<I: SharedRandomness>(
+    pub fn accumulate_macs<I: SharedRandomness>(
         &self,
         prss: &I,
         record_id: RecordId,
@@ -194,10 +194,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     ///
     /// ## Panics
     /// Will panic if the mutex is poisoned
-    pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error>
-    where
-        D::Target: Send,
-    {
+    pub async fn validate<D: DowngradeMalicious>(self, values: D) -> Result<D::Target, Error> {
         // send our `u_i+1` value to the helper on the right
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 

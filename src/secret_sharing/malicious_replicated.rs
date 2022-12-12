@@ -4,9 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::{
-    future::{join, try_join_all, join_all},
-};
+use futures::future::{join, join_all};
 
 use crate::ff::Field;
 use crate::helpers::Role;
@@ -23,7 +21,7 @@ pub struct MaliciousReplicated<F: Field> {
 /// when the protocol is done.  This should not be used directly.
 #[async_trait]
 pub trait Downgrade {
-    type Target;
+    type Target: Send;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
 
@@ -164,9 +162,11 @@ where
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         let one = self.0.downgrade();
         let two = self.1.downgrade();
-        let out = join(one, two).await;
-        let output = (out.0.access_without_downgrade(), out.1.access_without_downgrade());
-        UnauthorizedDowngradeWrapper(output)
+        let output = join(one, two).await;
+        UnauthorizedDowngradeWrapper((
+            output.0.access_without_downgrade(),
+            output.1.access_without_downgrade(),
+        ))
     }
 }
 
@@ -177,11 +177,11 @@ where
 {
     type Target = Vec<<T as Downgrade>::Target>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = join_all(self
-            .into_iter()
-            .map(|v| async move { v.downgrade().await.access_without_downgrade() })
-            .collect::<Vec<_>>()).await;
-        UnauthorizedDowngradeWrapper(output)
+        let result = join_all(
+            self.into_iter()
+                .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
+        );
+        UnauthorizedDowngradeWrapper(result.await)
     }
 }
 
