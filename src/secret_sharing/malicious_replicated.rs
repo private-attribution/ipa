@@ -20,7 +20,7 @@ pub struct MaliciousReplicated<F: Field> {
 /// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
 /// when the protocol is done.  This should not be used directly.
 #[async_trait]
-pub trait Downgrade {
+pub trait Downgrade: Send {
     type Target: Send;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
@@ -155,14 +155,12 @@ impl<F: Field> Downgrade for MaliciousReplicated<F> {
 #[async_trait]
 impl<T, U> Downgrade for (T, U)
 where
-    T: Downgrade + Send,
-    U: Downgrade + Send,
+    T: Downgrade,
+    U: Downgrade,
 {
     type Target = (<T>::Target, <U>::Target);
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let one = self.0.downgrade();
-        let two = self.1.downgrade();
-        let output = join(one, two).await;
+        let output = join(self.0.downgrade(), self.1.downgrade()).await;
         UnauthorizedDowngradeWrapper((
             output.0.access_without_downgrade(),
             output.1.access_without_downgrade(),
@@ -173,7 +171,7 @@ where
 #[async_trait]
 impl<T> Downgrade for Vec<T>
 where
-    T: Downgrade + Send,
+    T: Downgrade,
 {
     type Target = Vec<<T as Downgrade>::Target>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
