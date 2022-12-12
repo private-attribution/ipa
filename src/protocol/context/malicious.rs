@@ -78,14 +78,14 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_vec(
+    pub async fn upgrade_vec<SS: Substep>(
         &self,
-        record_id_start_from: usize,
+        step: &SS,
         input: Vec<Replicated<F>>,
     ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
         try_join_all(zip(repeat(self), input.into_iter().enumerate()).map(
             |(ctx, (i, share))| async move {
-                ctx.upgrade(RecordId::from(record_id_start_from + i), share)
+                ctx.upgrade_with(step, RecordId::from(i), share)
                     .await
             },
         ))

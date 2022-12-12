@@ -6,7 +6,7 @@ use crate::{
         context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, Malicious, ShuffleRevealPermutation,
+            ApplyInv, BitPermutationStep, ComposeStep, Malicious, MaliciousInputUpgrade, ShuffleRevealPermutation,
             SortKeys,
         },
         sort::{
@@ -243,7 +243,7 @@ where
     let m_ctx_0 = m_ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let upgraded_sort_keys = m_ctx.upgrade_vec(0, sort_keys[0].clone()).await?;
+    let upgraded_sort_keys = m_ctx.upgrade_vec(&MaliciousInputUpgrade, sort_keys[0].clone()).await?;
     let bit_0_permutation =
         bit_permutation(m_ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
@@ -262,7 +262,7 @@ where
         malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num)));
         m_ctx_bit = malicious_validator.context();
         let upgraded_sort_keys = m_ctx_bit
-            .upgrade_vec(0_usize, sort_keys[bit_num as usize].clone())
+            .upgrade_vec(&MaliciousInputUpgrade, sort_keys[bit_num as usize].clone())
             .await?;
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             m_ctx_bit.narrow(&ApplyInv),
