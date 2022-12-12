@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::try_join_all;
+use futures::future::{try_join_all, join};
 
 use crate::ff::Field;
 use crate::helpers::Role;
@@ -22,9 +22,7 @@ pub struct MaliciousReplicated<F: Field> {
 #[async_trait]
 pub trait Downgrade {
     type Target;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    where
-        Self::Target: Send;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
 
 #[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
@@ -150,8 +148,6 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
 impl<F: Field> Downgrade for MaliciousReplicated<F> {
     type Target = Replicated<F>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    where
-        Self::Target: Send,
     {
         UnauthorizedDowngradeWrapper(self.x)
     }
@@ -165,12 +161,10 @@ where
 {
     type Target = (<T>::Target, <U>::Target);
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    where
-        Self::Target: Send,
     {
         let one = self.0.downgrade().await.access_without_downgrade();
         let two = self.1.downgrade().await.access_without_downgrade();
-        UnauthorizedDowngradeWrapper((one, two))
+        UnauthorizedDowngradeWrapper(join(one, two).await)
     }
 }
 
@@ -181,8 +175,6 @@ where
 {
     type Target = Vec<<T>::Target>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    where
-        Self::Target: Send,
     {
         let futures = self
             .into_iter()
