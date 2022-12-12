@@ -303,7 +303,7 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_no_result_check() {
-        const BATCHSIZE: u64 = 100;
+        const BATCHSIZE: u64 = 20;
         const PER_USER_CAP: u32 = 10;
         const MAX_BREAKDOWN_KEY: u128 = 8;
         const MAX_TRIGGER_VALUE: u128 = 5;

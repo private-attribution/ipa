@@ -212,7 +212,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         if is_valid {
             // Yes, we're allowed to downgrade here.
             use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            Ok(values.downgrade().access_without_downgrade())
+            Ok(values.downgrade().await.access_without_downgrade())
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
         }
@@ -437,6 +437,7 @@ mod tests {
 
                 let r_share = v.r_share().clone();
                 let results = v.validate(m_results.clone()).await?;
+
                 assert_eq!(
                     results.iter().collect::<Vec<_>>(),
                     m_results

@@ -247,16 +247,18 @@ where
     }
 }
 
+#[async_trait]
 pub trait ValidateMalicious<F> {
-    fn validate(&self, r: F);
+    async fn validate(&self, r: F);
 }
 
+#[async_trait]
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
     F: Field,
-    T: Borrow<MaliciousReplicated<F>>,
+    T: Borrow<MaliciousReplicated<F>> + Send + Sync,
 {
-    fn validate(&self, r: F) {
+    async fn validate(&self, r: F) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
@@ -273,23 +275,26 @@ where
     }
 }
 
+#[async_trait]
 impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
-    fn validate(&self, r: F) {
+    async fn validate(&self, r: F) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
 
         for (m0, (m1, m2)) in zip(self[0].iter(), zip(self[1].iter(), self[2].iter())) {
-            [m0, m1, m2].validate(r);
+            [m0, m1, m2].validate(r).await;
         }
     }
 }
 
+#[async_trait]
+#[allow(unused_must_use)]
 impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
-    fn validate(&self, r: F) {
+    async fn validate(&self, r: F) {
         let [t0, t1, t2] = self;
         let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
 
         [s0, s1, s2].validate(r);
-        [v0.clone(), v1.clone(), v2.clone()].validate(r);
+        [v0.clone(), v1.clone(), v2.clone()].validate(r).await;
     }
 }

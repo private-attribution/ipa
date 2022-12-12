@@ -237,6 +237,7 @@ where
         <[_; 3]>::try_from(output).unwrap()
     }
 
+    #[allow(unused_must_use)]
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
         A: IntoMalicious<F, M>,
