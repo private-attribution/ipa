@@ -35,6 +35,17 @@ enum ReceiveBufItem {
 }
 
 impl ReceiveBuffer {
+    fn update_record_count(&mut self, channel_id: ChannelId) {
+        let channel = self.inner.get_mut(&channel_id).expect("update_record_count called for invalid channel");
+        channel.received_records += 1;
+        if NonZeroUsize::new(channel.received_records) == Some(channel.total_records) {
+            assert!(channel.items.is_empty());
+            tracing::trace!("close rx {:?}", &channel_id);
+            self.inner.remove(&channel_id);
+            self.record_ids.remove(&channel_id);
+        }
+    }
+
     /// Process request to receive a message with the given `RecordId`.
     pub fn receive_request(
         &mut self,
@@ -43,19 +54,21 @@ impl ReceiveBuffer {
         sender: oneshot::Sender<MessagePayload>,
     ) {
         let total_records = channel_id.total_records.expect("can't receive without a known total record count");
-        match self.inner.entry(channel_id.clone()).or_insert_with(|| {
-            tracing::trace!("create rx channel {:?}", &channel_id);
+        let channel = self.inner.entry(channel_id.clone()).or_insert_with(|| {
+            tracing::trace!("create rx channel for rx request {:?}", &channel_id);
             ReceiveChannel {
                 total_records,
                 received_records: 0,
                 items: Default::default(),
             }
-        }).items.entry(record_id) {
+        });
+        match channel.items.entry(record_id) {
             Entry::Occupied(entry) => match entry.remove() {
                 ReceiveBufItem::Requested(_) => {
                     panic!("More than one request to receive a message for {record_id:?}");
                 }
                 ReceiveBufItem::Received(payload) => {
+                    self.update_record_count(channel_id.clone());
                     sender.send(payload).unwrap_or_else(|_| {
                         tracing::warn!("No listener for message {record_id:?}");
                     });
@@ -72,30 +85,37 @@ impl ReceiveBuffer {
     /// etc. It does not require all chunks to be of the same size, this assumption is baked in
     /// send buffers.
     pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: &[u8]) {
+        // TODO: this is probably wrong. Need to maintain total count as
+        // unknown until we see a receive request.
         let total_records = channel_id.total_records.expect("can't receive without a known total record count");
 
         let offset = self
             .record_ids
             .entry(channel_id.clone())
             .or_insert_with(|| RecordId::from(0_u32));
+        *offset += 1;
+        // TODO: need to pre-increment and drop this reference so we can
+        // call update_record_count below.  Can we do better?
+        let offset = *offset;
 
         for msg in messages.chunks(MESSAGE_PAYLOAD_SIZE_BYTES) {
             let payload = msg.try_into().unwrap();
-            match self
+            let channel = self
                 .inner
                 .entry(channel_id.clone())
                 .or_insert_with(|| {
-                    tracing::trace!("create rx channel {:?}", &channel_id);
+                    tracing::trace!("create rx channel for rx msg {:?}", &channel_id);
                     ReceiveChannel {
                         total_records,
                         received_records: 0,
                         items: Default::default(),
                     }
-                })
-                .items.entry(*offset)
+                });
+            match channel.items.entry(offset - 1)
             {
                 Entry::Occupied(entry) => match entry.remove() {
                     ReceiveBufItem::Requested(s) => {
+                        self.update_record_count(channel_id.clone());
                         s.send(payload).unwrap_or_else(|_| {
                             tracing::warn!("No listener for message {offset:?}");
                         });
@@ -108,8 +128,6 @@ impl ReceiveBuffer {
                     entry.insert(ReceiveBufItem::Received(payload));
                 }
             };
-
-            *offset += 1;
         }
     }
 

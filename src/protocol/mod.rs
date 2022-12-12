@@ -13,6 +13,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
+use std::ops::Sub;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -283,5 +284,13 @@ impl From<RecordId> for usize {
 impl AddAssign<usize> for RecordId {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += u32::try_from(rhs).unwrap();
+    }
+}
+
+impl Sub<usize> for RecordId {
+    type Output = RecordId;
+
+    fn sub(self, rhs: usize) -> RecordId {
+        RecordId::from(self.0 - u32::try_from(rhs).unwrap())
     }
 }
