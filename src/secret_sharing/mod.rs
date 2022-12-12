@@ -2,9 +2,13 @@ use crate::ff::Field;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
+mod into_shares;
 mod malicious_replicated;
 mod replicated;
 mod xor;
+
+#[cfg(any(feature = "test-fixture", feature = "cli"))]
+pub use into_shares::IntoShares;
 
 pub(crate) use malicious_replicated::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 pub use malicious_replicated::{Downgrade as DowngradeMalicious, MaliciousReplicated};

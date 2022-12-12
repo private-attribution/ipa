@@ -182,6 +182,7 @@ impl MultiplyWork for MultiplyZeroPositions {
 
 #[cfg(test)]
 pub(in crate::protocol) mod test {
+    use crate::secret_sharing::IntoShares;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::{
@@ -195,7 +196,7 @@ pub(in crate::protocol) mod test {
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
-        test_fixture::{IntoShares, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join;
     use rand::distributions::{Distribution, Standard};
