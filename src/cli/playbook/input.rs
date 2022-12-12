@@ -1,14 +1,13 @@
-use crate::ff::{Field, Fp31, Fp32BitPrime};
-use crate::secret_sharing::IntoShares;
+use crate::ff::{Field};
+
 use std::any::type_name;
 use std::fs::File;
 use std::io;
 use std::io::{stdin, BufRead, BufReader, Read};
-use std::num::ParseIntError;
-use std::path::PathBuf;
-use std::str::FromStr;
 
-trait InputItem: Sized {
+use std::path::PathBuf;
+
+pub trait InputItem {
     fn from_str(s: &str) -> Self;
 }
 
@@ -38,7 +37,7 @@ impl<I: InputItem> InputItem for (I, I) {
     }
 }
 
-struct InputSource {
+pub struct InputSource {
     inner: Box<dyn BufRead>,
 }
 
@@ -51,7 +50,6 @@ impl InputSource {
 
     pub fn from_stdin() -> Self {
         Self {
-            // TODO: this is suboptimal, better to use stdinlock
             inner: Box::new(BufReader::new(stdin())),
         }
     }
@@ -132,7 +130,7 @@ mod tests {
         use super::*;
         use crate::cli::playbook::input::InputSource;
         use crate::ff::Field;
-        use std::io::stdin;
+        
 
         #[test]
         fn multiline() {

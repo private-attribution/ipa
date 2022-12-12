@@ -1,5 +1,5 @@
 mod metric_collector;
-mod playbook;
+pub mod playbook;
 mod verbosity;
 
 pub use metric_collector::{install_collector, CollectorHandle};
