@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use futures::future::{join, join_all};
 
-use crate::ff::Field;
+use crate::{ff::Field, protocol::{sort::{generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation}, basics::reveal_permutation, context::Context}};
 use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
 
@@ -165,6 +165,15 @@ where
             output.0.access_without_downgrade(),
             output.1.access_without_downgrade(),
         ))
+    }
+}
+
+#[async_trait]
+impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
+    type Target = Vec<u32>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let output = reveal_permutation(self.ctx.narrow(&RevealPermutation), &self.val).await.unwrap();
+        UnauthorizedDowngradeWrapper(output)
     }
 }
 
