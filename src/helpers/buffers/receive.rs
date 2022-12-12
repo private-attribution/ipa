@@ -2,10 +2,17 @@ use crate::{
     helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::RecordId,
 };
-use std::collections::hash_map::Entry;
+use std::{collections::hash_map::Entry, num::NonZeroUsize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use tokio::sync::oneshot;
+
+#[derive(Debug)]
+struct ReceiveChannel {
+    total_records: NonZeroUsize,
+    received_records: usize,
+    items: HashMap<RecordId, ReceiveBufItem>,
+}
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests
 /// that are pending message reception.
@@ -15,7 +22,7 @@ use tokio::sync::oneshot;
 #[derive(Debug, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct ReceiveBuffer {
-    inner: HashMap<ChannelId, HashMap<RecordId, ReceiveBufItem>>,
+    inner: HashMap<ChannelId, ReceiveChannel>,
     record_ids: HashMap<ChannelId, RecordId>,
 }
 
@@ -35,7 +42,15 @@ impl ReceiveBuffer {
         record_id: RecordId,
         sender: oneshot::Sender<MessagePayload>,
     ) {
-        match self.inner.entry(channel_id).or_default().entry(record_id) {
+        let total_records = channel_id.total_records.expect("can't receive without a known total record count");
+        match self.inner.entry(channel_id.clone()).or_insert_with(|| {
+            tracing::trace!("create rx channel {:?}", &channel_id);
+            ReceiveChannel {
+                total_records,
+                received_records: 0,
+                items: Default::default(),
+            }
+        }).items.entry(record_id) {
             Entry::Occupied(entry) => match entry.remove() {
                 ReceiveBufItem::Requested(_) => {
                     panic!("More than one request to receive a message for {record_id:?}");
@@ -57,6 +72,8 @@ impl ReceiveBuffer {
     /// etc. It does not require all chunks to be of the same size, this assumption is baked in
     /// send buffers.
     pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: &[u8]) {
+        let total_records = channel_id.total_records.expect("can't receive without a known total record count");
+
         let offset = self
             .record_ids
             .entry(channel_id.clone())
@@ -67,8 +84,15 @@ impl ReceiveBuffer {
             match self
                 .inner
                 .entry(channel_id.clone())
-                .or_default()
-                .entry(*offset)
+                .or_insert_with(|| {
+                    tracing::trace!("create rx channel {:?}", &channel_id);
+                    ReceiveChannel {
+                        total_records,
+                        received_records: 0,
+                        items: Default::default(),
+                    }
+                })
+                .items.entry(*offset)
             {
                 Entry::Occupied(entry) => match entry.remove() {
                     ReceiveBufItem::Requested(s) => {
@@ -96,7 +120,7 @@ impl ReceiveBuffer {
         let mut tasks = HashMap::new();
         for (channel, receive_items) in &self.inner {
             let mut vec = receive_items
-                .iter()
+                .items.iter()
                 .filter_map(|(record_id, item)| match item {
                     ReceiveBufItem::Requested(_) => Some(u32::from(*record_id)),
                     ReceiveBufItem::Received(_) => None,

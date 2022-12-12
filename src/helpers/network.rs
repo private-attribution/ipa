@@ -8,7 +8,7 @@ use crate::{
         transport::{SubscriptionType, Transport, TransportCommand},
         Error, Role,
     },
-    protocol::{QueryId, Step},
+    protocol::{context::TotalRecords, QueryId, RecordId, Step},
 };
 use futures::{Stream, StreamExt};
 use std::fmt::{Debug, Formatter};
@@ -25,12 +25,17 @@ pub struct MessageEnvelope {
 pub struct ChannelId {
     pub role: Role,
     pub step: Step,
+    pub total_records: TotalRecords,
 }
 
 impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, step: Step) -> Self {
-        Self { role, step }
+    pub fn new(role: Role, step: Step, total_records: TotalRecords) -> Self {
+        Self {
+            role,
+            step,
+            total_records,
+        }
     }
 }
 

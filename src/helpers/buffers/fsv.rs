@@ -112,6 +112,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
             Some(self.data[(i * N)..((i + tail) * N)].to_owned())
         }
     }
+
+    /// Returns `true` if the buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.added.not_any()
+    }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

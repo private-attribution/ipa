@@ -13,7 +13,7 @@ use crate::{
         network::ChannelId,
         Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
-    protocol::{RecordId, Step},
+    protocol::{context::TotalRecords, RecordId, Step},
     task::JoinHandle,
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
@@ -180,7 +180,7 @@ impl Mesh<'_, '_> {
         let envelope = MessageEnvelope { record_id, payload };
 
         self.gateway
-            .send(ChannelId::new(dest, self.step.clone()), envelope)
+            .send(ChannelId::new(dest, self.step.clone(), self.total_records), envelope)
             .await
     }
 
@@ -204,7 +204,7 @@ impl Mesh<'_, '_> {
 
         let payload = self
             .gateway
-            .receive(ChannelId::new(source, self.step.clone()), record_id)
+            .receive(ChannelId::new(source, self.step.clone(), self.total_records), record_id)
             .await?;
 
         let obj = T::deserialize(&payload)
@@ -256,14 +256,23 @@ impl Gateway {
                     Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        if let Some(buf_to_send) = send_buf.push(&channel_id, &envelope) {
-                            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-                            pending_sends.push(async { network
-                                .send((channel_id, buf_to_send))
-                                .await
-                                .expect("Failed to send data to the network");
-                            });
-                        }
+                        match buf.push(&channel_id, &msg) {
+                            Ok(Some((buf_to_send, close))) => {
+                                tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
+                                pending_sends.push(async { network
+                                    .send((channel_id, buf_to_send))
+                                    .await
+                                    .expect("Failed to send data to the network");
+                                });
+                                if close {
+                                    tracing::trace!("close {:?}", &channel_id);
+                                    // TODO: need to update this post rebase
+                                    sink.close().await.expect("Failed to close channel");
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
+                        };
                     }
                     Some(_) = &mut pending_sends.next() => {
                         pending_sends.clear();
@@ -382,6 +391,8 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use crate::ff::Fp31;
     use crate::helpers::messaging::TotalRecords;
     use crate::helpers::Role;

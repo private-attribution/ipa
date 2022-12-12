@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{try_join_all};
+use std::iter::{repeat, zip};
+use std::num::NonZeroUsize;
 
 use crate::error::Error;
 use crate::ff::Field;
@@ -19,6 +21,8 @@ use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
 use crate::sync::Arc;
+
+use super::TotalRecords;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.

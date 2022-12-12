@@ -82,7 +82,7 @@ pub async fn obtain_permit_mw<B: Send>(
 
     // PANIC if messages arrive out of order; pretty print the error
     // TODO (ts): remove this when streaming solution is complete
-    let channel_id = ChannelId::new(role, step);
+    let channel_id = ChannelId::new(role, step, None);
     last_seen_messages.ensure_ordering(&channel_id, record_headers.offset);
 
     // get sender to correct network
@@ -229,6 +229,7 @@ mod tests {
             let channel_id = ChannelId {
                 role: target_helper,
                 step: step.clone(),
+                total_records: None,
             };
 
             assert_eq!(status, StatusCode::OK, "{resp_body_str}");

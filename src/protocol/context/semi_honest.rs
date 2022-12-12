@@ -12,6 +12,9 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::sync::Arc;
 
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
+
+use super::TotalRecords;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
