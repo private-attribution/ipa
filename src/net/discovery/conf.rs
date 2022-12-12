@@ -9,15 +9,8 @@ struct ToPeerHttpConfig {
 }
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-struct ToPeerPrssConfig {
-    #[serde(with = "hex")]
-    public_key: [u8; 32],
-}
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct ToPeerConfig {
     http: ToPeerHttpConfig,
-    prss: ToPeerPrssConfig,
 }
 
 /// Values that are serializable and read from config. May need further processing when translating
@@ -51,9 +44,6 @@ impl Conf {
                 origin: to_peer_config.http.origin.parse()?,
                 public_key: to_peer_config.http.public_key.into(),
             },
-            prss: peer::PrssConfig {
-                public_key: to_peer_config.prss.public_key.into(),
-            },
         })
     }
 }
@@ -61,7 +51,8 @@ impl Conf {
 impl FromStr for Conf {
     type Err = Error;
 
-    /// Reads config from `file_location`. Expects file to be json format
+    /// Reads config from string. Expects config to be toml format.
+    /// To read file, use `fs::read_to_string`
     /// # Errors
     /// if the file does not exist, or is in an invalid format
     fn from_str(config_str: &str) -> Result<Self, Self::Err> {
@@ -99,21 +90,15 @@ mod tests {
     [h1.http]
         origin = "http://localhost:3000"
         public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
-    [h1.prss]
-        public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
 
 [h2]
     [h2.http]
         origin = "http://localhost:3001"
         public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
-    [h2.prss]
-        public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
 
 [h3]
     [h3.http]
         origin = "http://localhost:3002"
-        public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
-    [h3.prss]
         public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#;
 
