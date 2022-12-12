@@ -258,7 +258,7 @@ mod tests {
     use crate::secret_sharing::{
         IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
     };
-    use crate::test_fixture::{join3v, join3v, Reconstruct, Runner, TestWorld};
+    use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
@@ -437,11 +437,6 @@ mod tests {
 
                 let r_share = v.r_share().clone();
                 let results = v.validate(m_results.clone()).await?;
-
-                let m_results = m_results
-                    .into_iter()
-                    .map(|x| async move { x.x().access_without_downgrade().clone() })
-                    .collect::<Vec<_>>();
 
                 assert_eq!(
                     results.iter().collect::<Vec<_>>(),

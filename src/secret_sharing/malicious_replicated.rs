@@ -4,7 +4,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join_all, join};
+use futures::{
+    future::{join, try_join_all, join_all},
+};
 
 use crate::ff::Field;
 use crate::helpers::Role;
@@ -147,8 +149,7 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
 #[async_trait]
 impl<F: Field> Downgrade for MaliciousReplicated<F> {
     type Target = Replicated<F>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    {
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(self.x)
     }
 }
@@ -160,11 +161,12 @@ where
     U: Downgrade + Send,
 {
     type Target = (<T>::Target, <U>::Target);
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    {
-        let one = self.0.downgrade().await.access_without_downgrade();
-        let two = self.1.downgrade().await.access_without_downgrade();
-        UnauthorizedDowngradeWrapper(join(one, two).await)
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let one = self.0.downgrade();
+        let two = self.1.downgrade();
+        let out = join(one, two).await;
+        let output = (out.0.access_without_downgrade(), out.1.access_without_downgrade());
+        UnauthorizedDowngradeWrapper(output)
     }
 }
 
@@ -173,14 +175,12 @@ impl<T> Downgrade for Vec<T>
 where
     T: Downgrade + Send,
 {
-    type Target = Vec<<T>::Target>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>
-    {
-        let futures = self
+    type Target = Vec<<T as Downgrade>::Target>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let output = join_all(self
             .into_iter()
             .map(|v| async move { v.downgrade().await.access_without_downgrade() })
-            .collect();
-        let output = futures.await;
+            .collect::<Vec<_>>()).await;
         UnauthorizedDowngradeWrapper(output)
     }
 }
