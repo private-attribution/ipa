@@ -1,12 +1,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use raw_ipa::{cli::Verbosity, helpers::Role, net::MpcHelperClient};
+use comfy_table::Table;
+use raw_ipa::cli::playbook::{secure_mul, InputSource};
+use raw_ipa::cli::Verbosity;
+use raw_ipa::ff::{Fp31, Fp32BitPrime};
 use std::error::Error;
 use std::fmt::Debug;
-use std::future::Future;
 use std::path::PathBuf;
-use comfy_table::Table;
-use raw_ipa::cli::playbook;
-use raw_ipa::cli::playbook::{InputSource, Scenario, secure_mul};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -27,7 +26,10 @@ struct Args {
 
 #[derive(Debug, Parser)]
 pub struct CommandInput {
-    #[arg(long, help = "Read the input from the provided file, instead of standard input")]
+    #[arg(
+        long,
+        help = "Read the input from the provided file, instead of standard input"
+    )]
     input_file: Option<PathBuf>,
     #[arg(value_enum, long, default_value_t = InputType::Fp32BitPrime, help = "Convert the input into the given field before sending to helpers")]
     input_type: InputType,
@@ -50,22 +52,21 @@ enum InputType {
     Int64,
 }
 
-
 #[derive(Debug, Subcommand)]
 enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
 }
 
-fn print_output<O: Debug>(input: &[Vec<O>; 3]) {
+fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
     let mut shares_table = Table::new();
     shares_table.set_header(vec!["Row", "H1", "H2", "H3"]);
-    for i in 0..input[0].len() {
+    for i in 0..values[0].len() {
         shares_table.add_row(vec![
             i.to_string(),
-            format!("{:?}", input[0][i]),
-            format!("{:?}", input[1][i]),
-            format!("{:?}", input[2][i]),
+            format!("{:?}", values[0][i]),
+            format!("{:?}", values[1][i]),
+            format!("{:?}", values[2][i]),
         ]);
     }
 
@@ -74,18 +75,23 @@ fn print_output<O: Debug>(input: &[Vec<O>; 3]) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut args = Args::parse();
+    let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
-    // let mut input = InputSource::from(&args.input);
+    let input = InputSource::from(&args.input);
     match args.action {
-        TestAction::Multiply => {
-            // let output = execute(&mut args.input, |source| async {
-            //     secure_mul(source).await
-            // });
-            // print_output(&output);
-        }
-    }
+        TestAction::Multiply => match args.input.input_type {
+            InputType::Fp31 => {
+                let output = secure_mul::<Fp31>(input).await;
+                print_output(&output);
+            }
+            InputType::Fp32BitPrime => {
+                let output = secure_mul::<Fp32BitPrime>(input).await;
+                print_output(&output);
+            }
+            InputType::Int64 => panic!("Only field values are supported"),
+        },
+    };
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::ff::{Field};
+use crate::ff::Field;
 
 use std::any::type_name;
 use std::fs::File;
@@ -42,12 +42,18 @@ pub struct InputSource {
 }
 
 impl InputSource {
+    /// Opens a new input source from the given file.
+    ///
+    /// ## Panics
+    /// This function will panic  if `path` does not already exist.
+    #[must_use]
     pub fn from_file(path: &PathBuf) -> Self {
         Self {
             inner: Box::new(BufReader::new(File::open(path).unwrap())),
         }
     }
 
+    #[must_use]
     pub fn from_stdin() -> Self {
         Self {
             inner: Box::new(BufReader::new(stdin())),
@@ -55,13 +61,14 @@ impl InputSource {
     }
 
     #[cfg(test)]
+    #[must_use]
     pub fn from_static_str(input: &'static str) -> Self {
         Self {
             inner: Box::new(BufReader::new(input.as_bytes())),
         }
     }
 
-    pub fn iter<T: InputItem>(&mut self) -> impl Iterator<Item = T> + '_ {
+    pub fn iter<T: InputItem>(self) -> impl Iterator<Item = T> {
         self.lines()
             .filter_map(|line| line.map(|l| T::from_str(&l)).ok())
     }
@@ -79,7 +86,7 @@ impl BufRead for InputSource {
     }
 
     fn consume(&mut self, amt: usize) {
-        self.inner.consume(amt)
+        self.inner.consume(amt);
     }
 }
 
@@ -130,13 +137,12 @@ mod tests {
         use super::*;
         use crate::cli::playbook::input::InputSource;
         use crate::ff::Field;
-        
 
         #[test]
         fn multiline() {
             let expected = vec![(1_u128, 2_u128), (3, 4)];
 
-            let mut source = InputSource::from_static_str("1,2\n3,4");
+            let source = InputSource::from_static_str("1,2\n3,4");
             let actual = source
                 .iter::<(Fp31, Fp31)>()
                 .map(|(l, r)| (l.as_u128(), r.as_u128()))
