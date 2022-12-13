@@ -348,6 +348,7 @@ mod tests {
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::Replicated;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};
@@ -460,25 +461,28 @@ mod tests {
             .collect::<Vec<_>>();
         expected.sort_unstable();
 
-        let result = world
-            .semi_honest(
-                match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
-                    let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
-                    malicious_generate_permutation(
-                        ctx.narrow("sort"),
-                        &converted_shares,
-                        MaskedMatchKey::BITS,
-                    )
-                    .await
-                    .unwrap()
-                    .1
-                },
-            )
+        let [result0, result1, result2] = world
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                let local_lists =
+                    convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                let converted_shares: Vec<Vec<Replicated<Fp31>>> =
+                    convert_all_bits(&ctx, &local_lists).await.unwrap();
+                malicious_generate_permutation(
+                    ctx.narrow("sort"),
+                    &converted_shares,
+                    MaskedMatchKey::BITS,
+                )
+                .await
+                .unwrap()
+            })
             .await;
 
+        let result = join3(
+            result0.0.validate(result0.1),
+            result1.0.validate(result1.1),
+            result2.0.validate(result2.1),
+        )
+        .await;
         let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
         for (match_key, index) in zip(match_keys, result.reconstruct()) {
             mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);

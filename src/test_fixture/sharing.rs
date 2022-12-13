@@ -170,29 +170,7 @@ impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
     }
 }
 
-impl<F: Field> Reconstruct<F> for [&MaliciousReplicated<F>; 3] {
-    fn reconstruct(&self) -> F {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-        let s0 = self[0];
-        let s1 = self[1];
-        let s2 = self[2];
-        [s0.rx(), s1.rx(), s2.rx()].reconstruct();
-        [
-            s0.x().access_without_downgrade(),
-            s1.x().access_without_downgrade(),
-            s2.x().access_without_downgrade(),
-        ]
-        .reconstruct()
-    }
-}
-
 impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
-    fn reconstruct(&self) -> F {
-        [&self[0], &self[1], &self[2]].reconstruct()
-    }
-}
-
-impl<F: Field> Reconstruct<F> for [MaliciousReplicated<F>; 3] {
     fn reconstruct(&self) -> F {
         [&self[0], &self[1], &self[2]].reconstruct()
     }
@@ -247,18 +225,16 @@ where
     }
 }
 
-#[async_trait]
 pub trait ValidateMalicious<F> {
-    async fn validate(&self, r: F);
+    fn validate(&self, r: F);
 }
 
-#[async_trait]
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
     F: Field,
     T: Borrow<MaliciousReplicated<F>> + Send + Sync,
 {
-    async fn validate(&self, r: F) {
+    fn validate(&self, r: F) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
@@ -275,26 +251,23 @@ where
     }
 }
 
-#[async_trait]
 impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
-    async fn validate(&self, r: F) {
+    fn validate(&self, r: F) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
 
         for (m0, (m1, m2)) in zip(self[0].iter(), zip(self[1].iter(), self[2].iter())) {
-            [m0, m1, m2].validate(r).await;
+            [m0, m1, m2].validate(r);
         }
     }
 }
 
-#[async_trait]
-#[allow(unused_must_use)]
 impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
-    async fn validate(&self, r: F) {
+    fn validate(&self, r: F) {
         let [t0, t1, t2] = self;
         let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
 
         [s0, s1, s2].validate(r);
-        [v0.clone(), v1.clone(), v2.clone()].validate(r).await;
+        [v0.clone(), v1.clone(), v2.clone()].validate(r);
     }
 }

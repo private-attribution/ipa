@@ -237,7 +237,6 @@ where
         <[_; 3]>::try_from(output).unwrap()
     }
 
-    #[allow(unused_must_use)]
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
     where
         A: IntoMalicious<F, M>,
@@ -301,8 +300,7 @@ where
 
         // Perform validation and convert the results we just got: P to O
         let output = join_all(
-            zip(v, m_results)
-                .map(|(v, m_result)| async move { v.validate(m_result).await.unwrap() }),
+            zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
         )
         .await;
         <[_; 3]>::try_from(output).unwrap()
