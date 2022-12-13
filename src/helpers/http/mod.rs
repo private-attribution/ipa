@@ -130,12 +130,13 @@ impl<'p> HttpHelper<'p> {
 #[cfg(test)]
 mod e2e_tests {
     use super::*;
+    use crate::secret_sharing::IntoShares;
     use crate::{
         ff::Fp31,
         helpers::SendBufferConfig,
         net::discovery,
         protocol::{basics::mul::SecureMul, context::Context, prss::SharedRandomness, RecordId},
-        test_fixture::{logging, IntoShares, Reconstruct},
+        test_fixture::{logging, Reconstruct},
     };
     use rand::rngs::mock::StepRng;
     use rand::rngs::StdRng;
