@@ -135,7 +135,8 @@ mod e2e_tests {
         helpers::SendBufferConfig,
         net::discovery,
         protocol::{basics::mul::SecureMul, context::Context, prss::SharedRandomness, RecordId},
-        test_fixture::{logging, IntoShares, Reconstruct},
+        secret_sharing::IntoShares,
+        test_fixture::{logging, Reconstruct},
     };
     use rand::rngs::mock::StepRng;
     use rand::rngs::StdRng;
