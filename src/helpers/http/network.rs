@@ -91,7 +91,7 @@ impl HttpNetwork {
             .iter()
             .map(|peer_conf| {
                 // no https for now
-                MpcHelperClient::new(peer_conf.http.origin.clone(), role)
+                MpcHelperClient::new(peer_conf.origin.clone(), role)
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -122,46 +122,14 @@ impl Network for HttpNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_fixture::net::localhost_config;
     use crate::{
         helpers::{network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::{
-            discovery::{conf::Conf, PeerDiscovery},
-            BindTarget, MessageSendMap, MpcHelperServer,
-        },
+        net::{discovery::PeerDiscovery, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::Step,
     };
     use futures::{Stream, StreamExt};
     use futures_util::SinkExt;
-    use std::str::FromStr;
-
-    fn localhost_peers(h1_port: u16, h2_port: u16, h3_port: u16) -> Conf {
-        let peer_discovery_str = format!(
-            r#"
-[h1]
-    [h1.http]
-        origin = "http://localhost:{}"
-        public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
-    [h1.prss]
-        public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
-
-[h2]
-    [h2.http]
-        origin = "http://localhost:{}"
-        public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
-    [h2.prss]
-        public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
-
-[h3]
-    [h3.http]
-        origin = "http://localhost:{}"
-        public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
-    [h3.prss]
-        public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
-"#,
-            h1_port, h2_port, h3_port
-        );
-        Conf::from_str(&peer_discovery_str).unwrap()
-    }
 
     async fn setup() -> (Role, [peer::Config; 3], impl Stream<Item = MessageChunks>) {
         // setup server
@@ -175,7 +143,7 @@ mod tests {
             .await;
 
         // only H2 is valid
-        let peer_discovery = localhost_peers(0, addr.port(), 0);
+        let peer_discovery = localhost_config([0, addr.port(), 0]);
 
         (Role::H2, peer_discovery.peers().clone(), rx_stream)
     }

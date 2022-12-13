@@ -45,8 +45,10 @@ impl<'p> HttpHelper<'p> {
     /// # Panics
     /// if peers config does not specify port
     pub async fn bind(&self) -> (SocketAddr, JoinHandle<()>) {
+        // TODO: using role as index in the peer configuration is wrong (roles are configured per query),
+        // but we are getting rid of this struct anyway, so no point in fixing it
         let this_conf = &self.peers[self.role];
-        let port = this_conf.http.origin.port().unwrap();
+        let port = this_conf.origin.port().unwrap();
         let target = BindTarget::Http(format!("127.0.0.1:{}", port.as_str()).parse().unwrap());
         tracing::info!("starting server; binding to port {}", port.as_str());
         self.server.bind(target).await
@@ -160,24 +162,24 @@ mod e2e_tests {
     fn peer_discovery() -> discovery::literal::Literal {
         discovery::literal::Literal::new(
             peer::Config {
-                http: peer::HttpConfig {
-                    origin: format!("http://127.0.0.1:{}", open_port()).parse().unwrap(),
+                origin: format!("http://127.0.0.1:{}", open_port()).parse().unwrap(),
+                tls: peer::HttpConfig {
                     public_key: public_key_from_hex(
                         "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924",
                     ),
                 },
             },
             peer::Config {
-                http: peer::HttpConfig {
-                    origin: format!("http://127.0.0.1:{}", open_port()).parse().unwrap(),
+                origin: format!("http://127.0.0.1:{}", open_port()).parse().unwrap(),
+                tls: peer::HttpConfig {
                     public_key: public_key_from_hex(
                         "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b",
                     ),
                 },
             },
             peer::Config {
-                http: peer::HttpConfig {
-                    origin: format!("http://127.0.0.1:{}", open_port()).parse().unwrap(),
+                origin: format!("http://127.0.0.1:{}", open_port()).parse().unwrap(),
+                tls: peer::HttpConfig {
                     public_key: public_key_from_hex(
                         "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074",
                     ),
