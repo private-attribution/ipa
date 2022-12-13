@@ -4,8 +4,8 @@ use crate::sync::{Arc, Mutex};
 use crate::task::JoinHandle;
 use crate::{
     error::BoxError,
-    helpers::network::MessageChunks,
-    net::{http_network::HttpNetwork, LastSeenMessages},
+    helpers::{http::HttpNetwork, network::MessageChunks},
+    net::LastSeenMessages,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -57,10 +57,12 @@ pub enum MpcHelperServerError {
 }
 
 impl MpcHelperServerError {
+    #[must_use]
     pub fn query_id_not_found(query_id: QueryId) -> Self {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
     }
 
+    #[must_use]
     pub fn sender_already_exists(query_id: QueryId) -> Self {
         Self::SendError(
             format!(
@@ -223,11 +225,26 @@ impl MpcHelperServer {
     #[must_use]
     pub(crate) fn router(&self) -> Router {
         Router::new()
+            // query handler
             .route("/query/:query_id/step/*step", post(handlers::query_handler))
             .layer(middleware::from_fn(handlers::obtain_permit_mw))
             .layer(Extension(self.last_seen_messages.clone()))
             .layer(Extension(self.message_send_map.clone()))
+            // echo
             .route("/echo", get(handlers::echo_handler))
+    }
+
+    /// Adds a mapping between [`QueryId`] and [`HttpNetwork`] so that the server knows where to
+    /// forward arriving data.
+    /// # Errors
+    /// if a query has been previously added
+    pub fn add_query(
+        &self,
+        query_id: QueryId,
+        network: HttpNetwork,
+    ) -> Result<(), MpcHelperServerError> {
+        self.message_send_map
+            .insert_if_not_present(query_id, network)
     }
 
     /// Starts a new instance of MPC helper and binds it to a given target.
@@ -394,13 +411,13 @@ mod tests {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
-    use crate::net::http_network::HttpNetwork;
-    use crate::net::server::handlers::EchoData;
-    use crate::net::server::{BindTarget, MessageSendMap, MpcHelperServer};
-    use crate::protocol::QueryId;
-    use crate::telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED};
-
-    use crate::test_fixture::metrics::MetricsHandle;
+    use crate::{
+        helpers::http::HttpNetwork,
+        net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
+        protocol::QueryId,
+        telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
+        test_fixture::metrics::MetricsHandle,
+    };
     use hyper::{
         body,
         client::HttpConnector,

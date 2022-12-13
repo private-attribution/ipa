@@ -1,4 +1,5 @@
 pub mod conf;
+pub mod literal;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -21,14 +22,8 @@ pub mod peer {
     }
 
     #[derive(Clone)]
-    pub struct PrssConfig {
-        pub public_key: PublicKey,
-    }
-
-    #[derive(Clone)]
     pub struct Config {
         pub http: HttpConfig,
-        pub prss: PrssConfig,
     }
 }
 

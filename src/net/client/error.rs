@@ -21,6 +21,8 @@ pub enum MpcHelperClientError {
 }
 
 impl MpcHelperClientError {
+    /// Extracts the body from the response to use as error message.
+    /// Because the body is in a future, cannot use [`From`] trait
     pub async fn from_failed_resp<B>(resp: hyper::Response<B>) -> Self
     where
         B: hyper::body::HttpBody,
