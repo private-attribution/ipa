@@ -163,11 +163,6 @@ impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromReque
     }
 }
 
-#[allow(clippy::unused_async)]
-pub async fn handler(_body: ByteArrStream) -> Result<(), MpcHelperServerError> {
-    Ok(())
-}
-
 #[cfg(test)]
 mod test {
     use super::*;

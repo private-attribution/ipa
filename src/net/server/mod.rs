@@ -1,12 +1,15 @@
+mod bytearrstream;
 pub mod handlers;
 
-use crate::sync::{Arc, Mutex};
-use crate::task::JoinHandle;
+pub use bytearrstream::ByteArrStream;
+
 use crate::{
     error::BoxError,
     helpers::{http::HttpNetwork, network::MessageChunks},
     net::LastSeenMessages,
     protocol::QueryId,
+    sync::{Arc, Mutex},
+    task::JoinHandle,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
 use ::tokio::sync::mpsc;
@@ -251,9 +254,9 @@ impl MpcHelperServer {
     pub(crate) fn router(&self) -> Router {
         let echo_route = Router::new().route("/echo", get(handlers::echo_handler));
 
-        let process_query_route = Router::new()
+        let query_route = Router::new()
             .route(
-                "/:query_id/step/*step",
+                "/query/:query_id/step/*step",
                 post(handlers::process_query_handler),
             )
             .layer(
@@ -262,9 +265,6 @@ impl MpcHelperServer {
                     .layer(Extension(self.last_seen_messages.clone()))
                     .layer(middleware::from_fn(handlers::obtain_permit_mw)),
             );
-        let create_query_route = Router::new().route("/", post(handlers::create_query_handler));
-        let query_route =
-            Router::new().nest("/query", create_query_route.merge(process_query_route));
 
         echo_route.merge(query_route)
     }
