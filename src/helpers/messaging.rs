@@ -86,6 +86,7 @@ pub struct Gateway {
     tx: mpsc::Sender<ReceiveRequest>,
     envelope_tx: mpsc::Sender<SendRequest>,
     control_handle: JoinHandle<()>,
+    shutdown_tx: oneshot::Sender<()>,
 }
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
@@ -281,6 +282,18 @@ impl Gateway {
                         #[cfg(debug_assertions)]
                         print_state(role, &send_buf, &receive_buf);
                     }
+                    Ok(()) = &mut shutdown_rx => {
+                        tracing::debug!("Explicit shutdown");
+                        let send_channels = send_buf.open_channels();
+                        let receive_channels = receive_buf.open_channels();
+                        if send_channels > 0 {
+                            tracing::debug!("{} outbound channels are still open", send_channels);
+                        }
+                        if receive_channels > 0 {
+                            tracing::debug!("{} inbound channels are still open", receive_channels);
+                        }
+                        break;
+                    }
                     else => {
                         tracing::debug!("All channels are closed and event loop is terminated");
                         break;
@@ -295,6 +308,7 @@ impl Gateway {
         Self {
             tx: recv_tx,
             envelope_tx: send_tx,
+            shutdown_tx,
             control_handle,
         }
     }
@@ -324,6 +338,8 @@ impl Gateway {
     /// if control loop task panicked, the panic will be propagated to this thread
     #[cfg(not(feature = "shuttle"))]
     pub async fn join(self) {
+        tracing::trace!("join gateway");
+        self.shutdown_tx.send(()).unwrap();
         self.control_handle
             .await
             .map_err(|e| {

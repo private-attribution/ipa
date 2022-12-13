@@ -214,6 +214,7 @@ mod tests {
             })
             .await;
         assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
+        world.join().await;
     }
 
     #[tokio::test]

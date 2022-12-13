@@ -131,6 +131,11 @@ impl ReceiveBuffer {
         }
     }
 
+    pub fn open_channels(&self) -> usize {
+        assert_eq!(self.inner.len(), self.record_ids.len());
+        self.inner.len()
+    }
+
     #[cfg(debug_assertions)]
     pub(in crate::helpers) fn waiting(&self) -> super::waiting::WaitingTasks {
         use super::waiting::WaitingTasks;

@@ -102,6 +102,10 @@ impl SendBuffer {
         Ok(res.map(|b| (b, close)))
     }
 
+    pub fn open_channels(&self) -> usize {
+        self.inner.len()
+    }
+
     #[cfg(debug_assertions)]
     pub(in crate::helpers) fn waiting(&self) -> super::waiting::WaitingTasks {
         use super::waiting::WaitingTasks;
