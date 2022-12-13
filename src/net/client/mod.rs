@@ -119,10 +119,11 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{
+            http::HttpNetwork,
             network::{ChannelId, MessageChunks, Network},
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
-        net::{http_network::HttpNetwork, server::MessageSendMap, BindTarget, MpcHelperServer},
+        net::{server::MessageSendMap, BindTarget, MpcHelperServer},
     };
     use futures::{Stream, StreamExt};
     use hyper_tls::native_tls::TlsConnector;
