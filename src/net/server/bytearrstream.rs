@@ -17,12 +17,13 @@ struct FieldSize {
     field_size: u32,
 }
 
+#[cfg_attr(feature = "enable-serde")]
 #[async_trait]
 impl<B: Send> FromRequest<B> for FieldSize {
     type Rejection = MpcHelperServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
+        #[derive(serde::Deserialize)]
         struct FieldStr {
             field_type: String,
         }
