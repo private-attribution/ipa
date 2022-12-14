@@ -5,11 +5,10 @@ use std::{
     ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not},
 };
 
-/// Bit store size of `XorSecretShare` in bytes.
-const BIT_STORE_SIZE_IN_BYTES: usize = 4;
-type U8_4 = BitArr!(for BIT_STORE_SIZE_IN_BYTES * 8, in u8, Lsb0);
+/// Bit store type definition. Eight `u8` blocks.
+type U8_8 = BitArr!(for 64, in u8, Lsb0);
 
-/// 32-bit array of bits. Similar to `u32`, but supports boolean algebra, and
+/// 64-bit array of bits. Similar to `u64`, but supports boolean algebra, and
 /// provides access to individual bits via index.
 ///
 /// Bits are stored in the Little-Endian format. Accessing the first element
@@ -17,76 +16,76 @@ type U8_4 = BitArr!(for BIT_STORE_SIZE_IN_BYTES * 8, in u8, Lsb0);
 ///
 /// ## Example
 /// ```
-/// use raw_ipa::bits::BitArray32;
+/// use raw_ipa::bits::BitArray64;
 ///
-/// let s = BitArray32::from(2_u128);
-/// let b0 = s[0];
-/// let b1 = s[1];
+/// let s = BitArray64::from(2_u128);
+/// let b0 = s[0_usize];
+/// let b1 = s[1_usize];
 ///
 /// assert_eq!(b0, 0);
 /// assert_eq!(b1, 1);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct BitArray32(U8_4);
+pub struct BitArray64(U8_8);
 
-impl BitArray for BitArray32 {
-    const SIZE_IN_BYTES: usize = BIT_STORE_SIZE_IN_BYTES;
+impl BitArray for BitArray64 {
+    const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
 
     #[allow(dead_code)]
-    const ZERO: Self = Self(U8_4::ZERO);
+    const ZERO: Self = Self(U8_8::ZERO);
 }
 
-impl BooleanOps for BitArray32 {}
+impl BooleanOps for BitArray64 {}
 
-impl BitAnd for BitArray32 {
+impl BitAnd for BitArray64 {
     type Output = Self;
     fn bitand(self, rhs: Self) -> Self::Output {
         Self(self.0 & rhs.0)
     }
 }
 
-impl BitAndAssign for BitArray32 {
+impl BitAndAssign for BitArray64 {
     fn bitand_assign(&mut self, rhs: Self) {
         *self.0.as_mut_bitslice() &= rhs.0;
     }
 }
 
-impl BitOr for BitArray32 {
+impl BitOr for BitArray64 {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(self.0 | rhs.0)
     }
 }
 
-impl BitOrAssign for BitArray32 {
+impl BitOrAssign for BitArray64 {
     fn bitor_assign(&mut self, rhs: Self) {
         *self.0.as_mut_bitslice() |= rhs.0;
     }
 }
 
-impl BitXor for BitArray32 {
+impl BitXor for BitArray64 {
     type Output = Self;
     fn bitxor(self, rhs: Self) -> Self::Output {
         Self(self.0 ^ rhs.0)
     }
 }
 
-impl BitXorAssign for BitArray32 {
+impl BitXorAssign for BitArray64 {
     fn bitxor_assign(&mut self, rhs: Self) {
         *self.0.as_mut_bitslice() ^= rhs.0;
     }
 }
 
-impl Not for BitArray32 {
+impl Not for BitArray64 {
     type Output = Self;
     fn not(self) -> Self::Output {
         Self(!self.0)
     }
 }
 
-impl<T: Into<u128>> From<T> for BitArray32 {
+impl<T: Into<u128>> From<T> for BitArray64 {
     fn from(v: T) -> Self {
-        Self(U8_4::new(
+        Self(U8_8::new(
             v.into().to_le_bytes()[0..<Self as BitArray>::SIZE_IN_BYTES]
                 .try_into()
                 .unwrap(),
@@ -94,7 +93,7 @@ impl<T: Into<u128>> From<T> for BitArray32 {
     }
 }
 
-impl Index<usize> for BitArray32 {
+impl Index<usize> for BitArray64 {
     type Output = u8;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -106,54 +105,44 @@ impl Index<usize> for BitArray32 {
     }
 }
 
-#[cfg(test)]
-impl PartialEq<u128> for BitArray32 {
-    fn eq(&self, other: &u128) -> bool {
-        self.0 == Self::from(*other).0
+impl Index<u32> for BitArray64 {
+    type Output = u8;
+
+    fn index(&self, index: u32) -> &Self::Output {
+        &self[index as usize]
     }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::BitArray32;
+    use super::BitArray64;
     use crate::bits::BitArray;
     use bitvec::prelude::*;
     use rand::{thread_rng, Rng};
 
     #[test]
     pub fn basic() {
-        assert_eq!(BitArray32::ZERO.0, bitarr!(u32, Lsb0; 0));
+        assert_eq!(BitArray64::ZERO.0, bitarr!(u64, Lsb0; 0));
+        assert_eq!(BitArray64::from(1_u128).0, bitarr!(u64, Lsb0; 1));
         assert_eq!(
-            BitArray32::from(1_u128).0.as_bitslice(),
-            bits![
-                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0
-            ],
-        );
-        assert_eq!(
-            BitArray32::from((1_u128 << (BitArray32::SIZE_IN_BYTES * 8)) + 1)
-                .0
-                .as_bitslice(),
-            bits![
-                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0
-            ],
+            BitArray64::from((1_u128 << (BitArray64::SIZE_IN_BYTES * 8)) + 1).0,
+            bitarr!(u64, Lsb0; 1)
         );
     }
 
     #[test]
     pub fn index() {
-        let s = BitArray32::from((1_u128 << (BitArray32::SIZE_IN_BYTES * 8)) + 1);
-        assert_eq!(s[0], 1);
-        assert_eq!(s[31], 0);
+        let s = BitArray64::from((1_u128 << (BitArray64::SIZE_IN_BYTES * 8)) + 1);
+        assert_eq!(s[0_usize], 1);
+        assert_eq!(s[63_u32], 0);
     }
 
     #[test]
     #[should_panic]
     pub fn out_of_count_index() {
-        let s = BitArray32::from(1_u128);
-        // below assert should panic
-        assert_eq!(s[32], 0);
+        let s = BitArray64::from(1_u128);
+        // Below assert doesn't matter. The indexing should panic
+        assert_eq!(s[64_usize], 0);
     }
 
     #[test]
@@ -163,14 +152,13 @@ mod tests {
             let a = rng.gen::<u128>();
             let b = rng.gen::<u128>();
 
-            // Mask the first 32 bits
-            let and = (a & b) & u128::from(u32::MAX);
-            let or = (a | b) & u128::from(u32::MAX);
-            let xor = (a ^ b) & u128::from(u32::MAX);
-            let not = !a & u128::from(u32::MAX);
+            let and = BitArray64::from(a & b);
+            let or = BitArray64::from(a | b);
+            let xor = BitArray64::from(a ^ b);
+            let not = BitArray64::from(!a);
 
-            let a = BitArray32::from(a);
-            let b = BitArray32::from(b);
+            let a = BitArray64::from(a);
+            let b = BitArray64::from(b);
 
             assert_eq!(a & b, and);
             assert_eq!(a | b, or);
