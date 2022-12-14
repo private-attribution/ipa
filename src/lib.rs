@@ -14,6 +14,7 @@ pub mod net;
 pub mod protocol;
 pub mod secret_sharing;
 pub mod telemetry;
+mod query;
 
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
