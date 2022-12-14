@@ -41,7 +41,7 @@ impl AsRef<str> for Step {
 /// (b) The parties call `sum of product` on `[r · (x1, x2, .., xn)]` and `[y1, y2, .., yn]` to receive `[r · (x1 · y1 + x2 · y2 + ... + xn · yn))]`.
 ///
 /// As each multiplication gate affects Step 6: "Verification Stage", the Security Validator
-/// must be provided. The two outputs of the multiplication, `[x · y]` and  `[r · x · y]`
+/// must be provided. The two outputs of the multiplication, `[Σx · y]` and  `[Σr ·  x · y]`
 /// will be provided to this Security Validator, and will update two information-theoretic MACs.
 ///
 /// It's cricital that the functionality `F_mult` is secure up to an additive attack.
@@ -49,8 +49,8 @@ impl AsRef<str> for Step {
 ///
 
 /// Executes two parallel sum of products;
-/// `A * B`, and `rA * B`, yielding both `AB` and `rAB`
-/// both `AB` and `rAB` are provided to the security validator
+/// `ΣA * B`, and `ΣrA * B`, yielding both `ΣAB` and `ΣrAB`
+/// both `ΣAB` and `ΣrAB` are provided to the security validator
 ///
 /// ## Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
