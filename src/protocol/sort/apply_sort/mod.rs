@@ -54,6 +54,7 @@ mod tests {
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{MaskedMatchKey, Reconstruct, Runner};
     use crate::{ff::Fp32BitPrime, test_fixture::TestWorld};
+
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;

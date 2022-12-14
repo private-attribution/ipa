@@ -17,7 +17,7 @@ struct FieldSize {
     field_size: u32,
 }
 
-#[cfg_attr(feature = "enable-serde")]
+#[cfg(feature = "enable-serde")]
 #[async_trait]
 impl<B: Send> FromRequest<B> for FieldSize {
     type Rejection = MpcHelperServerError;
