@@ -2,7 +2,20 @@ use super::{field::BinaryField, Field};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
-    ( $field:ty, $int:ty ) => {
+    ( $field:ident, $int:ty, $prime:expr, $type_str:expr ) => {
+        use super::*;
+
+        #[derive(Clone, Copy, PartialEq)]
+        pub struct $field(<Self as Field>::Integer);
+
+        impl Field for $field {
+            type Integer = $int;
+            const PRIME: Self::Integer = $prime;
+            const ZERO: Self = $field(0);
+            const ONE: Self = $field(1);
+            const TYPE_STR: &'static str = $type_str;
+        }
+
         impl std::ops::Add for $field {
             type Output = Self;
 
@@ -112,228 +125,245 @@ macro_rules! field_impl {
                 *self == other.as_u128()
             }
         }
+
+        #[cfg(all(test, not(feature = "shuttle")))]
+        mod common_tests {
+            use super::*;
+            use proptest::proptest;
+
+            #[test]
+            fn zero() {
+                let prime = u128::from($field::PRIME);
+                assert_eq!($field::ZERO, $field::from(prime), "from takes a modulus",);
+                assert_eq!($field::ZERO, $field::ZERO + $field::ZERO);
+                assert_eq!($field::ZERO, $field::ZERO - $field::ZERO);
+                assert_eq!($field::from(prime - 1), $field::ZERO - $field::ONE);
+                assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
+            }
+
+            #[test]
+            fn can_write_into_buf_larger_than_required() {
+                let mut buf = vec![0_u8; $field::SIZE_IN_BYTES as usize + 1];
+
+                // panic will show the error while assert will just tell us that something went wrong
+                $field::ONE.serialize(&mut buf).unwrap();
+            }
+
+            proptest! {
+
+                #[test]
+                fn ser_not_enough_capacity(buf_capacity in 0..$field::SIZE_IN_BYTES) {
+                    let mut buf = vec![0u8; buf_capacity as usize];
+                    assert!(matches!(
+                        $field::ONE.serialize(&mut buf),
+                        Err(e) if e.kind() == std::io::ErrorKind::WriteZero
+                    ));
+                }
+
+                #[test]
+                fn de_buf_too_small(buf_capacity in 0..$field::SIZE_IN_BYTES) {
+                    let mut buf = vec![0u8; buf_capacity as usize];
+                    assert!(matches!(
+                                    $field::deserialize(&mut buf),
+                                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
+                }
+
+
+                #[test]
+                fn serde(v in 0..$field::PRIME) {
+                    let field_v = $field(v);
+                    let mut buf = vec![0; $field::SIZE_IN_BYTES as usize];
+                    field_v.serialize(&mut buf).unwrap();
+
+                    assert_eq!(field_v, $field::deserialize(&mut buf).unwrap());
+                }
+            }
+        }
     };
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct Fp2(<Self as Field>::Integer);
+mod fp2 {
+    field_impl! { Fp2, u8, 2 , "fp2" }
 
-field_impl! { Fp2, u8 }
+    impl BinaryField for Fp2 {}
 
-impl Field for Fp2 {
-    type Integer = u8;
-    const PRIME: Self::Integer = 2;
-    const ZERO: Self = Fp2(0);
-    const ONE: Self = Fp2(1);
-    const TYPE_STR: &'static str = "fp2";
-}
+    impl BitAnd for Fp2 {
+        type Output = Self;
 
-impl BinaryField for Fp2 {}
+        fn bitand(self, rhs: Self) -> Self::Output {
+            Self(self.0 & rhs.0)
+        }
+    }
 
-impl BitAnd for Fp2 {
-    type Output = Self;
+    impl BitAndAssign for Fp2 {
+        fn bitand_assign(&mut self, rhs: Self) {
+            *self = *self & rhs;
+        }
+    }
 
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Self(self.0 & rhs.0)
+    impl BitOr for Fp2 {
+        type Output = Self;
+
+        fn bitor(self, rhs: Self) -> Self::Output {
+            Self(self.0 | rhs.0)
+        }
+    }
+
+    impl BitOrAssign for Fp2 {
+        fn bitor_assign(&mut self, rhs: Self) {
+            *self = *self | rhs;
+        }
+    }
+
+    impl BitXor for Fp2 {
+        type Output = Self;
+
+        fn bitxor(self, rhs: Self) -> Self::Output {
+            Self(self.0 ^ rhs.0)
+        }
+    }
+
+    impl BitXorAssign for Fp2 {
+        fn bitxor_assign(&mut self, rhs: Self) {
+            *self = *self ^ rhs;
+        }
+    }
+
+    impl Not for Fp2 {
+        type Output = Self;
+
+        fn not(self) -> Self::Output {
+            // Using `::from()` makes sure that the internal value is always 0 or 1, but since
+            // we use `u8` to represent a binary value, `!0` and `!1` will result in 255 and
+            // 254 respectively. Add `& 1` at the end to mask the LSB.
+            Self(!self.0 & 1)
+        }
+    }
+
+    #[cfg(all(test, not(feature = "shuttle")))]
+    mod specialized_tests {
+        use super::*;
+
+        #[test]
+        fn fp2() {
+            let x = Fp2::from(false);
+            let y = Fp2::from(true);
+
+            assert_eq!(Fp2(1), x + y);
+            assert_eq!(Fp2(0), x * y);
+            assert_eq!(Fp2(1), x - y);
+
+            let mut x = Fp2(1);
+            x += Fp2(1);
+            assert_eq!(Fp2(0), x);
+        }
+
+        #[test]
+        fn fp2_binary_op() {
+            let zero = Fp2::ZERO;
+            let one = Fp2::ONE;
+
+            assert_eq!(one, one & one);
+            assert_eq!(zero, zero & one);
+            assert_eq!(zero, one & zero);
+            assert_eq!(zero, zero & zero);
+            assert_eq!(zero, Fp2::from(31_u128) & Fp2::from(32_u128));
+            assert_eq!(one, Fp2::from(31_u128) & Fp2::from(63_u128));
+
+            assert_eq!(zero, zero | zero);
+            assert_eq!(one, one | one);
+            assert_eq!(one, zero | one);
+            assert_eq!(one, one | zero);
+            assert_eq!(one, Fp2::from(31_u128) | Fp2::from(32_u128));
+            assert_eq!(zero, Fp2::from(32_u128) | Fp2::from(64_u128));
+
+            assert_eq!(zero, zero ^ zero);
+            assert_eq!(one, zero ^ one);
+            assert_eq!(one, one ^ zero);
+            assert_eq!(zero, one ^ one);
+            assert_eq!(one, Fp2::from(31_u128) ^ Fp2::from(32_u128));
+            assert_eq!(zero, Fp2::from(32_u128) ^ Fp2::from(64_u128));
+
+            assert_eq!(one, !zero);
+            assert_eq!(zero, !one);
+            assert_eq!(one, !Fp2::from(32_u128));
+            assert_eq!(zero, !Fp2::from(31_u128));
+        }
     }
 }
 
-impl BitAndAssign for Fp2 {
-    fn bitand_assign(&mut self, rhs: Self) {
-        *self = *self & rhs;
+mod fp31 {
+    field_impl! { Fp31, u8, 31, "fp31" }
+
+    #[cfg(all(test, not(feature = "shuttle")))]
+    mod specialized_tests {
+        use super::*;
+
+        #[test]
+        fn fp31() {
+            let x = Fp31(24);
+            let y = Fp31(23);
+
+            assert_eq!(Fp31(16), x + y);
+            assert_eq!(Fp31(25), x * y);
+            assert_eq!(Fp31(1), x - y);
+
+            let mut x = Fp31(1);
+            x += Fp31(2);
+            assert_eq!(Fp31(3), x);
+        }
     }
 }
 
-impl BitOr for Fp2 {
-    type Output = Self;
+mod fp32bit {
+    field_impl! { Fp32BitPrime, u32, 4_294_967_291, "fp32_bit_prime" }
 
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
+    #[cfg(all(test, not(feature = "shuttle")))]
+    mod specialized_tests {
+        use super::*;
+
+        #[test]
+        fn thirty_two_bit_prime() {
+            let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
+            let y = Fp32BitPrime::from(4_294_967_289_u32); // PRIME - 2
+
+            assert_eq!(x - y, Fp32BitPrime::ONE);
+            assert_eq!(y - x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1));
+            assert_eq!(y + x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 3));
+
+            assert_eq!(x * y, Fp32BitPrime::from(2_u32),);
+
+            let x = Fp32BitPrime::from(3_192_725_551_u32);
+            let y = Fp32BitPrime::from(1_471_265_983_u32);
+
+            assert_eq!(x - y, Fp32BitPrime::from(1_721_459_568_u32));
+            assert_eq!(y - x, Fp32BitPrime::from(2_573_507_723_u32));
+            assert_eq!(x + y, Fp32BitPrime::from(369_024_243_u32));
+
+            assert_eq!(x * y, Fp32BitPrime::from(513_684_208_u32),);
+        }
+
+        #[test]
+        fn thirty_two_bit_additive_wrapping() {
+            let x = Fp32BitPrime::from(u32::MAX - 20);
+            let y = Fp32BitPrime::from(20_u32);
+            assert_eq!(x + y, Fp32BitPrime::from(4_u32));
+
+            let x = Fp32BitPrime::from(u32::MAX - 20);
+            let y = Fp32BitPrime::from(21_u32);
+            assert_eq!(x + y, Fp32BitPrime::from(5_u32));
+
+            let x = Fp32BitPrime::from(u32::MAX - 20);
+            let y = Fp32BitPrime::from(22_u32);
+            assert_eq!(x + y, Fp32BitPrime::from(6_u32));
+
+            let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
+            let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
+            assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
+        }
     }
 }
 
-impl BitOrAssign for Fp2 {
-    fn bitor_assign(&mut self, rhs: Self) {
-        *self = *self | rhs;
-    }
-}
-
-impl BitXor for Fp2 {
-    type Output = Self;
-
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        Self(self.0 ^ rhs.0)
-    }
-}
-
-impl BitXorAssign for Fp2 {
-    fn bitxor_assign(&mut self, rhs: Self) {
-        *self = *self ^ rhs;
-    }
-}
-
-impl Not for Fp2 {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        // Using `::from()` makes sure that the internal value is always 0 or 1, but since
-        // we use `u8` to represent a binary value, `!0` and `!1` will result in 255 and
-        // 254 respectively. Add `& 1` at the end to mask the LSB.
-        Self(!self.0 & 1)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub struct Fp31(<Self as Field>::Integer);
-
-impl Field for Fp31 {
-    type Integer = u8;
-    const PRIME: Self::Integer = 31;
-    const ZERO: Self = Fp31(0);
-    const ONE: Self = Fp31(1);
-    const TYPE_STR: &'static str = "fp31";
-}
-
-field_impl! { Fp31, u8 }
-
-#[derive(Clone, Copy, PartialEq)]
-pub struct Fp32BitPrime(<Self as Field>::Integer);
-
-impl Field for Fp32BitPrime {
-    type Integer = u32;
-    const PRIME: Self::Integer = 4_294_967_291; // 2^32 - 5
-    const ZERO: Self = Fp32BitPrime(0);
-    const ONE: Self = Fp32BitPrime(1);
-    const TYPE_STR: &'static str = "fp32_bit_prime";
-}
-
-field_impl! { Fp32BitPrime, u32 }
-
-#[cfg(all(test, not(feature = "shuttle")))]
-mod test {
-    use super::{Field, Fp2, Fp31, Fp32BitPrime};
-
-    #[allow(clippy::eq_op)]
-    fn zero_test<F: Field>(prime: u128) {
-        assert_eq!(F::ZERO, F::from(prime), "from takes a modulus",);
-        assert_eq!(F::ZERO, F::ZERO + F::ZERO);
-        assert_eq!(F::ZERO, F::ZERO - F::ZERO);
-        assert_eq!(F::from(prime - 1), F::ZERO - F::ONE);
-        assert_eq!(F::ZERO, F::ZERO * F::ONE);
-    }
-
-    #[test]
-    fn fp2() {
-        let x = Fp2::from(false);
-        let y = Fp2::from(true);
-
-        assert_eq!(Fp2(1), x + y);
-        assert_eq!(Fp2(0), x * y);
-        assert_eq!(Fp2(1), x - y);
-
-        let mut x = Fp2(1);
-        x += Fp2(1);
-        assert_eq!(Fp2(0), x);
-    }
-
-    #[test]
-    fn fp2_binary_op() {
-        let zero = Fp2::ZERO;
-        let one = Fp2::ONE;
-
-        assert_eq!(one, one & one);
-        assert_eq!(zero, zero & one);
-        assert_eq!(zero, one & zero);
-        assert_eq!(zero, zero & zero);
-        assert_eq!(zero, Fp2::from(31_u128) & Fp2::from(32_u128));
-        assert_eq!(one, Fp2::from(31_u128) & Fp2::from(63_u128));
-
-        assert_eq!(zero, zero | zero);
-        assert_eq!(one, one | one);
-        assert_eq!(one, zero | one);
-        assert_eq!(one, one | zero);
-        assert_eq!(one, Fp2::from(31_u128) | Fp2::from(32_u128));
-        assert_eq!(zero, Fp2::from(32_u128) | Fp2::from(64_u128));
-
-        assert_eq!(zero, zero ^ zero);
-        assert_eq!(one, zero ^ one);
-        assert_eq!(one, one ^ zero);
-        assert_eq!(zero, one ^ one);
-        assert_eq!(one, Fp2::from(31_u128) ^ Fp2::from(32_u128));
-        assert_eq!(zero, Fp2::from(32_u128) ^ Fp2::from(64_u128));
-
-        assert_eq!(one, !zero);
-        assert_eq!(zero, !one);
-        assert_eq!(one, !Fp2::from(32_u128));
-        assert_eq!(zero, !Fp2::from(31_u128));
-    }
-
-    #[test]
-    fn fp31() {
-        let x = Fp31(24);
-        let y = Fp31(23);
-
-        assert_eq!(Fp31(16), x + y);
-        assert_eq!(Fp31(25), x * y);
-        assert_eq!(Fp31(1), x - y);
-
-        let mut x = Fp31(1);
-        x += Fp31(2);
-        assert_eq!(Fp31(3), x);
-    }
-
-    #[test]
-    fn zero_fp2() {
-        zero_test::<Fp2>(u128::from(Fp2::PRIME));
-    }
-
-    #[test]
-    fn zero_fp31() {
-        zero_test::<Fp31>(u128::from(Fp31::PRIME));
-    }
-
-    #[test]
-    fn zero_fp32_bit_prime() {
-        zero_test::<Fp32BitPrime>(u128::from(Fp32BitPrime::PRIME));
-    }
-
-    #[test]
-    fn thirty_two_bit_prime() {
-        let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
-        let y = Fp32BitPrime::from(4_294_967_289_u32); // PRIME - 2
-
-        assert_eq!(x - y, Fp32BitPrime::ONE);
-        assert_eq!(y - x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1));
-        assert_eq!(y + x, Fp32BitPrime::from(Fp32BitPrime::PRIME - 3));
-
-        assert_eq!(x * y, Fp32BitPrime::from(2_u32),);
-
-        let x = Fp32BitPrime::from(3_192_725_551_u32);
-        let y = Fp32BitPrime::from(1_471_265_983_u32);
-
-        assert_eq!(x - y, Fp32BitPrime::from(1_721_459_568_u32));
-        assert_eq!(y - x, Fp32BitPrime::from(2_573_507_723_u32));
-        assert_eq!(x + y, Fp32BitPrime::from(369_024_243_u32));
-
-        assert_eq!(x * y, Fp32BitPrime::from(513_684_208_u32),);
-    }
-
-    #[test]
-    fn thirty_two_bit_additive_wrapping() {
-        let x = Fp32BitPrime::from(u32::MAX - 20);
-        let y = Fp32BitPrime::from(20_u32);
-        assert_eq!(x + y, Fp32BitPrime::from(4_u32));
-
-        let x = Fp32BitPrime::from(u32::MAX - 20);
-        let y = Fp32BitPrime::from(21_u32);
-        assert_eq!(x + y, Fp32BitPrime::from(5_u32));
-
-        let x = Fp32BitPrime::from(u32::MAX - 20);
-        let y = Fp32BitPrime::from(22_u32);
-        assert_eq!(x + y, Fp32BitPrime::from(6_u32));
-
-        let x = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
-        let y = Fp32BitPrime::from(4_294_967_290_u32); // PRIME - 1
-        assert_eq!(x + y, Fp32BitPrime::from(4_294_967_289_u32));
-    }
-}
+pub use fp2::Fp2;
+pub use fp31::Fp31;
+pub use fp32bit::Fp32BitPrime;
