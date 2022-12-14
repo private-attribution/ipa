@@ -232,7 +232,7 @@ pub trait ValidateMalicious<F> {
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
     F: Field,
-    T: Borrow<MaliciousReplicated<F>> + Send + Sync,
+    T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;

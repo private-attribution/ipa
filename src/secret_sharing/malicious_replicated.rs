@@ -202,7 +202,7 @@ where
     }
 }
 
-impl<T: Send> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
+impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngradeWrapper<T> {
     fn access_without_downgrade(self) -> T {
         self.0
     }

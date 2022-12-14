@@ -461,7 +461,7 @@ mod tests {
             .collect::<Vec<_>>();
         expected.sort_unstable();
 
-        let [result0, result1, result2] = world
+        let [(v0, result0), (v1, result1), (v2, result2)] = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists =
                     convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
@@ -478,9 +478,9 @@ mod tests {
             .await;
 
         let result = join3(
-            result0.0.validate(result0.1),
-            result1.0.validate(result1.1),
-            result2.0.validate(result2.1),
+            v0.validate(result0),
+            v1.validate(result1),
+            v2.validate(result2),
         )
         .await;
         let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
