@@ -27,7 +27,7 @@ impl BitDecomposition {
     pub async fn execute<F, S, C>(
         ctx: C,
         record_id: RecordId,
-        rbg: RandomBitsGenerator<F, S>,
+        rbg: RandomBitsGenerator<F, S, C>,
         a_p: &S,
     ) -> Result<Vec<S>, Error>
     where
@@ -38,7 +38,7 @@ impl BitDecomposition {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = rbg.take_one(ctx.narrow(&Step::GenerateRandomBits)).await?;
+        let r = rbg.take_one().await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
@@ -86,7 +86,6 @@ impl BitDecomposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    GenerateRandomBits,
     RevealAMinusB,
     AddBtoC,
     IsPLessThanD,
@@ -98,7 +97,6 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::GenerateRandomBits => "generate_random_bits",
             Self::RevealAMinusB => "reveal_a_minus_b",
             Self::AddBtoC => "add_b_to_c",
             Self::IsPLessThanD => "is_p_less_than_d",
@@ -112,10 +110,20 @@ mod tests {
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Int},
-        protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, RecordId},
+        protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, RecordId, context::Context},
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
+
+    pub struct GenerateRandomBits;
+
+    impl crate::protocol::Substep for GenerateRandomBits {}
+
+    impl AsRef<str> for GenerateRandomBits {
+        fn as_ref(&self) -> &str {
+            "generate_random_bits"
+        }
+    }
 
     async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where
@@ -124,7 +132,7 @@ mod tests {
     {
         let result = world
             .semi_honest(a, |ctx, a_p| async move {
-                let rbg = RandomBitsGenerator::new();
+                let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
 
                 BitDecomposition::execute(ctx, RecordId::from(0), rbg, &a_p)
                     .await
