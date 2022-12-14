@@ -3,9 +3,11 @@ use crate::{
     ff::Field,
     protocol::{
         basics::reveal_permutation,
-        context::Context,
+        context::{Context, MaliciousContext},
+        malicious::MaliciousValidator,
         sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
+            ApplyInv, BitPermutationStep, ComposeStep, MaliciousUpgradeContext,
+            MaliciousUpgradeInput, ShuffleRevealPermutation, SortKeys,
         },
         sort::{
             bit_permutation::bit_permutation,
@@ -13,7 +15,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{Replicated, SecretSharing},
+    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
 };
 
 use super::{
@@ -32,6 +34,11 @@ use embed_doc_image::embed_doc_image;
 pub struct RevealedAndRandomPermutations {
     pub revealed: Vec<u32>,
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
+}
+
+pub struct ShuffledPermutationWrapper<'a, F: Field> {
+    pub perm: Vec<MaliciousReplicated<F>>,
+    pub m_ctx: MaliciousContext<'a, F>,
 }
 
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
@@ -62,9 +69,48 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    // TODO: THIS IS WHERE VALIDATOR WILL BE CALLED!
     let revealed_permutation =
         reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
+
+    Ok(RevealedAndRandomPermutations {
+        revealed: revealed_permutation,
+        randoms_for_shuffle: random_permutations_for_shuffle,
+    })
+}
+
+/// This is a malicious implementation of shuffle and reveal.
+///
+/// Steps
+/// 1. Get random permutation 2/3 shared across helpers
+/// 2. Shuffle shares three times
+/// 3. Validate the accumulated macs - this returns the revealed permutation
+pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
+    m_ctx: MaliciousContext<'_, F>,
+    input_len: u32,
+    input_permutation: Vec<MaliciousReplicated<F>>,
+    malicious_validator: MaliciousValidator<'_, F>,
+) -> Result<RevealedAndRandomPermutations, Error> {
+    let random_permutations_for_shuffle = get_two_of_three_random_permutations(
+        input_len,
+        m_ctx.narrow(&GeneratePermutation).prss_rng(),
+    );
+
+    let shuffled_permutation = shuffle_shares(
+        input_permutation,
+        (
+            random_permutations_for_shuffle.0.as_slice(),
+            random_permutations_for_shuffle.1.as_slice(),
+        ),
+        m_ctx.narrow(&ShufflePermutation),
+    )
+    .await?;
+
+    let revealed_permutation = malicious_validator
+        .validate(ShuffledPermutationWrapper {
+            perm: shuffled_permutation,
+            m_ctx,
+        })
+        .await?;
 
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
@@ -182,12 +228,127 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     .await
 }
 
+#[allow(dead_code)]
+#[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
+/// Returns a sort permutation in a malicious context.
+/// This runs sort in a malicious context. The caller is responsible to validate the accumulater contents and downgrade context to Semi-honest before calling this function
+/// The function takes care of upgrading and validating while the sort protocol runs.
+/// It then returns a semi honest context with output in Replicated format. The caller should then upgrade the output and context before moving forward
+///
+/// Steps
+/// 1. [Malicious Special] Upgrade the context from semihonest to malicious and get a validator
+/// 2. [Malicious Special] Upgrade 0th sort bit keys
+/// 3. Compute bit permutation that sorts 0th bit
+///
+/// For 1st to N-1th bit of input share
+/// 1. i. Shuffle the i-1th composition
+///   ii. [Malicious Special] Validate the accumulator contents
+///  iii. [Malicious Special] Malicious reveal
+///   iv. [Malicious Special] Downgrade context to semihonest
+/// 2. i. [Malicious Special] Upgrade ith sort bit keys
+///   ii. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
+/// 3. Compute bit permutation that sorts ith bit
+/// 4. Compute ith composition by composing i-1th composition on ith permutation
+/// In the end, following is returned
+///    i. n-1th composition: This is the permutation which sorts the inputs
+///   ii. Validator which can be used to validate the leftover items in the accumulator
+///
+/// ![Malicious sort permutation steps][malicious_sort]
+/// # Panics
+/// If sort keys dont have num of bits same as `num_bits`
+/// # Errors
+pub async fn malicious_generate_permutation<'a, F>(
+    sh_ctx: SemiHonestContext<'a, F>,
+    sort_keys: &[Vec<Replicated<F>>],
+    num_bits: u32,
+) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
+where
+    F: Field,
+{
+    let mut malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&MaliciousUpgradeContext));
+    let mut m_ctx = malicious_validator.context();
+    let m_ctx_0 = m_ctx.narrow(&Sort(0));
+    assert_eq!(sort_keys.len(), num_bits as usize);
+
+    let upgraded_sort_keys = m_ctx
+        .upgrade_vector(&MaliciousUpgradeInput, sort_keys[0].clone())
+        .await?;
+    let bit_0_permutation =
+        bit_permutation(m_ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
+    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
+
+    let mut composed_less_significant_bits_permutation = bit_0_permutation;
+    for bit_num in 1..num_bits {
+        let mut m_ctx_bit = m_ctx.narrow(&Sort(bit_num));
+        let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
+            m_ctx_bit.narrow(&ShuffleRevealPermutation),
+            input_len,
+            composed_less_significant_bits_permutation,
+            malicious_validator,
+        )
+        .await?;
+
+        malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num)));
+        m_ctx_bit = malicious_validator.context();
+        let upgraded_sort_keys = m_ctx_bit
+            .upgrade_vector(&MaliciousUpgradeInput, sort_keys[bit_num as usize].clone())
+            .await?;
+        let bit_i_sorted_by_less_significant_bits = secureapplyinv(
+            m_ctx_bit.narrow(&ApplyInv),
+            upgraded_sort_keys,
+            (
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
+            ),
+            &revealed_and_random_permutations.revealed,
+        )
+        .await?;
+
+        let bit_i_permutation = bit_permutation(
+            m_ctx_bit.narrow(&BitPermutationStep),
+            &bit_i_sorted_by_less_significant_bits,
+        )
+        .await?;
+
+        let composed_i_permutation = compose(
+            m_ctx_bit.narrow(&ComposeStep),
+            (
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .0
+                    .as_slice(),
+                revealed_and_random_permutations
+                    .randoms_for_shuffle
+                    .1
+                    .as_slice(),
+            ),
+            &revealed_and_random_permutations.revealed,
+            bit_i_permutation,
+        )
+        .await?;
+        composed_less_significant_bits_permutation = composed_i_permutation;
+        m_ctx = m_ctx_bit;
+    }
+    Ok((
+        malicious_validator,
+        composed_less_significant_bits_permutation,
+    ))
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::iter::zip;
 
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
+    use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::Replicated;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};
@@ -282,5 +443,51 @@ mod tests {
             perms_and_randoms[2].randoms_for_shuffle.0,
             perms_and_randoms[1].randoms_for_shuffle.1
         );
+    }
+
+    #[tokio::test]
+    pub async fn malicious_sort_in_semi_honest() {
+        const COUNT: usize = 5;
+
+        let world = TestWorld::new(QueryId);
+        let mut rng = thread_rng();
+
+        let mut match_keys = Vec::with_capacity(COUNT);
+        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+
+        let mut expected = match_keys
+            .iter()
+            .map(|mk| u64::from(*mk))
+            .collect::<Vec<_>>();
+        expected.sort_unstable();
+
+        let [(v0, result0), (v1, result1), (v2, result2)] = world
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                let local_lists =
+                    convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                let converted_shares: Vec<Vec<Replicated<Fp31>>> =
+                    convert_all_bits(&ctx, &local_lists).await.unwrap();
+                malicious_generate_permutation(
+                    ctx.narrow("sort"),
+                    &converted_shares,
+                    MaskedMatchKey::BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await;
+
+        let result = join3(
+            v0.validate(result0),
+            v1.validate(result1),
+            v2.validate(result2),
+        )
+        .await;
+        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        for (match_key, index) in zip(match_keys, result.reconstruct()) {
+            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
+        }
+
+        assert_eq!(expected, mpc_sorted_list);
     }
 }
