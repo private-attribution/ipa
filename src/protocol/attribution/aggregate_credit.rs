@@ -309,6 +309,7 @@ enum Step {
     ApplyPermutationOnBreakdownKey,
     GeneratePermutationByAttributionBit,
     ApplyPermutationOnAttributionBit,
+    GenerateRandomBits,
 }
 
 impl Substep for Step {}
@@ -329,6 +330,7 @@ impl AsRef<str> for Step {
             Self::ApplyPermutationOnBreakdownKey => "apply_permutation_by_breakdown_key",
             Self::GeneratePermutationByAttributionBit => "generate_permutation_by_attribution_bit",
             Self::ApplyPermutationOnAttributionBit => "apply_permutation_on_attribution_bit",
+            Self::GenerateRandomBits => "generate_random_bits",
         }
     }
 }

@@ -294,6 +294,7 @@ enum Step {
     IfCurrentExceedsCapOrElse,
     IfNextExceedsCapOrElse,
     IfNextEventHasSameMatchKeyOrElse,
+    GenerateRandomBits,
 }
 
 impl Substep for Step {}
@@ -313,6 +314,7 @@ impl AsRef<str> for Step {
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
             Self::IfNextEventHasSameMatchKeyOrElse => "if_next_event_has_same_match_key_or_else",
+            Self::GenerateRandomBits => "generate_random_bits",
         }
     }
 }
