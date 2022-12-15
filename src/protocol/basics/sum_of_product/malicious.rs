@@ -66,10 +66,10 @@ pub async fn sum_of_products<F>(
 where
     F: Field,
 {
-    assert_eq!(a.len(), b.len());
-    
     use crate::protocol::context::SpecialAccessToMaliciousContext;
     use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+    assert_eq!(a.len(), b.len());
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateSop);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
@@ -85,11 +85,8 @@ where
         .collect::<Vec<_>>();
 
     let (ab, rab) = try_join(
-        ctx.semi_honest_context().sum_of_products(
-            record_id,
-            ax.as_slice(),
-            bx.as_slice(),
-        ),
+        ctx.semi_honest_context()
+            .sum_of_products(record_id, ax.as_slice(), bx.as_slice()),
         duplicate_multiply_ctx
             .semi_honest_context()
             .sum_of_products(record_id, arx.as_slice(), bx.as_slice()),
@@ -135,13 +132,9 @@ mod test {
             .malicious((av, bv), |ctx, (a_share, b_share)| async move {
                 let a_refs = a_share.iter().collect::<Vec<_>>();
                 let b_refs = b_share.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(
-                    RecordId::from(0),
-                    a_refs.as_slice(),
-                    b_refs.as_slice(),
-                )
-                .await
-                .unwrap()
+                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                    .await
+                    .unwrap()
             })
             .await;
 

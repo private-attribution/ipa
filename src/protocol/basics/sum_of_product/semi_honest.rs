@@ -118,13 +118,9 @@ mod test {
             .semi_honest((av, bv), |ctx, (a, b)| async move {
                 let a_refs = a.iter().collect::<Vec<_>>();
                 let b_refs = b.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(
-                    RecordId::from(0),
-                    a_refs.as_slice(),
-                    b_refs.as_slice(),
-                )
-                .await
-                .unwrap()
+                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                    .await
+                    .unwrap()
             })
             .await;
 
@@ -144,13 +140,9 @@ mod test {
                 let a_refs = a_share.iter().collect::<Vec<_>>();
                 let b_refs = b_share.iter().collect::<Vec<_>>();
 
-                ctx.sum_of_products(
-                    RecordId::from(0),
-                    a_refs.as_slice(),
-                    b_refs.as_slice(),
-                )
-                .await
-                .unwrap()
+                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                    .await
+                    .unwrap()
             })
             .await;
 
