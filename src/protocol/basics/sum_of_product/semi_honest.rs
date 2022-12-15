@@ -24,13 +24,12 @@ pub async fn sum_of_products<F>(
     record_id: RecordId,
     a: &[&Replicated<F>],
     b: &[&Replicated<F>],
-    multi_bit_len: usize,
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
-    assert_eq!(a.len(), multi_bit_len);
-    assert_eq!(b.len(), multi_bit_len);
+    assert_eq!(a.len(), b.len());
+    let multi_bit_len = a.len();
 
     let channel = ctx.mesh();
 
@@ -74,7 +73,7 @@ mod test {
     use crate::rand::thread_rng;
 
     use crate::ff::{Field, Fp31};
-    use crate::protocol::basics::sum_of_product::SecureSOP;
+    use crate::protocol::basics::sum_of_product::SecureSop;
     use crate::protocol::{QueryId, RecordId};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
@@ -123,7 +122,6 @@ mod test {
                     RecordId::from(0),
                     a_refs.as_slice(),
                     b_refs.as_slice(),
-                    MULTI_BIT_LEN,
                 )
                 .await
                 .unwrap()
@@ -150,7 +148,6 @@ mod test {
                     RecordId::from(0),
                     a_refs.as_slice(),
                     b_refs.as_slice(),
-                    a_share.len(),
                 )
                 .await
                 .unwrap()

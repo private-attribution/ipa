@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::basics::sum_of_product::SecureSOP;
+use crate::protocol::basics::sum_of_product::SecureSop;
 use crate::protocol::{
     context::{Context, MaliciousContext},
     RecordId,
@@ -62,11 +62,12 @@ pub async fn sum_of_products<F>(
     record_id: RecordId,
     a: &[&MaliciousReplicated<F>],
     b: &[&MaliciousReplicated<F>],
-    multi_bit_len: usize,
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
 {
+    assert_eq!(a.len(), b.len());
+    
     use crate::protocol::context::SpecialAccessToMaliciousContext;
     use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
@@ -88,11 +89,10 @@ where
             record_id,
             ax.as_slice(),
             bx.as_slice(),
-            multi_bit_len,
         ),
         duplicate_multiply_ctx
             .semi_honest_context()
-            .sum_of_products(record_id, arx.as_slice(), bx.as_slice(), multi_bit_len),
+            .sum_of_products(record_id, arx.as_slice(), bx.as_slice()),
     )
     .await?;
 
@@ -106,7 +106,7 @@ where
 mod test {
     use crate::{
         ff::{Field, Fp31},
-        protocol::{basics::sum_of_product::SecureSOP, QueryId, RecordId},
+        protocol::{basics::sum_of_product::SecureSop, QueryId, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -139,7 +139,6 @@ mod test {
                     RecordId::from(0),
                     a_refs.as_slice(),
                     b_refs.as_slice(),
-                    MULTI_BIT_LEN,
                 )
                 .await
                 .unwrap()

@@ -10,7 +10,7 @@ mod semi_honest;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-pub trait SecureSOP<F: Field>: Sized {
+pub trait SecureSop<F: Field>: Sized {
     type Share: SecretSharing<F>;
 
     /// Multiply and return the result of `a` * `b`.
@@ -19,7 +19,6 @@ pub trait SecureSOP<F: Field>: Sized {
         record_id: RecordId,
         a: &[&Self::Share],
         b: &[&Self::Share],
-        multi_bit_len: usize,
     ) -> Result<Self::Share, Error>;
 }
 
@@ -30,7 +29,7 @@ use {
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureSOP<F> for SemiHonestContext<'_, F> {
+impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
     type Share = Replicated<F>;
 
     async fn sum_of_products(
@@ -38,15 +37,14 @@ impl<F: Field> SecureSOP<F> for SemiHonestContext<'_, F> {
         record_id: RecordId,
         a: &[&Self::Share],
         b: &[&Self::Share],
-        multi_bit_len: usize,
     ) -> Result<Self::Share, Error> {
-        semi_honest_sops(self, record_id, a, b, multi_bit_len).await
+        semi_honest_sops(self, record_id, a, b).await
     }
 }
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureSOP<F> for MaliciousContext<'_, F> {
+impl<F: Field> SecureSop<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn sum_of_products(
@@ -54,8 +52,7 @@ impl<F: Field> SecureSOP<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         a: &[&Self::Share],
         b: &[&Self::Share],
-        multi_bit_len: usize,
     ) -> Result<Self::Share, Error> {
-        malicious_sops(self, record_id, a, b, multi_bit_len).await
+        malicious_sops(self, record_id, a, b).await
     }
 }
