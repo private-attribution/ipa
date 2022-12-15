@@ -127,17 +127,29 @@ pub trait Field:
     }
 }
 
-/// Mapping between a [`Field`]'s `TYPE_STR` and its `SIZE_IN_BYTES`
-/// # Errors
-/// If unknown `type_str` is passed in
-pub fn size_in_bytes_from_type_str(type_str: &str) -> Result<u32, Error> {
-    match type_str {
-        ff::Fp2::TYPE_STR => Ok(ff::Fp2::SIZE_IN_BYTES),
-        ff::Fp31::TYPE_STR => Ok(ff::Fp31::SIZE_IN_BYTES),
-        ff::Fp32BitPrime::TYPE_STR => Ok(ff::Fp32BitPrime::SIZE_IN_BYTES),
-        other => Err(Error::UnknownField {
-            type_str: other.to_owned(),
-        }),
+pub trait FieldTypeStr {
+    /// Mapping between a [`Field`]'s `TYPE_STR` and its `SIZE_IN_BYTES`
+    /// # Errors
+    /// if self is not an existing [`'Field`]'s `TYPE_STR`
+    fn size_in_bytes(&self) -> Result<u32, Error>;
+}
+
+impl FieldTypeStr for &str {
+    fn size_in_bytes(&self) -> Result<u32, Error> {
+        match *self {
+            ff::Fp2::TYPE_STR => Ok(ff::Fp2::SIZE_IN_BYTES),
+            ff::Fp31::TYPE_STR => Ok(ff::Fp31::SIZE_IN_BYTES),
+            ff::Fp32BitPrime::TYPE_STR => Ok(ff::Fp32BitPrime::SIZE_IN_BYTES),
+            other => Err(Error::UnknownField {
+                type_str: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl FieldTypeStr for String {
+    fn size_in_bytes(&self) -> Result<u32, Error> {
+        self.as_str().size_in_bytes()
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{error::BoxError, ff, net::MpcHelperServerError};
+use crate::{error::BoxError, ff::FieldTypeStr, net::MpcHelperServerError};
 use async_trait::async_trait;
 use axum::extract::{BodyStream, FromRequest, Query, RequestParts};
 use futures::{ready, Stream};
@@ -29,12 +29,16 @@ impl<B: Send> FromRequest<B> for FieldSize {
         }
 
         let Query(FieldStr { field_type }) = req.extract().await?;
-        let field_size = ff::size_in_bytes_from_type_str(&field_type)?;
+        let field_size = field_type.size_in_bytes()?;
 
         Ok(Self { field_size })
     }
 }
 
+/// TODO: Right now, this implementation assumes that each `Item` of the stream is exactly the size
+///       of 1 [`Field`]. However, this is very inefficient because `Bytes` itself takes up 32 bytes
+///       on its own. We should rethink this at a later date to output "chunks" that are multiples
+///       of `size_in_bytes` to be more efficient.
 /// Wraps a [`BodyStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
 /// # Errors
 /// If the downstream body is not a multiple of `size_in_bytes`.
@@ -167,8 +171,8 @@ impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromReque
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::ff::{self, Field};
     use axum::http::{HeaderMap, Request};
-    use ff::Field;
     use hyper::Body;
 
     async fn to_byte_arr_stream(

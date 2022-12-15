@@ -5,7 +5,7 @@
 mod field;
 mod prime_field;
 
-pub use field::{size_in_bytes_from_type_str, BinaryField, Field, Int};
+pub use field::{BinaryField, Field, FieldTypeStr, Int};
 pub use prime_field::{Fp2, Fp31, Fp32BitPrime};
 
 #[derive(Debug, thiserror::Error)]
