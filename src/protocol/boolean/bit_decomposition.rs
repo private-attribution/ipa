@@ -110,7 +110,10 @@ mod tests {
     use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Int},
-        protocol::{boolean::random_bits_generator::RandomBitsGenerator, QueryId, RecordId, context::Context},
+        protocol::{
+            boolean::random_bits_generator::RandomBitsGenerator, context::Context, QueryId,
+            RecordId,
+        },
         test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};

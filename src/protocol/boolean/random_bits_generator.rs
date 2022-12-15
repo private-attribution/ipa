@@ -215,12 +215,7 @@ mod tests {
         let rbg1 = RandomBitsGenerator::new(c1);
         let rbg2 = RandomBitsGenerator::new(c2);
 
-        let _result = join3(
-            rbg0.take_one(),
-            rbg1.take_one(),
-            rbg2.take_one(),
-        )
-        .await;
+        let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
 
         // From the initial pointer positions r=0, w=0, the buffer is replenished
         // until we fill `MAX_SIZE` items. We called `take_one()` once, so the
@@ -239,12 +234,7 @@ mod tests {
 
         // Now we `take_one()` until 16 items left in the buffer
         for _ in 0..take_n {
-            let _result = join3(
-                rbg0.take_one(),
-                rbg1.take_one(),
-                rbg2.take_one(),
-            )
-            .await;
+            let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
         }
 
         // There should be 16 items left in the buffer. It hasn't triggered a
@@ -259,12 +249,7 @@ mod tests {
         let last_abort_count = abort_count;
 
         // One more `take_one()` will trigger the replenishment
-        let _result = join3(
-            rbg0.take_one(),
-            rbg1.take_one(),
-            rbg2.take_one(),
-        )
-        .await;
+        let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
 
         // Now, RBG tried to fill the remaining empty slots (`256 - 16`),
         // aborted N times in this round (last_about_count - abort_count),

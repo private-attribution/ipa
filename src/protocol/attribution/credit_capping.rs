@@ -169,7 +169,8 @@ async fn is_credit_larger_than_cap<F: Field>(
 ) -> Result<Vec<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let cap = local_secret_shared_bits(&ctx, cap.into());
-    let random_bits_generator = RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
 
     try_join_all(
         prefix_summed_credits

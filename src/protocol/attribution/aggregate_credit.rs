@@ -223,7 +223,8 @@ async fn bit_decompose_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
 ) -> Result<Vec<Vec<Replicated<F>>>, Error> {
-    let random_bits_generator = RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     try_join_all(
         input
             .iter()
