@@ -22,11 +22,6 @@ pub trait SecureSop<F: Field>: Sized {
     ) -> Result<Self::Share, Error>;
 }
 
-/// looks like clippy disagrees with itself on whether this attribute is useless or not.
-use {
-    malicious::sum_of_products as malicious_sops, semi_honest::sum_of_products as semi_honest_sops,
-};
-
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
 impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
@@ -38,7 +33,7 @@ impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
         a: &[&Self::Share],
         b: &[&Self::Share],
     ) -> Result<Self::Share, Error> {
-        semi_honest_sops(self, record_id, a, b).await
+        semi_honest::sum_of_products(self, record_id, a, b).await
     }
 }
 
@@ -53,6 +48,6 @@ impl<F: Field> SecureSop<F> for MaliciousContext<'_, F> {
         a: &[&Self::Share],
         b: &[&Self::Share],
     ) -> Result<Self::Share, Error> {
-        malicious_sops(self, record_id, a, b).await
+        malicious::sum_of_products(self, record_id, a, b).await
     }
 }

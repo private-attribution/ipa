@@ -67,10 +67,9 @@ where
     (a, b)
 }
 
-/// To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
 /// We can minimize circuit depth by doing this in a binary-tree like fashion, where pairs of shares are multiplied together
 /// and those results are recursively multiplied.
-pub(crate) async fn check_if_all_ones<F, C, S>(
+pub(crate) async fn multiply_all_shares<F, C, S>(
     ctx: C,
     record_id: RecordId,
     x: &[S],
@@ -135,5 +134,6 @@ where
 {
     let one = ctx.share_of_one();
     let inverted_elements = flip_bits(one.clone(), x);
-    check_if_all_ones(ctx, record_id, &inverted_elements).await
+    // To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
+    multiply_all_shares(ctx, record_id, &inverted_elements).await
 }

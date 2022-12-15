@@ -16,12 +16,14 @@ pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialShared
 pub use semi_honest::SemiHonestContext;
 
 use super::basics::Reshare;
+use super::basics::sum_of_product::SecureSop;
 use super::boolean::RandomBits;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait Context<F: Field>:
     SecureMul<F, Share = <Self as Context<F>>::Share>
+    + SecureSop<F, Share = <Self as Context<F>>::Share>
     + Reshare<F, Share = <Self as Context<F>>::Share>
     + Reveal<F, Share = <Self as Context<F>>::Share>
     + RandomBits<F, Share = <Self as Context<F>>::Share>
