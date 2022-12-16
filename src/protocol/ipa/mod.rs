@@ -90,10 +90,7 @@ struct IPAModulusConvertedInputRow<F: Field> {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for IPAModulusConvertedInputRow<F>
-where
-    F: Sized,
-{
+impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
     type Share = Replicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
