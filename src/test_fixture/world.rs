@@ -47,7 +47,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    _network: Arc<InMemoryNetwork>,
+    network: Arc<InMemoryNetwork>,
 }
 
 #[derive(Copy, Clone)]
@@ -118,7 +118,7 @@ impl TestWorld {
             executions: AtomicUsize::new(0),
             metrics_handle,
             joined: AtomicBool::new(false),
-            _network: network,
+            network,
         }
     }
 
@@ -159,6 +159,10 @@ impl TestWorld {
 
     pub fn gateway(&self, role: Role) -> &Gateway {
         &self.gateways[role]
+    }
+
+    pub fn network(&self) -> Arc<InMemoryNetwork> {
+        Arc::clone(&self.network)
     }
 
     #[cfg(not(feature = "shuttle"))]

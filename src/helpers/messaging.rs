@@ -149,7 +149,7 @@ impl Mesh<'_, '_> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct GatewayConfig {
     /// Configuration for send buffers. See `SendBufferConfig` for more details
     pub send_buffer_config: SendBufferConfig,
