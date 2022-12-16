@@ -422,7 +422,7 @@ mod test {
                             .map(|chunk| Ok(Bytes::from(chunk))),
                     ));
                     let mut req_parts = RequestParts::new(
-                        Request::post(format!("/example?field_type={}", field_type,))
+                        Request::post(format!("/example?field_type={field_type}"))
                             .body(chunked_body)
                             .unwrap(),
                     );
