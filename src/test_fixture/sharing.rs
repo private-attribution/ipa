@@ -48,7 +48,7 @@ impl IntoShares<XorReplicated> for MaskedMatchKey {
 
 /// Deconstructs a value into N values, one for each bit.
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {
-    (0..(128 - F::PRIME.into().leading_zeros()) as u32)
+    (0..(128 - F::PRIME.into().leading_zeros()))
         .map(|i| F::from((x.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
 }
@@ -65,7 +65,9 @@ pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
 
 /// Default step type for upgrades.
 struct IntoMaliciousStep;
+
 impl Substep for IntoMaliciousStep {}
+
 impl AsRef<str> for IntoMaliciousStep {
     fn as_ref(&self) -> &str {
         "malicious_upgrade"
@@ -83,9 +85,9 @@ pub trait IntoMalicious<F: Field, M>: Sized {
 
 #[async_trait]
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade_with<'a, SS: Substep>(
+    async fn upgrade_with<SS: Substep>(
         self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: MaliciousContext<'_, F>,
         step: &SS,
     ) -> MaliciousReplicated<F> {
         ctx.upgrade_with(step, RecordId::from(0_u32), self)
@@ -105,11 +107,7 @@ where
 {
     // Note that this implementation doesn't work with arbitrary nesting.
     // For that, we'd need a `.narrow_for_upgrade()` function on the context.
-    async fn upgrade_with<'a, SS: Substep>(
-        self,
-        ctx: MaliciousContext<'a, F>,
-        _step: &SS,
-    ) -> (TM, UM) {
+    async fn upgrade_with<SS: Substep>(self, ctx: MaliciousContext<'_, F>, _step: &SS) -> (TM, UM) {
         join(
             self.0.upgrade_with(ctx.clone(), &BitOpStep::from(0)),
             self.1.upgrade_with(ctx, &BitOpStep::from(1)),
@@ -127,9 +125,9 @@ where
 {
     // Note that this implementation doesn't work with arbitrary nesting.
     // For that, we'd need a `.narrow_for_upgrade()` function on the context.
-    async fn upgrade_with<'a, SS: Substep>(
+    async fn upgrade_with<SS: Substep>(
         self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: MaliciousContext<'_, F>,
         step: &SS,
     ) -> Vec<MaliciousReplicated<F>> {
         try_join_all(
