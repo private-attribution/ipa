@@ -16,6 +16,9 @@ pub enum SortStep {
     ComposeStep,
     ShuffleRevealPermutation,
     SortKeys,
+    //malicious features
+    MaliciousUpgradeContext,
+    MaliciousUpgradeInput,
 }
 
 impl Substep for SortStep {}
@@ -28,6 +31,9 @@ impl AsRef<str> for SortStep {
             Self::ComposeStep => "compose",
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
             Self::SortKeys => "sort_keys",
+            //malicious features
+            Self::MaliciousUpgradeContext => "malicious_upgrade_context",
+            Self::MaliciousUpgradeInput => "malicious_upgrade_input",
         }
     }
 }

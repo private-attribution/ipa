@@ -337,7 +337,7 @@ mod tests {
                                 .unwrap()
                         };
                         match v.validate(m_reshared_a).await {
-                            Ok(result) => panic!("Got a result {:?}", result),
+                            Ok(result) => panic!("Got a result {result:?}"),
                             Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                         }
                     })

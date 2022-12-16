@@ -285,9 +285,9 @@ mod tests {
         );
     }
 
-    async fn bitwise_less_than_prime<F: Field>(a: u32, num_bits: u32) -> F
+    async fn bitwise_less_than_prime<F>(a: u32, num_bits: u32) -> F
     where
-        F: Sized,
+        F: Field + Sized,
         Standard: Distribution<F>,
     {
         let world = TestWorld::new(QueryId);

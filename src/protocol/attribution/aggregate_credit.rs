@@ -22,10 +22,7 @@ use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
 
 #[async_trait]
-impl<F: Field> Resharable<F> for CappedCreditsWithAggregationBit<F>
-where
-    F: Sized,
-{
+impl<F: Field + Sized> Resharable<F> for CappedCreditsWithAggregationBit<F> {
     type Share = Replicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -108,7 +105,7 @@ pub async fn aggregate_credit<F: Field>(
     {
         let end = num_rows - step_size;
         let c = ctx.narrow(&InteractionPatternStep::from(depth));
-        let mut futures = Vec::with_capacity(end as usize);
+        let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
             let c = c.clone();

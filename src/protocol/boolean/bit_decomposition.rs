@@ -117,9 +117,9 @@ mod tests {
     };
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bit_decomposition<F: Field>(world: &TestWorld, a: F) -> Vec<F>
+    async fn bit_decomposition<F>(world: &TestWorld, a: F) -> Vec<F>
     where
-        F: Sized,
+        F: Field + Sized,
         Standard: Distribution<F>,
     {
         let result = world

@@ -139,6 +139,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
+#[derive(Debug)]
 pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
@@ -209,7 +210,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         if is_valid {
             // Yes, we're allowed to downgrade here.
             use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
-            Ok(values.downgrade().access_without_downgrade())
+            Ok(values.downgrade().await.access_without_downgrade())
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
         }
@@ -357,7 +358,7 @@ mod tests {
                     let v = MaliciousValidator::new(ctx);
                     let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
                     match v.validate(m).await {
-                        Ok(result) => panic!("Got a result {:?}", result),
+                        Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                     }
                 })

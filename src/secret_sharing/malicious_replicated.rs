@@ -3,9 +3,21 @@ use std::{
     ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
-use crate::ff::Field;
+use async_trait::async_trait;
+use futures::future::{join, join_all};
+
 use crate::helpers::Role;
 use crate::secret_sharing::Replicated;
+use crate::{
+    ff::Field,
+    protocol::{
+        basics::reveal_permutation,
+        context::Context,
+        sort::{
+            generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
+        },
+    },
+};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MaliciousReplicated<F: Field> {
@@ -16,18 +28,17 @@ pub struct MaliciousReplicated<F: Field> {
 /// A trait that is implemented for various collections of `MaliciousReplicated`
 /// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
 /// when the protocol is done.  This should not be used directly.
-pub trait Downgrade {
-    type Target;
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
+#[async_trait]
+pub trait Downgrade: Send {
+    type Target: Send;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
 
 #[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
-
 pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
 }
-
 impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
@@ -140,38 +151,54 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
     }
 }
 
+#[async_trait]
 impl<F: Field> Downgrade for MaliciousReplicated<F> {
     type Target = Replicated<F>;
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(self.x)
     }
 }
 
+#[async_trait]
 impl<T, U> Downgrade for (T, U)
 where
     T: Downgrade,
     U: Downgrade,
 {
-    type Target = (<T as Downgrade>::Target, <U as Downgrade>::Target);
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+    type Target = (<T>::Target, <U>::Target);
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let output = join(self.0.downgrade(), self.1.downgrade()).await;
         UnauthorizedDowngradeWrapper((
-            self.0.downgrade().access_without_downgrade(),
-            self.1.downgrade().access_without_downgrade(),
+            output.0.access_without_downgrade(),
+            output.1.access_without_downgrade(),
         ))
     }
 }
 
+#[async_trait]
+impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
+    type Target = Vec<u32>;
+    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let output = reveal_permutation(self.m_ctx.narrow(&RevealPermutation), &self.perm)
+            .await
+            .unwrap();
+        UnauthorizedDowngradeWrapper(output)
+    }
+}
+
+#[async_trait]
 impl<T> Downgrade for Vec<T>
 where
     T: Downgrade,
 {
     type Target = Vec<<T as Downgrade>::Target>;
-    fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper(
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        let result = join_all(
             self.into_iter()
-                .map(|v| v.downgrade().access_without_downgrade())
-                .collect(),
-        )
+                .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
+        );
+        UnauthorizedDowngradeWrapper(result.await)
     }
 }
 
@@ -271,12 +298,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn downgrade() {
+    #[tokio::test]
+    async fn downgrade() {
         let mut rng = thread_rng();
         let x = Replicated::new(rng.gen::<Fp31>(), rng.gen());
         let y = Replicated::new(rng.gen::<Fp31>(), rng.gen());
         let m = MaliciousReplicated::new(x.clone(), y);
-        assert_eq!(x, m.downgrade().access_without_downgrade());
+        assert_eq!(x, m.downgrade().await.access_without_downgrade());
     }
 }

@@ -103,7 +103,7 @@ mod tests {
             for _ in 0..10 {
                 let v_shares = v.share_with(&mut rng);
                 let record_id = RecordId::from(0_u32);
-                let iteration = format!("{}", counter);
+                let iteration = format!("{counter}");
                 counter += 1;
 
                 let protocol_output = tokio::try_join!(

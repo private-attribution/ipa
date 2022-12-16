@@ -9,7 +9,7 @@ use raw_ipa::{
     protocol::{QueryId, Step},
 };
 use std::error::Error;
-use std::str::FromStr;
+
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -39,8 +39,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let peer_discovery_str =
         std::fs::read_to_string("./peer_conf.toml").expect("unable to read file");
-    let peer_discovery =
-        discovery::conf::Conf::from_str(&peer_discovery_str).expect("unable to parse config file");
+    let peer_discovery = discovery::conf::Conf::from_toml_str(&peer_discovery_str)
+        .expect("unable to parse config file");
     let gateway_config = GatewayConfig {
         send_buffer_config: SendBufferConfig {
             items_in_batch: 1,
