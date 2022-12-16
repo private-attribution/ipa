@@ -90,8 +90,8 @@ async fn mask_source_credits<F: Field>(
     .await
 }
 
-async fn credit_prefix_sum<'a, F: Field>(
-    ctx: SemiHonestContext<'a, F>,
+async fn credit_prefix_sum<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
     input: &[CreditCappingInputRow<F>],
     mut original_credits: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
@@ -106,7 +106,7 @@ async fn credit_prefix_sum<'a, F: Field>(
     {
         let end = num_rows - step_size;
         let c = ctx.narrow(&InteractionPatternStep::from(depth));
-        let mut futures = Vec::with_capacity(end as usize);
+        let mut futures = Vec::with_capacity(end);
 
         // for each input row, create a future to execute secure multiplications
         for i in 0..end {

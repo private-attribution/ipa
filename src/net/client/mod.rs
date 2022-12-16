@@ -74,7 +74,7 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn echo(&self, s: &str) -> Result<Vec<u8>, MpcHelperClientError> {
-        let uri = self.build_uri(format!("/echo?foo={}", s))?;
+        let uri = self.build_uri(format!("/echo?foo={s}"))?;
 
         let response = self.client.get(uri).await?;
         let result = hyper::body::to_bytes(response.into_body()).await?;
@@ -172,8 +172,7 @@ mod tests {
 
         // setup client
         let client =
-            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", port), Role::H1)
-                .unwrap();
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{port}"), Role::H1).unwrap();
 
         // test
         send_messages_req(client, rx_stream).await;
@@ -201,7 +200,7 @@ mod tests {
             role: Role::H1,
             client: hyper_client,
             scheme: uri::Scheme::HTTPS,
-            authority: uri::Authority::try_from(format!("localhost:{}", port)).unwrap(),
+            authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
         };
 
         // test

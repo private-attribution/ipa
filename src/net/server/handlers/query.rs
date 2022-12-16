@@ -149,7 +149,7 @@ mod tests {
         body: &'static [u8],
     ) -> Request<Body> {
         assert_eq!(
-            body.len() % (MESSAGE_PAYLOAD_SIZE_BYTES as usize),
+            body.len() % MESSAGE_PAYLOAD_SIZE_BYTES,
             0,
             "body len must align with data_size"
         );
@@ -197,7 +197,7 @@ mod tests {
         let query_id = QueryId;
         let target_helper = Role::H2;
         let step = Step::default().narrow("test");
-        let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
+        let body = &[213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
 
         // try a request 10 times
         for offset in 0..10 {
@@ -213,7 +213,7 @@ mod tests {
                 step: step.clone(),
             };
 
-            assert_eq!(status, StatusCode::OK, "{}", resp_body_str);
+            assert_eq!(status, StatusCode::OK, "{resp_body_str}");
             let messages = rx_stream
                 .next()
                 .await
@@ -230,7 +230,7 @@ mod tests {
         let query_id = QueryId;
         let target_helper = Role::H2;
         let step = Step::default().narrow("test");
-        let body = &[213; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
+        let body = &[213; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
 
         // offset == 0; this is correct
         let resp = send_req(port, query_id, &step, target_helper, 0, body).await;
@@ -283,7 +283,7 @@ mod tests {
                 step: Step::default().narrow("test").as_ref().to_owned(),
                 role: Role::H2.as_ref().to_owned(),
                 offset_header: (OFFSET_HEADER_NAME.clone(), 0.into()),
-                body: &[34; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize],
+                body: &[34; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES],
             }
         }
     }
@@ -372,7 +372,7 @@ mod tests {
         let step = Step::default().narrow("test");
         let target_helper = Role::H2;
         let mut offset = 0;
-        let body = &[0; (DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES) as usize];
+        let body = &[0; DATA_LEN * MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let mut new_req = || {
             let req = build_req(0, query_id, &step, target_helper, offset, body);

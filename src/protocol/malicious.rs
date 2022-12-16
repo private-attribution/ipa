@@ -358,7 +358,7 @@ mod tests {
                     let v = MaliciousValidator::new(ctx);
                     let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
                     match v.validate(m).await {
-                        Ok(result) => panic!("Got a result {:?}", result),
+                        Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                     }
                 })

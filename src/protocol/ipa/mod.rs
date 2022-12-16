@@ -90,10 +90,7 @@ struct IPAModulusConvertedInputRow<F: Field> {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for IPAModulusConvertedInputRow<F>
-where
-    F: Sized,
-{
+impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
     type Share = Replicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -302,6 +299,7 @@ pub mod tests {
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
+    #[ignore]
     pub async fn random_ipa_no_result_check() {
         const BATCHSIZE: u64 = 20;
         const PER_USER_CAP: u32 = 10;
