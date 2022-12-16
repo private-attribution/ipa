@@ -1,6 +1,5 @@
 use crate::ff::Field;
 
-use std::any::type_name;
 use std::fs::File;
 use std::io;
 use std::io::{stdin, BufRead, BufReader, Read};
@@ -26,13 +25,10 @@ impl InputItem for u64 {
 
 impl<I: InputItem> InputItem for (I, I) {
     fn from_str(s: &str) -> Self {
-        let mut iter = s.split(',');
-        match (iter.next(), iter.next()) {
-            (Some(left), Some(right)) => (I::from_str(left), I::from_str(right)),
-            _ => panic!(
-                "{s} is not a valid tuple of input elements: {}",
-                type_name::<I>()
-            ),
+        if let Some((left, right)) = s.split_once(',') {
+            (I::from_str(left), I::from_str(right))
+        } else {
+            panic!("{s} is not a valid tuple of input elements");
         }
     }
 }
