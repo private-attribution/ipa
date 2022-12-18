@@ -59,39 +59,40 @@ impl<T> RingBuffer<T> {
 }
 
 #[derive(Debug)]
-struct State<F, S>
+struct State<F, S, C>
 where
     F: Field,
     S: SecretSharing<F>,
+    C: Context<F, Share = S>,
 {
     buffer: RingBuffer<RandomBitsShare<F, S>>,
     next_index: u32,
     abort_count: u32,
+    context: C,
     _marker: PhantomData<F>,
 }
 
-impl<F, S> State<F, S>
+impl<F, S, C> State<F, S, C>
 where
     F: Field,
     S: SecretSharing<F>,
+    C: Context<F, Share = S>,
 {
     const REFILL_THRESHOLD: usize = 16;
 
-    pub fn new() -> Self {
+    pub fn new(context: C) -> Self {
         Self {
             buffer: RingBuffer::new(),
             next_index: 0,
             abort_count: 0,
+            context,
             _marker: PhantomData::default(),
         }
     }
 
     /// Returns a `RandomBitsShare` instance out of the buffer. If the number
     /// of buffered items fall below a threshold, it'll replenish.
-    pub async fn get<C: Context<F, Share = S>>(
-        &mut self,
-        context: C,
-    ) -> Result<RandomBitsShare<F, S>, Error> {
+    pub async fn get(&mut self) -> Result<RandomBitsShare<F, S>, Error> {
         // If we have enough shares, take one immediately return
         if self.buffer.len() > Self::REFILL_THRESHOLD {
             return Ok(self.buffer.take());
@@ -101,7 +102,7 @@ where
         // one `RandomBitsShare` instance.
         let available_space = self.buffer.available_space();
         try_join_all((0..available_space).map(|_| {
-            let c = context.clone();
+            let c = self.context.clone();
             let record_id = RecordId::from(self.next_index);
 
             // Current implementation will cause the context to panic once u32
@@ -132,33 +133,25 @@ where
 /// one by calling `take_one()`. It will call `SolvedBits` once the stock falls
 /// below `REFILL_THRESHOLD` until it fills up the empty slots.
 #[derive(Debug)]
-pub struct RandomBitsGenerator<F, S>
+pub struct RandomBitsGenerator<F, S, C>
 where
     F: Field,
     S: SecretSharing<F>,
+    C: Context<F, Share = S>,
 {
-    state: Arc<Mutex<State<F, S>>>,
+    state: Arc<Mutex<State<F, S, C>>>,
 }
 
-impl<F, S> Default for RandomBitsGenerator<F, S>
+impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
     F: Field,
     S: SecretSharing<F>,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<F, S> RandomBitsGenerator<F, S>
-where
-    F: Field,
-    S: SecretSharing<F>,
+    C: Context<F, Share = S>,
 {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(context: C) -> Self {
         Self {
-            state: Arc::new(Mutex::new(State::new())),
+            state: Arc::new(Mutex::new(State::new(context))),
         }
     }
 
@@ -168,12 +161,9 @@ where
     /// This method mail fail for number of reasons. Errors include locking the
     /// inner members multiple times, I/O errors while executing MPC protocols,
     /// read from an empty buffer, etc.
-    pub async fn take_one<C: Context<F, Share = S>>(
-        &self,
-        context: C,
-    ) -> Result<RandomBitsShare<F, S>, Error> {
+    pub async fn take_one(&self) -> Result<RandomBitsShare<F, S>, Error> {
         let mut state = self.state.lock().await;
-        state.get(context).await
+        state.get().await
     }
 
     // Used for unit tests only. Takes a lock and returns the internal counters
@@ -191,10 +181,11 @@ where
     }
 }
 
-impl<F, S> Clone for RandomBitsGenerator<F, S>
+impl<F, S, C> Clone for RandomBitsGenerator<F, S, C>
 where
     F: Field,
     S: SecretSharing<F>,
+    C: Context<F, Share = S>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -220,16 +211,11 @@ mod tests {
         let world = TestWorld::new(QueryId);
         let [c0, c1, c2] = world.contexts::<Fp31>();
 
-        let rbg0 = RandomBitsGenerator::new();
-        let rbg1 = RandomBitsGenerator::new();
-        let rbg2 = RandomBitsGenerator::new();
+        let rbg0 = RandomBitsGenerator::new(c0);
+        let rbg1 = RandomBitsGenerator::new(c1);
+        let rbg2 = RandomBitsGenerator::new(c2);
 
-        let _result = join3(
-            rbg0.take_one(c0.clone()),
-            rbg1.take_one(c1.clone()),
-            rbg2.take_one(c2.clone()),
-        )
-        .await;
+        let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
 
         // From the initial pointer positions r=0, w=0, the buffer is replenished
         // until we fill `MAX_SIZE` items. We called `take_one()` once, so the
@@ -248,12 +234,7 @@ mod tests {
 
         // Now we `take_one()` until 16 items left in the buffer
         for _ in 0..take_n {
-            let _result = join3(
-                rbg0.take_one(c0.clone()),
-                rbg1.take_one(c1.clone()),
-                rbg2.take_one(c2.clone()),
-            )
-            .await;
+            let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
         }
 
         // There should be 16 items left in the buffer. It hasn't triggered a
@@ -268,12 +249,7 @@ mod tests {
         let last_abort_count = abort_count;
 
         // One more `take_one()` will trigger the replenishment
-        let _result = join3(
-            rbg0.take_one(c0.clone()),
-            rbg1.take_one(c1.clone()),
-            rbg2.take_one(c2.clone()),
-        )
-        .await;
+        let _result = join3(rbg0.take_one(), rbg1.take_one(), rbg2.take_one()).await;
 
         // Now, RBG tried to fill the remaining empty slots (`256 - 16`),
         // aborted N times in this round (last_about_count - abort_count),

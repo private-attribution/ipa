@@ -169,7 +169,8 @@ async fn is_credit_larger_than_cap<F: Field>(
 ) -> Result<Vec<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let cap = local_secret_shared_bits(&ctx, cap.into());
-    let random_bits_generator = RandomBitsGenerator::new();
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
 
     try_join_all(
         prefix_summed_credits
@@ -279,6 +280,7 @@ enum Step {
     MaskSourceCredits,
     CurrentContributionBTimesSuccessorCredit,
     BitDecomposeCurrentContribution,
+    RandomBitsForBitDecomposition,
     IsCapLessThanCurrentContribution,
     IfCurrentExceedsCapOrElse,
     IfNextExceedsCapOrElse,
@@ -297,6 +299,7 @@ impl AsRef<str> for Step {
                 "current_contribution_b_times_successor_credit"
             }
             Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
+            Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",

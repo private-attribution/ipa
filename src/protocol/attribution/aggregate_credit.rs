@@ -223,7 +223,8 @@ async fn bit_decompose_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
 ) -> Result<Vec<Vec<Replicated<F>>>, Error> {
-    let random_bits_generator = RandomBitsGenerator::new();
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     try_join_all(
         input
             .iter()
@@ -303,6 +304,7 @@ enum Step {
     SortByAttributionBit,
     AggregateCreditBTimesSuccessorCredit,
     BitDecomposeBreakdownKey,
+    RandomBitsForBitDecomposition,
     GeneratePermutationByBreakdownKey,
     ApplyPermutationOnBreakdownKey,
     GeneratePermutationByAttributionBit,
@@ -322,6 +324,7 @@ impl AsRef<str> for Step {
                 "aggregate_credit_b_times_successor_credit"
             }
             Self::BitDecomposeBreakdownKey => "bit_decompose_breakdown_key",
+            Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::GeneratePermutationByBreakdownKey => "generate_permutation_by_breakdown_key",
             Self::ApplyPermutationOnBreakdownKey => "apply_permutation_by_breakdown_key",
             Self::GeneratePermutationByAttributionBit => "generate_permutation_by_attribution_bit",
