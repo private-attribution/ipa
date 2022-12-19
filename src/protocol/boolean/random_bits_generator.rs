@@ -199,7 +199,6 @@ mod tests {
     use super::RandomBitsGenerator;
     use crate::{
         ff::Fp31,
-        protocol::QueryId,
         test_fixture::{join3, TestWorld},
     };
 
@@ -208,7 +207,7 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn basic() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let [c0, c1, c2] = world.contexts::<Fp31>();
 
         let rbg0 = RandomBitsGenerator::new(c0);

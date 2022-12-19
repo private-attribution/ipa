@@ -85,14 +85,14 @@ mod tests {
     use crate::error::Error;
     use crate::ff::{Field, Fp31};
     use crate::protocol::context::Context;
-    use crate::protocol::{basics::check_zero, QueryId, RecordId};
+    use crate::protocol::{basics::check_zero, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::IntoShares;
     use crate::test_fixture::TestWorld;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
         let mut counter = 0_u32;

@@ -15,7 +15,6 @@ use crate::{
         context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
-        QueryId,
     },
     secret_sharing::DowngradeMalicious,
     test_fixture::{logging, make_participants, network::InMemoryNetwork},
@@ -48,7 +47,6 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    _query_id: QueryId,
     _network: Arc<InMemoryNetwork>,
 }
 
@@ -96,9 +94,10 @@ impl TestWorldConfig {
 
 impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
+    /// # Panics
+    /// Never.
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn new_with(query_id: QueryId, config: TestWorldConfig) -> TestWorld {
+    pub fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
@@ -119,16 +118,16 @@ impl TestWorld {
             executions: AtomicUsize::new(0),
             metrics_handle,
             joined: AtomicBool::new(false),
-            _query_id: query_id,
             _network: network,
         }
     }
 
+    /// # Panics
+    /// Never.
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn new(query_id: QueryId) -> TestWorld {
+    pub fn new() -> TestWorld {
         let config = TestWorldConfig::default();
-        Self::new_with(query_id, config)
+        Self::new_with(config)
     }
 
     /// Creates protocol contexts for 3 helpers
@@ -186,6 +185,12 @@ impl Drop for TestWorld {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }
+    }
+}
+
+impl Default for TestWorld {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -215,14 +215,13 @@ mod tests {
         use crate::protocol::sort::shuffle::{
             get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
         };
-        use crate::protocol::QueryId;
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
         async fn semi_honest() {
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new();
 
             let input: Vec<u8> = (0..BATCHSIZE).collect();
             let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
@@ -262,7 +261,7 @@ mod tests {
         async fn shuffle_unshuffle() {
             const BATCHSIZE: usize = 5;
 
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new();
             let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 
             let result = world
@@ -302,14 +301,13 @@ mod tests {
         use crate::protocol::sort::shuffle::{
             get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
         };
-        use crate::protocol::QueryId;
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
         async fn malicious() {
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new();
 
             let input: Vec<u8> = (0..BATCHSIZE).collect();
             let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
@@ -351,7 +349,7 @@ mod tests {
         async fn shuffle_unshuffle() {
             const BATCHSIZE: usize = 5;
 
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new();
             let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 
             let result = world

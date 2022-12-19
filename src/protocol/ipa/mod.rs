@@ -228,7 +228,6 @@ pub mod tests {
     use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
         ff::{Field, Fp31},
-        protocol::QueryId,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -240,7 +239,7 @@ pub mod tests {
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
 
         //   match key, is_trigger, breakdown_key, trigger_value
         let records = [
@@ -307,7 +306,7 @@ pub mod tests {
         const MAX_TRIGGER_VALUE: u128 = 5;
         let max_match_key: u64 = BATCHSIZE / 10;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let mut rng = thread_rng();
 
         let mut records: Vec<IPAInputTestRow> = Vec::new();
