@@ -1,17 +1,17 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
-use futures_util::future::join;
-use hyper::Uri;
 use crate::error::BoxError;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::network::Network;
 use crate::helpers::{GatewayConfig, Role};
 use crate::protocol::QueryId;
+use async_trait::async_trait;
+use futures_util::future::{join, try_join};
+use hyper::Uri;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// It can't be copy and clone as it represents an internal state
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum QueryState {
+pub enum QueryState {
     Preparing,
     AwaitingInputs,
     Negotiating,
@@ -19,13 +19,26 @@ enum QueryState {
     Completed,
 }
 
-
-struct Processor<'a, T> {
-    transport: &'a T,
-    identities: &'a [HelperIdentity; 3],
-    running_queries: Arc<Mutex<HashMap<QueryId, QueryState>>>,
+impl<N: Network> From<&InternalQueryState<N>> for QueryState {
+    fn from(source: &InternalQueryState<N>) -> Self {
+        match source {
+            InternalQueryState::Preparing => Self::Preparing,
+            InternalQueryState::AwaitingInputs(_, _) => Self::AwaitingInputs,
+        }
+    }
 }
 
+/// TODO: a macro would be very useful here
+enum InternalQueryState<N: Network> {
+    Preparing,
+    AwaitingInputs(N, Gateway),
+}
+
+struct Processor<'a, T: Transport> {
+    transport: &'a T,
+    identities: &'a [HelperIdentity; 3],
+    running_queries: Arc<Mutex<HashMap<QueryId, InternalQueryState<T::AppLayer>>>>,
+}
 
 impl<'a, T: Transport> Processor<'a, T> {
     pub fn new(transport: &'a T, identities: &'a [HelperIdentity; 3]) -> Self {
@@ -67,9 +80,7 @@ struct HelperIdentity {
 impl HelperIdentity {
     #[cfg(test)]
     pub fn new(id: u8) -> Self {
-        HelperIdentity {
-            id
-        }
+        HelperIdentity { id }
     }
 }
 
@@ -79,9 +90,9 @@ struct RingConfiguration {
 }
 
 impl RingConfiguration {
-    pub fn prepare(current_identity: HelperIdentity) -> RingSetup {
-        RingSetup {
-            map: [(current_identity, Role::H1)].into()
+    pub fn prepare(assignment: [(HelperIdentity, Role); 3]) -> Self {
+        Self {
+            map: assignment.into()
         }
     }
 }
@@ -91,22 +102,25 @@ struct RingSetup {
 }
 
 impl RingSetup {
-    pub fn assign_role(&mut self, other: HelperIdentity, role: Role) {
+    pub fn assign_role(mut self, other: HelperIdentity, role: Role) -> Self {
         if let Some(prev_role) = self.map.get(&other) {
             panic!("{other:?} has been assigned a role ({prev_role:?}) already")
         }
 
         self.map.insert(other, role);
+
+        self
     }
 
-    pub fn fin(self) -> RingConfiguration {
+    pub fn setup(self) -> RingConfiguration {
         if self.map.len() != Role::all().len() {
-            panic!("Not all the roles have been assigned, ring setup is incomplete: {:?}", self.map)
+            panic!(
+                "Not all the roles have been assigned, ring setup is incomplete: {:?}",
+                self.map
+            )
         }
 
-        RingConfiguration {
-            map: self.map
-        }
+        RingConfiguration { map: self.map }
     }
 }
 
@@ -129,14 +143,13 @@ impl QueryConfiguration {
     }
 }
 
-
-struct Command {
-    dest: HelperIdentity,
-    command_type: CommandType,
+struct Command<'a> {
+    dest: &'a HelperIdentity,
+    command_type: CommandType<'a>,
 }
 
-impl Command {
-    pub fn prepare(dest: HelperIdentity, qc: QueryConfiguration) -> Self {
+impl <'a> Command<'a> {
+    pub fn prepare(dest: &'a HelperIdentity, qc: &'a QueryConfiguration) -> Self {
         Self {
             dest,
             command_type: CommandType::Prepare(qc),
@@ -144,8 +157,8 @@ impl Command {
     }
 }
 
-enum CommandType {
-    Prepare(QueryConfiguration)
+enum CommandType<'a> {
+    Prepare(&'a QueryConfiguration),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -154,21 +167,16 @@ enum TransportError {
     CommandRejected {
         identity: HelperIdentity,
         inner: BoxError,
-    }
+    },
 }
-
-// impl From<TransportError> for NewQueryError {
-//     fn from(source: TransportError) -> Self {
-//         NewQueryError::TransportError { source: }
-//     }
-// }
 
 #[async_trait]
 trait Transport {
-    type NetworkType: Network;
-    async fn send(&self, command: Command) -> Result<(), TransportError>;
+    type AppLayer: Network;
 
-    fn create_app(&self, ring: &RingConfiguration) -> Self::NetworkType;
+    async fn send(&self, command: Command<'_>) -> Result<(), TransportError>;
+
+    fn app_layer(&self, ring: &RingConfiguration) -> Self::AppLayer;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -178,14 +186,14 @@ enum NewQueryError {
     #[error(transparent)]
     TransportError {
         #[from]
-        source: TransportError
+        source: TransportError,
     },
 }
 
 impl<T: Transport> Processor<'_, T> {
     /// Upon receiving a new query request:
     /// * processor generates new query id
-    /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka leader)
+    /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
     /// and is free to choose helpers for `Role::H2` and `Role::H3` arbitrarily (aka followers).
     /// * Requests Infra and Network layer to create resources for this query
     /// * sends `prepare` request that describes the query configuration (query id, query type, field type, roles -> endpoints or reverse) to followers and waits for the confirmation
@@ -193,46 +201,70 @@ impl<T: Transport> Processor<'_, T> {
     /// * returns query configuration
     async fn new_query(&self, req: &NewQueryRequest) -> Result<QueryConfiguration, NewQueryError> {
         let query_id = QueryId;
-        {
-            let mut queries = self.running_queries.lock().unwrap();
-            if let Some(state) = queries.get(&query_id) {
-                return Err(NewQueryError::AlreadyRunning(query_id, *state));
-            }
+        self.register_query(query_id)?;
 
-            queries.insert(query_id, QueryState::Preparing);
-        }
+        // invariant: this helper's identity must be the first element in the array.
+        let this = &self.identities[0];
+        let left = &self.identities[1];
+        let right = &self.identities[2];
 
-        // invariant: this helper's identity is always the first
-        let mut ring = RingConfiguration::prepare(self.identities[0].clone());
-        ring.assign_role(self.identities[1].clone(), Role::H2);
-        ring.assign_role(self.identities[2].clone(), Role::H3);
-        let ring = ring.fin();
-        let qc = QueryConfiguration::new(QueryId, &req, ring.clone());
+        let ring = RingConfiguration::prepare([(this.clone(), Role::H1),
+            (left.clone(), Role::H2),
+            (right.clone(), Role::H3)
+        ]);
+        let network = self.transport.app_layer(&ring);
+        let qc = QueryConfiguration::new(QueryId, &req, ring);
 
+        try_join(
+            self.transport.send(Command::prepare(&left, &qc)),
+            self.transport.send(Command::prepare(&right, &qc)),
+        )
+        .await?;
 
-        self.transport.send(Command::prepare(self.identities[1].clone(), qc.clone())).await?;
-        self.transport.send(Command::prepare(self.identities[2].clone(), qc.clone())).await?;
-
-        let network = self.transport.create_app(&ring);
         let gateway = Gateway::new(Role::H1, &network, GatewayConfig::default());
 
+        self.running_queries.lock().unwrap().insert(
+            query_id,
+            InternalQueryState::AwaitingInputs(network, gateway),
+        );
         Ok(qc)
     }
 
-    fn status(&self, query_id: QueryId) -> Option<QueryState> {
-        self.running_queries.lock().unwrap().get(&query_id).cloned()
+    pub fn status(&self, query_id: QueryId) -> Option<QueryState> {
+        self.running_queries
+            .lock()
+            .unwrap()
+            .get(&query_id)
+            .map(Into::into)
+    }
+
+    fn register_query(&self, query_id: QueryId) -> Result<(), NewQueryError> {
+        let mut queries = self.running_queries.lock().unwrap();
+        if let Some(state) = queries.get(&query_id) {
+            Err(NewQueryError::AlreadyRunning(
+                query_id,
+                QueryState::from(state),
+            ))
+        } else {
+            queries.insert(query_id, InternalQueryState::Preparing);
+            Ok(())
+        }
+
     }
 }
 
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::sync::Arc;
-    use futures::pin_mut;
-    use futures_util::future::poll_immediate;
     use super::*;
+    use crate::helpers::network::{MessageChunks, NetworkSink};
     use crate::test_fixture::network::{InMemoryEndpoint, InMemoryNetwork};
     use crate::test_fixture::TestWorld;
+    use futures::pin_mut;
+    use futures_util::future::poll_immediate;
+    use std::sync::Arc;
+    use tokio::sync::{Barrier, Notify};
+    use tokio_stream::wrappers::ReceiverStream;
+    use tracing_subscriber::filter::combinator::Not;
 
     struct StubTransport {
         network: Arc<InMemoryNetwork>,
@@ -240,82 +272,125 @@ mod tests {
 
     #[async_trait]
     impl Transport for StubTransport {
-        type NetworkType = Arc<InMemoryEndpoint>;
+        type AppLayer = Arc<InMemoryEndpoint>;
 
-        async fn send(&self, command: Command) -> Result<(), TransportError> {
+        async fn send(&self, command: Command<'_>) -> Result<(), TransportError> {
             Ok(())
         }
 
-        fn create_app(&self, ring: &RingConfiguration) -> Self::NetworkType {
+        fn app_layer(&self, ring: &RingConfiguration) -> Self::AppLayer {
             // TODO: right now it does not matter which endpoint it returns,
-            // but it will matter soon. TestWorld must use another abstraction for transport layer
+            // but it will matter soon.
             Arc::clone(&self.network.endpoints[0])
         }
     }
 
     impl From<Arc<InMemoryNetwork>> for StubTransport {
         fn from(network: Arc<InMemoryNetwork>) -> Self {
-            Self {
-                network
-            }
+            Self { network }
         }
     }
 
+    /// Transport that does not acknowledge send requests until the given number of send requests
+    /// is received. `wait` blocks the current task until this condition is satisfied.
+    struct DelayedTransport {
+        inner: StubTransport,
+        barrier: Arc<Barrier>,
+        send_received: Arc<Notify>,
+    }
+
+    impl DelayedTransport {
+        pub fn new(inner: StubTransport, concurrent_sends: usize) -> Self {
+            Self {
+                inner,
+                barrier: Arc::new(Barrier::new(concurrent_sends)),
+                send_received: Arc::new(Notify::default()),
+            }
+        }
+
+        pub async fn wait(&self) {
+            self.barrier.wait().await;
+        }
+    }
+
+    #[async_trait]
+    impl Transport for DelayedTransport {
+        type AppLayer = <StubTransport as Transport>::AppLayer;
+
+        async fn send(&self, command: Command<'_>) -> Result<(), TransportError> {
+            self.barrier.wait().await;
+            self.inner.send(command).await
+        }
+
+        fn app_layer(&self, ring: &RingConfiguration) -> Self::AppLayer {
+            self.inner.app_layer(ring)
+        }
+    }
+
+    /// Transport that fails every `send` request using provided `error_fn` to resolve errors.
     struct FailingTransport<F> {
+        inner: StubTransport,
         error_fn: F,
     }
 
     impl<F: Fn(Command) -> TransportError> FailingTransport<F> {
-        pub fn with_error(error_fn: F) -> Self {
-            Self {
-                error_fn
-            }
+        pub fn new(inner: StubTransport, error_fn: F) -> Self {
+            Self { inner, error_fn }
         }
     }
 
     #[async_trait]
     impl<F: Fn(Command) -> TransportError + Sync> Transport for FailingTransport<F> {
-        type NetworkType = Arc<InMemoryEndpoint>;
+        type AppLayer = Arc<InMemoryEndpoint>;
 
-        async fn send(&self, command: Command) -> Result<(), TransportError> {
+        async fn send(&self, command: Command<'_>) -> Result<(), TransportError> {
             Err((self.error_fn)(command))
         }
 
-        fn create_app(&self, ring: &RingConfiguration) -> Self::NetworkType {
-            todo!()
+        fn app_layer(&self, ring: &RingConfiguration) -> Self::AppLayer {
+            self.inner.app_layer(ring)
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn new_query() {
-        // TODO: this is wrong too, test world no longer bound to query
         let network = InMemoryNetwork::new();
-        let transport = StubTransport::from(network);
+        let transport = DelayedTransport::new(StubTransport::from(network), 3);
 
-        let identities = [HelperIdentity::new(0), HelperIdentity::new(1), HelperIdentity::new(2)];
+        let identities = [
+            HelperIdentity::new(0),
+            HelperIdentity::new(1),
+            HelperIdentity::new(2),
+        ];
         let processor = Processor::new(&transport, &identities);
-        let request = NewQueryRequest { field_type: FieldType::Fp32BitPrime, query_type: QueryType::TestMultiply };
+        let request = NewQueryRequest {
+            field_type: FieldType::Fp32BitPrime,
+            query_type: QueryType::TestMultiply,
+        };
 
-        let mut qc_future = processor
-            .new_query(&request);
+        let mut qc_future = processor.new_query(&request);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
         let qc = poll_immediate(&mut qc_future).await;
 
         assert_eq!(Some(QueryState::Preparing), processor.status(QueryId));
+        transport.wait().await;
 
-        let qc = if let Some(qc) = qc {
-            qc.unwrap()
-        } else {
-            qc_future.await.unwrap()
-        };
+        let qc = qc_future.await.unwrap();
+        let expected_assignment = RingConfiguration::prepare(
+            [
+                (identities[0].clone(), Role::H1),
+                (identities[1].clone(), Role::H2),
+                (identities[2].clone(), Role::H3),
+            ]
+        );
 
-        let mut expected_ring_conf = RingConfiguration::prepare(identities[0].clone());
-        expected_ring_conf.assign_role(identities[1].clone(), Role::H2);
-        expected_ring_conf.assign_role(identities[2].clone(), Role::H3);
-
-        assert_eq!(QueryConfiguration::new(QueryId, &request, expected_ring_conf.fin()), qc);
+        assert_eq!(
+            QueryConfiguration::new(QueryId, &request, expected_assignment),
+            qc
+        );
+        assert_eq!(Some(QueryState::AwaitingInputs), processor.status(QueryId));
     }
 
     #[tokio::test]
@@ -323,32 +398,48 @@ mod tests {
         let network = InMemoryNetwork::new();
         let transport = StubTransport::from(network);
 
-        let identities = [HelperIdentity::new(0), HelperIdentity::new(1), HelperIdentity::new(2)];
+        let identities = [
+            HelperIdentity::new(0),
+            HelperIdentity::new(1),
+            HelperIdentity::new(2),
+        ];
         let processor = Processor::new(&transport, &identities);
-        let request = NewQueryRequest { field_type: FieldType::Fp32BitPrime, query_type: QueryType::TestMultiply };
+        let request = NewQueryRequest {
+            field_type: FieldType::Fp32BitPrime,
+            query_type: QueryType::TestMultiply,
+        };
 
         let qc = processor.new_query(&request).await.unwrap();
-        assert!(
-            matches!(
-                processor.new_query(&request).await,
-                Err(NewQueryError::AlreadyRunning(..))
-            )
-        );
+        assert!(matches!(
+            processor.new_query(&request).await,
+            Err(NewQueryError::AlreadyRunning(..))
+        ));
     }
 
     #[tokio::test]
     async fn helpers_reject_prepare() {
-        let transport = FailingTransport::with_error(|command| TransportError::CommandRejected { identity: command.dest, inner: "Transport failed".into() });
-        let identities = [HelperIdentity::new(0), HelperIdentity::new(1), HelperIdentity::new(2)];
+        let network = InMemoryNetwork::new();
+        let transport = StubTransport::from(network);
+        let transport = FailingTransport::new(transport, |command| TransportError::CommandRejected {
+            identity: command.dest.clone(),
+            inner: "Transport failed".into(),
+        });
+        let identities = [
+            HelperIdentity::new(0),
+            HelperIdentity::new(1),
+            HelperIdentity::new(2),
+        ];
         let processor = Processor::new(&transport, &identities);
-        let request = NewQueryRequest { field_type: FieldType::Fp32BitPrime, query_type: QueryType::TestMultiply };
+        let request = NewQueryRequest {
+            field_type: FieldType::Fp32BitPrime,
+            query_type: QueryType::TestMultiply,
+        };
 
-
-        assert!(
-            matches!(
-                processor.new_query(&request).await,
-                Err(NewQueryError::TransportError { source: TransportError::CommandRejected { .. }})
-            )
-        )
+        assert!(matches!(
+            processor.new_query(&request).await,
+            Err(NewQueryError::TransportError {
+                source: TransportError::CommandRejected { .. }
+            })
+        ))
     }
 }

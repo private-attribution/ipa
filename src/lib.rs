@@ -12,9 +12,9 @@ pub mod ff;
 pub mod helpers;
 pub mod net;
 pub mod protocol;
+mod query;
 pub mod secret_sharing;
 pub mod telemetry;
-mod query;
 
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;
