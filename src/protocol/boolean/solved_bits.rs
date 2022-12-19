@@ -120,7 +120,7 @@ mod tests {
     use crate::{
         error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{QueryId, RecordId},
+        protocol::RecordId,
         test_fixture::{bits_to_value, join3, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -174,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let ctx = world.contexts::<Fp31>();
         let [c0, c1, c2] = ctx;
 
@@ -198,7 +198,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let ctx = world.contexts::<Fp32BitPrime>();
         let [c0, c1, c2] = ctx;
 
@@ -222,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let mut success = 0;
 
         for _ in 0..4 {

@@ -60,9 +60,8 @@ mod tests {
         use crate::test_fixture::{Reconstruct, Runner};
         use crate::{
             ff::Fp31,
-            protocol::{
-                sort::{apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation},
-                QueryId,
+            protocol::sort::{
+                apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation,
             },
             test_fixture::TestWorld,
         };
@@ -70,7 +69,7 @@ mod tests {
         #[tokio::test]
         pub async fn semi_honest() {
             const BATCHSIZE: u32 = 25;
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new();
             let mut rng = rand::thread_rng();
 
             let mut input = Vec::with_capacity(BATCHSIZE as usize);

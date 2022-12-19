@@ -72,7 +72,7 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
 mod tests {
     use crate::{
         ff::Fp31,
-        protocol::{sort::bit_permutation::bit_permutation, QueryId},
+        protocol::sort::bit_permutation::bit_permutation,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn semi_honest() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world
@@ -97,7 +97,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world

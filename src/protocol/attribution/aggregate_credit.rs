@@ -342,7 +342,6 @@ pub(crate) mod tests {
     use crate::protocol::attribution::{
         AggregateCreditOutputRow, CappedCreditsWithAggregationBit, CreditCappingOutputRow,
     };
-    use crate::protocol::QueryId;
     use crate::rand::Rng;
     use crate::secret_sharing::{IntoShares, Replicated};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
@@ -500,7 +499,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 aggregate_credit(ctx, &share, 8).await.unwrap()
@@ -606,7 +605,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 sort_by_breakdown_key(ctx, &share, 8).await.unwrap()

@@ -317,7 +317,6 @@ mod tests {
             credit_capping::credit_capping,
             tests::{BD, H, S, T},
         },
-        protocol::QueryId,
         test_fixture::{Reconstruct, TestWorld},
     };
     use rand::rngs::mock::StepRng;
@@ -351,7 +350,7 @@ mod tests {
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         //TODO: move to the new test framework
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let context = world.contexts::<Fp32BitPrime>();
         let mut rng = StepRng::new(100, 1);
 
