@@ -173,22 +173,20 @@ mod tests {
     #[test]
     pub fn boolean_ops() {
         let mut rng = thread_rng();
-        for _ in 0..1000 {
-            let a = rng.gen::<u128>();
-            let b = rng.gen::<u128>();
+        let a = rng.gen::<u128>();
+        let b = rng.gen::<u128>();
 
-            let and = BitArray64::truncate_from(a & b);
-            let or = BitArray64::truncate_from(a | b);
-            let xor = BitArray64::truncate_from(a ^ b);
-            let not = BitArray64::truncate_from(!a);
+        let and = BitArray64::truncate_from(a & b);
+        let or = BitArray64::truncate_from(a | b);
+        let xor = BitArray64::truncate_from(a ^ b);
+        let not = BitArray64::truncate_from(!a);
 
-            let a = BitArray64::try_from(a & u128::from(u64::MAX)).unwrap();
-            let b = BitArray64::try_from(b & u128::from(u64::MAX)).unwrap();
+        let a = BitArray64::try_from(a & u128::from(u64::MAX)).unwrap();
+        let b = BitArray64::try_from(b & u128::from(u64::MAX)).unwrap();
 
-            assert_eq!(a & b, and);
-            assert_eq!(a | b, or);
-            assert_eq!(a ^ b, xor);
-            assert_eq!(!a, not);
-        }
+        assert_eq!(a & b, and);
+        assert_eq!(a | b, or);
+        assert_eq!(a ^ b, xor);
+        assert_eq!(!a, not);
     }
 }
