@@ -3,11 +3,19 @@ pub mod messaging;
 pub mod network;
 
 mod buffers;
+mod commands;
 mod error;
+mod identity;
+mod transport;
 
 pub use buffers::SendBufferConfig;
+pub use commands::{Command, QueryConfiguration, QueryType, RingConfiguration};
 pub use error::{Error, Result};
+pub use identity::HelperIdentity;
 pub use messaging::GatewayConfig;
+#[cfg(test)]
+pub use transport::{DelayedTransport, FailingTransport, StubTransport};
+pub use transport::{Error as TransportError, Transport};
 
 use crate::helpers::{
     Direction::{Left, Right},
