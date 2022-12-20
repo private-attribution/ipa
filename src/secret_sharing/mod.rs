@@ -6,8 +6,10 @@ mod xor;
 pub use into_shares::IntoShares;
 
 use crate::ff::Field;
-pub(crate) use malicious_replicated::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 pub use malicious_replicated::{Downgrade as DowngradeMalicious, MaliciousReplicated};
+pub(crate) use malicious_replicated::{
+    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+};
 pub use replicated::Replicated;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
@@ -26,6 +28,7 @@ pub trait SecretSharing<F>:
     + Sized
     + Send
     + Sync
+    + 'static
 {
     const ZERO: Self;
 }
