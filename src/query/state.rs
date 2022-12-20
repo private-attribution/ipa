@@ -42,17 +42,14 @@ pub enum QueryState<N> {
 }
 
 impl<N> QueryState<N> {
-    pub fn allowed(
-        cur_state: Option<&QueryState<N>>,
-        new_state: &QueryState<N>,
-    ) -> Result<(), StateError> {
-        match (cur_state, new_state) {
+    pub fn transition(cur_state: Option<&Self>, new_state: Self) -> Result<Self, StateError> {
+        match (cur_state, &new_state) {
             (None, QueryState::Preparing)
-            | (Some(QueryState::Preparing), QueryState::AwaitingInputs(_, _)) => Ok(()),
+            | (Some(QueryState::Preparing), QueryState::AwaitingInputs(_, _)) => Ok(new_state),
             (Some(_), QueryState::Preparing) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.map(Into::into),
-                to: new_state.into(),
+                to: QueryStatus::from(&new_state),
             }),
         }
     }
@@ -93,12 +90,10 @@ impl<N> QueryHandle<'_, N> {
         let entry = inner.entry(self.query_id);
         match entry {
             Entry::Occupied(mut entry) => {
-                QueryState::allowed(Some(entry.get()), &new_state)?;
-                entry.insert(new_state);
+                entry.insert(QueryState::transition(Some(entry.get()), new_state)?);
             }
             Entry::Vacant(entry) => {
-                QueryState::allowed(None, &new_state)?;
-                entry.insert(new_state);
+                entry.insert(QueryState::transition(None, new_state)?);
             }
         }
 
