@@ -96,7 +96,7 @@ impl TryFrom<u128> for BitArray64 {
     type Error = String;
 
     /// Fallible conversion from `u128` to this data type. The input value must
-    /// be `Self::BITS` long. That is, leading 0's must be longer or equal to
+    /// be at most `Self::BITS` long. That is, the integer value must be less than or equal to $2^{Self::BITS}$
     /// `Self::BITS`, or it will return an error.
     fn try_from(v: u128) -> Result<Self, Self::Error> {
         if 128 - v.leading_zeros() <= Self::BITS {
