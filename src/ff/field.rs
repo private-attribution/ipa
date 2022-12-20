@@ -3,23 +3,12 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
-use std::ops::{
-    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Mul, MulAssign,
-    Neg, Not, Shr, Sub, SubAssign,
-};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
+
+use super::ArithmeticOps;
 
 // Trait for primitive integer types used to represent the underlying type for field values
-pub trait Int:
-    Sized
-    + Copy
-    + Debug
-    + Ord
-    + Sub<Output = Self>
-    + Into<u128>
-    + Shr<u32, Output = Self>
-    + BitAnd<Self, Output = Self>
-    + PartialEq
-{
+pub trait Int: Sized + Copy + Debug + Into<u128> {
     const BITS: u32;
 }
 
@@ -32,13 +21,7 @@ impl Int for u32 {
 }
 
 pub trait Field:
-    Add<Output = Self>
-    + AddAssign
-    + Neg<Output = Self>
-    + Sub<Output = Self>
-    + SubAssign
-    + Mul<Output = Self>
-    + MulAssign
+    ArithmeticOps
     + From<u128>
     + Into<Self::Integer>
     + Clone

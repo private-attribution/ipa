@@ -103,7 +103,7 @@ where
 mod test {
     use crate::{
         ff::{Field, Fp31},
-        protocol::{basics::sum_of_product::SecureSop, QueryId, RecordId},
+        protocol::{basics::sum_of_product::SecureSop, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -111,7 +111,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const MULTI_BIT_LEN: usize = 10;
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
 
         let mut rng = thread_rng();
 

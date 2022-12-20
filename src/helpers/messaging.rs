@@ -316,7 +316,7 @@ mod tests {
     use crate::ff::Fp31;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
-    use crate::protocol::{QueryId, RecordId, Step};
+    use crate::protocol::{RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
 
     #[tokio::test]
@@ -325,7 +325,7 @@ mod tests {
         config.gateway_config.send_buffer_config.items_in_batch = 1; // Send every record
         config.gateway_config.send_buffer_config.batch_count = 3; // keep 3 at a time
 
-        let world = Box::leak(Box::new(TestWorld::new_with(QueryId, config)));
+        let world = Box::leak(Box::new(TestWorld::new_with(config)));
         let contexts = world.contexts::<Fp31>();
         let sender_ctx = contexts[0].narrow("reordering-test");
         let recv_ctx = contexts[1].narrow("reordering-test");
@@ -357,7 +357,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Record RecordId(1) has been received twice")]
     async fn duplicate_message() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));
         let peer = Role::H2;
         let record_id = 1.into();

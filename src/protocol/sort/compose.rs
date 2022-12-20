@@ -51,12 +51,8 @@ mod tests {
     use crate::test_fixture::{Reconstruct, Runner};
     use crate::{
         ff::Fp31,
-        protocol::{
-            sort::{
-                apply::apply, compose::compose,
-                generate_permutation::shuffle_and_reveal_permutation,
-            },
-            QueryId,
+        protocol::sort::{
+            apply::apply, compose::compose, generate_permutation::shuffle_and_reveal_permutation,
         },
         test_fixture::TestWorld,
     };
@@ -65,7 +61,7 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let mut rng_sigma = thread_rng();
         let mut rng_rho = thread_rng();
 

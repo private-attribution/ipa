@@ -207,7 +207,7 @@ mod tests {
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{QueryId, RecordId},
+        protocol::RecordId,
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -290,7 +290,7 @@ mod tests {
         F: Field + Sized,
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let bits = get_bits::<F>(a, num_bits);
         let result = world
             .semi_honest(bits.clone(), |ctx, x_share| async move {
