@@ -4,6 +4,7 @@
 #![allow(clippy::similar_names)]
 #![allow(clippy::module_name_repetitions)]
 
+pub mod bits;
 pub mod chunkscan;
 pub mod cli;
 pub mod error;
