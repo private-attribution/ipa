@@ -206,7 +206,7 @@ impl Debug for ControlMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ControlMessage::ConnectionRequest(channel, step) => {
-                write!(f, "ConnectionRequest(from={:?}, step={:?})", channel, step)
+                write!(f, "ConnectionRequest(from={channel:?}, step={step:?})")
             }
         }
     }

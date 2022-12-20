@@ -251,7 +251,7 @@ mod tests {
     use crate::helpers::Role;
     use crate::protocol::basics::SecureMul;
     use crate::protocol::context::Context;
-    use crate::protocol::{malicious::MaliciousValidator, QueryId, RecordId};
+    use crate::protocol::{malicious::MaliciousValidator, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
         IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
@@ -276,7 +276,7 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
@@ -324,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn upgrade_only() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp32BitPrime>();
@@ -341,7 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn upgrade_only_tweaked() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp32BitPrime>();
@@ -358,7 +358,7 @@ mod tests {
                     let v = MaliciousValidator::new(ctx);
                     let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
                     match v.validate(m).await {
-                        Ok(result) => panic!("Got a result {:?}", result),
+                        Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                     }
                 })
@@ -388,7 +388,7 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new();
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
