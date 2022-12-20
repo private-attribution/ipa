@@ -15,8 +15,6 @@ macro_rules! field_impl {
             const ONE: Self = $field(1);
         }
 
-        impl crate::ff::ArithmeticOps for $field {}
-
         impl std::ops::Add for $field {
             type Output = Self;
 

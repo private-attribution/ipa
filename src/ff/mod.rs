@@ -20,3 +20,15 @@ pub trait ArithmeticOps:
     + Sized
 {
 }
+
+impl<T> ArithmeticOps for T where
+    T: Add<Output = Self>
+        + AddAssign
+        + Sub<Output = Self>
+        + SubAssign
+        + Mul<Output = Self>
+        + MulAssign
+        + Neg<Output = Self>
+        + Sized
+{
+}

@@ -1,4 +1,4 @@
-use super::{BitArray, BooleanOps};
+use super::BitArray;
 use bitvec::prelude::{BitArr, Lsb0};
 use std::{
     fmt::Debug,
@@ -43,8 +43,6 @@ impl BitArray for BitArray64 {
         ))
     }
 }
-
-impl BooleanOps for BitArray64 {}
 
 impl BitAnd for BitArray64 {
     type Output = Self;
