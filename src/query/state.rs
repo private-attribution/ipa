@@ -62,7 +62,7 @@ impl<N> QueryState<N> {
 pub enum StateError {
     #[error("Query is already running")]
     AlreadyRunning,
-    #[error("Illegal transition: {from:?} is not a valid transition from {to:?}")]
+    #[error("Cannot transition from state {from:?} to state {to:?}")]
     InvalidState {
         from: Option<QueryStatus>,
         to: QueryStatus,
@@ -94,7 +94,7 @@ impl<N> QueryHandle<'_, N> {
         match entry {
             Entry::Occupied(mut entry) => {
                 QueryState::allowed(Some(entry.get()), &new_state)?;
-                *entry.get_mut() = new_state;
+                entry.insert(new_state);
             }
             Entry::Vacant(entry) => {
                 QueryState::allowed(None, &new_state)?;

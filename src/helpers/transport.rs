@@ -8,9 +8,10 @@ use async_trait::async_trait;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Command has been rejected by {identity:?}")]
+    #[error("Command has been rejected by {identity:?}: {inner}")]
     CommandRejected {
         identity: HelperIdentity,
+        #[source]
         inner: BoxError,
     },
 }
