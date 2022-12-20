@@ -12,15 +12,19 @@ use futures_util::future::try_join;
 pub struct Processor<'a, T: Transport> {
     transport: &'a T,
     identities: &'a [HelperIdentity; 3],
+    my_identity: usize,
     queries: RunningQueries<T::AppLayer>,
 }
 
 #[allow(dead_code)]
 impl<'a, T: Transport> Processor<'a, T> {
-    pub fn new(transport: &'a T, identities: &'a [HelperIdentity; 3]) -> Self {
+    pub fn new(transport: &'a T, identities: &'a [HelperIdentity; 3], my_identity: usize) -> Self {
+        debug_assert!(my_identity < identities.len());
+
         Self {
             transport,
             identities,
+            my_identity,
             queries: RunningQueries::default(),
         }
     }
@@ -43,6 +47,19 @@ pub enum NewQueryError {
     TransportError {
         #[from]
         source: TransportError,
+    },
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PrepareQueryError {
+    #[error("This helper is the query coordinator, cannot respond to Prepare requests")]
+    WrongTarget,
+    #[error("Query is already running")]
+    AlreadyRunning,
+    #[error(transparent)]
+    StateError {
+        #[from]
+        source: StateError,
     },
 }
 
@@ -86,8 +103,38 @@ impl<T: Transport> Processor<'_, T> {
         Ok(qc)
     }
 
+    /// On prepare, each follower:
+    /// * ensures that it is not the leader on this query
+    /// * query is not registered yet
+    /// * creates gateway and network
+    /// * registers query
+    pub fn prepare(&self, req: &QueryConfiguration<'_>) -> Result<(), PrepareQueryError> {
+        if req.ring.role(self.identity()) == Role::H1 {
+            return Err(PrepareQueryError::WrongTarget);
+        }
+        let handle = self.queries.handle(req.query_id);
+        if handle.status().is_some() {
+            return Err(PrepareQueryError::AlreadyRunning);
+        }
+
+        let network = self.transport.app_layer(&req.ring);
+        let gateway = Gateway::new(
+            req.ring.role(self.identity()),
+            &network,
+            GatewayConfig::default(),
+        );
+
+        handle.set_state(QueryState::AwaitingInputs(network, gateway))?;
+
+        Ok(())
+    }
+
     pub fn status(&self, query_id: QueryId) -> Option<QueryStatus> {
-        self.queries.get_status(query_id)
+        self.queries.handle(query_id).status()
+    }
+
+    fn identity(&self) -> &HelperIdentity {
+        &self.identities[self.my_identity]
     }
 }
 
@@ -114,7 +161,7 @@ mod tests {
             HelperIdentity::new(1),
             HelperIdentity::new(2),
         ];
-        let processor = Processor::new(&transport, &identities);
+        let processor = Processor::new(&transport, &identities, 0);
         let request = NewQueryRequest {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -141,7 +188,7 @@ mod tests {
                 QueryId,
                 request.field_type,
                 request.query_type,
-                expected_assignment
+                expected_assignment,
             ),
             qc
         );
@@ -158,7 +205,7 @@ mod tests {
             HelperIdentity::new(1),
             HelperIdentity::new(2),
         ];
-        let processor = Processor::new(&transport, &identities);
+        let processor = Processor::new(&transport, &identities, 0);
         let request = NewQueryRequest {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -187,7 +234,7 @@ mod tests {
             HelperIdentity::new(1),
             HelperIdentity::new(2),
         ];
-        let processor = Processor::new(&transport, &identities);
+        let processor = Processor::new(&transport, &identities, 0);
         let request = NewQueryRequest {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -199,5 +246,79 @@ mod tests {
                 source: TransportError::CommandRejected { .. }
             })
         ));
+    }
+
+    fn three_identities() -> [HelperIdentity; 3] {
+        [
+            HelperIdentity::new(0),
+            HelperIdentity::new(1),
+            HelperIdentity::new(2),
+        ]
+    }
+
+    fn default_ring(identities: &[HelperIdentity; 3]) -> RingConfiguration<'_> {
+        let ring = RingConfiguration::new([
+            (&identities[0], Role::H1),
+            (&identities[1], Role::H2),
+            (&identities[2], Role::H3),
+        ]);
+
+        ring
+    }
+
+    mod prepare {
+        use super::*;
+
+        fn default_query_conf(identities: &[HelperIdentity; 3]) -> QueryConfiguration<'_> {
+            let ring = default_ring(identities);
+            let conf =
+                QueryConfiguration::new(QueryId, FieldType::Fp31, QueryType::TestMultiply, ring);
+            conf
+        }
+
+        #[tokio::test]
+        async fn happy_case() {
+            let network = InMemoryNetwork::new();
+            let transport = StubTransport::from(network);
+            let identities = three_identities();
+            let conf = default_query_conf(&identities);
+
+            let processor = Processor::new(&transport, &identities, 1);
+
+            assert_eq!(None, processor.status(QueryId));
+            processor.prepare(&conf).unwrap();
+            assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
+        }
+
+        #[tokio::test]
+        async fn rejects_if_coordinator() {
+            let network = InMemoryNetwork::new();
+            let transport = StubTransport::from(network);
+            let identities = three_identities();
+            let conf = default_query_conf(&identities);
+
+            let processor = Processor::new(&transport, &identities, 0);
+
+            assert!(matches!(
+                processor.prepare(&conf),
+                Err(PrepareQueryError::WrongTarget)
+            ));
+        }
+
+        #[tokio::test]
+        async fn rejects_if_query_exists() {
+            let network = InMemoryNetwork::new();
+            let transport = StubTransport::from(network);
+            let identities = three_identities();
+            let conf = default_query_conf(&identities);
+
+            let processor = Processor::new(&transport, &identities, 1);
+
+            processor.prepare(&conf).unwrap();
+            assert!(matches!(
+                processor.prepare(&conf),
+                Err(PrepareQueryError::AlreadyRunning)
+            ));
+        }
     }
 }

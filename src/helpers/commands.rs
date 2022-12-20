@@ -42,14 +42,23 @@ impl<'a> RingConfiguration<'a> {
             assignment: assignment.into(),
         }
     }
+
+    /// Returns the assigned role for a given helper identity
+    ///
+    /// ## Panics
+    /// If identity does not have an assignment
+    #[must_use]
+    pub fn role(&self, identity: &HelperIdentity) -> Role {
+        self.assignment.get(identity).copied().unwrap()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryConfiguration<'a> {
-    query_id: QueryId,
-    field_type: FieldType,
-    query_type: QueryType,
-    ring: RingConfiguration<'a>,
+    pub query_id: QueryId,
+    pub field_type: FieldType,
+    pub query_type: QueryType,
+    pub ring: RingConfiguration<'a>,
 }
 
 impl<'a> QueryConfiguration<'a> {
