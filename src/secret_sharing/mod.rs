@@ -28,7 +28,6 @@ pub trait SecretSharing<F>:
     + Sized
     + Send
     + Sync
-    + 'static
 {
     const ZERO: Self;
 }

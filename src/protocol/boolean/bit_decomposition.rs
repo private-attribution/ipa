@@ -24,7 +24,7 @@ impl BitDecomposition {
     /// ## Errors
     /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
     /// back via the error response
-    pub async fn execute<'a, F, S, C>(
+    pub async fn execute<F, S, C>(
         ctx: C,
         record_id: RecordId,
         rbg: &RandomBitsGenerator<F, S, C>,

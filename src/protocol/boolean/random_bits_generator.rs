@@ -11,8 +11,10 @@ use std::{
 
 /// A struct that pre-generates and buffers random sharings of bits from the
 /// `SolvedBits` protocol. Any protocol who wish to use a random-bits can draw
-/// one by calling `take_one()`. Making a generator spawns a task that generates
-/// new values asynchronously up to the given capacity.
+/// one by calling `generate()`.
+///
+/// This object is safe to share with multiple threads.  It uses an atomic counter
+/// to manage concurrent accesses.
 #[derive(Debug)]
 pub struct RandomBitsGenerator<F, S, C> {
     ctx: C,
@@ -37,7 +39,8 @@ where
         }
     }
 
-    /// Takes the next `RandomBitsShare` that is available.
+    /// Takes the next `RandomBitsShare` that is available.  As the underlying
+    /// generator can fail, this will draw from that repeatedly until a value is produced.
     ///
     /// # Errors
     /// This method may fail for number of reasons. Errors include locking the
@@ -54,14 +57,6 @@ where
     }
 
     /// Get the number of aborts for this instance.
-    ///
-    /// # Safety
-    /// We pass a pin of this atomic into the task that runs.
-    /// That task runs until the receiver is dropped.  This object
-    /// holds a reference to that receiver.
-    ///
-    /// OK, sure, the loop might run 2<sup>32</sup> times,
-    /// but there is a panic for that.
     #[allow(dead_code)]
     pub fn aborts(&self) -> usize {
         self.abort_count.load(Ordering::Acquire)
