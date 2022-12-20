@@ -47,3 +47,15 @@ pub trait BooleanOps:
     + Sized
 {
 }
+
+impl<T> BooleanOps for T where
+    T: BitAnd<Output = Self>
+        + BitAndAssign
+        + BitOr<Output = Self>
+        + BitOrAssign
+        + BitXor<Output = Self>
+        + BitXorAssign
+        + Not<Output = Self>
+        + Sized
+{
+}
