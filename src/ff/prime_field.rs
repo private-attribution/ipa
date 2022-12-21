@@ -13,6 +13,7 @@ macro_rules! field_impl {
             const PRIME: Self::Integer = $prime;
             const ZERO: Self = $field(0);
             const ONE: Self = $field(1);
+            const TYPE_STR: &'static str = stringify!($field);
         }
 
         impl std::ops::Add for $field {
@@ -146,6 +147,16 @@ macro_rules! field_impl {
 
                 // panic will show the error while assert will just tell us that something went wrong
                 $field::ONE.serialize(&mut buf).unwrap();
+            }
+
+            #[test]
+            fn has_added_to_field_type_str_impl() {
+                assert_eq!(
+                    crate::ff::FieldTypeStr::size_in_bytes($field::TYPE_STR),
+                    Ok($field::SIZE_IN_BYTES),
+                    "Must add type {} to FieldTypeStr impl; See Field::TYPE_STR for instructions",
+                    stringify!($field)
+                );
             }
 
             proptest! {

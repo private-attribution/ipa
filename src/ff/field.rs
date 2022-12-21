@@ -1,3 +1,4 @@
+use crate::ff::{self, Error};
 use std::any::type_name;
 use std::fmt::Debug;
 use std::io;
@@ -42,6 +43,13 @@ pub trait Field:
     /// Derived from the size of the backing field, this constant indicates how much
     /// space is required to store this field value
     const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
+
+    /// str repr of the type of the [`Field`]; to be used with `size_from_type_str` to get the size
+    /// of a given [`Field`] from this value.
+    /// # Instruction For Authors
+    /// When creating a new [`Field`] type, modify the `impl FieldTypeStr for str` function below
+    /// this trait definition to use the newly created type
+    const TYPE_STR: &'static str;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
@@ -102,6 +110,35 @@ pub trait Field:
     }
 }
 
+pub trait FieldTypeStr {
+    /// Mapping between a [`Field`]'s `TYPE_STR` and its `SIZE_IN_BYTES`
+    /// # Errors
+    /// if self is not an existing [`'Field`]'s `TYPE_STR`
+    fn size_in_bytes(&self) -> Result<u32, Error>;
+}
+
+impl FieldTypeStr for str {
+    fn size_in_bytes(&self) -> Result<u32, Error> {
+        if self.eq_ignore_ascii_case(ff::Fp2::TYPE_STR) {
+            Ok(ff::Fp2::SIZE_IN_BYTES)
+        } else if self.eq_ignore_ascii_case(ff::Fp31::TYPE_STR) {
+            Ok(ff::Fp31::SIZE_IN_BYTES)
+        } else if self.eq_ignore_ascii_case(ff::Fp32BitPrime::TYPE_STR) {
+            Ok(ff::Fp32BitPrime::SIZE_IN_BYTES)
+        } else {
+            Err(Error::UnknownField {
+                type_str: self.to_string(),
+            })
+        }
+    }
+}
+
+impl FieldTypeStr for String {
+    fn size_in_bytes(&self) -> Result<u32, Error> {
+        self.as_str().size_in_bytes()
+    }
+}
+
 pub trait BinaryField:
     Field
     + BitAnd<Output = Self>
@@ -112,4 +149,18 @@ pub trait BinaryField:
     + BitXorAssign
     + Not<Output = Self>
 {
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn field_type_str_is_case_insensitive() {
+        let field_type = "fP32bItPrImE";
+        assert_eq!(
+            field_type.size_in_bytes(),
+            Ok(ff::Fp32BitPrime::SIZE_IN_BYTES)
+        );
+    }
 }

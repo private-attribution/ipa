@@ -3,8 +3,7 @@ use crate::helpers::Role;
 use crate::net::server::{LastSeenMessages, MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;
 use crate::protocol::{QueryId, Step};
-use async_trait::async_trait;
-use axum::extract::{self, FromRequest, Query, RequestParts};
+use axum::extract::{Path, Query, RequestParts};
 use axum::http::Request;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -12,23 +11,9 @@ use axum::Extension;
 use hyper::Body;
 use tokio::sync::mpsc;
 
-/// Used in the axum handler to extract the `query_id` and `step` from the path of the request
-pub struct Path(QueryId, Step);
-
-#[async_trait]
-impl<B: Send> FromRequest<B> for Path {
-    type Rejection = MpcHelperServerError;
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let extract::Path((query_id, step)) =
-            extract::Path::<(QueryId, Step)>::from_request(req).await?;
-        Ok(Path(query_id, step))
-    }
-}
-
 /// Used in the axum handler to extract the peer role from the query params of the request
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-pub struct RoleQueryParam {
+struct RoleQueryParam {
     role: Role,
 }
 
@@ -72,7 +57,7 @@ pub async fn obtain_permit_mw<B: Send>(
 ) -> Result<Response, MpcHelperServerError> {
     // extract everything from the request; middleware cannot have these in the function signature
     let mut req_parts = RequestParts::new(req);
-    let Path(query_id, step) = req_parts.extract().await?;
+    let Path::<(QueryId, Step)>((query_id, step)) = req_parts.extract().await?;
     // TODO: we shouldn't trust the client to tell us their role.
     //       revisit when we have figured out discovery/handshake
     let Query(RoleQueryParam { role }) = req_parts.extract().await?;
@@ -175,9 +160,8 @@ mod tests {
             step.as_ref(),
             role.as_ref(),
         );
-        #[allow(clippy::cast_possible_truncation)] // `body.len()` known to be less than u32
         let headers = RecordHeaders {
-            content_length: body.len() as u32,
+            content_length: u32::try_from(body.len()).unwrap(),
             offset,
         };
         let body = Body::from(Bytes::from_static(body));
