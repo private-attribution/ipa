@@ -5,7 +5,7 @@ pub use error::Error;
 use crate::{
     helpers::{
         transport::{
-            http::{discovery::peer, PrepareQueryBody, StepBody, StepHeaders},
+            http::{discovery::peer, PrepareQueryBody, StepHeaders},
             MulData, PrepareQueryData, StepData,
         },
         HelperIdentity,
@@ -154,11 +154,8 @@ impl MpcHelperClient {
             content_length: u32::try_from(data.message_chunks.1.len()).unwrap(),
             offset: data.offset,
         };
-        let body = StepBody {
-            roles_to_helpers: data.roles_to_helpers,
-            chunk: data.message_chunks.1,
-        };
-        let body = Body::from(serde_json::to_string(&body)?);
+
+        let body = Body::from(data.message_chunks.1);
         let req = headers.add_to(Request::post(uri)).body(body)?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await

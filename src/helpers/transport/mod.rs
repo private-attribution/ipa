@@ -176,7 +176,6 @@ impl TransportCommandData for MulData {
 #[derive(Debug)]
 pub struct StepData {
     pub query_id: QueryId,
-    pub roles_to_helpers: [HelperIdentity; 3],
     pub message_chunks: MessageChunks,
     // to be removed when we switch to the streaming implementation
     pub offset: u32,
@@ -184,15 +183,9 @@ pub struct StepData {
 
 impl StepData {
     #[must_use]
-    pub fn new(
-        query_id: QueryId,
-        roles_to_helpers: [HelperIdentity; 3],
-        message_chunks: MessageChunks,
-        offset: u32,
-    ) -> Self {
+    pub fn new(query_id: QueryId, message_chunks: MessageChunks, offset: u32) -> Self {
         Self {
             query_id,
-            roles_to_helpers,
             message_chunks,
             offset,
         }

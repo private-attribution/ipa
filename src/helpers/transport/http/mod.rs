@@ -99,9 +99,3 @@ impl<B: Send> FromRequest<B> for StepHeaders {
         }
     }
 }
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-struct StepBody {
-    roles_to_helpers: [HelperIdentity; 3],
-    chunk: Vec<u8>,
-}

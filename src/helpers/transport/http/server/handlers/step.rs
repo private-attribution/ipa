@@ -2,21 +2,18 @@ use crate::helpers::transport::http::StepHeaders;
 use crate::{
     helpers::{
         network::ChannelId,
-        transport::{
-            http::{server::Error, StepBody},
-            StepData, TransportCommand,
-        },
+        transport::{http::server::Error, StepData, TransportCommand},
         Role,
     },
     protocol::{QueryId, Step},
     sync::{Arc, Mutex},
 };
 use axum::{
-    extract::{Path, Query, RequestParts},
+    extract::{Path, Query},
     routing::post,
-    Extension, Json, Router,
+    Extension, Router,
 };
-use hyper::{Body, Request};
+use hyper::{body, Body, Request};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -73,14 +70,10 @@ async fn handler(
     };
     let permit = network_sender.reserve().await?;
 
-    let Json(StepBody {
-        roles_to_helpers,
-        chunk,
-    }) = RequestParts::new(req).extract().await?;
+    let chunk = body::to_bytes(req.into_body()).await?.to_vec();
 
     let data = StepData {
         query_id,
-        roles_to_helpers,
         message_chunks: (channel_id, chunk),
         offset: sh.offset,
     };
