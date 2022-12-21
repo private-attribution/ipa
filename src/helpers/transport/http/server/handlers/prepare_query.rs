@@ -1,43 +1,18 @@
 use crate::{
-    ff::FieldTypeStr,
-    helpers::{
-        transport::{http::server::Error, PrepareQueryData, TransportCommand},
-        HelperIdentity, Role,
+    helpers::transport::{
+        http::{server::Error, PrepareQueryBody, PrepareQueryParams},
+        PrepareQueryData, TransportCommand,
     },
     protocol::QueryId,
 };
-use async_trait::async_trait;
 use axum::{
-    extract::{FromRequest, Path, Query, RequestParts},
+    extract::{Path, RequestParts},
     http::Request,
     routing::post,
     Extension, Json, Router,
 };
 use hyper::Body;
-use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct PrepareQueryParams {
-    field_type: String,
-}
-
-#[async_trait]
-impl<B: Send> FromRequest<B> for PrepareQueryParams {
-    type Rejection = Error;
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Query(pqp) = req.extract::<Query<PrepareQueryParams>>().await?;
-        let _ = pqp.field_type.size_in_bytes()?; // confirm that `field_type` is valid
-        Ok(pqp)
-    }
-}
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct PrepareQueryBody {
-    helper_positions: [HelperIdentity; 3],
-    helpers_to_roles: HashMap<HelperIdentity, Role>,
-}
 
 async fn handler(
     query_id: Path<QueryId>,

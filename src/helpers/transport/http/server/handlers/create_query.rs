@@ -37,7 +37,7 @@ struct CreateQueryBody {
 }
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize))]
-struct Resp {
+struct CreateQueryResp {
     query_id: QueryId,
     target: HelperIdentity,
 }
@@ -49,7 +49,7 @@ async fn handler(
     transport_sender: Extension<mpsc::Sender<TransportCommand>>,
     params: CreateQueryParams,
     req: Request<Body>,
-) -> Result<Json<Resp>, Error> {
+) -> Result<Json<CreateQueryResp>, Error> {
     let permit = transport_sender.reserve().await?;
 
     let Json(CreateQueryBody { helper_positions }) = RequestParts::new(req).extract().await?;
@@ -62,7 +62,7 @@ async fn handler(
     permit.send(TransportCommand::CreateQuery(data));
     let (query_id, target) = rx.await?;
 
-    Ok(Json(Resp { query_id, target }))
+    Ok(Json(CreateQueryResp { query_id, target }))
 }
 
 pub fn router(transport_sender: mpsc::Sender<TransportCommand>) -> Router {

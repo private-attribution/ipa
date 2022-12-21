@@ -174,31 +174,35 @@ impl TransportCommandData for MulData {
 }
 
 #[derive(Debug)]
-pub struct NetworkEventData {
+pub struct StepData {
     pub query_id: QueryId,
     pub roles_to_helpers: [HelperIdentity; 3],
     pub message_chunks: MessageChunks,
+    // to be removed when we switch to the streaming implementation
+    pub offset: u32,
 }
 
-impl NetworkEventData {
+impl StepData {
     #[must_use]
     pub fn new(
         query_id: QueryId,
         roles_to_helpers: [HelperIdentity; 3],
         message_chunks: MessageChunks,
+        offset: u32,
     ) -> Self {
         Self {
             query_id,
             roles_to_helpers,
             message_chunks,
+            offset,
         }
     }
 }
 
-impl TransportCommandData for NetworkEventData {
+impl TransportCommandData for StepData {
     type RespData = ();
     fn name() -> &'static str {
-        "NetworkEvent"
+        "Step"
     }
     fn respond(self, _: QueryId, _: Self::RespData) -> Result<(), Error> {
         Ok(())
@@ -241,7 +245,7 @@ pub enum TransportCommand {
     // `Query` Commands
 
     // `MessageChunks` to be sent over the network
-    NetworkEvent(NetworkEventData),
+    Step(StepData),
 }
 
 /// Users of a [`Transport`] must subscribe to a specific type of command, and so must pass this

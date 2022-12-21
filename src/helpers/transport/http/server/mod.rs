@@ -4,7 +4,7 @@ mod handlers;
 pub use error::Error;
 
 use crate::{
-    helpers::transport::TransportCommand,
+    helpers::{network::ChannelId, transport::TransportCommand},
     protocol::QueryId,
     sync::{Arc, Mutex},
     task::JoinHandle,
@@ -31,6 +31,7 @@ pub enum BindTarget {
 pub struct MpcHelperServer {
     transport_sender: mpsc::Sender<TransportCommand>,
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
+    ongoing_offset: Arc<Mutex<HashMap<(QueryId, ChannelId), u32>>>,
 }
 
 impl MpcHelperServer {
@@ -41,6 +42,7 @@ impl MpcHelperServer {
         MpcHelperServer {
             transport_sender,
             ongoing_queries,
+            ongoing_offset: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -48,6 +50,7 @@ impl MpcHelperServer {
         handlers::router(
             self.transport_sender.clone(),
             Arc::clone(&self.ongoing_queries),
+            Arc::clone(&self.ongoing_offset),
         )
     }
 
