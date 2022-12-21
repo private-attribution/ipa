@@ -1,7 +1,7 @@
 use crate::{
     helpers::{
         buffers::fsv::FixedSizeByteVec,
-        network::{ChannelId, MessageEnvelope},
+        old_network::{ChannelId, MessageEnvelope},
         MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::RecordId,
@@ -171,7 +171,7 @@ impl From<&ByteBuf> for Range<RecordId> {
 mod tests {
     use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
     use crate::helpers::buffers::SendBuffer;
-    use crate::helpers::network::{ChannelId, MessageEnvelope};
+    use crate::helpers::old_network::{ChannelId, MessageEnvelope};
     use crate::helpers::Role;
     use crate::protocol::{RecordId, Step};
 

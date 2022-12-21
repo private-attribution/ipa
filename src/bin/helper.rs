@@ -4,7 +4,7 @@ use rand::thread_rng;
 use raw_ipa::{
     cli::Verbosity,
     ff::Fp31,
-    helpers::{http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
+    helpers::{old_http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
     net::discovery,
     protocol::{QueryId, Step},
 };

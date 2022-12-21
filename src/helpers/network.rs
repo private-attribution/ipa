@@ -1,101 +1,80 @@
+#![allow(dead_code)] // will use these soon
+
 use crate::{
-    helpers::{error::Error, MessagePayload, Role},
-    protocol::{RecordId, Step},
+    helpers::{
+        transport::{NetworkEventData, SubscriptionType, Transport, TransportCommand},
+        Error, HelperIdentity, Role,
+    },
+    protocol::{QueryId, Step},
 };
-use async_trait::async_trait;
-use futures::{ready, Stream};
-use pin_project::pin_project;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::sync::mpsc;
-use tokio_util::sync::{PollSendError, PollSender};
+use futures::{Stream, StreamExt};
+use std::collections::HashMap;
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId {
     pub role: Role,
     pub step: Step,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct MessageEnvelope {
-    pub record_id: RecordId,
-    pub payload: MessagePayload,
-}
-
 pub type MessageChunks = (ChannelId, Vec<u8>);
 
-/// Network interface for components that require communication.
-#[async_trait]
-pub trait Network: Sync {
-    /// Type of the channel that is used to send messages to other helpers
-    type Sink: futures::Sink<MessageChunks, Error = Error> + Send + Unpin + 'static;
-    type MessageStream: Stream<Item = MessageChunks> + Send + Unpin + 'static;
-
-    /// Returns a sink that accepts data to be sent to other helper parties.
-    fn sink(&self) -> Self::Sink;
-
-    /// Returns a stream to receive messages that have arrived from other helpers. Note that
-    /// some implementations may panic if this method is called more than once.
-    fn recv_stream(&self) -> Self::MessageStream;
+/// Given any implementation of [`Transport`], a `Network` is able to send and receive
+/// [`MessageChunks`] for a specific query id. The [`Transport`] will receive `NetworkEvents`
+/// containing the `MessageChunks`
+pub struct Network<T> {
+    transport: T,
+    query_id: QueryId,
+    roles_to_helpers: HashMap<Role, HelperIdentity>,
 }
 
-impl ChannelId {
-    #[must_use]
-    pub fn new(role: Role, step: Step) -> Self {
-        Self { role, step }
-    }
-}
-
-impl Debug for ChannelId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[{:?},{:?}]", self.role, self.step)
-    }
-}
-
-/// Wrapper around a [`PollSender`] to modify the error message to match what the [`NetworkSink`]
-/// requires. The only error that [`PollSender`] will generate is "channel closed", and thus is the
-/// only error message forwarded from this [`NetworkSink`].
-#[pin_project]
-pub struct NetworkSink<T> {
-    #[pin]
-    inner: PollSender<T>,
-}
-
-impl<T: Send + 'static> NetworkSink<T> {
-    #[must_use]
-    pub fn new(sender: mpsc::Sender<T>) -> Self {
+impl<T: Transport> Network<T> {
+    pub fn new(
+        transport: T,
+        query_id: QueryId,
+        roles_to_helpers: HashMap<Role, HelperIdentity>,
+    ) -> Self {
         Self {
-            inner: PollSender::new(sender),
+            transport,
+            query_id,
+            roles_to_helpers,
         }
     }
-}
 
-impl<T: Send + 'static> futures::Sink<T> for NetworkSink<T>
-where
-    Error: From<PollSendError<T>>,
-{
-    type Error = Error;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().inner.poll_ready(cx)?);
-        Poll::Ready(Ok(()))
+    /// sends a [`NetworkEvent`] containing [`MessageChunks`] on the underlying [`Transport`]
+    pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
+        let role = message_chunks.0.role;
+        let destination = self.roles_to_helpers.get(&role).unwrap();
+        self.transport
+            .send(
+                destination,
+                TransportCommand::NetworkEvent(NetworkEventData {
+                    query_id: self.query_id,
+                    roles_to_helpers: self.roles_to_helpers.clone(),
+                    message_chunks,
+                }),
+            )
+            .await
+            .map_err(Error::from)
     }
 
-    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
-        self.project().inner.start_send(item)?;
-        Ok(())
-    }
+    /// returns a [`Stream`] of [`MessageChunks`]s from the underlying [`Transport`]
+    /// # Panics
+    /// if called more than once during the execution of a query.
+    pub fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
+        let query_id = self.query_id;
+        let query_command_stream = self.transport.subscribe(SubscriptionType::Query(query_id));
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().inner.poll_flush(cx)?);
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().inner.poll_close(cx))?;
-        Poll::Ready(Ok(()))
+        #[allow(unreachable_patterns)] // there will be more commands in the future
+        query_command_stream.map(move |command| match command {
+            TransportCommand::NetworkEvent(NetworkEventData { message_chunks, .. }) => {
+                message_chunks
+            }
+            other_command => panic!(
+                "received unexpected command {other_command:?} for query id {}",
+                query_id.as_ref()
+            ),
+        })
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     helpers::{
-        network::{MessageChunks, Network, NetworkSink},
+        old_network::{MessageChunks, Network, NetworkSink},
         Role,
     },
     net::{discovery::peer, HttpSendMessagesArgs, MpcHelperClient},
@@ -124,7 +124,7 @@ mod tests {
     use super::*;
     use crate::test_fixture::net::localhost_config;
     use crate::{
-        helpers::{network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{old_network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{discovery::PeerDiscovery, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::Step,
     };
