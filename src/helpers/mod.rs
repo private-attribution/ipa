@@ -28,32 +28,15 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(into = "String", try_from = "&str")
+    serde(transparent)
 )]
 pub struct HelperIdentity {
+    #[cfg_attr(feature = "enable-serde", serde(with = "crate::uri"))]
     uri: hyper::Uri,
 }
 
-impl ToString for HelperIdentity {
-    fn to_string(&self) -> String {
-        self.uri.to_string()
-    }
-}
-
-impl From<HelperIdentity> for String {
-    fn from(id: HelperIdentity) -> Self {
-        id.to_string()
-    }
-}
-
-impl TryFrom<&str> for HelperIdentity {
-    type Error = Error;
-
-    fn try_from(uri_str: &str) -> std::result::Result<Self, Self::Error> {
-        Ok(uri_str.parse::<hyper::Uri>()?.into())
-    }
-}
-
+/// instantiate `HelperIdentity` directly from `Uri`s for testing purposes.
+#[cfg(test)]
 impl From<hyper::Uri> for HelperIdentity {
     fn from(uri: hyper::Uri) -> Self {
         Self { uri }

@@ -39,7 +39,7 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
-    #[error("Encountered unknown identity {}", .0.to_string())]
+    #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
     #[error("identity had invalid format: {0}")]
     InvalidIdentity(#[from] hyper::http::uri::InvalidUri),

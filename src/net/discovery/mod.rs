@@ -29,18 +29,9 @@ pub mod peer {
     #[derive(Clone, Debug)]
     #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
     pub struct Config {
-        #[cfg_attr(feature = "enable-serde", serde(deserialize_with = "uri_from_str"))]
+        #[cfg_attr(feature = "enable-serde", serde(with = "crate::uri"))]
         pub origin: Uri,
         pub tls: HttpConfig,
-    }
-
-    #[cfg(feature = "enable-serde")]
-    fn uri_from_str<'de, D>(deserializer: D) -> Result<Uri, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: String = Deserialize::deserialize(deserializer)?;
-        s.parse().map_err(D::Error::custom)
     }
 
     #[cfg(feature = "enable-serde")]
