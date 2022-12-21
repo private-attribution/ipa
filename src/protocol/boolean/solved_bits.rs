@@ -2,7 +2,10 @@ use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::{
+    DowngradeMalicious, MaliciousReplicated, SecretSharing, UnauthorizedDowngradeWrapper,
+};
+use async_trait::async_trait;
 use std::marker::PhantomData;
 
 #[derive(Debug)]
@@ -14,6 +17,31 @@ where
     pub b_b: Vec<S>,
     pub b_p: S,
     _marker: PhantomData<F>,
+}
+
+#[async_trait]
+impl<F> DowngradeMalicious for RandomBitsShare<F, MaliciousReplicated<F>>
+where
+    F: Field,
+{
+    type Target = RandomBitsShare<F, crate::secret_sharing::Replicated<F>>;
+
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+
+        // Note that this clones the values rather than moving them.
+        // This code is only used in test code, so that's probably OK.
+        assert!(cfg!(test), "This code isn't ideal outside of tests");
+        UnauthorizedDowngradeWrapper::new(Self::Target {
+            b_b: self
+                .b_b
+                .iter()
+                .map(|v| v.x().access_without_downgrade().clone())
+                .collect::<Vec<_>>(),
+            b_p: self.b_p.x().access_without_downgrade().clone(),
+            _marker: PhantomData::default(),
+        })
+    }
 }
 
 /// This protocol tries to generate a sequence of uniformly random sharing of
@@ -67,9 +95,10 @@ where
     //
     // if success, then compute `[b_p]` by `Σ 2^i * [b_i]_B`
     #[allow(clippy::cast_possible_truncation)]
-    let b_p: S = b_b.iter().enumerate().fold(S::ZERO, |acc, (i, x)| {
-        acc + &(x.clone() * F::from(2_u128.pow(i as u32)))
-    });
+    let b_p: S = b_b
+        .iter()
+        .enumerate()
+        .fold(S::ZERO, |acc, (i, x)| acc + &(x.clone() * F::from(1 << i)));
 
     Ok(Some(RandomBitsShare {
         b_b,
