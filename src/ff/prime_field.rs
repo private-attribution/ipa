@@ -2,7 +2,7 @@ use super::{field::BinaryField, Field};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
-    ( $field:ident, $int:ty, $prime:expr, $type_str:expr ) => {
+    ( $field:ident, $int:ty, $prime:expr ) => {
         use super::*;
 
         #[derive(Clone, Copy, PartialEq)]
@@ -13,7 +13,7 @@ macro_rules! field_impl {
             const PRIME: Self::Integer = $prime;
             const ZERO: Self = $field(0);
             const ONE: Self = $field(1);
-            const TYPE_STR: &'static str = $type_str;
+            const TYPE_STR: &'static str = stringify!($field);
         }
 
         impl std::ops::Add for $field {
@@ -149,6 +149,16 @@ macro_rules! field_impl {
                 $field::ONE.serialize(&mut buf).unwrap();
             }
 
+            #[test]
+            fn has_added_to_field_type_str_impl() {
+                assert_eq!(
+                    crate::ff::FieldTypeStr::size_in_bytes($field::TYPE_STR),
+                    Ok($field::SIZE_IN_BYTES),
+                    "Must add type {} to FieldTypeStr impl; See Field::TYPE_STR for instructions",
+                    stringify!($field)
+                );
+            }
+
             proptest! {
 
                 #[test]
@@ -183,7 +193,7 @@ macro_rules! field_impl {
 }
 
 mod fp2 {
-    field_impl! { Fp2, u8, 2 , "fp2" }
+    field_impl! { Fp2, u8, 2 }
 
     impl BinaryField for Fp2 {}
 
@@ -293,7 +303,7 @@ mod fp2 {
 }
 
 mod fp31 {
-    field_impl! { Fp31, u8, 31, "fp31" }
+    field_impl! { Fp31, u8, 31 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {
@@ -316,7 +326,7 @@ mod fp31 {
 }
 
 mod fp32bit {
-    field_impl! { Fp32BitPrime, u32, 4_294_967_291, "fp32_bit_prime" }
+    field_impl! { Fp32BitPrime, u32, 4_294_967_291 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {

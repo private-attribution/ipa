@@ -47,8 +47,8 @@ pub trait Field:
     /// str repr of the type of the [`Field`]; to be used with `size_from_type_str` to get the size
     /// of a given [`Field`] from this value.
     /// # Instruction For Authors
-    /// When creating a new [`Field`] type, modify the `size_from_type_str` function below this
-    /// trait definition to match on the newly created type
+    /// When creating a new [`Field`] type, modify the `impl FieldTypeStr for str` function below
+    /// this trait definition to use the newly created type
     const TYPE_STR: &'static str;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
@@ -117,15 +117,18 @@ pub trait FieldTypeStr {
     fn size_in_bytes(&self) -> Result<u32, Error>;
 }
 
-impl FieldTypeStr for &str {
+impl FieldTypeStr for str {
     fn size_in_bytes(&self) -> Result<u32, Error> {
-        match *self {
-            ff::Fp2::TYPE_STR => Ok(ff::Fp2::SIZE_IN_BYTES),
-            ff::Fp31::TYPE_STR => Ok(ff::Fp31::SIZE_IN_BYTES),
-            ff::Fp32BitPrime::TYPE_STR => Ok(ff::Fp32BitPrime::SIZE_IN_BYTES),
-            other => Err(Error::UnknownField {
-                type_str: other.to_owned(),
-            }),
+        if self.eq_ignore_ascii_case(ff::Fp2::TYPE_STR) {
+            Ok(ff::Fp2::SIZE_IN_BYTES)
+        } else if self.eq_ignore_ascii_case(ff::Fp31::TYPE_STR) {
+            Ok(ff::Fp31::SIZE_IN_BYTES)
+        } else if self.eq_ignore_ascii_case(ff::Fp32BitPrime::TYPE_STR) {
+            Ok(ff::Fp32BitPrime::SIZE_IN_BYTES)
+        } else {
+            Err(Error::UnknownField {
+                type_str: self.to_string(),
+            })
         }
     }
 }
@@ -146,4 +149,18 @@ pub trait BinaryField:
     + BitXorAssign
     + Not<Output = Self>
 {
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn field_type_str_is_case_insensitive() {
+        let field_type = "fP32bItPrImE";
+        assert_eq!(
+            field_type.size_in_bytes(),
+            Ok(ff::Fp32BitPrime::SIZE_IN_BYTES)
+        );
+    }
 }
