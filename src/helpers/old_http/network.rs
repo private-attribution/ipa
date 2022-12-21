@@ -1,6 +1,7 @@
 use crate::{
     helpers::{
-        old_network::{MessageChunks, Network, NetworkSink},
+        network::MessageChunks,
+        old_network::{Network, NetworkSink},
         Role,
     },
     net::{discovery::peer, HttpSendMessagesArgs, MpcHelperClient},
@@ -122,11 +123,11 @@ impl Network for HttpNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_fixture::net::localhost_config;
     use crate::{
-        helpers::{old_network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{discovery::PeerDiscovery, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::Step,
+        test_fixture::net::localhost_config,
     };
     use futures::{Stream, StreamExt};
     use futures_util::SinkExt;

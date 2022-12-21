@@ -1,31 +1,22 @@
+use crate::helpers::network::MessageChunks;
 use crate::{
-    helpers::{error::Error, MessagePayload, Role},
-    protocol::{RecordId, Step},
+    helpers::{error::Error, MessagePayload},
+    protocol::RecordId,
 };
 use async_trait::async_trait;
 use futures::{ready, Stream};
 use pin_project::pin_project;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio_util::sync::{PollSendError, PollSender};
-
-/// Combination of helper role and step that uniquely identifies a single channel of communication
-/// between two helpers.
-#[derive(Clone, Eq, PartialEq, Hash)]
-pub struct ChannelId {
-    pub role: Role,
-    pub step: Step,
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
     pub record_id: RecordId,
     pub payload: MessagePayload,
 }
-
-pub type MessageChunks = (ChannelId, Vec<u8>);
 
 /// Network interface for components that require communication.
 #[async_trait]
@@ -40,19 +31,6 @@ pub trait Network: Sync {
     /// Returns a stream to receive messages that have arrived from other helpers. Note that
     /// some implementations may panic if this method is called more than once.
     fn recv_stream(&self) -> Self::MessageStream;
-}
-
-impl ChannelId {
-    #[must_use]
-    pub fn new(role: Role, step: Step) -> Self {
-        Self { role, step }
-    }
-}
-
-impl Debug for ChannelId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "channel[{:?},{:?}]", self.role, self.step)
-    }
 }
 
 /// Wrapper around a [`PollSender`] to modify the error message to match what the [`NetworkSink`]

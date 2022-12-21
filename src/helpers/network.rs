@@ -9,13 +9,27 @@ use crate::{
 };
 use futures::{Stream, StreamExt};
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct ChannelId {
     pub role: Role,
     pub step: Step,
+}
+
+impl ChannelId {
+    #[must_use]
+    pub fn new(role: Role, step: Step) -> Self {
+        Self { role, step }
+    }
+}
+
+impl Debug for ChannelId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "channel[{:?},{:?}]", self.role, self.step)
+    }
 }
 
 pub type MessageChunks = (ChannelId, Vec<u8>);
@@ -43,6 +57,10 @@ impl<T: Transport> Network<T> {
     }
 
     /// sends a [`NetworkEvent`] containing [`MessageChunks`] on the underlying [`Transport`]
+    /// # Errors
+    /// if `message_chunks` fail to be delivered
+    /// # Panics
+    /// if `roles_to_helpers` does not have all 3 roles
     pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
         let role = message_chunks.0.role;
         let destination = self.roles_to_helpers.get(&role).unwrap();

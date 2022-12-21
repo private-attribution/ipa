@@ -2,7 +2,7 @@ use crate::{
     error::BoxError,
     helpers::{
         messaging::{ReceiveRequest, SendRequest},
-        old_network::{ChannelId, MessageChunks},
+        network::{ChannelId, MessageChunks},
         transport, HelperIdentity, Role,
     },
     net::MpcHelperServerError,
@@ -39,8 +39,10 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
-    #[error("Encountered unknown identity {}", .0.as_ref())]
+    #[error("Encountered unknown identity {}", .0.to_string())]
     UnknownIdentity(HelperIdentity),
+    #[error("identity had invalid format: {0}")]
+    InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to send command on the transport: {0}")]
     TransportError(#[from] transport::Error),
     #[error("server encountered an error: {0}")]

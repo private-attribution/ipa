@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::{
-    helpers::{old_network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
+    helpers::{network::ChannelId, MESSAGE_PAYLOAD_SIZE_BYTES},
     sync::{Arc, Mutex},
 };
 use async_trait::async_trait;
