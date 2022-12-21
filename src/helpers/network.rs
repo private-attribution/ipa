@@ -74,9 +74,9 @@ impl<T: Transport> Network<T> {
     /// returns a [`Stream`] of [`MessageChunks`]s from the underlying [`Transport`]
     /// # Panics
     /// if called more than once during the execution of a query.
-    pub fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
+    pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
         let query_id = self.query_id;
-        let query_command_stream = self.transport.subscribe(SubscriptionType::Query(query_id));
+        let query_command_stream = self.transport.subscribe(SubscriptionType::Query(query_id)).await;
 
         #[allow(unreachable_patterns)] // there will be more commands in the future
         query_command_stream.map(move |command| match command {

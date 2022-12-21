@@ -169,7 +169,7 @@ impl Gateway {
 
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
-            let mut message_stream = network.recv_stream();
+            let mut message_stream = network.recv_stream().await;
 
             let sleep = ::tokio::time::sleep(INTERVAL);
             ::tokio::pin!(sleep);

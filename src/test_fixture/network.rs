@@ -200,7 +200,7 @@ impl Network for Arc<InMemoryEndpoint> {
 impl Transport for Arc<InMemoryEndpoint> {
     type CommandStream = ReceiverStream<TransportCommand>;
 
-    fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
+    async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
         todo!()
         // match subscription_type {
         //     SubscriptionType::Administration => {

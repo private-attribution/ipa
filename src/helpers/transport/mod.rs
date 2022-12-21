@@ -18,6 +18,7 @@ pub trait TransportCommandData {
 #[derive(Debug)]
 pub struct NetworkEventData {
     pub query_id: QueryId,
+    // TODO: wrong, there should only be origin field, step name and u8
     pub message_chunks: MessageChunks,
 }
 
@@ -43,7 +44,6 @@ impl TransportCommandData for NetworkEventData {
     }
 }
 
-/// TODO: to struct
 #[derive(Debug)]
 pub enum TransportCommand {
     // `Administration` Commands
@@ -73,7 +73,7 @@ pub trait Transport: Send + Sync + 'static {
     /// [`SubscriptionType`]. There should be only 1 subscriber per type.
     /// # Panics
     /// May panic if attempt to subscribe to the same [`SubscriptionType`] twice
-    fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream;
+    async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream;
 
     /// To be called when an entity wants to send commands to the `Transport`.
     async fn send(
