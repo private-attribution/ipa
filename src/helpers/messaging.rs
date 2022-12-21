@@ -14,7 +14,7 @@ use crate::telemetry::labels::STEP;
 use crate::{
     helpers::buffers::ReceiveBuffer,
     helpers::error::Error,
-    helpers::network::{ChannelId, MessageEnvelope, Network},
+    helpers::old_network::{ChannelId, MessageEnvelope, Network},
     helpers::Role,
     protocol::{RecordId, Step},
 };

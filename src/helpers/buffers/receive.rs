@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
+    helpers::{old_network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::RecordId,
 };
 use std::collections::hash_map::Entry;
