@@ -27,7 +27,7 @@ impl BitDecomposition {
     pub async fn execute<F, S, C>(
         ctx: C,
         record_id: RecordId,
-        rbg: RandomBitsGenerator<F, S, C>,
+        rbg: &RandomBitsGenerator<F, S, C>,
         a_p: &S,
     ) -> Result<Vec<S>, Error>
     where
@@ -38,7 +38,7 @@ impl BitDecomposition {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = rbg.take_one().await?;
+        let r = rbg.generate().await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
@@ -136,7 +136,7 @@ mod tests {
             .semi_honest(a, |ctx, a_p| async move {
                 let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
 
-                BitDecomposition::execute(ctx, RecordId::from(0), rbg, &a_p)
+                BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()
             })
