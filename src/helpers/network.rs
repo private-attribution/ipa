@@ -8,7 +8,6 @@ use crate::{
     protocol::{QueryId, Step},
 };
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
@@ -40,15 +39,11 @@ pub type MessageChunks = (ChannelId, Vec<u8>);
 pub struct Network<T> {
     transport: T,
     query_id: QueryId,
-    roles_to_helpers: HashMap<Role, HelperIdentity>,
+    roles_to_helpers: [HelperIdentity; 3],
 }
 
 impl<T: Transport> Network<T> {
-    pub fn new(
-        transport: T,
-        query_id: QueryId,
-        roles_to_helpers: HashMap<Role, HelperIdentity>,
-    ) -> Self {
+    pub fn new(transport: T, query_id: QueryId, roles_to_helpers: [HelperIdentity; 3]) -> Self {
         Self {
             transport,
             query_id,
@@ -63,7 +58,7 @@ impl<T: Transport> Network<T> {
     /// if `roles_to_helpers` does not have all 3 roles
     pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
         let role = message_chunks.0.role;
-        let destination = self.roles_to_helpers.get(&role).unwrap();
+        let destination = &self.roles_to_helpers[role];
         self.transport
             .send(
                 destination,

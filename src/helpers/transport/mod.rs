@@ -3,12 +3,11 @@ mod error;
 pub use error::Error;
 
 use crate::{
-    helpers::{network::MessageChunks, HelperIdentity, Role},
+    helpers::{network::MessageChunks, HelperIdentity},
     protocol::QueryId,
 };
 use async_trait::async_trait;
 use futures::Stream;
-use std::collections::HashMap;
 
 pub trait TransportCommandData {
     type RespData;
@@ -19,14 +18,14 @@ pub trait TransportCommandData {
 #[derive(Debug)]
 pub struct NetworkEventData {
     pub query_id: QueryId,
-    pub roles_to_helpers: HashMap<Role, HelperIdentity>,
+    pub roles_to_helpers: [HelperIdentity; 3],
     pub message_chunks: MessageChunks,
 }
 
 impl NetworkEventData {
     pub fn new(
         query_id: QueryId,
-        roles_to_helpers: HashMap<Role, HelperIdentity>,
+        roles_to_helpers: [HelperIdentity; 3],
         message_chunks: MessageChunks,
     ) -> Self {
         Self {
