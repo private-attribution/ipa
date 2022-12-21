@@ -55,6 +55,7 @@ pub struct ByteArrStream {
 impl ByteArrStream {
     /// # Panics
     /// if `size_in_bytes` is 0
+    #[must_use]
     pub fn new(body: BodyStream, size_in_bytes: u32) -> Self {
         assert_ne!(size_in_bytes, 0);
         Self {

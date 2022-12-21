@@ -1,3 +1,6 @@
+#![allow(dead_code)] // TODO: remove
+#![allow(clippy::mutable_key_type)] // `HelperIdentity` cannot be modified
+
 pub mod http;
 
 mod error;
@@ -138,22 +141,15 @@ impl TransportCommandData for StartMulData {
 pub struct MulData {
     pub query_id: QueryId,
     pub field_type: String,
-    pub destination: HelperIdentity,
-    pub data: ByteArrStream,
+    pub data_stream: ByteArrStream,
 }
 
 impl MulData {
-    pub fn new(
-        query_id: QueryId,
-        field_type: String,
-        destination: HelperIdentity,
-        data: ByteArrStream,
-    ) -> Self {
+    pub fn new(query_id: QueryId, field_type: String, data_stream: ByteArrStream) -> Self {
         Self {
             query_id,
             field_type,
-            destination,
-            data,
+            data_stream,
         }
     }
 }

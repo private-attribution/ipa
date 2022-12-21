@@ -1,7 +1,8 @@
-use crate::error::BoxError;
-use crate::protocol::QueryId;
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use crate::{error::BoxError, protocol::QueryId};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use tokio::sync::mpsc;
 
 #[derive(thiserror::Error, Debug)]
@@ -25,15 +26,15 @@ pub enum Error {
     #[error(transparent)]
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
     #[error(transparent)]
-    HyperError(#[from] hyper::Error),
+    HyperPassthrough(#[from] hyper::Error),
     #[error(transparent)]
-    AxumError(#[from] axum::Error),
+    AxumPassthrough(#[from] axum::Error),
     #[error("parse error: {0}")]
-    SerdeError(#[from] serde_json::Error),
+    SerdePassthrough(#[from] serde_json::Error),
     #[error("could not forward messages: {0}")]
-    SendError(BoxError),
+    SendFailed(BoxError),
     #[error("failed to receive response")]
-    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
+    RecvFailed(#[from] tokio::sync::oneshot::error::RecvError),
 }
 
 impl Error {
@@ -52,7 +53,7 @@ impl Error {
     /// method to create an `Error::SendError`
     #[must_use]
     pub fn sender_already_exists(query_id: QueryId) -> Self {
-        Self::SendError(
+        Self::SendFailed(
             format!(
                 "tried to associated sender with query_id: {}, but sender already exists",
                 query_id.as_ref()
@@ -103,7 +104,7 @@ impl From<axum::extract::rejection::PathRejection> for Error {
 /// first call `to_string` so as to drop `T` from the `Error`
 impl<T> From<mpsc::error::SendError<T>> for Error {
     fn from(err: mpsc::error::SendError<T>) -> Self {
-        Self::SendError(err.to_string().into())
+        Self::SendFailed(err.to_string().into())
     }
 }
 
@@ -111,7 +112,7 @@ impl<T> From<mpsc::error::SendError<T>> for Error {
 /// first call `to_string` to as to drop `T` from the `Error`
 impl<T> From<tokio_util::sync::PollSendError<T>> for Error {
     fn from(err: tokio_util::sync::PollSendError<T>) -> Self {
-        Self::SendError(err.to_string().into())
+        Self::SendFailed(err.to_string().into())
     }
 }
 
@@ -122,17 +123,17 @@ impl IntoResponse for Error {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
 
-            Self::SerdeError(_)
+            Self::SerdePassthrough(_)
             | Self::InvalidHeader(_)
             | Self::WrongBodyLen { .. }
-            | Self::AxumError(_)
+            | Self::AxumPassthrough(_)
             | Self::InvalidJsonBody(_) => StatusCode::BAD_REQUEST,
 
-            Self::HyperError(_)
-            | Self::SendError(_)
+            Self::HyperPassthrough(_)
+            | Self::SendFailed(_)
             | Self::BodyAlreadyExtracted(_)
             | Self::MissingExtension(_)
-            | Self::RecvError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | Self::RecvFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         (status_code, self.to_string()).into_response()

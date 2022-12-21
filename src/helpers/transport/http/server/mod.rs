@@ -5,6 +5,8 @@ pub use error::Error;
 
 use crate::{
     helpers::transport::TransportCommand,
+    protocol::QueryId,
+    sync::{Arc, Mutex},
     task::JoinHandle,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
@@ -12,6 +14,7 @@ use axum::Router;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request};
 use metrics::increment_counter;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
@@ -26,18 +29,26 @@ pub enum BindTarget {
 
 /// Contains all of the state needed to start the MPC server.
 pub struct MpcHelperServer {
-    // message_send_map: MessageSendMap,
-    // last_seen_messages: LastSeenMessages,
-    admin_sender: mpsc::Sender<TransportCommand>,
+    transport_sender: mpsc::Sender<TransportCommand>,
+    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
 }
 
 impl MpcHelperServer {
-    pub fn new(admin_sender: mpsc::Sender<TransportCommand>) -> Self {
-        MpcHelperServer { admin_sender }
+    pub fn new(
+        transport_sender: mpsc::Sender<TransportCommand>,
+        ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
+    ) -> Self {
+        MpcHelperServer {
+            transport_sender,
+            ongoing_queries,
+        }
     }
 
     fn router(&self) -> Router {
-        handlers::router(self.admin_sender.clone())
+        handlers::router(
+            self.transport_sender.clone(),
+            Arc::clone(&self.ongoing_queries),
+        )
     }
 
     /// Starts a new instance of MPC helper and binds it to a given target.

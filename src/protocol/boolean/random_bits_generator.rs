@@ -4,11 +4,10 @@ use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::secret_sharing::SecretSharing;
+use crate::sync::{Arc, Mutex};
 use futures::{future::try_join_all, TryFutureExt};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// An implementation of simple ring buffer that stores `u8::MAX` items.
 ///

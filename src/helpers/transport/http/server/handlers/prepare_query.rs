@@ -27,9 +27,9 @@ impl<B: Send> FromRequest<B> for PrepareQueryParams {
     type Rejection = Error;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Query(pqf) = req.extract::<Query<PrepareQueryParams>>().await?;
-        let _ = pqf.field_type.size_in_bytes()?; // confirm that `field_type` is valid
-        Ok(pqf)
+        let Query(pqp) = req.extract::<Query<PrepareQueryParams>>().await?;
+        let _ = pqp.field_type.size_in_bytes()?; // confirm that `field_type` is valid
+        Ok(pqp)
     }
 }
 
