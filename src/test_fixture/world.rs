@@ -25,12 +25,14 @@ use std::io::stdout;
 use std::mem::ManuallyDrop;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
+use std::ops::Deref;
 
-use crate::protocol::Substep;
+use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
 use tracing::Level;
+use crate::helpers::network::Network;
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},
@@ -109,7 +111,7 @@ impl TestWorld {
         let gateways = network
             .endpoints
             .iter()
-            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
+            .map(|endpoint| Gateway::new(endpoint.role, Network::new(Arc::clone(endpoint), QueryId, network.mapping()), config.gateway_config))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();

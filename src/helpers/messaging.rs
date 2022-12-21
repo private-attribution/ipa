@@ -11,7 +11,6 @@ use crate::{
     helpers::{
         buffers::{ReceiveBuffer, SendBuffer, SendBufferConfig},
         network::ChannelId,
-        old_network::{MessageEnvelope, Network},
         Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::{RecordId, Step},
@@ -29,6 +28,9 @@ use ::tokio::sync::{mpsc, oneshot};
 use ::tokio::time::Instant;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use crate::helpers::network::Network;
+use crate::helpers::old_network::MessageEnvelope;
+use crate::helpers::transport::Transport;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -158,17 +160,16 @@ pub struct GatewayConfig {
 }
 
 impl Gateway {
-    pub fn new<N: Network>(role: Role, network: &N, config: GatewayConfig) -> Self {
+    pub fn new<T: Transport>(role: Role, network: Network<T>, config: GatewayConfig) -> Self {
         let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
         let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(config.send_outstanding);
-        let mut message_stream = network.recv_stream();
-        let mut network_sink = network.sink();
 
         let control_handle = tokio::spawn(async move {
             const INTERVAL: Duration = Duration::from_secs(3);
 
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
+            let mut message_stream = network.recv_stream();
 
             let sleep = ::tokio::time::sleep(INTERVAL);
             ::tokio::pin!(sleep);
@@ -189,7 +190,7 @@ impl Gateway {
                     }
                     Some(send_req) = send_rx.recv() => {
                         tracing::trace!("new SendRequest({:?})", send_req);
-                        send_message::<N>(&mut network_sink, &mut send_buf, send_req).await;
+                        send_message(&network, &mut send_buf, send_req).await;
                     }
                     _ = &mut sleep => {
                         #[cfg(debug_assertions)]
@@ -285,13 +286,13 @@ impl Debug for ReceiveRequest {
     }
 }
 
-async fn send_message<N: Network>(sink: &mut N::Sink, buf: &mut SendBuffer, req: SendRequest) {
+async fn send_message<T: Transport>(network: &Network<T>, buf: &mut SendBuffer, req: SendRequest) {
     let (channel_id, msg) = req;
     metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
     match buf.push(&channel_id, &msg) {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            sink.send((channel_id, buf_to_send))
+            network.send((channel_id, buf_to_send))
                 .await
                 .expect("Failed to send data to the network");
         }

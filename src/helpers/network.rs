@@ -64,7 +64,6 @@ impl<T: Transport> Network<T> {
                 destination,
                 TransportCommand::NetworkEvent(NetworkEventData {
                     query_id: self.query_id,
-                    roles_to_helpers: self.roles_to_helpers.clone(),
                     message_chunks,
                 }),
             )

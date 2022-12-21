@@ -11,6 +11,7 @@ use crate::{
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio_util::sync::PollSendError;
+use crate::helpers::TransportError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -44,7 +45,7 @@ pub enum Error {
     #[error("identity had invalid format: {0}")]
     InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to send command on the transport: {0}")]
-    TransportError(#[from] transport::Error),
+    TransportError(#[from] TransportError),
     #[error("server encountered an error: {0}")]
     ServerError(#[from] MpcHelperServerError),
 }

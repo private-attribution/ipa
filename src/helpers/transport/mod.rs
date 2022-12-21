@@ -1,6 +1,6 @@
 mod error;
 
-pub use error::Error;
+pub use error::Error as TransportError;
 
 use crate::{
     helpers::{network::MessageChunks, HelperIdentity},
@@ -12,25 +12,22 @@ use futures::Stream;
 pub trait TransportCommandData {
     type RespData;
     fn name() -> &'static str;
-    fn respond(self, query_id: QueryId, data: Self::RespData) -> Result<(), Error>;
+    fn respond(self, query_id: QueryId, data: Self::RespData) -> Result<(), TransportError>;
 }
 
 #[derive(Debug)]
 pub struct NetworkEventData {
     pub query_id: QueryId,
-    pub roles_to_helpers: [HelperIdentity; 3],
     pub message_chunks: MessageChunks,
 }
 
 impl NetworkEventData {
     pub fn new(
         query_id: QueryId,
-        roles_to_helpers: [HelperIdentity; 3],
         message_chunks: MessageChunks,
     ) -> Self {
         Self {
             query_id,
-            roles_to_helpers,
             message_chunks,
         }
     }
@@ -41,7 +38,7 @@ impl TransportCommandData for NetworkEventData {
     fn name() -> &'static str {
         "NetworkEvent"
     }
-    fn respond(self, _: QueryId, _: Self::RespData) -> Result<(), Error> {
+    fn respond(self, _: QueryId, _: Self::RespData) -> Result<(), TransportError> {
         Ok(())
     }
 }
@@ -57,6 +54,7 @@ pub enum TransportCommand {
 
 /// Users of a [`Transport`] must subscribe to a specific type of command, and so must pass this
 /// type as argument to the `subscribe` function
+/// TODO -> EventSubscription
 #[allow(dead_code)] // will use this soon
 pub enum SubscriptionType {
     /// Commands for managing queries
@@ -66,8 +64,8 @@ pub enum SubscriptionType {
 }
 
 #[async_trait]
-pub trait Transport: Sync {
-    type CommandStream: Stream<Item = TransportCommand> + Send + Unpin + 'static;
+pub trait Transport: Send + Sync + 'static {
+    type CommandStream: Stream<Item = TransportCommand> + Send + Unpin;
 
     /// To be called by an entity which will handle the events as indicated by the
     /// [`SubscriptionType`]. There should be only 1 subscriber per type.
@@ -80,5 +78,5 @@ pub trait Transport: Sync {
         &self,
         destination: &HelperIdentity,
         command: TransportCommand,
-    ) -> Result<(), Error>;
+    ) -> Result<(), TransportError>;
 }

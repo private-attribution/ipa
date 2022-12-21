@@ -58,14 +58,15 @@ impl<'p> HttpHelper<'p> {
     /// # Errors
     /// if a query has been previously added
     pub fn query(&self, query_id: QueryId) -> Result<Gateway, Error> {
-        tracing::debug!("starting query {}", query_id.as_ref());
-        let network = HttpNetwork::new(self.role, self.peers, query_id);
-
-        let gateway = Gateway::new(self.role, &network, self.gateway_config);
-        // allow for server to forward requests to this network
-        // TODO: how to remove from map?
-        self.server.add_query(query_id, network)?;
-        Ok(gateway)
+        todo!()
+        // tracing::debug!("starting query {}", query_id.as_ref());
+        // let network = HttpNetwork::new(self.role, self.peers, query_id);
+        //
+        // let gateway = Gateway::new(self.role, network, self.gateway_config);
+        // // allow for server to forward requests to this network
+        // // TODO: how to remove from map?
+        // self.server.add_query(query_id, network)?;
+        // Ok(gateway)
     }
 
     /// establish the prss endpoint by exchanging public keys with the other helpers

@@ -19,6 +19,9 @@ use tracing::Instrument;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use crate::helpers::{HelperIdentity, NetworkEventData, SubscriptionType, Transport, TransportCommand, TransportError};
+use crate::helpers::TransportCommand::NetworkEvent;
+use crate::protocol::QueryId;
 
 /// Represents control messages sent between helpers to handle infrastructure requests.
 pub(super) enum ControlMessage {
@@ -60,6 +63,10 @@ impl InMemoryNetwork {
 
             Self { endpoints }
         })
+    }
+
+    pub fn mapping(&self) -> [HelperIdentity; 3] {
+        todo!()
     }
 }
 
@@ -185,12 +192,38 @@ impl Network for Arc<InMemoryEndpoint> {
     }
 
     fn recv_stream(&self) -> Self::MessageStream {
-        let mut rx = self.rx.lock().unwrap();
-        if let Some(rx) = rx.take() {
-            ReceiverStream::new(rx)
-        } else {
-            panic!("Message stream has been consumed already");
-        }
+        todo!()
+    }
+}
+
+#[async_trait]
+impl Transport for Arc<InMemoryEndpoint> {
+    type CommandStream = ReceiverStream<TransportCommand>;
+
+    fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
+        todo!()
+        // match subscription_type {
+        //     SubscriptionType::Administration => {
+        //         unimplemented!()
+        //     }
+        //     SubscriptionType::Query(query_id) => {
+        //         let mut rx = self.rx.lock().unwrap();
+        //         if let Some(rx) = rx.take() {
+        //             ReceiverStream::new(rx)
+        //         } else {
+        //             panic!("Message stream has been consumed already");
+        //         }
+        //     }
+        // }
+    }
+
+    async fn send(&self, _destination: &HelperIdentity, command: TransportCommand) -> Result<(), TransportError> {
+        todo!()
+        // Ok(match command {
+        //     NetworkEvent(data) => {
+        //         self.chunks_sender.send(data.message_chunks).await?
+        //     }
+        // })
     }
 }
 
