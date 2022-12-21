@@ -18,19 +18,13 @@ pub trait TransportCommandData {
 #[derive(Debug)]
 pub struct NetworkEventData {
     pub query_id: QueryId,
-    pub roles_to_helpers: [HelperIdentity; 3],
     pub message_chunks: MessageChunks,
 }
 
 impl NetworkEventData {
-    pub fn new(
-        query_id: QueryId,
-        roles_to_helpers: [HelperIdentity; 3],
-        message_chunks: MessageChunks,
-    ) -> Self {
+    pub fn new(query_id: QueryId, message_chunks: MessageChunks) -> Self {
         Self {
             query_id,
-            roles_to_helpers,
             message_chunks,
         }
     }
