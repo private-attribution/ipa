@@ -1,10 +1,10 @@
 pub mod messaging;
+pub mod network;
 pub mod old_http;
 pub mod old_network;
 
 mod buffers;
 mod error;
-mod network;
 mod transport;
 
 pub use buffers::SendBufferConfig;
@@ -28,35 +28,35 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
+    serde(into = "String", try_from = "&str")
 )]
 pub struct HelperIdentity {
-    id: String,
+    uri: hyper::Uri,
 }
 
-impl AsRef<str> for HelperIdentity {
-    fn as_ref(&self) -> &str {
-        &self.id
+impl ToString for HelperIdentity {
+    fn to_string(&self) -> String {
+        self.uri.to_string()
     }
 }
 
-impl From<String> for HelperIdentity {
-    fn from(s: String) -> Self {
-        Self { id: s }
+impl From<HelperIdentity> for String {
+    fn from(id: HelperIdentity) -> Self {
+        id.to_string()
     }
 }
 
-impl From<&str> for HelperIdentity {
-    fn from(s: &str) -> Self {
-        Self::from(s.to_owned())
+impl TryFrom<&str> for HelperIdentity {
+    type Error = Error;
+
+    fn try_from(uri_str: &str) -> std::result::Result<Self, Self::Error> {
+        Ok(uri_str.parse::<hyper::Uri>()?.into())
     }
 }
 
 impl From<hyper::Uri> for HelperIdentity {
     fn from(uri: hyper::Uri) -> Self {
-        Self {
-            id: uri.to_string(),
-        }
+        Self { uri }
     }
 }
 

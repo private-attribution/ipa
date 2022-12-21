@@ -1,4 +1,4 @@
-use crate::helpers::old_network::{ChannelId, MessageChunks};
+use crate::helpers::network::{ChannelId, MessageChunks};
 use crate::helpers::Role;
 use crate::net::server::{LastSeenMessages, MessageSendMap, MpcHelperServerError};
 use crate::net::RecordHeaders;

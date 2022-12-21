@@ -7,7 +7,7 @@ pub use {send::Config as SendBufferConfig, send::SendBuffer};
 
 #[cfg(debug_assertions)]
 mod waiting {
-    use crate::helpers::old_network::ChannelId;
+    use crate::helpers::network::ChannelId;
     use std::collections::HashMap;
 
     pub(in crate::helpers) struct WaitingTasks<'a> {

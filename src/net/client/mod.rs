@@ -83,7 +83,7 @@ impl MpcHelperClient {
 
     /// Sends a batch of messages to another helper. Messages are a contiguous block of records in
     /// some state of transformation within a protocol. Also includes [`crate::protocol::RecordId`] information and
-    /// [`crate::helpers::old_network::ChannelId`].
+    /// [`crate::helpers::network::ChannelId`].
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn send_messages(
@@ -119,8 +119,9 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{
+            network::{ChannelId, MessageChunks},
             old_http::HttpNetwork,
-            old_network::{ChannelId, MessageChunks, Network},
+            old_network::Network,
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{server::MessageSendMap, BindTarget, MpcHelperServer},
