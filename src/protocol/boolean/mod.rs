@@ -19,6 +19,7 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
+pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
 pub use {
     bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan,

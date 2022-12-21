@@ -1,8 +1,11 @@
 use crate::ff::Field;
+use crate::protocol::boolean::RandomBitsShare;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::{BitOpStep, RecordId, Substep};
 use crate::rand::Rng;
-use crate::secret_sharing::{IntoShares, MaliciousReplicated, Replicated, XorReplicated};
+use crate::secret_sharing::{
+    IntoShares, MaliciousReplicated, Replicated, SecretSharing, XorReplicated,
+};
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
 use std::borrow::Borrow;
@@ -220,6 +223,26 @@ where
         zip(self[0].iter(), zip(self[1].iter(), self[2].iter()))
             .map(|(x0, (x1, x2))| [x0, x1, x2].reconstruct())
             .collect()
+    }
+}
+
+impl<F, S> Reconstruct<F> for [RandomBitsShare<F, S>; 3]
+where
+    F: Field,
+    S: SecretSharing<F>,
+    for<'a> [&'a S; 3]: Reconstruct<F>,
+{
+    fn reconstruct(&self) -> F {
+        let bits = zip(
+            self[0].b_b.iter(),
+            zip(self[1].b_b.iter(), self[2].b_b.iter()),
+        )
+        .enumerate()
+        .map(|(i, (b0, (b1, b2)))| [b0, b1, b2].reconstruct() * F::from(1 << i))
+        .fold(F::ZERO, |a, b| a + b);
+        let value = [&self[0].b_p, &self[1].b_p, &self[2].b_p].reconstruct();
+        assert_eq!(bits, value);
+        value
     }
 }
 
