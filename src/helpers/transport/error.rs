@@ -2,6 +2,7 @@ use crate::{
     helpers::transport::{NetworkEventData, TransportCommand, TransportCommandData},
     protocol::QueryId,
 };
+use crate::helpers::HelperIdentity;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -27,6 +28,7 @@ pub enum Error {
 impl From<tokio_util::sync::PollSendError<TransportCommand>> for Error {
     fn from(source: tokio_util::sync::PollSendError<TransportCommand>) -> Self {
         let (command_name, query_id) = match source.into_inner() {
+            /// TODO: this is bad, requires matching for every command type
             Some(TransportCommand::NetworkEvent(data)) => {
                 (Some(NetworkEventData::name()), Some(data.query_id))
             }
@@ -38,3 +40,14 @@ impl From<tokio_util::sync::PollSendError<TransportCommand>> for Error {
         }
     }
 }
+
+#[cfg(any(test, feature = "test-fixture"))]
+impl From<tokio::sync::mpsc::error::SendError<TransportCommand>> for Error {
+    fn from(_value: tokio::sync::mpsc::error::SendError<TransportCommand>) -> Self {
+        Self::SendFailed {
+            command_name: Some("fixme"),
+            query_id: Some(QueryId)
+        }
+    }
+}
+

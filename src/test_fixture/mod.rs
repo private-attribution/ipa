@@ -7,6 +7,7 @@ pub mod logging;
 pub mod metrics;
 pub mod net;
 pub mod network;
+mod transport;
 
 use crate::ff::{Field, Fp31};
 use crate::protocol::context::Context;
