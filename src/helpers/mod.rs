@@ -24,7 +24,7 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// Represents a unique identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -51,8 +51,8 @@ impl From<hyper::Uri> for HelperIdentity {
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq, clap::ValueEnum)]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "&'static str", try_from = "&str")
 )]
 pub enum Role {
     H1 = 0,
@@ -95,6 +95,12 @@ impl Role {
             H2 => Role::H2_STR,
             H3 => Role::H3_STR,
         }
+    }
+}
+
+impl From<Role> for &'static str {
+    fn from(role: Role) -> Self {
+        role.as_static_str()
     }
 }
 

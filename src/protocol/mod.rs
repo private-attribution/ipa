@@ -205,14 +205,26 @@ impl Debug for Step {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "&'static str", try_from = "&str")
 )]
 pub struct QueryId;
 
+impl QueryId {
+    fn repr() -> &'static str {
+        "0"
+    }
+}
+
 impl AsRef<str> for QueryId {
     fn as_ref(&self) -> &str {
-        "0"
+        QueryId::repr()
+    }
+}
+
+impl From<QueryId> for &'static str {
+    fn from(_: QueryId) -> Self {
+        QueryId::repr()
     }
 }
 
@@ -220,7 +232,7 @@ impl TryFrom<&str> for QueryId {
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value == "0" {
+        if value == QueryId::repr() {
             Ok(QueryId)
         } else {
             Err(Error::path_parse_error(value))

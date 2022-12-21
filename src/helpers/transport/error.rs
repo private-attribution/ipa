@@ -1,5 +1,8 @@
 use crate::{
-    helpers::transport::{NetworkEventData, TransportCommand, TransportCommandData},
+    helpers::transport::{
+        CreateQueryData, MulData, NetworkEventData, PrepareQueryData, StartMulData,
+        TransportCommand, TransportCommandData,
+    },
     protocol::QueryId,
 };
 
@@ -27,8 +30,18 @@ pub enum Error {
 impl From<tokio_util::sync::PollSendError<TransportCommand>> for Error {
     fn from(source: tokio_util::sync::PollSendError<TransportCommand>) -> Self {
         let (command_name, query_id) = match source.into_inner() {
-            Some(TransportCommand::NetworkEvent(data)) => {
-                (Some(NetworkEventData::name()), Some(data.query_id))
+            Some(TransportCommand::CreateQuery(_)) => (Some(CreateQueryData::name()), None),
+            Some(TransportCommand::PrepareQuery(PrepareQueryData { query_id, .. })) => {
+                (Some(PrepareQueryData::name()), Some(query_id))
+            }
+            Some(TransportCommand::StartMul(StartMulData { query_id, .. })) => {
+                (Some(StartMulData::name()), Some(query_id))
+            }
+            Some(TransportCommand::Mul(MulData { query_id, .. })) => {
+                (Some(MulData::name()), Some(query_id))
+            }
+            Some(TransportCommand::NetworkEvent(NetworkEventData { query_id, .. })) => {
+                (Some(NetworkEventData::name()), Some(query_id))
             }
             None => (None, None),
         };
