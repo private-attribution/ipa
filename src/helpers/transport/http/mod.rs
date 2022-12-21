@@ -1,3 +1,4 @@
+pub mod discovery;
 mod server;
 
 use crate::{

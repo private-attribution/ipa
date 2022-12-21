@@ -2,10 +2,10 @@ pub mod messaging;
 pub mod network;
 pub mod old_http;
 pub mod old_network;
+pub mod transport;
 
 mod buffers;
 mod error;
-mod transport;
 
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
