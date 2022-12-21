@@ -18,9 +18,16 @@ use futures::Stream;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
+/// All of the `TransportCommand`s should have a request/response model, and this trait ensures a
+/// way to respond
 pub trait TransportCommandData {
+    /// type of data to respond with
     type RespData;
+    /// name of the command
     fn name() -> &'static str;
+    /// respond to a `TransportCommand`
+    /// # Errors
+    /// if the requester stops waiting for a response
     fn respond(self, query_id: QueryId, data: Self::RespData) -> Result<(), Error>;
 }
 
@@ -111,6 +118,7 @@ pub struct StartMulData {
 }
 
 impl StartMulData {
+    #[must_use]
     pub fn new(
         query_id: QueryId,
         data_stream: ByteArrStream,
@@ -145,6 +153,7 @@ pub struct MulData {
 }
 
 impl MulData {
+    #[must_use]
     pub fn new(query_id: QueryId, field_type: String, data_stream: ByteArrStream) -> Self {
         Self {
             query_id,
@@ -172,6 +181,7 @@ pub struct NetworkEventData {
 }
 
 impl NetworkEventData {
+    #[must_use]
     pub fn new(
         query_id: QueryId,
         roles_to_helpers: [HelperIdentity; 3],

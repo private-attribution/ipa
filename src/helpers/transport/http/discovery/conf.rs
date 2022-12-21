@@ -38,7 +38,7 @@ impl PeerDiscovery for Conf {
     }
 }
 
-// #[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::helpers::transport::http::discovery::PeerDiscovery;
