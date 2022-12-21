@@ -6,29 +6,27 @@
 //! corresponding helper without needing to know the exact location - this is what this module
 //! enables MPC protocols to do.
 //!
-use crate::ff::{Field, Int};
-use crate::helpers::buffers::{SendBuffer, SendBufferConfig};
-use crate::helpers::{MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES};
-use crate::task::JoinHandle;
-use crate::telemetry::labels::STEP;
 use crate::{
-    helpers::buffers::ReceiveBuffer,
-    helpers::error::Error,
-    helpers::network::{ChannelId, MessageEnvelope, Network},
-    helpers::Role,
+    ff::{Field, Int},
+    helpers::{
+        buffers::{ReceiveBuffer, SendBuffer, SendBufferConfig},
+        network::ChannelId,
+        old_network::{MessageEnvelope, Network},
+        Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
+    },
     protocol::{RecordId, Step},
+    task::JoinHandle,
+    telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
-use ::tokio::sync::{mpsc, oneshot};
-use ::tokio::time::Instant;
-use futures::SinkExt;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
-use crate::telemetry::metrics::RECORDS_SENT;
+use ::tokio::sync::{mpsc, oneshot};
+use ::tokio::time::Instant;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 

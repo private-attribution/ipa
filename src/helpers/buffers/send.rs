@@ -1,7 +1,6 @@
 use crate::{
     helpers::{
-        buffers::fsv::FixedSizeByteVec,
-        network::{ChannelId, MessageEnvelope},
+        buffers::fsv::FixedSizeByteVec, network::ChannelId, old_network::MessageEnvelope,
         MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::RecordId,
@@ -169,12 +168,8 @@ impl From<&ByteBuf> for Range<RecordId> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::helpers::buffers::send::{ByteBuf, Config, PushError};
-    use crate::helpers::buffers::SendBuffer;
-    use crate::helpers::network::{ChannelId, MessageEnvelope};
-    use crate::helpers::Role;
-    use crate::protocol::{RecordId, Step};
-
+    use super::*;
+    use crate::{helpers::Role, protocol::Step};
     use tinyvec::array_vec;
 
     impl Clone for MessageEnvelope {

@@ -2,7 +2,8 @@ use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     helpers::{
         self,
-        network::{ChannelId, MessageChunks, Network, NetworkSink},
+        network::{ChannelId, MessageChunks},
+        old_network::{Network, NetworkSink},
         Error, Role,
     },
     protocol::Step,
