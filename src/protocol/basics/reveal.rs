@@ -103,6 +103,7 @@ pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Sha
     ctx: C,
     permutation: &[S],
 ) -> Result<Vec<u32>, Error> {
+    let ctx = ctx.set_total_records(permutation.len());
     let revealed_permutation = try_join_all(zip(repeat(ctx), permutation).enumerate().map(
         |(index, (ctx, input))| async move {
             let reveal_value = ctx.reveal(RecordId::from(index), input).await;
@@ -149,7 +150,10 @@ mod tests {
         let input = rng.gen::<Fp31>();
         let results = world
             .semi_honest(input, |ctx, share| async move {
-                ctx.reveal(RecordId::from(0), &share).await.unwrap()
+                ctx.set_total_records(1)
+                    .reveal(RecordId::from(0), &share)
+                    .await
+                    .unwrap()
             })
             .await;
 
@@ -166,19 +170,25 @@ mod tests {
         let world = TestWorld::new().await;
         let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
+        let m_ctx: [_; 3] = v
+            .iter()
+            .map(|v| v.context().set_total_records(1))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
         let record_id = RecordId::from(0);
         let input: Fp31 = rng.gen();
 
         let m_shares = join3v(
-            zip(v.iter(), input.share_with(&mut rng))
-                .map(|(v, share)| async { v.context().upgrade(share).await }),
+            zip(m_ctx.iter(), input.share_with(&mut rng))
+                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
         )
         .await;
 
         let results = join3v(
-            zip(v.iter(), m_shares)
-                .map(|(v, m_share)| async move { v.context().reveal(record_id, &m_share).await }),
+            zip(m_ctx.clone().into_iter(), m_shares)
+                .map(|(m_ctx, m_share)| async move { m_ctx.reveal(record_id, &m_share).await }),
         )
         .await;
 
@@ -195,19 +205,25 @@ mod tests {
         let world = TestWorld::new().await;
         let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
+        let m_ctx: [_; 3] = v
+            .iter()
+            .map(|v| v.context().set_total_records(1))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
         let record_id = RecordId::from(0);
         let input: Fp31 = rng.gen();
 
         let m_shares = join3v(
-            zip(v.iter(), input.share_with(&mut rng))
-                .map(|(v, share)| async { v.context().upgrade(share).await }),
+            zip(m_ctx.iter(), input.share_with(&mut rng))
+                .map(|(m_ctx, share)| async { m_ctx.upgrade(share).await }),
         )
         .await;
         let result = try_join3(
-            v[0].context().reveal(record_id, &m_shares[0]),
-            v[1].context().reveal(record_id, &m_shares[1]),
-            reveal_with_additive_attack(v[2].context(), record_id, &m_shares[2], Fp31::ONE),
+            m_ctx[0].clone().reveal(record_id, &m_shares[0]),
+            m_ctx[1].clone().reveal(record_id, &m_shares[1]),
+            reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], Fp31::ONE),
         )
         .await;
 

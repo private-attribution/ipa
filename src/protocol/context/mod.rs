@@ -45,6 +45,14 @@ pub trait Context<V: ArithmeticShare>:
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
 
+    /// Returns true if the context has a known total number of records.
+    fn is_total_records_known(&self) -> bool;
+
+    /// Sets the context's total number of records field. Communication channels are
+    /// closed based on sending the expected total number of records.
+    #[must_use]
+    fn set_total_records(&self, total_records: usize) -> Self;
+
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.
     ///
@@ -163,6 +171,7 @@ mod tests {
     async fn semi_honest_metrics() {
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
         let input = (0..10u128).map(Fp31::from).collect::<Vec<_>>();
+        let input_len = input.len();
 
         let result = world
             .semi_honest(input.clone(), |ctx, shares| async move {
@@ -170,7 +179,7 @@ mod tests {
                     shares
                         .iter()
                         .enumerate()
-                        .zip(repeat(ctx))
+                        .zip(repeat(ctx.set_total_records(input_len)))
                         .map(|((i, share), ctx)| toy_protocol(ctx, i, share)),
                 )
                 .await
@@ -216,11 +225,12 @@ mod tests {
     async fn malicious_metrics() {
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
         let input = vec![Fp31::from(0u128), Fp31::from(1u128)];
+        let input_len = input.len();
 
         let _result = world
             .malicious(input.clone(), |ctx, a| async move {
                 for (i, share) in a.iter().enumerate() {
-                    toy_protocol(ctx.clone(), i, share).await;
+                    toy_protocol(ctx.set_total_records(input_len), i, share).await;
                 }
                 a
             })

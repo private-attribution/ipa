@@ -31,6 +31,7 @@ where
 {
     #[must_use]
     pub fn new(ctx: C) -> Self {
+        debug_assert!(!ctx.is_total_records_known());
         Self {
             ctx,
             record_id: AtomicU32::new(0),
