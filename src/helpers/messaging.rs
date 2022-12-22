@@ -153,12 +153,16 @@ impl Mesh<'_, '_> {
 pub struct GatewayConfig {
     /// Configuration for send buffers. See `SendBufferConfig` for more details
     pub send_buffer_config: SendBufferConfig,
+    /// The maximum number of items that can be outstanding for sending.
+    pub send_outstanding: usize,
+    /// The maximum number of items that can be outstanding for receiving.
+    pub recv_outstanding: usize,
 }
 
 impl Gateway {
     pub fn new<N: Network>(role: Role, network: &N, config: GatewayConfig) -> Self {
-        let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(1);
-        let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(1);
+        let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
+        let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(config.send_outstanding);
         let mut message_stream = network.recv_stream();
         let mut network_sink = network.sink();
 
