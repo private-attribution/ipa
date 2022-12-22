@@ -49,7 +49,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    // _network: InMemoryNetwork,
+    _network: InMemoryNetwork,
 }
 
 #[derive(Copy, Clone)]
@@ -110,14 +110,14 @@ impl TestWorld {
 
         let gateways = join_all(network
             .transports
-            .into_iter()
+            .iter()
             .enumerate()
             .map(|(i, transport)| {
                 let role_assignment = role_assignment.clone();
                 async move {
                     // simple role assignment, based on transport index
                     let role = Role::all()[i];
-                    let network = Network::new(transport, QueryId, role_assignment);
+                    let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
                     Gateway::new(role, network, config.gateway_config).await
                 }
             }))
@@ -131,7 +131,7 @@ impl TestWorld {
             executions: AtomicUsize::new(0),
             metrics_handle,
             joined: AtomicBool::new(false),
-            // _network: network,
+            _network: network,
         }
     }
 

@@ -8,10 +8,17 @@ use futures_util::stream::SelectAll;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use ::tokio::sync::{mpsc, oneshot};
+use futures_util::future::poll_immediate;
 use tokio_stream::wrappers::ReceiverStream;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use tracing::Instrument;
+
+#[derive(Debug)]
+enum SwitchCommand {
+    Subscribe(SubscribeRequest),
+    Halt
+}
 
 struct SubscribeRequest {
     subscription: SubscriptionType,
@@ -60,7 +67,7 @@ enum State {
     /// Getting ready to start receiving commands. In this state, it is possible to add new
     /// peer connections
     Idle(
-        mpsc::Receiver<SubscribeRequest>,
+        mpsc::Receiver<SwitchCommand>,
         HashMap<HelperIdentity, mpsc::Receiver<TransportCommand>>,
     ),
     /// Interim state where demultiplexer is about to start actively listening for incoming commands
@@ -73,7 +80,7 @@ enum State {
 /// to the subscribers
 pub(super) struct Switch {
     state: State,
-    tx: mpsc::Sender<SubscribeRequest>,
+    tx: mpsc::Sender<SwitchCommand>,
     id: HelperIdentity
 }
 
@@ -84,7 +91,6 @@ impl Debug for Switch {
 }
 
 impl Switch {
-
     pub fn new(id: HelperIdentity) -> Self {
         let (tx, rx) = mpsc::channel(1);
 
@@ -118,15 +124,23 @@ impl Switch {
             let mut query_router = QueryCommandRouter::default();
             loop {
                 ::tokio::select! {
-                    Some(subscribe_command) = rx.recv() => {
-                        match subscribe_command.subscription() {
-                            SubscriptionType::Query(query_id) => {
-                                tracing::trace!("Subscribed to receive commands for query {query_id:?}");
-                                query_router.subscribe(query_id, subscribe_command.sender());
-                                subscribe_command.acknowledge();
-                            },
-                            SubscriptionType::Administration => {
-                                unimplemented!()
+                    Some(command) = rx.recv() => {
+                        match command {
+                            SwitchCommand::Subscribe(subscribe_command) => {
+                                match subscribe_command.subscription() {
+                                    SubscriptionType::Query(query_id) => {
+                                        tracing::trace!("Subscribed to receive commands for query {query_id:?}");
+                                        query_router.subscribe(query_id, subscribe_command.sender());
+                                        subscribe_command.acknowledge();
+                                    },
+                                    SubscriptionType::Administration => {
+                                        unimplemented!()
+                                    }
+                                }
+                            }
+                            SwitchCommand::Halt => {
+                                tracing::trace!("Switch is terminated");
+                                break;
                             }
                         }
                     }
@@ -151,10 +165,14 @@ impl Switch {
     pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<CommandEnvelope> {
         let (tx, rx) = mpsc::channel(1);
         let (command, ack_rx) = SubscribeRequest::new(SubscriptionType::Query(query_id), tx);
-        self.tx.send(command).await.unwrap();
+        self.tx.send(SwitchCommand::Subscribe(command)).await.unwrap();
         ack_rx.await.unwrap();
 
         ReceiverStream::new(rx)
+    }
+
+    pub async fn halt(&self) {
+        self.tx.send(SwitchCommand::Halt).await.unwrap();
     }
 }
 

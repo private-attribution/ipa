@@ -6,7 +6,7 @@ use std::fmt::Debug;
 /// Container for all active transports
 #[derive(Debug)]
 pub struct InMemoryNetwork {
-    pub transports: [InMemoryTransport; 3],
+    pub transports: [Arc<InMemoryTransport>; 3],
 }
 
 impl Default for InMemoryNetwork {
@@ -30,7 +30,7 @@ impl Default for InMemoryNetwork {
         third.listen();
 
         let s = Self {
-            transports: [first, second, third]
+            transports: [first, second, third].map(Arc::new)
         };
         // println!("created memory network: {}", Arc::strong_count(&s.transports[0]));
 
@@ -51,8 +51,11 @@ impl InMemoryNetwork {
     }
 }
 
-// impl Drop for InMemoryNetwork {
-//     fn drop(&mut self) {
-//         println!("dropping in memory network: {}", Arc::strong_count(&self.transports[0]));
-//     }
-// }
+impl Drop for InMemoryNetwork {
+    fn drop(&mut self) {
+        println!("dropping in memory network: {}", Arc::strong_count(&self.transports[0]));
+        for transport in &self.transports {
+            transport.halt();
+        }
+    }
+}

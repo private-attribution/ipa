@@ -8,6 +8,9 @@ use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::future::poll_fn;
+use std::task::{Context, Poll};
+use futures_util::FutureExt;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -45,6 +48,15 @@ impl InMemoryTransport {
 
     pub fn listen(&mut self) {
         self.switch.listen();
+    }
+
+    pub fn halt(&self) {
+        // TODO: this is required for runtimes that don't drop tasks on shutdown (shuttle)
+        let mut f = self.switch.halt();
+        ::tokio::pin!(f);
+        while f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref())) != Poll::Ready(()) {
+            std::thread::yield_now()
+        }
     }
 }
 
