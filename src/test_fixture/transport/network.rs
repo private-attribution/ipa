@@ -29,12 +29,9 @@ impl Default for InMemoryNetwork {
         second.listen();
         third.listen();
 
-        let s = Self {
-            transports: [first, second, third].map(Arc::new)
-        };
-        // println!("created memory network: {}", Arc::strong_count(&s.transports[0]));
-
-        s
+        Self {
+            transports: [first, second, third].map(Arc::new),
+        }
     }
 }
 
@@ -51,9 +48,9 @@ impl InMemoryNetwork {
     }
 }
 
+#[cfg(all(test, feature = "shuttle"))]
 impl Drop for InMemoryNetwork {
     fn drop(&mut self) {
-        println!("dropping in memory network: {}", Arc::strong_count(&self.transports[0]));
         for transport in &self.transports {
             transport.halt();
         }

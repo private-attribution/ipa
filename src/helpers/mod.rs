@@ -1,10 +1,12 @@
 pub mod http;
 pub mod messaging;
 pub mod network;
+#[deprecated(note = "Use `Transport` instead")]
 pub mod old_network;
 
 mod buffers;
 mod error;
+mod time;
 mod transport;
 
 pub use buffers::SendBufferConfig;
@@ -61,8 +63,7 @@ pub enum Role {
     H3 = 2,
 }
 
-#[derive(Debug)]
-#[cfg_attr(any(test, feature = "test-fixture"), derive(Clone))]
+#[derive(Clone, Debug)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -225,25 +226,25 @@ mod tests {
 
         #[test]
         fn basic() {
-            let identities = (0..3)
+            let identities = (1..=3)
                 .map(HelperIdentity::from)
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
             let assignment = RoleAssignment::new(identities);
 
-            assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(0)));
-            assert_eq!(Role::H2, assignment.role(&HelperIdentity::from(1)));
-            assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(2)));
+            assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(1)));
+            assert_eq!(Role::H2, assignment.role(&HelperIdentity::from(2)));
+            assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(3)));
 
-            assert_eq!(&HelperIdentity::from(0), assignment.identity(Role::H1));
-            assert_eq!(&HelperIdentity::from(1), assignment.identity(Role::H2));
-            assert_eq!(&HelperIdentity::from(2), assignment.identity(Role::H3));
+            assert_eq!(&HelperIdentity::from(1), assignment.identity(Role::H1));
+            assert_eq!(&HelperIdentity::from(2), assignment.identity(Role::H2));
+            assert_eq!(&HelperIdentity::from(3), assignment.identity(Role::H3));
         }
 
         #[test]
         fn reverse() {
-            let identities = (0..3)
+            let identities = (1..=3)
                 .rev()
                 .map(HelperIdentity::from)
                 .collect::<Vec<_>>()
@@ -251,13 +252,13 @@ mod tests {
                 .unwrap();
             let assignment = RoleAssignment::new(identities);
 
-            assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(0)));
-            assert_eq!(Role::H2, assignment.role(&HelperIdentity::from(1)));
-            assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(2)));
+            assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(1)));
+            assert_eq!(Role::H2, assignment.role(&HelperIdentity::from(2)));
+            assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(3)));
 
-            assert_eq!(&HelperIdentity::from(2), assignment.identity(Role::H1));
-            assert_eq!(&HelperIdentity::from(1), assignment.identity(Role::H2));
-            assert_eq!(&HelperIdentity::from(0), assignment.identity(Role::H3));
+            assert_eq!(&HelperIdentity::from(3), assignment.identity(Role::H1));
+            assert_eq!(&HelperIdentity::from(2), assignment.identity(Role::H2));
+            assert_eq!(&HelperIdentity::from(1), assignment.identity(Role::H3));
         }
     }
 }

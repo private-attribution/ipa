@@ -3,21 +3,21 @@ use crate::helpers::{
 };
 use crate::protocol::QueryId;
 use crate::task::JoinHandle;
+use ::tokio::sync::{mpsc, oneshot};
 use futures::StreamExt;
 use futures_util::stream::SelectAll;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use ::tokio::sync::{mpsc, oneshot};
-use futures_util::future::poll_immediate;
-use tokio_stream::wrappers::ReceiverStream;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
 #[derive(Debug)]
 enum SwitchCommand {
     Subscribe(SubscribeRequest),
-    Halt
+    #[allow(dead_code)]
+    Halt,
 }
 
 struct SubscribeRequest {
@@ -61,7 +61,7 @@ impl SubscribeRequest {
     }
 }
 
-/// State of the demultiplexer
+/// Switch state
 #[derive(Debug)]
 enum State {
     /// Getting ready to start receiving commands. In this state, it is possible to add new
@@ -70,9 +70,10 @@ enum State {
         mpsc::Receiver<SwitchCommand>,
         HashMap<HelperIdentity, mpsc::Receiver<TransportCommand>>,
     ),
-    /// Interim state where demultiplexer is about to start actively listening for incoming commands
+    /// Interim state where switch is about to start actively listening for incoming traffic
     Preparing,
-    /// Actively listening. It is no longer possible to change the demultiplexer's state.
+    /// Actively listening. It is no longer possible to change the state of this switch and add
+    /// or remove connections.
     Listening(JoinHandle<()>),
 }
 
@@ -81,12 +82,12 @@ enum State {
 pub(super) struct Switch {
     state: State,
     tx: mpsc::Sender<SwitchCommand>,
-    id: HelperIdentity
+    id: HelperIdentity,
 }
 
 impl Debug for Switch {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "mux[{:?}]", self.state)
+        write!(f, "switch[{:?}]", self.state)
     }
 }
 
@@ -145,11 +146,9 @@ impl Switch {
                         }
                     }
                     Some((origin, command)) = peer_links.next() => {
-                        tracing::trace!("received new command {command:?} from {origin:?}");
                         match command {
                             TransportCommand::NetworkEvent(data) => query_router.route(origin, data).await
                         }
-                        tracing::trace!("command processed");
                     }
                     else => {
                         tracing::debug!("All channels are closed and switch is terminated");
@@ -165,12 +164,16 @@ impl Switch {
     pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<CommandEnvelope> {
         let (tx, rx) = mpsc::channel(1);
         let (command, ack_rx) = SubscribeRequest::new(SubscriptionType::Query(query_id), tx);
-        self.tx.send(SwitchCommand::Subscribe(command)).await.unwrap();
+        self.tx
+            .send(SwitchCommand::Subscribe(command))
+            .await
+            .unwrap();
         ack_rx.await.unwrap();
 
         ReceiverStream::new(rx)
     }
 
+    #[cfg(all(test, feature = "shuttle"))]
     pub async fn halt(&self) {
         self.tx.send(SwitchCommand::Halt).await.unwrap();
     }
@@ -178,10 +181,8 @@ impl Switch {
 
 impl Drop for Switch {
     fn drop(&mut self) {
-        println!("dropping switch");
-        match &self.state {
-            State::Listening(handle) => handle.abort(),
-            _ => {}
+        if let State::Listening(handle) = &self.state {
+            handle.abort();
         }
     }
 }

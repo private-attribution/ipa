@@ -1,6 +1,7 @@
 #![allow(dead_code)] // will use these soon
 
-use crate::helpers::RoleAssignment;
+use crate::helpers::{MessagePayload, RoleAssignment};
+use crate::protocol::RecordId;
 use crate::{
     helpers::{
         transport::{NetworkEventData, SubscriptionType, Transport, TransportCommand},
@@ -10,6 +11,12 @@ use crate::{
 };
 use futures::{Stream, StreamExt};
 use std::fmt::{Debug, Formatter};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct MessageEnvelope {
+    pub record_id: RecordId,
+    pub payload: MessagePayload,
+}
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
@@ -78,7 +85,7 @@ impl<T: Transport> Network<T> {
     /// # Panics
     /// if called more than once during the execution of a query.
     pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
-        let self_query_id = self.query_id.clone();
+        let self_query_id = self.query_id;
         let query_command_stream = self
             .transport
             .subscribe(SubscriptionType::Query(self_query_id))
@@ -104,11 +111,5 @@ impl<T: Transport> Network<T> {
                 self_query_id.as_ref()
             ),
         })
-    }
-}
-
-impl <T> Drop for Network<T> {
-    fn drop(&mut self) {
-        println!("dropping network");
     }
 }

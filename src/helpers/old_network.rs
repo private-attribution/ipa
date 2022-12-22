@@ -1,24 +1,14 @@
+use crate::helpers::error::Error;
+/// The only usage of this module is in `net` module that is awaiting to be migrated to `Transport`
+/// interface.
 use crate::helpers::network::MessageChunks;
-use crate::{
-    helpers::{error::Error, MessagePayload},
-    protocol::RecordId,
-};
 use async_trait::async_trait;
 use futures::{ready, Stream};
 use pin_project::pin_project;
-use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio_util::sync::{PollSendError, PollSender};
-
-// TODO: delete
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct MessageEnvelope {
-    pub record_id: RecordId,
-    pub payload: MessagePayload,
-}
 
 /// Network interface for components that require communication.
 #[async_trait]

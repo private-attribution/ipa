@@ -21,20 +21,17 @@ use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 use std::{io, panic};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
-use crate::helpers::network::Network;
-use crate::helpers::old_network::MessageEnvelope;
+use crate::helpers::buffers::PushError;
+use crate::helpers::network::{MessageEnvelope, Network};
+use crate::helpers::time::Timer;
 use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
 use futures_util::stream::FuturesUnordered;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use crate::helpers::buffers::PushError;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -163,17 +160,6 @@ pub struct GatewayConfig {
     pub recv_outstanding: usize,
 }
 
-#[cfg(not(feature = "shuttle"))]
-#[pin_project::pin_project]
-struct GatewayTimer {
-    interval: Duration,
-    #[pin]
-    timer_f: ::tokio::time::Sleep
-}
-
-#[cfg(feature = "shuttle")]
-struct GatewayTimer {}
-
 impl Gateway {
     pub async fn new<T: Transport>(role: Role, network: Network<T>, config: GatewayConfig) -> Self {
         let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
@@ -186,7 +172,7 @@ impl Gateway {
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
             let mut pending_sends = FuturesUnordered::new();
-            let sleep = GatewayTimer::new(INTERVAL);
+            let sleep = Timer::new(INTERVAL);
             ::tokio::pin!(sleep);
 
             loop {
@@ -252,22 +238,15 @@ impl Gateway {
     ///
     /// ## Panics
     /// if control loop task panicked, the panic will be propagated to this thread
+    #[cfg(not(feature = "shuttle"))]
     pub async fn join(self) {
         self.control_handle
             .await
             .map_err(|e| {
-                #[cfg(not(feature = "shuttle"))]
-                {
-                    if e.is_panic() {
-                        panic::resume_unwind(e.into_panic())
-                    } else {
-                        "Task cancelled".to_string()
-                    }
-                }
-
-                #[cfg(feature = "shuttle")]
-                {
-                    e
+                if e.is_panic() {
+                    panic::resume_unwind(e.into_panic())
+                } else {
+                    "Task cancelled".to_string()
                 }
             })
             .unwrap();
@@ -296,13 +275,12 @@ impl Gateway {
     }
 }
 
-// #[cfg(feature = "shuttle")]
-// impl Drop for Gateway {
-//     fn drop(&mut self) {
-//         println!("dropping gateway");
-//         self.control_handle.abort();
-//     }
-// }
+#[cfg(feature = "shuttle")]
+impl Drop for Gateway {
+    fn drop(&mut self) {
+        self.control_handle.abort();
+    }
+}
 
 impl Debug for ReceiveRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -314,13 +292,20 @@ impl Debug for ReceiveRequest {
     }
 }
 
-async fn send_message<T: Transport>(network: &Network<T>, channel_id: ChannelId, data: Result<Option<Vec<u8>>, PushError>) {
+async fn send_message<T: Transport>(
+    network: &Network<T>,
+    channel_id: ChannelId,
+    data: Result<Option<Vec<u8>>, PushError>,
+) {
     // let (channel_id, msg) = req;
     // metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
     match data {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            network.send((channel_id, buf_to_send)).await.expect("Failed to send data to the network");
+            network
+                .send((channel_id, buf_to_send))
+                .await
+                .expect("Failed to send data to the network");
         }
         Ok(None) => {}
         Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
@@ -339,47 +324,6 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
         );
     }
 }
-
-#[cfg(not(feature = "shuttle"))]
-impl GatewayTimer {
-    pub fn new(interval: Duration) -> Self {
-        Self {
-            interval,
-            timer_f: ::tokio::time::sleep(interval)
-        }
-    }
-
-    pub fn reset(self: Pin<&mut Self>) {
-        let this = self.project();
-        this.timer_f.reset(::tokio::time::Instant::now() + *this.interval)
-    }
-}
-
-#[cfg(feature = "shuttle")]
-impl GatewayTimer {
-    pub fn new(_: Duration) -> Self {
-        Self {}
-    }
-
-    pub fn reset(&mut self) {
-    }
-}
-
-impl Future for GatewayTimer {
-    type Output = ();
-
-    #[cfg(feature = "shuttle")]
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Pending
-    }
-
-    #[cfg(not(feature = "shuttle"))]
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-        this.timer_f.poll(cx)
-    }
-}
-
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {

@@ -6,7 +6,6 @@ pub mod ipa_input_row;
 pub mod logging;
 pub mod metrics;
 pub mod net;
-pub mod network;
 mod transport;
 
 use crate::ff::{Field, Fp31};

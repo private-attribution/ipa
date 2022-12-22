@@ -1,3 +1,4 @@
+pub mod network;
 mod routing;
 
 use crate::helpers::{
@@ -8,9 +9,6 @@ use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::future::poll_fn;
-use std::task::{Context, Poll};
-use futures_util::FutureExt;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -31,7 +29,7 @@ impl InMemoryTransport {
         Self {
             identity: identity.clone(),
             peer_connections: HashMap::default(),
-            switch: Switch::new(identity)
+            switch: Switch::new(identity),
         }
     }
 
@@ -50,11 +48,19 @@ impl InMemoryTransport {
         self.switch.listen();
     }
 
+    #[cfg(all(test, feature = "shuttle"))]
     pub fn halt(&self) {
-        // TODO: this is required for runtimes that don't drop tasks on shutdown (shuttle)
+        /// this hackery needs to be explained. In normal circumstances (when you use tokio
+        /// scheduler) explicit switch termination is not required because tokio drops all tasks
+        /// during runtime shutdown. Other schedulers (ahem shuttle) may not do that and what
+        /// happens is 3 switch tasks remain blocked awaiting messages from each other. In this
+        /// case a deadlock is detected. Hence this code just tries to explicitly close the switch
+        /// but because async drop is not a thing yet, we must hot loop here to drive it to completion
         let mut f = self.switch.halt();
         ::tokio::pin!(f);
-        while f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref())) != Poll::Ready(()) {
+        while f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref()))
+            != Poll::Ready(())
+        {
             std::thread::yield_now()
         }
     }
@@ -84,11 +90,5 @@ impl Transport for Arc<InMemoryTransport> {
             .unwrap()
             .send(command)
             .await?)
-    }
-}
-
-impl Drop for InMemoryTransport {
-    fn drop(&mut self) {
-        println!("dropping transport");
     }
 }

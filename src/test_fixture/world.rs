@@ -17,7 +17,7 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants},
 };
 
 use std::io::stdout;
@@ -32,6 +32,7 @@ use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
+use crate::test_fixture::transport::network::InMemoryNetwork;
 use tracing::Level;
 
 use super::{
@@ -108,22 +109,18 @@ impl TestWorld {
         let network = InMemoryNetwork::default();
         let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = join_all(network
-            .transports
-            .iter()
-            .enumerate()
-            .map(|(i, transport)| {
-                let role_assignment = role_assignment.clone();
-                async move {
-                    // simple role assignment, based on transport index
-                    let role = Role::all()[i];
-                    let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
-                    Gateway::new(role, network, config.gateway_config).await
-                }
-            }))
-            .await
-            .try_into()
-            .unwrap();
+        let gateways = join_all(network.transports.iter().enumerate().map(|(i, transport)| {
+            let role_assignment = role_assignment.clone();
+            async move {
+                // simple role assignment, based on transport index
+                let role = Role::all()[i];
+                let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
+                Gateway::new(role, network, config.gateway_config).await
+            }
+        }))
+        .await
+        .try_into()
+        .unwrap();
 
         TestWorld {
             gateways: ManuallyDrop::new(gateways),
@@ -173,7 +170,7 @@ impl TestWorld {
         &self.gateways[role]
     }
 
-    // #[cfg(not(feature = "shuttle"))]
+    #[cfg(not(feature = "shuttle"))]
     pub async fn join(mut self) {
         // SAFETY: self is consumed by this method, so nobody can access gateways field after
         // calling this method.
