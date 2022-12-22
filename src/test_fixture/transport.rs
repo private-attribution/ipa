@@ -6,15 +6,17 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use async_trait::async_trait;
 use clap::command;
-use futures::Stream;
+use futures::{ready, Stream};
 use futures_util::stream::SelectAll;
-use futures_util::StreamExt;
+use pin_project::pin_project;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::instrument::WithSubscriber;
-use crate::helpers::{HelperIdentity, NetworkEventData, SubscriptionType, Transport, TransportCommand, TransportError};
+use crate::helpers::{CommandEnvelope, HelperIdentity, NetworkEventData, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::protocol::QueryId;
+use futures::StreamExt;
+use tokio::sync::oneshot;
 
 struct DemultiplexerStream;
 
@@ -28,8 +30,7 @@ impl Stream for DemultiplexerStream {
 
 #[derive(Debug)]
 enum MultiplexerCommand {
-    // Listen(HelperIdentity, Receiver<TransportCommand>),
-    Subscribe(SubscriptionType, Sender<TransportCommand>),
+    Subscribe(SubscriptionType, Sender<CommandEnvelope>, oneshot::Sender<()>),
 }
 
 #[derive(Debug)]
@@ -52,17 +53,24 @@ impl Debug for Multiplexer {
 
 #[derive(Default)]
 struct QueryRouter {
-    routes: HashMap<QueryId, Sender<TransportCommand>>
+    routes: HashMap<QueryId, Sender<CommandEnvelope>>
 }
 
 impl QueryRouter {
-    async fn route(&self, data: NetworkEventData) {
+    async fn route(&self, origin: HelperIdentity, data: NetworkEventData) {
         let query_id = data.query_id;
-        let sender = self.routes.get(&query_id).unwrap_or_else(|| panic!("No subscribers for {:?}", query_id));
-        sender.send(TransportCommand::NetworkEvent(data)).await.unwrap();
+        let sender = self.routes.get(&query_id)
+            .unwrap_or_else(|| {
+                tracing::warn!("No subscriber for query");
+                panic!("No subscribers for {:?}", query_id);
+            });
+        sender.send(CommandEnvelope {
+            origin,
+            payload: TransportCommand::NetworkEvent(data)
+        }).await.unwrap();
     }
 
-    fn subscribe(&mut self, query_id: QueryId, sender: Sender<TransportCommand>) {
+    fn subscribe(&mut self, query_id: QueryId, sender: Sender<CommandEnvelope>) {
         assert!(self.routes.insert(query_id, sender).is_none());
     }
 }
@@ -101,10 +109,11 @@ impl Multiplexer {
                 ::tokio::select! {
                     Some(mux_command) = rx.recv() => {
                         match mux_command {
-                            MultiplexerCommand::Subscribe(subscription, sender) => {
+                            MultiplexerCommand::Subscribe(subscription, sender, ack_sender) => {
                                 match subscription {
                                     SubscriptionType::Query(query_id) => {
-                                        query_router.subscribe(query_id, sender)
+                                        query_router.subscribe(query_id, sender);
+                                        ack_sender.send(());
                                     },
                                     SubscriptionType::Administration => {
                                         unimplemented!()
@@ -115,7 +124,7 @@ impl Multiplexer {
                     }
                     Some((origin, command)) = peer_links.next() => {
                         match command {
-                            TransportCommand::NetworkEvent(data) => query_router.route(data).await
+                            TransportCommand::NetworkEvent(data) => query_router.route(origin, data).await
                         }
                     }
                 }
@@ -130,9 +139,13 @@ impl Multiplexer {
     //     self.tx.blocking_send(MultiplexerCommand::Listen(peer_addr, channel)).unwrap()
     // }
     //
-    pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<TransportCommand> {
+    pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<CommandEnvelope> {
         let (tx, rx) = channel(1);
-        self.tx.send(MultiplexerCommand::Subscribe(SubscriptionType::Query(query_id), tx)).await.unwrap();
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.tx.send(MultiplexerCommand::Subscribe(SubscriptionType::Query(query_id), tx, ack_tx))
+            .await
+            .unwrap();
+        ack_rx.await.unwrap();
 
         ReceiverStream::new(rx)
     }
@@ -176,9 +189,31 @@ impl InMemoryTransport {
     }
 }
 
+#[pin_project]
+struct ChannelStream {
+    origin: HelperIdentity,
+    #[pin]
+    inner: ReceiverStream<TransportCommand>
+}
+
+impl Stream for ChannelStream {
+    type Item = CommandEnvelope;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let origin = self.origin.clone();
+        let mut this = self.project();
+        let item = ready!(this.inner.poll_next(cx));
+        Poll::Ready(item.map(|v| CommandEnvelope { origin, payload: v }))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
 #[async_trait]
 impl Transport for Arc<InMemoryTransport> {
-    type CommandStream = ReceiverStream<TransportCommand>;
+    type CommandStream = ReceiverStream<CommandEnvelope>;
 
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
         match subscription_type {

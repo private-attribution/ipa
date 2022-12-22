@@ -91,7 +91,7 @@ mod test {
         let world = TestWorld::new();
 
         assert_eq!(30, multiply_sync::<Fp31>(&world, 6, 5).await);
-        // assert_eq!(25, multiply_sync::<Fp31>(&world, 5, 5).await);
+        assert_eq!(25, multiply_sync::<Fp31>(&world, 5, 5).await);
         // assert_eq!(7, multiply_sync::<Fp31>(&world, 7, 1).await);
         // assert_eq!(0, multiply_sync::<Fp31>(&world, 0, 14).await);
         // assert_eq!(8, multiply_sync::<Fp31>(&world, 7, 10).await);

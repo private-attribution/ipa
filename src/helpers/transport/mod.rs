@@ -68,9 +68,15 @@ pub enum SubscriptionType {
     Query(QueryId),
 }
 
+#[derive(Debug)]
+pub struct CommandEnvelope {
+    pub origin: HelperIdentity,
+    pub payload: TransportCommand
+}
+
 #[async_trait]
 pub trait Transport: Send + Sync + 'static {
-    type CommandStream: Stream<Item = TransportCommand> + Send + Unpin;
+    type CommandStream: Stream<Item = CommandEnvelope> + Send + Unpin;
 
     /// To be called by an entity which will handle the events as indicated by the
     /// [`SubscriptionType`]. There should be only 1 subscriber per type.

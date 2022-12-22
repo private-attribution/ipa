@@ -10,7 +10,7 @@ mod transport;
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
-pub use transport::{Transport, SubscriptionType, TransportCommand, TransportError, NetworkEventData};
+pub use transport::{Transport, CommandEnvelope, SubscriptionType, TransportCommand, TransportError, NetworkEventData};
 
 use crate::helpers::{
     Direction::{Left, Right},
