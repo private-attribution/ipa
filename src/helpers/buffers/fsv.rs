@@ -65,6 +65,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
     }
 
     /// Return any gap ahead of the first missing value.
+    #[cfg(any(test, debug_assertions))]
     pub fn missing(&self) -> Range<usize> {
         let start = self.end - self.capacity;
         let absent = self.added.leading_zeros();
