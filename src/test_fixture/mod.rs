@@ -9,8 +9,6 @@ pub mod net;
 pub mod network;
 mod transport;
 
-pub(self) use transport::InMemoryTransport;
-
 use crate::ff::{Field, Fp31};
 use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;

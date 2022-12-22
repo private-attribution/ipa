@@ -119,8 +119,8 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{
-            network::{ChannelId, MessageChunks},
             http::HttpNetwork,
+            network::{ChannelId, MessageChunks},
             old_network::Network,
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },

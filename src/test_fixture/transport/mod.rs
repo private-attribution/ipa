@@ -1,28 +1,17 @@
 mod demux;
 
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use std::mem;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use crate::helpers::{
+    CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
+};
+use crate::sync::Arc;
 use async_trait::async_trait;
-use clap::command;
-use futures::{ready, Stream};
-use futures_util::stream::SelectAll;
-use pin_project::pin_project;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::ReceiverStream;
-use tracing::instrument::WithSubscriber;
-use crate::helpers::{CommandEnvelope, HelperIdentity, NetworkEventData, SubscriptionType, Transport, TransportCommand, TransportError};
-use crate::protocol::QueryId;
-use futures::StreamExt;
-use tokio::sync::oneshot;
 use demux::Demux;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use tokio::sync::mpsc::{channel, Sender};
+use tokio_stream::wrappers::ReceiverStream;
 
 pub struct InMemoryTransport {
     identity: HelperIdentity,
@@ -57,31 +46,7 @@ impl InMemoryTransport {
     }
 
     pub fn listen(&mut self) {
-        self.demux.listen()
-    }
-}
-
-/// Channel stream wraps the generic stream of `TransportCommand` and folds these commands into
-/// envelopes that carry additional information about the origin.
-#[pin_project]
-struct ChannelStream {
-    origin: HelperIdentity,
-    #[pin]
-    inner: ReceiverStream<TransportCommand>
-}
-
-impl Stream for ChannelStream {
-    type Item = CommandEnvelope;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let origin = self.origin.clone();
-        let mut this = self.project();
-        let item = ready!(this.inner.poll_next(cx));
-        Poll::Ready(item.map(|v| CommandEnvelope { origin, payload: v }))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
+        self.demux.listen();
     }
 }
 
@@ -94,13 +59,20 @@ impl Transport for Arc<InMemoryTransport> {
             SubscriptionType::Administration => {
                 unimplemented!()
             }
-            SubscriptionType::Query(query_id) => {
-                self.demux.query_stream(query_id).await
-            }
+            SubscriptionType::Query(query_id) => self.demux.query_stream(query_id).await,
         }
     }
 
-    async fn send(&self, destination: &HelperIdentity, command: TransportCommand) -> Result<(), TransportError> {
-        Ok(self.peer_connections.get(destination).unwrap().send(command).await?)
+    async fn send(
+        &self,
+        destination: &HelperIdentity,
+        command: TransportCommand,
+    ) -> Result<(), TransportError> {
+        Ok(self
+            .peer_connections
+            .get(destination)
+            .unwrap()
+            .send(command)
+            .await?)
     }
 }

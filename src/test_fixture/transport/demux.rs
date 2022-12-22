@@ -1,12 +1,14 @@
+use crate::helpers::{
+    CommandEnvelope, HelperIdentity, NetworkEventData, SubscriptionType, TransportCommand,
+};
+use crate::protocol::QueryId;
+use crate::task::JoinHandle;
+use futures::StreamExt;
+use futures_util::stream::SelectAll;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use futures_util::stream::SelectAll;
-use futures::StreamExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
-use crate::task::JoinHandle;
-use crate::helpers::{CommandEnvelope, HelperIdentity, NetworkEventData, SubscriptionType, TransportCommand};
-use crate::protocol::QueryId;
 
 struct SubscribeRequest {
     subscription: SubscriptionType,
@@ -21,13 +23,19 @@ impl Debug for SubscribeRequest {
 }
 
 impl SubscribeRequest {
-    pub fn new(subscription: SubscriptionType, link: mpsc::Sender<CommandEnvelope>) -> (Self, oneshot::Receiver<()>) {
+    pub fn new(
+        subscription: SubscriptionType,
+        link: mpsc::Sender<CommandEnvelope>,
+    ) -> (Self, oneshot::Receiver<()>) {
         let (ack_tx, ack_rx) = oneshot::channel();
-        (Self {
-            subscription,
-            link,
-            ack_tx,
-        }, ack_rx)
+        (
+            Self {
+                subscription,
+                link,
+                ack_tx,
+            },
+            ack_rx,
+        )
     }
 
     pub fn acknowledge(self) {
@@ -48,7 +56,10 @@ impl SubscribeRequest {
 enum State {
     /// Getting ready to start receiving commands. In this state, it is possible to add new
     /// peer connections
-    Idle(mpsc::Receiver<SubscribeRequest>, HashMap<HelperIdentity, mpsc::Receiver<TransportCommand>>),
+    Idle(
+        mpsc::Receiver<SubscribeRequest>,
+        HashMap<HelperIdentity, mpsc::Receiver<TransportCommand>>,
+    ),
     /// Interim state where demultiplexer is about to start actively listening for incoming commands
     Preparing,
     /// Actively listening. It is no longer possible to change the demultiplexer's state.
@@ -68,7 +79,7 @@ impl Debug for Demux {
 
 impl Default for Demux {
     fn default() -> Self {
-        let (tx, mut rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::channel(1);
 
         Self {
             state: State::Idle(rx, HashMap::default()),
@@ -94,16 +105,15 @@ impl Demux {
         };
 
         let mut peer_links = SelectAll::new();
-        peers.into_iter().for_each(|(addr, link)| {
+        for (addr, link) in peers {
             peer_links.push(ReceiverStream::new(link).map(move |command| (addr.clone(), command)));
-        });
-
+        }
         let handle = tokio::spawn(async move {
             let mut query_router = QueryCommandRouter::default();
             loop {
                 ::tokio::select! {
                     Some(subscribe_command) = rx.recv() => {
-                        match subscribe_command.subscription {
+                        match subscribe_command.subscription() {
                             SubscriptionType::Query(query_id) => {
                                 query_router.subscribe(query_id, subscribe_command.sender());
                                 subscribe_command.acknowledge();
@@ -119,7 +129,7 @@ impl Demux {
                         }
                     }
                 }
-            };
+            }
         });
 
         self.state = State::Listening(handle);
@@ -137,23 +147,27 @@ impl Demux {
 
 #[derive(Default)]
 struct QueryCommandRouter {
-    routes: HashMap<QueryId, mpsc::Sender<CommandEnvelope>>
+    routes: HashMap<QueryId, mpsc::Sender<CommandEnvelope>>,
 }
 
 impl QueryCommandRouter {
     async fn route(&self, origin: HelperIdentity, data: NetworkEventData) {
         let query_id = data.query_id;
-        let sender = self.routes.get(&query_id)
-            .unwrap_or_else(|| panic!("No subscribers for {:?}", query_id));
+        let sender = self
+            .routes
+            .get(&query_id)
+            .unwrap_or_else(|| panic!("No subscribers for {query_id:?}"));
 
-        sender.send(CommandEnvelope {
-            origin,
-            payload: TransportCommand::NetworkEvent(data)
-        }).await.unwrap();
+        sender
+            .send(CommandEnvelope {
+                origin,
+                payload: TransportCommand::NetworkEvent(data),
+            })
+            .await
+            .unwrap();
     }
 
     fn subscribe(&mut self, query_id: QueryId, sender: mpsc::Sender<CommandEnvelope>) {
         assert!(self.routes.insert(query_id, sender).is_none());
     }
 }
-

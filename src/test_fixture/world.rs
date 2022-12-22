@@ -25,15 +25,14 @@ use std::io::stdout;
 use std::mem::ManuallyDrop;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
-use std::ops::Deref;
 
+use crate::helpers::network::Network;
+use crate::helpers::RoleAssignment;
 use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
 use tracing::Level;
-use crate::helpers::network::Network;
-use crate::helpers::RoleAssignment;
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},

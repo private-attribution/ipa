@@ -1,6 +1,6 @@
+pub mod http;
 pub mod messaging;
 pub mod network;
-pub mod http;
 pub mod old_network;
 
 mod buffers;
@@ -10,7 +10,10 @@ mod transport;
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
-pub use transport::{Transport, CommandEnvelope, SubscriptionType, TransportCommand, TransportError, NetworkEventData};
+pub use transport::{
+    CommandEnvelope, NetworkEventData, SubscriptionType, Transport, TransportCommand,
+    TransportError,
+};
 
 use crate::helpers::{
     Direction::{Left, Right},
@@ -28,7 +31,7 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct HelperIdentity {
-    id: u8
+    id: u8,
 }
 
 #[cfg(test)]
@@ -37,7 +40,7 @@ impl From<usize> for HelperIdentity {
         assert!(value < 3);
 
         Self {
-            id: u8::try_from(value).unwrap()
+            id: u8::try_from(value).unwrap(),
         }
     }
 }
@@ -62,7 +65,7 @@ pub enum Role {
 #[derive(Debug)]
 #[cfg_attr(any(test, feature = "test-fixture"), derive(Clone))]
 pub struct RoleAssignment {
-    helper_roles: [HelperIdentity; 3]
+    helper_roles: [HelperIdentity; 3],
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -167,22 +170,27 @@ impl<T> IndexMut<Role> for Vec<T> {
 }
 
 impl RoleAssignment {
+    #[must_use]
     pub fn new(helper_roles: [HelperIdentity; 3]) -> Self {
-        Self {
-            helper_roles
-        }
+        Self { helper_roles }
     }
 
+    /// Returns the assigned role for the given helper identity.
+    ///
+    /// ## Panics
+    /// Panics if there is no role assigned to it.
+    #[must_use]
     pub fn role(&self, id: &HelperIdentity) -> Role {
         for (idx, item) in self.helper_roles.iter().enumerate() {
             if item == id {
-                return Role::all()[idx]
+                return Role::all()[idx];
             }
         }
 
         panic!("No role assignment for {id:?} found in {self:?}")
     }
 
+    #[must_use]
     pub fn identity(&self, role: Role) -> &HelperIdentity {
         &self.helper_roles[role]
     }
@@ -190,8 +198,9 @@ impl RoleAssignment {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use super::*;
     mod role_tests {
-        use crate::helpers::{Direction, Role};
+        use super::*;
 
         #[test]
         pub fn peer_works() {
@@ -213,13 +222,15 @@ mod tests {
     }
 
     mod role_assignment_tests {
-        use crate::helpers::*;
+        use super::*;
 
         #[test]
         fn basic() {
-            let identities = (0..3).map(HelperIdentity::from)
+            let identities = (0..3)
+                .map(HelperIdentity::from)
                 .collect::<Vec<_>>()
-                .try_into().unwrap();
+                .try_into()
+                .unwrap();
             let assignment = RoleAssignment::new(identities);
 
             assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(0)));
@@ -233,9 +244,12 @@ mod tests {
 
         #[test]
         fn reverse() {
-            let identities = (0..3).rev().map(HelperIdentity::from)
+            let identities = (0..3)
+                .rev()
+                .map(HelperIdentity::from)
                 .collect::<Vec<_>>()
-                .try_into().unwrap();
+                .try_into()
+                .unwrap();
             let assignment = RoleAssignment::new(identities);
 
             assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(0)));

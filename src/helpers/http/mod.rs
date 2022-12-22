@@ -21,7 +21,7 @@ use std::net::SocketAddr;
 pub struct HttpHelper<'p> {
     role: Role,
     peers: &'p [peer::Config; 3],
-    gateway_config: GatewayConfig,
+    _gateway_config: GatewayConfig,
     server: MpcHelperServer,
 }
 
@@ -36,7 +36,7 @@ impl<'p> HttpHelper<'p> {
         Self {
             role,
             peers,
-            gateway_config,
+            _gateway_config: gateway_config,
             server: MpcHelperServer::new(MessageSendMap::default()),
         }
     }
@@ -57,7 +57,7 @@ impl<'p> HttpHelper<'p> {
     /// adds a query to the running server so that it knows where to send arriving data
     /// # Errors
     /// if a query has been previously added
-    pub fn query(&self, query_id: QueryId) -> Result<Gateway, Error> {
+    pub fn query(&self, _query_id: QueryId) -> Result<Gateway, Error> {
         // TODO: This requires `HttpNetwork` to implement Transport
         unimplemented!();
         // tracing::debug!("starting query {}", query_id.as_ref());

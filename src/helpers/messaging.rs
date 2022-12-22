@@ -17,20 +17,20 @@ use crate::{
     task::JoinHandle,
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
+use crate::helpers::network::Network;
+use crate::helpers::old_network::MessageEnvelope;
+use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
 use ::tokio::time::Instant;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use crate::helpers::network::Network;
-use crate::helpers::old_network::MessageEnvelope;
-use crate::helpers::transport::Transport;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -292,7 +292,8 @@ async fn send_message<T: Transport>(network: &Network<T>, buf: &mut SendBuffer, 
     match buf.push(&channel_id, &msg) {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            network.send((channel_id, buf_to_send))
+            network
+                .send((channel_id, buf_to_send))
                 .await
                 .expect("Failed to send data to the network");
         }

@@ -4,7 +4,7 @@ use crate::sync::{Arc, Mutex};
 use crate::task::JoinHandle;
 use crate::{
     error::BoxError,
-    helpers::{network::MessageChunks, http::HttpNetwork},
+    helpers::{http::HttpNetwork, network::MessageChunks},
     net::LastSeenMessages,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},

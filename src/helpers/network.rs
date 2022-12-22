@@ -1,15 +1,15 @@
 #![allow(dead_code)] // will use these soon
 
+use crate::helpers::RoleAssignment;
 use crate::{
     helpers::{
         transport::{NetworkEventData, SubscriptionType, Transport, TransportCommand},
-        Error, HelperIdentity, Role,
+        Error, Role,
     },
     protocol::{QueryId, Step},
 };
 use futures::{Stream, StreamExt};
 use std::fmt::{Debug, Formatter};
-use crate::helpers::RoleAssignment;
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
@@ -40,7 +40,7 @@ pub type MessageChunks = (ChannelId, Vec<u8>);
 pub struct Network<T> {
     transport: T,
     query_id: QueryId,
-    roles: RoleAssignment
+    roles: RoleAssignment,
 }
 
 impl<T: Transport> Network<T> {
@@ -67,7 +67,7 @@ impl<T: Transport> Network<T> {
                 TransportCommand::NetworkEvent(NetworkEventData {
                     query_id: self.query_id,
                     step: channel.step,
-                    payload
+                    payload,
                 }),
             )
             .await
@@ -79,11 +79,18 @@ impl<T: Transport> Network<T> {
     /// if called more than once during the execution of a query.
     pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> + '_ {
         let self_query_id = self.query_id;
-        let query_command_stream = self.transport.subscribe(SubscriptionType::Query(self_query_id)).await;
+        let query_command_stream = self
+            .transport
+            .subscribe(SubscriptionType::Query(self_query_id))
+            .await;
 
         #[allow(unreachable_patterns)] // there will be more commands in the future
         query_command_stream.map(move |envelope| match envelope.payload {
-            TransportCommand::NetworkEvent(NetworkEventData { query_id, step, payload }) => {
+            TransportCommand::NetworkEvent(NetworkEventData {
+                query_id,
+                step,
+                payload,
+            }) => {
                 debug_assert!(query_id == self_query_id);
 
                 let origin_role = self.roles.role(&envelope.origin);

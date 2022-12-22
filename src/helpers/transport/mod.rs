@@ -2,13 +2,10 @@ mod error;
 
 pub use error::Error as TransportError;
 
-use crate::{
-    helpers::{network::MessageChunks, HelperIdentity},
-    protocol::QueryId,
-};
+use crate::protocol::Step;
+use crate::{helpers::HelperIdentity, protocol::QueryId};
 use async_trait::async_trait;
 use futures::Stream;
-use crate::protocol::Step;
 
 pub trait TransportCommandData {
     type RespData;
@@ -24,11 +21,8 @@ pub struct NetworkEventData {
 }
 
 impl NetworkEventData {
-    pub fn new(
-        query_id: QueryId,
-        step: Step,
-        payload: Vec<u8>,
-    ) -> Self {
+    #[must_use]
+    pub fn new(query_id: QueryId, step: Step, payload: Vec<u8>) -> Self {
         Self {
             query_id,
             step,
@@ -58,7 +52,6 @@ pub enum TransportCommand {
 
 /// Users of a [`Transport`] must subscribe to a specific type of command, and so must pass this
 /// type as argument to the `subscribe` function
-/// TODO -> EventSubscription
 #[allow(dead_code)] // will use this soon
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum SubscriptionType {
@@ -71,10 +64,11 @@ pub enum SubscriptionType {
 #[derive(Debug)]
 pub struct CommandEnvelope {
     pub origin: HelperIdentity,
-    pub payload: TransportCommand
+    pub payload: TransportCommand,
 }
 
 #[async_trait]
+
 pub trait Transport: Send + Sync + 'static {
     type CommandStream: Stream<Item = CommandEnvelope> + Send + Unpin;
 
