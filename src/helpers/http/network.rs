@@ -166,7 +166,7 @@ mod tests {
 
         // consume request on server-side
         let spawned = tokio::spawn({
-            let expected_channel_id = ChannelId::new(self_role, step.clone(), None);
+            let expected_channel_id = ChannelId::new(self_role, step.clone());
             let expected_body = body.to_vec();
             async move {
                 for _ in 0..num_reqs {
@@ -179,7 +179,7 @@ mod tests {
 
         // send request on client-side
         for _ in 0..num_reqs {
-            sink.send((ChannelId::new(target_role, step.clone(), None), body.to_vec()))
+            sink.send((ChannelId::new(target_role, step.clone()), body.to_vec()))
                 .await
                 .expect("send should succeed");
         }

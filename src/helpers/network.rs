@@ -25,16 +25,14 @@ pub struct MessageEnvelope {
 pub struct ChannelId {
     pub role: Role,
     pub step: Step,
-    pub total_records: TotalRecords,
 }
 
 impl ChannelId {
     #[must_use]
-    pub fn new(role: Role, step: Step, total_records: TotalRecords) -> Self {
+    pub fn new(role: Role, step: Step) -> Self {
         Self {
             role,
             step,
-            total_records,
         }
     }
 }

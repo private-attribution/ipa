@@ -18,9 +18,11 @@ use crate::{
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
 use futures::StreamExt;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::io;
 use std::num::NonZeroUsize;
+use std::sync::{Mutex, Arc};
 use std::time::Duration;
 use tinyvec::array_vec;
 use tracing::Instrument;
@@ -87,6 +89,7 @@ pub struct Gateway {
     envelope_tx: mpsc::Sender<SendRequest>,
     control_handle: JoinHandle<()>,
     shutdown_tx: oneshot::Sender<()>,
+    channels: Arc<Mutex<HashMap<Step, NonZeroUsize>>>,
 }
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
@@ -133,7 +136,6 @@ impl From<usize> for TotalRecords {
 pub struct Mesh<'a, 'b> {
     gateway: &'a Gateway,
     step: &'b Step,
-    total_records: TotalRecords,
 }
 
 pub(super) struct ReceiveRequest {
@@ -181,7 +183,7 @@ impl Mesh<'_, '_> {
         let envelope = MessageEnvelope { record_id, payload };
 
         self.gateway
-            .send(ChannelId::new(dest, self.step.clone(), self.total_records), envelope)
+            .send(ChannelId::new(dest, self.step.clone()), envelope)
             .await
     }
 
@@ -205,7 +207,7 @@ impl Mesh<'_, '_> {
 
         let payload = self
             .gateway
-            .receive(ChannelId::new(source, self.step.clone(), self.total_records), record_id)
+            .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
         let obj = T::deserialize(&payload)
@@ -230,6 +232,8 @@ impl Gateway {
         let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
         let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(config.send_outstanding);
         let mut message_stream = network.recv_stream().await;
+        let channel_map = Arc::new(Mutex::new(HashMap::new()));
+        let channels = Arc::clone(&channel_map);
 
         let control_handle = tokio::spawn(async move {
             const INTERVAL: Duration = Duration::from_secs(3);
@@ -248,14 +252,17 @@ impl Gateway {
                 ::tokio::select! {
                     Some(receive_request) = recv_rx.recv() => {
                         tracing::trace!("new {:?}", receive_request);
-                        receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender);
+                        let total_records = *channels.lock().unwrap().get(&receive_request.channel_id.step).expect("unknown channel");
+                        receive_buf.receive_request(receive_request.channel_id, receive_request.record_id, receive_request.sender, total_records);
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
                         tracing::trace!("received {} bytes from {:?}", messages.len(), channel_id);
-                        receive_buf.receive_messages(&channel_id, &messages);
+                        let total_records = *channels.lock().unwrap().get(&channel_id.step).expect("unknown channel");
+                        receive_buf.receive_messages(&channel_id, &messages, total_records);
                     }
                     Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
+                        let total_records = *channels.lock().unwrap().get(&send_req.0.step).expect("unknown channel");
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
                         match buf.push(&channel_id, &msg) {
                             Ok(Some((buf_to_send, close))) => {
@@ -310,6 +317,7 @@ impl Gateway {
             envelope_tx: send_tx,
             shutdown_tx,
             control_handle,
+            channels: channel_map,
         }
     }
 
@@ -325,10 +333,10 @@ impl Gateway {
     #[must_use]
     pub fn mesh<'a, 'b>(&'a self, step: &'b Step, total_records: TotalRecords) -> Mesh<'a, 'b> {
         debug_assert!(!total_records.is_unspecified());
+        self.channels.lock().unwrap().entry(step.clone()).or_insert(total_records);
         Mesh {
             gateway: self,
             step,
-            total_records,
         }
     }
 
@@ -373,6 +381,7 @@ impl Gateway {
     async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
         Ok(self.envelope_tx.send((id, env)).await?)
     }
+
 }
 
 #[cfg(feature = "shuttle")]

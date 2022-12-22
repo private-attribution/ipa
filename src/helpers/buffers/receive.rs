@@ -52,8 +52,9 @@ impl ReceiveBuffer {
         channel_id: ChannelId,
         record_id: RecordId,
         sender: oneshot::Sender<MessagePayload>,
+        total_records: NonZeroUsize,
     ) {
-        let total_records = channel_id.total_records.expect("can't receive without a known total record count");
+        //let total_records = channel_id.total_records.expect("can't receive without a known total record count");
         let channel = self.inner.entry(channel_id.clone()).or_insert_with(|| {
             tracing::trace!("create rx channel for rx request {:?}", &channel_id);
             ReceiveChannel {
@@ -84,10 +85,10 @@ impl ReceiveBuffer {
     /// chunk will belong to range of records [0..chunk.len()), second chunk [chunk.len()..2*chunk.len())
     /// etc. It does not require all chunks to be of the same size, this assumption is baked in
     /// send buffers.
-    pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: &[u8]) {
+    pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: &[u8], total_records: NonZeroUsize) {
         // TODO: this is probably wrong. Need to maintain total count as
         // unknown until we see a receive request.
-        let total_records = channel_id.total_records.expect("can't receive without a known total record count");
+        //let total_records = channel_id.total_records.expect("can't receive without a known total record count");
 
         let offset = self
             .record_ids

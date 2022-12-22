@@ -162,7 +162,7 @@ mod tests {
             .await
             .expect("send should succeed");
 
-        let channel_id = ChannelId { role, step, total_records: None };
+        let channel_id = ChannelId { role, step };
         let server_recvd = rx_stream.next().await.unwrap(); // should already have been received
         assert_eq!(server_recvd, (channel_id, body.to_vec()));
     }

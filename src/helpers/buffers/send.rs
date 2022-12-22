@@ -60,12 +60,12 @@ impl SendBuffer {
         &mut self,
         channel_id: &ChannelId,
         msg: &MessageEnvelope,
+        total_records: NonZeroUsize,
     ) -> Result<Option<(Vec<u8>, bool)>, PushError> {
         debug_assert!(
             msg.payload.len() <= ByteBuf::ELEMENT_SIZE_BYTES,
             "Message payload exceeds the maximum allowed size"
         );
-        let total_records = channel_id.total_records.expect("can't send without a known total record count");
 
         let channel = if let Some(channel) = self.inner.get_mut(channel_id) {
             channel
