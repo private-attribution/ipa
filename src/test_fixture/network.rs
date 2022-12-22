@@ -9,35 +9,33 @@ pub struct InMemoryNetwork {
     pub transports: [Arc<InMemoryTransport>; 3],
 }
 
-impl InMemoryNetwork {
-    #[must_use]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn new() -> Arc<Self> {
-        Arc::new_cyclic(|_weak_ptr| {
-            let [mut first, mut second, mut third]: [InMemoryTransport; 3] = (0..3)
-                .map(|v| InMemoryTransport::new(HelperIdentity::from(v)))
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap();
+impl Default for InMemoryNetwork {
+    fn default() -> Self {
+        let [mut first, mut second, mut third]: [InMemoryTransport; 3] = (0..3)
+            .map(|v| InMemoryTransport::new(HelperIdentity::from(v)))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
-            // it is a bit tedious, is there a better way?
-            first.connect(&mut second);
-            first.connect(&mut third);
-            second.connect(&mut first);
-            second.connect(&mut third);
-            third.connect(&mut first);
-            third.connect(&mut second);
+        // it is a bit tedious, is there a better way?
+        first.connect(&mut second);
+        first.connect(&mut third);
+        second.connect(&mut first);
+        second.connect(&mut third);
+        third.connect(&mut first);
+        third.connect(&mut second);
 
-            first.listen();
-            second.listen();
-            third.listen();
+        first.listen();
+        second.listen();
+        third.listen();
 
-            Self {
-                transports: [Arc::new(first), Arc::new(second), Arc::new(third)],
-            }
-        })
+        Self {
+            transports: [Arc::new(first), Arc::new(second), Arc::new(third)],
+        }
     }
+}
 
+impl InMemoryNetwork {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn helper_identities(&self) -> [HelperIdentity; 3] {

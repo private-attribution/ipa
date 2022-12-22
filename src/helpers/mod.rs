@@ -34,7 +34,6 @@ pub struct HelperIdentity {
     id: u8,
 }
 
-#[cfg(test)]
 impl From<usize> for HelperIdentity {
     fn from(value: usize) -> Self {
         assert!(value < 3);

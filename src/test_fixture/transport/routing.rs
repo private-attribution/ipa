@@ -66,18 +66,20 @@ enum State {
     Listening(JoinHandle<()>),
 }
 
-pub(super) struct Demux {
+/// Takes care of forwarding commands received from multiple links (one link per peer)
+/// to the subscribers
+pub(super) struct Switch {
     state: State,
     tx: mpsc::Sender<SubscribeRequest>,
 }
 
-impl Debug for Demux {
+impl Debug for Switch {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "mux[{:?}]", self.state)
     }
 }
 
-impl Default for Demux {
+impl Default for Switch {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel(1);
 
@@ -88,7 +90,7 @@ impl Default for Demux {
     }
 }
 
-impl Demux {
+impl Switch {
     pub fn new_peer(&mut self, peer_id: HelperIdentity, peer_rx: mpsc::Receiver<TransportCommand>) {
         let State::Idle(_, peers) = &mut self.state else {
             panic!("Not in Idle state");

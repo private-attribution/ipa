@@ -49,7 +49,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    _network: Arc<InMemoryNetwork>,
+    _network: InMemoryNetwork,
 }
 
 #[derive(Copy, Clone)]
@@ -106,7 +106,7 @@ impl TestWorld {
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
-        let network = InMemoryNetwork::new();
+        let network = InMemoryNetwork::default();
         let role_assignment = RoleAssignment::new(network.helper_identities());
 
         let gateways = network

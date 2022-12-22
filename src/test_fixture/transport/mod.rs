@@ -1,11 +1,11 @@
-mod demux;
+mod routing;
 
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
 use crate::sync::Arc;
 use async_trait::async_trait;
-use demux::Demux;
+use routing::Switch;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use tokio_stream::wrappers::ReceiverStream;
 pub struct InMemoryTransport {
     identity: HelperIdentity,
     peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
-    demux: Demux,
+    demux: Switch,
 }
 
 impl Debug for InMemoryTransport {
@@ -30,7 +30,7 @@ impl InMemoryTransport {
         Self {
             identity,
             peer_connections: HashMap::default(),
-            demux: Demux::default(),
+            demux: Switch::default(),
         }
     }
 
