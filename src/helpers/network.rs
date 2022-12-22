@@ -77,12 +77,13 @@ impl<T: Transport> Network<T> {
     /// returns a [`Stream`] of [`MessageChunks`]s from the underlying [`Transport`]
     /// # Panics
     /// if called more than once during the execution of a query.
-    pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> + '_ {
-        let self_query_id = self.query_id;
+    pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
+        let self_query_id = self.query_id.clone();
         let query_command_stream = self
             .transport
             .subscribe(SubscriptionType::Query(self_query_id))
             .await;
+        let assignment = self.roles.clone(); // need to move it inside the closure
 
         #[allow(unreachable_patterns)] // there will be more commands in the future
         query_command_stream.map(move |envelope| match envelope.payload {
@@ -93,11 +94,10 @@ impl<T: Transport> Network<T> {
             }) => {
                 debug_assert!(query_id == self_query_id);
 
-                let origin_role = self.roles.role(&envelope.origin);
+                let origin_role = assignment.role(&envelope.origin);
                 let channel_id = ChannelId::new(origin_role, step);
 
                 (channel_id, payload)
-                // message_chunks
             }
             other_command => panic!(
                 "received unexpected command {other_command:?} for query id {}",

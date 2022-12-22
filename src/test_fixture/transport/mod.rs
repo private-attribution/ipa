@@ -6,8 +6,6 @@ use crate::helpers::{
 use crate::sync::Arc;
 use async_trait::async_trait;
 use routing::Switch;
-#[cfg(all(feature = "shuttle", test))]
-use shuttle::future as tokio;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use tokio::sync::mpsc::{channel, Sender};

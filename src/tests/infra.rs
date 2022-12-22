@@ -15,7 +15,7 @@ mod randomized {
             || {
                 shuttle::future::block_on(async {
                     let world = TestWorld::new();
-                    let input = (0u32..100).map(Fp32BitPrime::from).collect::<Vec<_>>();
+                    let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world
                         .semi_honest(
@@ -130,5 +130,67 @@ mod randomized {
             },
             1000,
         );
+    }
+
+    #[test]
+    fn replay() {
+        shuttle::replay(|| {
+            shuttle::future::block_on(async {
+                let world = TestWorld::new();
+                let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
+
+                let output = world
+                    .semi_honest(
+                        input.clone(),
+                        |ctx: SemiHonestContext<'_, Fp32BitPrime>, shares| async move {
+                            let (left_ctx, right_ctx) =
+                                (ctx.narrow("left"), ctx.narrow("right"));
+                            let left_channel = left_ctx.mesh();
+                            let right_channel = right_ctx.mesh();
+                            let left_peer = ctx.role().peer(Direction::Left);
+                            let right_peer = ctx.role().peer(Direction::Right);
+
+                            // send all shares to the right peer in parallel
+                            let mut futures = Vec::with_capacity(shares.len());
+                            for (i, share) in shares.iter().enumerate() {
+                                let record_id = RecordId::from(i);
+                                futures.push(left_channel.send(
+                                    right_peer,
+                                    record_id,
+                                    share.left(),
+                                ));
+                                futures.push(right_channel.send(
+                                    right_peer,
+                                    record_id,
+                                    share.left(),
+                                ));
+                            }
+                            try_join_all(futures)
+                                .await
+                                .unwrap()
+                                .into_iter()
+                                .for_each(drop);
+
+                            // receive all shares from the left peer in parallel
+                            let mut futures = Vec::with_capacity(shares.len());
+                            for i in 0..shares.len() {
+                                let record_id = RecordId::from(i);
+                                futures.push(try_join(
+                                    left_channel.receive::<Fp32BitPrime>(left_peer, record_id),
+                                    right_channel.receive::<Fp32BitPrime>(left_peer, record_id),
+                                ));
+                            }
+
+                            let result = try_join_all(futures).await.unwrap();
+
+                            result.into_iter().map(Replicated::from).collect::<Vec<_>>()
+                        },
+                    )
+                    .await
+                    .reconstruct();
+
+                assert_eq!(input, output);
+            });
+        }, "91039701d0d38cc192be88dc800100f0ffff2f02400642600684c0a200f0ffffffff8f0404ac8a2c6c00a88ca6c640800a4248c28060c220aac0a6c60084a4c0a008");
     }
 }

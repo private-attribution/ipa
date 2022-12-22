@@ -7,8 +7,10 @@ use futures::StreamExt;
 use futures_util::stream::SelectAll;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use tokio::sync::{mpsc, oneshot};
+use ::tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 struct SubscribeRequest {
     subscription: SubscriptionType,

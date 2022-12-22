@@ -21,6 +21,9 @@ use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 use std::{io, panic};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
@@ -28,7 +31,6 @@ use crate::helpers::network::Network;
 use crate::helpers::old_network::MessageEnvelope;
 use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
-use ::tokio::time::Instant;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -159,19 +161,29 @@ pub struct GatewayConfig {
     pub recv_outstanding: usize,
 }
 
+#[cfg(not(feature = "shuttle"))]
+#[pin_project::pin_project]
+struct GatewayTimer {
+    interval: Duration,
+    #[pin]
+    timer_f: ::tokio::time::Sleep
+}
+
+#[cfg(feature = "shuttle")]
+struct GatewayTimer {}
+
 impl Gateway {
-    pub fn new<T: Transport>(role: Role, network: Network<T>, config: GatewayConfig) -> Self {
+    pub async fn new<T: Transport>(role: Role, network: Network<T>, config: GatewayConfig) -> Self {
         let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
         let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(config.send_outstanding);
+        let mut message_stream = network.recv_stream().await;
 
         let control_handle = tokio::spawn(async move {
             const INTERVAL: Duration = Duration::from_secs(3);
 
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
-            let mut message_stream = network.recv_stream().await;
-
-            let sleep = ::tokio::time::sleep(INTERVAL);
+            let sleep = GatewayTimer::new(INTERVAL);
             ::tokio::pin!(sleep);
 
             loop {
@@ -203,7 +215,7 @@ impl Gateway {
                 }
 
                 // reset the timer on every action
-                sleep.as_mut().reset(Instant::now() + INTERVAL);
+                sleep.as_mut().reset();
             }
         }.instrument(tracing::info_span!("gateway_loop", role=role.as_static_str()).or_current()));
 
@@ -315,6 +327,47 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
     }
 }
 
+#[cfg(not(feature = "shuttle"))]
+impl GatewayTimer {
+    pub fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            timer_f: ::tokio::time::sleep(interval)
+        }
+    }
+
+    pub fn reset(self: Pin<&mut Self>) {
+        let this = self.project();
+        this.timer_f.reset(::tokio::time::Instant::now() + *this.interval)
+    }
+}
+
+#[cfg(feature = "shuttle")]
+impl GatewayTimer {
+    pub fn new(_: Duration) -> Self {
+        Self {}
+    }
+
+    pub fn reset(&mut self) {
+    }
+}
+
+impl Future for GatewayTimer {
+    type Output = ();
+
+    #[cfg(feature = "shuttle")]
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Pending
+    }
+
+    #[cfg(not(feature = "shuttle"))]
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        this.timer_f.poll(cx)
+    }
+}
+
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::ff::Fp31;
@@ -329,7 +382,7 @@ mod tests {
         config.gateway_config.send_buffer_config.items_in_batch = 1; // Send every record
         config.gateway_config.send_buffer_config.batch_count = 3; // keep 3 at a time
 
-        let world = Box::leak(Box::new(TestWorld::new_with(config)));
+        let world = Box::leak(Box::new(TestWorld::new_with(config).await));
         let contexts = world.contexts::<Fp31>();
         let sender_ctx = contexts[0].narrow("reordering-test");
         let recv_ctx = contexts[1].narrow("reordering-test");

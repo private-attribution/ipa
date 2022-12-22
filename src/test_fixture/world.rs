@@ -100,8 +100,7 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new_with(config: TestWorldConfig) -> TestWorld {
+    pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
@@ -109,17 +108,20 @@ impl TestWorld {
         let network = InMemoryNetwork::default();
         let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = network
+        let gateways = join_all(network
             .transports
             .iter()
             .enumerate()
             .map(|(i, transport)| {
-                // simple role assignment, based on transport position
-                let role = Role::all()[i];
-                let network = Network::new(Arc::clone(transport), QueryId, role_assignment.clone());
-                Gateway::new(role, network, config.gateway_config)
-            })
-            .collect::<Vec<_>>()
+                let role_assignment = role_assignment.clone();
+                async move {
+                    // simple role assignment, based on transport position
+                    let role = Role::all()[i];
+                    let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
+                    Gateway::new(role, network, config.gateway_config).await
+                }
+            }))
+            .await
             .try_into()
             .unwrap();
 
@@ -138,7 +140,19 @@ impl TestWorld {
     #[must_use]
     pub fn new() -> TestWorld {
         let config = TestWorldConfig::default();
-        Self::new_with(config)
+        // TODO: make this method async too.
+        // It is not a big deal to rely on tokio scheduler, because
+        // if this method is called from a different runtime, it will panic anyway
+        #[cfg(not(all(test, feature = "shuttle")))]
+        {
+            tokio::runtime::Handle::current().block_on(Self::new_with(config))
+        }
+
+        #[cfg(all(test, feature = "shuttle"))]
+        {
+            use shuttle::future;
+            future::block_on(Self::new_with(config))
+        }
     }
 
     /// Creates protocol contexts for 3 helpers
