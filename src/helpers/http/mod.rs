@@ -58,7 +58,8 @@ impl<'p> HttpHelper<'p> {
     /// # Errors
     /// if a query has been previously added
     pub fn query(&self, query_id: QueryId) -> Result<Gateway, Error> {
-        todo!()
+        // TODO: This requires `HttpNetwork` to implement Transport
+        unimplemented!();
         // tracing::debug!("starting query {}", query_id.as_ref());
         // let network = HttpNetwork::new(self.role, self.peers, query_id);
         //
@@ -209,6 +210,7 @@ mod e2e_tests {
     }
 
     #[tokio::test]
+    #[ignore] // TODO (thurstonsand): enable after `HttpNetwork` implements `Transport`
     async fn prss_key_exchange() {
         logging::setup();
 
@@ -276,6 +278,7 @@ mod e2e_tests {
     }
 
     #[tokio::test]
+    #[ignore] // TODO (thurstonsand): enable after `HttpNetwork` implements `Transport`
     async fn basic_mul() {
         logging::setup();
 

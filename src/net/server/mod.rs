@@ -4,7 +4,7 @@ use crate::sync::{Arc, Mutex};
 use crate::task::JoinHandle;
 use crate::{
     error::BoxError,
-    helpers::{network::MessageChunks, old_http::HttpNetwork},
+    helpers::{network::MessageChunks, http::HttpNetwork},
     net::LastSeenMessages,
     protocol::QueryId,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
@@ -412,7 +412,7 @@ mod tests {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use crate::{
-        helpers::old_http::HttpNetwork,
+        helpers::http::HttpNetwork,
         net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::QueryId,
         telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},

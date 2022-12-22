@@ -124,7 +124,7 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
 mod tests {
     use super::*;
     use crate::{
-        helpers::{old_http::HttpNetwork, old_network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{http::HttpNetwork, old_network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
             server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
             OFFSET_HEADER_NAME,

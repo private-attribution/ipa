@@ -1,6 +1,6 @@
 pub mod messaging;
 pub mod network;
-pub mod old_http;
+pub mod http;
 pub mod old_network;
 
 mod buffers;

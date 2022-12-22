@@ -120,7 +120,7 @@ mod tests {
     use crate::{
         helpers::{
             network::{ChannelId, MessageChunks},
-            old_http::HttpNetwork,
+            http::HttpNetwork,
             old_network::Network,
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
