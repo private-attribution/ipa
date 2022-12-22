@@ -60,7 +60,7 @@ pub enum TransportCommand {
 /// type as argument to the `subscribe` function
 /// TODO -> EventSubscription
 #[allow(dead_code)] // will use this soon
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum SubscriptionType {
     /// Commands for managing queries
     Administration,

@@ -22,23 +22,12 @@ use tinyvec::ArrayVec;
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
-/// Represents a unique identifier of the helper instance. Compare with a [`Role`], which
+/// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
-/// `HelperIdentity` will be established at startup and then never change.
-/// TODO: must be cheap (i.e. copy) and probably just a byte. Whoever needs to resolve it to Uri
-/// would use this token to pull helper configuration
+/// `HelperIdentity` will be established at startup and then never change. Components that want to
+/// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
-)]
 pub struct HelperIdentity {
-    #[cfg(not(test))]
-    #[cfg_attr(feature = "enable-serde", serde(with = "crate::uri"))]
-    uri: hyper::Uri,
-
-    #[cfg(test)]
     id: u8
 }
 
@@ -50,13 +39,6 @@ impl From<usize> for HelperIdentity {
         Self {
             id: u8::try_from(value).unwrap()
         }
-    }
-}
-
-#[cfg(not(test))]
-impl From<hyper::Uri> for HelperIdentity {
-    fn from(uri: hyper::Uri) -> Self {
-        Self { uri }
     }
 }
 
