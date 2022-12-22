@@ -14,10 +14,12 @@ use crate::{
     task::JoinHandle,
 };
 use futures_util::future::try_join4;
-use prss_exchange_protocol::{PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk};
+use prss_exchange_protocol::{
+    PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk, PUBLIC_KEY_CHUNK_COUNT,
+};
 use rand_core::{CryptoRng, RngCore};
-use std::iter::zip;
 use std::net::SocketAddr;
+use std::{iter::zip, num::NonZeroUsize};
 
 pub struct HttpHelper<'p> {
     role: Role,
@@ -82,15 +84,16 @@ impl<'p> HttpHelper<'p> {
     ) -> Result<prss::Endpoint, Error> {
         // setup protocol to exchange prss public keys
         let step = step.narrow(&PrssExchangeStep);
-        let channel = gateway.mesh(&step);
+        let channel = gateway.mesh(&step, NonZeroUsize::new(PUBLIC_KEY_CHUNK_COUNT));
         let left_peer = self.role.peer(Direction::Left);
         let right_peer = self.role.peer(Direction::Right);
 
         // setup local prss endpoint
         let ep_setup = prss::Endpoint::prepare(rng);
         let (send_left_pk, send_right_pk) = ep_setup.public_keys();
-        let send_left_pk_chunks = PublicKeyChunk::chunks(send_left_pk);
-        let send_right_pk_chunks = PublicKeyChunk::chunks(send_right_pk);
+        let send_left_pk_chunks: [_; PUBLIC_KEY_CHUNK_COUNT] = PublicKeyChunk::chunks(send_left_pk);
+        let send_right_pk_chunks: [_; PUBLIC_KEY_CHUNK_COUNT] =
+            PublicKeyChunk::chunks(send_right_pk);
 
         // exchange public keys
         // TODO: since we have a limitation that max message size is 8 bytes, we must send 4
@@ -312,9 +315,15 @@ mod e2e_tests {
                 .await
                 .unwrap();
 
-        let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
-        let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
-        let ctx3 = h3.context::<Fp31>(&gateway3, &participant3);
+        let ctx1 = h1
+            .context::<Fp31>(&gateway1, &participant1)
+            .set_total_records(1);
+        let ctx2 = h2
+            .context::<Fp31>(&gateway2, &participant2)
+            .set_total_records(1);
+        let ctx3 = h3
+            .context::<Fp31>(&gateway3, &participant3)
+            .set_total_records(1);
 
         let mut rand = StepRng::new(1, 1);
 

@@ -21,7 +21,7 @@ mod tests {
     use super::or;
     use crate::{
         ff::{Field, Fp31},
-        protocol::RecordId,
+        protocol::{context::Context, RecordId},
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -34,17 +34,27 @@ mod tests {
     {
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                or(
+                    ctx.set_total_records(1),
+                    RecordId::from(0_u32),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
         let m_result = world
             .malicious((a, b), |ctx, (a_share, b_share)| async move {
-                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                or(
+                    ctx.set_total_records(1),
+                    RecordId::from(0_u32),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();

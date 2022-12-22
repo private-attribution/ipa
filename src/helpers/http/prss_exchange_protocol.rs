@@ -28,11 +28,13 @@ impl AsRef<str> for PrssExchangeStep {
 
 impl Substep for PrssExchangeStep {}
 
+pub const PUBLIC_KEY_CHUNK_COUNT: usize = 4;
+
 #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
 pub struct PublicKeyChunk([u8; 8]);
 
 impl PublicKeyChunk {
-    pub fn chunks(pk: PublicKey) -> [PublicKeyChunk; 4] {
+    pub fn chunks(pk: PublicKey) -> [PublicKeyChunk; PUBLIC_KEY_CHUNK_COUNT] {
         let pk_bytes = pk.to_bytes();
 
         // These assumptions are necessary for ser/de to work
@@ -46,7 +48,7 @@ impl PublicKeyChunk {
                 chunk_bytes.copy_from_slice(chunk);
                 PublicKeyChunk(chunk_bytes)
             })
-            .collect::<ArrayVec<[PublicKeyChunk; 4]>>()
+            .collect::<ArrayVec<[PublicKeyChunk; PUBLIC_KEY_CHUNK_COUNT]>>()
             .into_inner()
     }
 
@@ -100,7 +102,8 @@ pub struct PublicKeyBytesBuilder {
 }
 
 impl PublicKeyBytesBuilder {
-    const FULL_COUNT: u8 = 4;
+    #[allow(clippy::cast_possible_truncation)]
+    const FULL_COUNT: u8 = PUBLIC_KEY_CHUNK_COUNT as u8;
 
     pub fn empty() -> Self {
         PublicKeyBytesBuilder {

@@ -72,6 +72,7 @@ where
     S: SecretSharing<F>,
     T: Resharable<F, Share = S>,
 {
+    let ctx = ctx.set_total_records(input.len());
     let reshares = zip(repeat(ctx), input)
         .enumerate()
         .map(|(index, (ctx, input))| async move {

@@ -36,6 +36,7 @@ pub async fn bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Sh
     ctx: C,
     input: &[S],
 ) -> Result<Vec<S>, Error> {
+    let ctx = ctx.set_total_records(2 * input.len());
     let share_of_one = ctx.share_of_one();
 
     let mult_input = zip(repeat(share_of_one.clone()), input)

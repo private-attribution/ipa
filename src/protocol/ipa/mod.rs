@@ -181,7 +181,10 @@ where
     .unwrap();
 
     let futures = zip(
-        repeat(ctx.narrow(&Step::ComputeHelperBits)),
+        repeat(
+            ctx.narrow(&Step::ComputeHelperBits)
+                .set_total_records(sorted_rows.len() - 1),
+        ),
         sorted_rows.iter(),
     )
     .zip(sorted_rows.iter().skip(1))

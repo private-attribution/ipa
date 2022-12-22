@@ -136,7 +136,7 @@ mod tests {
             .semi_honest(a, |ctx, a_p| async move {
                 let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
 
-                BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
+                BitDecomposition::execute(ctx.set_total_records(1), RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()
             })

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
+use std::num::NonZeroUsize;
 
 use crate::error::Error;
 use crate::ff::Field;
@@ -28,6 +29,7 @@ pub struct MaliciousContext<'a, F: Field> {
     /// may operate with raw references and be more efficient
     inner: Arc<ContextInner<'a, F>>,
     step: Step,
+    total_records: Option<NonZeroUsize>,
 }
 
 pub trait SpecialAccessToMaliciousContext<'a, F: Field> {
@@ -46,6 +48,7 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         Self {
             inner: ContextInner::new(upgrade_ctx, acc, r_share),
             step: source.step().narrow(malicious_step),
+            total_records: None,
         }
     }
 
@@ -107,6 +110,23 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
+            total_records: self.total_records,
+        }
+    }
+
+    fn is_total_records_known(&self) -> bool {
+        self.total_records.is_some()
+    }
+
+    fn set_total_records(&self, total_records: usize) -> Self {
+        debug_assert!(
+            !self.is_total_records_known(),
+            "attempt to set total_records more than once"
+        );
+        Self {
+            inner: Arc::clone(&self.inner),
+            step: self.step.clone(),
+            total_records: Some(total_records.try_into().unwrap()),
         }
     }
 
@@ -130,7 +150,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     }
 
     fn mesh(&self) -> Mesh<'_, '_> {
-        self.inner.gateway.mesh(self.step())
+        self.inner.gateway.mesh(self.step(), self.total_records)
     }
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
@@ -160,7 +180,12 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
         // is not
         // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
         // for `MaliciousContext`. Deep clone is the only option
-        let mut ctx = SemiHonestContext::new(self.inner.role, self.inner.prss, self.inner.gateway);
+        let mut ctx = SemiHonestContext::new_with_total_records(
+            self.inner.role,
+            self.inner.prss,
+            self.inner.gateway,
+            self.total_records,
+        );
         ctx.step = self.step;
 
         ctx
@@ -340,7 +365,7 @@ impl<'a, F: Field> UpgradeContext<'a, F, NoRecord> {
     ) -> Result<MaliciousReplicated<F>, Error> {
         self.inner
             .upgrade_one(
-                self.upgrade_ctx, /*.set_total_records(1)*/
+                self.upgrade_ctx.set_total_records(1),
                 RecordId::from(0u32),
                 input,
                 zeros_at,
@@ -423,7 +448,7 @@ where
         self,
         input: Vec<Replicated<F>>,
     ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
-        let ctx = self.upgrade_ctx/*.set_total_records(input.len())*/;
+        let ctx = self.upgrade_ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
         try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
             self.inner
@@ -468,7 +493,7 @@ where
 {
     async fn upgrade(self, input: T) -> Result<M, Error> {
         UpgradeContext {
-            upgrade_ctx: self.upgrade_ctx, /*.set_total_records(1)*/
+            upgrade_ctx: self.upgrade_ctx.set_total_records(1),
             inner: self.inner,
             record_binding: RECORD_0,
         }

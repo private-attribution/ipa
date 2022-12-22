@@ -147,7 +147,8 @@ where
         .enumerate()
         .map(|(bit_num, one_column)| {
             convert_bit_list(
-                ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap())),
+                ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap()))
+                    .set_total_records(one_column.len()),
                 one_column,
             )
         })
@@ -207,7 +208,9 @@ mod tests {
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
-                convert_bit(ctx, RecordId::from(0), &triple).await.unwrap()
+                convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
+                    .await
+                    .unwrap()
             })
             .await;
         assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
@@ -225,7 +228,7 @@ mod tests {
                 let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
-                let m_ctx = v.context();
+                let m_ctx = v.context().set_total_records(1);
                 let m_triple = m_ctx.upgrade(triple).await.unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
@@ -284,7 +287,7 @@ mod tests {
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = MaliciousValidator::new(ctx);
-                    let m_ctx = v.context();
+                    let m_ctx = v.context().set_total_records(1);
                     let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await
