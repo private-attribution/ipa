@@ -19,12 +19,11 @@ use crate::{
 };
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
+use std::io;
 use std::time::Duration;
-use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
-use crate::helpers::buffers::PushError;
 use crate::helpers::network::{MessageEnvelope, Network};
 use crate::helpers::time::Timer;
 use crate::helpers::transport::Transport;
@@ -244,7 +243,7 @@ impl Gateway {
             .await
             .map_err(|e| {
                 if e.is_panic() {
-                    panic::resume_unwind(e.into_panic())
+                    std::panic::resume_unwind(e.into_panic())
                 } else {
                     "Task cancelled".to_string()
                 }
@@ -367,7 +366,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Record RecordId(1) has been received twice")]
+    #[should_panic(expected = "Duplicate send for index 1 on channel")]
     async fn duplicate_message() {
         let world = TestWorld::new().await;
         let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));

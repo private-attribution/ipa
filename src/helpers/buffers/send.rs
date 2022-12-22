@@ -1,12 +1,8 @@
-use crate::{
-    helpers::{
-        buffers::fsv::FixedSizeByteVec, network::ChannelId, network::MessageEnvelope,
-        MESSAGE_PAYLOAD_SIZE_BYTES,
-    },
-    protocol::RecordId,
+use crate::helpers::{
+    buffers::fsv::FixedSizeByteVec, network::ChannelId, network::MessageEnvelope,
+    MESSAGE_PAYLOAD_SIZE_BYTES,
 };
 use std::collections::HashMap;
-use std::ops::Range;
 
 /// Use the buffer that allocates 8 bytes per element. It could probably go down to 4 if the
 /// only thing IPA sends is a single field value. To support arbitrarily sized values, it needs
@@ -20,21 +16,6 @@ pub struct SendBuffer {
     items_in_batch: usize,
     batch_count: usize,
     pub(super) inner: HashMap<ChannelId, ByteBuf>,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum PushError {
-    #[error("Record {record_id:?} has been received twice")]
-    Duplicate {
-        channel_id: ChannelId,
-        record_id: RecordId,
-    },
-    #[error("Record {record_id:?} is out of accepted range {accepted_range:?}")]
-    OutOfRange {
-        channel_id: ChannelId,
-        record_id: RecordId,
-        accepted_range: Range<RecordId>,
-    },
 }
 
 /// Send buffer configuration is defined over two parameters. `items_in_batch` indicates how many
@@ -68,11 +49,7 @@ impl SendBuffer {
         }
     }
 
-    pub fn push(
-        &mut self,
-        channel_id: &ChannelId,
-        msg: &MessageEnvelope,
-    ) -> Result<Option<Vec<u8>>, PushError> {
+    pub fn push(&mut self, channel_id: &ChannelId, msg: &MessageEnvelope) -> Option<Vec<u8>> {
         debug_assert!(
             msg.payload.len() <= ByteBuf::ELEMENT_SIZE_BYTES,
             "Message payload exceeds the maximum allowed size"
@@ -86,33 +63,11 @@ impl SendBuffer {
                 .or_insert_with(|| FixedSizeByteVec::new(self.batch_count * self.items_in_batch))
         };
 
-        // Make sure record id is within the accepted range and reject the request if it is not
-        let range = Range::from(&*buf);
-
-        if !range.contains(&msg.record_id) {
-            return Err(PushError::OutOfRange {
-                channel_id: channel_id.clone(),
-                record_id: msg.record_id,
-                accepted_range: range,
-            });
-        }
-
-        // Determine the offset for this record and insert the payload inside the buffer.
-        // Message payload may be less than allocated capacity per element, if that's the case
-        // payload will be extended to fill the gap.
-        let index = usize::from(msg.record_id) - usize::from(range.start);
         // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
-        if buf.added(index) {
-            Err(PushError::Duplicate {
-                channel_id: channel_id.clone(),
-                record_id: msg.record_id,
-            })
-        } else {
-            buf.insert(index, &payload);
-            Ok(buf.take(self.items_in_batch))
-        }
+        buf.insert(channel_id, usize::from(msg.record_id), &payload);
+        buf.take(self.items_in_batch)
     }
 
     #[cfg(debug_assertions)]
@@ -121,18 +76,14 @@ impl SendBuffer {
 
         let mut tasks = HashMap::new();
         for (channel, buf) in &self.inner {
-            let range = Range::from(buf);
-            let taken = u32::try_from(buf.taken()).unwrap();
-            let range = (u32::from(range.start) - taken)..(u32::from(range.end) - taken);
-            // Only report any gaps ahead of the first available value. If buffer is entirely empty
-            // there are no waiting tasks.
-            let missing = range
-                .take_while(|&i| !buf.added(usize::try_from(i).unwrap()))
-                .map(|i| taken + i)
-                .collect::<Vec<_>>();
-
-            if !missing.is_empty() && missing.len() < buf.capacity() {
-                tasks.insert(channel, missing);
+            let missing = buf.missing();
+            if !missing.is_empty() {
+                tasks.insert(
+                    channel,
+                    missing
+                        .map(|v| u32::try_from(v).unwrap())
+                        .collect::<Vec<_>>(),
+                );
             }
         }
 
@@ -158,14 +109,6 @@ impl Config {
     }
 }
 
-impl From<&ByteBuf> for Range<RecordId> {
-    fn from(buf: &ByteBuf) -> Self {
-        let start = RecordId::from(u32::try_from(buf.taken()).unwrap());
-        let end = RecordId::from(u32::try_from(buf.taken() + buf.capacity()).unwrap());
-        start..end
-    }
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
@@ -183,15 +126,16 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn rejects_records_out_of_range() {
         let record_id = RecordId::from(11_u32);
         let mut buf = SendBuffer::new(Config::default());
         let msg = empty_msg(record_id);
 
-        assert!(matches!(
+        assert_eq!(
             buf.push(&ChannelId::new(Role::H1, Step::default()), &msg),
-            Err(PushError::OutOfRange { .. }),
-        ));
+            None
+        );
     }
 
     #[test]
@@ -205,7 +149,7 @@ mod tests {
                     record_id: RecordId::from(u32::from(i)),
                     payload: array_vec!([u8; ByteBuf::ELEMENT_SIZE_BYTES] => i),
                 };
-                buf.push(&c1, &msg).ok().flatten()
+                buf.push(&c1, &msg)
             })
             .unwrap();
 
@@ -218,6 +162,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "index 1 out of range")]
     fn offset_is_per_channel() {
         let mut buf = SendBuffer::new(Config::default());
         let c1 = ChannelId::new(Role::H1, Step::default());
@@ -229,13 +174,11 @@ mod tests {
         buf.push(&c1, &m1).unwrap();
         buf.push(&c1, &m2).unwrap();
 
-        assert!(matches!(
-            buf.push(&c2, &m2),
-            Err(PushError::OutOfRange { .. }),
-        ));
+        assert!(buf.push(&c2, &m2).is_none());
     }
 
     #[test]
+    #[should_panic(expected = "Duplicate send for index 3")]
     fn rejects_duplicates() {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
         let channel = ChannelId::new(Role::H1, Step::default());
@@ -243,11 +186,8 @@ mod tests {
         let m1 = empty_msg(record_id);
         let m2 = empty_msg(record_id);
 
-        assert!(matches!(buf.push(&channel, &m1), Ok(None)));
-        assert!(matches!(
-            buf.push(&channel, &m2),
-            Err(PushError::Duplicate { .. })
-        ));
+        assert!(buf.push(&channel, &m1).is_none());
+        assert!(buf.push(&channel, &m2).is_none()); // This throws.
     }
 
     #[test]
@@ -255,10 +195,9 @@ mod tests {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
         let msg = empty_msg(5);
 
-        assert!(matches!(
-            buf.push(&ChannelId::new(Role::H1, Step::default()), &msg),
-            Ok(None)
-        ));
+        assert!(buf
+            .push(&ChannelId::new(Role::H1, Step::default()), &msg)
+            .is_none());
     }
 
     #[test]
@@ -269,9 +208,9 @@ mod tests {
         let this_msg = empty_msg(0);
 
         // this_msg belongs to current range, should be accepted
-        assert!(matches!(buf.push(&channel, &this_msg), Ok(Some(_))));
+        assert!(buf.push(&channel, &this_msg).is_some());
         // this_msg belongs to next valid range that must be set as current by now
-        assert!(matches!(buf.push(&channel, &next_msg), Ok(Some(_))));
+        assert!(buf.push(&channel, &next_msg).is_some());
     }
 
     fn empty_msg<I: TryInto<u32>>(record_id: I) -> MessageEnvelope
