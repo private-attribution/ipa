@@ -24,6 +24,7 @@ mod tests;
 
 #[cfg(all(feature = "shuttle", test))]
 extern crate shuttle_crate as shuttle;
+extern crate core;
 
 #[cfg(all(feature = "shuttle", test))]
 pub(crate) mod sync {

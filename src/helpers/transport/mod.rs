@@ -8,6 +8,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::Stream;
+use crate::protocol::Step;
 
 pub trait TransportCommandData {
     type RespData;
@@ -18,18 +19,20 @@ pub trait TransportCommandData {
 #[derive(Debug)]
 pub struct NetworkEventData {
     pub query_id: QueryId,
-    // TODO: wrong, there should only be origin field, step name and u8
-    pub message_chunks: MessageChunks,
+    pub step: Step,
+    pub payload: Vec<u8>,
 }
 
 impl NetworkEventData {
     pub fn new(
         query_id: QueryId,
-        message_chunks: MessageChunks,
+        step: Step,
+        payload: Vec<u8>,
     ) -> Self {
         Self {
             query_id,
-            message_chunks,
+            step,
+            payload,
         }
     }
 }

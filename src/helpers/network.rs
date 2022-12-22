@@ -9,6 +9,7 @@ use crate::{
 };
 use futures::{Stream, StreamExt};
 use std::fmt::{Debug, Formatter};
+use crate::helpers::RoleAssignment;
 
 /// Combination of helper role and step that uniquely identifies a single channel of communication
 /// between two helpers.
@@ -39,15 +40,15 @@ pub type MessageChunks = (ChannelId, Vec<u8>);
 pub struct Network<T> {
     transport: T,
     query_id: QueryId,
-    roles_to_helpers: [HelperIdentity; 3],
+    roles: RoleAssignment
 }
 
 impl<T: Transport> Network<T> {
-    pub fn new(transport: T, query_id: QueryId, roles_to_helpers: [HelperIdentity; 3]) -> Self {
+    pub fn new(transport: T, query_id: QueryId, roles: RoleAssignment) -> Self {
         Self {
             transport,
             query_id,
-            roles_to_helpers,
+            roles,
         }
     }
 
@@ -57,14 +58,16 @@ impl<T: Transport> Network<T> {
     /// # Panics
     /// if `roles_to_helpers` does not have all 3 roles
     pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
-        let role = message_chunks.0.role;
-        let destination = &self.roles_to_helpers[role];
+        let (channel, payload) = message_chunks;
+        let destination = self.roles.identity(channel.role);
+
         self.transport
             .send(
                 destination,
                 TransportCommand::NetworkEvent(NetworkEventData {
                     query_id: self.query_id,
-                    message_chunks,
+                    step: channel.step,
+                    payload
                 }),
             )
             .await
@@ -75,17 +78,24 @@ impl<T: Transport> Network<T> {
     /// # Panics
     /// if called more than once during the execution of a query.
     pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
-        let query_id = self.query_id;
-        let query_command_stream = self.transport.subscribe(SubscriptionType::Query(query_id)).await;
+        let self_query_id = self.query_id;
+        let query_command_stream = self.transport.subscribe(SubscriptionType::Query(self_query_id)).await;
+
 
         #[allow(unreachable_patterns)] // there will be more commands in the future
         query_command_stream.map(move |command| match command {
-            TransportCommand::NetworkEvent(NetworkEventData { message_chunks, .. }) => {
-                message_chunks
+            TransportCommand::NetworkEvent(NetworkEventData { query_id, step, payload }) => {
+                debug_assert!(query_id == self_query_id);
+
+                let origin_role = Role::H1;
+                let channel_id = ChannelId::new(origin_role, step);
+
+                (channel_id, payload)
+                // message_chunks
             }
             other_command => panic!(
                 "received unexpected command {other_command:?} for query id {}",
-                query_id.as_ref()
+                self_query_id.as_ref()
             ),
         })
     }

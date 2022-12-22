@@ -33,6 +33,7 @@ use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
 use tracing::Level;
 use crate::helpers::network::Network;
+use crate::helpers::RoleAssignment;
 
 use super::{
     sharing::{IntoMalicious, ValidateMalicious},
@@ -107,11 +108,18 @@ impl TestWorld {
         let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
         let network = InMemoryNetwork::new();
+        let role_assignment = RoleAssignment::new(network.helper_identities());
 
         let gateways = network
-            .endpoints
+            .transports
             .iter()
-            .map(|endpoint| Gateway::new(endpoint.role, Network::new(Arc::clone(endpoint), QueryId, network.mapping()), config.gateway_config))
+            .enumerate()
+            .map(|(i, transport)| {
+                // simple role assignment, based on transport position
+                let role = Role::all()[i];
+                let network = Network::new(Arc::clone(transport), QueryId, role_assignment.clone());
+                Gateway::new(role, network, config.gateway_config)
+            })
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();

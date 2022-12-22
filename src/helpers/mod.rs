@@ -25,6 +25,8 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// Represents a unique identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change.
+/// TODO: must be cheap (i.e. copy) and probably just a byte. Whoever needs to resolve it to Uri
+/// would use this token to pull helper configuration
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
@@ -32,12 +34,26 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
     serde(transparent)
 )]
 pub struct HelperIdentity {
+    #[cfg(not(test))]
     #[cfg_attr(feature = "enable-serde", serde(with = "crate::uri"))]
     uri: hyper::Uri,
+
+    #[cfg(test)]
+    id: u8
 }
 
-/// instantiate `HelperIdentity` directly from `Uri`s for testing purposes.
 #[cfg(test)]
+impl From<usize> for HelperIdentity {
+    fn from(value: usize) -> Self {
+        assert!(value < 3);
+
+        Self {
+            id: u8::try_from(value).unwrap()
+        }
+    }
+}
+
+#[cfg(not(test))]
 impl From<hyper::Uri> for HelperIdentity {
     fn from(uri: hyper::Uri) -> Self {
         Self { uri }
@@ -59,6 +75,12 @@ pub enum Role {
     H1 = 0,
     H2 = 1,
     H3 = 2,
+}
+
+#[derive(Debug)]
+#[cfg_attr(any(test, feature = "test-fixture"), derive(Clone))]
+pub struct RoleAssignment {
+    helper_roles: [HelperIdentity; 3]
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -162,6 +184,28 @@ impl<T> IndexMut<Role> for Vec<T> {
     }
 }
 
+impl RoleAssignment {
+    pub fn new(helper_roles: [HelperIdentity; 3]) -> Self {
+        Self {
+            helper_roles
+        }
+    }
+
+    pub fn role(&self, id: &HelperIdentity) -> Role {
+        for (idx, item) in self.helper_roles.iter().enumerate() {
+            if item == id {
+                return Role::all()[idx]
+            }
+        }
+
+        panic!("No role assignment for {id:?} found in {self:?}")
+    }
+
+    pub fn identity(&self, role: Role) -> &HelperIdentity {
+        &self.helper_roles[role]
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod role_tests {
@@ -183,6 +227,42 @@ mod tests {
             assert_eq!(3, data[Role::H1]);
             assert_eq!(4, data[Role::H2]);
             assert_eq!(5, data[Role::H3]);
+        }
+    }
+
+    mod role_assignment_tests {
+        use crate::helpers::*;
+
+        #[test]
+        fn basic() {
+            let identities = (0..3).map(HelperIdentity::from)
+                .collect::<Vec<_>>()
+                .try_into().unwrap();
+            let assignment = RoleAssignment::new(identities);
+
+            assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(0)));
+            assert_eq!(Role::H2, assignment.role(&HelperIdentity::from(1)));
+            assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(2)));
+
+            assert_eq!(&HelperIdentity::from(0), assignment.identity(Role::H1));
+            assert_eq!(&HelperIdentity::from(1), assignment.identity(Role::H2));
+            assert_eq!(&HelperIdentity::from(2), assignment.identity(Role::H3));
+        }
+
+        #[test]
+        fn reverse() {
+            let identities = (0..3).rev().map(HelperIdentity::from)
+                .collect::<Vec<_>>()
+                .try_into().unwrap();
+            let assignment = RoleAssignment::new(identities);
+
+            assert_eq!(Role::H3, assignment.role(&HelperIdentity::from(0)));
+            assert_eq!(Role::H2, assignment.role(&HelperIdentity::from(1)));
+            assert_eq!(Role::H1, assignment.role(&HelperIdentity::from(2)));
+
+            assert_eq!(&HelperIdentity::from(2), assignment.identity(Role::H1));
+            assert_eq!(&HelperIdentity::from(1), assignment.identity(Role::H2));
+            assert_eq!(&HelperIdentity::from(0), assignment.identity(Role::H3));
         }
     }
 }

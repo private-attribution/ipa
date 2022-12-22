@@ -1,13 +1,16 @@
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::mem;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use async_trait::async_trait;
 use clap::command;
 use futures::Stream;
 use futures_util::stream::SelectAll;
+use futures_util::StreamExt;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
-use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::instrument::WithSubscriber;
 use crate::helpers::{HelperIdentity, NetworkEventData, SubscriptionType, Transport, TransportCommand, TransportError};
@@ -25,14 +28,26 @@ impl Stream for DemultiplexerStream {
 
 #[derive(Debug)]
 enum MultiplexerCommand {
-    Listen(HelperIdentity, Receiver<TransportCommand>),
+    // Listen(HelperIdentity, Receiver<TransportCommand>),
     Subscribe(SubscriptionType, Sender<TransportCommand>),
 }
 
 #[derive(Debug)]
+enum MuxState {
+    Idle(Receiver<MultiplexerCommand>, HashMap<HelperIdentity, Receiver<TransportCommand>>),
+    Preparing,
+    Listening(JoinHandle<()>)
+}
+
 struct Multiplexer {
-    handle: JoinHandle<()>,
+    state: MuxState,
     tx: Sender<MultiplexerCommand>
+}
+
+impl Debug for Multiplexer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "mux[{:?}]", self.state)
+    }
 }
 
 #[derive(Default)]
@@ -55,17 +70,37 @@ impl QueryRouter {
 impl Multiplexer {
     pub fn new() -> Self {
         let (tx, mut rx) = channel(1);
+
+        Self {
+            state: MuxState::Idle(rx, HashMap::default()),
+            tx
+        }
+    }
+
+    pub fn new_peer(&mut self, peer_id: HelperIdentity, peer_rx: Receiver<TransportCommand>) {
+        let MuxState::Idle(_, peers) = &mut self.state else {
+            panic!("Not in Idle state");
+        };
+
+        assert!(peers.insert(peer_id, peer_rx).is_none());
+    }
+
+    pub fn listen(&mut self) {
+        let MuxState::Idle(mut rx, peers) = mem::replace(&mut self.state, MuxState::Preparing) else {
+            panic!("Not in Idle state");
+        };
+
+        let mut peer_links = SelectAll::new();
+        peers.into_iter().for_each(|(addr, link)| {
+            peer_links.push(ReceiverStream::new(link).map(move |command| (addr.clone(), command)));
+        });
+
         let handle = tokio::spawn(async move {
-            let mut peer_links = SelectAll::new();
             let mut query_router = QueryRouter::default();
-            let mut running_queries = HashMap::<QueryId, Sender<TransportCommand>>::new();
             loop {
                 ::tokio::select! {
                     Some(mux_command) = rx.recv() => {
                         match mux_command {
-                            MultiplexerCommand::Listen(addr, link) => {
-                                peer_links.push(ReceiverStream::new(link).map(move |command| (addr.clone(), command)))
-                            }
                             MultiplexerCommand::Subscribe(subscription, sender) => {
                                 match subscription {
                                     SubscriptionType::Query(query_id) => {
@@ -87,16 +122,14 @@ impl Multiplexer {
             };
         });
 
-        Self {
-            handle,
-            tx
-        }
+        self.state = MuxState::Listening(handle);
     }
 
-    pub fn listen(&self, peer_addr: HelperIdentity, channel: Receiver<TransportCommand>) {
-        self.tx.send(MultiplexerCommand::Listen(peer_addr, channel));
-    }
-
+    // pub fn listen(&self, peer_addr: HelperIdentity, channel: Receiver<TransportCommand>) {
+    //     // listen only occurs when establishing connection between peers, so there should be no deadlock
+    //     self.tx.blocking_send(MultiplexerCommand::Listen(peer_addr, channel)).unwrap()
+    // }
+    //
     pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<TransportCommand> {
         let (tx, rx) = channel(1);
         self.tx.send(MultiplexerCommand::Subscribe(SubscriptionType::Query(query_id), tx)).await.unwrap();
@@ -105,29 +138,46 @@ impl Multiplexer {
     }
 }
 
-struct Link {
-    destination: HelperIdentity,
-    inbound: Receiver<TransportCommand>,
-    outbound: Sender<TransportCommand>,
-}
-
-#[derive(Debug)]
-struct InMemoryTransport {
+pub struct InMemoryTransport {
+    identity: HelperIdentity,
     peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
     // TODO: demux
     mux: Multiplexer,
 }
 
+impl Debug for InMemoryTransport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "transport[{:?}]", self.identity)
+    }
+}
+
 impl InMemoryTransport {
-    pub fn connect(&mut self, link: Link) {
-        self.peer_connections.insert(link.destination.clone(), link.outbound);
-        let (dest, inbound) = (link.destination, link.inbound);
-        self.mux.listen(dest, inbound);
+    pub fn new(identity: HelperIdentity) -> Self {
+        Self {
+            identity,
+            peer_connections: HashMap::default(),
+            mux: Multiplexer::new()
+        }
+    }
+
+    /// Establish a unidirectional connection to the given peer
+    pub fn connect(&mut self, dest: &mut Self) {
+        let (tx, rx) = channel(1);
+        self.peer_connections.insert(dest.identity.clone(), tx);
+        dest.mux.new_peer(self.identity.clone(), rx);
+    }
+
+    pub fn identity(&self) -> &HelperIdentity {
+        &self.identity
+    }
+
+    pub fn listen(&mut self) {
+        self.mux.listen()
     }
 }
 
 #[async_trait]
-impl Transport for InMemoryTransport {
+impl Transport for Arc<InMemoryTransport> {
     type CommandStream = ReceiverStream<TransportCommand>;
 
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
