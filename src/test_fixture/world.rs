@@ -77,6 +77,8 @@ impl Default for TestWorldConfig {
                     /// to be problematic from memory perspective.
                     batch_count: 40,
                 },
+                send_outstanding: 16,
+                recv_outstanding: 16,
             },
             /// Disable metrics by default because `logging` only enables `Level::INFO` spans.
             /// Can be overridden by setting `RUST_LOG` environment variable to match this level.

@@ -195,6 +195,8 @@ mod e2e_tests {
                 items_in_batch: 1,
                 batch_count: 40,
             },
+            send_outstanding: 16,
+            recv_outstanding: 16,
         }
     }
 
