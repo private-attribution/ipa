@@ -4,6 +4,7 @@ mod send;
 
 pub use receive::ReceiveBuffer;
 pub use {send::Config as SendBufferConfig, send::SendBuffer};
+pub(super) use send::PushError;
 
 #[cfg(debug_assertions)]
 mod waiting {

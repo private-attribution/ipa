@@ -221,7 +221,7 @@ mod tests {
         #[tokio::test]
         async fn semi_honest() {
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
 
             let input: Vec<u8> = (0..BATCHSIZE).collect();
             let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
@@ -261,7 +261,7 @@ mod tests {
         async fn shuffle_unshuffle() {
             const BATCHSIZE: usize = 5;
 
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
             let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 
             let result = world
@@ -307,7 +307,7 @@ mod tests {
         #[tokio::test]
         async fn malicious() {
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
 
             let input: Vec<u8> = (0..BATCHSIZE).collect();
             let hashed_input: HashSet<u8> = input.clone().into_iter().collect();
@@ -349,7 +349,7 @@ mod tests {
         async fn shuffle_unshuffle() {
             const BATCHSIZE: usize = 5;
 
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
             let input: Vec<u128> = (0..u128::try_from(BATCHSIZE).unwrap()).collect();
 
             let result = world

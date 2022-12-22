@@ -497,7 +497,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 aggregate_credit(ctx, &share, 8).await.unwrap()
@@ -603,7 +603,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 sort_by_breakdown_key(ctx, &share, 8).await.unwrap()

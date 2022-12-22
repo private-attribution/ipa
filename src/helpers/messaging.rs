@@ -31,8 +31,10 @@ use crate::helpers::network::Network;
 use crate::helpers::old_network::MessageEnvelope;
 use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
+use futures_util::stream::FuturesUnordered;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use crate::helpers::buffers::PushError;
 
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
@@ -183,6 +185,7 @@ impl Gateway {
 
             let mut receive_buf = ReceiveBuffer::default();
             let mut send_buf = SendBuffer::new(config.send_buffer_config);
+            let mut pending_sends = FuturesUnordered::new();
             let sleep = GatewayTimer::new(INTERVAL);
             ::tokio::pin!(sleep);
 
@@ -200,9 +203,14 @@ impl Gateway {
                         tracing::trace!("received {} bytes from {:?}", messages.len(), channel_id);
                         receive_buf.receive_messages(&channel_id, &messages);
                     }
-                    Some(send_req) = send_rx.recv() => {
-                        tracing::trace!("new SendRequest({:?})", send_req);
-                        send_message(&network, &mut send_buf, send_req).await;
+                    Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
+                        tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
+                        metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
+                        let data = send_buf.push(&channel_id, &envelope);
+                        pending_sends.push(send_message(&network, channel_id, data));
+                    }
+                    Some(_) = &mut pending_sends.next() => {
+                        pending_sends.clear();
                     }
                     _ = &mut sleep => {
                         #[cfg(debug_assertions)]
@@ -244,15 +252,22 @@ impl Gateway {
     ///
     /// ## Panics
     /// if control loop task panicked, the panic will be propagated to this thread
-    #[cfg(not(feature = "shuttle"))]
     pub async fn join(self) {
         self.control_handle
             .await
             .map_err(|e| {
-                if e.is_panic() {
-                    panic::resume_unwind(e.into_panic())
-                } else {
-                    "Task cancelled".to_string()
+                #[cfg(not(feature = "shuttle"))]
+                {
+                    if e.is_panic() {
+                        panic::resume_unwind(e.into_panic())
+                    } else {
+                        "Task cancelled".to_string()
+                    }
+                }
+
+                #[cfg(feature = "shuttle")]
+                {
+                    e
                 }
             })
             .unwrap();
@@ -281,12 +296,13 @@ impl Gateway {
     }
 }
 
-#[cfg(feature = "shuttle")]
-impl Drop for Gateway {
-    fn drop(&mut self) {
-        self.control_handle.abort();
-    }
-}
+// #[cfg(feature = "shuttle")]
+// impl Drop for Gateway {
+//     fn drop(&mut self) {
+//         println!("dropping gateway");
+//         self.control_handle.abort();
+//     }
+// }
 
 impl Debug for ReceiveRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -298,20 +314,17 @@ impl Debug for ReceiveRequest {
     }
 }
 
-async fn send_message<T: Transport>(network: &Network<T>, buf: &mut SendBuffer, req: SendRequest) {
-    let (channel_id, msg) = req;
-    metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-    match buf.push(&channel_id, &msg) {
+async fn send_message<T: Transport>(network: &Network<T>, channel_id: ChannelId, data: Result<Option<Vec<u8>>, PushError>) {
+    // let (channel_id, msg) = req;
+    // metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
+    match data {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            network
-                .send((channel_id, buf_to_send))
-                .await
-                .expect("Failed to send data to the network");
+            network.send((channel_id, buf_to_send)).await.expect("Failed to send data to the network");
         }
         Ok(None) => {}
         Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
-    };
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -414,7 +427,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Record RecordId(1) has been received twice")]
     async fn duplicate_message() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));
         let peer = Role::H2;
         let record_id = 1.into();

@@ -36,7 +36,7 @@ pub struct HelperIdentity {
 
 impl From<usize> for HelperIdentity {
     fn from(value: usize) -> Self {
-        assert!(value < 3);
+        assert!(0 < value && value <= 3);
 
         Self {
             id: u8::try_from(value).unwrap(),

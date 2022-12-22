@@ -61,7 +61,7 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         const BATCHSIZE: u32 = 25;
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let mut rng_sigma = thread_rng();
         let mut rng_rho = thread_rng();
 

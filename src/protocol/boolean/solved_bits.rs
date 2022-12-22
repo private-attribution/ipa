@@ -203,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp31() -> Result<(), Error> {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let ctx = world.contexts::<Fp31>();
         let [c0, c1, c2] = ctx;
 
@@ -227,7 +227,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let ctx = world.contexts::<Fp32BitPrime>();
         let [c0, c1, c2] = ctx;
 
@@ -251,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let mut success = 0;
 
         for _ in 0..4 {

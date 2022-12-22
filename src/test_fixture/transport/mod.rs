@@ -14,7 +14,7 @@ use tokio_stream::wrappers::ReceiverStream;
 pub struct InMemoryTransport {
     identity: HelperIdentity,
     peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
-    demux: Switch,
+    switch: Switch,
 }
 
 impl Debug for InMemoryTransport {
@@ -26,9 +26,9 @@ impl Debug for InMemoryTransport {
 impl InMemoryTransport {
     pub fn new(identity: HelperIdentity) -> Self {
         Self {
-            identity,
+            identity: identity.clone(),
             peer_connections: HashMap::default(),
-            demux: Switch::default(),
+            switch: Switch::new(identity)
         }
     }
 
@@ -36,7 +36,7 @@ impl InMemoryTransport {
     pub fn connect(&mut self, dest: &mut Self) {
         let (tx, rx) = channel(1);
         self.peer_connections.insert(dest.identity.clone(), tx);
-        dest.demux.new_peer(self.identity.clone(), rx);
+        dest.switch.new_peer(self.identity.clone(), rx);
     }
 
     pub fn identity(&self) -> &HelperIdentity {
@@ -44,7 +44,7 @@ impl InMemoryTransport {
     }
 
     pub fn listen(&mut self) {
-        self.demux.listen();
+        self.switch.listen();
     }
 }
 
@@ -57,7 +57,7 @@ impl Transport for Arc<InMemoryTransport> {
             SubscriptionType::Administration => {
                 unimplemented!()
             }
-            SubscriptionType::Query(query_id) => self.demux.query_stream(query_id).await,
+            SubscriptionType::Query(query_id) => self.switch.query_stream(query_id).await,
         }
     }
 
@@ -72,5 +72,11 @@ impl Transport for Arc<InMemoryTransport> {
             .unwrap()
             .send(command)
             .await?)
+    }
+}
+
+impl Drop for InMemoryTransport {
+    fn drop(&mut self) {
+        println!("dropping transport");
     }
 }

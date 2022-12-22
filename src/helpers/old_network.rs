@@ -12,6 +12,8 @@ use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio_util::sync::{PollSendError, PollSender};
 
+// TODO: delete
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
     pub record_id: RecordId,

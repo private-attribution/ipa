@@ -11,6 +11,7 @@ use ::tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use tracing::Instrument;
 
 struct SubscribeRequest {
     subscription: SubscriptionType,
@@ -73,6 +74,7 @@ enum State {
 pub(super) struct Switch {
     state: State,
     tx: mpsc::Sender<SubscribeRequest>,
+    id: HelperIdentity
 }
 
 impl Debug for Switch {
@@ -81,18 +83,18 @@ impl Debug for Switch {
     }
 }
 
-impl Default for Switch {
-    fn default() -> Self {
+impl Switch {
+
+    pub fn new(id: HelperIdentity) -> Self {
         let (tx, rx) = mpsc::channel(1);
 
         Self {
             state: State::Idle(rx, HashMap::default()),
             tx,
+            id,
         }
     }
-}
 
-impl Switch {
     pub fn new_peer(&mut self, peer_id: HelperIdentity, peer_rx: mpsc::Receiver<TransportCommand>) {
         let State::Idle(_, peers) = &mut self.state else {
             panic!("Not in Idle state");
@@ -119,6 +121,7 @@ impl Switch {
                     Some(subscribe_command) = rx.recv() => {
                         match subscribe_command.subscription() {
                             SubscriptionType::Query(query_id) => {
+                                tracing::trace!("Subscribed to receive commands for query {query_id:?}");
                                 query_router.subscribe(query_id, subscribe_command.sender());
                                 subscribe_command.acknowledge();
                             },
@@ -128,13 +131,19 @@ impl Switch {
                         }
                     }
                     Some((origin, command)) = peer_links.next() => {
+                        tracing::trace!("received new command {command:?} from {origin:?}");
                         match command {
                             TransportCommand::NetworkEvent(data) => query_router.route(origin, data).await
                         }
+                        tracing::trace!("command processed");
+                    }
+                    else => {
+                        tracing::debug!("All channels are closed and switch is terminated");
+                        break;
                     }
                 }
             }
-        });
+        }.instrument(tracing::info_span!("transport_loop", id=?self.id).or_current()));
 
         self.state = State::Listening(handle);
     }
@@ -146,6 +155,16 @@ impl Switch {
         ack_rx.await.unwrap();
 
         ReceiverStream::new(rx)
+    }
+}
+
+impl Drop for Switch {
+    fn drop(&mut self) {
+        println!("dropping switch");
+        match &self.state {
+            State::Listening(handle) => handle.abort(),
+            _ => {}
+        }
     }
 }
 

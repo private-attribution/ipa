@@ -106,3 +106,9 @@ impl<T: Transport> Network<T> {
         })
     }
 }
+
+impl <T> Drop for Network<T> {
+    fn drop(&mut self) {
+        println!("dropping network");
+    }
+}

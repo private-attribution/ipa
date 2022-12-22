@@ -5,7 +5,7 @@ mod randomized {
     use crate::protocol::context::{Context, SemiHonestContext};
     use crate::protocol::RecordId;
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::Reconstruct;
+    use crate::test_fixture::{Reconstruct, TestWorldConfig};
     use crate::test_fixture::{Runner, TestWorld};
     use futures_util::future::{try_join, try_join_all};
 
@@ -14,8 +14,8 @@ mod randomized {
         shuttle::check_random(
             || {
                 shuttle::future::block_on(async {
-                    let world = TestWorld::new();
-                    let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
+                    let world = TestWorld::new().await;
+                    let input = (0u32..1).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world
                         .semi_honest(
@@ -72,7 +72,7 @@ mod randomized {
         shuttle::check_random(
             || {
                 shuttle::future::block_on(async {
-                    let world = TestWorld::new();
+                    let world = TestWorld::new().await;
                     let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world
@@ -136,7 +136,7 @@ mod randomized {
     fn replay() {
         shuttle::replay(|| {
             shuttle::future::block_on(async {
-                let world = TestWorld::new();
+                let world = TestWorld::new().await;
                 let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                 let output = world

@@ -49,7 +49,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    _network: InMemoryNetwork,
+    // _network: InMemoryNetwork,
 }
 
 #[derive(Copy, Clone)]
@@ -110,14 +110,14 @@ impl TestWorld {
 
         let gateways = join_all(network
             .transports
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(i, transport)| {
                 let role_assignment = role_assignment.clone();
                 async move {
-                    // simple role assignment, based on transport position
+                    // simple role assignment, based on transport index
                     let role = Role::all()[i];
-                    let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
+                    let network = Network::new(transport, QueryId, role_assignment);
                     Gateway::new(role, network, config.gateway_config).await
                 }
             }))
@@ -131,28 +131,15 @@ impl TestWorld {
             executions: AtomicUsize::new(0),
             metrics_handle,
             joined: AtomicBool::new(false),
-            _network: network,
+            // _network: network,
         }
     }
 
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new() -> TestWorld {
+    pub async fn new() -> TestWorld {
         let config = TestWorldConfig::default();
-        // TODO: make this method async too.
-        // It is not a big deal to rely on tokio scheduler, because
-        // if this method is called from a different runtime, it will panic anyway
-        #[cfg(not(all(test, feature = "shuttle")))]
-        {
-            tokio::runtime::Handle::current().block_on(Self::new_with(config))
-        }
-
-        #[cfg(all(test, feature = "shuttle"))]
-        {
-            use shuttle::future;
-            future::block_on(Self::new_with(config))
-        }
+        Self::new_with(config).await
     }
 
     /// Creates protocol contexts for 3 helpers
@@ -186,7 +173,7 @@ impl TestWorld {
         &self.gateways[role]
     }
 
-    #[cfg(not(feature = "shuttle"))]
+    // #[cfg(not(feature = "shuttle"))]
     pub async fn join(mut self) {
         // SAFETY: self is consumed by this method, so nobody can access gateways field after
         // calling this method.
@@ -210,12 +197,6 @@ impl Drop for TestWorld {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }
-    }
-}
-
-impl Default for TestWorld {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -6,12 +6,12 @@ use std::fmt::Debug;
 /// Container for all active transports
 #[derive(Debug)]
 pub struct InMemoryNetwork {
-    pub transports: [Arc<InMemoryTransport>; 3],
+    pub transports: [InMemoryTransport; 3],
 }
 
 impl Default for InMemoryNetwork {
     fn default() -> Self {
-        let [mut first, mut second, mut third]: [InMemoryTransport; 3] = (0..3)
+        let [mut first, mut second, mut third]: [InMemoryTransport; 3] = (1..=3)
             .map(|v| InMemoryTransport::new(HelperIdentity::from(v)))
             .collect::<Vec<_>>()
             .try_into()
@@ -29,9 +29,12 @@ impl Default for InMemoryNetwork {
         second.listen();
         third.listen();
 
-        Self {
-            transports: [Arc::new(first), Arc::new(second), Arc::new(third)],
-        }
+        let s = Self {
+            transports: [first, second, third]
+        };
+        // println!("created memory network: {}", Arc::strong_count(&s.transports[0]));
+
+        s
     }
 }
 
@@ -47,3 +50,9 @@ impl InMemoryNetwork {
             .unwrap()
     }
 }
+
+// impl Drop for InMemoryNetwork {
+//     fn drop(&mut self) {
+//         println!("dropping in memory network: {}", Arc::strong_count(&self.transports[0]));
+//     }
+// }

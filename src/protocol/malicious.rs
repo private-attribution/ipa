@@ -276,7 +276,7 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
@@ -324,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn upgrade_only() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp32BitPrime>();
@@ -341,7 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn upgrade_only_tweaked() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp32BitPrime>();
@@ -388,7 +388,7 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
