@@ -3,7 +3,6 @@ use crate::sync::Arc;
 use crate::test_fixture::transport::InMemoryTransport;
 
 /// Container for all active transports
-// #[derive(Debug)]
 pub struct InMemoryNetwork {
     pub transports: [Arc<InMemoryTransport>; 3],
 }
