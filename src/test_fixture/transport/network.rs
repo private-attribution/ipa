@@ -12,7 +12,7 @@ pub struct InMemoryNetwork {
 impl Default for InMemoryNetwork {
     fn default() -> Self {
         let [mut first, mut second, mut third]: [InMemoryTransport; 3] = (1..=3)
-            .map(|v| InMemoryTransport::new(HelperIdentity::from(v)))
+            .map(|v| InMemoryTransport::new(v.try_into().unwrap()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();

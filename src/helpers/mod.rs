@@ -36,12 +36,16 @@ pub struct HelperIdentity {
     id: u8,
 }
 
-impl From<usize> for HelperIdentity {
-    fn from(value: usize) -> Self {
-        assert!(0 < value && value <= 3);
+impl TryFrom<usize> for HelperIdentity {
+    type Error = String;
 
-        Self {
-            id: u8::try_from(value).unwrap(),
+    fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+        if value == 0 || value > 3 {
+            Err(format!("{value} must be within [1, 3] range to be a valid helper identity"))
+        } else {
+            Ok(Self {
+                id: u8::try_from(value).unwrap()
+            })
         }
     }
 }
