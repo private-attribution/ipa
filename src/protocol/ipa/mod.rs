@@ -239,7 +239,7 @@ pub mod tests {
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         //   match key, is_trigger, breakdown_key, trigger_value
         let records = [
@@ -306,7 +306,7 @@ pub mod tests {
         const MAX_TRIGGER_VALUE: u128 = 5;
         let max_match_key: u64 = BATCHSIZE / 10;
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut records: Vec<IPAInputTestRow> = Vec::new();

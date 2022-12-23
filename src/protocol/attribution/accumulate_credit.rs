@@ -353,7 +353,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, input| async move {
                 accumulate_credit(ctx, &input).await.unwrap()
@@ -380,7 +380,7 @@ pub(crate) mod tests {
         let mut rng = thread_rng();
         let secret: [Fp31; 4] = [(); 4].map(|_| rng.gen::<Fp31>());
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         for &role in Role::all() {
             let new_shares = world

@@ -1,6 +1,6 @@
 use crate::{
     helpers::{
-        buffers::fsv::FixedSizeByteVec, network::ChannelId, old_network::MessageEnvelope,
+        buffers::fsv::FixedSizeByteVec, network::ChannelId, network::MessageEnvelope,
         MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::RecordId,

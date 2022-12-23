@@ -141,7 +141,7 @@ mod tests {
         /// Validates that reshare protocol actually generates new shares using PRSS.
         #[tokio::test]
         async fn generates_unique_shares() {
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
 
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -174,7 +174,7 @@ mod tests {
         /// the input will pass this test. However `generates_unique_shares` will fail this implementation.
         #[tokio::test]
         async fn correct() {
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -213,7 +213,7 @@ mod tests {
         /// it.
         #[tokio::test]
         async fn correct() {
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -306,7 +306,7 @@ mod tests {
 
         #[tokio::test]
         async fn malicious_validation_fail() {
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
             let mut rng = thread_rng();
 
             let a = rng.gen::<Fp32BitPrime>();

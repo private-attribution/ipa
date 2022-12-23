@@ -69,7 +69,7 @@ mod tests {
         #[tokio::test]
         pub async fn semi_honest() {
             const BATCHSIZE: u32 = 25;
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
             let mut rng = rand::thread_rng();
 
             let mut input = Vec::with_capacity(BATCHSIZE as usize);

@@ -107,7 +107,7 @@ mod test {
 
     #[tokio::test]
     pub async fn simple() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
         let a = rng.gen::<Fp31>();
