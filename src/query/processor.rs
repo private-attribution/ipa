@@ -1,24 +1,22 @@
 use super::state::{QueryState, QueryStatus, RunningQueries, StateError};
 use crate::ff::FieldType;
 use crate::helpers::messaging::Gateway;
-use crate::helpers::{
-    TransportCommand, GatewayConfig, HelperIdentity,  Role,
-    Transport, TransportError,
-};
+use crate::helpers::{TransportCommand, GatewayConfig, HelperIdentity, Role, Transport, TransportError, RoleAssignment};
 use crate::protocol::QueryId;
 use futures_util::future::try_join;
-use crate::helpers::query::{PrepareQuery, QueryType};
+use crate::helpers::network::Network;
+use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand, QueryType};
 
 #[allow(dead_code)]
-pub struct Processor<'a, T: Transport> {
-    transport: &'a T,
-    identities: &'a [HelperIdentity; 3],
-    queries: RunningQueries<T>,
+pub struct Processor<T: Transport> {
+    transport: T,
+    identities: [HelperIdentity; 3],
+    queries: RunningQueries,
 }
 
 #[allow(dead_code)]
-impl<'a, T: Transport> Processor<'a, T> {
-    pub fn new(transport: &'a T, identities: &'a [HelperIdentity; 3]) -> Self {
+impl<T: Transport> Processor<T> {
+    pub fn new(transport: T, identities: [HelperIdentity; 3]) -> Self {
         Self {
             transport,
             identities,
@@ -26,13 +24,6 @@ impl<'a, T: Transport> Processor<'a, T> {
         }
     }
 }
-
-#[allow(dead_code)]
-pub struct NewQueryRequest {
-    field_type: FieldType,
-    query_type: QueryType,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum NewQueryError {
     #[error(transparent)]
@@ -48,7 +39,7 @@ pub enum NewQueryError {
 }
 
 #[allow(dead_code)]
-impl<T: Transport> Processor<'_, T> {
+impl<T: Transport + Clone> Processor<T> {
     /// Upon receiving a new query request:
     /// * processor generates new query id
     /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
@@ -59,33 +50,33 @@ impl<T: Transport> Processor<'_, T> {
     /// * returns query configuration
     pub async fn new_query(
         &self,
-        req: &NewQueryRequest,
+        req: CreateQuery,
     ) -> Result<PrepareQuery, NewQueryError> {
-        todo!()
-        // let query_id = QueryId;
-        // let handle = self.queries.handle(query_id);
-        // handle.set_state(QueryState::Preparing)?;
-        //
-        // // invariant: this helper's identity must be the first element in the array.
-        // let this = &self.identities[0];
-        // let right = &self.identities[1];
-        // let left = &self.identities[2];
-        //
-        // let ring = RingConfiguration::new([(this, Role::H1), (right, Role::H2), (left, Role::H3)]);
-        // let network = self.transport.app_layer(&ring);
-        // let qc = QueryConfiguration::new(query_id, req.field_type, req.query_type, ring);
-        //
-        // try_join(
-        //     self.transport.send(Command::prepare(left, &qc)),
-        //     self.transport.send(Command::prepare(right, &qc)),
-        // )
-        // .await?;
-        //
-        // let gateway = Gateway::new(Role::H1, &network, GatewayConfig::default());
-        //
-        // handle.set_state(QueryState::AwaitingInputs(network, gateway))?;
-        //
-        // Ok(qc)
+        let query_id = QueryId;
+        let handle = self.queries.handle(query_id);
+        handle.set_state(QueryState::Preparing)?;
+
+        // invariant: this helper's identity must be the first element in the array.
+        let this = self.identities[0].clone();
+        let right = self.identities[1].clone();
+        let left = self.identities[2].clone();
+
+        let roles = RoleAssignment::try_from([(this, Role::H1), (right.clone(), Role::H2), (left.clone(), Role::H3)]).unwrap();
+        let network = Network::new(self.transport.clone(), query_id, roles.clone());
+
+        let prepare_request = PrepareQuery { query_id, field_type: req.field_type, query_type: req.query_type, roles };
+
+        try_join(
+            self.transport.send(&left, TransportCommand::Query(QueryCommand::Prepare(prepare_request.clone()))),
+            self.transport.send(&right, TransportCommand::Query(QueryCommand::Prepare(prepare_request.clone()))),
+        )
+        .await?;
+
+        let gateway = Gateway::new(Role::H1, network, GatewayConfig::default()).await;
+
+        handle.set_state(QueryState::AwaitingInputs(gateway))?;
+
+        Ok(prepare_request)
     }
 
     pub fn status(&self, query_id: QueryId) -> Option<QueryStatus> {
@@ -95,60 +86,48 @@ impl<T: Transport> Processor<'_, T> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::sync::Arc;
+    use futures::pin_mut;
+    use futures_util::future::poll_immediate;
     use super::*;
     use crate::ff::FieldType;
-    //
-    // use crate::helpers::{
-    //     DelayedTransport, FailingTransport, QueryType, StubTransport, TransportError,
-    // };
-    // use crate::test_fixture::network::InMemoryNetwork;
-    //
-    // use futures::pin_mut;
-    // use futures_util::future::poll_immediate;
-    //
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    // async fn new_query() {
-    //     let network = InMemoryNetwork::new();
-    //     let transport = DelayedTransport::new(StubTransport::from(network), 3);
-    //
-    //     let identities = [
-    //         HelperIdentity::new(0),
-    //         HelperIdentity::new(1),
-    //         HelperIdentity::new(2),
-    //     ];
-    //     let processor = Processor::new(&transport, &identities);
-    //     let request = NewQueryRequest {
-    //         field_type: FieldType::Fp32BitPrime,
-    //         query_type: QueryType::TestMultiply,
-    //     };
-    //
-    //     let qc_future = processor.new_query(&request);
-    //     pin_mut!(qc_future);
-    //
-    //     // poll future once to trigger query status change
-    //     let _qc = poll_immediate(&mut qc_future).await;
-    //
-    //     assert_eq!(Some(QueryStatus::Preparing), processor.status(QueryId));
-    //     transport.wait().await;
-    //
-    //     let qc = qc_future.await.unwrap();
-    //     let expected_assignment = RingConfiguration::new([
-    //         (&identities[0], Role::H1),
-    //         (&identities[1], Role::H2),
-    //         (&identities[2], Role::H3),
-    //     ]);
-    //
-    //     assert_eq!(
-    //         QueryConfiguration::new(
-    //             QueryId,
-    //             request.field_type,
-    //             request.query_type,
-    //             expected_assignment
-    //         ),
-    //         qc
-    //     );
-    //     assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
-    // }
+    use crate::test_fixture::transport::{DelayedTransport, InMemoryNetwork};
+
+    #[tokio::test]
+    async fn new_query() {
+        let network = InMemoryNetwork::default();
+        let transport = DelayedTransport::new(Arc::downgrade(&network.transports[0]), 3);
+
+        let identities = HelperIdentity::make_three();
+        let processor = Processor::new(transport.clone(), identities);
+        let request = CreateQuery {
+            field_type: FieldType::Fp32BitPrime,
+            query_type: QueryType::TestMultiply,
+        };
+
+        let qc_future = processor.new_query(request);
+        pin_mut!(qc_future);
+
+        // poll future once to trigger query status change
+        let _qc = poll_immediate(&mut qc_future).await;
+
+        assert_eq!(Some(QueryStatus::Preparing), processor.status(QueryId));
+        transport.wait().await;
+
+        let qc = qc_future.await.unwrap();
+        let expected_assignment = RoleAssignment::new(HelperIdentity::make_three());
+
+        assert_eq!(
+            PrepareQuery {
+                query_id: QueryId,
+                field_type: FieldType::Fp32BitPrime,
+                query_type: QueryType::TestMultiply,
+                roles: expected_assignment
+            },
+            qc
+        );
+        assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
+    }
     //
     // #[tokio::test]
     // async fn rejects_duplicate_query_id() {

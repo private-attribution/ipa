@@ -150,7 +150,7 @@ impl Mesh<'_, '_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
     /// Configuration for send buffers. See `SendBufferConfig` for more details
     pub send_buffer_config: SendBufferConfig,
@@ -158,6 +158,17 @@ pub struct GatewayConfig {
     pub send_outstanding: usize,
     /// The maximum number of items that can be outstanding for receiving.
     pub recv_outstanding: usize,
+}
+
+#[cfg(test)]
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            send_outstanding: 16,
+            recv_outstanding: 16,
+            send_buffer_config: SendBufferConfig::default()
+        }
+    }
 }
 
 impl Gateway {

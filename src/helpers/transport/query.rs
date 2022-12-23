@@ -9,12 +9,13 @@ pub struct CreateQuery {
     pub query_type: QueryType
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct PrepareQuery {
-    query_id: QueryId,
-    field_type: FieldType,
-    query_type: QueryType,
-    roles: RoleAssignment
+    pub(crate) query_id: QueryId,
+    pub(crate) field_type: FieldType,
+    pub(crate) query_type: QueryType,
+    pub(crate) roles: RoleAssignment
 }
 
 #[derive(Debug)]

@@ -1,6 +1,9 @@
-pub mod network;
+mod network;
 mod routing;
 mod util;
+
+pub use network::InMemoryNetwork;
+pub use util::{DelayedTransport, FailingTransport};
 
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,

@@ -32,7 +32,7 @@ use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
-use crate::test_fixture::transport::network::InMemoryNetwork;
+use crate::test_fixture::transport::InMemoryNetwork;
 use tracing::Level;
 
 use super::{

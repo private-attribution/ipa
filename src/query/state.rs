@@ -26,26 +26,26 @@ pub enum QueryStatus {
     Completed,
 }
 
-impl<N> From<&QueryState<N>> for QueryStatus {
-    fn from(source: &QueryState<N>) -> Self {
+impl From<&QueryState> for QueryStatus {
+    fn from(source: &QueryState) -> Self {
         match source {
             QueryState::Preparing => QueryStatus::Preparing,
-            QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
+            QueryState::AwaitingInputs(_) => QueryStatus::AwaitingInputs,
         }
     }
 }
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
-pub enum QueryState<T> {
+pub enum QueryState {
     Preparing,
-    AwaitingInputs(T, Gateway),
+    AwaitingInputs(Gateway),
 }
 
-impl<T> QueryState<T> {
+impl QueryState {
     pub fn transition(cur_state: Option<&Self>, new_state: Self) -> Result<Self, StateError> {
         match (cur_state, &new_state) {
             (None, QueryState::Preparing)
-            | (Some(QueryState::Preparing), QueryState::AwaitingInputs(_, _)) => Ok(new_state),
+            | (Some(QueryState::Preparing), QueryState::AwaitingInputs(_)) => Ok(new_state),
             (Some(_), QueryState::Preparing) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.map(Into::into),
@@ -67,11 +67,11 @@ pub enum StateError {
 }
 
 /// Keeps track of queries running on this helper.
-pub struct RunningQueries<N> {
-    inner: Arc<Mutex<HashMap<QueryId, QueryState<N>>>>,
+pub struct RunningQueries {
+    inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
 }
 
-impl<N> Default for RunningQueries<N> {
+impl Default for RunningQueries {
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::default())),
@@ -79,13 +79,13 @@ impl<N> Default for RunningQueries<N> {
     }
 }
 
-pub struct QueryHandle<'a, N> {
+pub struct QueryHandle<'a> {
     query_id: QueryId,
-    queries: &'a RunningQueries<N>,
+    queries: &'a RunningQueries,
 }
 
-impl<N> QueryHandle<'_, N> {
-    pub fn set_state(&self, new_state: QueryState<N>) -> Result<(), StateError> {
+impl QueryHandle<'_> {
+    pub fn set_state(&self, new_state: QueryState) -> Result<(), StateError> {
         let mut inner = self.queries.inner.lock().unwrap();
         let entry = inner.entry(self.query_id);
         match entry {
@@ -101,8 +101,8 @@ impl<N> QueryHandle<'_, N> {
     }
 }
 
-impl<N> RunningQueries<N> {
-    pub fn handle(&self, query_id: QueryId) -> QueryHandle<N> {
+impl RunningQueries {
+    pub fn handle(&self, query_id: QueryId) -> QueryHandle {
         QueryHandle {
             query_id,
             queries: self,
