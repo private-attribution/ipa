@@ -4,7 +4,7 @@ mod routing;
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
-use crate::sync::Arc;
+use crate::sync::Weak;
 use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
@@ -49,37 +49,21 @@ impl InMemoryTransport {
     pub fn listen(&mut self) {
         self.switch.listen();
     }
-
-    #[cfg(all(test, feature = "shuttle"))]
-    pub fn halt(&self) {
-        // this hackery needs to be explained. In normal circumstances (when you use tokio
-        // scheduler) explicit switch termination is not required because tokio drops all tasks
-        // during runtime shutdown. Other schedulers (ahem shuttle) may not do that and what
-        // happens is 3 switch tasks remain blocked awaiting messages from each other. In this
-        // case a deadlock is detected. Hence this code just tries to explicitly close the switch
-        // but because async drop is not a thing yet, we must hot loop here to drive it to completion
-        let f = self.switch.halt();
-        ::tokio::pin!(f);
-        while futures::FutureExt::poll_unpin(
-            &mut f,
-            &mut futures::task::Context::from_waker(futures::task::noop_waker_ref()),
-        ) != futures::task::Poll::Ready(())
-        {
-            std::thread::yield_now();
-        }
-    }
 }
 
 #[async_trait]
-impl Transport for Arc<InMemoryTransport> {
+impl Transport for Weak<InMemoryTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
+        let this = self
+            .upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
         match subscription_type {
             SubscriptionType::QueryManagement => {
                 unimplemented!()
             }
-            SubscriptionType::Query(query_id) => self.switch.query_stream(query_id).await,
+            SubscriptionType::Query(query_id) => this.switch.query_stream(query_id).await,
         }
     }
 
@@ -88,7 +72,10 @@ impl Transport for Arc<InMemoryTransport> {
         destination: &HelperIdentity,
         command: TransportCommand,
     ) -> Result<(), TransportError> {
-        Ok(self
+        let this = self
+            .upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+        Ok(this
             .peer_connections
             .get(destination)
             .unwrap()

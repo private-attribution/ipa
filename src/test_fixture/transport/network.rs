@@ -47,12 +47,3 @@ impl InMemoryNetwork {
             .unwrap()
     }
 }
-
-#[cfg(all(test, feature = "shuttle"))]
-impl Drop for InMemoryNetwork {
-    fn drop(&mut self) {
-        for transport in &self.transports {
-            transport.halt();
-        }
-    }
-}

@@ -16,8 +16,6 @@ use tracing::Instrument;
 #[derive(Debug)]
 enum SwitchCommand {
     Subscribe(SubscribeRequest),
-    #[allow(dead_code)]
-    Halt,
 }
 
 struct SubscribeRequest {
@@ -139,10 +137,6 @@ impl Switch {
                                     }
                                 }
                             }
-                            SwitchCommand::Halt => {
-                                tracing::trace!("Switch is terminated");
-                                break;
-                            }
                         }
                     }
                     Some((origin, command)) = peer_links.next() => {
@@ -171,11 +165,6 @@ impl Switch {
         ack_rx.await.unwrap();
 
         ReceiverStream::new(rx)
-    }
-
-    #[cfg(all(test, feature = "shuttle"))]
-    pub async fn halt(&self) {
-        self.tx.send(SwitchCommand::Halt).await.unwrap();
     }
 }
 
