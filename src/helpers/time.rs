@@ -5,7 +5,7 @@ use std::time::Duration;
 
 /// Simple timer that only works in the presence of tokio runtime. Any other runtime will
 /// make it a no-op.
-#[cfg(not(feature = "shuttle"))]
+#[cfg(not(all(test, feature = "shuttle")))]
 #[pin_project::pin_project]
 pub(crate) struct Timer {
     interval: Duration,
@@ -13,10 +13,10 @@ pub(crate) struct Timer {
     timer: tokio::time::Sleep,
 }
 
-#[cfg(feature = "shuttle")]
+#[cfg(all(test, feature = "shuttle"))]
 struct GatewayTimer {}
 
-#[cfg(not(feature = "shuttle"))]
+#[cfg(not(all(test, feature = "shuttle")))]
 impl Timer {
     pub fn new(interval: Duration) -> Self {
         Self {
@@ -32,7 +32,7 @@ impl Timer {
     }
 }
 
-#[cfg(feature = "shuttle")]
+#[cfg(all(test, feature = "shuttle"))]
 impl Timer {
     pub fn new(_: Duration) -> Self {
         Self {}
@@ -44,12 +44,12 @@ impl Timer {
 impl Future for Timer {
     type Output = ();
 
-    #[cfg(feature = "shuttle")]
+    #[cfg(all(test, feature = "shuttle"))]
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         Poll::Pending
     }
 
-    #[cfg(not(feature = "shuttle"))]
+    #[cfg(not(all(test, feature = "shuttle")))]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         this.timer.poll(cx)
