@@ -131,7 +131,6 @@ mod tests {
     #[test]
     fn gap() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
-        println!("{:?}", v.missing());
         assert!(v.missing().is_empty());
         v.insert_test_data(1);
         assert_eq!(0..1_usize, v.missing());
