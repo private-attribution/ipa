@@ -114,7 +114,7 @@ impl TestWorld {
             async move {
                 // simple role assignment, based on transport index
                 let role = Role::all()[i];
-                let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
+                let network = Network::new(Arc::downgrade(transport), QueryId, role_assignment);
                 Gateway::new(role, network, config.gateway_config).await
             }
         }))
