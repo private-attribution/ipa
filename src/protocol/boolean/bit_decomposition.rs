@@ -27,7 +27,7 @@ impl BitDecomposition {
     pub async fn execute<F, S, C>(
         ctx: C,
         record_id: RecordId,
-        rbg: RandomBitsGenerator<F, S, C>,
+        rbg: &RandomBitsGenerator<F, S, C>,
         a_p: &S,
     ) -> Result<Vec<S>, Error>
     where
@@ -38,7 +38,7 @@ impl BitDecomposition {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
         // Step 2. Generate random bitwise shares
-        let r = rbg.take_one().await?;
+        let r = rbg.generate().await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
         let c = ctx
@@ -136,7 +136,7 @@ mod tests {
             .semi_honest(a, |ctx, a_p| async move {
                 let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
 
-                BitDecomposition::execute(ctx, RecordId::from(0), rbg, &a_p)
+                BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()
             })
@@ -154,7 +154,7 @@ mod tests {
     // New BitwiseLessThan -> 0.56 secs * 5 cases = 2.8
     #[tokio::test]
     pub async fn fp31() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let c = Fp31::from;
         assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));
         assert_eq!(1, bits_to_value(&bit_decomposition(&world, c(1)).await));
@@ -168,7 +168,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn fp32_bit_prime() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let c = Fp32BitPrime::from;
         let u16_max: u32 = u16::MAX.into();
         assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));

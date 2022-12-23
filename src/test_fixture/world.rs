@@ -17,7 +17,7 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants},
 };
 
 use std::io::stdout;
@@ -26,10 +26,13 @@ use std::mem::ManuallyDrop;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
-use crate::protocol::Substep;
+use crate::helpers::network::Network;
+use crate::helpers::RoleAssignment;
+use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
+use crate::test_fixture::transport::network::InMemoryNetwork;
 use tracing::Level;
 
 use super::{
@@ -47,7 +50,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    network: Arc<InMemoryNetwork>,
+    _network: InMemoryNetwork,
 }
 
 #[derive(Copy, Clone)]
@@ -77,6 +80,8 @@ impl Default for TestWorldConfig {
                     /// to be problematic from memory perspective.
                     batch_count: 40,
                 },
+                send_outstanding: 16,
+                recv_outstanding: 16,
             },
             /// Disable metrics by default because `logging` only enables `Level::INFO` spans.
             /// Can be overridden by setting `RUST_LOG` environment variable to match this level.
@@ -96,19 +101,24 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new_with(config: TestWorldConfig) -> TestWorld {
+    pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
-        let network = InMemoryNetwork::new();
+        let network = InMemoryNetwork::default();
+        let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = network
-            .endpoints
-            .iter()
-            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
-            .collect::<Vec<_>>()
+        let gateways = join_all(network.transports.iter().enumerate().map(|(i, transport)| {
+            let role_assignment = role_assignment.clone();
+            async move {
+                // simple role assignment, based on transport index
+                let role = Role::all()[i];
+                let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
+                Gateway::new(role, network, config.gateway_config).await
+            }
+        }))
+            .await
             .try_into()
             .unwrap();
 
@@ -118,16 +128,15 @@ impl TestWorld {
             executions: AtomicUsize::new(0),
             metrics_handle,
             joined: AtomicBool::new(false),
-            network,
+            _network: network,
         }
     }
 
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new() -> TestWorld {
+    pub async fn new() -> TestWorld {
         let config = TestWorldConfig::default();
-        Self::new_with(config)
+        Self::new_with(config).await
     }
 
     /// Creates protocol contexts for 3 helpers
@@ -161,10 +170,6 @@ impl TestWorld {
         &self.gateways[role]
     }
 
-    pub fn network(&self) -> Arc<InMemoryNetwork> {
-        Arc::clone(&self.network)
-    }
-
     #[cfg(not(feature = "shuttle"))]
     pub async fn join(mut self) {
         // SAFETY: self is consumed by this method, so nobody can access gateways field after
@@ -192,48 +197,42 @@ impl Drop for TestWorld {
     }
 }
 
-impl Default for TestWorld {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 pub trait Runner<I, A, F> {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
-    where
-        F: Field,
-        O: Send + Debug,
-        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
-        R: Future<Output = O> + Send,
-        Standard: Distribution<F>;
+        where
+            F: Field,
+            O: Send + Debug,
+            H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+            R: Future<Output = O> + Send,
+            Standard: Distribution<F>;
 
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
-    where
-        A: IntoMalicious<F, M>,
-        F: Field,
-        O: Send + Debug,
-        M: Send,
-        H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
-        R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Send + Debug,
-        [P; 3]: ValidateMalicious<F>,
-        Standard: Distribution<F>;
+        where
+            A: IntoMalicious<F, M>,
+            F: Field,
+            O: Send + Debug,
+            M: Send,
+            H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
+            R: Future<Output = P> + Send,
+            P: DowngradeMalicious<Target = O> + Send + Debug,
+            [P; 3]: ValidateMalicious<F>,
+            Standard: Distribution<F>;
 }
 
 #[async_trait]
 impl<I, A, F> Runner<I, A, F> for TestWorld
-where
-    I: 'static + IntoShares<A> + Send,
-    A: Send,
-    F: Field,
+    where
+        I: 'static + IntoShares<A> + Send,
+        A: Send,
+        F: Field,
 {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
-    where
-        O: Send + Debug,
-        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
-        R: Future<Output = O> + Send,
-        Standard: Distribution<F>,
+        where
+            O: Send + Debug,
+            H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+            R: Future<Output = O> + Send,
+            Standard: Distribution<F>,
     {
         let contexts = self.contexts();
         let input_shares = {
@@ -247,15 +246,15 @@ where
     }
 
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
-    where
-        A: IntoMalicious<F, M>,
-        O: Send + Debug,
-        M: Send,
-        H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
-        R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Send + Debug,
-        [P; 3]: ValidateMalicious<F>,
-        Standard: Distribution<F>,
+        where
+            A: IntoMalicious<F, M>,
+            O: Send + Debug,
+            M: Send,
+            H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
+            R: Future<Output = P> + Send,
+            P: DowngradeMalicious<Target = O> + Send + Debug,
+            [P; 3]: ValidateMalicious<F>,
+            Standard: Distribution<F>,
     {
         // The following is what this *should* look like,
         // but so far the spelling necessary to convince the borrow checker
@@ -274,7 +273,7 @@ where
                 let res = helper_fn(v.context(), m_share).await;
                 v.validate(res).await.unwrap()
             })
-            .await
+                .await
         }
 
         // Convert the shares from I into [A; 3].
@@ -291,7 +290,7 @@ where
             let m_share = share.upgrade(v.context()).await;
             (v, m_share)
         }))
-        .await;
+            .await;
 
         // Separate the validators and the now-malicious shares.
         let (v, m_shares): (Vec<_>, Vec<_>) = upgraded.into_iter().unzip();
@@ -311,7 +310,7 @@ where
         let output = join_all(
             zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
         )
-        .await;
+            .await;
         <[_; 3]>::try_from(output).unwrap()
     }
 }

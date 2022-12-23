@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn semi_honest() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world
@@ -97,7 +97,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world

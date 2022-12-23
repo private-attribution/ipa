@@ -55,7 +55,7 @@ mod tests {
     #[tokio::test]
     pub async fn all() {
         type F = Fp31;
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         assert_eq!(F::ZERO, run(&world, F::ZERO, F::ZERO).await);
         assert_eq!(F::ONE, run(&world, F::ONE, F::ZERO).await);

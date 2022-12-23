@@ -225,16 +225,14 @@ async fn bit_decompose_breakdown_key<F: Field>(
 ) -> Result<Vec<Vec<Replicated<F>>>, Error> {
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let rbg = &random_bits_generator;
     try_join_all(
         input
             .iter()
             .zip(repeat(ctx))
             .enumerate()
-            .map(|(i, (x, c))| {
-                let rbg = random_bits_generator.clone();
-                async move {
-                    BitDecomposition::execute(c, RecordId::from(i), rbg, &x.breakdown_key).await
-                }
+            .map(|(i, (x, c))| async move {
+                BitDecomposition::execute(c, RecordId::from(i), rbg, &x.breakdown_key).await
             })
             .collect::<Vec<_>>(),
     )
@@ -499,7 +497,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 aggregate_credit(ctx, &share, 8).await.unwrap()
@@ -605,7 +603,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 sort_by_breakdown_key(ctx, &share, 8).await.unwrap()

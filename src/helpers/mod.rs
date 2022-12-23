@@ -1,21 +1,21 @@
-pub mod http;
 pub mod messaging;
 pub mod network;
+pub mod old_http;
+#[deprecated(note = "Use `Transport` instead")]
+pub mod old_network;
 
 mod buffers;
-mod commands;
 mod error;
-mod identity;
+mod time;
 mod transport;
 
 pub use buffers::SendBufferConfig;
-pub use commands::{Command, QueryConfiguration, QueryType, RingConfiguration};
 pub use error::{Error, Result};
-pub use identity::HelperIdentity;
 pub use messaging::GatewayConfig;
-#[cfg(test)]
-pub use transport::{DelayedTransport, FailingTransport, StubTransport};
-pub use transport::{Error as TransportError, Transport};
+pub use transport::{
+    CommandEnvelope, CommandOrigin, NetworkEventData, SubscriptionType, Transport,
+    TransportCommand, TransportError,
+};
 
 use crate::helpers::{
     Direction::{Left, Right},
@@ -27,6 +27,31 @@ use tinyvec::ArrayVec;
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
+/// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
+/// represents a helper's role within an MPC protocol, which may be different per protocol.
+/// `HelperIdentity` will be established at startup and then never change. Components that want to
+/// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct HelperIdentity {
+    id: u8,
+}
+
+impl TryFrom<usize> for HelperIdentity {
+    type Error = String;
+
+    fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+        if value == 0 || value > 3 {
+            Err(format!(
+                "{value} must be within [1, 3] range to be a valid helper identity"
+            ))
+        } else {
+            Ok(Self {
+                id: u8::try_from(value).unwrap(),
+            })
+        }
+    }
+}
+
 /// Represents a unique role of the helper inside the MPC circuit. Each helper may have different
 /// roles in queries it processes in parallel. For some queries it can be `H1` and for others it
 /// may be `H2` or `H3`.
@@ -34,14 +59,19 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// be changed for the remainder of the query.
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq, clap::ValueEnum)]
 #[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
+feature = "enable-serde",
+derive(serde::Deserialize),
+serde(try_from = "&str")
 )]
 pub enum Role {
     H1 = 0,
     H2 = 1,
     H3 = 2,
+}
+
+#[derive(Clone, Debug)]
+pub struct RoleAssignment {
+    helper_roles: [HelperIdentity; 3],
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -145,10 +175,38 @@ impl<T> IndexMut<Role> for Vec<T> {
     }
 }
 
+impl RoleAssignment {
+    #[must_use]
+    pub fn new(helper_roles: [HelperIdentity; 3]) -> Self {
+        Self { helper_roles }
+    }
+
+    /// Returns the assigned role for the given helper identity.
+    ///
+    /// ## Panics
+    /// Panics if there is no role assigned to it.
+    #[must_use]
+    pub fn role(&self, id: &HelperIdentity) -> Role {
+        for (idx, item) in self.helper_roles.iter().enumerate() {
+            if item == id {
+                return Role::all()[idx];
+            }
+        }
+
+        panic!("No role assignment for {id:?} found in {self:?}")
+    }
+
+    #[must_use]
+    pub fn identity(&self, role: Role) -> &HelperIdentity {
+        &self.helper_roles[role]
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use super::*;
     mod role_tests {
-        use crate::helpers::{Direction, Role};
+        use super::*;
 
         #[test]
         pub fn peer_works() {
@@ -166,6 +224,83 @@ mod tests {
             assert_eq!(3, data[Role::H1]);
             assert_eq!(4, data[Role::H2]);
             assert_eq!(5, data[Role::H3]);
+        }
+    }
+
+    mod role_assignment_tests {
+        use super::*;
+
+        #[test]
+        fn basic() {
+            let identities = (1..=3)
+                .map(|v| HelperIdentity::try_from(v).unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let assignment = RoleAssignment::new(identities);
+
+            assert_eq!(
+                Role::H1,
+                assignment.role(&HelperIdentity::try_from(1).unwrap())
+            );
+            assert_eq!(
+                Role::H2,
+                assignment.role(&HelperIdentity::try_from(2).unwrap())
+            );
+            assert_eq!(
+                Role::H3,
+                assignment.role(&HelperIdentity::try_from(3).unwrap())
+            );
+
+            assert_eq!(
+                &HelperIdentity::try_from(1).unwrap(),
+                assignment.identity(Role::H1)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(2).unwrap(),
+                assignment.identity(Role::H2)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(3).unwrap(),
+                assignment.identity(Role::H3)
+            );
+        }
+
+        #[test]
+        fn reverse() {
+            let identities = (1..=3)
+                .rev()
+                .map(|v| HelperIdentity::try_from(v).unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let assignment = RoleAssignment::new(identities);
+
+            assert_eq!(
+                Role::H3,
+                assignment.role(&HelperIdentity::try_from(1).unwrap())
+            );
+            assert_eq!(
+                Role::H2,
+                assignment.role(&HelperIdentity::try_from(2).unwrap())
+            );
+            assert_eq!(
+                Role::H1,
+                assignment.role(&HelperIdentity::try_from(3).unwrap())
+            );
+
+            assert_eq!(
+                &HelperIdentity::try_from(3).unwrap(),
+                assignment.identity(Role::H1)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(2).unwrap(),
+                assignment.identity(Role::H2)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(1).unwrap(),
+                assignment.identity(Role::H3)
+            );
         }
     }
 }

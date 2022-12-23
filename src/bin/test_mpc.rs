@@ -70,7 +70,7 @@ fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
         ]);
     }
 
-    println!("{}", shares_table);
+    println!("{shares_table}");
 }
 
 #[tokio::main]

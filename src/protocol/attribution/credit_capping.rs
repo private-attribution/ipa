@@ -171,6 +171,7 @@ async fn is_credit_larger_than_cap<F: Field>(
     let cap = local_secret_shared_bits(&ctx, cap.into());
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let rbg = &random_bits_generator;
 
     try_join_all(
         prefix_summed_credits
@@ -180,7 +181,6 @@ async fn is_credit_larger_than_cap<F: Field>(
             .map(|(i, (credit, (ctx, cap)))| {
                 // The buffer inside the generator is `Arc`, so these clones
                 // just increment the reference.
-                let rbg = random_bits_generator.clone();
                 async move {
                     let credit_bits = BitDecomposition::execute(
                         ctx.narrow(&Step::BitDecomposeCurrentContribution),
@@ -350,7 +350,7 @@ mod tests {
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         //TODO: move to the new test framework
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let context = world.contexts::<Fp32BitPrime>();
         let mut rng = StepRng::new(100, 1);
 
