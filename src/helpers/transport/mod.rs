@@ -55,7 +55,7 @@ pub enum CommandOrigin {
     Other,
 }
 
-/// Wrapper around `TransportCommand` that indicates where this command was originated from.
+/// Wrapper around `TransportCommand` that indicates the origin of it.
 #[derive(Debug)]
 pub struct CommandEnvelope {
     pub origin: CommandOrigin,
