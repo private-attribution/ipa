@@ -7,14 +7,14 @@ use std::time::Duration;
 /// make it a no-op.
 #[cfg(not(all(test, feature = "shuttle")))]
 #[pin_project::pin_project]
-pub(crate) struct Timer {
+pub struct Timer {
     interval: Duration,
     #[pin]
     timer: tokio::time::Sleep,
 }
 
 #[cfg(all(test, feature = "shuttle"))]
-struct GatewayTimer {}
+pub struct Timer {}
 
 #[cfg(not(all(test, feature = "shuttle")))]
 impl Timer {
@@ -38,6 +38,7 @@ impl Timer {
         Self {}
     }
 
+    #[allow(clippy::unused_self)]
     pub fn reset(&mut self) {}
 }
 

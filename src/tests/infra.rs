@@ -5,7 +5,7 @@ mod randomized {
     use crate::protocol::context::{Context, SemiHonestContext};
     use crate::protocol::RecordId;
     use crate::secret_sharing::Replicated;
-    use crate::test_fixture::{Reconstruct, TestWorldConfig};
+    use crate::test_fixture::Reconstruct;
     use crate::test_fixture::{Runner, TestWorld};
     use futures_util::future::{try_join, try_join_all};
 

@@ -50,18 +50,20 @@ impl InMemoryTransport {
 
     #[cfg(all(test, feature = "shuttle"))]
     pub fn halt(&self) {
-        /// this hackery needs to be explained. In normal circumstances (when you use tokio
-        /// scheduler) explicit switch termination is not required because tokio drops all tasks
-        /// during runtime shutdown. Other schedulers (ahem shuttle) may not do that and what
-        /// happens is 3 switch tasks remain blocked awaiting messages from each other. In this
-        /// case a deadlock is detected. Hence this code just tries to explicitly close the switch
-        /// but because async drop is not a thing yet, we must hot loop here to drive it to completion
-        let mut f = self.switch.halt();
+        // this hackery needs to be explained. In normal circumstances (when you use tokio
+        // scheduler) explicit switch termination is not required because tokio drops all tasks
+        // during runtime shutdown. Other schedulers (ahem shuttle) may not do that and what
+        // happens is 3 switch tasks remain blocked awaiting messages from each other. In this
+        // case a deadlock is detected. Hence this code just tries to explicitly close the switch
+        // but because async drop is not a thing yet, we must hot loop here to drive it to completion
+        let f = self.switch.halt();
         ::tokio::pin!(f);
-        while f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref()))
-            != Poll::Ready(())
+        while futures::FutureExt::poll_unpin(
+            &mut f,
+            &mut futures::task::Context::from_waker(futures::task::noop_waker_ref()),
+        ) != futures::task::Poll::Ready(())
         {
-            std::thread::yield_now()
+            std::thread::yield_now();
         }
     }
 }
