@@ -17,7 +17,7 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants},
 };
 
 use std::io::stdout;
@@ -26,10 +26,13 @@ use std::mem::ManuallyDrop;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
-use crate::protocol::Substep;
+use crate::helpers::network::Network;
+use crate::helpers::RoleAssignment;
+use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
+use crate::test_fixture::transport::network::InMemoryNetwork;
 use tracing::Level;
 
 use super::{
@@ -47,7 +50,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    _network: Arc<InMemoryNetwork>,
+    _network: InMemoryNetwork,
 }
 
 #[derive(Copy, Clone)]
@@ -98,21 +101,26 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new_with(config: TestWorldConfig) -> TestWorld {
+    pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
-        let network = InMemoryNetwork::new();
+        let network = InMemoryNetwork::default();
+        let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = network
-            .endpoints
-            .iter()
-            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let gateways = join_all(network.transports.iter().enumerate().map(|(i, transport)| {
+            let role_assignment = role_assignment.clone();
+            async move {
+                // simple role assignment, based on transport index
+                let role = Role::all()[i];
+                let network = Network::new(Arc::downgrade(transport), QueryId, role_assignment);
+                Gateway::new(role, network, config.gateway_config).await
+            }
+        }))
+        .await
+        .try_into()
+        .unwrap();
 
         TestWorld {
             gateways: ManuallyDrop::new(gateways),
@@ -126,10 +134,9 @@ impl TestWorld {
 
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new() -> TestWorld {
+    pub async fn new() -> TestWorld {
         let config = TestWorldConfig::default();
-        Self::new_with(config)
+        Self::new_with(config).await
     }
 
     /// Creates protocol contexts for 3 helpers
@@ -187,12 +194,6 @@ impl Drop for TestWorld {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }
-    }
-}
-
-impl Default for TestWorld {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

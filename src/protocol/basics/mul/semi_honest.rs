@@ -88,7 +88,7 @@ mod test {
 
     #[tokio::test]
     async fn basic() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         assert_eq!(30, multiply_sync::<Fp31>(&world, 6, 5).await);
         assert_eq!(25, multiply_sync::<Fp31>(&world, 5, 5).await);
@@ -101,7 +101,7 @@ mod test {
 
     #[tokio::test]
     pub async fn simple() {
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
         let a = rng.gen::<Fp31>();
@@ -123,7 +123,7 @@ mod test {
     #[tokio::test]
     pub async fn concurrent_mul() {
         const COUNT: usize = 10;
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
         let a: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();

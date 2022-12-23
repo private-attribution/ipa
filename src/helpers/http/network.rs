@@ -1,8 +1,7 @@
+#[allow(deprecated)]
+use crate::helpers::old_network::{Network, NetworkSink};
 use crate::{
-    helpers::{
-        network::{MessageChunks, Network, NetworkSink},
-        Role,
-    },
+    helpers::{network::MessageChunks, Role},
     net::{discovery::peer, HttpSendMessagesArgs, MpcHelperClient},
     protocol::QueryId,
     sync::{Arc, Mutex},
@@ -99,6 +98,7 @@ impl HttpNetwork {
     }
 }
 
+#[allow(deprecated)]
 impl Network for HttpNetwork {
     type Sink = NetworkSink<MessageChunks>;
 
@@ -122,15 +122,16 @@ impl Network for HttpNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_fixture::net::localhost_config;
     use crate::{
         helpers::{network::ChannelId, Direction, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{discovery::PeerDiscovery, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::Step,
+        test_fixture::net::localhost_config,
     };
     use futures::{Stream, StreamExt};
     use futures_util::SinkExt;
 
+    #[allow(deprecated)]
     async fn setup() -> (Role, [peer::Config; 3], impl Stream<Item = MessageChunks>) {
         // setup server
         let network = HttpNetwork::new_without_clients(QueryId, None);
@@ -149,6 +150,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     async fn send_multiple_messages() {
         const DATA_LEN: usize = 3;
         let (target_role, peers_conf, mut rx_stream) = setup().await;

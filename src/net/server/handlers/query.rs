@@ -123,8 +123,9 @@ pub async fn handler(mut req: Request<Body>) -> Result<(), MpcHelperServerError>
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    #[allow(deprecated)]
     use crate::{
-        helpers::{http::HttpNetwork, network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
+        helpers::{http::HttpNetwork, old_network::Network, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{
             server::MessageSendMap, BindTarget, MpcHelperServer, CONTENT_LENGTH_HEADER_NAME,
             OFFSET_HEADER_NAME,
@@ -143,6 +144,7 @@ mod tests {
 
     const DATA_LEN: usize = 3;
 
+    #[allow(deprecated)]
     async fn init_server() -> (u16, impl Stream<Item = MessageChunks>) {
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let rx_stream = network.recv_stream();
@@ -375,6 +377,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     async fn backpressure_applied() {
         const QUEUE_DEPTH: usize = 8;
         let network = HttpNetwork::new_without_clients(QueryId, Some(QUEUE_DEPTH));

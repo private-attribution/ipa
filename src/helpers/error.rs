@@ -1,10 +1,10 @@
-use crate::helpers::messaging::SendRequest;
+use crate::helpers::TransportError;
 use crate::{
     error::BoxError,
     helpers::{
-        messaging::ReceiveRequest,
+        messaging::{ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
-        Role,
+        HelperIdentity, Role,
     },
     net::MpcHelperServerError,
     protocol::{RecordId, Step},
@@ -40,11 +40,12 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
-    #[error("Failed to send data to the network")]
-    NetworkError {
-        #[from]
-        inner: BoxError,
-    },
+    #[error("Encountered unknown identity {0:?}")]
+    UnknownIdentity(HelperIdentity),
+    #[error("identity had invalid format: {0}")]
+    InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
+    #[error("Failed to send command on the transport: {0}")]
+    TransportError(#[from] TransportError),
     #[error("server encountered an error: {0}")]
     ServerError(#[from] MpcHelperServerError),
 }
@@ -104,15 +105,10 @@ impl From<SendError<SendRequest>> for Error {
 
 impl From<PollSendError<MessageChunks>> for Error {
     fn from(source: PollSendError<MessageChunks>) -> Self {
-        let err_msg = source.to_string();
+        let inner = source.to_string().into();
         match source.into_inner() {
-            Some(inner) => Self::SendError {
-                channel: inner.0,
-                inner: err_msg.into(),
-            },
-            None => Self::PollSendError {
-                inner: err_msg.into(),
-            },
+            Some((channel, _)) => Self::SendError { channel, inner },
+            None => Self::PollSendError { inner },
         }
     }
 }

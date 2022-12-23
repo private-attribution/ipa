@@ -14,7 +14,7 @@ mod randomized {
         shuttle::check_random(
             || {
                 shuttle::future::block_on(async {
-                    let world = TestWorld::new();
+                    let world = TestWorld::new().await;
                     let input = (0u32..100).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world
@@ -72,7 +72,7 @@ mod randomized {
         shuttle::check_random(
             || {
                 shuttle::future::block_on(async {
-                    let world = TestWorld::new();
+                    let world = TestWorld::new().await;
                     let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world
