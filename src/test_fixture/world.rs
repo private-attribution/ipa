@@ -203,7 +203,7 @@ pub trait Runner<I, A, F> {
     where
         F: Field,
         O: Send + Debug,
-        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+        H: Fn(SemiHonestContext<'a, F>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
         Standard: Distribution<F>;
 
@@ -213,11 +213,18 @@ pub trait Runner<I, A, F> {
         F: Field,
         O: Send + Debug,
         M: Send,
-        H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
+        H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
         R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Send + Debug,
+        P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
+}
+
+/// Separate a length-3 array of tuples (T, U, V) into a tuple of length-3
+/// arrays of T's, U's, and V's.
+fn split_array_of_tuples<T, U, V>(v: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3]) {
+    let [v0, v1, v2] = v;
+    ([v0.0, v1.0, v2.0], [v0.1, v1.1, v2.1], [v0.2, v1.2, v2.2])
 }
 
 #[async_trait]
@@ -227,10 +234,10 @@ where
     A: Send,
     F: Field,
 {
-    async fn semi_honest<'a, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
+    async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
         O: Send + Debug,
-        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+        H: Fn(SemiHonestContext<'a, F>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
         Standard: Distribution<F>,
     {
@@ -245,72 +252,35 @@ where
         <[_; 3]>::try_from(output).unwrap()
     }
 
-    async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
+    async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
         A: IntoMalicious<F, M>,
         O: Send + Debug,
         M: Send,
-        H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
+        H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
         R: Future<Output = P> + Send,
-        P: DowngradeMalicious<Target = O> + Send + Debug,
+        P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
     {
-        // The following is what this *should* look like,
-        // but so far the spelling necessary to convince the borrow checker
-        // to accept this has not been found.
-        //
-        // Current theory is that this might allow `helper_fn` to be run
-        // on multiple different threads concurrently, which would be bad.
-        // The long form below ensures that it is only run on one thread,
-        // even if it might move (with `Send`) a few times before it runs.
-
-        #[cfg(exemplary_code)]
-        {
+        let (m_results, r_shares, output) = split_array_of_tuples(
             self.semi_honest(input, |ctx, share| async {
                 let v = MaliciousValidator::new(ctx);
                 let m_share = share.upgrade(v.context()).await;
-                let res = helper_fn(v.context(), m_share).await;
-                v.validate(res).await.unwrap()
+                let m_result = helper_fn(v.context(), m_share).await;
+                let m_result_clone = m_result.clone();
+                let r_share = v.r_share().to_owned();
+                let output = v.validate(m_result_clone).await.unwrap();
+                (m_result, r_share, output)
             })
-            .await
-        }
+            .await,
+        );
 
-        // Convert the shares from I into [A; 3].
-        let contexts = self.contexts();
-        let input_shares = {
-            let mut rng = thread_rng();
-            input.share_with(&mut rng)
-        };
-
-        // Generate and return for each helper:
-        // a) malicious validator; b) upgraded the shares (from A to M)
-        let upgraded = join_all(zip(contexts, input_shares).map(|(ctx, share)| async {
-            let v = MaliciousValidator::new(ctx);
-            let m_share = share.upgrade(v.context()).await;
-            (v, m_share)
-        }))
-        .await;
-
-        // Separate the validators and the now-malicious shares.
-        let (v, m_shares): (Vec<_>, Vec<_>) = upgraded.into_iter().unzip();
-        let r = (v[0].r_share(), v[1].r_share(), v[2].r_share()).reconstruct();
-
-        // Reference the validator to produce malicious contexts,
-        // and process the inputs M and produce Future R which can be awaited to P.
-        // Note: all this messing around is to isolate this call so that it
-        // doesn't need to use an `async` block.
-        let m_results =
-            join_all(zip(v.iter(), m_shares).map(|(v, m_share)| helper_fn(v.context(), m_share)))
-                .await;
-        let m_results = <[_; 3]>::try_from(m_results).unwrap();
+        // Sanity check that rx = r * x at the output (it should not be possible
+        // for this to fail if the distributed validation protocol passed).
+        let r = r_shares.reconstruct();
         m_results.validate(r);
 
-        // Perform validation and convert the results we just got: P to O
-        let output = join_all(
-            zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
-        )
-        .await;
-        <[_; 3]>::try_from(output).unwrap()
+        output
     }
 }
