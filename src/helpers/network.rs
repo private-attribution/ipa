@@ -43,7 +43,7 @@ impl Debug for ChannelId {
 pub type MessageChunks = (ChannelId, Vec<u8>);
 
 /// Given any implementation of [`Transport`], a `Network` is able to send and receive
-/// [`MessageChunks`] for a specific query id. The [`Transport`] will receive `NetworkEvents`
+/// [`MessageChunks`] for a specific query id. The [`Transport`] will receive ['StepData']
 /// containing the `MessageChunks`
 pub struct Network<T> {
     transport: T,
@@ -60,7 +60,7 @@ impl<T: Transport> Network<T> {
         }
     }
 
-    /// sends a [`NetworkEvent`] containing [`MessageChunks`] on the underlying [`Transport`]
+    /// sends a [`StepData`] containing [`MessageChunks`] on the underlying [`Transport`]
     /// # Errors
     /// if `message_chunks` fail to be delivered
     /// # Panics
@@ -89,7 +89,6 @@ impl<T: Transport> Network<T> {
             .await;
         let assignment = self.roles.clone(); // need to move it inside the closure
 
-        #[allow(unreachable_patterns)] // there will be more commands in the future
         query_command_stream.map(move |envelope| match envelope.payload {
             TransportCommand::StepData(query_id, step, payload) => {
                 debug_assert!(query_id == self_query_id);
@@ -102,6 +101,7 @@ impl<T: Transport> Network<T> {
 
                 (channel_id, payload)
             }
+            #[allow(unreachable_patterns)] // there will be more commands in the future
             other_command => panic!(
                 "received unexpected command {other_command:?} for query id {}",
                 self_query_id.as_ref()
