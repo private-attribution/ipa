@@ -297,8 +297,6 @@ async fn send_message<T: Transport>(
     channel_id: ChannelId,
     data: Result<Option<Vec<u8>>, PushError>,
 ) {
-    // let (channel_id, msg) = req;
-    // metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
     match data {
         Ok(Some(buf_to_send)) => {
             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
