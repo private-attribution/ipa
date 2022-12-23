@@ -147,7 +147,8 @@ impl Switch {
                     }
                     Some((origin, command)) = peer_links.next() => {
                         match command {
-                            TransportCommand::StepData(query, step, payload) => query_router.route(origin, query, step, payload).await
+                            TransportCommand::StepData(query, step, payload) => query_router.route(origin, query, step, payload).await,
+                            TransportCommand::Query(_) => panic!("Can't handle query commands just yet")
                         }
                     }
                     else => {

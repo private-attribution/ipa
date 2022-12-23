@@ -1,5 +1,6 @@
 pub mod network;
 mod routing;
+mod util;
 
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,

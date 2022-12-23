@@ -1,4 +1,5 @@
 mod error;
+pub mod query;
 
 pub use error::Error as TransportError;
 
@@ -8,27 +9,9 @@ use async_trait::async_trait;
 use futures::Stream;
 
 #[derive(Debug)]
-pub struct NetworkEventData {
-    pub query_id: QueryId,
-    pub step: Step,
-    pub payload: Vec<u8>,
-}
-
-impl NetworkEventData {
-    #[must_use]
-    pub fn new(query_id: QueryId, step: Step, payload: Vec<u8>) -> Self {
-        Self {
-            query_id,
-            step,
-            payload,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum TransportCommand {
     // `Administration` Commands
-    // TODO: none for now
+    Query(query::QueryCommand),
 
     // `Query` Commands
     /// Query/step data received from a helper peer.

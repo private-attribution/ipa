@@ -13,8 +13,9 @@ pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
 pub use transport::{
-    CommandEnvelope, CommandOrigin, NetworkEventData, SubscriptionType, Transport,
+    CommandEnvelope, CommandOrigin, SubscriptionType, Transport,
     TransportCommand, TransportError,
+    query
 };
 
 use crate::helpers::{

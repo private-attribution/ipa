@@ -36,12 +36,12 @@ impl<N> From<&QueryState<N>> for QueryStatus {
 }
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
-pub enum QueryState<N> {
+pub enum QueryState<T> {
     Preparing,
-    AwaitingInputs(N, Gateway),
+    AwaitingInputs(T, Gateway),
 }
 
-impl<N> QueryState<N> {
+impl<T> QueryState<T> {
     pub fn transition(cur_state: Option<&Self>, new_state: Self) -> Result<Self, StateError> {
         match (cur_state, &new_state) {
             (None, QueryState::Preparing)
