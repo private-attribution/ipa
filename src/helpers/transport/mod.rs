@@ -7,12 +7,6 @@ use crate::{helpers::HelperIdentity, protocol::QueryId};
 use async_trait::async_trait;
 use futures::Stream;
 
-pub trait TransportCommandData {
-    type RespData;
-    fn name() -> &'static str;
-    fn respond(self, query_id: QueryId, data: Self::RespData) -> Result<(), TransportError>;
-}
-
 #[derive(Debug)]
 pub struct NetworkEventData {
     pub query_id: QueryId,
@@ -31,44 +25,47 @@ impl NetworkEventData {
     }
 }
 
-impl TransportCommandData for NetworkEventData {
-    type RespData = ();
-    fn name() -> &'static str {
-        "NetworkEvent"
-    }
-    fn respond(self, _: QueryId, _: Self::RespData) -> Result<(), TransportError> {
-        Ok(())
-    }
-}
-
 #[derive(Debug)]
 pub enum TransportCommand {
     // `Administration` Commands
-    /// TODO: none for now
+    // TODO: none for now
+
     // `Query` Commands
-    // message via `subscribe_to_query` method
-    NetworkEvent(NetworkEventData),
+    /// Query/step data received from a helper peer.
+    /// TODO: this is really bad for performance, once we have channel per step all the way
+    /// from gateway to network, this definition should be (QueryId, Step, Stream<Item = Vec<u8>>) instead
+    StepData(QueryId, Step, Vec<u8>),
 }
 
 /// Users of a [`Transport`] must subscribe to a specific type of command, and so must pass this
 /// type as argument to the `subscribe` function
-#[allow(dead_code)] // will use this soon
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum SubscriptionType {
     /// Commands for managing queries
-    Administration,
+    QueryManagement,
     /// Commands intended for a running query
     Query(QueryId),
 }
 
+/// The source of the command, i.e. where it came from. Some may arrive from helper peers, others
+/// may come directly from the clients
+#[derive(Debug)]
+pub enum CommandOrigin {
+    Helper(HelperIdentity),
+    Other,
+}
+
+/// Wrapper around `TransportCommand` that indicates where this command was originated from.
 #[derive(Debug)]
 pub struct CommandEnvelope {
-    pub origin: HelperIdentity,
+    pub origin: CommandOrigin,
     pub payload: TransportCommand,
 }
 
+/// Represents the transport layer of the IPA network. Allows layers above to subscribe for events
+/// arriving from helper peers or other parties (clients) and also reliably deliver messages using
+/// `send` method.
 #[async_trait]
-
 pub trait Transport: Send + Sync + 'static {
     type CommandStream: Stream<Item = CommandEnvelope> + Send + Unpin;
 
@@ -76,7 +73,7 @@ pub trait Transport: Send + Sync + 'static {
     /// [`SubscriptionType`]. There should be only 1 subscriber per type.
     /// # Panics
     /// May panic if attempt to subscribe to the same [`SubscriptionType`] twice
-    async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream;
+    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream;
 
     /// To be called when an entity wants to send commands to the `Transport`.
     async fn send(

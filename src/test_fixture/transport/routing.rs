@@ -1,7 +1,7 @@
 use crate::helpers::{
-    CommandEnvelope, HelperIdentity, NetworkEventData, SubscriptionType, TransportCommand,
+    CommandEnvelope, CommandOrigin, HelperIdentity, SubscriptionType, TransportCommand,
 };
-use crate::protocol::QueryId;
+use crate::protocol::{QueryId, Step};
 use crate::task::JoinHandle;
 use ::tokio::sync::{mpsc, oneshot};
 use futures::StreamExt;
@@ -134,7 +134,7 @@ impl Switch {
                                         query_router.subscribe(query_id, subscribe_command.sender());
                                         subscribe_command.acknowledge();
                                     },
-                                    SubscriptionType::Administration => {
+                                    SubscriptionType::QueryManagement => {
                                         unimplemented!()
                                     }
                                 }
@@ -147,7 +147,7 @@ impl Switch {
                     }
                     Some((origin, command)) = peer_links.next() => {
                         match command {
-                            TransportCommand::NetworkEvent(data) => query_router.route(origin, data).await
+                            TransportCommand::StepData(query, step, payload) => query_router.route(origin, query, step, payload).await
                         }
                     }
                     else => {
@@ -193,8 +193,7 @@ struct QueryCommandRouter {
 }
 
 impl QueryCommandRouter {
-    async fn route(&self, origin: HelperIdentity, data: NetworkEventData) {
-        let query_id = data.query_id;
+    async fn route(&self, origin: HelperIdentity, query_id: QueryId, step: Step, payload: Vec<u8>) {
         let sender = self
             .routes
             .get(&query_id)
@@ -202,8 +201,8 @@ impl QueryCommandRouter {
 
         sender
             .send(CommandEnvelope {
-                origin,
-                payload: TransportCommand::NetworkEvent(data),
+                origin: CommandOrigin::Helper(origin),
+                payload: TransportCommand::StepData(query_id, step, payload),
             })
             .await
             .unwrap();

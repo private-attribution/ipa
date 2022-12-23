@@ -1,10 +1,11 @@
 #![allow(dead_code)] // will use these soon
 
+use crate::helpers::transport::CommandOrigin;
 use crate::helpers::{MessagePayload, RoleAssignment};
 use crate::protocol::RecordId;
 use crate::{
     helpers::{
-        transport::{NetworkEventData, SubscriptionType, Transport, TransportCommand},
+        transport::{SubscriptionType, Transport, TransportCommand},
         Error, Role,
     },
     protocol::{QueryId, Step},
@@ -71,11 +72,7 @@ impl<T: Transport> Network<T> {
         self.transport
             .send(
                 destination,
-                TransportCommand::NetworkEvent(NetworkEventData {
-                    query_id: self.query_id,
-                    step: channel.step,
-                    payload,
-                }),
+                TransportCommand::StepData(self.query_id, channel.step, payload),
             )
             .await
             .map_err(Error::from)
@@ -94,14 +91,13 @@ impl<T: Transport> Network<T> {
 
         #[allow(unreachable_patterns)] // there will be more commands in the future
         query_command_stream.map(move |envelope| match envelope.payload {
-            TransportCommand::NetworkEvent(NetworkEventData {
-                query_id,
-                step,
-                payload,
-            }) => {
+            TransportCommand::StepData(query_id, step, payload) => {
                 debug_assert!(query_id == self_query_id);
 
-                let origin_role = assignment.role(&envelope.origin);
+                let CommandOrigin::Helper(identity) = &envelope.origin else {
+                    panic!("Message origin is incorrect: expected it to be from a helper, got {:?}", &envelope.origin);
+                };
+                let origin_role = assignment.role(identity);
                 let channel_id = ChannelId::new(origin_role, step);
 
                 (channel_id, payload)

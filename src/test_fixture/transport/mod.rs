@@ -12,6 +12,8 @@ use std::fmt::{Debug, Formatter};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
+/// Implementation of `Transport` for in-memory testing. Uses tokio channels to exchange messages
+/// with peers.
 pub struct InMemoryTransport {
     identity: HelperIdentity,
     peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
@@ -74,7 +76,7 @@ impl Transport for Arc<InMemoryTransport> {
 
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
         match subscription_type {
-            SubscriptionType::Administration => {
+            SubscriptionType::QueryManagement => {
                 unimplemented!()
             }
             SubscriptionType::Query(query_id) => self.switch.query_stream(query_id).await,
