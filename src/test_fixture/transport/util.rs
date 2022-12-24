@@ -3,7 +3,6 @@ use crate::sync::Arc;
 use crate::helpers::{HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::test_fixture::transport::InMemoryTransport;
 use async_trait::async_trait;
-use futures_util::SinkExt;
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.
@@ -35,13 +34,19 @@ impl <T: Transport> Transport for DelayedTransport<T> {
         self.inner.subscribe(subscription).await
     }
 
-    async fn send(&self, destination: &HelperIdentity, command: TransportCommand) -> Result<(), TransportError> {
+    async fn send<C: Send + Into<TransportCommand>>(
+        &self,
+        destination: &HelperIdentity,
+        command: C,
+    ) -> Result<(), TransportError> {
         self.barrier.wait().await;
         self.inner.send(destination, command).await
     }
+
 }
 
 /// Transport that fails every `send` request using provided `error_fn` to resolve errors.
+#[derive(Clone)]
 pub struct FailingTransport<F> {
     error_fn: F,
 }
@@ -56,11 +61,15 @@ impl<F: Fn(TransportCommand) -> TransportError> FailingTransport<F> {
 impl<F: Fn(TransportCommand) -> TransportError + Send + Sync + 'static> Transport for FailingTransport<F> {
     type CommandStream = <Weak<InMemoryTransport> as Transport>::CommandStream;
 
-    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
+    async fn subscribe(&self, _subscription: SubscriptionType) -> Self::CommandStream {
         unimplemented!()
     }
 
-    async fn send(&self, _destination: &HelperIdentity, command: TransportCommand) -> Result<(), TransportError> {
-        Err((self.error_fn)(command))
+    async fn send<C: Send + Into<TransportCommand>>(
+        &self,
+        _destination: &HelperIdentity,
+        command: C,
+    ) -> Result<(), TransportError> {
+        Err((self.error_fn)(command.into()))
     }
 }

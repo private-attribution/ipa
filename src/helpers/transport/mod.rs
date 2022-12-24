@@ -59,9 +59,9 @@ pub trait Transport: Send + Sync + 'static {
     async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream;
 
     /// To be called when an entity wants to send commands to the `Transport`.
-    async fn send(
+    async fn send<C: Send + Into<TransportCommand>>(
         &self,
         destination: &HelperIdentity,
-        command: TransportCommand,
+        command: C,
     ) -> Result<(), TransportError>;
 }

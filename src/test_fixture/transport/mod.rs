@@ -91,10 +91,10 @@ impl Transport for Weak<InMemoryTransport> {
         }
     }
 
-    async fn send(
+    async fn send<C: Send + Into<TransportCommand>>(
         &self,
         destination: &HelperIdentity,
-        command: TransportCommand,
+        command: C,
     ) -> Result<(), TransportError> {
         let this = self
             .upgrade()
@@ -103,7 +103,7 @@ impl Transport for Weak<InMemoryTransport> {
             .peer_connections
             .get(destination)
             .unwrap()
-            .send(command)
+            .send(command.into())
             .await?)
     }
 }
