@@ -1,3 +1,4 @@
+use crate::sync::Weak;
 use crate::helpers::HelperIdentity;
 use crate::sync::Arc;
 use crate::test_fixture::transport::InMemoryTransport;
@@ -35,5 +36,9 @@ impl InMemoryNetwork {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
+    }
+
+    pub fn transport(&self, id: &HelperIdentity) -> Weak<InMemoryTransport> {
+        Arc::downgrade(self.transports.iter().find(|t| t.identity() == id).unwrap())
     }
 }

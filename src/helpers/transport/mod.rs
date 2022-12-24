@@ -1,6 +1,7 @@
 mod error;
 pub mod query;
 
+use std::borrow::Borrow;
 pub use error::Error as TransportError;
 
 use crate::protocol::Step;
@@ -51,6 +52,9 @@ pub struct CommandEnvelope {
 #[async_trait]
 pub trait Transport: Send + Sync + 'static {
     type CommandStream: Stream<Item = CommandEnvelope> + Send + Unpin;
+
+    /// Returns the identity of the helper that runs this transport
+    fn identity(&self) -> HelperIdentity;
 
     /// To be called by an entity which will handle the events as indicated by the
     /// [`SubscriptionType`]. There should be only 1 subscriber per type.

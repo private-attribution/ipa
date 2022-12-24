@@ -30,6 +30,10 @@ impl <T: Transport> DelayedTransport<T> {
 impl <T: Transport> Transport for DelayedTransport<T> {
     type CommandStream = T::CommandStream;
 
+    fn identity(&self) -> HelperIdentity {
+        T::identity(&self.inner)
+    }
+
     async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
         self.inner.subscribe(subscription).await
     }
@@ -60,6 +64,10 @@ impl<F: Fn(TransportCommand) -> TransportError> FailingTransport<F> {
 #[async_trait]
 impl<F: Fn(TransportCommand) -> TransportError + Send + Sync + 'static> Transport for FailingTransport<F> {
     type CommandStream = <Weak<InMemoryTransport> as Transport>::CommandStream;
+
+    fn identity(&self) -> HelperIdentity {
+        unimplemented!()
+    }
 
     async fn subscribe(&self, _subscription: SubscriptionType) -> Self::CommandStream {
         unimplemented!()

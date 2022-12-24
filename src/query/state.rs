@@ -44,7 +44,9 @@ pub enum QueryState {
 impl QueryState {
     pub fn transition(cur_state: Option<&Self>, new_state: Self) -> Result<Self, StateError> {
         match (cur_state, &new_state) {
-            (None, QueryState::Preparing)
+            // If query is not running, coordinator initial state is preparing
+            // and followers initial state is awaiting inputs
+            (None, QueryState::Preparing | QueryState::AwaitingInputs(_))
             | (Some(QueryState::Preparing), QueryState::AwaitingInputs(_)) => Ok(new_state),
             (Some(_), QueryState::Preparing) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
@@ -99,6 +101,11 @@ impl QueryHandle<'_> {
 
         Ok(())
     }
+
+    pub fn status(&self) -> Option<QueryStatus> {
+        let inner = self.queries.inner.lock().unwrap();
+        inner.get(&self.query_id).map(QueryStatus::from)
+    }
 }
 
 impl RunningQueries {
@@ -107,9 +114,5 @@ impl RunningQueries {
             query_id,
             queries: self,
         }
-    }
-
-    pub fn get_status(&self, query_id: QueryId) -> Option<QueryStatus> {
-        self.inner.lock().unwrap().get(&query_id).map(Into::into)
     }
 }

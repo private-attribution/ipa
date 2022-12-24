@@ -2,6 +2,7 @@ mod network;
 mod routing;
 mod util;
 
+use std::borrow::Borrow;
 pub use network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
 
@@ -79,10 +80,17 @@ impl InMemoryTransport {
 impl Transport for Weak<InMemoryTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
-    async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
-        let this = self
-            .upgrade()
+    fn identity(&self) -> HelperIdentity {
+        let this = self.upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+
+        InMemoryTransport::identity(&this).clone()
+    }
+
+    async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
+        let this = self.upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+
         match subscription_type {
             SubscriptionType::QueryManagement => {
                 unimplemented!()

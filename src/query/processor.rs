@@ -38,6 +38,19 @@ pub enum NewQueryError {
     },
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum PrepareQueryError {
+    #[error("This helper is the query coordinator, cannot respond to Prepare requests")]
+    WrongTarget,
+    #[error("Query is already running")]
+    AlreadyRunning,
+    #[error(transparent)]
+    StateError {
+        #[from]
+        source: StateError,
+    },
+}
+
 #[allow(dead_code)]
 impl<T: Transport + Clone> Processor<T> {
     /// Upon receiving a new query request:
@@ -79,8 +92,33 @@ impl<T: Transport + Clone> Processor<T> {
         Ok(prepare_request)
     }
 
+    /// On prepare, each follower:
+    /// * ensures that it is not the leader on this query
+    /// * query is not registered yet
+    /// * creates gateway and network
+    /// * registers query
+    pub async fn prepare(&self, req: &PrepareQuery) -> Result<(), PrepareQueryError> {
+        let my_role = req.roles.role(&self.transport.identity());
+
+        if my_role== Role::H1 {
+            return Err(PrepareQueryError::WrongTarget);
+        }
+        let handle = self.queries.handle(req.query_id);
+        if handle.status().is_some() {
+            return Err(PrepareQueryError::AlreadyRunning);
+        }
+
+        let network = Network::new(self.transport.clone(), req.query_id, req.roles.clone());
+        let gateway = Gateway::new(my_role, network, GatewayConfig::default())
+            .await;
+
+        handle.set_state(QueryState::AwaitingInputs(gateway))?;
+
+        Ok(())
+    }
+
     pub fn status(&self, query_id: QueryId) -> Option<QueryStatus> {
-        self.queries.get_status(query_id)
+        self.queries.handle(query_id).status()
     }
 }
 
@@ -170,5 +208,61 @@ mod tests {
                 source: TransportError::SendFailed { .. }
             })
         ));
+    }
+
+    mod prepare {
+        use super::*;
+
+        fn  prepare_query(identities: &[HelperIdentity; 3]) -> PrepareQuery {
+            PrepareQuery {
+                query_id: QueryId,
+                field_type: FieldType::Fp31,
+                query_type: QueryType::TestMultiply,
+                roles: RoleAssignment::new(identities.clone())
+            }
+        }
+
+        #[tokio::test]
+        async fn happy_case() {
+            let network = InMemoryNetwork::default();
+            let identities = HelperIdentity::make_three();
+            let req = prepare_query(&identities);
+            let transport = network.transport(&identities[1]);
+
+            let processor = Processor::new(transport, identities);
+
+            assert_eq!(None, processor.status(QueryId));
+            processor.prepare(&req).await.unwrap();
+            assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
+        }
+
+        #[tokio::test]
+        async fn rejects_if_coordinator() {
+            let network = InMemoryNetwork::default();
+            let identities = HelperIdentity::make_three();
+            let req = prepare_query(&identities);
+            let transport = network.transport(&identities[0]);
+            let processor = Processor::new(transport, identities);
+
+            assert!(matches!(
+                processor.prepare(&req).await,
+                Err(PrepareQueryError::WrongTarget)
+            ));
+        }
+
+        #[tokio::test]
+        async fn rejects_if_query_exists() {
+            let network = InMemoryNetwork::default();
+            let identities = HelperIdentity::make_three();
+            let req = prepare_query(&identities);
+            let transport = network.transport(&identities[1]);
+
+            let processor = Processor::new(transport, identities);
+            processor.prepare(&req).await.unwrap();
+            assert!(matches!(
+                processor.prepare(&req).await,
+                Err(PrepareQueryError::AlreadyRunning)
+            ));
+        }
     }
 }
