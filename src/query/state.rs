@@ -29,6 +29,7 @@ pub enum QueryStatus {
 impl From<&QueryState> for QueryStatus {
     fn from(source: &QueryState) -> Self {
         match source {
+            QueryState::Empty => panic!("Query cannot be in the empty state"),
             QueryState::Preparing => QueryStatus::Preparing,
             QueryState::AwaitingInputs(_) => QueryStatus::AwaitingInputs,
         }
@@ -37,20 +38,24 @@ impl From<&QueryState> for QueryStatus {
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
+    Empty,
     Preparing,
     AwaitingInputs(Gateway),
 }
 
 impl QueryState {
-    pub fn transition(cur_state: Option<&Self>, new_state: Self) -> Result<Self, StateError> {
+    pub fn transition(cur_state: &Self, new_state: Self) -> Result<Self, StateError> {
+        use {QueryState::AwaitingInputs, QueryState::Empty, QueryState::Preparing};
+
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (None, QueryState::Preparing | QueryState::AwaitingInputs(_))
-            | (Some(QueryState::Preparing), QueryState::AwaitingInputs(_)) => Ok(new_state),
-            (Some(_), QueryState::Preparing) => Err(StateError::AlreadyRunning),
+            (Empty, Preparing | AwaitingInputs(_)) | (Preparing, AwaitingInputs(_)) => {
+                Ok(new_state)
+            }
+            (_, Preparing) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
-                from: cur_state.map(Into::into),
+                from: cur_state.into(),
                 to: QueryStatus::from(&new_state),
             }),
         }
@@ -62,10 +67,7 @@ pub enum StateError {
     #[error("Query is already running")]
     AlreadyRunning,
     #[error("Cannot transition from state {from:?} to state {to:?}")]
-    InvalidState {
-        from: Option<QueryStatus>,
-        to: QueryStatus,
-    },
+    InvalidState { from: QueryStatus, to: QueryStatus },
 }
 
 /// Keeps track of queries running on this helper.
@@ -92,10 +94,10 @@ impl QueryHandle<'_> {
         let entry = inner.entry(self.query_id);
         match entry {
             Entry::Occupied(mut entry) => {
-                entry.insert(QueryState::transition(Some(entry.get()), new_state)?);
+                entry.insert(QueryState::transition(entry.get(), new_state)?);
             }
             Entry::Vacant(entry) => {
-                entry.insert(QueryState::transition(None, new_state)?);
+                entry.insert(QueryState::transition(&QueryState::Empty, new_state)?);
             }
         }
 
