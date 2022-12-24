@@ -160,13 +160,12 @@ pub struct GatewayConfig {
     pub recv_outstanding: usize,
 }
 
-#[cfg(test)]
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
             send_outstanding: 16,
             recv_outstanding: 16,
-            send_buffer_config: SendBufferConfig::default()
+            send_buffer_config: SendBufferConfig::default(),
         }
     }
 }

@@ -1,8 +1,10 @@
-use std::sync::Weak;
+use crate::helpers::{
+    HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
+};
 use crate::sync::Arc;
-use crate::helpers::{HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::test_fixture::transport::InMemoryTransport;
 use async_trait::async_trait;
+use std::sync::Weak;
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.
@@ -12,7 +14,7 @@ pub struct DelayedTransport<T> {
     barrier: Arc<tokio::sync::Barrier>,
 }
 
-impl <T: Transport> DelayedTransport<T> {
+impl<T: Transport> DelayedTransport<T> {
     #[must_use]
     pub fn new(inner: T, concurrent_sends: usize) -> Self {
         Self {
@@ -27,7 +29,7 @@ impl <T: Transport> DelayedTransport<T> {
 }
 
 #[async_trait]
-impl <T: Transport> Transport for DelayedTransport<T> {
+impl<T: Transport> Transport for DelayedTransport<T> {
     type CommandStream = T::CommandStream;
 
     fn identity(&self) -> HelperIdentity {
@@ -46,7 +48,6 @@ impl <T: Transport> Transport for DelayedTransport<T> {
         self.barrier.wait().await;
         self.inner.send(destination, command).await
     }
-
 }
 
 /// Transport that fails every `send` request using provided `error_fn` to resolve errors.
@@ -62,7 +63,9 @@ impl<F: Fn(TransportCommand) -> TransportError> FailingTransport<F> {
 }
 
 #[async_trait]
-impl<F: Fn(TransportCommand) -> TransportError + Send + Sync + 'static> Transport for FailingTransport<F> {
+impl<F: Fn(TransportCommand) -> TransportError + Send + Sync + 'static> Transport
+    for FailingTransport<F>
+{
     type CommandStream = <Weak<InMemoryTransport> as Transport>::CommandStream;
 
     fn identity(&self) -> HelperIdentity {

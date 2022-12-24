@@ -1,7 +1,6 @@
 mod error;
 pub mod query;
 
-use std::borrow::Borrow;
 pub use error::Error as TransportError;
 
 use crate::protocol::Step;

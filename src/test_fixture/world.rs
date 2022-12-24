@@ -118,9 +118,9 @@ impl TestWorld {
                 Gateway::new(role, network, config.gateway_config).await
             }
         }))
-            .await
-            .try_into()
-            .unwrap();
+        .await
+        .try_into()
+        .unwrap();
 
         TestWorld {
             gateways: ManuallyDrop::new(gateways),
@@ -200,39 +200,39 @@ impl Drop for TestWorld {
 #[async_trait]
 pub trait Runner<I, A, F> {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
-        where
-            F: Field,
-            O: Send + Debug,
-            H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
-            R: Future<Output = O> + Send,
-            Standard: Distribution<F>;
+    where
+        F: Field,
+        O: Send + Debug,
+        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+        R: Future<Output = O> + Send,
+        Standard: Distribution<F>;
 
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
-        where
-            A: IntoMalicious<F, M>,
-            F: Field,
-            O: Send + Debug,
-            M: Send,
-            H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
-            R: Future<Output = P> + Send,
-            P: DowngradeMalicious<Target = O> + Send + Debug,
-            [P; 3]: ValidateMalicious<F>,
-            Standard: Distribution<F>;
+    where
+        A: IntoMalicious<F, M>,
+        F: Field,
+        O: Send + Debug,
+        M: Send,
+        H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
+        R: Future<Output = P> + Send,
+        P: DowngradeMalicious<Target = O> + Send + Debug,
+        [P; 3]: ValidateMalicious<F>,
+        Standard: Distribution<F>;
 }
 
 #[async_trait]
 impl<I, A, F> Runner<I, A, F> for TestWorld
-    where
-        I: 'static + IntoShares<A> + Send,
-        A: Send,
-        F: Field,
+where
+    I: 'static + IntoShares<A> + Send,
+    A: Send,
+    F: Field,
 {
     async fn semi_honest<'a, O, H, R>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
-        where
-            O: Send + Debug,
-            H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
-            R: Future<Output = O> + Send,
-            Standard: Distribution<F>,
+    where
+        O: Send + Debug,
+        H: FnMut(SemiHonestContext<'a, F>, A) -> R + Send,
+        R: Future<Output = O> + Send,
+        Standard: Distribution<F>,
     {
         let contexts = self.contexts();
         let input_shares = {
@@ -246,15 +246,15 @@ impl<I, A, F> Runner<I, A, F> for TestWorld
     }
 
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, mut helper_fn: H) -> [O; 3]
-        where
-            A: IntoMalicious<F, M>,
-            O: Send + Debug,
-            M: Send,
-            H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
-            R: Future<Output = P> + Send,
-            P: DowngradeMalicious<Target = O> + Send + Debug,
-            [P; 3]: ValidateMalicious<F>,
-            Standard: Distribution<F>,
+    where
+        A: IntoMalicious<F, M>,
+        O: Send + Debug,
+        M: Send,
+        H: FnMut(MaliciousContext<'a, F>, M) -> R + Send,
+        R: Future<Output = P> + Send,
+        P: DowngradeMalicious<Target = O> + Send + Debug,
+        [P; 3]: ValidateMalicious<F>,
+        Standard: Distribution<F>,
     {
         // The following is what this *should* look like,
         // but so far the spelling necessary to convince the borrow checker
@@ -273,7 +273,7 @@ impl<I, A, F> Runner<I, A, F> for TestWorld
                 let res = helper_fn(v.context(), m_share).await;
                 v.validate(res).await.unwrap()
             })
-                .await
+            .await
         }
 
         // Convert the shares from I into [A; 3].
@@ -290,7 +290,7 @@ impl<I, A, F> Runner<I, A, F> for TestWorld
             let m_share = share.upgrade(v.context()).await;
             (v, m_share)
         }))
-            .await;
+        .await;
 
         // Separate the validators and the now-malicious shares.
         let (v, m_shares): (Vec<_>, Vec<_>) = upgraded.into_iter().unzip();
@@ -310,7 +310,7 @@ impl<I, A, F> Runner<I, A, F> for TestWorld
         let output = join_all(
             zip(v, m_results).map(|(v, m_result)| async { v.validate(m_result).await.unwrap() }),
         )
-            .await;
+        .await;
         <[_; 3]>::try_from(output).unwrap()
     }
 }

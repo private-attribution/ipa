@@ -101,9 +101,8 @@ impl<T: Transport> Network<T> {
 
                 (channel_id, payload)
             }
-            #[allow(unreachable_patterns)] // there will be more commands in the future
-            other_command => panic!(
-                "received unexpected command {other_command:?} for query id {}",
+            TransportCommand::Query(_) => panic!(
+                "received unexpected command {envelope:?} for query id {}",
                 self_query_id.as_ref()
             ),
         })

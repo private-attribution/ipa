@@ -2,7 +2,6 @@ mod network;
 mod routing;
 mod util;
 
-use std::borrow::Borrow;
 pub use network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
 
@@ -43,6 +42,7 @@ impl Setup {
             .add_peer(self.switch_setup.identity.clone(), rx);
     }
 
+    #[must_use]
     pub fn listen(self) -> InMemoryTransport {
         let switch = self.switch_setup.listen();
 
@@ -61,6 +61,7 @@ pub struct InMemoryTransport {
 }
 
 impl InMemoryTransport {
+    #[must_use]
     pub fn setup(id: HelperIdentity) -> Setup {
         Setup::from(id)
     }
@@ -71,6 +72,7 @@ impl InMemoryTransport {
         b.connect(a);
     }
 
+    #[must_use]
     pub fn identity(&self) -> &HelperIdentity {
         self.switch.identity()
     }
@@ -81,14 +83,16 @@ impl Transport for Weak<InMemoryTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
     fn identity(&self) -> HelperIdentity {
-        let this = self.upgrade()
+        let this = self
+            .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
 
         InMemoryTransport::identity(&this).clone()
     }
 
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
-        let this = self.upgrade()
+        let this = self
+            .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
 
         match subscription_type {

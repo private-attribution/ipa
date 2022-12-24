@@ -1,6 +1,6 @@
-use crate::sync::Weak;
 use crate::helpers::HelperIdentity;
 use crate::sync::Arc;
+use crate::sync::Weak;
 use crate::test_fixture::transport::InMemoryTransport;
 
 /// Container for all active transports
@@ -38,7 +38,11 @@ impl InMemoryNetwork {
             .unwrap()
     }
 
-    pub fn transport(&self, id: &HelperIdentity) -> Weak<InMemoryTransport> {
-        Arc::downgrade(self.transports.iter().find(|t| t.identity() == id).unwrap())
+    #[must_use]
+    pub fn transport(&self, id: &HelperIdentity) -> Option<Weak<InMemoryTransport>> {
+        self.transports
+            .iter()
+            .find(|t| t.identity() == id)
+            .map(Arc::downgrade)
     }
 }

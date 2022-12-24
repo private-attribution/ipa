@@ -1,10 +1,12 @@
 use super::state::{QueryState, QueryStatus, RunningQueries, StateError};
 use crate::helpers::messaging::Gateway;
-use crate::helpers::{GatewayConfig, HelperIdentity, Role, Transport, TransportError, RoleAssignment};
+use crate::helpers::network::Network;
+use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand};
+use crate::helpers::{
+    GatewayConfig, HelperIdentity, Role, RoleAssignment, Transport, TransportError,
+};
 use crate::protocol::QueryId;
 use futures_util::future::try_join;
-use crate::helpers::network::Network;
-use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand, QueryType};
 
 #[allow(dead_code)]
 pub struct Processor<T: Transport> {
@@ -61,10 +63,7 @@ impl<T: Transport + Clone> Processor<T> {
     /// * sends `prepare` request that describes the query configuration (query id, query type, field type, roles -> endpoints or reverse) to followers and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
-    pub async fn new_query(
-        &self,
-        req: &CreateQuery,
-    ) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query(&self, req: &CreateQuery) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing)?;
@@ -74,16 +73,28 @@ impl<T: Transport + Clone> Processor<T> {
         let right = self.identities[1].clone();
         let left = self.identities[2].clone();
 
-        let roles = RoleAssignment::try_from([(this, Role::H1), (right.clone(), Role::H2), (left.clone(), Role::H3)]).unwrap();
+        let roles = RoleAssignment::try_from([
+            (this, Role::H1),
+            (right.clone(), Role::H2),
+            (left.clone(), Role::H3),
+        ])
+        .unwrap();
         let network = Network::new(self.transport.clone(), query_id, roles.clone());
 
-        let prepare_request = PrepareQuery { query_id, field_type: req.field_type, query_type: req.query_type, roles };
+        let prepare_request = PrepareQuery {
+            query_id,
+            field_type: req.field_type,
+            query_type: req.query_type,
+            roles,
+        };
 
         try_join(
-            self.transport.send(&left, QueryCommand::Prepare(prepare_request.clone())),
-            self.transport.send(&right, QueryCommand::Prepare(prepare_request.clone())),
+            self.transport
+                .send(&left, QueryCommand::Prepare(prepare_request.clone())),
+            self.transport
+                .send(&right, QueryCommand::Prepare(prepare_request.clone())),
         )
-            .await?;
+        .await?;
 
         let gateway = Gateway::new(Role::H1, network, GatewayConfig::default()).await;
 
@@ -100,7 +111,7 @@ impl<T: Transport + Clone> Processor<T> {
     pub async fn prepare(&self, req: &PrepareQuery) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(&self.transport.identity());
 
-        if my_role== Role::H1 {
+        if my_role == Role::H1 {
             return Err(PrepareQueryError::WrongTarget);
         }
         let handle = self.queries.handle(req.query_id);
@@ -109,8 +120,7 @@ impl<T: Transport + Clone> Processor<T> {
         }
 
         let network = Network::new(self.transport.clone(), req.query_id, req.roles.clone());
-        let gateway = Gateway::new(my_role, network, GatewayConfig::default())
-            .await;
+        let gateway = Gateway::new(my_role, network, GatewayConfig::default()).await;
 
         handle.set_state(QueryState::AwaitingInputs(gateway))?;
 
@@ -124,12 +134,13 @@ impl<T: Transport + Clone> Processor<T> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::sync::Arc;
-    use futures::pin_mut;
-    use futures_util::future::poll_immediate;
     use super::*;
     use crate::ff::FieldType;
+    use crate::helpers::query::QueryType;
     use crate::test_fixture::transport::{DelayedTransport, FailingTransport, InMemoryNetwork};
+    use futures::pin_mut;
+    use futures_util::future::poll_immediate;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn new_query() {
@@ -190,11 +201,10 @@ mod tests {
 
     #[tokio::test]
     async fn prepare_rejected() {
-        let transport =
-            FailingTransport::new(|command| TransportError::SendFailed {
-                inner: "Transport failed".into(),
-                command,
-            });
+        let transport = FailingTransport::new(|command| TransportError::SendFailed {
+            inner: "Transport failed".into(),
+            command,
+        });
         let identities = HelperIdentity::make_three();
         let processor = Processor::new(transport, identities);
         let request = CreateQuery {
@@ -213,12 +223,12 @@ mod tests {
     mod prepare {
         use super::*;
 
-        fn  prepare_query(identities: &[HelperIdentity; 3]) -> PrepareQuery {
+        fn prepare_query(identities: &[HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {
                 query_id: QueryId,
                 field_type: FieldType::Fp31,
                 query_type: QueryType::TestMultiply,
-                roles: RoleAssignment::new(identities.clone())
+                roles: RoleAssignment::new(identities.clone()),
             }
         }
 
@@ -227,7 +237,7 @@ mod tests {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(&identities);
-            let transport = network.transport(&identities[1]);
+            let transport = network.transport(&identities[1]).unwrap();
 
             let processor = Processor::new(transport, identities);
 
@@ -241,7 +251,7 @@ mod tests {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(&identities);
-            let transport = network.transport(&identities[0]);
+            let transport = network.transport(&identities[0]).unwrap();
             let processor = Processor::new(transport, identities);
 
             assert!(matches!(
@@ -255,7 +265,7 @@ mod tests {
             let network = InMemoryNetwork::default();
             let identities = HelperIdentity::make_three();
             let req = prepare_query(&identities);
-            let transport = network.transport(&identities[1]);
+            let transport = network.transport(&identities[1]).unwrap();
 
             let processor = Processor::new(transport, identities);
             processor.prepare(&req).await.unwrap();
