@@ -10,12 +10,18 @@ use futures_util::stream::SelectAll;
 use shuttle::future as tokio;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use async_trait::async_trait;
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
+use crate::error::BoxError;
+use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand};
 
 #[derive(Debug)]
 enum SwitchCommand {
     Subscribe(SubscribeRequest),
+    FromClient(TransportCommand),
 }
 
 struct SubscribeRequest {
@@ -102,30 +108,23 @@ impl Switch {
         }
 
         let handle = tokio::spawn(async move {
-            let mut query_router = QueryCommandRouter::default();
+            let mut routes = HashMap::default();
             loop {
                 ::tokio::select! {
                     Some(command) = rx.recv() => {
                         match command {
                             SwitchCommand::Subscribe(subscribe_command) => {
-                                match subscribe_command.subscription() {
-                                    SubscriptionType::Query(query_id) => {
-                                        tracing::trace!("Subscribed to receive commands for query {query_id:?}");
-                                        query_router.subscribe(query_id, subscribe_command.sender());
-                                        subscribe_command.acknowledge();
-                                    },
-                                    SubscriptionType::QueryManagement => {
-                                        unimplemented!()
-                                    }
-                                }
+                                let SubscribeRequest { subscription, link, ack_tx } = subscribe_command;
+                                assert!(routes.insert(subscription, link).is_none());
+                                ack_tx.send(());
+                            }
+                            SwitchCommand::FromClient(command) => {
+                                command.dispatch(CommandOrigin::Other, &routes).await.expect("Failed to dispatch a command");
                             }
                         }
                     }
                     Some((origin, command)) = peer_links.next() => {
-                        match command {
-                            TransportCommand::StepData(query, step, payload) => query_router.route(origin, query, step, payload).await,
-                            TransportCommand::Query(_) => panic!("Can't handle query commands just yet")
-                        }
+                        command.dispatch(CommandOrigin::Helper(origin), &routes).await.expect("Failed to dispatch a command");
                     }
                     else => {
                         tracing::debug!("All channels are closed and switch is terminated");
@@ -142,9 +141,9 @@ impl Switch {
         }
     }
 
-    pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<CommandEnvelope> {
+    pub async fn subscribe(&self, subscription: SubscriptionType) -> ReceiverStream<CommandEnvelope> {
         let (tx, rx) = mpsc::channel(1);
-        let (command, ack_rx) = SubscribeRequest::new(SubscriptionType::Query(query_id), tx);
+        let (command, ack_rx) = SubscribeRequest::new(subscription, tx);
         self.tx
             .send(SwitchCommand::Subscribe(command))
             .await
@@ -157,6 +156,10 @@ impl Switch {
     pub fn identity(&self) -> &HelperIdentity {
         &self.identity
     }
+
+    pub async fn direct_delivery(&self, c: TransportCommand) {
+        self.tx.send(SwitchCommand::FromClient(c)).await.unwrap()
+    }
 }
 
 impl Drop for Switch {
@@ -165,28 +168,44 @@ impl Drop for Switch {
     }
 }
 
-#[derive(Default)]
-struct QueryCommandRouter {
-    routes: HashMap<QueryId, mpsc::Sender<CommandEnvelope>>,
+#[derive(Debug, thiserror::Error)]
+enum DispatchError {
+    #[error("No listeners subscribed for {command:?}")]
+    NoSubscribers {
+        command: CommandEnvelope
+    },
+    #[error("Failed to send {command:?}")]
+    SendFailed {
+        command: CommandEnvelope,
+        inner: BoxError
+    }
 }
 
-impl QueryCommandRouter {
-    async fn route(&self, origin: HelperIdentity, query_id: QueryId, step: Step, payload: Vec<u8>) {
-        let sender = self
-            .routes
-            .get(&query_id)
-            .unwrap_or_else(|| panic!("No subscribers for {query_id:?}"));
-
-        sender
-            .send(CommandEnvelope {
-                origin: CommandOrigin::Helper(origin),
-                payload: TransportCommand::StepData(query_id, step, payload),
-            })
-            .await
-            .unwrap();
+impl From<mpsc::error::SendError<CommandEnvelope>> for DispatchError {
+    fn from(value: SendError<CommandEnvelope>) -> Self {
+        Self::SendFailed {
+            command: value.0,
+            inner: "channel closed".into()
+        }
     }
+}
 
-    fn subscribe(&mut self, query_id: QueryId, sender: mpsc::Sender<CommandEnvelope>) {
-        assert!(self.routes.insert(query_id, sender).is_none());
+#[async_trait]
+trait Dispatcher {
+    async fn dispatch(self, origin: CommandOrigin, routes: &HashMap<SubscriptionType, mpsc::Sender<CommandEnvelope>>) -> Result<(), DispatchError>;
+}
+
+#[async_trait]
+impl Dispatcher for TransportCommand {
+    async fn dispatch(self,
+                origin: CommandOrigin,
+                routes: &HashMap<SubscriptionType, Sender<CommandEnvelope>>) -> Result<(), DispatchError> {
+        let sub = SubscriptionType::from(&self);
+        let command = CommandEnvelope { origin, payload: self };
+        let route = routes.get(&sub);
+        match route {
+            Some(route) => Ok(route.send(command).await?),
+            None => Err(DispatchError::NoSubscribers { command })
+        }
     }
 }

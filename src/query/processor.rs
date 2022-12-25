@@ -1,12 +1,13 @@
+use std::fmt::{Debug, Formatter};
 use super::state::{QueryState, QueryStatus, RunningQueries, StateError};
 use crate::helpers::messaging::Gateway;
 use crate::helpers::network::Network;
 use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand};
-use crate::helpers::{
-    GatewayConfig, HelperIdentity, Role, RoleAssignment, Transport, TransportError,
-};
+use crate::helpers::{GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::protocol::QueryId;
 use futures_util::future::try_join;
+use tokio::sync::mpsc;
+use crate::task::JoinHandle;
 
 #[allow(dead_code)]
 pub struct Processor<T: Transport> {
@@ -15,14 +16,45 @@ pub struct Processor<T: Transport> {
     queries: RunningQueries,
 }
 
+impl <T: Transport> Debug for Processor<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "query_processor")
+    }
+}
+
 #[allow(dead_code)]
-impl<T: Transport> Processor<T> {
+impl<T: Transport + Clone> Processor<T> {
     pub fn new(transport: T, identities: [HelperIdentity; 3]) -> Self {
         Self {
             transport,
             identities,
             queries: RunningQueries::default(),
         }
+    }
+
+    pub fn start(transport: T, identities: [HelperIdentity; 3]) -> JoinHandle<()> {
+        use futures::StreamExt;
+
+        tokio::spawn(async move {
+            let mut stream = transport.subscribe(SubscriptionType::QueryManagement).await;
+            let processor = Self::new(transport, identities);
+
+            while let Some(command) = stream.next().await {
+                match command.payload {
+                    TransportCommand::Query(query_command) => {
+                        match query_command {
+                            QueryCommand::Create(req) => {
+                                let r = processor.new_query(&req).await.unwrap();
+                            }
+                            QueryCommand::Prepare(req) => {
+                                processor.prepare(&req).await.unwrap();
+                            },
+                        }
+                    }
+                    _ => panic!("unexpected command: {command:?}")
+                }
+            }
+        })
     }
 }
 
@@ -273,6 +305,30 @@ mod tests {
                 processor.prepare(&req).await,
                 Err(PrepareQueryError::AlreadyRunning)
             ));
+        }
+    }
+
+
+    mod e2e {
+        use super::*;
+
+        #[tokio::test]
+        pub async fn happy_case() {
+            let network = InMemoryNetwork::default();
+            let identities = HelperIdentity::make_three();
+            let processors: [_; 3] = network.transports.iter().map(|transport| {
+                Processor::new(Arc::downgrade(transport), identities.clone())
+            }).collect::<Vec<_>>().try_into().unwrap();
+
+            // Helper 1 initiates the query, 2 and 3 must confirm
+            // network.transports[0]
+            //     .deliver(QueryCommand::Create(CreateQuery { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }))
+            //     .await;
+            let r = processors[0].new_query(&CreateQuery { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }).await.unwrap();
+
+            assert_eq!(processors[1].status(r.query_id), processors[2].status(r.query_id));
+            assert_eq!(processors[2].status(r.query_id), processors[0].status(r.query_id));
+            assert_eq!(Some(QueryStatus::AwaitingInputs), processors[0].status(r.query_id));
         }
     }
 }

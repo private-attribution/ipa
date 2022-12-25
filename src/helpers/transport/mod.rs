@@ -7,6 +7,7 @@ use crate::protocol::Step;
 use crate::{helpers::HelperIdentity, protocol::QueryId};
 use async_trait::async_trait;
 use futures::Stream;
+use crate::error::BoxError;
 
 #[derive(Debug)]
 pub enum TransportCommand {
@@ -28,6 +29,15 @@ pub enum SubscriptionType {
     QueryManagement,
     /// Commands intended for a running query
     Query(QueryId),
+}
+
+impl From<&TransportCommand> for SubscriptionType {
+    fn from(value: &TransportCommand) -> Self {
+        match value {
+            TransportCommand::Query(_) => SubscriptionType::QueryManagement,
+            TransportCommand::StepData(query_id, _, _) => SubscriptionType::Query(*query_id),
+        }
+    }
 }
 
 /// The source of the command, i.e. where it came from. Some may arrive from helper peers, others

@@ -76,6 +76,12 @@ impl InMemoryTransport {
     pub fn identity(&self) -> &HelperIdentity {
         self.switch.identity()
     }
+
+    /// Emulate client command delivery
+    #[must_use]
+    pub async fn deliver<I: Into<TransportCommand>>(&self, c: I) {
+        self.switch.direct_delivery(c.into()).await;
+    }
 }
 
 #[async_trait]
@@ -95,12 +101,7 @@ impl Transport for Weak<InMemoryTransport> {
             .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
 
-        match subscription_type {
-            SubscriptionType::QueryManagement => {
-                unimplemented!()
-            }
-            SubscriptionType::Query(query_id) => this.switch.query_stream(query_id).await,
-        }
+        this.switch.subscribe(subscription_type).await
     }
 
     async fn send<C: Send + Into<TransportCommand>>(
