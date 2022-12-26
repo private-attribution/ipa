@@ -14,6 +14,7 @@ use routing::Switch;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
+use crate::helpers::query::QueryCommand;
 
 /// In memory transport setup includes creating resources
 /// to create a connection to every other peer in the network.
@@ -79,7 +80,7 @@ impl InMemoryTransport {
 
     /// Emulate client command delivery
     #[must_use]
-    pub async fn deliver<I: Into<TransportCommand>>(&self, c: I) {
+    pub async fn deliver(&self, c: QueryCommand) {
         self.switch.direct_delivery(c.into()).await;
     }
 }

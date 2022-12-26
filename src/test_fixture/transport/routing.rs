@@ -21,7 +21,7 @@ use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand};
 #[derive(Debug)]
 enum SwitchCommand {
     Subscribe(SubscribeRequest),
-    FromClient(TransportCommand),
+    FromClient(QueryCommand),
 }
 
 struct SubscribeRequest {
@@ -119,7 +119,7 @@ impl Switch {
                                 ack_tx.send(());
                             }
                             SwitchCommand::FromClient(command) => {
-                                command.dispatch(CommandOrigin::Other, &routes).await.expect("Failed to dispatch a command");
+                                TransportCommand::Query(command).dispatch(CommandOrigin::Other, &routes).await.expect("Failed to dispatch a command");
                             }
                         }
                     }
@@ -157,7 +157,7 @@ impl Switch {
         &self.identity
     }
 
-    pub async fn direct_delivery(&self, c: TransportCommand) {
+    pub async fn direct_delivery(&self, c: QueryCommand) {
         self.tx.send(SwitchCommand::FromClient(c)).await.unwrap()
     }
 }

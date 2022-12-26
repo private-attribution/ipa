@@ -1,3 +1,8 @@
+use std::any::type_name;
+use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
+use tokio::sync::oneshot;
+use crate::error::BoxError;
 use crate::ff::FieldType;
 use crate::helpers::{RoleAssignment, TransportCommand};
 use crate::protocol::QueryId;
@@ -21,7 +26,7 @@ pub struct PrepareQuery {
 
 #[derive(Debug)]
 pub enum QueryCommand {
-    Create(CreateQuery),
+    Create(CreateQuery, oneshot::Sender<PrepareQuery>),
     Prepare(PrepareQuery),
 }
 
@@ -37,3 +42,4 @@ pub enum QueryType {
     TestMultiply,
     IPA,
 }
+
