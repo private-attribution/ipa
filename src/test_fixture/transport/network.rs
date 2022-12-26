@@ -1,36 +1,27 @@
 use crate::helpers::HelperIdentity;
 use crate::sync::Arc;
+use crate::sync::Weak;
 use crate::test_fixture::transport::InMemoryTransport;
-use std::fmt::Debug;
 
 /// Container for all active transports
-#[derive(Debug)]
 pub struct InMemoryNetwork {
     pub transports: [Arc<InMemoryTransport>; 3],
 }
 
 impl Default for InMemoryNetwork {
     fn default() -> Self {
-        let [mut first, mut second, mut third]: [InMemoryTransport; 3] = (1..=3)
-            .map(|v| InMemoryTransport::new(v.try_into().unwrap()))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let [mut first, mut second, mut third] = [
+            InMemoryTransport::setup(1.try_into().unwrap()),
+            InMemoryTransport::setup(2.try_into().unwrap()),
+            InMemoryTransport::setup(3.try_into().unwrap()),
+        ];
 
-        // it is a bit tedious, is there a better way?
-        first.connect(&mut second);
-        first.connect(&mut third);
-        second.connect(&mut first);
-        second.connect(&mut third);
-        third.connect(&mut first);
-        third.connect(&mut second);
-
-        first.listen();
-        second.listen();
-        third.listen();
+        InMemoryTransport::link(&mut first, &mut second);
+        InMemoryTransport::link(&mut second, &mut third);
+        InMemoryTransport::link(&mut third, &mut first);
 
         Self {
-            transports: [first, second, third].map(Arc::new),
+            transports: [first.listen(), second.listen(), third.listen()].map(Arc::new),
         }
     }
 }
@@ -46,13 +37,12 @@ impl InMemoryNetwork {
             .try_into()
             .unwrap()
     }
-}
 
-#[cfg(all(test, feature = "shuttle"))]
-impl Drop for InMemoryNetwork {
-    fn drop(&mut self) {
-        for transport in &self.transports {
-            transport.halt();
-        }
+    #[must_use]
+    pub fn transport(&self, id: &HelperIdentity) -> Option<Weak<InMemoryTransport>> {
+        self.transports
+            .iter()
+            .find(|t| t.identity() == id)
+            .map(Arc::downgrade)
     }
 }

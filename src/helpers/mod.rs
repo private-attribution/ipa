@@ -13,8 +13,8 @@ pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
 pub use transport::{
-    CommandEnvelope, CommandOrigin, NetworkEventData, SubscriptionType, Transport,
-    TransportCommand, TransportError,
+    query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
+    TransportError,
 };
 
 use crate::helpers::{
@@ -52,6 +52,19 @@ impl TryFrom<usize> for HelperIdentity {
     }
 }
 
+#[cfg(any(test, feature = "test-fixture"))]
+impl HelperIdentity {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn make_three() -> [Self; 3] {
+        [
+            Self::try_from(1).unwrap(),
+            Self::try_from(2).unwrap(),
+            Self::try_from(3).unwrap(),
+        ]
+    }
+}
+
 /// Represents a unique role of the helper inside the MPC circuit. Each helper may have different
 /// roles in queries it processes in parallel. For some queries it can be `H1` and for others it
 /// may be `H2` or `H3`.
@@ -70,6 +83,7 @@ pub enum Role {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -199,6 +213,23 @@ impl RoleAssignment {
     #[must_use]
     pub fn identity(&self, role: Role) -> &HelperIdentity {
         &self.helper_roles[role]
+    }
+}
+
+impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
+    type Error = String;
+
+    fn try_from(value: [(HelperIdentity, Role); 3]) -> std::result::Result<Self, Self::Error> {
+        let mut result = [None, None, None];
+        for (helper, role) in value {
+            if result[role].is_some() {
+                return Err(format!("Role {role:?} has been assigned twice"));
+            }
+
+            result[role] = Some(helper);
+        }
+
+        Ok(RoleAssignment::new(result.map(Option::unwrap)))
     }
 }
 

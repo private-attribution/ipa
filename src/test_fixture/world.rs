@@ -32,7 +32,7 @@ use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
-use crate::test_fixture::transport::network::InMemoryNetwork;
+use crate::test_fixture::transport::InMemoryNetwork;
 use tracing::Level;
 
 use super::{
@@ -114,7 +114,7 @@ impl TestWorld {
             async move {
                 // simple role assignment, based on transport index
                 let role = Role::all()[i];
-                let network = Network::new(Arc::clone(transport), QueryId, role_assignment);
+                let network = Network::new(Arc::downgrade(transport), QueryId, role_assignment);
                 Gateway::new(role, network, config.gateway_config).await
             }
         }))

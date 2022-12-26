@@ -16,8 +16,6 @@ use tracing::Instrument;
 #[derive(Debug)]
 enum SwitchCommand {
     Subscribe(SubscribeRequest),
-    #[allow(dead_code)]
-    Halt,
 }
 
 struct SubscribeRequest {
@@ -61,66 +59,48 @@ impl SubscribeRequest {
     }
 }
 
-/// Switch state
 #[derive(Debug)]
-enum State {
-    /// Getting ready to start receiving commands. In this state, it is possible to add new
-    /// peer connections
-    Idle(
-        mpsc::Receiver<SwitchCommand>,
-        HashMap<HelperIdentity, mpsc::Receiver<TransportCommand>>,
-    ),
-    /// Interim state where switch is about to start actively listening for incoming traffic
-    Preparing,
-    /// Actively listening. It is no longer possible to change the state of this switch and add
-    /// or remove connections.
-    Listening(JoinHandle<()>),
+pub struct Setup {
+    pub identity: HelperIdentity,
+    peers: HashMap<HelperIdentity, mpsc::Receiver<TransportCommand>>,
+}
+
+impl From<HelperIdentity> for Setup {
+    fn from(identity: HelperIdentity) -> Self {
+        Self {
+            identity,
+            peers: HashMap::default(),
+        }
+    }
+}
+
+impl Setup {
+    pub fn add_peer(&mut self, peer_id: HelperIdentity, peer_rx: mpsc::Receiver<TransportCommand>) {
+        assert!(self.peers.insert(peer_id, peer_rx).is_none());
+    }
+
+    pub(super) fn listen(self) -> Switch {
+        Switch::new(self)
+    }
 }
 
 /// Takes care of forwarding commands received from multiple links (one link per peer)
 /// to the subscribers
 pub(super) struct Switch {
-    state: State,
+    identity: HelperIdentity,
     tx: mpsc::Sender<SwitchCommand>,
-    id: HelperIdentity,
-}
-
-impl Debug for Switch {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "switch[{:?}]", self.state)
-    }
+    handle: JoinHandle<()>,
 }
 
 impl Switch {
-    pub fn new(id: HelperIdentity) -> Self {
-        let (tx, rx) = mpsc::channel(1);
-
-        Self {
-            state: State::Idle(rx, HashMap::default()),
-            tx,
-            id,
-        }
-    }
-
-    pub fn new_peer(&mut self, peer_id: HelperIdentity, peer_rx: mpsc::Receiver<TransportCommand>) {
-        let State::Idle(_, peers) = &mut self.state else {
-            panic!("Not in Idle state");
-        };
-
-        assert!(peers.insert(peer_id, peer_rx).is_none());
-    }
-
-    /// Starts listening to the incoming messages in a separate task. Can only be called once
-    /// and only when it is in the `Idle` state.
-    pub fn listen(&mut self) {
-        let State::Idle(mut rx, peers) = std::mem::replace(&mut self.state, State::Preparing) else {
-            panic!("Not in Idle state");
-        };
+    fn new(setup: Setup) -> Self {
+        let (tx, mut rx) = mpsc::channel(1);
 
         let mut peer_links = SelectAll::new();
-        for (addr, link) in peers {
+        for (addr, link) in setup.peers {
             peer_links.push(ReceiverStream::new(link).map(move |command| (addr.clone(), command)));
         }
+
         let handle = tokio::spawn(async move {
             let mut query_router = QueryCommandRouter::default();
             loop {
@@ -139,15 +119,12 @@ impl Switch {
                                     }
                                 }
                             }
-                            SwitchCommand::Halt => {
-                                tracing::trace!("Switch is terminated");
-                                break;
-                            }
                         }
                     }
                     Some((origin, command)) = peer_links.next() => {
                         match command {
-                            TransportCommand::StepData(query, step, payload) => query_router.route(origin, query, step, payload).await
+                            TransportCommand::StepData(query, step, payload) => query_router.route(origin, query, step, payload).await,
+                            TransportCommand::Query(_) => panic!("Can't handle query commands just yet")
                         }
                     }
                     else => {
@@ -156,9 +133,13 @@ impl Switch {
                     }
                 }
             }
-        }.instrument(tracing::info_span!("transport_loop", id=?self.id).or_current()));
+        }.instrument(tracing::info_span!("transport_loop", id=?setup.identity).or_current()));
 
-        self.state = State::Listening(handle);
+        Self {
+            identity: setup.identity,
+            handle,
+            tx,
+        }
     }
 
     pub async fn query_stream(&self, query_id: QueryId) -> ReceiverStream<CommandEnvelope> {
@@ -173,17 +154,14 @@ impl Switch {
         ReceiverStream::new(rx)
     }
 
-    #[cfg(all(test, feature = "shuttle"))]
-    pub async fn halt(&self) {
-        self.tx.send(SwitchCommand::Halt).await.unwrap();
+    pub fn identity(&self) -> &HelperIdentity {
+        &self.identity
     }
 }
 
 impl Drop for Switch {
     fn drop(&mut self) {
-        if let State::Listening(handle) = &self.state {
-            handle.abort();
-        }
+        self.handle.abort();
     }
 }
 

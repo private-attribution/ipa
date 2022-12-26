@@ -1,98 +1,121 @@
-pub mod network;
+mod network;
 mod routing;
+mod util;
+
+pub use network::InMemoryNetwork;
+pub use util::{DelayedTransport, FailingTransport};
 
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
-use crate::sync::Arc;
+use crate::sync::Weak;
 use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
+
+/// In memory transport setup includes creating resources
+/// to create a connection to every other peer in the network.
+/// To finalize the setup and obtain [`InMemoryTransport`] instance
+/// call [`listen`] method.
+pub struct Setup {
+    switch_setup: routing::Setup,
+    peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
+}
+
+impl From<HelperIdentity> for Setup {
+    fn from(id: HelperIdentity) -> Self {
+        Self {
+            switch_setup: routing::Setup::from(id),
+            peer_connections: HashMap::default(),
+        }
+    }
+}
+
+impl Setup {
+    pub fn connect(&mut self, dest: &mut Self) {
+        let (tx, rx) = channel(1);
+        self.peer_connections
+            .insert(dest.switch_setup.identity.clone(), tx);
+        dest.switch_setup
+            .add_peer(self.switch_setup.identity.clone(), rx);
+    }
+
+    #[must_use]
+    pub fn listen(self) -> InMemoryTransport {
+        let switch = self.switch_setup.listen();
+
+        InMemoryTransport {
+            switch,
+            peer_connections: self.peer_connections,
+        }
+    }
+}
 
 /// Implementation of `Transport` for in-memory testing. Uses tokio channels to exchange messages
 /// with peers.
 pub struct InMemoryTransport {
-    identity: HelperIdentity,
-    peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
     switch: Switch,
-}
-
-impl Debug for InMemoryTransport {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "transport[{:?}]", self.identity)
-    }
+    peer_connections: HashMap<HelperIdentity, Sender<TransportCommand>>,
 }
 
 impl InMemoryTransport {
-    pub fn new(identity: HelperIdentity) -> Self {
-        Self {
-            identity: identity.clone(),
-            peer_connections: HashMap::default(),
-            switch: Switch::new(identity),
-        }
+    #[must_use]
+    pub fn setup(id: HelperIdentity) -> Setup {
+        Setup::from(id)
     }
 
-    /// Establish a unidirectional connection to the given peer
-    pub fn connect(&mut self, dest: &mut Self) {
-        let (tx, rx) = channel(1);
-        self.peer_connections.insert(dest.identity.clone(), tx);
-        dest.switch.new_peer(self.identity.clone(), rx);
+    /// Establish bidirectional connection between two transports
+    pub fn link(a: &mut Setup, b: &mut Setup) {
+        a.connect(b);
+        b.connect(a);
     }
 
+    #[must_use]
     pub fn identity(&self) -> &HelperIdentity {
-        &self.identity
-    }
-
-    pub fn listen(&mut self) {
-        self.switch.listen();
-    }
-
-    #[cfg(all(test, feature = "shuttle"))]
-    pub fn halt(&self) {
-        // this hackery needs to be explained. In normal circumstances (when you use tokio
-        // scheduler) explicit switch termination is not required because tokio drops all tasks
-        // during runtime shutdown. Other schedulers (ahem shuttle) may not do that and what
-        // happens is 3 switch tasks remain blocked awaiting messages from each other. In this
-        // case a deadlock is detected. Hence this code just tries to explicitly close the switch
-        // but because async drop is not a thing yet, we must hot loop here to drive it to completion
-        let f = self.switch.halt();
-        ::tokio::pin!(f);
-        while futures::FutureExt::poll_unpin(
-            &mut f,
-            &mut futures::task::Context::from_waker(futures::task::noop_waker_ref()),
-        ) != futures::task::Poll::Ready(())
-        {
-            std::thread::yield_now();
-        }
+        self.switch.identity()
     }
 }
 
 #[async_trait]
-impl Transport for Arc<InMemoryTransport> {
+impl Transport for Weak<InMemoryTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
+    fn identity(&self) -> HelperIdentity {
+        let this = self
+            .upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+
+        InMemoryTransport::identity(&this).clone()
+    }
+
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
+        let this = self
+            .upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+
         match subscription_type {
             SubscriptionType::QueryManagement => {
                 unimplemented!()
             }
-            SubscriptionType::Query(query_id) => self.switch.query_stream(query_id).await,
+            SubscriptionType::Query(query_id) => this.switch.query_stream(query_id).await,
         }
     }
 
-    async fn send(
+    async fn send<C: Send + Into<TransportCommand>>(
         &self,
         destination: &HelperIdentity,
-        command: TransportCommand,
+        command: C,
     ) -> Result<(), TransportError> {
-        Ok(self
+        let this = self
+            .upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+        Ok(this
             .peer_connections
             .get(destination)
             .unwrap()
-            .send(command)
+            .send(command.into())
             .await?)
     }
 }

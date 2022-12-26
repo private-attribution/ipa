@@ -1,4 +1,5 @@
 mod error;
+pub mod query;
 
 pub use error::Error as TransportError;
 
@@ -8,27 +9,9 @@ use async_trait::async_trait;
 use futures::Stream;
 
 #[derive(Debug)]
-pub struct NetworkEventData {
-    pub query_id: QueryId,
-    pub step: Step,
-    pub payload: Vec<u8>,
-}
-
-impl NetworkEventData {
-    #[must_use]
-    pub fn new(query_id: QueryId, step: Step, payload: Vec<u8>) -> Self {
-        Self {
-            query_id,
-            step,
-            payload,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum TransportCommand {
     // `Administration` Commands
-    // TODO: none for now
+    Query(query::QueryCommand),
 
     // `Query` Commands
     /// Query/step data received from a helper peer.
@@ -69,6 +52,9 @@ pub struct CommandEnvelope {
 pub trait Transport: Send + Sync + 'static {
     type CommandStream: Stream<Item = CommandEnvelope> + Send + Unpin;
 
+    /// Returns the identity of the helper that runs this transport
+    fn identity(&self) -> HelperIdentity;
+
     /// To be called by an entity which will handle the events as indicated by the
     /// [`SubscriptionType`]. There should be only 1 subscriber per type.
     /// # Panics
@@ -76,9 +62,9 @@ pub trait Transport: Send + Sync + 'static {
     async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream;
 
     /// To be called when an entity wants to send commands to the `Transport`.
-    async fn send(
+    async fn send<C: Send + Into<TransportCommand>>(
         &self,
         destination: &HelperIdentity,
-        command: TransportCommand,
+        command: C,
     ) -> Result<(), TransportError>;
 }

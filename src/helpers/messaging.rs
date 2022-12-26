@@ -160,6 +160,16 @@ pub struct GatewayConfig {
     pub recv_outstanding: usize,
 }
 
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            send_outstanding: 16,
+            recv_outstanding: 16,
+            send_buffer_config: SendBufferConfig::default(),
+        }
+    }
+}
+
 impl Gateway {
     pub async fn new<T: Transport>(role: Role, network: Network<T>, config: GatewayConfig) -> Self {
         let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
