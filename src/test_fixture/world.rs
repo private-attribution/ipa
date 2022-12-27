@@ -148,7 +148,7 @@ impl TestWorld {
         let execution = self.executions.fetch_add(1, Ordering::Release);
         zip(Role::all(), zip(&self.participants, &*self.gateways))
             .map(|(role, (participant, gateway))| {
-                SemiHonestContext::new(*role, participant, gateway)
+                SemiHonestContext::new(participant, gateway)
                     .narrow(&Self::execution_step(execution))
             })
             .collect::<Vec<_>>()

@@ -1,6 +1,7 @@
 use std::any::type_name;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use futures::Stream;
 use tokio::sync::oneshot;
 use crate::error::BoxError;
 use crate::ff::FieldType;
@@ -24,10 +25,22 @@ pub struct PrepareQuery {
     pub roles: RoleAssignment,
 }
 
+pub struct QueryInput {
+    pub query_id: QueryId,
+    pub(crate) input_stream: Box<dyn Stream<Item = Vec<u8>> + Send>
+}
+
+impl Debug for QueryInput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "query_inputs[{:?}]", self.query_id)
+    }
+}
+
 #[derive(Debug)]
 pub enum QueryCommand {
     Create(CreateQuery, oneshot::Sender<PrepareQuery>),
     Prepare(PrepareQuery),
+    Input(QueryInput)
 }
 
 impl From<QueryCommand> for TransportCommand {

@@ -4,7 +4,9 @@ use crate::protocol::QueryId;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
+use tokio::task::JoinHandle;
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -32,15 +34,23 @@ impl From<&QueryState> for QueryStatus {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
             QueryState::Preparing => QueryStatus::Preparing,
             QueryState::AwaitingInputs(_) => QueryStatus::AwaitingInputs,
+            QueryState::Running(_) => QueryStatus::Running,
         }
     }
 }
+
+// pub enum Status {
+//     Succeeded(Box<dyn Protocol>),
+//     Failed(Box<dyn Error>),
+// }
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
     Empty,
     Preparing,
     AwaitingInputs(Gateway),
+    Running(JoinHandle<()>),
+    // Completed(Status)
 }
 
 impl QueryState {
@@ -72,7 +82,7 @@ pub enum StateError {
 
 /// Keeps track of queries running on this helper.
 pub struct RunningQueries {
-    inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
+    pub inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
 }
 
 impl Default for RunningQueries {

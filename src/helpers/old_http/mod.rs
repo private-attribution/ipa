@@ -1,5 +1,5 @@
 mod network;
-mod prss_exchange_protocol;
+pub mod prss_exchange_protocol;
 
 pub use network::HttpNetwork;
 
@@ -127,7 +127,7 @@ impl<'p> HttpHelper<'p> {
         gateway: &'c Gateway,
         participant: &'d prss::Endpoint,
     ) -> SemiHonestContext<'a, F> {
-        SemiHonestContext::new(self.role, participant, gateway)
+        SemiHonestContext::new(participant, gateway)
     }
 }
 

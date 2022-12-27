@@ -205,7 +205,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
         // is not
         // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
         // for `MaliciousContext`. Deep clone is the only option
-        let mut ctx = SemiHonestContext::new(self.inner.role, self.inner.prss, self.inner.gateway);
+        let mut ctx = SemiHonestContext::new(self.inner.prss, self.inner.gateway);
         ctx.step = self.step;
 
         ctx

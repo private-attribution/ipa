@@ -1,8 +1,9 @@
+use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 use super::state::{QueryState, QueryStatus, RunningQueries, StateError};
 use crate::helpers::messaging::Gateway;
 use crate::helpers::network::Network;
-use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand};
+use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand, QueryInput};
 use crate::helpers::{GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::protocol::QueryId;
 use futures_util::future::try_join;
@@ -10,6 +11,7 @@ use pin_project::pin_project;
 use tokio::sync::mpsc;
 use crate::task::JoinHandle;
 use futures::StreamExt;
+// use crate::query::query_executor;
 
 #[allow(dead_code)]
 #[pin_project]
@@ -77,6 +79,15 @@ pub enum PrepareQueryError {
     WrongTarget,
     #[error("Query is already running")]
     AlreadyRunning,
+    #[error(transparent)]
+    StateError {
+        #[from]
+        source: StateError,
+    },
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum QueryInputError {
     #[error(transparent)]
     StateError {
         #[from]
@@ -167,6 +178,25 @@ impl<T: Transport + Clone> Processor<T> {
         Ok(())
     }
 
+    pub async fn inputs(&self, input: &QueryInput) -> Result<(), QueryInputError> {
+        match self.queries.inner.lock().unwrap().entry(input.query_id) {
+            Entry::Occupied(mut entry) => {
+                let state = entry.get();
+                match state {
+                    QueryState::AwaitingInputs(gateway) => {
+                        Ok(())
+                        // let task = tokio::spawn(query_executor(gateway, input));
+                        // entry.insert(QueryState::Running(task));
+                        // Ok(())
+                    }
+                    _ => panic!("Received request to process inputs for a query with status {:?}", QueryStatus::from(state)),
+                }
+            }
+            // TODO: return error
+            Entry::Vacant(_) => panic!("No query with id {:?}", input.query_id)
+        }
+    }
+
     pub fn status(&self, query_id: QueryId) -> Option<QueryStatus> {
         self.queries.handle(query_id).status()
     }
@@ -183,6 +213,9 @@ impl<T: Transport + Clone> Processor<T> {
                         }
                         QueryCommand::Prepare(req) => {
                             self.prepare(&req).await.unwrap();
+                        }
+                        QueryCommand::Input(query_input) => {
+                            panic!("not ready to handle inputs just yet")
                         }
                     }
                 }
@@ -340,17 +373,28 @@ mod tests {
 
 
     mod e2e {
+        use std::io::Cursor;
         use futures_util::future::join_all;
+        use futures_util::stream;
         use tokio::sync::oneshot;
+        use crate::ff::{Field, Fp31};
+        use crate::helpers::query::QueryInput;
+        use crate::secret_sharing::IntoShares;
+        use crate::test_fixture::transport::InMemoryTransport;
+        use crate::sync::Weak;
         use super::*;
 
-        #[tokio::test]
-        pub async fn happy_case() {
-            let network = InMemoryNetwork::default();
+        async fn make_three(network: &InMemoryNetwork) -> [Processor<Weak<InMemoryTransport>>; 3] {
             let identities = HelperIdentity::make_three();
-            let mut processors: [_; 3] = join_all(network.transports.iter().map(|transport| async {
+            join_all(network.transports.iter().map(|transport| async {
                 Processor::new(Arc::downgrade(transport), identities.clone()).await
-            })).await.try_into().unwrap();
+            })).await.try_into().unwrap()
+        }
+
+        #[tokio::test]
+        pub async fn create_prepare() {
+            let network = InMemoryNetwork::default();
+            let mut processors = make_three(&network).await;
 
             // Helper 1 initiates the query, 2 and 3 must confirm
             let (tx, rx) = oneshot::channel();
@@ -367,6 +411,53 @@ mod tests {
             assert_eq!(processors[1].status(r.query_id), processors[2].status(r.query_id));
             assert_eq!(processors[2].status(r.query_id), processors[0].status(r.query_id));
             assert_eq!(Some(QueryStatus::AwaitingInputs), processors[0].status(r.query_id));
+        }
+
+        #[tokio::test]
+        pub async fn create_prepare_2() {
+            let network = InMemoryNetwork::default();
+            let mut processors = make_three(&network).await;
+
+            // Helper 1 initiates the query, 2 and 3 must confirm
+            let (tx, rx) = oneshot::channel();
+            let r = {
+                network.transports[0]
+                    .deliver(QueryCommand::Create(CreateQuery { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }, tx))
+                    .await;
+
+                for mut processor in &mut processors {
+                    processor.handle_next().await;
+                }
+
+                rx.await.unwrap()
+            };
+            let a = Fp31::from(4u128);
+            let b = Fp31::from(3u128);
+
+            let helper_shares = (a, b).share()
+                .map(|v| {
+                    let mut slice = [0_u8; 4];
+                    v.0.left().serialize(&mut slice[..1]).unwrap();
+                    v.0.right().serialize(&mut slice[1..2]).unwrap();
+                    v.1.left().serialize(&mut slice[2..3]).unwrap();
+                    v.1.right().serialize(&mut slice[3..4]).unwrap();
+                    Box::new(stream::iter(std::iter::once(slice.to_vec())))
+                });
+
+            // at this point, all helpers must be awaiting inputs
+            for (i, input) in helper_shares.into_iter().enumerate() {
+                network.transports[i].deliver(QueryCommand::Input(QueryInput {
+                    query_id: r.query_id,
+                    input_stream: input
+                })).await;
+            }
+
+            // process inputs and start query processing
+            for mut processor in &mut processors {
+                processor.handle_next().await;
+            }
+            //
+            // // at this point we can just spin and wait
         }
     }
 }

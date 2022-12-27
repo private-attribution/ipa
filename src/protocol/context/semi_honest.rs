@@ -25,9 +25,9 @@ pub struct SemiHonestContext<'a, F: Field> {
 }
 
 impl<'a, F: Field> SemiHonestContext<'a, F> {
-    pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self {
-            inner: ContextInner::new(role, participant, gateway),
+            inner: ContextInner::new(gateway.role(), participant, gateway),
             step: Step::default(),
             _marker: PhantomData::default(),
         }

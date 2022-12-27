@@ -86,6 +86,7 @@ pub struct Gateway {
     tx: mpsc::Sender<ReceiveRequest>,
     envelope_tx: mpsc::Sender<SendRequest>,
     control_handle: JoinHandle<()>,
+    role: Role,
 }
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
@@ -227,6 +228,7 @@ impl Gateway {
             tx: recv_tx,
             envelope_tx: send_tx,
             control_handle,
+            role
         }
     }
 
@@ -262,6 +264,10 @@ impl Gateway {
             .unwrap();
     }
 
+    pub fn role(&self) -> Role {
+        self.role
+    }
+
     async fn receive(
         &self,
         channel_id: ChannelId,
@@ -283,6 +289,7 @@ impl Gateway {
     async fn send(&self, id: ChannelId, env: MessageEnvelope) -> Result<(), Error> {
         Ok(self.envelope_tx.send((id, env)).await?)
     }
+
 }
 
 #[cfg(feature = "shuttle")]
