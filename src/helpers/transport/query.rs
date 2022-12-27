@@ -9,7 +9,8 @@ use crate::helpers::{RoleAssignment, TransportCommand};
 use crate::protocol::QueryId;
 
 #[derive(Clone, Debug)]
-pub struct CreateQuery {
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub struct QueryConfig {
     pub field_type: FieldType,
     pub query_type: QueryType,
 }
@@ -18,10 +19,7 @@ pub struct CreateQuery {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
-    #[allow(dead_code)]
-    pub field_type: FieldType,
-    #[allow(dead_code)]
-    pub query_type: QueryType,
+    pub config: QueryConfig,
     pub roles: RoleAssignment,
 }
 
@@ -38,7 +36,7 @@ impl Debug for QueryInput {
 
 #[derive(Debug)]
 pub enum QueryCommand {
-    Create(CreateQuery, oneshot::Sender<PrepareQuery>),
+    Create(QueryConfig, oneshot::Sender<PrepareQuery>),
     Prepare(PrepareQuery),
     Input(QueryInput)
 }

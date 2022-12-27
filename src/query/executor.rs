@@ -64,8 +64,9 @@ impl <F: Field, R: RngCore + CryptoRng + Send> Protocol for TestMultiply<F, R> {
                 Replicated::new(left, right)
             });
 
+            // multiply pairs
             let mut a = None;
-            let record_id = 0;
+            let record_id = 0_u32;
             for share in shares {
                 match a {
                     None => a = Some(share),
@@ -79,9 +80,6 @@ impl <F: Field, R: RngCore + CryptoRng + Send> Protocol for TestMultiply<F, R> {
 
             assert!(a.is_none())
         }
-
-
-
 
         results
     }

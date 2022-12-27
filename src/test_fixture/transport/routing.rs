@@ -16,7 +16,7 @@ use tokio::sync::mpsc::Sender;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 use crate::error::BoxError;
-use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand};
+use crate::helpers::query::{QueryConfig, PrepareQuery, QueryCommand};
 
 #[derive(Debug)]
 enum SwitchCommand {

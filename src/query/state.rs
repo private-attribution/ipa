@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
+use crate::helpers::query::{QueryConfig, QueryInput};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -32,8 +33,8 @@ impl From<&QueryState> for QueryStatus {
     fn from(source: &QueryState) -> Self {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
-            QueryState::Preparing => QueryStatus::Preparing,
-            QueryState::AwaitingInputs(_) => QueryStatus::AwaitingInputs,
+            QueryState::Preparing(_) => QueryStatus::Preparing,
+            QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
             QueryState::Running(_) => QueryStatus::Running,
         }
     }
@@ -47,8 +48,8 @@ impl From<&QueryState> for QueryStatus {
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
     Empty,
-    Preparing,
-    AwaitingInputs(Gateway),
+    Preparing(QueryConfig),
+    AwaitingInputs(QueryConfig, Gateway),
     Running(JoinHandle<()>),
     // Completed(Status)
 }
@@ -60,10 +61,10 @@ impl QueryState {
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (Empty, Preparing | AwaitingInputs(_)) | (Preparing, AwaitingInputs(_)) => {
+            (Empty, Preparing(_) | AwaitingInputs(_, _)) | (Preparing(_), AwaitingInputs(_, _)) => {
                 Ok(new_state)
             }
-            (_, Preparing) => Err(StateError::AlreadyRunning),
+            (_, Preparing(_)) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.into(),
                 to: QueryStatus::from(&new_state),

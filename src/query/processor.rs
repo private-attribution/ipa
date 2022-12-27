@@ -3,7 +3,7 @@ use std::fmt::{Debug, Formatter};
 use super::state::{QueryState, QueryStatus, RunningQueries, StateError};
 use crate::helpers::messaging::Gateway;
 use crate::helpers::network::Network;
-use crate::helpers::query::{CreateQuery, PrepareQuery, QueryCommand, QueryInput};
+use crate::helpers::query::{QueryConfig, PrepareQuery, QueryCommand, QueryInput};
 use crate::helpers::{GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::protocol::QueryId;
 use futures_util::future::try_join;
@@ -27,36 +27,6 @@ impl<T: Transport> Debug for Processor<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "query_processor")
     }
-}
-
-#[allow(dead_code)]
-impl<T: Transport + Clone> Processor<T> {
-
-    // pub fn start(transport: T, identities: [HelperIdentity; 3]) -> JoinHandle<()> {
-    //     use futures::StreamExt;
-    //
-    //     tokio::spawn(async move {
-    //         let mut stream =
-    //         let processor = Self::new(transport, identities);
-    //
-    //         while let Some(command) = stream.next().await {
-    //             match command.payload {
-    //                 TransportCommand::Query(query_command) => {
-    //                     match query_command {
-    //                         QueryCommand::Create(req, resp) => {
-    //                             let result = processor.new_query(&req).await.unwrap();
-    //                             resp.send(result).unwrap()
-    //                         }
-    //                         QueryCommand::Prepare(req) => {
-    //                             processor.prepare(&req).await.unwrap();
-    //                         },
-    //                     }
-    //                 }
-    //                 _ => panic!("unexpected command: {command:?}")
-    //             }
-    //         }
-    //     })
-    // }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -114,10 +84,10 @@ impl<T: Transport + Clone> Processor<T> {
     /// * sends `prepare` request that describes the query configuration (query id, query type, field type, roles -> endpoints or reverse) to followers and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
-    pub async fn new_query(&self, req: &CreateQuery) -> Result<PrepareQuery, NewQueryError> {
+    pub async fn new_query(&self, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
-        handle.set_state(QueryState::Preparing)?;
+        handle.set_state(QueryState::Preparing(req.clone()))?;
 
         // invariant: this helper's identity must be the first element in the array.
         let this = self.identities[0].clone();
@@ -134,8 +104,7 @@ impl<T: Transport + Clone> Processor<T> {
 
         let prepare_request = PrepareQuery {
             query_id,
-            field_type: req.field_type,
-            query_type: req.query_type,
+            config: req.clone(),
             roles,
         };
 
@@ -149,7 +118,7 @@ impl<T: Transport + Clone> Processor<T> {
 
         let gateway = Gateway::new(Role::H1, network, GatewayConfig::default()).await;
 
-        handle.set_state(QueryState::AwaitingInputs(gateway))?;
+        handle.set_state(QueryState::AwaitingInputs(req, gateway))?;
 
         Ok(prepare_request)
     }
@@ -159,7 +128,7 @@ impl<T: Transport + Clone> Processor<T> {
     /// * query is not registered yet
     /// * creates gateway and network
     /// * registers query
-    pub async fn prepare(&self, req: &PrepareQuery) -> Result<(), PrepareQueryError> {
+    pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(&self.transport.identity());
 
         if my_role == Role::H1 {
@@ -173,7 +142,7 @@ impl<T: Transport + Clone> Processor<T> {
         let network = Network::new(self.transport.clone(), req.query_id, req.roles.clone());
         let gateway = Gateway::new(my_role, network, GatewayConfig::default()).await;
 
-        handle.set_state(QueryState::AwaitingInputs(gateway))?;
+        handle.set_state(QueryState::AwaitingInputs(req.config, gateway))?;
 
         Ok(())
     }
@@ -183,7 +152,7 @@ impl<T: Transport + Clone> Processor<T> {
             Entry::Occupied(mut entry) => {
                 let state = entry.get();
                 match state {
-                    QueryState::AwaitingInputs(gateway) => {
+                    QueryState::AwaitingInputs(config, gateway) => {
                         Ok(())
                         // let task = tokio::spawn(query_executor(gateway, input));
                         // entry.insert(QueryState::Running(task));
@@ -208,11 +177,11 @@ impl<T: Transport + Clone> Processor<T> {
                 TransportCommand::Query(query_command) => {
                     match query_command {
                         QueryCommand::Create(req, resp) => {
-                            let result = self.new_query(&req).await.unwrap();
+                            let result = self.new_query(req).await.unwrap();
                             resp.send(result).unwrap()
                         }
                         QueryCommand::Prepare(req) => {
-                            self.prepare(&req).await.unwrap();
+                            self.prepare(req).await.unwrap();
                         }
                         QueryCommand::Input(query_input) => {
                             panic!("not ready to handle inputs just yet")
@@ -242,12 +211,12 @@ mod tests {
 
         let identities = HelperIdentity::make_three();
         let processor = Processor::new(transport.clone(), identities).await;
-        let request = CreateQuery {
+        let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
 
-        let qc_future = processor.new_query(&request);
+        let qc_future = processor.new_query(request.clone());
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -262,8 +231,7 @@ mod tests {
         assert_eq!(
             PrepareQuery {
                 query_id: QueryId,
-                field_type: FieldType::Fp32BitPrime,
-                query_type: QueryType::TestMultiply,
+                config: request,
                 roles: expected_assignment,
             },
             qc
@@ -278,14 +246,14 @@ mod tests {
 
         let identities = HelperIdentity::make_three();
         let processor = Processor::new(transport, identities).await;
-        let request = CreateQuery {
+        let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
 
-        let _qc = processor.new_query(&request).await.unwrap();
+        let _qc = processor.new_query(request.clone()).await.unwrap();
         assert!(matches!(
-            processor.new_query(&request).await,
+            processor.new_query(request).await,
             Err(NewQueryError::StateError {
                 source: StateError::AlreadyRunning
             })
@@ -302,13 +270,13 @@ mod tests {
         });
         let identities = HelperIdentity::make_three();
         let processor = Processor::new(transport, identities).await;
-        let request = CreateQuery {
+        let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
 
         assert!(matches!(
-            processor.new_query(&request).await,
+            processor.new_query(request).await,
             Err(NewQueryError::TransportError {
                 source: TransportError::SendFailed { .. }
             })
@@ -321,8 +289,10 @@ mod tests {
         fn prepare_query(identities: &[HelperIdentity; 3]) -> PrepareQuery {
             PrepareQuery {
                 query_id: QueryId,
-                field_type: FieldType::Fp31,
-                query_type: QueryType::TestMultiply,
+                config: QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: QueryType::TestMultiply,
+                },
                 roles: RoleAssignment::new(identities.clone()),
             }
         }
@@ -337,7 +307,7 @@ mod tests {
             let processor = Processor::new(transport, identities).await;
 
             assert_eq!(None, processor.status(QueryId));
-            processor.prepare(&req).await.unwrap();
+            processor.prepare(req).await.unwrap();
             assert_eq!(Some(QueryStatus::AwaitingInputs), processor.status(QueryId));
         }
 
@@ -350,7 +320,7 @@ mod tests {
             let processor = Processor::new(transport, identities).await;
 
             assert!(matches!(
-                processor.prepare(&req).await,
+                processor.prepare(req).await,
                 Err(PrepareQueryError::WrongTarget)
             ));
         }
@@ -363,9 +333,9 @@ mod tests {
             let transport = network.transport(&identities[1]).unwrap();
 
             let processor = Processor::new(transport, identities).await;
-            processor.prepare(&req).await.unwrap();
+            processor.prepare(req.clone()).await.unwrap();
             assert!(matches!(
-                processor.prepare(&req).await,
+                processor.prepare(req).await,
                 Err(PrepareQueryError::AlreadyRunning)
             ));
         }
@@ -399,7 +369,7 @@ mod tests {
             // Helper 1 initiates the query, 2 and 3 must confirm
             let (tx, rx) = oneshot::channel();
             network.transports[0]
-                .deliver(QueryCommand::Create(CreateQuery { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }, tx))
+                .deliver(QueryCommand::Create(QueryConfig { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }, tx))
                 .await;
 
             for mut processor in &mut processors {
@@ -422,7 +392,7 @@ mod tests {
             let (tx, rx) = oneshot::channel();
             let r = {
                 network.transports[0]
-                    .deliver(QueryCommand::Create(CreateQuery { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }, tx))
+                    .deliver(QueryCommand::Create(QueryConfig { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }, tx))
                     .await;
 
                 for mut processor in &mut processors {
