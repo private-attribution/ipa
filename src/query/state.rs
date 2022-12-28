@@ -1,7 +1,8 @@
 use crate::helpers::messaging::Gateway;
-
+use crate::helpers::query::QueryConfig;
 use crate::protocol::QueryId;
-
+use crate::query::ProtocolResult;
+use crate::task::JoinHandle;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -17,21 +18,20 @@ pub enum QueryStatus {
     /// Mesh network is established between helpers and they are ready to send and receive
     /// messages
     AwaitingInputs,
-    /// Helpers are negotiating the shared secrets to create PRSS and other things
-    Negotiating,
     /// Query is being executed and can be interrupted by request.
     Running,
-    /// Query processing has finished and the status of processing is available.
-    /// TODO: completion status and TTL
-    Completed,
+    /// Task is created to await completion of a query.
+    AwaitingCompletion,
 }
 
 impl From<&QueryState> for QueryStatus {
     fn from(source: &QueryState) -> Self {
         match source {
             QueryState::Empty => panic!("Query cannot be in the empty state"),
-            QueryState::Preparing => QueryStatus::Preparing,
-            QueryState::AwaitingInputs(_) => QueryStatus::AwaitingInputs,
+            QueryState::Preparing(_) => QueryStatus::Preparing,
+            QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
+            QueryState::Running(_) => QueryStatus::Running,
+            QueryState::AwaitingCompletion => QueryStatus::AwaitingCompletion,
         }
     }
 }
@@ -39,8 +39,10 @@ impl From<&QueryState> for QueryStatus {
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
     Empty,
-    Preparing,
-    AwaitingInputs(Gateway),
+    Preparing(QueryConfig),
+    AwaitingInputs(QueryConfig, Gateway),
+    Running(JoinHandle<Box<dyn ProtocolResult>>),
+    AwaitingCompletion,
 }
 
 impl QueryState {
@@ -50,10 +52,10 @@ impl QueryState {
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing
             // and followers initial state is awaiting inputs
-            (Empty, Preparing | AwaitingInputs(_)) | (Preparing, AwaitingInputs(_)) => {
+            (Empty, Preparing(_) | AwaitingInputs(_, _)) | (Preparing(_), AwaitingInputs(_, _)) => {
                 Ok(new_state)
             }
-            (_, Preparing) => Err(StateError::AlreadyRunning),
+            (_, Preparing(_)) => Err(StateError::AlreadyRunning),
             (_, _) => Err(StateError::InvalidState {
                 from: cur_state.into(),
                 to: QueryStatus::from(&new_state),
@@ -72,7 +74,7 @@ pub enum StateError {
 
 /// Keeps track of queries running on this helper.
 pub struct RunningQueries {
-    inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
+    pub inner: Arc<Mutex<HashMap<QueryId, QueryState>>>,
 }
 
 impl Default for RunningQueries {

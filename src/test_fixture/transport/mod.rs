@@ -5,6 +5,7 @@ mod util;
 pub use network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
 
+use crate::helpers::query::QueryCommand;
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
@@ -76,6 +77,11 @@ impl InMemoryTransport {
     pub fn identity(&self) -> &HelperIdentity {
         self.switch.identity()
     }
+
+    /// Emulate client command delivery
+    pub async fn deliver(&self, c: QueryCommand) {
+        self.switch.direct_delivery(c).await;
+    }
 }
 
 #[async_trait]
@@ -95,12 +101,7 @@ impl Transport for Weak<InMemoryTransport> {
             .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
 
-        match subscription_type {
-            SubscriptionType::QueryManagement => {
-                unimplemented!()
-            }
-            SubscriptionType::Query(query_id) => this.switch.query_stream(query_id).await,
-        }
+        this.switch.subscribe(subscription_type).await
     }
 
     async fn send<C: Send + Into<TransportCommand>>(

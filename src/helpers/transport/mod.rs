@@ -30,6 +30,15 @@ pub enum SubscriptionType {
     Query(QueryId),
 }
 
+impl From<&TransportCommand> for SubscriptionType {
+    fn from(value: &TransportCommand) -> Self {
+        match value {
+            TransportCommand::Query(_) => SubscriptionType::QueryManagement,
+            TransportCommand::StepData(query_id, _, _) => SubscriptionType::Query(*query_id),
+        }
+    }
+}
+
 /// The source of the command, i.e. where it came from. Some may arrive from helper peers, others
 /// may come directly from the clients
 #[derive(Debug)]

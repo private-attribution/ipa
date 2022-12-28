@@ -1,6 +1,7 @@
 use crate::ff::Field;
 use crate::helpers::Role;
 use std::fmt::{Debug, Formatter};
+use std::io;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -53,6 +54,33 @@ impl<F: Field> Replicated<F> {
 
     /// Replicated secret share where both left and right values are `F::ZERO`
     pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
+
+    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+
+    /// Serialize replicated share into a slice of bytes
+    ///
+    /// ## Errors
+    /// if [`buf`] does not have enough capacity to hold this value
+    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
+        F::serialize(&self.left(), buf)?;
+        F::serialize(&self.right(), &mut buf[F::SIZE_IN_BYTES as usize..])?;
+
+        Ok(2 * F::SIZE_IN_BYTES as usize)
+    }
+
+    /// Deserialize a slice of bytes into an iterator of replicated shares
+    ///
+    /// ## Panics
+    /// if [`buf`] len is not aligned with the size of this instance
+    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        debug_assert!(from.len() % (2 * F::SIZE_IN_BYTES as usize) == 0);
+
+        from.chunks(2 * F::SIZE_IN_BYTES as usize).map(|chunk| {
+            let left = F::deserialize(chunk).unwrap();
+            let right = F::deserialize(&chunk[F::SIZE_IN_BYTES as usize..]).unwrap();
+            Self(left, right)
+        })
+    }
 }
 
 impl<F: Field> Add<Self> for &Replicated<F> {

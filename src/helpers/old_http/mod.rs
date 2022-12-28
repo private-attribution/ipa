@@ -1,21 +1,19 @@
 mod network;
-mod prss_exchange_protocol;
 
 pub use network::HttpNetwork;
 
+use crate::helpers::negotiate_prss;
 use crate::{
     ff::Field,
-    helpers::{messaging::Gateway, Direction, Error, GatewayConfig, Role},
+    helpers::{messaging::Gateway, Error, GatewayConfig, Role},
     net::{
         discovery::{peer, PeerDiscovery},
         BindTarget, MessageSendMap, MpcHelperServer,
     },
-    protocol::{context::SemiHonestContext, prss, QueryId, RecordId, Step},
+    protocol::{context::SemiHonestContext, prss, QueryId, Step},
     task::JoinHandle,
 };
-use prss_exchange_protocol::{PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk};
 use rand_core::{CryptoRng, RngCore};
-use std::iter::zip;
 use std::net::SocketAddr;
 
 pub struct HttpHelper<'p> {
@@ -79,47 +77,7 @@ impl<'p> HttpHelper<'p> {
         step: &Step,
         rng: &mut R,
     ) -> Result<prss::Endpoint, Error> {
-        // setup protocol to exchange prss public keys
-        let step = step.narrow(&PrssExchangeStep);
-        let channel = gateway.mesh(&step);
-        let left_peer = self.role.peer(Direction::Left);
-        let right_peer = self.role.peer(Direction::Right);
-
-        // setup local prss endpoint
-        let ep_setup = prss::Endpoint::prepare(rng);
-        let (send_left_pk, send_right_pk) = ep_setup.public_keys();
-        let send_left_pk_chunks = PublicKeyChunk::chunks(send_left_pk);
-        let send_right_pk_chunks = PublicKeyChunk::chunks(send_right_pk);
-
-        // exchange public keys
-        // TODO: since we have a limitation that max message size is 8 bytes, we must send 4
-        //       messages to completely send the public key. If that max message size is removed, we
-        //       can eliminate the chunking
-        let mut recv_left_pk_builder = PublicKeyBytesBuilder::empty();
-        let mut recv_right_pk_builder = PublicKeyBytesBuilder::empty();
-
-        for (i, (send_left_chunk, send_right_chunk)) in
-            zip(send_left_pk_chunks, send_right_pk_chunks).enumerate()
-        {
-            let record_id = RecordId::from(i);
-            let send_to_left = channel.send(left_peer, record_id, send_left_chunk);
-            let send_to_right = channel.send(right_peer, record_id, send_right_chunk);
-            let recv_from_left = channel.receive::<PublicKeyChunk>(left_peer, record_id);
-            let recv_from_right = channel.receive::<PublicKeyChunk>(right_peer, record_id);
-            let (_, _, recv_left_key_chunk, recv_right_key_chunk) =
-                tokio::try_join!(send_to_left, send_to_right, recv_from_left, recv_from_right)?;
-            recv_left_pk_builder.append_chunk(recv_left_key_chunk);
-            recv_right_pk_builder.append_chunk(recv_right_key_chunk);
-        }
-
-        let recv_left_pk = recv_left_pk_builder
-            .build()
-            .map_err(|err| Error::serialization_error(err.record_id(), &step, err))?;
-        let recv_right_pk = recv_right_pk_builder
-            .build()
-            .map_err(|err| Error::serialization_error(err.record_id(), &step, err))?;
-
-        Ok(ep_setup.setup(&recv_left_pk, &recv_right_pk))
+        negotiate_prss(gateway, step, rng).await
     }
 
     pub fn context<'a, 'b: 'a, 'c: 'a, 'd: 'a, 'e: 'a, F: Field>(
@@ -127,7 +85,7 @@ impl<'p> HttpHelper<'p> {
         gateway: &'c Gateway,
         participant: &'d prss::Endpoint,
     ) -> SemiHonestContext<'a, F> {
-        SemiHonestContext::new(self.role, participant, gateway)
+        SemiHonestContext::new(participant, gateway)
     }
 }
 
@@ -291,7 +249,7 @@ mod e2e_tests {
         let gateway2 = h2.query(QueryId).unwrap();
         let gateway3 = h3.query(QueryId).unwrap();
 
-        let step = Step::default().narrow(&PrssExchangeStep);
+        let step = Step::default();
         let mut rng1 = StdRng::from_entropy();
         let mut rng2 = StdRng::from_entropy();
         let mut rng3 = StdRng::from_entropy();

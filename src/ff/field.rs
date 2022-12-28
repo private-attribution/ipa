@@ -85,7 +85,7 @@ pub trait Field:
     ///
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
-    fn deserialize(buf_from: &mut [u8]) -> io::Result<Self> {
+    fn deserialize(buf_from: &[u8]) -> io::Result<Self> {
         if Self::SIZE_IN_BYTES as usize <= buf_from.len() {
             let mut buf_to = [0; 16]; // one day...
             buf_to[..Self::SIZE_IN_BYTES as usize]

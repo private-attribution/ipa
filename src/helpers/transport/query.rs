@@ -1,9 +1,14 @@
 use crate::ff::FieldType;
 use crate::helpers::{RoleAssignment, TransportCommand};
-use crate::protocol::QueryId;
+use crate::protocol::{QueryId, Substep};
+use futures::Stream;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use tokio::sync::oneshot;
 
-#[derive(Clone, Debug)]
-pub struct CreateQuery {
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub struct QueryConfig {
     pub field_type: FieldType,
     pub query_type: QueryType,
 }
@@ -12,17 +17,26 @@ pub struct CreateQuery {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct PrepareQuery {
     pub query_id: QueryId,
-    #[allow(dead_code)]
-    pub field_type: FieldType,
-    #[allow(dead_code)]
-    pub query_type: QueryType,
+    pub config: QueryConfig,
     pub roles: RoleAssignment,
+}
+
+pub struct QueryInput {
+    pub query_id: QueryId,
+    pub input_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
+}
+
+impl Debug for QueryInput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "query_inputs[{:?}]", self.query_id)
+    }
 }
 
 #[derive(Debug)]
 pub enum QueryCommand {
-    Create(CreateQuery),
+    Create(QueryConfig, oneshot::Sender<PrepareQuery>),
     Prepare(PrepareQuery),
+    Input(QueryInput),
 }
 
 impl From<QueryCommand> for TransportCommand {
@@ -37,3 +51,15 @@ pub enum QueryType {
     TestMultiply,
     IPA,
 }
+
+impl AsRef<str> for QueryType {
+    fn as_ref(&self) -> &str {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            QueryType::TestMultiply => "test-multiply",
+            QueryType::IPA => "ipa",
+        }
+    }
+}
+
+impl Substep for QueryType {}

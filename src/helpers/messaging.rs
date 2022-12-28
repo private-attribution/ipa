@@ -86,6 +86,7 @@ pub struct Gateway {
     tx: mpsc::Sender<ReceiveRequest>,
     envelope_tx: mpsc::Sender<SendRequest>,
     control_handle: JoinHandle<()>,
+    role: Role,
 }
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
@@ -227,6 +228,7 @@ impl Gateway {
             tx: recv_tx,
             envelope_tx: send_tx,
             control_handle,
+            role,
         }
     }
 
@@ -260,6 +262,11 @@ impl Gateway {
                 }
             })
             .unwrap();
+    }
+
+    #[must_use]
+    pub fn role(&self) -> Role {
+        self.role
     }
 
     async fn receive(
