@@ -1,6 +1,7 @@
 use crate::ff::Field;
 use crate::helpers::Role;
 use std::fmt::{Debug, Formatter};
+use std::io;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 
@@ -55,6 +56,17 @@ impl<F: Field> Replicated<F> {
     /// Replicated secret share where both left and right values are `F::ZERO`
     pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
 
+    pub const SIZE: usize = std::mem::size_of::<Self>();
+
+    /// Serialize replicated share into a slice of bytes
+    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
+        F::serialize(&self.left(), buf)?;
+        F::serialize(&self.right(), &mut buf[F::SIZE_IN_BYTES as usize..])?;
+
+        Ok(2 * F::SIZE_IN_BYTES as usize)
+    }
+
+    /// Deserialize a slice of bytes into an iterator of replicated shares
     pub fn from_iter(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
         from
             .chunks(2 * F::SIZE_IN_BYTES as usize)

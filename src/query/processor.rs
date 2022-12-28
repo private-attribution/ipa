@@ -14,13 +14,14 @@ use crate::task::JoinHandle;
 use futures::StreamExt;
 use crate::error::BoxError;
 use crate::ff::{FieldType, Fp31};
-use crate::query::executor::{Protocol};
 use crate::query::{executor, ProtocolResult};
-// use crate::query::query_executor;
 
 #[allow(dead_code)]
 #[pin_project]
 pub struct Processor<T: Transport> {
+    /// Input stream of commands this processor is attached to. It is not being actively listened
+    /// by this instance. Instead, commands are being consumed on demand when an external entity
+    /// drives it by calling [`handle_next`] function.
     #[pin]
     command_stream: T::CommandStream,
     transport: T,
@@ -63,6 +64,8 @@ pub enum PrepareQueryError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryInputError {
+    #[error("The query with id {0:?} does not exist")]
+    NoSuchQuery(QueryId),
     #[error(transparent)]
     StateError {
         #[from]
@@ -152,6 +155,7 @@ impl<T: Transport + Clone> Processor<T> {
         Ok(())
     }
 
+    /// Receive inputs for the specified query. That triggers query processing
     pub fn receive_inputs(&self, input: QueryInput) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
         match queries.entry(input.query_id) {
@@ -159,35 +163,15 @@ impl<T: Transport + Clone> Processor<T> {
                 let state = entry.remove();
                 match state {
                     QueryState::AwaitingInputs(config, gateway) => {
-                        match config.query_type {
-                            #[cfg(test)]
-                            QueryType::TestMultiply => {
-                                match config.field_type {
-                                    FieldType::Fp31 => {
-                                        let protocol = executor::TestMultiply::<Fp31, _>::new(gateway);
-                                        let task = tokio::spawn(async move {
-                                            let response = protocol.run(input.input_stream).await;
-                                            Box::new(response) as Box<dyn ProtocolResult>
-                                        });
-                                        queries.insert(input.query_id, QueryState::Running(task));
-                                    }
-                                    FieldType::Fp32BitPrime => {
-                                        todo!()
-                                    }
-                                }
-                            }
-                            QueryType::IPA => {}
-                        }
+                        queries.insert(input.query_id, QueryState::Running(executor::start_query(config, gateway, input.input_stream)));
                         Ok(())
                     }
-                    _ => {
-                        // TODO: insert entry back
-                        panic!("Received request to process inputs for a query with status {:?}", QueryStatus::from(&state))
-                    },
+                    _ => Err(QueryInputError::StateError { source: StateError::InvalidState {from: QueryStatus::from(&state), to: QueryStatus::Running }})
                 }
             }
-            // TODO: return error
-            Entry::Vacant(_) => panic!("No query with id {:?}", input.query_id)
+            Entry::Vacant(_) => {
+                Err(QueryInputError::NoSuchQuery(input.query_id))
+            }
         }
     }
 
@@ -195,9 +179,9 @@ impl<T: Transport + Clone> Processor<T> {
         self.queries.handle(query_id).status()
     }
 
+    /// Handle the next command from the input stream.
     pub async fn handle_next(&mut self) {
         if let Some(command) = self.command_stream.next().await {
-            println!("{:?} received {:?}", self.transport.identity(), command);
             match command.payload {
                 TransportCommand::Query(query_command) => {
                     match query_command {
@@ -218,7 +202,8 @@ impl<T: Transport + Clone> Processor<T> {
         }
     }
 
-    pub async fn finish_query(&mut self, query_id: QueryId) -> Result<Box<dyn ProtocolResult>, BoxError> {
+    /// Awaits the query completion
+    pub async fn complete(&mut self, query_id: QueryId) -> Result<Box<dyn ProtocolResult>, BoxError> {
         let mut queries = self.queries.inner.lock().unwrap();
         match queries.get_mut(&query_id) {
             None => panic!("no such query"),
@@ -404,29 +389,7 @@ mod tests {
         }
 
         #[tokio::test]
-        pub async fn create_prepare() {
-            let network = InMemoryNetwork::default();
-            let mut processors = make_three(&network).await;
-
-            // Helper 1 initiates the query, 2 and 3 must confirm
-            let (tx, rx) = oneshot::channel();
-            network.transports[0]
-                .deliver(QueryCommand::Create(QueryConfig { field_type: FieldType::Fp31, query_type: QueryType::TestMultiply }, tx))
-                .await;
-
-            for mut processor in &mut processors {
-                processor.handle_next().await;
-            }
-
-            let r = rx.await.unwrap();
-
-            assert_eq!(processors[1].status(r.query_id), processors[2].status(r.query_id));
-            assert_eq!(processors[2].status(r.query_id), processors[0].status(r.query_id));
-            assert_eq!(Some(QueryStatus::AwaitingInputs), processors[0].status(r.query_id));
-        }
-
-        #[tokio::test]
-        pub async fn create_prepare_2() {
+        pub async fn happy_case() {
             let network = InMemoryNetwork::default();
             let mut processors = make_three(&network).await;
 
@@ -446,13 +409,12 @@ mod tests {
             let a = Fp31::from(4u128);
             let b = Fp31::from(5u128);
 
+            const SZ: usize = Replicated::<Fp31>::SIZE;
             let helper_shares = (a, b).share()
-                .map(|v| {
-                    let mut slice = [0_u8; 4];
-                    v.0.left().serialize(&mut slice[..1]).unwrap();
-                    v.0.right().serialize(&mut slice[1..2]).unwrap();
-                    v.1.left().serialize(&mut slice[2..3]).unwrap();
-                    v.1.right().serialize(&mut slice[3..4]).unwrap();
+                .map(|(a, b)| {
+                    let mut slice = [0u8; 2*SZ];
+                    a.serialize(&mut slice).unwrap();
+                    b.serialize(&mut slice[SZ..]).unwrap();
                     Box::pin(stream::iter(std::iter::once(slice.to_vec())))
                 });
 
@@ -470,7 +432,7 @@ mod tests {
             }
 
             let result: [_; 3] = join_all(processors.map(|mut processor| async move {
-                let r = processor.finish_query(r.query_id).await.unwrap().into_bytes();
+                let r = processor.complete(r.query_id).await.unwrap().into_bytes();
                 Replicated::<Fp31>::from_iter(&r).collect::<Vec<_>>()
             })).await.try_into().unwrap();
 
