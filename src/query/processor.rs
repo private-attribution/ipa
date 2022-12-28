@@ -203,17 +203,15 @@ impl<T: Transport + Clone> Processor<T> {
     pub async fn handle_next(&mut self) {
         if let Some(command) = self.command_stream.next().await {
             match command.payload {
-                TransportCommand::Query(query_command) => match query_command {
-                    QueryCommand::Create(req, resp) => {
-                        let result = self.new_query(req).await.unwrap();
-                        resp.send(result).unwrap();
-                    }
-                    QueryCommand::Prepare(req) => {
-                        self.prepare(req).await.unwrap();
-                    }
-                    QueryCommand::Input(query_input) => {
-                        self.receive_inputs(query_input).unwrap();
-                    }
+                TransportCommand::Query(QueryCommand::Create(req, resp)) => {
+                    let result = self.new_query(req).await.unwrap();
+                    resp.send(result).unwrap();
+                },
+                TransportCommand::Query(QueryCommand::Prepare(req)) => {
+                    self.prepare(req).await.unwrap();
+                },
+                TransportCommand::Query(QueryCommand::Input(query_input)) => {
+                    self.receive_inputs(query_input).unwrap();
                 },
                 TransportCommand::StepData(_, _, _) => panic!("unexpected command: {command:?}"),
             }
