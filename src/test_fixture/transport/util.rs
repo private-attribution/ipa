@@ -2,9 +2,8 @@ use crate::helpers::{
     HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
 use crate::sync::Arc;
-use crate::test_fixture::transport::InMemoryTransport;
+
 use async_trait::async_trait;
-use std::sync::Weak;
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.

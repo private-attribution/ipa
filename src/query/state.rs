@@ -1,14 +1,11 @@
 use crate::helpers::messaging::Gateway;
-
+use crate::helpers::query::QueryConfig;
 use crate::protocol::QueryId;
-
+use crate::query::ProtocolResult;
+use crate::task::JoinHandle;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex};
-use tokio::task::JoinHandle;
-use crate::helpers::query::{QueryConfig, QueryInput};
-use crate::query::ProtocolResult;
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -21,13 +18,10 @@ pub enum QueryStatus {
     /// Mesh network is established between helpers and they are ready to send and receive
     /// messages
     AwaitingInputs,
-    /// Helpers are negotiating the shared secrets to create PRSS and other things
-    Negotiating,
     /// Query is being executed and can be interrupted by request.
     Running,
-    /// Query processing has finished and the status of processing is available.
-    /// TODO: completion status and TTL
-    Completed,
+    /// Task is created to await completion of a query.
+    AwaitingCompletion,
 }
 
 impl From<&QueryState> for QueryStatus {
@@ -37,14 +31,10 @@ impl From<&QueryState> for QueryStatus {
             QueryState::Preparing(_) => QueryStatus::Preparing,
             QueryState::AwaitingInputs(_, _) => QueryStatus::AwaitingInputs,
             QueryState::Running(_) => QueryStatus::Running,
+            QueryState::AwaitingCompletion => QueryStatus::AwaitingCompletion,
         }
     }
 }
-
-// pub enum Status {
-//     Succeeded(Box<dyn Protocol>),
-//     Failed(Box<dyn Error>),
-// }
 
 /// TODO: a macro would be very useful here to keep it in sync with `QueryStatus`
 pub enum QueryState {
@@ -52,7 +42,7 @@ pub enum QueryState {
     Preparing(QueryConfig),
     AwaitingInputs(QueryConfig, Gateway),
     Running(JoinHandle<Box<dyn ProtocolResult>>),
-    // Completed(Status)
+    AwaitingCompletion,
 }
 
 impl QueryState {

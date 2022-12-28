@@ -7,8 +7,6 @@ use crate::protocol::Step;
 use crate::{helpers::HelperIdentity, protocol::QueryId};
 use async_trait::async_trait;
 use futures::Stream;
-use tokio::sync::oneshot;
-use crate::error::BoxError;
 
 #[derive(Debug)]
 pub enum TransportCommand {

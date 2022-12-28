@@ -1,15 +1,12 @@
-use std::any::type_name;
-use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use std::pin::Pin;
-use futures::Stream;
-use tokio::sync::oneshot;
-use crate::error::BoxError;
 use crate::ff::FieldType;
 use crate::helpers::{RoleAssignment, TransportCommand};
 use crate::protocol::QueryId;
+use futures::Stream;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
+use tokio::sync::oneshot;
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct QueryConfig {
     pub field_type: FieldType,
@@ -26,7 +23,7 @@ pub struct PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
-    pub input_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>
+    pub input_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>,
 }
 
 impl Debug for QueryInput {
@@ -39,7 +36,7 @@ impl Debug for QueryInput {
 pub enum QueryCommand {
     Create(QueryConfig, oneshot::Sender<PrepareQuery>),
     Prepare(PrepareQuery),
-    Input(QueryInput)
+    Input(QueryInput),
 }
 
 impl From<QueryCommand> for TransportCommand {
@@ -54,4 +51,3 @@ pub enum QueryType {
     TestMultiply,
     IPA,
 }
-

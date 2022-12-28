@@ -5,6 +5,7 @@ mod util;
 pub use network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
 
+use crate::helpers::query::QueryCommand;
 use crate::helpers::{
     CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
@@ -14,7 +15,6 @@ use routing::Switch;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
-use crate::helpers::query::QueryCommand;
 
 /// In memory transport setup includes creating resources
 /// to create a connection to every other peer in the network.
@@ -79,9 +79,8 @@ impl InMemoryTransport {
     }
 
     /// Emulate client command delivery
-    #[must_use]
     pub async fn deliver(&self, c: QueryCommand) {
-        self.switch.direct_delivery(c.into()).await;
+        self.switch.direct_delivery(c).await;
     }
 }
 

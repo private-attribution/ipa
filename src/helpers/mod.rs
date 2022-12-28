@@ -6,18 +6,18 @@ pub mod old_network;
 
 mod buffers;
 mod error;
+mod prss_protocol;
 mod time;
 mod transport;
-mod prss_protocol;
 
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
+pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
     TransportError,
 };
-pub use prss_protocol::negotiate as negotiate_prss;
 
 use crate::helpers::{
     Direction::{Left, Right},

@@ -1,30 +1,24 @@
-use std::any::Any;
-use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use async_trait::async_trait;
-use futures::Stream;
-use futures_util::StreamExt;
-use rand::rngs::StdRng;
-use rand::thread_rng;
-use rand_core::{CryptoRng, RngCore, SeedableRng};
-use tinyvec::{array_vec, ArrayVec};
-use crate::task::JoinHandle;
 use crate::ff::{Field, FieldType, Fp31};
 use crate::helpers::messaging::Gateway;
-use crate::helpers::{negotiate_prss};
-use crate::helpers::query::{QueryConfig, QueryInput, QueryType};
-use crate::protocol::basics::SecureMul;
+use crate::helpers::negotiate_prss;
+use crate::helpers::query::{QueryConfig, QueryType};
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::{RecordId, Step};
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::protocol::Step;
+use crate::secret_sharing::Replicated;
+use crate::task::JoinHandle;
+use futures::Stream;
+use rand::rngs::StdRng;
+use rand_core::SeedableRng;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
-
-pub trait Result : Send {
+pub trait Result: Send {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
 }
 
-impl <F: Field> Result for Vec<Replicated<F>> {
-    fn into_bytes(self: Box<Self>) -> Vec<u8> { // todo Result
+impl<F: Field> Result for Vec<Replicated<F>> {
+    fn into_bytes(self: Box<Self>) -> Vec<u8> {
+        // todo Result
         let mut r = Vec::with_capacity(2 * self.len() * F::SIZE_IN_BYTES as usize);
         for share in self.into_iter() {
             let mut slice = [0u8; 32]; // we don't support fields > 16 bytes
@@ -36,13 +30,19 @@ impl <F: Field> Result for Vec<Replicated<F>> {
     }
 }
 
+#[cfg(any(test, feature = "test-fixture"))]
+async fn test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
+    ctx: SemiHonestContext<'_, F>,
+    mut input: S,
+) -> Vec<Replicated<F>> {
+    use crate::protocol::basics::SecureMul;
+    use crate::protocol::RecordId;
+    use futures_util::StreamExt;
 
-#[cfg(test)]
-async fn test_multiply<F: Field, S: Stream<Item=Vec<u8>> + Send + Unpin>(ctx: SemiHonestContext<'_, F>, mut input: S) -> Vec<Replicated<F>> {
     let mut results = Vec::new();
     while let Some(v) = input.next().await {
         // convert bytes to replicated shares
-        let shares = v.chunks(2*F::SIZE_IN_BYTES as usize).map(|chunk| {
+        let shares = v.chunks(2 * F::SIZE_IN_BYTES as usize).map(|chunk| {
             // TODO fix with replicated serialization
             let left = F::deserialize(&chunk[..=F::SIZE_IN_BYTES as usize]).unwrap();
             let right = F::deserialize(&chunk[F::SIZE_IN_BYTES as usize..]).unwrap();
@@ -57,7 +57,11 @@ async fn test_multiply<F: Field, S: Stream<Item=Vec<u8>> + Send + Unpin>(ctx: Se
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
-                    let result = ctx.clone().multiply(RecordId::from(record_id), &a_v, &share).await.unwrap();
+                    let result = ctx
+                        .clone()
+                        .multiply(RecordId::from(record_id), &a_v, &share)
+                        .await
+                        .unwrap();
                     results.push(result);
                     record_id += 1;
                     a = None;
@@ -65,14 +69,25 @@ async fn test_multiply<F: Field, S: Stream<Item=Vec<u8>> + Send + Unpin>(ctx: Se
             }
         }
 
-        assert!(a.is_none())
+        assert!(a.is_none());
     }
 
     results
 }
 
+#[allow(clippy::unused_async)]
+async fn ipa<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
+    _ctx: SemiHonestContext<'_, F>,
+    _input: S,
+) -> Vec<Replicated<F>> {
+    todo!()
+}
 
-pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(config: QueryConfig, gateway: Gateway, input: S) -> JoinHandle<Box<dyn Result>> {
+pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(
+    config: QueryConfig,
+    gateway: Gateway,
+    input: S,
+) -> JoinHandle<Box<dyn Result>> {
     tokio::spawn(async move {
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
@@ -84,13 +99,11 @@ pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(config: Q
             FieldType::Fp31 => {
                 let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                 match config.query_type {
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "test-fixture"))]
                     QueryType::TestMultiply => {
                         Box::new(test_multiply(ctx, input).await) as Box<dyn Result>
                     }
-                    QueryType::IPA => {
-                        todo!()
-                    }
+                    QueryType::IPA => Box::new(ipa(ctx, input).await) as Box<dyn Result>,
                 }
             }
             FieldType::Fp32BitPrime => {
@@ -98,26 +111,15 @@ pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(config: Q
             }
         }
     })
-
 }
-
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::ops::Deref;
-    use std::sync::Arc;
+    use super::*;
+    use crate::secret_sharing::IntoShares;
+    use crate::test_fixture::{Reconstruct, TestWorld};
     use futures_util::future::join_all;
     use futures_util::stream;
-    use futures_util::stream::FuturesUnordered;
-    use crate::ff::Fp31;
-    use crate::helpers::messaging::{Gateway, Message};
-    use crate::helpers::{GatewayConfig, HelperIdentity, Role, RoleAssignment};
-    use crate::helpers::network::Network;
-    use crate::protocol::QueryId;
-    use crate::secret_sharing::IntoShares;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
-    use crate::test_fixture::transport::InMemoryNetwork;
-    use super::*;
 
     #[tokio::test]
     async fn multiply() {
@@ -126,23 +128,32 @@ mod tests {
         let a = [Fp31::from(4u128), Fp31::from(5u128)];
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
 
-        let helper_shares = (a, b).share()
-            .map(|(a, b)| {
-                const SIZE: usize = Replicated::<Fp31>::SIZE;
-                let r = a.into_iter().zip(b).map(|(a, b)| {
-                    let mut slice = [0_u8; 2*SIZE];
+        let helper_shares = (a, b).share().map(|(a, b)| {
+            const SIZE: usize = Replicated::<Fp31>::SIZE;
+            let r = a
+                .into_iter()
+                .zip(b)
+                .flat_map(|(a, b)| {
+                    let mut slice = [0_u8; 2 * SIZE];
                     a.serialize(&mut slice).unwrap();
                     b.serialize(&mut slice[SIZE..]).unwrap();
 
                     slice
-                }).flatten().collect::<Vec<_>>();
+                })
+                .collect::<Vec<_>>();
 
-                Box::new(stream::iter(std::iter::once(r)))
-            });
+            Box::new(stream::iter(std::iter::once(r)))
+        });
 
-        let results: [_; 3] = join_all(helper_shares.into_iter().zip(contexts).map(|(shares, context)| {
-            test_multiply(context, shares)
-        })).await.try_into().unwrap();
+        let results: [_; 3] = join_all(
+            helper_shares
+                .into_iter()
+                .zip(contexts)
+                .map(|(shares, context)| test_multiply(context, shares)),
+        )
+        .await
+        .try_into()
+        .unwrap();
 
         let results = results.reconstruct();
 
