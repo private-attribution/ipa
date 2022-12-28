@@ -199,6 +199,9 @@ impl<T: Transport + Clone> Processor<T> {
     }
 
     /// Handle the next command from the input stream.
+    ///
+    /// ## Panics
+    /// if command is not a query command or if the command stream is closed
     pub async fn handle_next(&mut self) {
         if let Some(command) = self.command_stream.next().await {
             match command.payload {
