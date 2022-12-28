@@ -8,6 +8,7 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 use crate::helpers::query::{QueryConfig, QueryInput};
+use crate::query::ProtocolResult;
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -50,7 +51,7 @@ pub enum QueryState {
     Empty,
     Preparing(QueryConfig),
     AwaitingInputs(QueryConfig, Gateway),
-    Running(JoinHandle<()>),
+    Running(JoinHandle<Box<dyn ProtocolResult>>),
     // Completed(Status)
 }
 

@@ -3,6 +3,7 @@ use crate::helpers::Role;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Replicated<F: Field>(F, F);
 
@@ -53,6 +54,17 @@ impl<F: Field> Replicated<F> {
 
     /// Replicated secret share where both left and right values are `F::ZERO`
     pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
+
+    pub fn from_iter(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        from
+            .chunks(2 * F::SIZE_IN_BYTES as usize)
+            .map(|chunk| {
+                assert_eq!(chunk.len(), 2 * F::SIZE_IN_BYTES as usize);
+                let left = F::deserialize(chunk).unwrap();
+                let right = F::deserialize(&chunk[F::SIZE_IN_BYTES as usize..]).unwrap();
+                Self(left, right)
+            })
+    }
 }
 
 impl<F: Field> Add<Self> for &Replicated<F> {

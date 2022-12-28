@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use async_trait::async_trait;
@@ -6,6 +7,7 @@ use futures_util::StreamExt;
 use rand::rngs::StdRng;
 use rand::thread_rng;
 use rand_core::{CryptoRng, RngCore, SeedableRng};
+use tinyvec::{array_vec, ArrayVec};
 use crate::ff::Field;
 use crate::helpers::messaging::Gateway;
 use crate::helpers::{negotiate_prss};
@@ -13,27 +15,57 @@ use crate::helpers::query::QueryInput;
 use crate::protocol::basics::SecureMul;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::{RecordId, Step};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::{Replicated, SecretSharing};
+
+
+pub trait Result : Send {
+    fn into_bytes(self: Box<Self>) -> Vec<u8>;
+}
+
+impl <F: Field> Result for Vec<Replicated<F>> {
+    fn into_bytes(self: Box<Self>) -> Vec<u8> {
+        let mut r = Vec::with_capacity(2 * self.len() * F::SIZE_IN_BYTES as usize);
+        for share in self.into_iter() {
+            let mut slice = [0_u8; 32]; // we don't support fields > 16 bytes
+            share.left().serialize(&mut slice).unwrap();
+            share.right().serialize(&mut slice[F::SIZE_IN_BYTES as usize..]).unwrap();
+            r.extend_from_slice(&slice[..2*F::SIZE_IN_BYTES as usize]);
+        }
+
+        r
+    }
+}
+
+// impl <F: Field, R: Result, RS: SecretSharing<F>> TryFrom<R> for RS {
+//     type Error = String;
+//
+//     fn try_from(value: R) -> std::result::Result<Self, Self::Error> {
+//         todo!()
+//     }
+// }
 
 #[async_trait]
-trait Protocol {
-    type Output: Send;
+pub trait Protocol {
+    type Output: Send + Result;
 
     async fn run<S: Stream<Item = Vec<u8>> + Send + Unpin>(self, input: S) -> Self::Output;
 }
 
-struct TestMultiply<F, R> {
+#[cfg(test)]
+pub struct TestMultiply<F, R> {
     rng: R,
     gateway: Gateway,
     _phantom: PhantomData<F>
 }
 
+#[cfg(test)]
 impl <F, R> Debug for TestMultiply<F, R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "test_multiply_protocol[role={:?}]", self.gateway.role())
     }
 }
 
+#[cfg(test)]
 impl <F: Field> TestMultiply<F, StdRng> {
     pub fn new(gateway: Gateway) -> Self {
         Self {
@@ -45,6 +77,7 @@ impl <F: Field> TestMultiply<F, StdRng> {
 }
 
 #[async_trait]
+#[cfg(test)]
 impl <F: Field, R: RngCore + CryptoRng + Send> Protocol for TestMultiply<F, R> {
     type Output = Vec<Replicated<F>>;
 

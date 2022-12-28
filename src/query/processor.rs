@@ -1,9 +1,10 @@
+
 use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 use super::state::{QueryState, QueryStatus, RunningQueries, StateError};
 use crate::helpers::messaging::Gateway;
 use crate::helpers::network::Network;
-use crate::helpers::query::{QueryConfig, PrepareQuery, QueryCommand, QueryInput};
+use crate::helpers::query::{QueryConfig, PrepareQuery, QueryCommand, QueryInput, QueryType};
 use crate::helpers::{GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport, TransportCommand, TransportError};
 use crate::protocol::QueryId;
 use futures_util::future::try_join;
@@ -11,6 +12,10 @@ use pin_project::pin_project;
 use tokio::sync::mpsc;
 use crate::task::JoinHandle;
 use futures::StreamExt;
+use crate::error::BoxError;
+use crate::ff::{FieldType, Fp31};
+use crate::query::executor::{Protocol};
+use crate::query::{executor, ProtocolResult};
 // use crate::query::query_executor;
 
 #[allow(dead_code)]
@@ -147,18 +152,38 @@ impl<T: Transport + Clone> Processor<T> {
         Ok(())
     }
 
-    pub async fn inputs(&self, input: &QueryInput) -> Result<(), QueryInputError> {
-        match self.queries.inner.lock().unwrap().entry(input.query_id) {
+    pub fn receive_inputs(&self, input: QueryInput) -> Result<(), QueryInputError> {
+        let mut queries = self.queries.inner.lock().unwrap();
+        match queries.entry(input.query_id) {
             Entry::Occupied(mut entry) => {
-                let state = entry.get();
+                let state = entry.remove();
                 match state {
                     QueryState::AwaitingInputs(config, gateway) => {
+                        match config.query_type {
+                            #[cfg(test)]
+                            QueryType::TestMultiply => {
+                                match config.field_type {
+                                    FieldType::Fp31 => {
+                                        let protocol = executor::TestMultiply::<Fp31, _>::new(gateway);
+                                        let task = tokio::spawn(async move {
+                                            let response = protocol.run(input.input_stream).await;
+                                            Box::new(response) as Box<dyn ProtocolResult>
+                                        });
+                                        queries.insert(input.query_id, QueryState::Running(task));
+                                    }
+                                    FieldType::Fp32BitPrime => {
+                                        todo!()
+                                    }
+                                }
+                            }
+                            QueryType::IPA => {}
+                        }
                         Ok(())
-                        // let task = tokio::spawn(query_executor(gateway, input));
-                        // entry.insert(QueryState::Running(task));
-                        // Ok(())
                     }
-                    _ => panic!("Received request to process inputs for a query with status {:?}", QueryStatus::from(state)),
+                    _ => {
+                        // TODO: insert entry back
+                        panic!("Received request to process inputs for a query with status {:?}", QueryStatus::from(&state))
+                    },
                 }
             }
             // TODO: return error
@@ -184,11 +209,26 @@ impl<T: Transport + Clone> Processor<T> {
                             self.prepare(req).await.unwrap();
                         }
                         QueryCommand::Input(query_input) => {
-                            panic!("not ready to handle inputs just yet")
+                            self.receive_inputs(query_input).unwrap();
                         }
                     }
                 }
                 _ => panic!("unexpected command: {command:?}")
+            }
+        }
+    }
+
+    pub async fn finish_query(&mut self, query_id: QueryId) -> Result<Box<dyn ProtocolResult>, BoxError> {
+        let mut queries = self.queries.inner.lock().unwrap();
+        match queries.get_mut(&query_id) {
+            None => panic!("no such query"),
+            Some(state) => {
+                match state {
+                    QueryState::Running(handle) => {
+                        Ok(handle.await.unwrap())
+                    }
+                    _ => panic!("Wrong state")
+                }
             }
         }
     }
@@ -343,16 +383,18 @@ mod tests {
 
 
     mod e2e {
+        use std::any::Any;
         use std::io::Cursor;
         use futures_util::future::join_all;
         use futures_util::stream;
         use tokio::sync::oneshot;
         use crate::ff::{Field, Fp31};
         use crate::helpers::query::QueryInput;
-        use crate::secret_sharing::IntoShares;
+        use crate::secret_sharing::{IntoShares, Replicated};
         use crate::test_fixture::transport::InMemoryTransport;
         use crate::sync::Weak;
         use super::*;
+        use crate::test_fixture::Reconstruct;
 
         async fn make_three(network: &InMemoryNetwork) -> [Processor<Weak<InMemoryTransport>>; 3] {
             let identities = HelperIdentity::make_three();
@@ -402,7 +444,7 @@ mod tests {
                 rx.await.unwrap()
             };
             let a = Fp31::from(4u128);
-            let b = Fp31::from(3u128);
+            let b = Fp31::from(5u128);
 
             let helper_shares = (a, b).share()
                 .map(|v| {
@@ -411,7 +453,7 @@ mod tests {
                     v.0.right().serialize(&mut slice[1..2]).unwrap();
                     v.1.left().serialize(&mut slice[2..3]).unwrap();
                     v.1.right().serialize(&mut slice[3..4]).unwrap();
-                    Box::new(stream::iter(std::iter::once(slice.to_vec())))
+                    Box::pin(stream::iter(std::iter::once(slice.to_vec())))
                 });
 
             // at this point, all helpers must be awaiting inputs
@@ -426,8 +468,13 @@ mod tests {
             for mut processor in &mut processors {
                 processor.handle_next().await;
             }
-            //
-            // // at this point we can just spin and wait
+
+            let result: [_; 3] = join_all(processors.map(|mut processor| async move {
+                let r = processor.finish_query(r.query_id).await.unwrap().into_bytes();
+                Replicated::<Fp31>::from_iter(&r).collect::<Vec<_>>()
+            })).await.try_into().unwrap();
+
+            assert_eq!(vec![Fp31::from(20u128)], result.reconstruct());
         }
     }
 }

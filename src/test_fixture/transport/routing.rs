@@ -116,7 +116,7 @@ impl Switch {
                             SwitchCommand::Subscribe(subscribe_command) => {
                                 let SubscribeRequest { subscription, link, ack_tx } = subscribe_command;
                                 assert!(routes.insert(subscription, link).is_none());
-                                ack_tx.send(());
+                                ack_tx.send(()).unwrap();
                             }
                             SwitchCommand::FromClient(command) => {
                                 TransportCommand::Query(command).dispatch(CommandOrigin::Other, &routes).await.expect("Failed to dispatch a command");

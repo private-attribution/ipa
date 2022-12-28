@@ -1,6 +1,7 @@
 use std::any::type_name;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::pin::Pin;
 use futures::Stream;
 use tokio::sync::oneshot;
 use crate::error::BoxError;
@@ -25,7 +26,7 @@ pub struct PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
-    pub(crate) input_stream: Box<dyn Stream<Item = Vec<u8>> + Send>
+    pub input_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>
 }
 
 impl Debug for QueryInput {
