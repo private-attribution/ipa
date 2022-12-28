@@ -171,24 +171,23 @@ impl<T: Transport + Clone> Processor<T> {
         match queries.entry(input.query_id) {
             Entry::Occupied(entry) => {
                 let state = entry.remove();
-                match state {
-                    QueryState::AwaitingInputs(config, gateway) => {
-                        queries.insert(
-                            input.query_id,
-                            QueryState::Running(executor::start_query(
-                                config,
-                                gateway,
-                                input.input_stream,
-                            )),
-                        );
-                        Ok(())
-                    }
-                    _ => Err(QueryInputError::StateError {
-                        source: StateError::InvalidState {
-                            from: QueryStatus::from(&state),
-                            to: QueryStatus::Running,
-                        },
-                    }),
+                if let QueryState::AwaitingInputs(config, gateway) = state {
+                    queries.insert(
+                        input.query_id,
+                        QueryState::Running(executor::start_query(
+                            config,
+                            gateway,
+                            input.input_stream,
+                        )),
+                    );
+                    Ok(())
+                } else {
+                    let error = StateError::InvalidState {
+                        from: QueryStatus::from(&state),
+                        to: QueryStatus::Running,
+                    };
+                    queries.insert(input.query_id, state);
+                    Err(QueryInputError::StateError { source: error })
                 }
             }
             Entry::Vacant(_) => Err(QueryInputError::NoSuchQuery(input.query_id)),
@@ -206,13 +205,13 @@ impl<T: Transport + Clone> Processor<T> {
                 TransportCommand::Query(QueryCommand::Create(req, resp)) => {
                     let result = self.new_query(req).await.unwrap();
                     resp.send(result).unwrap();
-                },
+                }
                 TransportCommand::Query(QueryCommand::Prepare(req)) => {
                     self.prepare(req).await.unwrap();
-                },
+                }
                 TransportCommand::Query(QueryCommand::Input(query_input)) => {
                     self.receive_inputs(query_input).unwrap();
-                },
+                }
                 TransportCommand::StepData(_, _, _) => panic!("unexpected command: {command:?}"),
             }
         }
@@ -243,56 +242,9 @@ impl<T: Transport + Clone> Processor<T> {
                 }
                 None => Err(QueryCompletionError::NoSuchQuery(query_id)),
             }
-            //
-            // if let Some(QueryState::Running(handle)) = queries.remove(&query_id) {
-            //     queries.insert(query_id, QueryState::AwaitingCompletion);
-            //     Ok(handle)
-            // } else {
-            //     queries.insert(query_id, );
-            //     Err(QueryCompletionError::StateError {
-            //         source: StateError::InvalidState {
-            //             from: QueryStatus::from(&state),
-            //             to: QueryStatus::Running,
-            //         },
-            //     })
-            // }
         }?;
 
         Ok(handle.await.unwrap())
-
-        // match queries.entry(query_id) {
-        //     Entry::Occupied(entry) => {
-        //         let state = entry.remove();
-        //         drop(queries);
-        //         match state {
-        //             QueryState::Running(handle) => {
-        //                 // queries.insert(query_id, QueryState::AwaitingCompletion);
-        //                 // drop(queries);
-        //                 Ok(handle.await.unwrap())
-        //             }
-        //             _ => {
-        //                 let r = Err(QueryCompletionError::StateError {
-        //                     source: StateError::InvalidState {
-        //                         from: QueryStatus::from(&state),
-        //                         to: QueryStatus::Running,
-        //                     },
-        //                 });
-        //                 // queries.insert(query_id, state);
-        //                 r
-        //             },
-        //         }
-        //     }
-        //     Entry::Vacant(_) => Err(QueryCompletionError::NoSuchQuery(query_id)),
-        // }
-        // match queries.get_mut(&query_id) {
-        //     None => panic!("no such query"),
-        //     Some(state) => match state {
-        //         QueryState::Running(handle) => {
-        //             Ok(handle.await.unwrap())
-        //         },
-        //         _ => panic!("Wrong state"),
-        //     },
-        // }
     }
 }
 
@@ -467,7 +419,7 @@ mod tests {
 
         #[tokio::test]
         pub async fn happy_case() {
-            const SZ: usize = Replicated::<Fp31>::SIZE;
+            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
             let network = InMemoryNetwork::default();
             let mut processors = make_three(&network).await;
 

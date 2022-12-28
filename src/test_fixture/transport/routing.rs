@@ -102,7 +102,6 @@ impl Switch {
                     Some(command) = rx.recv() => {
                         match command {
                             SwitchCommand::Subscribe(SubscribeRequest { subscription, link, ack_tx }) => {
-                                let SubscribeRequest { subscription, link, ack_tx } = subscribe_command;
                                 assert!(routes.insert(subscription, link).is_none());
                                 ack_tx.send(()).unwrap();
                             }

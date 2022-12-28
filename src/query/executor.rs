@@ -18,12 +18,11 @@ pub trait Result: Send {
 
 impl<F: Field> Result for Vec<Replicated<F>> {
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        // todo Result
-        let mut r = Vec::with_capacity(2 * self.len() * F::SIZE_IN_BYTES as usize);
-        for share in self.into_iter() {
-            let mut slice = [0u8; 32]; // we don't support fields > 16 bytes
-            let written = share.serialize(&mut slice).unwrap();
-            r.extend_from_slice(&slice[..written]);
+        let mut r = vec![0u8; self.len() * Replicated::<F>::SIZE_IN_BYTES];
+        for (i, share) in self.into_iter().enumerate() {
+            share
+                .serialize(&mut r[i * Replicated::<F>::SIZE_IN_BYTES..])
+                .unwrap_or_else(|_| panic!("{share:?} fits into a 16 byte slice"));
         }
 
         r
@@ -41,19 +40,10 @@ async fn test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
 
     let mut results = Vec::new();
     while let Some(v) = input.next().await {
-        // convert bytes to replicated shares
-        let shares = v.chunks(2 * F::SIZE_IN_BYTES as usize).map(|chunk| {
-            // TODO fix with replicated serialization
-            let left = F::deserialize(&chunk[..=F::SIZE_IN_BYTES as usize]).unwrap();
-            let right = F::deserialize(&chunk[F::SIZE_IN_BYTES as usize..]).unwrap();
-
-            Replicated::new(left, right)
-        });
-
         // multiply pairs
         let mut a = None;
         let mut record_id = 0_u32;
-        for share in shares {
+        for share in Replicated::<F>::from_byte_slice(&v) {
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
@@ -129,7 +119,7 @@ mod tests {
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
 
         let helper_shares = (a, b).share().map(|(a, b)| {
-            const SIZE: usize = Replicated::<Fp31>::SIZE;
+            const SIZE: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
             let r = a
                 .into_iter()
                 .zip(b)
@@ -158,5 +148,16 @@ mod tests {
         let results = results.reconstruct();
 
         assert_eq!(vec![Fp31::from(12u128), Fp31::from(30u128)], results);
+    }
+
+    #[test]
+    fn serialize_result() {
+        let [input, ..] = (0u128..=3).map(Fp31::from).collect::<Vec<_>>().share();
+        let expected = input.clone();
+        let bytes = Box::new(input).into_bytes();
+        assert_eq!(
+            expected,
+            Replicated::<Fp31>::from_byte_slice(&bytes).collect::<Vec<_>>()
+        );
     }
 }
