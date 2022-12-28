@@ -1,6 +1,6 @@
 use crate::ff::FieldType;
 use crate::helpers::{RoleAssignment, TransportCommand};
-use crate::protocol::QueryId;
+use crate::protocol::{QueryId, Substep};
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
@@ -51,3 +51,15 @@ pub enum QueryType {
     TestMultiply,
     IPA,
 }
+
+impl AsRef<str> for QueryType {
+    fn as_ref(&self) -> &str {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            QueryType::TestMultiply => "test-multiply",
+            QueryType::IPA => "ipa",
+        }
+    }
+}
+
+impl Substep for QueryType {}

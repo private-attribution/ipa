@@ -92,7 +92,7 @@ pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(
         // TODO: make it a generic argument for this function
         let mut rng = StdRng::from_entropy();
         // Negotiate PRSS first
-        let step = Step::default().narrow(&format!("{:?}", config.query_type));
+        let step = Step::default().narrow(&config.query_type);
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {
