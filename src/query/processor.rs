@@ -326,13 +326,34 @@ mod tests {
     use futures_util::future::poll_immediate;
     use std::sync::Arc;
 
+    /// set up 3 query processors in active-passive mode. The first processor is returned and can be
+    /// used to drive query workflow, while two others will be spawned in a tokio task and will
+    /// be listening for incoming commands.
+    async fn active_passive<T: Transport + Clone>(transports: [T; 3]) -> Processor<T> {
+        let identities = HelperIdentity::make_three();
+        let [t0, t1, t2] = transports;
+        tokio::spawn({
+            let identities = identities.clone();
+            async move {
+                let mut processor2 = Processor::new(t1, identities.clone()).await;
+                let mut processor3 = Processor::new(t2, identities).await;
+                // don't use tokio::select! here because it cancels one of the futures if another one is making progress
+                // that causes events to be dropped
+                loop {
+                    processor2.handle_next().await;
+                    processor3.handle_next().await;
+                }
+            }
+        });
+
+        Processor::new(t0, identities).await
+    }
+
     #[tokio::test]
     async fn new_query() {
         let network = InMemoryNetwork::default();
-        let transport = DelayedTransport::new(Arc::downgrade(&network.transports[0]), 3);
-
-        let identities = HelperIdentity::make_three();
-        let processor = Processor::new(transport.clone(), identities).await;
+        let [t0, t1, t2] = network.transports().map(|t| DelayedTransport::new(t, 3));
+        let processor = active_passive([t0.clone(), t1, t2]).await;
         let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -345,7 +366,7 @@ mod tests {
         let _qc = poll_immediate(&mut qc_future).await;
 
         assert_eq!(Some(QueryStatus::Preparing), processor.status(QueryId));
-        transport.wait().await;
+        t0.wait().await;
 
         let qc = qc_future.await.unwrap();
         let expected_assignment = RoleAssignment::new(HelperIdentity::make_three());
@@ -364,10 +385,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_duplicate_query_id() {
         let network = InMemoryNetwork::default();
-        let transport = Arc::downgrade(&network.transports[0]);
-
-        let identities = HelperIdentity::make_three();
-        let processor = Processor::new(transport, identities).await;
+        let processor = active_passive(network.transports()).await;
         let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,

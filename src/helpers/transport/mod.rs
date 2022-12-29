@@ -310,7 +310,7 @@ pub struct CommandEnvelope {
 /// `send` method.
 #[async_trait]
 pub trait Transport: Send + Sync + 'static {
-    type CommandStream: Stream<Item = CommandEnvelope> + Send + Unpin;
+    type CommandStream: Stream<Item = CommandEnvelope> + Send + Sync + Unpin;
 
     /// Returns the identity of the helper that runs this transport
     fn identity(&self) -> HelperIdentity;

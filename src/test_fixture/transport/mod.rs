@@ -15,6 +15,7 @@ use crate::{
 use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -120,5 +121,11 @@ impl Transport for Weak<InMemoryTransport> {
             .unwrap()
             .send(command.into())
             .await?)
+    }
+}
+
+impl Debug for InMemoryTransport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "transport[id={:?}]", self.identity())
     }
 }
