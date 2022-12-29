@@ -4,11 +4,13 @@ pub use error::Error;
 
 use crate::{
     helpers::{
-        query::PrepareQuery,
-        transport::http::{discovery::peer, OriginHeader, PrepareQueryBody, StepHeaders},
+        query::{PrepareQuery, QueryConfig, QueryInput},
+        transport::{
+            self,
+            http::{discovery::peer, CreateQueryResp, OriginHeader, PrepareQueryBody, StepHeaders},
+        },
         HelperIdentity,
     },
-    net::ByteArrStream,
     protocol::{QueryId, Step},
 };
 use axum::{
@@ -18,9 +20,11 @@ use axum::{
         Request,
     },
 };
-use hyper::{client::HttpConnector, Body, Client, Response, Uri};
+use futures::Stream;
+use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
+use std::pin::Pin;
 
 pub struct HttpSendMessagesArgs<'a> {
     pub query_id: QueryId,
@@ -29,10 +33,14 @@ pub struct HttpSendMessagesArgs<'a> {
     pub messages: Bytes,
 }
 
+#[allow(clippy::type_complexity)] // TODO: maybe alias a type for the `dyn Stream`
 #[derive(Debug, Clone)]
 pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>, Body>,
-    streaming_client: Client<HttpsConnector<HttpConnector>, StreamBody<ByteArrStream>>,
+    streaming_client: Client<
+        HttpsConnector<HttpConnector>,
+        StreamBody<Pin<Box<dyn Stream<Item = Result<Vec<u8>, transport::Error>> + Send>>>,
+    >,
     scheme: uri::Scheme,
     authority: uri::Authority,
 }
@@ -56,8 +64,8 @@ impl MpcHelperClient {
     pub fn new(addr: Uri) -> Self {
         // this works for both http and https
         let https = HttpsConnector::new();
-        let client = Client::builder().build::<_, Body>(https.clone());
-        let streaming_client = Client::builder().build::<_, StreamBody<ByteArrStream>>(https);
+        let client = Client::builder().build(https.clone());
+        let streaming_client = Client::builder().build(https);
         let parts = addr.into_parts();
         Self {
             client,
@@ -105,9 +113,26 @@ impl MpcHelperClient {
         }
     }
 
+    pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
+        let uri = self.build_uri(format!(
+            "/query?field_type={}&query_type={}",
+            data.field_type.as_ref(),
+            data.query_type.as_ref()
+        ))?;
+        let req = Request::post(uri).body(Body::empty())?;
+        let resp = self.client.request(req).await?;
+        if resp.status().is_success() {
+            let body_bytes = body::to_bytes(resp.into_body()).await?;
+            let CreateQueryResp { query_id } = serde_json::from_slice(&body_bytes)?;
+            Ok(query_id)
+        } else {
+            Err(Error::from_failed_resp(resp).await)
+        }
+    }
+
     pub async fn prepare_query(
         &self,
-        destination: &HelperIdentity,
+        origin: &HelperIdentity,
         data: PrepareQuery,
     ) -> Result<(), Error> {
         let uri = self.build_uri(format!(
@@ -117,12 +142,24 @@ impl MpcHelperClient {
             data.config.query_type.as_ref(),
         ))?;
         let origin_header = OriginHeader {
-            origin: destination.clone(),
+            origin: origin.clone(),
         };
         let body = PrepareQueryBody { roles: data.roles };
         let body = Body::from(serde_json::to_string(&body)?);
         let req = origin_header.add_to(Request::post(uri)).body(body)?;
         let resp = self.client.request(req).await?;
+        Self::resp_ok(resp).await
+    }
+
+    pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
+        let uri = self.build_uri(format!(
+            "/query/{}/input?field_type={}",
+            data.query_id.as_ref(),
+            data.field_type.as_ref()
+        ))?;
+        let body = StreamBody::new(data.input_stream);
+        let req = Request::post(uri).body(body)?;
+        let resp = self.streaming_client.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -135,7 +172,7 @@ impl MpcHelperClient {
     /// If messages size > max u32 (unlikely)
     pub async fn step(
         &self,
-        destination: &HelperIdentity,
+        origin: &HelperIdentity,
         query_id: QueryId,
         step: Step,
         payload: Vec<u8>,
@@ -148,7 +185,7 @@ impl MpcHelperClient {
         ))?;
         let headers = StepHeaders { offset };
         let origin_header = OriginHeader {
-            origin: destination.clone(),
+            origin: origin.clone(),
         };
 
         let body = Body::from(payload);

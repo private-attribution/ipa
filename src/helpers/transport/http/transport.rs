@@ -113,7 +113,7 @@ impl Transport for Arc<HttpTransport> {
             TransportCommand::Query(QueryCommand::Prepare(data, resp)) => {
                 let query_id = data.query_id;
                 client
-                    .prepare_query(destination, data)
+                    .prepare_query(&self.id, data)
                     .await
                     .map_err(|inner| Error::SendFailed {
                         command_name: Some(command_name),
@@ -130,7 +130,7 @@ impl Transport for Arc<HttpTransport> {
                 payload,
                 offset,
             } => client
-                .step(destination, query_id, step, payload, offset)
+                .step(&self.id, query_id, step, payload, offset)
                 .await
                 .map_err(|err| Error::SendFailed {
                     command_name: Some(command_name),
@@ -142,4 +142,57 @@ impl Transport for Arc<HttpTransport> {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod e2e_tests {
+    use super::*;
+    // use crate::ff::FieldType;
+    // use crate::helpers::query::{QueryConfig, QueryType};
+    // use crate::helpers::transport::http::discovery::PeerDiscovery;
+    use crate::query::Processor;
+    // use crate::test_fixture::net::localhost_config_map;
+    // use futures_util::future::join_all;
+
+    fn open_port() -> u16 {
+        std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    async fn make_processors(
+        conf: &'static HashMap<HelperIdentity, peer::Config>,
+    ) -> HashMap<HelperIdentity, Processor<Arc<HttpTransport>>> {
+        let ids: [HelperIdentity; 3] = conf
+            .keys()
+            .map(Clone::clone)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        let mut processors = HashMap::with_capacity(ids.len());
+        for this_id in ids.clone() {
+            let transport = HttpTransport::new(this_id.clone(), conf);
+            let processor = Processor::new(transport, ids.clone()).await;
+            processors.insert(this_id, processor);
+        }
+        processors
+    }
+
+    // #[tokio::test]
+    // async fn happy_case() {
+    //     let conf = localhost_config_map([open_port(), open_port(), open_port()]);
+    //     let peers_conf = conf.peers_map();
+    //     let ps = make_processors(peers_conf).await;
+    //     // send a create query command
+    //     let leader_id = ps.keys().next().unwrap();
+    //     let leader_client = MpcHelperClient::new(peers_conf.get(leader_id).unwrap().origin.clone());
+    //     let create_data = QueryConfig {
+    //         field_type: FieldType::Fp31,
+    //         query_type: QueryType::TestMultiply,
+    //     };
+    //     let query_id = leader_client.create_query(create_data).await.unwrap();
+    // }
 }

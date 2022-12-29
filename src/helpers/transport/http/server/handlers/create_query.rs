@@ -2,10 +2,12 @@ use crate::{
     ff::FieldType,
     helpers::{
         query::{QueryCommand, QueryConfig, QueryType},
-        transport::{http::server::Error, TransportCommand},
+        transport::{
+            http::{server::Error, CreateQueryResp},
+            TransportCommand,
+        },
         CommandEnvelope, CommandOrigin, HelperIdentity,
     },
-    protocol::QueryId,
 };
 use axum::{extract::Query, routing::post, Extension, Json, Router};
 use hyper::{Body, Request};
@@ -20,11 +22,6 @@ struct CreateQueryParams {
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 struct CreateQueryBody {
     helper_positions: [HelperIdentity; 3],
-}
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize))]
-struct CreateQueryResp {
-    query_id: QueryId,
 }
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent

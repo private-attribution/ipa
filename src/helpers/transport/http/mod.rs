@@ -9,11 +9,17 @@ pub use transport::HttpTransport;
 use crate::{
     ff::FieldType,
     helpers::{query::QueryType, HelperIdentity, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES},
+    protocol::QueryId,
 };
 use async_trait::async_trait;
 use axum::extract::{FromRequest, RequestParts};
 use hyper::header::HeaderName;
 use std::str::FromStr;
+
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+struct CreateQueryResp {
+    query_id: QueryId,
+}
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 struct PrepareQueryParams {
