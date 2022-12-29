@@ -1,5 +1,5 @@
 use crate::ff::FieldType;
-use crate::helpers::{transport::Error, RoleAssignment, TransportCommand};
+use crate::helpers::{RoleAssignment, TransportCommand, TransportError};
 use crate::protocol::{QueryId, Substep};
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
@@ -23,17 +23,14 @@ pub struct PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
+    /// TODO: remove, we already have this information in query configuration
     pub field_type: FieldType,
-    pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, Error>> + Send>>,
+    pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
 }
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "query_inputs[{:?}, {:?}]",
-            self.query_id, self.field_type
-        )
+        write!(f, "query_inputs[{:?}]", self.query_id)
     }
 }
 
@@ -79,7 +76,7 @@ impl From<QueryCommand> for TransportCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture"))]
     TestMultiply,
-    IPA,
+    IPA(IPAQueryConfig),
 }
 
 impl QueryType {
@@ -92,22 +89,36 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::IPA => Self::IPA_STR,
+            QueryType::IPA(_) => Self::IPA_STR,
         }
     }
 }
 
 impl TryFrom<&str> for QueryType {
-    type Error = Error;
+    type Error = TransportError;
 
-    fn try_from(query_type_str: &str) -> Result<Self, Self::Error> {
-        match query_type_str {
-            #[cfg(any(test, feature = "test-fixture"))]
-            Self::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-            Self::IPA_STR => Ok(QueryType::IPA),
-            other => Err(Error::UnknownQueryType(other.to_string())),
-        }
+    fn try_from(_query_type_str: &str) -> Result<Self, Self::Error> {
+        unimplemented!("query type needs more arguments than just name of the protocol")
+        // match query_type_str {
+        //     #[cfg(any(test, feature = "test-fixture"))]
+        //     Self::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
+        //     Self::IPA_STR => Ok(QueryType::IPA),
+        //     other => Err(TransportError::UnknownQueryType(other.to_string())),
+        // }
     }
 }
 
 impl Substep for QueryType {}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IPAQueryConfig {
+    pub num_bits: u32,
+    pub per_user_credit_cap: u32,
+    pub max_breakdown_key: u128,
+}
+
+impl From<IPAQueryConfig> for QueryType {
+    fn from(value: IPAQueryConfig) -> Self {
+        QueryType::IPA(value)
+    }
+}

@@ -7,8 +7,8 @@ pub use util::{DelayedTransport, FailingTransport};
 
 use crate::{
     helpers::{
-        query::QueryCommand, transport::Error, CommandEnvelope, HelperIdentity, SubscriptionType,
-        Transport, TransportCommand,
+        query::QueryCommand, CommandEnvelope, HelperIdentity, SubscriptionType, Transport,
+        TransportCommand, TransportError,
     },
     sync::Weak,
 };
@@ -111,7 +111,7 @@ impl Transport for Weak<InMemoryTransport> {
         &self,
         destination: &HelperIdentity,
         command: C,
-    ) -> Result<(), Error> {
+    ) -> Result<(), TransportError> {
         let this = self
             .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));

@@ -1,3 +1,4 @@
+use std::io;
 use std::iter::{repeat, zip};
 
 use crate::{
@@ -75,11 +76,63 @@ impl AsRef<str> for IPAInputRowResharableStep {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct IPAInputRow<F: Field> {
     pub mk_shares: XorReplicated,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: Replicated<F>,
     pub trigger_value: Replicated<F>,
+}
+
+impl<F: Field> IPAInputRow<F> {
+    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+
+    /// Splits the given slice into chunks aligned with the size of this struct and returns an
+    /// iterator that produces deserialized instances.
+    ///
+    /// ## Panics
+    /// Panics if the slice buffer is not aligned with the size of this struct.
+    pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        assert_eq!(0, input.len() % Self::SIZE_IN_BYTES, "input is not aligned");
+
+        input.chunks(Self::SIZE_IN_BYTES).map(|chunk| {
+            let mk_shares = XorReplicated::deserialize(chunk).unwrap();
+            let is_trigger_bit =
+                Replicated::<F>::deserialize(&chunk[XorReplicated::SIZE_IN_BYTES..]).unwrap();
+            let breakdown_key = Replicated::<F>::deserialize(
+                &chunk[XorReplicated::SIZE_IN_BYTES + Replicated::<F>::SIZE_IN_BYTES..],
+            )
+            .unwrap();
+            let trigger_value = Replicated::<F>::deserialize(
+                &chunk[XorReplicated::SIZE_IN_BYTES + 2 * Replicated::<F>::SIZE_IN_BYTES..],
+            )
+            .unwrap();
+
+            Self {
+                mk_shares,
+                is_trigger_bit,
+                breakdown_key,
+                trigger_value,
+            }
+        })
+    }
+
+    /// Serializes this instance into a mutable slice of bytes, writing from index 0.
+    ///
+    /// ## Errors
+    /// if buffer capacity is not sufficient to hold all the bytes.
+    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.mk_shares.serialize(buf)?;
+        self.is_trigger_bit
+            .serialize(&mut buf[XorReplicated::SIZE_IN_BYTES..])?;
+        self.breakdown_key
+            .serialize(&mut buf[XorReplicated::SIZE_IN_BYTES + Replicated::<F>::SIZE_IN_BYTES..])?;
+        self.trigger_value.serialize(
+            &mut buf[XorReplicated::SIZE_IN_BYTES + 2 * Replicated::<F>::SIZE_IN_BYTES..],
+        )?;
+
+        Ok(Self::SIZE_IN_BYTES)
+    }
 }
 
 struct IPAModulusConvertedInputRow<F: Field> {
@@ -221,79 +274,134 @@ where
     .await
 }
 
+#[cfg(all(any(test, feature = "test-fixture"), not(feature = "shuttle")))]
+pub mod test_cases {
+    use super::*;
+    use crate::rand::Rng;
+    use crate::secret_sharing::IntoShares;
+    use crate::test_fixture::Reconstruct;
+    use rand::distributions::{Distribution, Standard};
+    use std::marker::PhantomData;
+
+    /// The simplest input for IPA circuit that can validate the correctness of the protocol.
+    pub struct Simple<F: Field> {
+        records: Vec<crate::test_fixture::ipa_input_row::IPAInputTestRow>,
+        phantom: PhantomData<F>,
+    }
+
+    impl<F: Field> IntoShares<Vec<IPAInputRow<F>>> for Simple<F>
+    where
+        Standard: Distribution<F>,
+    {
+        fn share_with<R: Rng>(self, _rng: &mut R) -> [Vec<IPAInputRow<F>>; 3] {
+            self.records.share()
+        }
+    }
+
+    impl<F: Field> Simple<F> {
+        pub const PER_USER_CAP: u32 = 3;
+        pub const EXPECTED: &'static [[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        pub const MAX_BREAKDOWN_KEY: u128 = 3;
+
+        #[allow(clippy::missing_panics_doc)]
+        pub fn validate(results: &[Vec<AggregateCreditOutputRow<F>>; 3]) {
+            let results = results.reconstruct();
+            assert_eq!(Self::EXPECTED.len(), results.len());
+
+            for (i, expected) in Self::EXPECTED.iter().enumerate() {
+                // Each element in the `result` is a general purpose `[F; 4]`.
+                // For this test case, the first two elements are `breakdown_key`
+                // and `credit` as defined by the implementation of `Reconstruct`
+                // for `[AggregateCreditOutputRow<F>; 3]`.
+                let result = results[i].0.map(|x| x.as_u128());
+                assert_eq!(*expected, [result[0], result[1]]);
+            }
+        }
+    }
+
+    impl<F: Field> Default for Simple<F> {
+        fn default() -> Self {
+            use crate::test_fixture::ipa_input_row::IPAInputTestRow;
+
+            // match key, is_trigger, breakdown_key, trigger_value
+            let records = vec![
+                IPAInputTestRow {
+                    match_key: 12345,
+                    is_trigger_bit: 0,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                IPAInputTestRow {
+                    match_key: 12345,
+                    is_trigger_bit: 0,
+                    breakdown_key: 2,
+                    trigger_value: 0,
+                },
+                IPAInputTestRow {
+                    match_key: 68362,
+                    is_trigger_bit: 0,
+                    breakdown_key: 1,
+                    trigger_value: 0,
+                },
+                IPAInputTestRow {
+                    match_key: 12345,
+                    is_trigger_bit: 1,
+                    breakdown_key: 0,
+                    trigger_value: 5,
+                },
+                IPAInputTestRow {
+                    match_key: 68362,
+                    is_trigger_bit: 1,
+                    breakdown_key: 0,
+                    trigger_value: 2,
+                },
+            ];
+
+            Self {
+                records,
+                phantom: PhantomData::default(),
+            }
+        }
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::ipa;
+    use crate::protocol::ipa::test_cases::Simple;
+    use crate::protocol::ipa::IPAInputRow;
+    use crate::secret_sharing::IntoShares;
     use crate::test_fixture::ipa_input_row::IPAInputTestRow;
-    use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
-        ff::{Field, Fp31},
+        ff::Fp31,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+    use crate::{ff::Fp32BitPrime, rand::thread_rng};
+    use proptest::proptest;
+    use proptest::test_runner::{RngAlgorithm, TestRng};
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 5;
-        const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-        const MAX_BREAKDOWN_KEY: u128 = 3;
-
+        type SimpleTestCase = Simple<Fp31>;
         let world = TestWorld::new().await;
-
-        //   match key, is_trigger, breakdown_key, trigger_value
-        let records = [
-            IPAInputTestRow {
-                match_key: 12345,
-                is_trigger_bit: 0,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-            IPAInputTestRow {
-                match_key: 12345,
-                is_trigger_bit: 0,
-                breakdown_key: 2,
-                trigger_value: 0,
-            },
-            IPAInputTestRow {
-                match_key: 68362,
-                is_trigger_bit: 0,
-                breakdown_key: 1,
-                trigger_value: 0,
-            },
-            IPAInputTestRow {
-                match_key: 12345,
-                is_trigger_bit: 1,
-                breakdown_key: 0,
-                trigger_value: 5,
-            },
-            IPAInputTestRow {
-                match_key: 68362,
-                is_trigger_bit: 1,
-                breakdown_key: 0,
-                trigger_value: 2,
-            },
-        ];
+        let records = SimpleTestCase::default();
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                    .await
-                    .unwrap()
+                ipa(
+                    ctx,
+                    &input_rows,
+                    20,
+                    SimpleTestCase::PER_USER_CAP,
+                    SimpleTestCase::MAX_BREAKDOWN_KEY,
+                )
+                .await
+                .unwrap()
             })
-            .await
-            .reconstruct();
+            .await;
 
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            // Each element in the `result` is a general purpose `[F; 4]`.
-            // For this test case, the first two elements are `breakdown_key`
-            // and `credit` as defined by the implementation of `Reconstruct`
-            // for `[AggregateCreditOutputRow<F>; 3]`.
-            let result = result[i].0.map(|x| x.as_u128());
-            assert_eq!(*expected, [result[0], result[1]]);
-        }
+        SimpleTestCase::validate(&result);
     }
 
     #[tokio::test]
@@ -329,5 +437,43 @@ pub mod tests {
             .reconstruct();
 
         assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
+    }
+
+    fn serde_internal(
+        match_key: u64,
+        trigger_bit: u128,
+        breakdown_key: u128,
+        trigger_value: u128,
+        seed: u128,
+    ) {
+        type RowType = IPAInputRow<Fp31>;
+        // xorshift requires 16 byte seed and that's why it is picked here
+        let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
+        let [a, b, ..]: [RowType; 3] = IPAInputTestRow {
+            match_key,
+            is_trigger_bit: trigger_bit,
+            breakdown_key,
+            trigger_value,
+        }
+        .share_with(&mut rng);
+
+        let mut buf = vec![0u8; 2 * RowType::SIZE_IN_BYTES];
+        assert_eq!(a.serialize(&mut buf).unwrap(), RowType::SIZE_IN_BYTES);
+        assert_eq!(
+            b.serialize(&mut buf[RowType::SIZE_IN_BYTES..]).unwrap(),
+            RowType::SIZE_IN_BYTES
+        );
+
+        assert_eq!(
+            vec![a, b],
+            RowType::from_byte_slice(&buf).collect::<Vec<_>>()
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn serde(match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
+            serde_internal(match_key, trigger_bit, breakdown_key, trigger_value, seed);
+        }
     }
 }
