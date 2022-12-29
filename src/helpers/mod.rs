@@ -16,7 +16,8 @@ pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand, TransportError,
+    query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
+    TransportError,
 };
 
 use crate::helpers::{

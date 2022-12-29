@@ -1,5 +1,5 @@
 use crate::ff::FieldType;
-use crate::helpers::{TransportError, RoleAssignment, TransportCommand};
+use crate::helpers::{RoleAssignment, TransportCommand, TransportError};
 use crate::protocol::{QueryId, Substep};
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
@@ -30,11 +30,7 @@ pub struct QueryInput {
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "query_inputs[{:?}]",
-            self.query_id
-        )
+        write!(f, "query_inputs[{:?}]", self.query_id)
     }
 }
 

@@ -7,7 +7,7 @@ use crate::{
                 discovery::peer,
                 server::{BindTarget, MpcHelperServer},
             },
-            TransportError, SubscriptionType, Transport, TransportCommand,
+            SubscriptionType, Transport, TransportCommand, TransportError,
         },
         CommandEnvelope, HelperIdentity,
     },

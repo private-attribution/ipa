@@ -1,7 +1,7 @@
 use crate::ff::{Field, FieldType, Fp31};
 use crate::helpers::messaging::Gateway;
-use crate::helpers::{negotiate_prss, TransportError};
 use crate::helpers::query::{IPAQueryConfig, QueryConfig, QueryType};
+use crate::helpers::{negotiate_prss, TransportError};
 use crate::protocol::attribution::AggregateCreditOutputRow;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::ipa::{ipa, IPAInputRow};
@@ -93,7 +93,10 @@ async fn execute_test_multiply<
     results
 }
 
-async fn execute_ipa<F: Field, St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin>(
+async fn execute_ipa<
+    F: Field,
+    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
+>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
     mut input: St,

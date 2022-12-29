@@ -7,8 +7,8 @@ pub use util::{DelayedTransport, FailingTransport};
 
 use crate::{
     helpers::{
-        query::QueryCommand, TransportError, CommandEnvelope, HelperIdentity, SubscriptionType,
-        Transport, TransportCommand,
+        query::QueryCommand, CommandEnvelope, HelperIdentity, SubscriptionType, Transport,
+        TransportCommand, TransportError,
     },
     sync::Weak,
 };

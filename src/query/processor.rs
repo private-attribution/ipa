@@ -1,10 +1,11 @@
+use crate::helpers::TransportError;
 use crate::{
     helpers::{
         messaging::Gateway,
         network::Network,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType,
-        Transport, TransportCommand,
+        GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport,
+        TransportCommand,
     },
     protocol::QueryId,
     query::{
@@ -19,7 +20,6 @@ use pin_project::pin_project;
 use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
-use crate::helpers::TransportError;
 
 #[allow(dead_code)]
 #[pin_project]
@@ -269,11 +269,11 @@ mod tests {
     use super::*;
     use crate::ff::FieldType;
     use crate::helpers::query::QueryType;
+    use crate::helpers::TransportError;
     use crate::test_fixture::transport::{DelayedTransport, FailingTransport, InMemoryNetwork};
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
     use std::sync::Arc;
-    use crate::helpers::TransportError;
 
     /// set up 3 query processors in active-passive mode. The first processor is returned and can be
     /// used to drive query workflow, while two others will be spawned in a tokio task and will
@@ -365,9 +365,7 @@ mod tests {
 
         assert!(matches!(
             processor.new_query(request).await,
-            Err(NewQueryError::Transport(
-                TransportError::SendFailed { .. }
-            ))
+            Err(NewQueryError::Transport(TransportError::SendFailed { .. }))
         ));
     }
 
@@ -465,9 +463,7 @@ mod tests {
                 .deliver(QueryCommand::Create(config, tx))
                 .await;
 
-
-            join_all(processors.iter_mut()
-                .map(|processor| processor.handle_next())).await;
+            join_all(processors.iter_mut().map(Processor::handle_next)).await;
 
             let query_id = rx.await.unwrap();
 
@@ -573,11 +569,14 @@ mod tests {
             for (i, input) in helper_shares.into_iter().enumerate() {
                 let (tx, rx) = oneshot::channel();
                 network.transports[i]
-                    .deliver(QueryCommand::Input(QueryInput {
-                        query_id,
-                        field_type: FieldType::Fp31,
-                        input_stream: input,
-                    }, tx))
+                    .deliver(QueryCommand::Input(
+                        QueryInput {
+                            query_id,
+                            field_type: FieldType::Fp31,
+                            input_stream: input,
+                        },
+                        tx,
+                    ))
                     .await;
                 processors[i].handle_next().await;
                 rx.await.unwrap();

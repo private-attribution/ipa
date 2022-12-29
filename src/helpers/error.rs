@@ -1,3 +1,4 @@
+use crate::helpers::TransportError;
 use crate::{
     error::BoxError,
     helpers::{
@@ -11,7 +12,6 @@ use crate::{
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio_util::sync::PollSendError;
-use crate::helpers::TransportError;
 
 #[derive(Error, Debug)]
 pub enum Error {

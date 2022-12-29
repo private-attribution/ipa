@@ -1,5 +1,5 @@
 use crate::helpers::{
-    TransportError, HelperIdentity, SubscriptionType, Transport, TransportCommand,
+    HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
 use crate::sync::Arc;
 

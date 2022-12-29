@@ -1,3 +1,4 @@
+use crate::helpers::TransportError;
 use crate::{
     ff::FieldType,
     helpers::{
@@ -18,7 +19,6 @@ use futures_util::TryStreamExt;
 use hyper::{Body, Request};
 use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
-use crate::helpers::TransportError;
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 struct InputParams {
