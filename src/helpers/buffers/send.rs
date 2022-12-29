@@ -54,7 +54,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             items_in_batch: 1,
-            batch_count: 1,
+            batch_count: 40,
         }
     }
 }
@@ -185,7 +185,10 @@ mod tests {
     #[test]
     fn rejects_records_out_of_range() {
         let record_id = RecordId::from(11_u32);
-        let mut buf = SendBuffer::new(Config::default());
+        let mut buf = SendBuffer::new(Config {
+            items_in_batch: 1,
+            batch_count: 1,
+        });
         let msg = empty_msg(record_id);
 
         assert!(matches!(
@@ -219,7 +222,10 @@ mod tests {
 
     #[test]
     fn offset_is_per_channel() {
-        let mut buf = SendBuffer::new(Config::default());
+        let mut buf = SendBuffer::new(Config {
+            items_in_batch: 1,
+            batch_count: 1,
+        });
         let c1 = ChannelId::new(Role::H1, Step::default());
         let c2 = ChannelId::new(Role::H2, Step::default());
 

@@ -49,7 +49,7 @@ impl From<QueryCommand> for TransportCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture"))]
     TestMultiply,
-    IPA,
+    IPA(IPAQueryConfig),
 }
 
 impl AsRef<str> for QueryType {
@@ -57,9 +57,22 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "test-fixture"))]
             QueryType::TestMultiply => "test-multiply",
-            QueryType::IPA => "ipa",
+            QueryType::IPA(_) => "ipa",
         }
     }
 }
 
 impl Substep for QueryType {}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IPAQueryConfig {
+    pub num_bits: u32,
+    pub per_user_credit_cap: u32,
+    pub max_breakdown_key: u128,
+}
+
+impl From<IPAQueryConfig> for QueryType {
+    fn from(value: IPAQueryConfig) -> Self {
+        QueryType::IPA(value)
+    }
+}

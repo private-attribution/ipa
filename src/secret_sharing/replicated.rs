@@ -68,6 +68,17 @@ impl<F: Field> Replicated<F> {
         Ok(2 * F::SIZE_IN_BYTES as usize)
     }
 
+    /// Deserializes this instance from a slice of bytes
+    ///
+    /// ## Errors
+    /// if buffer does not have enough capacity to hold a valid value of this instance.
+    pub fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        let left = F::deserialize(buf)?;
+        let right = F::deserialize(&buf[F::SIZE_IN_BYTES as usize..])?;
+
+        Ok(Self(left, right))
+    }
+
     /// Deserialize a slice of bytes into an iterator of replicated shares
     ///
     /// ## Panics
@@ -75,11 +86,8 @@ impl<F: Field> Replicated<F> {
     pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
         debug_assert!(from.len() % (2 * F::SIZE_IN_BYTES as usize) == 0);
 
-        from.chunks(2 * F::SIZE_IN_BYTES as usize).map(|chunk| {
-            let left = F::deserialize(chunk).unwrap();
-            let right = F::deserialize(&chunk[F::SIZE_IN_BYTES as usize..]).unwrap();
-            Self(left, right)
-        })
+        from.chunks(2 * F::SIZE_IN_BYTES as usize)
+            .map(|chunk| Self::deserialize(chunk).unwrap())
     }
 }
 

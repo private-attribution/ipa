@@ -401,7 +401,10 @@ mod tests {
     mod e2e {
         use super::*;
         use crate::ff::Fp31;
-        use crate::helpers::query::QueryInput;
+        use crate::helpers::query::{IPAQueryConfig, QueryInput};
+        use crate::protocol::attribution::AggregateCreditOutputRow;
+        use crate::protocol::ipa::test_cases::Simple;
+        use crate::protocol::ipa::IPAInputRow;
         use crate::secret_sharing::{IntoShares, Replicated};
         use crate::sync::Weak;
         use crate::test_fixture::transport::InMemoryTransport;
@@ -420,23 +423,16 @@ mod tests {
             .unwrap()
         }
 
-        #[tokio::test]
-        pub async fn happy_case() {
-            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
-            let network = InMemoryNetwork::default();
-            let mut processors = make_three(&network).await;
-
+        async fn start_query(
+            network: &InMemoryNetwork,
+            config: QueryConfig,
+        ) -> (PrepareQuery, [Processor<Weak<InMemoryTransport>>; 3]) {
             // Helper 1 initiates the query, 2 and 3 must confirm
             let (tx, rx) = oneshot::channel();
+            let mut processors = make_three(network).await;
             let r = {
                 network.transports[0]
-                    .deliver(QueryCommand::Create(
-                        QueryConfig {
-                            field_type: FieldType::Fp31,
-                            query_type: QueryType::TestMultiply,
-                        },
-                        tx,
-                    ))
+                    .deliver(QueryCommand::Create(config, tx))
                     .await;
 
                 for processor in &mut processors {
@@ -445,6 +441,23 @@ mod tests {
 
                 rx.await.unwrap()
             };
+
+            (r, processors)
+        }
+
+        #[tokio::test]
+        async fn test_multiply() {
+            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+            let network = InMemoryNetwork::default();
+            let (r, mut processors) = start_query(
+                &network,
+                QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: QueryType::TestMultiply,
+                },
+            )
+            .await;
+
             let a = Fp31::from(4u128);
             let b = Fp31::from(5u128);
 
@@ -479,6 +492,64 @@ mod tests {
             .unwrap();
 
             assert_eq!(vec![Fp31::from(20u128)], result.reconstruct());
+        }
+
+        #[tokio::test]
+        async fn ipa() {
+            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+            type SimpleTestCase = Simple<Fp31>;
+            let network = InMemoryNetwork::default();
+            let (r, mut processors) = start_query(
+                &network,
+                QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: IPAQueryConfig {
+                        num_bits: 20,
+                        per_user_credit_cap: 3,
+                        max_breakdown_key: 3,
+                    }
+                    .into(),
+                },
+            )
+            .await;
+
+            let helper_shares = SimpleTestCase::default()
+                .share()
+                .into_iter()
+                .map(|shares| {
+                    let data = shares
+                        .into_iter()
+                        .flat_map(|share: IPAInputRow<Fp31>| {
+                            let mut buf = [0u8; IPAInputRow::<Fp31>::SIZE_IN_BYTES];
+                            share.serialize(&mut buf).unwrap();
+
+                            buf
+                        })
+                        .collect::<Vec<_>>();
+
+                    Box::pin(stream::iter(std::iter::once(data)))
+                })
+                .collect::<Vec<_>>();
+
+            for (i, input) in helper_shares.into_iter().enumerate() {
+                network.transports[i]
+                    .deliver(QueryCommand::Input(QueryInput {
+                        query_id: r.query_id,
+                        input_stream: input,
+                    }))
+                    .await;
+                processors[i].handle_next().await;
+            }
+
+            let result: [_; 3] = join_all(processors.map(|mut processor| async move {
+                let r = processor.complete(r.query_id).await.unwrap().into_bytes();
+                AggregateCreditOutputRow::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+            }))
+            .await
+            .try_into()
+            .unwrap();
+
+            SimpleTestCase::validate(&result);
         }
     }
 }
