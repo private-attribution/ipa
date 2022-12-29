@@ -16,9 +16,12 @@ use hyper::{Body, Request};
 use metrics::increment_counter;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use tokio::sync::mpsc;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
+
+use ::tokio::sync::mpsc;
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 /// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
 /// http mode may be useful to debug network communication on dev machines
