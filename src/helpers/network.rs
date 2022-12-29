@@ -55,6 +55,7 @@ pub struct Network<T> {
 }
 
 impl<T: Transport> Network<T> {
+    #[must_use]
     pub fn new(transport: T, query_id: QueryId, roles: RoleAssignment) -> Self {
         Self {
             transport,
@@ -92,6 +93,8 @@ impl<T: Transport> Network<T> {
     /// sends a [`StepData`] command containing [`MessageChunks`] on the underlying [`Transport`]
     /// # Errors
     /// if `message_chunks` fail to be delivered
+    /// # Panics
+    /// if mutex lock is poisoned
     pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
         let (channel, payload) = message_chunks;
         let destination = self.roles.identity(channel.role);

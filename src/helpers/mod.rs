@@ -32,7 +32,7 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -61,7 +61,7 @@ impl TryFrom<usize> for HelperIdentity {
 impl From<HelperIdentity> for hyper::header::HeaderValue {
     fn from(id: HelperIdentity) -> Self {
         // does not implement `From<u8>`
-        hyper::header::HeaderValue::from(id.id as u16)
+        hyper::header::HeaderValue::from(u16::from(id.id))
     }
 }
 

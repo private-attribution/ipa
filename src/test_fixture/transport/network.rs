@@ -47,11 +47,13 @@ impl InMemoryNetwork {
             .map(Arc::downgrade)
     }
 
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
     pub fn transports(&self) -> [impl Transport + Clone; 3] {
         let transports: [Weak<InMemoryTransport>; 3] = self
             .transports
             .iter()
-            .map(|t| Arc::downgrade(t))
+            .map(Arc::downgrade)
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();

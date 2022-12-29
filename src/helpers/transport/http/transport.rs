@@ -31,6 +31,7 @@ pub struct HttpTransport {
 }
 
 impl HttpTransport {
+    #[must_use]
     pub fn new(
         id: HelperIdentity,
         peers_conf: &'static HashMap<HelperIdentity, peer::Config>,
@@ -69,7 +70,7 @@ impl Transport for Arc<HttpTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
     fn identity(&self) -> HelperIdentity {
-        self.id
+        self.id.clone()
     }
 
     async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
@@ -109,9 +110,6 @@ impl Transport for Arc<HttpTransport> {
         let command = command.into();
         let command_name = command.name();
         match command {
-            TransportCommand::Query(QueryCommand::Create(_, _)) => {
-                Err(Error::ExternalCommandSent { command_name })
-            }
             TransportCommand::Query(QueryCommand::Prepare(data, resp)) => {
                 let query_id = data.query_id;
                 client
@@ -126,9 +124,6 @@ impl Transport for Arc<HttpTransport> {
                 resp.send(()).unwrap();
                 Ok(())
             }
-            TransportCommand::Query(QueryCommand::Input(_, _)) => {
-                Err(Error::ExternalCommandSent { command_name })
-            }
             TransportCommand::StepData {
                 query_id,
                 step,
@@ -142,6 +137,9 @@ impl Transport for Arc<HttpTransport> {
                     query_id: Some(query_id),
                     inner: err.into(),
                 }),
+            TransportCommand::Query(QueryCommand::Create(_, _) | QueryCommand::Input(_, _)) => {
+                Err(Error::ExternalCommandSent { command_name })
+            }
         }
     }
 }

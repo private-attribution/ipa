@@ -42,17 +42,11 @@ impl<T: Transport> Debug for Processor<T> {
 #[derive(thiserror::Error, Debug)]
 pub enum NewQueryError {
     #[error(transparent)]
-    StateError {
-        #[from]
-        source: StateError,
-    },
+    State(#[from] StateError),
     #[error(transparent)]
-    TransportError {
-        #[from]
-        source: transport::Error,
-    },
+    Transport(#[from] transport::Error),
     #[error(transparent)]
-    RecvError(#[from] oneshot::error::RecvError),
+    OneshotRecv(#[from] oneshot::error::RecvError),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -394,9 +388,7 @@ mod tests {
         let _qc = processor.new_query(request).await.unwrap();
         assert!(matches!(
             processor.new_query(request).await,
-            Err(NewQueryError::StateError {
-                source: StateError::AlreadyRunning
-            })
+            Err(NewQueryError::State(StateError::AlreadyRunning)),
         ));
     }
 
@@ -418,9 +410,9 @@ mod tests {
 
         assert!(matches!(
             processor.new_query(request).await,
-            Err(NewQueryError::TransportError {
-                source: transport::Error::SendFailed { .. }
-            })
+            Err(NewQueryError::Transport(
+                transport::Error::SendFailed { .. }
+            ))
         ));
     }
 

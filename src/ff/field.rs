@@ -119,6 +119,7 @@ pub enum FieldType {
 }
 
 impl FieldType {
+    #[must_use]
     pub fn size_in_bytes(&self) -> u32 {
         match self {
             Self::Fp2 => ff::Fp2::SIZE_IN_BYTES,

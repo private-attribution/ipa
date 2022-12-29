@@ -256,6 +256,7 @@ pub enum TransportCommand {
 }
 
 impl TransportCommand {
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Query(query_command) => query_command.name(),
@@ -263,6 +264,7 @@ impl TransportCommand {
         }
     }
 
+    #[must_use]
     pub fn query_id(&self) -> Option<QueryId> {
         match self {
             Self::Query(query_command) => query_command.query_id(),

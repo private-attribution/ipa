@@ -45,6 +45,7 @@ pub enum QueryCommand {
 }
 
 impl QueryCommand {
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Create(_, _) => "Query Create",
@@ -53,6 +54,7 @@ impl QueryCommand {
         }
     }
 
+    #[must_use]
     pub fn query_id(&self) -> Option<QueryId> {
         match self {
             Self::Create(_, _) => None,
