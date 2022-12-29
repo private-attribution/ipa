@@ -12,6 +12,7 @@ pub mod ff;
 pub mod helpers;
 pub mod net;
 pub mod protocol;
+mod query;
 pub mod secret_sharing;
 pub mod telemetry;
 #[cfg(feature = "enable-serde")]
@@ -22,6 +23,7 @@ pub mod test_fixture;
 
 mod tests;
 
+extern crate core;
 #[cfg(all(feature = "shuttle", test))]
 extern crate shuttle_crate as shuttle;
 

@@ -4,10 +4,8 @@ pub use error::Error;
 
 use crate::{
     helpers::{
-        transport::{
-            http::{discovery::peer, PrepareQueryBody, StepHeaders},
-            MulData, PrepareQueryData, StepData,
-        },
+        query::PrepareQuery,
+        transport::http::{discovery::peer, OriginHeader, PrepareQueryBody, StepHeaders},
         HelperIdentity,
     },
     net::ByteArrStream,
@@ -107,31 +105,24 @@ impl MpcHelperClient {
         }
     }
 
-    pub async fn prepare_query(&self, data: PrepareQueryData) -> Result<(), Error> {
+    pub async fn prepare_query(
+        &self,
+        destination: &HelperIdentity,
+        data: PrepareQuery,
+    ) -> Result<(), Error> {
         let uri = self.build_uri(format!(
-            "/query/{}?field_type={}",
+            "/query/{}?field_type={}&query_type={}",
             data.query_id.as_ref(),
-            data.field_type
+            data.config.field_type.as_ref(),
+            data.config.query_type.as_ref(),
         ))?;
-        let body = PrepareQueryBody {
-            helper_positions: data.helper_positions,
-            helpers_to_roles: data.helpers_to_roles,
+        let origin_header = OriginHeader {
+            origin: destination.clone(),
         };
+        let body = PrepareQueryBody { roles: data.roles };
         let body = Body::from(serde_json::to_string(&body)?);
-        let req = Request::post(uri).body(body)?;
+        let req = origin_header.add_to(Request::post(uri)).body(body)?;
         let resp = self.client.request(req).await?;
-        Self::resp_ok(resp).await
-    }
-
-    pub async fn mul(&self, data: MulData) -> Result<(), Error> {
-        let uri = self.build_uri(format!(
-            "/query/{}/mul?field_type={}",
-            data.query_id.as_ref(),
-            data.field_type
-        ))?;
-        let body = StreamBody::from(data.data_stream);
-        let req = Request::post(uri).body(body)?;
-        let resp = self.streaming_client.request(req).await?;
         Self::resp_ok(resp).await
     }
 
@@ -142,21 +133,28 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     /// # Panics
     /// If messages size > max u32 (unlikely)
-    pub async fn step(&self, data: StepData) -> Result<(), Error> {
+    pub async fn step(
+        &self,
+        destination: &HelperIdentity,
+        query_id: QueryId,
+        step: Step,
+        payload: Vec<u8>,
+        offset: u32,
+    ) -> Result<(), Error> {
         let uri = self.build_uri(format!(
-            "/query/{}/step/{}?role={}",
-            data.query_id.as_ref(),
-            data.message_chunks.0.step.as_ref(),
-            data.message_chunks.0.role.as_ref()
+            "/query/{}/step/{}",
+            query_id.as_ref(),
+            step.as_ref(),
         ))?;
-        // TODO: content_length and offset Headers
-        let headers = StepHeaders {
-            content_length: u32::try_from(data.message_chunks.1.len()).unwrap(),
-            offset: data.offset,
+        let headers = StepHeaders { offset };
+        let origin_header = OriginHeader {
+            origin: destination.clone(),
         };
 
-        let body = Body::from(data.message_chunks.1);
-        let req = headers.add_to(Request::post(uri)).body(body)?;
+        let body = Body::from(payload);
+        let req = Request::post(uri);
+        let req = headers.add_to(origin_header.add_to(req));
+        let req = req.body(body)?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
     }

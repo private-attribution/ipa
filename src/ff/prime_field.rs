@@ -149,14 +149,15 @@ macro_rules! field_impl {
                 $field::ONE.serialize(&mut buf).unwrap();
             }
 
+            #[cfg(feature = "enable-serde")]
             #[test]
-            fn has_added_to_field_type_str_impl() {
-                assert_eq!(
-                    crate::ff::FieldTypeStr::size_in_bytes($field::TYPE_STR),
-                    Ok($field::SIZE_IN_BYTES),
-                    "Must add type {} to FieldTypeStr impl; See Field::TYPE_STR for instructions",
-                    stringify!($field)
-                );
+            fn has_added_to_field_type_impl() {
+                let field_type: crate::ff::FieldType = serde_json::from_str(&format!("\"{}\"", $field::TYPE_STR))
+                    .expect(&format!(
+                        "Must add type {} to FieldType::from_str; See Field::TYPE_STR for instructions",
+                        stringify!($field)
+                    ));
+                assert_eq!(field_type.size_in_bytes(), $field::SIZE_IN_BYTES);
             }
 
             proptest! {
@@ -172,9 +173,9 @@ macro_rules! field_impl {
 
                 #[test]
                 fn de_buf_too_small(buf_capacity in 0..$field::SIZE_IN_BYTES) {
-                    let mut buf = vec![0u8; buf_capacity as usize];
+                    let buf = vec![0u8; buf_capacity as usize];
                     assert!(matches!(
-                                    $field::deserialize(&mut buf),
+                                    $field::deserialize(&buf),
                                     Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
                 }
 
@@ -185,7 +186,7 @@ macro_rules! field_impl {
                     let mut buf = vec![0; $field::SIZE_IN_BYTES as usize];
                     field_v.serialize(&mut buf).unwrap();
 
-                    assert_eq!(field_v, $field::deserialize(&mut buf).unwrap());
+                    assert_eq!(field_v, $field::deserialize(&buf).unwrap());
                 }
             }
         }

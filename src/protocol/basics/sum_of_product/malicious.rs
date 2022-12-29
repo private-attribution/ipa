@@ -111,7 +111,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const MULTI_BIT_LEN: usize = 10;
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
 

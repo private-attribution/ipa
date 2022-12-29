@@ -4,10 +4,11 @@
 
 mod field;
 mod prime_field;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-pub use field::{BinaryField, Field, FieldTypeStr, Int};
+pub use field::{BinaryField, Field, FieldType, Int};
 pub use prime_field::{Fp2, Fp31, Fp32BitPrime};
+
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {

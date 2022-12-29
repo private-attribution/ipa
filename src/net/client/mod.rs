@@ -118,6 +118,7 @@ impl MpcHelperClient {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    #[allow(deprecated)]
     use crate::{
         helpers::{
             network::{ChannelId, MessageChunks},
@@ -130,6 +131,7 @@ mod tests {
     use futures::{Stream, StreamExt};
     use hyper_tls::native_tls::TlsConnector;
 
+    #[allow(deprecated)]
     async fn setup_server(bind_target: BindTarget) -> (u16, impl Stream<Item = MessageChunks>) {
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let rx_stream = network.recv_stream();

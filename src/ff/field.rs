@@ -44,11 +44,12 @@ pub trait Field:
     /// space is required to store this field value
     const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
 
-    /// str repr of the type of the [`Field`]; to be used with `size_from_type_str` to get the size
-    /// of a given [`Field`] from this value.
+    /// str repr of the type of the [`Field`]; to be used with `FieldType` to get the size of a
+    /// given [`Field`] from this value.
     /// # Instruction For Authors
-    /// When creating a new [`Field`] type, modify the `impl FieldTypeStr for str` function below
-    /// this trait definition to use the newly created type
+    /// When creating a new [`Field`] type, modify the `FieldType::serialize` and
+    /// `FieldType::deserialize` functions below this trait definition to use the newly created
+    /// type
     const TYPE_STR: &'static str;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
@@ -93,7 +94,7 @@ pub trait Field:
     ///
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
-    fn deserialize(buf_from: &mut [u8]) -> io::Result<Self> {
+    fn deserialize(buf_from: &[u8]) -> io::Result<Self> {
         if Self::SIZE_IN_BYTES as usize <= buf_from.len() {
             let mut buf_to = [0; 16]; // one day...
             buf_to[..Self::SIZE_IN_BYTES as usize]
@@ -110,32 +111,78 @@ pub trait Field:
     }
 }
 
-pub trait FieldTypeStr {
-    /// Mapping between a [`Field`]'s `TYPE_STR` and its `SIZE_IN_BYTES`
-    /// # Errors
-    /// if self is not an existing [`'Field`]'s `TYPE_STR`
-    fn size_in_bytes(&self) -> Result<u32, Error>;
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FieldType {
+    Fp2,
+    Fp31,
+    Fp32BitPrime,
 }
 
-impl FieldTypeStr for str {
-    fn size_in_bytes(&self) -> Result<u32, Error> {
-        if self.eq_ignore_ascii_case(ff::Fp2::TYPE_STR) {
-            Ok(ff::Fp2::SIZE_IN_BYTES)
-        } else if self.eq_ignore_ascii_case(ff::Fp31::TYPE_STR) {
-            Ok(ff::Fp31::SIZE_IN_BYTES)
-        } else if self.eq_ignore_ascii_case(ff::Fp32BitPrime::TYPE_STR) {
-            Ok(ff::Fp32BitPrime::SIZE_IN_BYTES)
-        } else {
-            Err(Error::UnknownField {
-                type_str: self.to_string(),
-            })
+impl FieldType {
+    pub fn size_in_bytes(&self) -> u32 {
+        match self {
+            Self::Fp2 => ff::Fp2::SIZE_IN_BYTES,
+            Self::Fp31 => ff::Fp31::SIZE_IN_BYTES,
+            Self::Fp32BitPrime => ff::Fp32BitPrime::SIZE_IN_BYTES,
         }
     }
 }
 
-impl FieldTypeStr for String {
-    fn size_in_bytes(&self) -> Result<u32, Error> {
-        self.as_str().size_in_bytes()
+impl AsRef<str> for FieldType {
+    fn as_ref(&self) -> &str {
+        match self {
+            FieldType::Fp2 => ff::Fp2::TYPE_STR,
+            FieldType::Fp31 => ff::Fp31::TYPE_STR,
+            FieldType::Fp32BitPrime => ff::Fp32BitPrime::TYPE_STR,
+        }
+    }
+}
+
+/// For Authors: when adding a new [`Field`] type, add it to the `serialize` fn below
+#[cfg(feature = "enable-serde")]
+impl serde::Serialize for FieldType {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_ref())
+    }
+}
+
+/// For Authors: when adding a new [`Field`] type, add it to the `visit_str` fn below
+#[cfg(feature = "enable-serde")]
+impl<'de> serde::Deserialize<'de> for FieldType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct FieldTypeVisitor;
+        impl<'de> serde::de::Visitor<'de> for FieldTypeVisitor {
+            type Value = FieldType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a correctly formatted FieldType")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                field_type_str: &str,
+            ) -> Result<Self::Value, E> {
+                if field_type_str.eq_ignore_ascii_case(ff::Fp2::TYPE_STR) {
+                    Ok(FieldType::Fp2)
+                } else if field_type_str.eq_ignore_ascii_case(ff::Fp31::TYPE_STR) {
+                    Ok(FieldType::Fp31)
+                } else if field_type_str.eq_ignore_ascii_case(ff::Fp32BitPrime::TYPE_STR) {
+                    Ok(FieldType::Fp32BitPrime)
+                } else {
+                    Err(serde::de::Error::custom(Error::UnknownField {
+                        type_str: field_type_str.to_string(),
+                    }))
+                }
+            }
+
+            fn visit_string<E: serde::de::Error>(
+                self,
+                field_type_str: String,
+            ) -> Result<Self::Value, E> {
+                self.visit_str(&field_type_str)
+            }
+        }
+        deserializer.deserialize_str(FieldTypeVisitor)
     }
 }
 
@@ -155,12 +202,11 @@ pub trait BinaryField:
 mod test {
     use super::*;
 
+    #[cfg(feature = "enable-serde")]
     #[test]
     fn field_type_str_is_case_insensitive() {
-        let field_type = "fP32bItPrImE";
-        assert_eq!(
-            field_type.size_in_bytes(),
-            Ok(ff::Fp32BitPrime::SIZE_IN_BYTES)
-        );
+        let field_type: FieldType = serde_json::from_str("\"fP32bItPrImE\"")
+            .expect("FieldType should match regardless of character case");
+        assert_eq!(field_type.size_in_bytes(), ff::Fp32BitPrime::SIZE_IN_BYTES);
     }
 }

@@ -46,6 +46,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             items_in_batch: 1,
             batch_count: 40,
         },
+        send_outstanding: 16,
+        recv_outstanding: 16,
     };
     let helper = HttpHelper::new(args.role, &peer_discovery, gateway_config);
     let (addr, server_handle) = helper.bind().await;

@@ -350,7 +350,7 @@ mod tests {
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         //TODO: move to the new test framework
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let context = world.contexts::<Fp32BitPrime>();
         let mut rng = StepRng::new(100, 1);
 

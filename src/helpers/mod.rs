@@ -1,15 +1,22 @@
 pub mod messaging;
 pub mod network;
 pub mod old_http;
+#[deprecated(note = "Use `Transport` instead")]
 pub mod old_network;
 pub mod transport;
 
 mod buffers;
 mod error;
+mod prss_protocol;
+mod time;
 
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
+pub use prss_protocol::negotiate as negotiate_prss;
+pub use transport::{
+    query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
+};
 
 use crate::helpers::{
     Direction::{Left, Right},
@@ -21,25 +28,53 @@ use tinyvec::ArrayVec;
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
-/// Represents a unique identifier of the helper instance. Compare with a [`Role`], which
+/// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
-/// `HelperIdentity` will be established at startup and then never change.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+/// `HelperIdentity` will be established at startup and then never change. Components that want to
+/// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(transparent)
 )]
 pub struct HelperIdentity {
-    #[cfg_attr(feature = "enable-serde", serde(with = "crate::uri"))]
-    uri: hyper::Uri,
+    id: u8,
 }
 
-/// instantiate `HelperIdentity` directly from `Uri`s for testing purposes.
-#[cfg(test)]
-impl From<hyper::Uri> for HelperIdentity {
-    fn from(uri: hyper::Uri) -> Self {
-        Self { uri }
+impl TryFrom<usize> for HelperIdentity {
+    type Error = String;
+
+    fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+        if value == 0 || value > 3 {
+            Err(format!(
+                "{value} must be within [1, 3] range to be a valid helper identity"
+            ))
+        } else {
+            Ok(Self {
+                id: u8::try_from(value).unwrap(),
+            })
+        }
+    }
+}
+
+impl From<HelperIdentity> for hyper::header::HeaderValue {
+    fn from(id: HelperIdentity) -> Self {
+        // does not implement `From<u8>`
+        hyper::header::HeaderValue::from(id.id as u16)
+    }
+}
+
+#[cfg(any(test, feature = "test-fixture"))]
+impl HelperIdentity {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn make_three() -> [Self; 3] {
+        [
+            Self::try_from(1).unwrap(),
+            Self::try_from(2).unwrap(),
+            Self::try_from(3).unwrap(),
+        ]
     }
 }
 
@@ -58,6 +93,17 @@ pub enum Role {
     H1 = 0,
     H2 = 1,
     H3 = 2,
+}
+
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
+pub struct RoleAssignment {
+    helper_roles: [HelperIdentity; 3],
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -167,10 +213,55 @@ impl<T> IndexMut<Role> for Vec<T> {
     }
 }
 
+impl RoleAssignment {
+    #[must_use]
+    pub fn new(helper_roles: [HelperIdentity; 3]) -> Self {
+        Self { helper_roles }
+    }
+
+    /// Returns the assigned role for the given helper identity.
+    ///
+    /// ## Panics
+    /// Panics if there is no role assigned to it.
+    #[must_use]
+    pub fn role(&self, id: &HelperIdentity) -> Role {
+        for (idx, item) in self.helper_roles.iter().enumerate() {
+            if item == id {
+                return Role::all()[idx];
+            }
+        }
+
+        panic!("No role assignment for {id:?} found in {self:?}")
+    }
+
+    #[must_use]
+    pub fn identity(&self, role: Role) -> &HelperIdentity {
+        &self.helper_roles[role]
+    }
+}
+
+impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
+    type Error = String;
+
+    fn try_from(value: [(HelperIdentity, Role); 3]) -> std::result::Result<Self, Self::Error> {
+        let mut result = [None, None, None];
+        for (helper, role) in value {
+            if result[role].is_some() {
+                return Err(format!("Role {role:?} has been assigned twice"));
+            }
+
+            result[role] = Some(helper);
+        }
+
+        Ok(RoleAssignment::new(result.map(Option::unwrap)))
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use super::*;
     mod role_tests {
-        use crate::helpers::{Direction, Role};
+        use super::*;
 
         #[test]
         pub fn peer_works() {
@@ -188,6 +279,83 @@ mod tests {
             assert_eq!(3, data[Role::H1]);
             assert_eq!(4, data[Role::H2]);
             assert_eq!(5, data[Role::H3]);
+        }
+    }
+
+    mod role_assignment_tests {
+        use super::*;
+
+        #[test]
+        fn basic() {
+            let identities = (1..=3)
+                .map(|v| HelperIdentity::try_from(v).unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let assignment = RoleAssignment::new(identities);
+
+            assert_eq!(
+                Role::H1,
+                assignment.role(&HelperIdentity::try_from(1).unwrap())
+            );
+            assert_eq!(
+                Role::H2,
+                assignment.role(&HelperIdentity::try_from(2).unwrap())
+            );
+            assert_eq!(
+                Role::H3,
+                assignment.role(&HelperIdentity::try_from(3).unwrap())
+            );
+
+            assert_eq!(
+                &HelperIdentity::try_from(1).unwrap(),
+                assignment.identity(Role::H1)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(2).unwrap(),
+                assignment.identity(Role::H2)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(3).unwrap(),
+                assignment.identity(Role::H3)
+            );
+        }
+
+        #[test]
+        fn reverse() {
+            let identities = (1..=3)
+                .rev()
+                .map(|v| HelperIdentity::try_from(v).unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            let assignment = RoleAssignment::new(identities);
+
+            assert_eq!(
+                Role::H3,
+                assignment.role(&HelperIdentity::try_from(1).unwrap())
+            );
+            assert_eq!(
+                Role::H2,
+                assignment.role(&HelperIdentity::try_from(2).unwrap())
+            );
+            assert_eq!(
+                Role::H1,
+                assignment.role(&HelperIdentity::try_from(3).unwrap())
+            );
+
+            assert_eq!(
+                &HelperIdentity::try_from(3).unwrap(),
+                assignment.identity(Role::H1)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(2).unwrap(),
+                assignment.identity(Role::H2)
+            );
+            assert_eq!(
+                &HelperIdentity::try_from(1).unwrap(),
+                assignment.identity(Role::H3)
+            );
         }
     }
 }

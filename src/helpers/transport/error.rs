@@ -1,12 +1,6 @@
 use crate::{
     error::BoxError,
-    helpers::{
-        transport::{
-            CreateQueryData, MulData, PrepareQueryData, StartMulData, StepData, TransportCommand,
-            TransportCommandData,
-        },
-        HelperIdentity,
-    },
+    helpers::{transport::TransportCommand, HelperIdentity},
     protocol::QueryId,
 };
 
@@ -35,30 +29,33 @@ pub enum Error {
     UnknownHelper(HelperIdentity),
     #[error("command {command_name} can only be used by external entities")]
     ExternalCommandSent { command_name: &'static str },
+    #[error("encountered unknown query type: {0}")]
+    UnknownQueryType(String),
+    #[error("could not read from input stream: {0}")]
+    InputInvalid(#[from] std::io::Error),
 }
 
 impl From<tokio_util::sync::PollSendError<TransportCommand>> for Error {
     fn from(source: tokio_util::sync::PollSendError<TransportCommand>) -> Self {
-        let (command_name, query_id) = match source.into_inner() {
-            Some(TransportCommand::CreateQuery(_)) => (Some(CreateQueryData::name()), None),
-            Some(TransportCommand::PrepareQuery(PrepareQueryData { query_id, .. })) => {
-                (Some(PrepareQueryData::name()), Some(query_id))
-            }
-            Some(TransportCommand::StartMul(StartMulData { query_id, .. })) => {
-                (Some(StartMulData::name()), Some(query_id))
-            }
-            Some(TransportCommand::Mul(MulData { query_id, .. })) => {
-                (Some(MulData::name()), Some(query_id))
-            }
-            Some(TransportCommand::Step(StepData { query_id, .. })) => {
-                (Some(StepData::name()), Some(query_id))
-            }
-            None => (None, None),
-        };
+        let (command_name, query_id) = source
+            .into_inner()
+            .map_or((None, None), |inner| (Some(inner.name()), inner.query_id()));
+
         Self::SendFailed {
             command_name,
             query_id,
-            inner: "receiver was closed".into(),
+            inner: "channel closed".into(),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-fixture"))]
+impl From<tokio::sync::mpsc::error::SendError<TransportCommand>> for Error {
+    fn from(source: tokio::sync::mpsc::error::SendError<TransportCommand>) -> Self {
+        Self::SendFailed {
+            command_name: Some(source.0.name()),
+            query_id: source.0.query_id(),
+            inner: "channel closed".into(),
         }
     }
 }

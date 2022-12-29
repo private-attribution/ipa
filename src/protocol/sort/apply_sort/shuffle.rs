@@ -178,7 +178,7 @@ mod tests {
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
             let mut rng = thread_rng();
 
             let mut input: Vec<AttributionTestInput<Fp31>> = Vec::with_capacity(BATCHSIZE.into());
@@ -233,7 +233,7 @@ mod tests {
             ];
             let some_numbers_as_bits =
                 some_numbers.map(|x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH));
-            let world = TestWorld::new();
+            let world = TestWorld::new().await;
 
             let result = world
                 .semi_honest(

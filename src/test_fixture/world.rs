@@ -17,7 +17,7 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
     },
     secret_sharing::DowngradeMalicious,
-    test_fixture::{logging, make_participants, network::InMemoryNetwork},
+    test_fixture::{logging, make_participants},
 };
 
 use std::io::stdout;
@@ -26,10 +26,13 @@ use std::mem::ManuallyDrop;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
-use crate::protocol::Substep;
+use crate::helpers::network::Network;
+use crate::helpers::RoleAssignment;
+use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
+use crate::test_fixture::transport::InMemoryNetwork;
 use tracing::Level;
 
 use super::{
@@ -47,7 +50,7 @@ pub struct TestWorld {
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
     joined: AtomicBool,
-    _network: Arc<InMemoryNetwork>,
+    _network: InMemoryNetwork,
 }
 
 #[derive(Copy, Clone)]
@@ -77,6 +80,8 @@ impl Default for TestWorldConfig {
                     /// to be problematic from memory perspective.
                     batch_count: 40,
                 },
+                send_outstanding: 16,
+                recv_outstanding: 16,
             },
             /// Disable metrics by default because `logging` only enables `Level::INFO` spans.
             /// Can be overridden by setting `RUST_LOG` environment variable to match this level.
@@ -96,21 +101,26 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new_with(config: TestWorldConfig) -> TestWorld {
+    pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
-        let network = InMemoryNetwork::new();
+        let network = InMemoryNetwork::default();
+        let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = network
-            .endpoints
-            .iter()
-            .map(|endpoint| Gateway::new(endpoint.role, endpoint, config.gateway_config))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let gateways = join_all(network.transports.iter().enumerate().map(|(i, transport)| {
+            let role_assignment = role_assignment.clone();
+            async move {
+                // simple role assignment, based on transport index
+                let role = Role::all()[i];
+                let network = Network::new(Arc::downgrade(transport), QueryId, role_assignment);
+                Gateway::new(role, network, config.gateway_config).await
+            }
+        }))
+        .await
+        .try_into()
+        .unwrap();
 
         TestWorld {
             gateways: ManuallyDrop::new(gateways),
@@ -124,10 +134,9 @@ impl TestWorld {
 
     /// # Panics
     /// Never.
-    #[must_use]
-    pub fn new() -> TestWorld {
+    pub async fn new() -> TestWorld {
         let config = TestWorldConfig::default();
-        Self::new_with(config)
+        Self::new_with(config).await
     }
 
     /// Creates protocol contexts for 3 helpers
@@ -138,8 +147,8 @@ impl TestWorld {
     pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
         zip(Role::all(), zip(&self.participants, &*self.gateways))
-            .map(|(role, (participant, gateway))| {
-                SemiHonestContext::new(*role, participant, gateway)
+            .map(|(_role, (participant, gateway))| {
+                SemiHonestContext::new(participant, gateway)
                     .narrow(&Self::execution_step(execution))
             })
             .collect::<Vec<_>>()
@@ -185,12 +194,6 @@ impl Drop for TestWorld {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
         }
-    }
-}
-
-impl Default for TestWorld {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

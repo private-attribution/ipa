@@ -1,24 +1,21 @@
-use crate::helpers::transport::http::client::MpcHelperClient;
-use crate::helpers::transport::{
-    CreateQueryData, MulData, PrepareQueryData, StartMulData, StepData, TransportCommandData,
-};
 use crate::{
     helpers::{
+        query::QueryCommand,
         transport::{
             http::{
+                client::MpcHelperClient,
                 discovery::peer,
                 server::{BindTarget, MpcHelperServer},
             },
             Error, SubscriptionType, Transport, TransportCommand,
         },
-        HelperIdentity,
+        CommandEnvelope, HelperIdentity,
     },
     protocol::QueryId,
     sync::{Arc, Mutex},
     task::JoinHandle,
 };
 use async_trait::async_trait;
-use futures::Stream;
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
@@ -27,14 +24,14 @@ use tokio_stream::wrappers::ReceiverStream;
 pub struct HttpTransport {
     id: HelperIdentity,
     peers_conf: &'static HashMap<HelperIdentity, peer::Config>,
-    subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<TransportCommand>>>>,
-    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
+    subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<CommandEnvelope>>>>,
+    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
     server: MpcHelperServer,
     clients: HashMap<HelperIdentity, MpcHelperClient>,
 }
 
 impl HttpTransport {
-    pub fn new<St: Stream<Item = TransportCommand> + Send + 'static + Unpin>(
+    pub fn new(
         id: HelperIdentity,
         peers_conf: &'static HashMap<HelperIdentity, peer::Config>,
     ) -> Arc<Self> {
@@ -69,11 +66,15 @@ impl HttpTransport {
 
 #[async_trait]
 impl Transport for Arc<HttpTransport> {
-    type CommandStream = ReceiverStream<TransportCommand>;
+    type CommandStream = ReceiverStream<CommandEnvelope>;
 
-    fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
-        match subscription_type {
-            SubscriptionType::Administration => ReceiverStream::new(
+    fn identity(&self) -> HelperIdentity {
+        self.id
+    }
+
+    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
+        match subscription {
+            SubscriptionType::QueryManagement => ReceiverStream::new(
                 self.subscribe_receiver
                     .lock()
                     .unwrap()
@@ -81,8 +82,8 @@ impl Transport for Arc<HttpTransport> {
                     .expect("subscribe should only be called once"),
             ),
             SubscriptionType::Query(query_id) => {
-                let mut ongoing_networks = self.ongoing_queries.lock().unwrap();
-                match ongoing_networks.entry(query_id) {
+                let mut ongoing_queries = self.ongoing_queries.lock().unwrap();
+                match ongoing_queries.entry(query_id) {
                     Entry::Occupied(_) => {
                         panic!("attempted to subscribe to commands for query id {}, but there is already a previous subscriber", query_id.as_ref())
                     }
@@ -96,49 +97,51 @@ impl Transport for Arc<HttpTransport> {
         }
     }
 
-    async fn send(
+    async fn send<C: Send + Into<TransportCommand>>(
         &self,
         destination: &HelperIdentity,
-        command: TransportCommand,
+        command: C,
     ) -> Result<(), Error> {
         let client = self
             .clients
             .get(destination)
             .ok_or_else(|| Error::UnknownHelper(destination.clone()))?;
+        let command = command.into();
+        let command_name = command.name();
         match command {
-            TransportCommand::CreateQuery(_) => Err(Error::ExternalCommandSent {
-                command_name: CreateQueryData::name(),
-            }),
-            TransportCommand::PrepareQuery(data) => {
+            TransportCommand::Query(QueryCommand::Create(_, _)) => {
+                Err(Error::ExternalCommandSent { command_name })
+            }
+            TransportCommand::Query(QueryCommand::Prepare(data, resp)) => {
                 let query_id = data.query_id;
                 client
-                    .prepare_query(data)
+                    .prepare_query(destination, data)
                     .await
-                    .map_err(|err| Error::SendFailed {
-                        command_name: Some(PrepareQueryData::name()),
+                    .map_err(|inner| Error::SendFailed {
+                        command_name: Some(command_name),
                         query_id: Some(query_id),
-                        inner: err.into(),
-                    })
+                        inner: inner.into(),
+                    })?;
+                // since client has returned, go ahead and respond to query
+                resp.send(()).unwrap();
+                Ok(())
             }
-            TransportCommand::StartMul(_) => Err(Error::ExternalCommandSent {
-                command_name: StartMulData::name(),
-            }),
-            TransportCommand::Mul(data) => {
-                let query_id = data.query_id;
-                client.mul(data).await.map_err(|err| Error::SendFailed {
-                    command_name: Some(MulData::name()),
+            TransportCommand::Query(QueryCommand::Input(_, _)) => {
+                Err(Error::ExternalCommandSent { command_name })
+            }
+            TransportCommand::StepData {
+                query_id,
+                step,
+                payload,
+                offset,
+            } => client
+                .step(destination, query_id, step, payload, offset)
+                .await
+                .map_err(|err| Error::SendFailed {
+                    command_name: Some(command_name),
                     query_id: Some(query_id),
                     inner: err.into(),
-                })
-            }
-            TransportCommand::Step(data) => {
-                let query_id = data.query_id;
-                client.step(data).await.map_err(|err| Error::SendFailed {
-                    command_name: Some(StepData::name()),
-                    query_id: Some(query_id),
-                    inner: err.into(),
-                })
-            }
+                }),
         }
     }
 }

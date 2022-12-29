@@ -58,7 +58,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        let world = TestWorld::new();
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);

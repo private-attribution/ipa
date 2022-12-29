@@ -1,12 +1,16 @@
 use crate::{
-    helpers::transport::{
-        http::{server::Error, PrepareQueryBody, PrepareQueryParams},
-        PrepareQueryData, TransportCommand,
+    helpers::{
+        query::{PrepareQuery, QueryCommand, QueryConfig},
+        transport::{
+            http::{server::Error, OriginHeader, PrepareQueryBody, PrepareQueryParams},
+            TransportCommand,
+        },
+        CommandEnvelope, CommandOrigin,
     },
     protocol::QueryId,
 };
 use axum::{
-    extract::{Path, RequestParts},
+    extract::{Path, Query, RequestParts},
     http::Request,
     routing::post,
     Extension, Json, Router,
@@ -16,33 +20,35 @@ use tokio::sync::{mpsc, oneshot};
 
 async fn handler(
     query_id: Path<QueryId>,
-    params: PrepareQueryParams,
-    transport_sender: Extension<mpsc::Sender<TransportCommand>>,
+    params: Query<PrepareQueryParams>,
+    origin_header: OriginHeader,
+    transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
     req: Request<Body>,
 ) -> Result<(), Error> {
     let permit = transport_sender.reserve().await?;
 
-    let Json(PrepareQueryBody {
-        helper_positions,
-        helpers_to_roles,
-    }) = RequestParts::new(req).extract().await?;
+    let Json(PrepareQueryBody { roles }) = RequestParts::new(req).extract().await?;
 
-    // prepare command data
+    let data = PrepareQuery {
+        query_id: *query_id,
+        config: QueryConfig {
+            field_type: params.0.field_type,
+            query_type: params.0.query_type,
+        },
+        roles,
+    };
     let (tx, rx) = oneshot::channel();
-    let data = PrepareQueryData::new(
-        *query_id,
-        params.field_type,
-        helper_positions,
-        helpers_to_roles,
-        tx,
-    );
-    permit.send(TransportCommand::PrepareQuery(data));
+    let command = CommandEnvelope {
+        origin: CommandOrigin::Helper(origin_header.origin),
+        payload: TransportCommand::Query(QueryCommand::Prepare(data, tx)),
+    };
+    permit.send(command);
 
     rx.await?;
     Ok(())
 }
 
-pub fn router(transport_sender: mpsc::Sender<TransportCommand>) -> Router {
+pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
         .route("query/:query_id", post(handler))
         .layer(Extension(transport_sender))

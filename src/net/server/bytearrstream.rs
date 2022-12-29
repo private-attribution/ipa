@@ -1,4 +1,4 @@
-use crate::{error::BoxError, ff::FieldTypeStr, net::MpcHelperServerError};
+use crate::{error::BoxError, ff::FieldType, net::MpcHelperServerError};
 use async_trait::async_trait;
 use axum::extract::{BodyStream, FromRequest, Query, RequestParts};
 use futures::{ready, Stream};
@@ -13,26 +13,9 @@ use std::task::{Context, Poll};
 /// * `fp2`
 /// * `fp31`
 /// * `fp32_bit_prime`
-struct FieldSize {
-    field_size: u32,
-}
-
-#[cfg(feature = "enable-serde")]
-#[async_trait]
-impl<B: Send> FromRequest<B> for FieldSize {
-    type Rejection = MpcHelperServerError;
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        #[derive(serde::Deserialize)]
-        struct FieldStr {
-            field_type: String,
-        }
-
-        let Query(FieldStr { field_type }) = req.extract().await?;
-        let field_size = field_type.size_in_bytes()?;
-
-        Ok(Self { field_size })
-    }
+#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
+struct FieldTypeParam {
+    field_type: FieldType,
 }
 
 /// TODO: Right now, this implementation assumes that each `Item` of the stream is exactly the size
@@ -163,9 +146,9 @@ impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromReque
     type Rejection = MpcHelperServerError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let FieldSize { field_size } = req.extract().await?;
+        let Query(FieldTypeParam { field_type }) = req.extract().await?;
         let body: BodyStream = req.extract().await?;
-        Ok(ByteArrStream::new(body, field_size))
+        Ok(ByteArrStream::new(body, field_type.size_in_bytes()))
     }
 }
 
