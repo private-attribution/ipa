@@ -5,13 +5,50 @@ mod query_input;
 mod step;
 
 use crate::{
-    helpers::CommandEnvelope,
+    ff::FieldType,
+    helpers::{
+        query::{QueryConfig, QueryType},
+        transport::http::server::Error,
+        CommandEnvelope,
+    },
     protocol::QueryId,
     sync::{Arc, Mutex},
 };
+use async_trait::async_trait;
+use axum::extract::{FromRequest, Query, RequestParts};
 use axum::Router;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+
+struct QueryConfigFromReq(QueryConfig);
+
+#[cfg(feature = "enable-serde")]
+#[async_trait]
+impl<B: Send> FromRequest<B> for QueryConfigFromReq {
+    type Rejection = Error;
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        #[derive(serde::Deserialize)]
+        struct QueryTypeParam {
+            field_type: FieldType,
+            query_type: String,
+        }
+        let Query(QueryTypeParam {
+            field_type,
+            query_type,
+        }) = req.extract().await?;
+        let query_type = match query_type.as_str() {
+            #[cfg(any(test, feature = "test-fixture"))]
+            QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
+            QueryType::IPA_STR => Ok(QueryType::IPA),
+            other => Err(Error::bad_query_value("query_type", other)),
+        }?;
+        Ok(QueryConfigFromReq(QueryConfig {
+            field_type,
+            query_type,
+        }))
+    }
+}
 
 pub fn router(
     transport_sender: mpsc::Sender<CommandEnvelope>,

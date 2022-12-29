@@ -1,8 +1,11 @@
 use crate::{
     helpers::{
-        query::{PrepareQuery, QueryCommand, QueryConfig},
+        query::{PrepareQuery, QueryCommand},
         transport::{
-            http::{server::Error, OriginHeader, PrepareQueryBody, PrepareQueryParams},
+            http::{
+                server::{handlers::QueryConfigFromReq, Error},
+                OriginHeader, PrepareQueryBody,
+            },
             TransportCommand,
         },
         CommandEnvelope, CommandOrigin,
@@ -10,7 +13,7 @@ use crate::{
     protocol::QueryId,
 };
 use axum::{
-    extract::{Path, Query, RequestParts},
+    extract::{Path, RequestParts},
     http::Request,
     routing::post,
     Extension, Json, Router,
@@ -20,7 +23,7 @@ use tokio::sync::{mpsc, oneshot};
 
 async fn handler(
     query_id: Path<QueryId>,
-    params: Query<PrepareQueryParams>,
+    query_config: QueryConfigFromReq,
     origin_header: OriginHeader,
     transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
     req: Request<Body>,
@@ -31,10 +34,7 @@ async fn handler(
 
     let data = PrepareQuery {
         query_id: *query_id,
-        config: QueryConfig {
-            field_type: params.0.field_type,
-            query_type: params.0.query_type,
-        },
+        config: query_config.0,
         roles,
     };
     let (tx, rx) = oneshot::channel();

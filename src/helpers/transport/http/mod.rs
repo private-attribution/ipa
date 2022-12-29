@@ -7,8 +7,7 @@ mod transport;
 pub use transport::HttpTransport;
 
 use crate::{
-    ff::FieldType,
-    helpers::{query::QueryType, HelperIdentity, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES},
+    helpers::{HelperIdentity, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::QueryId,
 };
 use async_trait::async_trait;
@@ -19,12 +18,6 @@ use std::str::FromStr;
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 struct CreateQueryResp {
     query_id: QueryId,
-}
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct PrepareQueryParams {
-    field_type: FieldType,
-    query_type: QueryType,
 }
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]

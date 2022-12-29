@@ -29,8 +29,6 @@ pub enum Error {
     UnknownHelper(HelperIdentity),
     #[error("command {command_name} can only be used by external entities")]
     ExternalCommandSent { command_name: &'static str },
-    #[error("encountered unknown query type: {0}")]
-    UnknownQueryType(String),
     #[error("could not read from input stream: {0}")]
     InputInvalid(#[from] std::io::Error),
 }

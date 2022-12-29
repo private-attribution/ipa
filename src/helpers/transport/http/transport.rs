@@ -149,6 +149,7 @@ mod e2e_tests {
     use super::*;
     // use crate::ff::FieldType;
     // use crate::helpers::query::{QueryConfig, QueryType};
+    // use crate::helpers::transport::http::discovery;
     // use crate::helpers::transport::http::discovery::PeerDiscovery;
     use crate::query::Processor;
     // use crate::test_fixture::net::localhost_config_map;
@@ -183,8 +184,9 @@ mod e2e_tests {
 
     // #[tokio::test]
     // async fn happy_case() {
-    //     let conf = localhost_config_map([open_port(), open_port(), open_port()]);
-    //     let peers_conf = conf.peers_map();
+    //     static CONF: discovery::conf::Conf =
+    //         localhost_config_map([open_port(), open_port(), open_port()]);
+    //     let peers_conf = CONF.peers_map();
     //     let ps = make_processors(peers_conf).await;
     //     // send a create query command
     //     let leader_id = ps.keys().next().unwrap();

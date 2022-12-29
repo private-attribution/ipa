@@ -1,6 +1,8 @@
-use crate::ff::FieldType;
-use crate::helpers::{transport::Error, RoleAssignment, TransportCommand};
-use crate::protocol::{QueryId, Substep};
+use crate::{
+    ff::FieldType,
+    helpers::{transport::Error, RoleAssignment, TransportCommand},
+    protocol::{QueryId, Substep},
+};
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
@@ -71,11 +73,6 @@ impl From<QueryCommand> for TransportCommand {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
-)]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture"))]
     TestMultiply,
@@ -83,8 +80,8 @@ pub enum QueryType {
 }
 
 impl QueryType {
-    const TEST_MULTIPLY_STR: &'static str = "test-multiply";
-    const IPA_STR: &'static str = "ipa";
+    pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
+    pub const IPA_STR: &'static str = "ipa";
 }
 
 impl AsRef<str> for QueryType {
@@ -93,19 +90,6 @@ impl AsRef<str> for QueryType {
             #[cfg(any(test, feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::IPA => Self::IPA_STR,
-        }
-    }
-}
-
-impl TryFrom<&str> for QueryType {
-    type Error = Error;
-
-    fn try_from(query_type_str: &str) -> Result<Self, Self::Error> {
-        match query_type_str {
-            #[cfg(any(test, feature = "test-fixture"))]
-            Self::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-            Self::IPA_STR => Ok(QueryType::IPA),
-            other => Err(Error::UnknownQueryType(other.to_string())),
         }
     }
 }
