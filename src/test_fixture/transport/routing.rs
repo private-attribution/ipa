@@ -101,8 +101,7 @@ impl Switch {
                 ::tokio::select! {
                     Some(command) = rx.recv() => {
                         match command {
-                            SwitchCommand::Subscribe(subscribe_command) => {
-                                let SubscribeRequest { subscription, link, ack_tx } = subscribe_command;
+                            SwitchCommand::Subscribe(SubscribeRequest { subscription, link, ack_tx }) => {
                                 assert!(routes.insert(subscription, link).is_none());
                                 ack_tx.send(()).unwrap();
                             }

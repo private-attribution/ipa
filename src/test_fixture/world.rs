@@ -146,8 +146,8 @@ impl TestWorld {
     #[must_use]
     pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
-        zip(Role::all(), zip(&self.participants, &*self.gateways))
-            .map(|(_role, (participant, gateway))| {
+        zip(&self.participants, &*self.gateways)
+            .map(|(participant, gateway)| {
                 SemiHonestContext::new(participant, gateway)
                     .narrow(&Self::execution_step(execution))
             })
