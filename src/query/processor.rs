@@ -3,7 +3,7 @@ use crate::{
         messaging::Gateway,
         network::Network,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        transport, GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType,
+        GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType,
         Transport, TransportCommand,
     },
     protocol::QueryId,
@@ -461,17 +461,15 @@ mod tests {
             // Helper 1 initiates the query, 2 and 3 must confirm
             let (tx, rx) = oneshot::channel();
             let mut processors = make_three(network).await;
-            let query_id = {
-                network.transports[0]
-                    .deliver(QueryCommand::Create(config, tx))
-                    .await;
+            network.transports[0]
+                .deliver(QueryCommand::Create(config, tx))
+                .await;
 
-                for processor in &mut processors {
-                    processor.handle_next().await;
-                }
 
-                rx.await.unwrap()
-            };
+            join_all(processors.iter_mut()
+                .map(|processor| processor.handle_next())).await;
+
+            let query_id = rx.await.unwrap();
 
             (query_id, processors)
         }

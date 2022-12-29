@@ -101,8 +101,8 @@ impl AsRef<str> for QueryType {
 impl TryFrom<&str> for QueryType {
     type Error = TransportError;
 
-    fn try_from(query_type_str: &str) -> Result<Self, Self::Error> {
-        unimplemented!()
+    fn try_from(_query_type_str: &str) -> Result<Self, Self::Error> {
+        unimplemented!("query type needs more arguments than just name of the protocol")
         // match query_type_str {
         //     #[cfg(any(test, feature = "test-fixture"))]
         //     Self::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),

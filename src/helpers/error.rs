@@ -3,7 +3,7 @@ use crate::{
     helpers::{
         messaging::{ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
-        transport, HelperIdentity, Role,
+        HelperIdentity, Role,
     },
     net::MpcHelperServerError,
     protocol::{RecordId, Step},

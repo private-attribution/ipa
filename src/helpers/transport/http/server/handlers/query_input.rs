@@ -2,7 +2,7 @@ use crate::{
     ff::FieldType,
     helpers::{
         query::{QueryCommand, QueryInput},
-        transport::{self, http::server::Error, TransportCommand},
+        transport::{http::server::Error, TransportCommand},
         CommandEnvelope, CommandOrigin,
     },
     net::ByteArrStream,
