@@ -1,12 +1,12 @@
-use crate::helpers::{
-    CommandEnvelope, CommandOrigin, HelperIdentity, SubscriptionType, TransportCommand,
+use crate::{
+    error::BoxError,
+    helpers::{
+        query::QueryCommand, CommandEnvelope, CommandOrigin, HelperIdentity, SubscriptionType,
+        TransportCommand,
+    },
+    task::JoinHandle,
 };
 
-use crate::error::BoxError;
-use crate::helpers::query::QueryCommand;
-use crate::task::JoinHandle;
-use ::tokio::sync::mpsc::error::SendError;
-use ::tokio::sync::mpsc::Sender;
 use ::tokio::sync::{mpsc, oneshot};
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -170,7 +170,7 @@ enum DispatchError {
 }
 
 impl From<mpsc::error::SendError<CommandEnvelope>> for DispatchError {
-    fn from(value: SendError<CommandEnvelope>) -> Self {
+    fn from(value: mpsc::error::SendError<CommandEnvelope>) -> Self {
         Self::SendFailed {
             command: value.0,
             inner: "channel closed".into(),
@@ -192,7 +192,7 @@ impl Dispatcher for TransportCommand {
     async fn dispatch(
         self,
         origin: CommandOrigin,
-        routes: &HashMap<SubscriptionType, Sender<CommandEnvelope>>,
+        routes: &HashMap<SubscriptionType, mpsc::Sender<CommandEnvelope>>,
     ) -> Result<(), DispatchError> {
         let sub = SubscriptionType::from(&self);
         let command = CommandEnvelope {

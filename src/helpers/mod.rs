@@ -3,12 +3,12 @@ pub mod network;
 pub mod old_http;
 #[deprecated(note = "Use `Transport` instead")]
 pub mod old_network;
+pub mod transport;
 
 mod buffers;
 mod error;
 mod prss_protocol;
 mod time;
-mod transport;
 
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
@@ -16,7 +16,6 @@ pub use messaging::GatewayConfig;
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
-    TransportError,
 };
 
 use crate::helpers::{
@@ -34,6 +33,11 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct HelperIdentity {
     id: u8,
 }
@@ -51,6 +55,13 @@ impl TryFrom<usize> for HelperIdentity {
                 id: u8::try_from(value).unwrap(),
             })
         }
+    }
+}
+
+impl From<HelperIdentity> for hyper::header::HeaderValue {
+    fn from(id: HelperIdentity) -> Self {
+        // does not implement `From<u8>`
+        hyper::header::HeaderValue::from(u16::from(id.id))
     }
 }
 
@@ -75,8 +86,8 @@ impl HelperIdentity {
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq, clap::ValueEnum)]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "&'static str", try_from = "&str")
 )]
 pub enum Role {
     H1 = 0,
@@ -86,6 +97,11 @@ pub enum Role {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -125,6 +141,12 @@ impl Role {
             H2 => Role::H2_STR,
             H3 => Role::H3_STR,
         }
+    }
+}
+
+impl From<Role> for &'static str {
+    fn from(role: Role) -> Self {
+        role.as_static_str()
     }
 }
 

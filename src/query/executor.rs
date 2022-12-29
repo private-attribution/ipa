@@ -1,11 +1,15 @@
-use crate::ff::{Field, FieldType, Fp31};
-use crate::helpers::messaging::Gateway;
-use crate::helpers::negotiate_prss;
-use crate::helpers::query::{QueryConfig, QueryType};
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::Step;
-use crate::secret_sharing::Replicated;
-use crate::task::JoinHandle;
+use crate::{
+    ff::{Field, FieldType, Fp31},
+    helpers::{
+        messaging::Gateway,
+        negotiate_prss,
+        query::{QueryConfig, QueryType},
+        transport::Error,
+    },
+    protocol::{context::SemiHonestContext, Step},
+    secret_sharing::Replicated,
+    task::JoinHandle,
+};
 use futures::Stream;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
@@ -30,9 +34,12 @@ impl<F: Field> Result for Vec<Replicated<F>> {
 }
 
 #[cfg(any(test, feature = "test-fixture"))]
-async fn test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
+async fn test_multiply<
+    F: Field,
+    St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin,
+>(
     ctx: SemiHonestContext<'_, F>,
-    mut input: S,
+    mut input: St,
 ) -> Vec<Replicated<F>> {
     use crate::protocol::basics::SecureMul;
     use crate::protocol::RecordId;
@@ -43,7 +50,7 @@ async fn test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
         // multiply pairs
         let mut a = None;
         let mut record_id = 0_u32;
-        for share in Replicated::<F>::from_byte_slice(&v) {
+        for share in Replicated::<F>::from_byte_slice(&v.unwrap()) {
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
@@ -66,17 +73,19 @@ async fn test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
 }
 
 #[allow(clippy::unused_async)]
-async fn ipa<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
+async fn ipa<F: Field, St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin>(
     _ctx: SemiHonestContext<'_, F>,
-    _input: S,
+    _input: St,
 ) -> Vec<Replicated<F>> {
     todo!()
 }
 
-pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(
+pub fn start_query<
+    St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin + 'static,
+>(
     config: QueryConfig,
     gateway: Gateway,
-    input: S,
+    input: St,
 ) -> JoinHandle<Box<dyn Result>> {
     tokio::spawn(async move {
         // TODO: make it a generic argument for this function
@@ -86,6 +95,7 @@ pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {
+            FieldType::Fp2 => todo!(),
             FieldType::Fp31 => {
                 let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                 match config.query_type {
@@ -132,7 +142,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            Box::new(stream::iter(std::iter::once(r)))
+            Box::new(stream::iter(std::iter::once(Ok(r))))
         });
 
         let results: [_; 3] = join_all(
