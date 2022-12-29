@@ -1,6 +1,6 @@
 use crate::ff::{Field, FieldType, Fp31};
 use crate::helpers::messaging::Gateway;
-use crate::helpers::negotiate_prss;
+use crate::helpers::{negotiate_prss, TransportError};
 use crate::helpers::query::{IPAQueryConfig, QueryConfig, QueryType};
 use crate::protocol::attribution::AggregateCreditOutputRow;
 use crate::protocol::context::SemiHonestContext;
@@ -56,9 +56,12 @@ impl<F: Field> Result for Vec<AggregateCreditOutputRow<F>> {
 }
 
 #[cfg(any(test, feature = "test-fixture"))]
-async fn execute_test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
+async fn execute_test_multiply<
+    F: Field,
+    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
+>(
     ctx: SemiHonestContext<'_, F>,
-    mut input: S,
+    mut input: St,
 ) -> Vec<Replicated<F>> {
     use crate::protocol::basics::SecureMul;
     use crate::protocol::RecordId;
@@ -68,7 +71,7 @@ async fn execute_test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpi
         // multiply pairs
         let mut a = None;
         let mut record_id = 0_u32;
-        for share in Replicated::<F>::from_byte_slice(&v) {
+        for share in Replicated::<F>::from_byte_slice(&v.unwrap()) {
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
@@ -90,14 +93,14 @@ async fn execute_test_multiply<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpi
     results
 }
 
-async fn execute_ipa<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
+async fn execute_ipa<F: Field, St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
-    mut input: S,
+    mut input: St,
 ) -> Vec<AggregateCreditOutputRow<F>> {
     let mut inputs = Vec::new();
     while let Some(data) = input.next().await {
-        inputs.extend(IPAInputRow::<F>::from_byte_slice(&data));
+        inputs.extend(IPAInputRow::<F>::from_byte_slice(&data.unwrap()));
     }
 
     ipa(
@@ -111,10 +114,12 @@ async fn execute_ipa<F: Field, S: Stream<Item = Vec<u8>> + Send + Unpin>(
     .unwrap()
 }
 
-pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(
+pub fn start_query<
+    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin + 'static,
+>(
     config: QueryConfig,
     gateway: Gateway,
-    input: S,
+    input: St,
 ) -> JoinHandle<Box<dyn Result>> {
     tokio::spawn(async move {
         // TODO: make it a generic argument for this function
@@ -124,6 +129,7 @@ pub fn start_query<S: Stream<Item = Vec<u8>> + Send + Unpin + 'static>(
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {
+            FieldType::Fp2 => todo!(),
             FieldType::Fp31 => {
                 let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                 match config.query_type {
@@ -173,7 +179,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            Box::new(stream::iter(std::iter::once(r)))
+            Box::new(stream::iter(std::iter::once(Ok(r))))
         });
 
         let results: [_; 3] = join_all(
@@ -216,7 +222,7 @@ mod tests {
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,
             };
-            execute_ipa(ctx, query_config, stream::iter(std::iter::once(shares)))
+            execute_ipa(ctx, query_config, stream::iter(std::iter::once(Ok(shares))))
         }))
         .await
         .try_into()

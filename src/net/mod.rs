@@ -9,7 +9,9 @@ pub mod discovery;
 pub use client::{HttpSendMessagesArgs, MpcHelperClient};
 #[cfg(feature = "self-signed-certs")]
 pub use server::tls_config_from_self_signed_cert;
-pub use server::{BindTarget, MessageSendMap, MpcHelperServer, MpcHelperServerError};
+pub use server::{
+    BindTarget, ByteArrStream, MessageSendMap, MpcHelperServer, MpcHelperServerError,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 

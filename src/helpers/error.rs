@@ -1,10 +1,9 @@
-use crate::helpers::TransportError;
 use crate::{
     error::BoxError,
     helpers::{
         messaging::{ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
-        HelperIdentity, Role,
+        transport, HelperIdentity, Role,
     },
     net::MpcHelperServerError,
     protocol::{RecordId, Step},
@@ -12,6 +11,7 @@ use crate::{
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio_util::sync::PollSendError;
+use crate::helpers::TransportError;
 
 #[derive(Error, Debug)]
 pub enum Error {

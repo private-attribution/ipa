@@ -32,7 +32,6 @@ impl BitArray for BitArray64 {
     const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
     const BITS: u32 = 64;
 
-    #[allow(dead_code)]
     const ZERO: Self = Self(U8_8::ZERO);
 
     fn truncate_from<T: Into<u128>>(v: T) -> Self {

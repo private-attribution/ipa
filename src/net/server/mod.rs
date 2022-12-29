@@ -1,17 +1,19 @@
+mod bytearrstream;
 pub mod handlers;
 
-use crate::sync::{Arc, Mutex};
-use crate::task::JoinHandle;
+pub use bytearrstream::ByteArrStream;
+
 use crate::{
     error::BoxError,
     helpers::{network::MessageChunks, old_http::HttpNetwork},
     net::LastSeenMessages,
     protocol::QueryId,
+    sync::{Arc, Mutex},
+    task::JoinHandle,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
 use ::tokio::sync::mpsc;
 use axum::{
-    extract::rejection::QueryRejection,
     middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -24,6 +26,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use thiserror::Error;
+use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
@@ -32,8 +35,8 @@ use shuttle::future as tokio;
 
 #[derive(Error, Debug)]
 pub enum MpcHelperServerError {
-    #[error(transparent)]
-    BadQueryString(#[from] QueryRejection),
+    #[error("{0}")]
+    BadQueryString(#[source] BoxError),
     #[error("header not found: {0}")]
     MissingHeader(String),
     #[error("invalid header: {0}")]
@@ -50,6 +53,8 @@ pub enum MpcHelperServerError {
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
     #[error(transparent)]
     HyperError(#[from] hyper::Error),
+    #[error(transparent)]
+    AxumError(#[from] axum::Error),
     #[error("parse error: {0}")]
     SerdeError(#[from] serde_json::Error),
     #[error("could not forward messages: {0}")]
@@ -57,6 +62,11 @@ pub enum MpcHelperServerError {
 }
 
 impl MpcHelperServerError {
+    #[must_use]
+    pub fn bad_query_value(key: &str, bad_value: &str) -> Self {
+        Self::BadQueryString(format!("encountered unknown query param {key}: {bad_value}").into())
+    }
+
     #[must_use]
     pub fn query_id_not_found(query_id: QueryId) -> Self {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
@@ -74,6 +84,23 @@ impl MpcHelperServerError {
     }
 }
 
+/// [`From`] implementation for [`MpcServerError::BadQueryString`]
+impl From<axum::extract::rejection::QueryRejection> for MpcHelperServerError {
+    fn from(err: axum::extract::rejection::QueryRejection) -> Self {
+        Self::BadQueryString(err.into())
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::BadQueryString`]
+impl From<crate::ff::Error> for MpcHelperServerError {
+    fn from(err: crate::ff::Error) -> Self {
+        Self::BadQueryString(
+            format!("unknown value found for query param field_type: {err}").into(),
+        )
+    }
+}
+
+/// [`From`] implementation for [`MpcServerError::InvalidHeader`]
 impl From<std::num::ParseIntError> for MpcHelperServerError {
     fn from(err: std::num::ParseIntError) -> Self {
         Self::InvalidHeader(err.into())
@@ -112,9 +139,10 @@ impl IntoResponse for MpcHelperServerError {
             Self::BadQueryString(_) | Self::BadPathString(_) | Self::MissingHeader(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            Self::SerdeError(_) | Self::InvalidHeader(_) | Self::WrongBodyLen { .. } => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::SerdeError(_)
+            | Self::InvalidHeader(_)
+            | Self::WrongBodyLen { .. }
+            | Self::AxumError(_) => StatusCode::BAD_REQUEST,
             Self::HyperError(_)
             | Self::SendError(_)
             | Self::BodyAlreadyExtracted(_)
@@ -224,14 +252,21 @@ impl MpcHelperServer {
     /// Axum router definition for MPC helper endpoint
     #[must_use]
     pub(crate) fn router(&self) -> Router {
-        Router::new()
-            // query handler
-            .route("/query/:query_id/step/*step", post(handlers::query_handler))
-            .layer(middleware::from_fn(handlers::obtain_permit_mw))
-            .layer(Extension(self.last_seen_messages.clone()))
-            .layer(Extension(self.message_send_map.clone()))
-            // echo
-            .route("/echo", get(handlers::echo_handler))
+        let echo_route = Router::new().route("/echo", get(handlers::echo_handler));
+
+        let query_route = Router::new()
+            .route(
+                "/query/:query_id/step/*step",
+                post(handlers::process_query_handler),
+            )
+            .layer(
+                ServiceBuilder::new()
+                    .layer(Extension(self.message_send_map.clone()))
+                    .layer(Extension(self.last_seen_messages.clone()))
+                    .layer(middleware::from_fn(handlers::obtain_permit_mw)),
+            );
+
+        echo_route.merge(query_route)
     }
 
     /// Adds a mapping between [`QueryId`] and [`HttpNetwork`] so that the server knows where to
