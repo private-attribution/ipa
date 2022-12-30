@@ -172,6 +172,7 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
+        // TODO: uri must be shared between server and client
         let uri = self.build_uri(format!(
             "/query/{}/input?field_type={}",
             data.query_id.as_ref(),

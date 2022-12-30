@@ -105,8 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 print_output(&output);
             }
             InputType::Fp32BitPrime => {
-                // let output = secure_mul::<Fp32BitPrime>(input).await;
-                // print_output(&output);
+                unimplemented!()
             }
             InputType::Int64 => panic!("Only field values are supported"),
         },
