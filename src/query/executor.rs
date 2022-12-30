@@ -14,8 +14,9 @@ use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use std::fmt::Debug;
 
-pub trait Result: Send {
+pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
 }
 

@@ -229,6 +229,11 @@ impl<T: Transport + Clone> Processor<T> {
                     self.receive_inputs(query_input).unwrap();
                     resp.send(()).unwrap();
                 }
+                // TODO no tests
+                TransportCommand::Query(QueryCommand::Results(query_id, resp)) => {
+                    let result = self.complete(query_id).await.unwrap();
+                    resp.send(result).unwrap();
+                }
                 TransportCommand::StepData { .. } => panic!("unexpected command: {command:?}"),
             }
         }

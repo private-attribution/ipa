@@ -1,3 +1,4 @@
+use crate::query::ProtocolResult;
 use crate::{
     ff::FieldType,
     helpers::{RoleAssignment, TransportCommand, TransportError},
@@ -38,11 +39,31 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Debug)]
 pub enum QueryCommand {
     Create(QueryConfig, oneshot::Sender<QueryId>),
     Prepare(PrepareQuery, oneshot::Sender<()>),
     Input(QueryInput, oneshot::Sender<()>),
+    Results(QueryId, oneshot::Sender<Box<dyn ProtocolResult>>),
+}
+
+impl Debug for QueryCommand {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "QueryCommand: {:?}", self.query_id())?;
+        match self {
+            QueryCommand::Create(config, _) => {
+                write!(f, "[{:?}]", config)
+            }
+            QueryCommand::Prepare(prepare, _) => {
+                write!(f, "[{:?}]", prepare)
+            }
+            QueryCommand::Input(input, _) => {
+                write!(f, "[{:?}]", input)
+            }
+            QueryCommand::Results(_, _) => {
+                write!(f, "[Results]")
+            }
+        }
+    }
 }
 
 impl QueryCommand {
@@ -52,6 +73,7 @@ impl QueryCommand {
             Self::Create(_, _) => "Query Create",
             Self::Prepare(_, _) => "Query Prepare",
             Self::Input(_, _) => "Query Input",
+            Self::Results(_, _) => "Query Results",
         }
     }
 
@@ -61,6 +83,7 @@ impl QueryCommand {
             Self::Create(_, _) => None,
             Self::Prepare(data, _) => Some(data.query_id),
             Self::Input(data, _) => Some(data.query_id),
+            Self::Results(query_id, _) => Some(*query_id),
         }
     }
 }

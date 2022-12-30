@@ -137,9 +137,11 @@ impl Transport for Arc<HttpTransport> {
                     query_id: Some(query_id),
                     inner: err.into(),
                 }),
-            TransportCommand::Query(QueryCommand::Create(_, _) | QueryCommand::Input(_, _)) => {
-                Err(TransportError::ExternalCommandSent { command_name })
-            }
+            TransportCommand::Query(
+                QueryCommand::Create(_, _)
+                | QueryCommand::Input(_, _)
+                | QueryCommand::Results(_, _),
+            ) => Err(TransportError::ExternalCommandSent { command_name }),
         }
     }
 }
