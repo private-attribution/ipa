@@ -56,6 +56,7 @@ impl<B: Send> FromRequest<B> for QueryConfigFromReq {
 // TODO: move all query handlers to query sub folder
 pub fn router(
     transport_sender: mpsc::Sender<CommandEnvelope>,
+    // TODO: clean up after query has been processed
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
 ) -> Router {
     echo::router()

@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use comfy_table::Table;
-use raw_ipa::cli::playbook::{secure_mul, InputSource};
+use raw_ipa::cli::playbook::{secure_mul, semi_honest, InputSource};
 use raw_ipa::cli::{helpers_config, Verbosity};
 use raw_ipa::ff::{FieldType, Fp31};
 use raw_ipa::helpers::HelperIdentity;
@@ -8,7 +8,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::path::PathBuf;
 
-use raw_ipa::helpers::query::{QueryConfig, QueryType};
+use raw_ipa::helpers::query::{IPAQueryConfig, QueryConfig, QueryType};
 use raw_ipa::helpers::transport::http;
 use raw_ipa::helpers::transport::http::discovery::PeerDiscovery;
 use raw_ipa::helpers::transport::http::MpcHelperClient;
@@ -111,7 +111,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             InputType::Int64 => panic!("Only field values are supported"),
         },
-        TestAction::SemiHonestIPA => {}
+        TestAction::SemiHonestIPA => match args.input.input_type {
+            InputType::Fp31 => {
+                let query_config = QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: QueryType::IPA(IPAQueryConfig {
+                        num_bits: 20,
+                        per_user_credit_cap: 3,
+                        max_breakdown_key: 3,
+                    }),
+                };
+                let query_id = clients[0].create_query(query_config).await.unwrap();
+                let output =
+                    semi_honest::<Fp31>(input, &clients, query_id, query_config.field_type).await;
+                print_output(&output);
+            }
+            InputType::Fp32BitPrime => {
+                unimplemented!()
+            }
+            InputType::Int64 => panic!("Only field values are supported"),
+        },
     };
 
     Ok(())
