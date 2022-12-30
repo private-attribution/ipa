@@ -1,14 +1,17 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use comfy_table::Table;
 use raw_ipa::cli::playbook::{secure_mul, InputSource};
-use raw_ipa::cli::Verbosity;
+use raw_ipa::cli::{helpers_config, Verbosity};
 use raw_ipa::ff::{FieldType, Fp31};
+use raw_ipa::helpers::HelperIdentity;
 use std::error::Error;
 use std::fmt::Debug;
 use std::path::PathBuf;
 
 use raw_ipa::helpers::query::{QueryConfig, QueryType};
 use raw_ipa::helpers::transport::http;
+use raw_ipa::helpers::transport::http::discovery::PeerDiscovery;
+use raw_ipa::helpers::transport::http::MpcHelperClient;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -82,7 +85,9 @@ fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
 }
 
 fn make_clients() -> [http::MpcHelperClient; 3] {
-    todo!()
+    let config = helpers_config();
+    let mut clients = MpcHelperClient::from_conf(config.peers_map());
+    HelperIdentity::make_three().map(|id| clients.remove(&id).unwrap())
 }
 
 #[tokio::main]
