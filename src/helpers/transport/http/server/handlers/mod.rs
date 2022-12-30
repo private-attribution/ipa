@@ -38,9 +38,11 @@ impl<B: Send> FromRequest<B> for QueryConfigFromReq {
             query_type,
         }) = req.extract().await?;
         let query_type = match query_type.as_str() {
-            #[cfg(any(test, feature = "test-fixture"))]
+            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-            QueryType::IPA_STR => Ok(QueryType::IPA),
+            QueryType::IPA_STR => {
+                panic!("don't know how to construct IPA query type yet");
+            }
             other => Err(Error::bad_query_value("query_type", other)),
         }?;
         Ok(QueryConfigFromReq(QueryConfig {

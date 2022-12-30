@@ -6,7 +6,7 @@ pub mod query;
 
 mod error;
 
-pub use error::Error;
+pub use error::Error as TransportError;
 
 use crate::{
     helpers::HelperIdentity,
@@ -28,6 +28,7 @@ pub enum TransportCommand {
         query_id: QueryId,
         step: Step,
         payload: Vec<u8>,
+        // TODO: we shouldn't require an offset here
         offset: u32,
     },
 }
@@ -105,5 +106,5 @@ pub trait Transport: Send + Sync + 'static {
         &self,
         destination: &HelperIdentity,
         command: C,
-    ) -> Result<(), Error>;
+    ) -> Result<(), TransportError>;
 }

@@ -1,6 +1,6 @@
 use crate::{
     ff::FieldType,
-    helpers::{transport::Error, RoleAssignment, TransportCommand},
+    helpers::{RoleAssignment, TransportCommand, TransportError},
     protocol::{QueryId, Substep},
 };
 use futures::Stream;
@@ -25,19 +25,16 @@ pub struct PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
+    /// TODO: remove, we already have this information in query configuration
     pub field_type: FieldType,
     // TODO: there are no errors that need to be streamed from client to server.
     // this type should be just a Stream<Item = Vec<u8>>
-    pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, Error>> + Send>>,
+    pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
 }
 
 impl Debug for QueryInput {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "query_inputs[{:?}, {:?}]",
-            self.query_id, self.field_type
-        )
+        write!(f, "query_inputs[{:?}]", self.query_id)
     }
 }
 
@@ -78,7 +75,7 @@ impl From<QueryCommand> for TransportCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    IPA,
+    IPA(IPAQueryConfig),
 }
 
 impl QueryType {
@@ -91,9 +88,22 @@ impl AsRef<str> for QueryType {
         match self {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
-            QueryType::IPA => Self::IPA_STR,
+            QueryType::IPA(_) => Self::IPA_STR,
         }
     }
 }
 
 impl Substep for QueryType {}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IPAQueryConfig {
+    pub num_bits: u32,
+    pub per_user_credit_cap: u32,
+    pub max_breakdown_key: u128,
+}
+
+impl From<IPAQueryConfig> for QueryType {
+    fn from(value: IPAQueryConfig) -> Self {
+        QueryType::IPA(value)
+    }
+}

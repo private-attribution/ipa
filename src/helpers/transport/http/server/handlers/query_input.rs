@@ -1,8 +1,9 @@
+use crate::helpers::TransportError;
 use crate::{
     ff::FieldType,
     helpers::{
         query::{QueryCommand, QueryInput},
-        transport::{self, http::server::Error, TransportCommand},
+        transport::{http::server::Error, TransportCommand},
         CommandEnvelope, CommandOrigin,
     },
     net::ByteArrStream,
@@ -37,12 +38,12 @@ async fn handler(
         .await
         .map_err(|_| Error::BadQueryString("TODO: move ByteArrStream to the right package".into()))?
         .and_then(|bytes| futures::future::ok(bytes.to_vec()))
-        .map_err(transport::Error::from);
+        .map_err(TransportError::from);
     let query_input = QueryInput {
         query_id: *query_id,
-        field_type: params.0.field_type,
+        field_type: params.field_type,
         input_stream: Box::pin(input_stream)
-            as Pin<Box<dyn Stream<Item = Result<Vec<u8>, transport::Error>> + Send>>,
+            as Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
     };
     let (tx, rx) = oneshot::channel();
     let command = CommandEnvelope {

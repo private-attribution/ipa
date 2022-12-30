@@ -1,5 +1,5 @@
 use crate::helpers::{
-    transport::Error, HelperIdentity, SubscriptionType, Transport, TransportCommand,
+    HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
 };
 use crate::sync::Arc;
 
@@ -43,7 +43,7 @@ impl<T: Transport> Transport for DelayedTransport<T> {
         &self,
         destination: &HelperIdentity,
         command: C,
-    ) -> Result<(), Error> {
+    ) -> Result<(), TransportError> {
         self.barrier.wait().await;
         self.inner.send(destination, command).await
     }
@@ -56,14 +56,14 @@ pub struct FailingTransport<T, F> {
     error_fn: F,
 }
 
-impl<T: Transport, F: Fn(TransportCommand) -> Error> FailingTransport<T, F> {
+impl<T: Transport, F: Fn(TransportCommand) -> TransportError> FailingTransport<T, F> {
     pub fn new(inner: T, error_fn: F) -> Self {
         Self { inner, error_fn }
     }
 }
 
 #[async_trait]
-impl<T: Transport, F: Fn(TransportCommand) -> Error + Send + Sync + 'static> Transport
+impl<T: Transport, F: Fn(TransportCommand) -> TransportError + Send + Sync + 'static> Transport
     for FailingTransport<T, F>
 {
     type CommandStream = T::CommandStream;
@@ -80,7 +80,7 @@ impl<T: Transport, F: Fn(TransportCommand) -> Error + Send + Sync + 'static> Tra
         &self,
         _destination: &HelperIdentity,
         command: C,
-    ) -> Result<(), Error> {
+    ) -> Result<(), TransportError> {
         Err((self.error_fn)(command.into()))
     }
 }

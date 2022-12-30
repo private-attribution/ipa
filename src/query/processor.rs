@@ -1,10 +1,11 @@
+use crate::helpers::TransportError;
 use crate::{
     helpers::{
         messaging::Gateway,
         network::Network,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        transport, GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType,
-        Transport, TransportCommand,
+        GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport,
+        TransportCommand,
     },
     protocol::QueryId,
     query::{
@@ -44,7 +45,7 @@ pub enum NewQueryError {
     #[error(transparent)]
     State(#[from] StateError),
     #[error(transparent)]
-    Transport(#[from] transport::Error),
+    Transport(#[from] TransportError),
     #[error(transparent)]
     OneshotRecv(#[from] oneshot::error::RecvError),
 }
@@ -268,6 +269,7 @@ mod tests {
     use super::*;
     use crate::ff::FieldType;
     use crate::helpers::query::QueryType;
+    use crate::helpers::TransportError;
     use crate::test_fixture::transport::{DelayedTransport, FailingTransport, InMemoryNetwork};
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
@@ -349,7 +351,7 @@ mod tests {
     async fn prepare_rejected() {
         let network = InMemoryNetwork::default();
         let transport = Arc::downgrade(&network.transports[0]);
-        let transport = FailingTransport::new(transport, |command| transport::Error::SendFailed {
+        let transport = FailingTransport::new(transport, |command| TransportError::SendFailed {
             command_name: Some(command.name()),
             query_id: command.query_id(),
             inner: "Transport failed".into(),
@@ -363,9 +365,7 @@ mod tests {
 
         assert!(matches!(
             processor.new_query(request).await,
-            Err(NewQueryError::Transport(
-                transport::Error::SendFailed { .. }
-            ))
+            Err(NewQueryError::Transport(TransportError::SendFailed { .. }))
         ));
     }
 
@@ -430,7 +430,10 @@ mod tests {
     mod e2e {
         use super::*;
         use crate::ff::Fp31;
-        use crate::helpers::query::QueryInput;
+        use crate::helpers::query::{IPAQueryConfig, QueryInput};
+        use crate::protocol::attribution::AggregateCreditOutputRow;
+        use crate::protocol::ipa::test_cases::Simple;
+        use crate::protocol::ipa::IPAInputRow;
         use crate::secret_sharing::{IntoShares, Replicated};
         use crate::sync::Weak;
         use crate::test_fixture::transport::InMemoryTransport;
@@ -449,33 +452,36 @@ mod tests {
             .unwrap()
         }
 
-        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-        pub async fn happy_case() {
-            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
-            let network = InMemoryNetwork::default();
-            let mut processors = make_three(&network).await;
-
+        async fn start_query(
+            network: &InMemoryNetwork,
+            config: QueryConfig,
+        ) -> (QueryId, [Processor<Weak<InMemoryTransport>>; 3]) {
             // Helper 1 initiates the query, 2 and 3 must confirm
             let (tx, rx) = oneshot::channel();
-            let query_id = {
-                network.transports[0]
-                    .deliver(QueryCommand::Create(
-                        QueryConfig {
-                            field_type: FieldType::Fp31,
-                            query_type: QueryType::TestMultiply,
-                        },
-                        tx,
-                    ))
-                    .await;
+            let mut processors = make_three(network).await;
+            network.transports[0]
+                .deliver(QueryCommand::Create(config, tx))
+                .await;
 
-                let mut handles = Vec::with_capacity(processors.len());
-                for processor in &mut processors {
-                    handles.push(processor.handle_next());
-                }
-                join_all(handles).await;
+            join_all(processors.iter_mut().map(Processor::handle_next)).await;
 
-                rx.await.unwrap()
-            };
+            let query_id = rx.await.unwrap();
+
+            (query_id, processors)
+        }
+
+        #[tokio::test]
+        async fn test_multiply() {
+            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+            let network = InMemoryNetwork::default();
+            let (query_id, mut processors) = start_query(
+                &network,
+                QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: QueryType::TestMultiply,
+                },
+            )
+            .await;
             let a = Fp31::from(4u128);
             let b = Fp31::from(5u128);
 
@@ -521,6 +527,70 @@ mod tests {
             .unwrap();
 
             assert_eq!(vec![Fp31::from(20u128)], result.reconstruct());
+        }
+
+        #[tokio::test]
+        async fn ipa() {
+            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+            type SimpleTestCase = Simple<Fp31>;
+            let network = InMemoryNetwork::default();
+            let (query_id, mut processors) = start_query(
+                &network,
+                QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: IPAQueryConfig {
+                        num_bits: 20,
+                        per_user_credit_cap: 3,
+                        max_breakdown_key: 3,
+                    }
+                    .into(),
+                },
+            )
+            .await;
+
+            let helper_shares = SimpleTestCase::default()
+                .share()
+                .into_iter()
+                .map(|shares| {
+                    let data = shares
+                        .into_iter()
+                        .flat_map(|share: IPAInputRow<Fp31>| {
+                            let mut buf = [0u8; IPAInputRow::<Fp31>::SIZE_IN_BYTES];
+                            share.serialize(&mut buf).unwrap();
+
+                            buf
+                        })
+                        .collect::<Vec<_>>();
+
+                    Box::pin(stream::iter(std::iter::once(Ok(data))))
+                })
+                .collect::<Vec<_>>();
+
+            for (i, input) in helper_shares.into_iter().enumerate() {
+                let (tx, rx) = oneshot::channel();
+                network.transports[i]
+                    .deliver(QueryCommand::Input(
+                        QueryInput {
+                            query_id,
+                            field_type: FieldType::Fp31,
+                            input_stream: input,
+                        },
+                        tx,
+                    ))
+                    .await;
+                processors[i].handle_next().await;
+                rx.await.unwrap();
+            }
+
+            let result: [_; 3] = join_all(processors.map(|mut processor| async move {
+                let r = processor.complete(query_id).await.unwrap().into_bytes();
+                AggregateCreditOutputRow::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+            }))
+            .await
+            .try_into()
+            .unwrap();
+
+            SimpleTestCase::validate(&result);
         }
     }
 }

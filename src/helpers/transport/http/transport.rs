@@ -7,7 +7,7 @@ use crate::{
                 discovery::peer,
                 server::{BindTarget, MpcHelperServer},
             },
-            Error, SubscriptionType, Transport, TransportCommand,
+            SubscriptionType, Transport, TransportCommand, TransportError,
         },
         CommandEnvelope, HelperIdentity,
     },
@@ -102,11 +102,11 @@ impl Transport for Arc<HttpTransport> {
         &self,
         destination: &HelperIdentity,
         command: C,
-    ) -> Result<(), Error> {
+    ) -> Result<(), TransportError> {
         let client = self
             .clients
             .get(destination)
-            .ok_or_else(|| Error::UnknownHelper(destination.clone()))?;
+            .ok_or_else(|| TransportError::UnknownHelper(destination.clone()))?;
         let command = command.into();
         let command_name = command.name();
         match command {
@@ -115,7 +115,7 @@ impl Transport for Arc<HttpTransport> {
                 client
                     .prepare_query(&self.id, data)
                     .await
-                    .map_err(|inner| Error::SendFailed {
+                    .map_err(|inner| TransportError::SendFailed {
                         command_name: Some(command_name),
                         query_id: Some(query_id),
                         inner: inner.into(),
@@ -132,13 +132,13 @@ impl Transport for Arc<HttpTransport> {
             } => client
                 .step(&self.id, query_id, step, payload, offset)
                 .await
-                .map_err(|err| Error::SendFailed {
+                .map_err(|err| TransportError::SendFailed {
                     command_name: Some(command_name),
                     query_id: Some(query_id),
                     inner: err.into(),
                 }),
             TransportCommand::Query(QueryCommand::Create(_, _) | QueryCommand::Input(_, _)) => {
-                Err(Error::ExternalCommandSent { command_name })
+                Err(TransportError::ExternalCommandSent { command_name })
             }
         }
     }
