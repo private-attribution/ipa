@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io;
 use std::io::{stdin, BufRead, BufReader, Read};
 
+use crate::test_fixture::IPAInputTestRow;
 use std::path::PathBuf;
 
 pub trait InputItem {
@@ -20,6 +21,27 @@ impl<F: Field> InputItem for F {
 impl InputItem for u64 {
     fn from_str(s: &str) -> Self {
         s.parse::<u64>().unwrap()
+    }
+}
+
+impl InputItem for IPAInputTestRow {
+    fn from_str(s: &str) -> Self {
+        // pub match_key: u64,
+        // pub is_trigger_bit: u128,
+        // pub breakdown_key: u128,
+        // pub trigger_value: u128,
+        if let [match_key, is_trigger_bit, breakdown_key, trigger_value] =
+            s.splitn(4, ',').collect::<Vec<_>>()[..]
+        {
+            Self {
+                match_key: match_key.parse::<u64>().unwrap(),
+                is_trigger_bit: is_trigger_bit.parse::<u128>().unwrap(),
+                breakdown_key: breakdown_key.parse::<u128>().unwrap(),
+                trigger_value: trigger_value.parse::<u128>().unwrap(),
+            }
+        } else {
+            panic!("{s} is not a valid IPAInputTestRow")
+        }
     }
 }
 

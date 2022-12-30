@@ -331,15 +331,51 @@ impl AsRef<str> for Step {
     }
 }
 
+#[cfg(feature = "test-fixture")]
+impl<F: Field>
+    crate::test_fixture::Reconstruct<
+        crate::protocol::attribution::accumulate_credit::AttributionTestInput<F>,
+    > for [AggregateCreditOutputRow<F>; 3]
+{
+    fn reconstruct(
+        &self,
+    ) -> crate::protocol::attribution::accumulate_credit::AttributionTestInput<F> {
+        [&self[0], &self[1], &self[2]].reconstruct()
+    }
+}
+
+#[cfg(feature = "test-fixture")]
+impl<F: Field>
+    crate::test_fixture::Reconstruct<
+        crate::protocol::attribution::accumulate_credit::AttributionTestInput<F>,
+    > for [&AggregateCreditOutputRow<F>; 3]
+{
+    fn reconstruct(
+        &self,
+    ) -> crate::protocol::attribution::accumulate_credit::AttributionTestInput<F> {
+        let s0 = &self[0];
+        let s1 = &self[1];
+        let s2 = &self[2];
+
+        let breakdown_key = (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
+        let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+
+        crate::protocol::attribution::accumulate_credit::AttributionTestInput([
+            breakdown_key,
+            credit,
+            F::ZERO,
+            F::ZERO,
+        ])
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
     use super::super::tests::{BD, H};
     use super::{aggregate_credit, sort_by_breakdown_key};
     use crate::ff::{Field, Fp31};
-    use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
-    use crate::protocol::attribution::{
-        AggregateCreditOutputRow, CappedCreditsWithAggregationBit, CreditCappingOutputRow,
-    };
+    use crate::protocol::attribution::accumulate_credit::AttributionTestInput;
+    use crate::protocol::attribution::{CappedCreditsWithAggregationBit, CreditCappingOutputRow};
     use crate::rand::Rng;
     use crate::secret_sharing::{IntoShares, Replicated};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
@@ -368,26 +404,6 @@ pub(crate) mod tests {
                     credit: c2,
                 },
             ]
-        }
-    }
-
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AggregateCreditOutputRow<F>; 3] {
-        fn reconstruct(&self) -> AttributionTestInput<F> {
-            [&self[0], &self[1], &self[2]].reconstruct()
-        }
-    }
-
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AggregateCreditOutputRow<F>; 3] {
-        fn reconstruct(&self) -> AttributionTestInput<F> {
-            let s0 = &self[0];
-            let s1 = &self[1];
-            let s2 = &self[2];
-
-            let breakdown_key =
-                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
-
-            AttributionTestInput([breakdown_key, credit, F::ZERO, F::ZERO])
         }
     }
 

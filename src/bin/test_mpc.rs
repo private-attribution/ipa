@@ -63,6 +63,7 @@ enum InputType {
 enum TestAction {
     /// Execute end-to-end multiplication.
     Multiply,
+    SemiHonestIPA,
 }
 
 fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
@@ -109,6 +110,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             InputType::Int64 => panic!("Only field values are supported"),
         },
+        TestAction::SemiHonestIPA => {}
     };
 
     Ok(())

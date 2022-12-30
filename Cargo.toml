@@ -6,7 +6,7 @@ edition = "2021"
 
 [features]
 default = ["debug", "cli"]
-cli = ["comfy-table", "clap", "enable-serde", "metrics-tracing-context", "metrics-util", "tracing-subscriber", "web-app"]
+cli = ["comfy-table", "clap", "enable-serde", "metrics-tracing-context", "metrics-util", "tracing-subscriber", "web-app", "test-fixture"]
 debug = []
 enable-serde = ["serde", "serde_json"]
 web-app = ["tokio", "tokio-stream", "tokio-util", "axum", "axum-server", "hyper", "hyper-tls", "tower", "tower-http"]
