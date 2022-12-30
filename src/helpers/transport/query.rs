@@ -26,6 +26,8 @@ pub struct PrepareQuery {
 pub struct QueryInput {
     pub query_id: QueryId,
     pub field_type: FieldType,
+    // TODO: there are no errors that need to be streamed from client to server.
+    // this type should be just a Stream<Item = Vec<u8>>
     pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, Error>> + Send>>,
 }
 
@@ -74,7 +76,7 @@ impl From<QueryCommand> for TransportCommand {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum QueryType {
-    #[cfg(any(test, feature = "test-fixture"))]
+    #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
     IPA,
 }
@@ -87,7 +89,7 @@ impl QueryType {
 impl AsRef<str> for QueryType {
     fn as_ref(&self) -> &str {
         match self {
-            #[cfg(any(test, feature = "test-fixture"))]
+            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::IPA => Self::IPA_STR,
         }

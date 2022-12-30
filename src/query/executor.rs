@@ -33,7 +33,7 @@ impl<F: Field> Result for Vec<Replicated<F>> {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 async fn test_multiply<
     F: Field,
     St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin,
@@ -99,7 +99,7 @@ pub fn start_query<
             FieldType::Fp31 => {
                 let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                 match config.query_type {
-                    #[cfg(any(test, feature = "test-fixture"))]
+                    #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                     QueryType::TestMultiply => {
                         Box::new(test_multiply(ctx, input).await) as Box<dyn Result>
                     }

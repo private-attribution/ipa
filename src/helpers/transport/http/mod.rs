@@ -4,6 +4,7 @@ mod client;
 mod server;
 mod transport;
 
+pub use client::MpcHelperClient;
 pub use transport::HttpTransport;
 
 use crate::{

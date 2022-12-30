@@ -23,6 +23,7 @@ pub mod test_fixture;
 
 mod tests;
 
+extern crate core;
 #[cfg(all(feature = "shuttle", test))]
 extern crate shuttle_crate as shuttle;
 

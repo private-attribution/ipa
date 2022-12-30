@@ -130,6 +130,28 @@ impl MpcHelperClient {
         }
     }
 
+    /// Wait for completion of the query and pull the results of this query. This is a blocking
+    /// API so it is not supposed to be used outside of CLI context.
+    ///
+    /// ## Errors
+    /// If there is any problem with communicating with the helper server
+    #[cfg(feature = "cli")]
+    pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
+        let uri = self.build_uri(format!("/query/{}/complete/", query_id.as_ref()))?;
+
+        let req = Request::get(uri).body(Body::empty())?;
+
+        let resp = self.client.request(req).await?;
+        if resp.status().is_success() {
+            Ok(body::to_bytes(resp.into_body()).await.unwrap())
+        } else {
+            Err(Error::from_failed_resp(resp).await)
+        }
+    }
+
+    /// TODO: we need a client that can be used by any system that is not aware of the internals
+    /// of the helper network. That means that create query and send inputs API need to be separated
+    /// from prepare/step data etc.
     pub async fn prepare_query(
         &self,
         origin: &HelperIdentity,
