@@ -269,7 +269,7 @@ where
                 let m_share = share.upgrade(v.context()).await;
                 let m_result = helper_fn(v.context(), m_share).await;
                 let m_result_clone = m_result.clone();
-                let r_share = v.r_share().to_owned();
+                let r_share = v.r_share().clone();
                 let output = v.validate(m_result_clone).await.unwrap();
                 (m_result, r_share, output)
             })
