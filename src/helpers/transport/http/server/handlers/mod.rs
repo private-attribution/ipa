@@ -8,7 +8,7 @@ mod step;
 use crate::{
     ff::FieldType,
     helpers::{
-        query::{QueryConfig, QueryType},
+        query::{IPAQueryConfig, QueryConfig, QueryType},
         transport::http::server::Error,
         CommandEnvelope,
     },
@@ -42,7 +42,12 @@ impl<B: Send> FromRequest<B> for QueryConfigFromReq {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
             QueryType::IPA_STR => {
-                panic!("don't know how to construct IPA query type yet");
+                // TODO: these are hard-coded, but should be retrieved from the request
+                Ok(QueryType::IPA(IPAQueryConfig {
+                    num_bits: 20,
+                    per_user_credit_cap: 3,
+                    max_breakdown_key: 3,
+                }))
             }
             other => Err(Error::bad_query_value("query_type", other)),
         }?;

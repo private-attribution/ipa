@@ -152,6 +152,7 @@ mod e2e_tests {
     use crate::ff::Fp31;
     use crate::helpers::query::QueryInput;
     use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::test_fixture::Reconstruct;
     use crate::{
         ff::FieldType,
         helpers::{
@@ -256,5 +257,16 @@ mod e2e_tests {
         let handle_next = handle_all_next(&mut processors);
         let (resps, _) = join!(try_join_all(handle_resps), handle_next);
         resps.unwrap();
+
+        let result: [_; 3] = join_all(processors.map(|mut processor| async move {
+            let r = processor.complete(query_id).await.unwrap().into_bytes();
+            Replicated::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+        }))
+        .await
+        .try_into()
+        .unwrap();
+
+        let res = result.reconstruct();
+        assert_eq!(Fp31::from(20u128), res[0]);
     }
 }

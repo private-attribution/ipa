@@ -85,7 +85,9 @@ pub struct IPAInputRow<F: Field> {
 }
 
 impl<F: Field> IPAInputRow<F> {
-    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+    // TODO: hard-coded right now where F == FP31; fix this. using mem gave padded size, which is
+    //       wrong
+    pub const SIZE_IN_BYTES: usize = 22;
 
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.
