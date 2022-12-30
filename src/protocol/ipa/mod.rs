@@ -85,9 +85,8 @@ pub struct IPAInputRow<F: Field> {
 }
 
 impl<F: Field> IPAInputRow<F> {
-    // TODO: hard-coded right now where F == FP31; fix this. using mem gave padded size, which is
-    //       wrong
-    pub const SIZE_IN_BYTES: usize = 22;
+    pub const SIZE_IN_BYTES: usize =
+        3 * Replicated::<F>::SIZE_IN_BYTES + XorReplicated::SIZE_IN_BYTES;
 
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.

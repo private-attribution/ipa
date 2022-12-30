@@ -8,7 +8,7 @@ pub struct XorReplicated {
 }
 
 impl XorReplicated {
-    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+    pub const SIZE_IN_BYTES: usize = 2 * std::mem::size_of::<u64>();
 
     #[must_use]
     pub fn new(left: u64, right: u64) -> Self {
