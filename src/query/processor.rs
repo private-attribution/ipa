@@ -215,6 +215,7 @@ impl<T: Transport + Clone> Processor<T> {
     /// if command is not a query command or if the command stream is closed
     pub async fn handle_next(&mut self) {
         if let Some(command) = self.command_stream.next().await {
+            tracing::trace!("new command: {:?}", command);
             match command.payload {
                 TransportCommand::Query(QueryCommand::Create(req, resp)) => {
                     let result = self.new_query(req).await.unwrap();

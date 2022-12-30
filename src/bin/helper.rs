@@ -9,6 +9,8 @@ use raw_ipa::cli::helpers_config;
 use raw_ipa::helpers::transport::http::discovery::PeerDiscovery;
 use raw_ipa::helpers::transport::http::HttpTransport;
 use raw_ipa::helpers::HelperIdentity;
+use raw_ipa::helpers::Transport;
+use raw_ipa::query::Processor;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -37,10 +39,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _handle = args.logging.setup_logging();
     let config = helpers_config();
 
-    let helper = HttpTransport::new(
-        HelperIdentity::try_from(args.identity).unwrap(),
-        Arc::new(config.peers_map().clone()),
-    );
+    let my_identity = HelperIdentity::try_from(args.identity).unwrap();
+    let helper = HttpTransport::new(my_identity.clone(), Arc::new(config.peers_map().clone()));
+    let mut all_identities = HelperIdentity::make_three()
+        .into_iter()
+        .filter(|id| id != &my_identity);
+
+    let processor_identities = [
+        my_identity.clone(),
+        all_identities.next().unwrap(),
+        all_identities.next().unwrap(),
+    ];
+
+    let query_handle = tokio::spawn({
+        let helper = helper.clone();
+        async {
+            let my_identity = helper.identity();
+            let mut query_processor = Processor::new(helper, processor_identities).await;
+            loop {
+                tracing::debug!(
+                    "Query processor is active and listening as {:?}",
+                    my_identity
+                );
+                query_processor.handle_next().await;
+            }
+        }
+    });
     let (addr, server_handle) = helper.bind().await;
 
     info!(
@@ -49,6 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let _ = std::io::stdin().read_line(&mut String::new())?;
     server_handle.abort();
+    query_handle.abort();
 
     Ok(())
 }
