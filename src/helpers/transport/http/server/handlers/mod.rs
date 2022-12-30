@@ -2,6 +2,7 @@ mod create_query;
 mod echo;
 mod prepare_query;
 mod query_input;
+mod query_results;
 mod step;
 
 use crate::{
@@ -52,6 +53,7 @@ impl<B: Send> FromRequest<B> for QueryConfigFromReq {
     }
 }
 
+// TODO: move all query handlers to query sub folder
 pub fn router(
     transport_sender: mpsc::Sender<CommandEnvelope>,
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
@@ -59,6 +61,7 @@ pub fn router(
     echo::router()
         .merge(create_query::router(transport_sender.clone()))
         .merge(prepare_query::router(transport_sender.clone()))
-        .merge(query_input::router(transport_sender))
+        .merge(query_input::router(transport_sender.clone()))
+        .merge(query_results::router(transport_sender))
         .merge(step::router(ongoing_queries))
 }

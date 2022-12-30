@@ -230,7 +230,7 @@ impl MpcHelperClient {
     /// if there is a problem reading the response body
     #[cfg(feature = "cli")]
     pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
-        let uri = self.build_uri(format!("/query/{}/complete/", query_id.as_ref()))?;
+        let uri = self.build_uri(format!("/query/{}/complete", query_id.as_ref()))?;
 
         let req = Request::get(uri).body(Body::empty())?;
 
