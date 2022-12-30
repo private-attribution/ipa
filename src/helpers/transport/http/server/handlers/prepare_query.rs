@@ -50,6 +50,6 @@ async fn handler(
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route("query/:query_id", post(handler))
+        .route("/query/:query_id", post(handler))
         .layer(Extension(transport_sender))
 }

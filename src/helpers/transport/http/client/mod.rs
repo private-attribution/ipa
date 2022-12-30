@@ -21,7 +21,7 @@ use axum::{
     },
 };
 use futures::Stream;
-use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
+use hyper::{body, client::HttpConnector, header::CONTENT_TYPE, Body, Client, Response, Uri};
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -33,6 +33,9 @@ pub struct HttpSendMessagesArgs<'a> {
     pub messages: Bytes,
 }
 
+/// TODO: we need a client that can be used by any system that is not aware of the internals
+///       of the helper network. That means that create query and send inputs API need to be
+///       separated from prepare/step data etc.
 #[allow(clippy::type_complexity)] // TODO: maybe alias a type for the `dyn Stream`
 #[derive(Debug, Clone)]
 pub struct MpcHelperClient {
@@ -48,7 +51,7 @@ pub struct MpcHelperClient {
 impl MpcHelperClient {
     #[must_use]
     pub fn from_conf(
-        peers_conf: &'static HashMap<HelperIdentity, peer::Config>,
+        peers_conf: &HashMap<HelperIdentity, peer::Config>,
     ) -> HashMap<HelperIdentity, MpcHelperClient> {
         let mut clients = HashMap::with_capacity(peers_conf.len());
         for (id, conf) in peers_conf {
@@ -113,6 +116,10 @@ impl MpcHelperClient {
         }
     }
 
+    /// Intended to be called externally, e.g. by the report collector. Informs the MPC ring that
+    /// the external party wants to start a new query.
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
         let uri = self.build_uri(format!(
             "/query?field_type={}&query_type={}",
@@ -130,28 +137,11 @@ impl MpcHelperClient {
         }
     }
 
-    /// Wait for completion of the query and pull the results of this query. This is a blocking
-    /// API so it is not supposed to be used outside of CLI context.
-    ///
-    /// ## Errors
-    /// If there is any problem with communicating with the helper server
-    #[cfg(feature = "cli")]
-    pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
-        let uri = self.build_uri(format!("/query/{}/complete/", query_id.as_ref()))?;
-
-        let req = Request::get(uri).body(Body::empty())?;
-
-        let resp = self.client.request(req).await?;
-        if resp.status().is_success() {
-            Ok(body::to_bytes(resp.into_body()).await.unwrap())
-        } else {
-            Err(Error::from_failed_resp(resp).await)
-        }
-    }
-
-    /// TODO: we need a client that can be used by any system that is not aware of the internals
-    /// of the helper network. That means that create query and send inputs API need to be separated
-    /// from prepare/step data etc.
+    /// Used to communicate from one helper to another. Specifically, the helper that receives a
+    /// "create query" from an external party must communicate the intent to start a query to the
+    /// other helpers, which this prepare query does.
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn prepare_query(
         &self,
         origin: &HelperIdentity,
@@ -168,11 +158,19 @@ impl MpcHelperClient {
         };
         let body = PrepareQueryBody { roles: data.roles };
         let body = Body::from(serde_json::to_string(&body)?);
-        let req = origin_header.add_to(Request::post(uri)).body(body)?;
+        let req = origin_header
+            .add_to(Request::post(uri))
+            .header(CONTENT_TYPE, "application/json")
+            .body(body)?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
     }
 
+    /// Intended to be called externally, e.g. by the report collector. After the report collector
+    /// calls "create query", it must then send the data for the query to each of the clients. This
+    /// query input contains the data intended for a helper.
+    /// # Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
         let uri = self.build_uri(format!(
             "/query/{}/input?field_type={}",
@@ -180,7 +178,9 @@ impl MpcHelperClient {
             data.field_type.as_ref()
         ))?;
         let body = StreamBody::new(data.input_stream);
-        let req = Request::post(uri).body(body)?;
+        let req = Request::post(uri)
+            .header(CONTENT_TYPE, "application/octet-stream")
+            .body(body)?;
         let resp = self.streaming_client.request(req).await?;
         Self::resp_ok(resp).await
     }
@@ -212,9 +212,32 @@ impl MpcHelperClient {
 
         let body = Body::from(payload);
         let req = Request::post(uri);
-        let req = headers.add_to(origin_header.add_to(req));
+        let req = headers
+            .add_to(origin_header.add_to(req))
+            .header(CONTENT_TYPE, "application/octet-stream");
         let req = req.body(body)?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
+    }
+
+    /// Wait for completion of the query and pull the results of this query. This is a blocking
+    /// API so it is not supposed to be used outside of CLI context.
+    ///
+    /// ## Errors
+    /// If the request has illegal arguments, or fails to deliver to helper
+    /// # Panics
+    /// if there is a problem reading the response body
+    #[cfg(feature = "cli")]
+    pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
+        let uri = self.build_uri(format!("/query/{}/complete/", query_id.as_ref()))?;
+
+        let req = Request::get(uri).body(Body::empty())?;
+
+        let resp = self.client.request(req).await?;
+        if resp.status().is_success() {
+            Ok(body::to_bytes(resp.into_body()).await.unwrap())
+        } else {
+            Err(Error::from_failed_resp(resp).await)
+        }
     }
 }

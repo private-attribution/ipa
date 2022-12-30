@@ -23,7 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 pub struct HttpTransport {
     id: HelperIdentity,
-    peers_conf: &'static HashMap<HelperIdentity, peer::Config>,
+    peers_conf: Arc<HashMap<HelperIdentity, peer::Config>>,
     subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<CommandEnvelope>>>>,
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
     server: MpcHelperServer,
@@ -34,12 +34,12 @@ impl HttpTransport {
     #[must_use]
     pub fn new(
         id: HelperIdentity,
-        peers_conf: &'static HashMap<HelperIdentity, peer::Config>,
+        peers_conf: Arc<HashMap<HelperIdentity, peer::Config>>,
     ) -> Arc<Self> {
         let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         let server = MpcHelperServer::new(subscribe_sender, Arc::clone(&ongoing_queries));
-        let clients = MpcHelperClient::from_conf(peers_conf);
+        let clients = MpcHelperClient::from_conf(&peers_conf);
         Arc::new(Self {
             id,
             peers_conf,
@@ -147,13 +147,16 @@ impl Transport for Arc<HttpTransport> {
 #[cfg(test)]
 mod e2e_tests {
     use super::*;
-    // use crate::ff::FieldType;
-    // use crate::helpers::query::{QueryConfig, QueryType};
-    // use crate::helpers::transport::http::discovery;
-    // use crate::helpers::transport::http::discovery::PeerDiscovery;
-    use crate::query::Processor;
-    // use crate::test_fixture::net::localhost_config_map;
-    // use futures_util::future::join_all;
+    use crate::{
+        ff::FieldType,
+        helpers::{
+            query::{QueryConfig, QueryType},
+            transport::http::discovery::PeerDiscovery,
+        },
+        query::Processor,
+        test_fixture::net::localhost_config_map,
+    };
+    use futures_util::join;
 
     fn open_port() -> u16 {
         std::net::UdpSocket::bind("127.0.0.1:0")
@@ -164,37 +167,50 @@ mod e2e_tests {
     }
 
     async fn make_processors(
-        conf: &'static HashMap<HelperIdentity, peer::Config>,
-    ) -> HashMap<HelperIdentity, Processor<Arc<HttpTransport>>> {
-        let ids: [HelperIdentity; 3] = conf
-            .keys()
-            .map(Clone::clone)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        conf: Arc<HashMap<HelperIdentity, peer::Config>>,
+    ) -> [Processor<Arc<HttpTransport>>; 3] {
+        let ids: [HelperIdentity; 3] = [
+            HelperIdentity::try_from(1usize).unwrap(),
+            HelperIdentity::try_from(2usize).unwrap(),
+            HelperIdentity::try_from(3usize).unwrap(),
+        ];
 
-        let mut processors = HashMap::with_capacity(ids.len());
+        let mut processors = Vec::with_capacity(ids.len());
         for this_id in ids.clone() {
-            let transport = HttpTransport::new(this_id.clone(), conf);
+            let transport = HttpTransport::new(this_id.clone(), Arc::clone(&conf));
+            transport.bind().await;
             let processor = Processor::new(transport, ids.clone()).await;
-            processors.insert(this_id, processor);
+            processors.push(processor);
         }
-        processors
+        processors.try_into().unwrap()
     }
 
-    // #[tokio::test]
-    // async fn happy_case() {
-    //     static CONF: discovery::conf::Conf =
-    //         localhost_config_map([open_port(), open_port(), open_port()]);
-    //     let peers_conf = CONF.peers_map();
-    //     let ps = make_processors(peers_conf).await;
-    //     // send a create query command
-    //     let leader_id = ps.keys().next().unwrap();
-    //     let leader_client = MpcHelperClient::new(peers_conf.get(leader_id).unwrap().origin.clone());
-    //     let create_data = QueryConfig {
-    //         field_type: FieldType::Fp31,
-    //         query_type: QueryType::TestMultiply,
-    //     };
-    //     let query_id = leader_client.create_query(create_data).await.unwrap();
-    // }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn happy_case() {
+        let conf = localhost_config_map([open_port(), open_port(), open_port()]);
+        let peers_conf = Arc::new(conf.peers_map().clone());
+        let [mut leader_processor, mut follower1_processor, mut follower2_processor] =
+            make_processors(Arc::clone(&peers_conf)).await;
+        // send a create query command
+        let leader_id = HelperIdentity::try_from(1usize).unwrap();
+
+        let leader_client =
+            MpcHelperClient::new(peers_conf.get(&leader_id).unwrap().origin.clone());
+        let create_data = QueryConfig {
+            field_type: FieldType::Fp31,
+            query_type: QueryType::TestMultiply,
+        };
+
+        // create query
+        let (query_id, _, _, _) = join!(
+            leader_client.create_query(create_data),
+            leader_processor.handle_next(),
+            follower1_processor.handle_next(),
+            follower2_processor.handle_next()
+        );
+        let _query_id = query_id.unwrap();
+
+        // send input
+        // TODO...
+    }
 }
