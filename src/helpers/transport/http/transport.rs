@@ -147,6 +147,9 @@ impl Transport for Arc<HttpTransport> {
 #[cfg(test)]
 mod e2e_tests {
     use super::*;
+    use crate::ff::Fp31;
+    use crate::helpers::query::QueryInput;
+    use crate::secret_sharing::{IntoShares, Replicated};
     use crate::{
         ff::FieldType,
         helpers::{
@@ -156,7 +159,8 @@ mod e2e_tests {
         query::Processor,
         test_fixture::net::localhost_config_map,
     };
-    use futures_util::join;
+    use futures_util::future::{join_all, try_join_all};
+    use futures_util::{join, stream};
 
     fn open_port() -> u16 {
         std::net::UdpSocket::bind("127.0.0.1:0")
@@ -167,16 +171,11 @@ mod e2e_tests {
     }
 
     async fn make_processors(
+        ids: &[HelperIdentity; 3],
         conf: Arc<HashMap<HelperIdentity, peer::Config>>,
     ) -> [Processor<Arc<HttpTransport>>; 3] {
-        let ids: [HelperIdentity; 3] = [
-            HelperIdentity::try_from(1usize).unwrap(),
-            HelperIdentity::try_from(2usize).unwrap(),
-            HelperIdentity::try_from(3usize).unwrap(),
-        ];
-
         let mut processors = Vec::with_capacity(ids.len());
-        for this_id in ids.clone() {
+        for this_id in ids {
             let transport = HttpTransport::new(this_id.clone(), Arc::clone(&conf));
             transport.bind().await;
             let processor = Processor::new(transport, ids.clone()).await;
@@ -185,32 +184,75 @@ mod e2e_tests {
         processors.try_into().unwrap()
     }
 
+    fn make_clients(
+        ids: &[HelperIdentity; 3],
+        conf: &HashMap<HelperIdentity, peer::Config>,
+    ) -> [MpcHelperClient; 3] {
+        ids.iter()
+            .map(|id| MpcHelperClient::new(conf.get(id).unwrap().origin.clone()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
+    }
+
+    async fn handle_all_next(processors: &mut [Processor<Arc<HttpTransport>>; 3]) {
+        let mut handles = Vec::with_capacity(processors.len());
+        for processor in processors {
+            handles.push(processor.handle_next());
+        }
+        join_all(handles).await;
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
+        const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
         let conf = localhost_config_map([open_port(), open_port(), open_port()]);
         let peers_conf = Arc::new(conf.peers_map().clone());
-        let [mut leader_processor, mut follower1_processor, mut follower2_processor] =
-            make_processors(Arc::clone(&peers_conf)).await;
-        // send a create query command
-        let leader_id = HelperIdentity::try_from(1usize).unwrap();
+        let ids: [HelperIdentity; 3] = [
+            HelperIdentity::try_from(1usize).unwrap(),
+            HelperIdentity::try_from(2usize).unwrap(),
+            HelperIdentity::try_from(3usize).unwrap(),
+        ];
+        let mut processors = make_processors(&ids, Arc::clone(&peers_conf)).await;
+        let clients = make_clients(&ids, &peers_conf);
 
-        let leader_client =
-            MpcHelperClient::new(peers_conf.get(&leader_id).unwrap().origin.clone());
+        // send a create query command
+        let leader_client = &clients[0];
         let create_data = QueryConfig {
             field_type: FieldType::Fp31,
             query_type: QueryType::TestMultiply,
         };
 
         // create query
-        let (query_id, _, _, _) = join!(
-            leader_client.create_query(create_data),
-            leader_processor.handle_next(),
-            follower1_processor.handle_next(),
-            follower2_processor.handle_next()
-        );
-        let _query_id = query_id.unwrap();
+        let create_query = leader_client.create_query(create_data);
+        let handle_next = handle_all_next(&mut processors);
+        let (query_id, _) = join!(create_query, handle_next);
+
+        let query_id = query_id.unwrap();
 
         // send input
-        // TODO...
+        let a = Fp31::from(4u128);
+        let b = Fp31::from(5u128);
+
+        let helper_shares = (a, b).share().map(|(a, b)| {
+            let mut slice = [0u8; 2 * SZ];
+            a.serialize(&mut slice).unwrap();
+            b.serialize(&mut slice[SZ..]).unwrap();
+            let oks = std::iter::once(slice.to_vec()).map(Ok);
+            Box::pin(stream::iter(oks))
+        });
+
+        let mut handle_resps = Vec::with_capacity(helper_shares.len());
+        for (i, input_stream) in helper_shares.into_iter().enumerate() {
+            let data = QueryInput {
+                query_id,
+                field_type: FieldType::Fp31,
+                input_stream,
+            };
+            handle_resps.push(clients[i].query_input(data));
+        }
+        let handle_next = handle_all_next(&mut processors);
+        let (resps, _) = join!(try_join_all(handle_resps), handle_next);
+        resps.unwrap();
     }
 }

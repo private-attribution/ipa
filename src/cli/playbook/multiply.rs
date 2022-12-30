@@ -11,7 +11,6 @@ use futures_util::stream;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
 /// `(a, b)` will produce `a` * `b`.
-#[allow(clippy::unused_async)] // soon it will be used
 #[allow(clippy::missing_panics_doc)]
 pub async fn secure_mul<F>(
     input: InputSource,

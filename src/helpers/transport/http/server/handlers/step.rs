@@ -54,6 +54,6 @@ pub fn router(
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
 ) -> Router {
     Router::new()
-        .route("/query/:query_id/step/:step", post(handler))
+        .route("/query/:query_id/step/*step", post(handler))
         .layer(Extension(ongoing_queries))
 }
