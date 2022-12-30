@@ -205,26 +205,17 @@ async fn compute_b_bit<F: Field>(
     Ok(b)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
-pub(crate) mod tests {
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
+#[cfg(feature = "test-fixture")]
+pub use test_input::AttributionTestInput;
 
-    use crate::protocol::sort::apply_sort::shuffle::Resharable;
-    use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::IntoShares;
-    use crate::secret_sharing::Replicated;
-    use crate::{
-        ff::{Field, Fp31},
-        helpers::Role,
-        protocol::attribution::{
-            accumulate_credit::accumulate_credit,
-            tests::{BD, H, S, T},
-            AttributionInputRow,
-        },
-        protocol::RecordId,
-        test_fixture::{Reconstruct, Runner, TestWorld},
-    };
+#[cfg(feature = "test-fixture")]
+mod test_input {
+    use crate::ff::{Field, Fp31};
+    use crate::protocol::attribution::AttributionInputRow;
+    use crate::rand::Rng;
+    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::test_fixture::Reconstruct;
+    use rand::distributions::{Distribution, Standard};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct AttributionTestInput<F>(pub [F; 4]);
@@ -303,6 +294,25 @@ pub(crate) mod tests {
             ]
         }
     }
+}
+
+#[cfg(all(test, not(feature = "shuttle")))]
+pub(crate) mod tests {
+    use crate::protocol::attribution::accumulate_credit::AttributionTestInput;
+    use crate::protocol::sort::apply_sort::shuffle::Resharable;
+    use crate::rand::{thread_rng, Rng};
+    use crate::{
+        ff::{Field, Fp31},
+        helpers::Role,
+        protocol::attribution::{
+            accumulate_credit::accumulate_credit,
+            tests::{BD, H, S, T},
+            AttributionInputRow,
+        },
+        protocol::RecordId,
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
+
     #[tokio::test]
     pub async fn accumulate() {
         const TEST_CASE: &[[u128; 5]; 19] = &[
