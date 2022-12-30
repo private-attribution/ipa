@@ -38,11 +38,8 @@ pub struct CommandInput {
     )]
     input_file: Option<PathBuf>,
 
-    #[arg(value_enum, long, default_value_t = InputType::Fp32BitPrime, help = "Convert the input into the given field before sending to helpers")]
+    #[arg(value_enum, long, default_value_t = InputType::Fp31, help = "Convert the input into the given field before sending to helpers")]
     input_type: InputType,
-
-    #[arg(long, help = "helper endpoint to talk to")]
-    endpoint: String,
 }
 
 impl From<&CommandInput> for InputSource {

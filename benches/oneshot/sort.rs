@@ -1,3 +1,4 @@
+use rand::{thread_rng, Rng};
 use raw_ipa::error::Error;
 use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
@@ -5,7 +6,6 @@ use raw_ipa::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_l
 use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
-use shuttle_crate::rand::{thread_rng, Rng};
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
