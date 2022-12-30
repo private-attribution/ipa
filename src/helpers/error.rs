@@ -1,9 +1,10 @@
+use crate::helpers::TransportError;
 use crate::{
     error::BoxError,
     helpers::{
         messaging::{ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
-        transport, HelperIdentity, Role,
+        HelperIdentity, Role,
     },
     net::MpcHelperServerError,
     protocol::{RecordId, Step},
@@ -44,7 +45,7 @@ pub enum Error {
     #[error("identity had invalid format: {0}")]
     InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to send command on the transport: {0}")]
-    TransportError(#[from] transport::Error),
+    TransportError(#[from] TransportError),
     #[error("server encountered an error: {0}")]
     ServerError(#[from] MpcHelperServerError),
 }

@@ -2,12 +2,12 @@ mod error;
 
 pub use error::Error;
 
+use crate::helpers::TransportError;
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        transport::{
-            self,
-            http::{discovery::peer, CreateQueryResp, OriginHeader, PrepareQueryBody, StepHeaders},
+        transport::http::{
+            discovery::peer, CreateQueryResp, OriginHeader, PrepareQueryBody, StepHeaders,
         },
         HelperIdentity,
     },
@@ -39,7 +39,7 @@ pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>, Body>,
     streaming_client: Client<
         HttpsConnector<HttpConnector>,
-        StreamBody<Pin<Box<dyn Stream<Item = Result<Vec<u8>, transport::Error>> + Send>>>,
+        StreamBody<Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>>,
     >,
     scheme: uri::Scheme,
     authority: uri::Authority,

@@ -3,6 +3,7 @@ use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
 use crate::secret_sharing::{Replicated, SecretSharing};
+use std::io;
 
 pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
@@ -38,6 +39,52 @@ pub struct CappedCreditsWithAggregationBit<F: Field> {
 pub struct AggregateCreditOutputRow<F: Field> {
     breakdown_key: Replicated<F>,
     credit: Replicated<F>,
+}
+
+impl<F: Field> AggregateCreditOutputRow<F> {
+    // TODO: this gets repetitive. For the most of our structures we need to be able to serialize
+    // and deserialize them from a slice of bytes. Perhaps bincode crate or a homemade macro
+    // can make it easier to deal with?
+    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+
+    /// Serializes this instance into a mutable slice of bytes, writing from index 0.
+    ///
+    /// ## Errors
+    /// if buffer capacity is not sufficient to hold all the bytes.
+    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.breakdown_key.serialize(buf)?;
+        self.credit
+            .serialize(&mut buf[Replicated::<F>::SIZE_IN_BYTES..])?;
+
+        Ok(Self::SIZE_IN_BYTES)
+    }
+
+    /// Deserializes this instance from a slice of bytes
+    ///
+    /// ## Errors
+    /// if buffer does not have enough capacity to hold a valid value of this instance.
+    pub fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        let breakdown_key = Replicated::<F>::deserialize(buf)?;
+        let credit = Replicated::<F>::deserialize(&buf[Replicated::<F>::SIZE_IN_BYTES..])?;
+
+        Ok(Self {
+            breakdown_key,
+            credit,
+        })
+    }
+
+    /// Splits the given slice into chunks aligned with the size of this struct and returns an
+    /// iterator that produces deserialized instances.
+    ///
+    /// ## Panics
+    /// Panics if the slice buffer is not aligned with the size of this struct.
+    pub fn from_byte_slice(slice: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        assert_eq!(0, slice.len() % Self::SIZE_IN_BYTES);
+
+        slice
+            .chunks(Self::SIZE_IN_BYTES)
+            .map(|chunk| Self::deserialize(chunk).unwrap())
+    }
 }
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.

@@ -1,16 +1,15 @@
-use crate::{
-    ff::{Field, FieldType, Fp31},
-    helpers::{
-        messaging::Gateway,
-        negotiate_prss,
-        query::{QueryConfig, QueryType},
-        transport::Error,
-    },
-    protocol::{context::SemiHonestContext, Step},
-    secret_sharing::Replicated,
-    task::JoinHandle,
-};
+use crate::ff::{Field, FieldType, Fp31};
+use crate::helpers::messaging::Gateway;
+use crate::helpers::query::{IPAQueryConfig, QueryConfig, QueryType};
+use crate::helpers::{negotiate_prss, TransportError};
+use crate::protocol::attribution::AggregateCreditOutputRow;
+use crate::protocol::context::SemiHonestContext;
+use crate::protocol::ipa::{ipa, IPAInputRow};
+use crate::protocol::Step;
+use crate::secret_sharing::Replicated;
+use crate::task::JoinHandle;
 use futures::Stream;
+use futures_util::StreamExt;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
@@ -26,7 +25,30 @@ impl<F: Field> Result for Vec<Replicated<F>> {
         for (i, share) in self.into_iter().enumerate() {
             share
                 .serialize(&mut r[i * Replicated::<F>::SIZE_IN_BYTES..])
-                .unwrap_or_else(|_| panic!("{share:?} fits into a 16 byte slice"));
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "{share:?} cannot fit into {} byte slice",
+                        Replicated::<F>::SIZE_IN_BYTES
+                    )
+                });
+        }
+
+        r
+    }
+}
+
+impl<F: Field> Result for Vec<AggregateCreditOutputRow<F>> {
+    fn into_bytes(self: Box<Self>) -> Vec<u8> {
+        let mut r = vec![0u8; self.len() * AggregateCreditOutputRow::<F>::SIZE_IN_BYTES];
+
+        for (i, row) in self.into_iter().enumerate() {
+            row.serialize(&mut r[i * AggregateCreditOutputRow::<F>::SIZE_IN_BYTES..])
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "{row:?} cannot fit into {} byte slice",
+                        AggregateCreditOutputRow::<F>::SIZE_IN_BYTES
+                    )
+                });
         }
 
         r
@@ -34,16 +56,15 @@ impl<F: Field> Result for Vec<Replicated<F>> {
 }
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-async fn test_multiply<
+async fn execute_test_multiply<
     F: Field,
-    St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin,
+    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
 >(
     ctx: SemiHonestContext<'_, F>,
     mut input: St,
 ) -> Vec<Replicated<F>> {
     use crate::protocol::basics::SecureMul;
     use crate::protocol::RecordId;
-    use futures_util::StreamExt;
 
     let mut results = Vec::new();
     while let Some(v) = input.next().await {
@@ -72,16 +93,32 @@ async fn test_multiply<
     results
 }
 
-#[allow(clippy::unused_async)]
-async fn ipa<F: Field, St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin>(
-    _ctx: SemiHonestContext<'_, F>,
-    _input: St,
-) -> Vec<Replicated<F>> {
-    todo!()
+async fn execute_ipa<
+    F: Field,
+    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
+>(
+    ctx: SemiHonestContext<'_, F>,
+    query_config: IPAQueryConfig,
+    mut input: St,
+) -> Vec<AggregateCreditOutputRow<F>> {
+    let mut inputs = Vec::new();
+    while let Some(data) = input.next().await {
+        inputs.extend(IPAInputRow::<F>::from_byte_slice(&data.unwrap()));
+    }
+
+    ipa(
+        ctx,
+        &inputs,
+        query_config.num_bits,
+        query_config.per_user_credit_cap,
+        query_config.max_breakdown_key,
+    )
+    .await
+    .unwrap()
 }
 
 pub fn start_query<
-    St: Stream<Item = std::result::Result<Vec<u8>, Error>> + Send + Unpin + 'static,
+    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin + 'static,
 >(
     config: QueryConfig,
     gateway: Gateway,
@@ -101,9 +138,11 @@ pub fn start_query<
                 match config.query_type {
                     #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                     QueryType::TestMultiply => {
-                        Box::new(test_multiply(ctx, input).await) as Box<dyn Result>
+                        Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                     }
-                    QueryType::IPA => Box::new(ipa(ctx, input).await) as Box<dyn Result>,
+                    QueryType::IPA(config) => {
+                        Box::new(execute_ipa(ctx, config, input).await) as Box<dyn Result>
+                    }
                 }
             }
             FieldType::Fp32BitPrime => {
@@ -116,6 +155,7 @@ pub fn start_query<
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    use crate::protocol::ipa::test_cases;
     use crate::secret_sharing::IntoShares;
     use crate::test_fixture::{Reconstruct, TestWorld};
     use futures_util::future::join_all;
@@ -149,7 +189,7 @@ mod tests {
             helper_shares
                 .into_iter()
                 .zip(contexts)
-                .map(|(shares, context)| test_multiply(context, shares)),
+                .map(|(shares, context)| execute_test_multiply(context, shares)),
         )
         .await
         .try_into()
@@ -158,6 +198,40 @@ mod tests {
         let results = results.reconstruct();
 
         assert_eq!(vec![Fp31::from(12u128), Fp31::from(30u128)], results);
+    }
+
+    #[tokio::test]
+    async fn ipa() {
+        let records = test_cases::Simple::<Fp31>::default()
+            .share()
+            // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
+            .map(|shares| {
+                shares
+                    .iter()
+                    .flat_map(|share| {
+                        let mut buf = [0u8; IPAInputRow::<Fp31>::SIZE_IN_BYTES];
+                        share.serialize(&mut buf).unwrap();
+
+                        buf
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+        let world = TestWorld::new().await;
+        let contexts = world.contexts::<Fp31>();
+        let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
+            let query_config = IPAQueryConfig {
+                num_bits: 20,
+                per_user_credit_cap: 3,
+                max_breakdown_key: 3,
+            };
+            execute_ipa(ctx, query_config, stream::iter(std::iter::once(Ok(shares))))
+        }))
+        .await
+        .try_into()
+        .unwrap();
+
+        test_cases::Simple::<Fp31>::validate(&results);
     }
 
     #[test]

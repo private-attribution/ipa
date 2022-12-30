@@ -3,6 +3,7 @@ pub mod network;
 pub mod old_http;
 #[deprecated(note = "Use `Transport` instead")]
 pub mod old_network;
+/// TODO: the whole http module need to be moved to `net`
 pub mod transport;
 
 mod buffers;
@@ -16,6 +17,7 @@ pub use messaging::GatewayConfig;
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
+    TransportError,
 };
 
 use crate::helpers::{
