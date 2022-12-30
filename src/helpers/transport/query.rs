@@ -51,13 +51,13 @@ impl Debug for QueryCommand {
         write!(f, "QueryCommand: {:?}", self.query_id())?;
         match self {
             QueryCommand::Create(config, _) => {
-                write!(f, "[{:?}]", config)
+                write!(f, "[{config:?}]")
             }
             QueryCommand::Prepare(prepare, _) => {
-                write!(f, "[{:?}]", prepare)
+                write!(f, "[{prepare:?}]")
             }
             QueryCommand::Input(input, _) => {
-                write!(f, "[{:?}]", input)
+                write!(f, "[{input:?}]")
             }
             QueryCommand::Results(_, _) => {
                 write!(f, "[Results]")
