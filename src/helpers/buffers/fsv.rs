@@ -3,29 +3,16 @@ use bitvec::prelude::BitVec;
 use std::fmt::Debug;
 use std::ops::Range;
 
-/// A vector of bytes that never grows over a certain size or shrinks below that size.
-/// Vector is segmented into regions and `max_size` is a factor of number of regions.
-/// For example, if number of regions is `2`, then `max_size` must be a multiple of two.
+/// A store of bytes that allows for random access inserts, but contiguous removal.
 ///
-/// Elements can be added to this vector in random order as long as the total number of elements
-/// does not exceed the overall capacity of the vector. An attempt to do so, will lead to a panic.
-/// Every element is stored by a specific offset and it is assumed that all elements are of the same
-/// size.
+/// Fixed-sized elements can be added to this vector with [`insert`] in random order as long as
+/// the total number of elements does not exceed the overall capacity.
 ///
-/// The layout of the vector with some elements added to it is presented below. In this example,
-/// vector has 3 regions and `X` indicates that space at that element is occupied.
+/// Values are taken with [`take`] from the start of the buffer.  Taking values increases the
+/// maximum index that is permitted.
 ///
-///  region1  region2  region3
-/// `[X,_,_,_][X,_,X,_][_,X,_,X]`
-///
-/// Once `region1` is completely filled up, it is possible to drain the vector. Draining will cause
-/// **all** elements from the head of the queue to be removed
-///
-/// `[X,X,X,X][X,_,X,_][_,X,_,X] -> `take` -> [_,X,_,_][X,_,X,_][_,_,_,_]`
-///
-/// This vector is used inside the send buffer to keep track of messages added to it. Once first
-/// batch of messages is ready (region1 is full), it drains this vector and send those messages
-/// down to the network layer
+/// [`insert`]: Self::insert
+/// [`take`]: Self::take
 #[derive(Debug)]
 pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
@@ -46,9 +33,16 @@ impl<const N: usize> FixedSizeByteVec<N> {
         }
     }
 
-    /// Inserts a new element to the specified position, returning the previous element at this `index`.
+    /// Inserts a new element to the specified position.
+    ///
+    /// When inserting, `index` needs to be in range.  Values that are in range are within `capacity`
+    /// (as provided to [`new`]) of the last value that was taken with [`take`].
+    ///
     /// ## Panics
     /// Panics if `index` is out of bounds or if something was previously inserted at `index`.
+    ///
+    /// [`new`]: Self::new
+    /// [`take`]: Self::take
     pub fn insert<D: Debug>(&mut self, channel: D, index: usize, elem: &[u8; N]) {
         // Translate from an absolute index into a relative one.
         let index = index
