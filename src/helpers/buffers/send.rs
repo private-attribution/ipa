@@ -112,7 +112,10 @@ impl Config {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::{helpers::Role, protocol::Step};
+    use crate::{
+        helpers::Role,
+        protocol::{RecordId, Step},
+    };
     use tinyvec::array_vec;
 
     impl Clone for MessageEnvelope {
