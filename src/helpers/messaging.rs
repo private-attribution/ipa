@@ -191,8 +191,14 @@ impl Gateway {
                     Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        let data = send_buf.push(&channel_id, &envelope);
-                        pending_sends.push(send_message(&network, channel_id, data));
+                        if let Some(buf_to_send) = send_buf.push(&channel_id, &envelope) {
+                            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
+                            pending_sends.push(async { network
+                                .send((channel_id, buf_to_send))
+                                .await
+                                .expect("Failed to send data to the network");
+                            });
+                        }
                     }
                     Some(_) = &mut pending_sends.next() => {
                         pending_sends.clear();
@@ -288,24 +294,6 @@ impl Debug for ReceiveRequest {
             "ReceiveRequest({:?}, {:?})",
             self.channel_id, self.record_id
         )
-    }
-}
-
-async fn send_message<T: Transport>(
-    network: &Network<T>,
-    channel_id: ChannelId,
-    data: Result<Option<Vec<u8>>, PushError>,
-) {
-    match data {
-        Ok(Some(buf_to_send)) => {
-            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            network
-                .send((channel_id, buf_to_send))
-                .await
-                .expect("Failed to send data to the network");
-        }
-        Ok(None) => {}
-        Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
     }
 }
 
