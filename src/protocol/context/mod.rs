@@ -15,8 +15,8 @@ pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 
-use super::basics::Reshare;
 use super::basics::sum_of_product::SecureSop;
+use super::basics::Reshare;
 use super::boolean::RandomBits;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness

@@ -43,7 +43,7 @@ impl Debug for ChannelId {
 pub type MessageChunks = (ChannelId, Vec<u8>);
 
 /// Given any implementation of [`Transport`], a `Network` is able to send and receive
-/// [`MessageChunks`] for a specific query id. The [`Transport`] will receive [`StepData`]
+/// [`MessageChunks`] for a specific query id. The [`Transport`] will receive `StepData`
 /// containing the `MessageChunks`
 pub struct Network<T> {
     transport: T,
@@ -60,7 +60,7 @@ impl<T: Transport> Network<T> {
         }
     }
 
-    /// sends a [`StepData`] containing [`MessageChunks`] on the underlying [`Transport`]
+    /// sends a `StepData` containing [`MessageChunks`] on the underlying [`Transport`]
     /// # Errors
     /// if `message_chunks` fail to be delivered
     /// # Panics
