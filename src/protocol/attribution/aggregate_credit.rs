@@ -22,10 +22,7 @@ use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
 
 #[async_trait]
-impl<F: Field> Resharable<F> for CappedCreditsWithAggregationBit<F>
-where
-    F: Sized,
-{
+impl<F: Field + Sized> Resharable<F> for CappedCreditsWithAggregationBit<F> {
     type Share = Replicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -108,7 +105,7 @@ pub async fn aggregate_credit<F: Field>(
     {
         let end = num_rows - step_size;
         let c = ctx.narrow(&InteractionPatternStep::from(depth));
-        let mut futures = Vec::with_capacity(end as usize);
+        let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
             let c = c.clone();
@@ -226,17 +223,16 @@ async fn bit_decompose_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
 ) -> Result<Vec<Vec<Replicated<F>>>, Error> {
-    let random_bits_generator = RandomBitsGenerator::new();
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let rbg = &random_bits_generator;
     try_join_all(
         input
             .iter()
             .zip(repeat(ctx))
             .enumerate()
-            .map(|(i, (x, c))| {
-                let rbg = random_bits_generator.clone();
-                async move {
-                    BitDecomposition::execute(c, RecordId::from(i), rbg, &x.breakdown_key).await
-                }
+            .map(|(i, (x, c))| async move {
+                BitDecomposition::execute(c, RecordId::from(i), rbg, &x.breakdown_key).await
             })
             .collect::<Vec<_>>(),
     )
@@ -306,6 +302,7 @@ enum Step {
     SortByAttributionBit,
     AggregateCreditBTimesSuccessorCredit,
     BitDecomposeBreakdownKey,
+    RandomBitsForBitDecomposition,
     GeneratePermutationByBreakdownKey,
     ApplyPermutationOnBreakdownKey,
     GeneratePermutationByAttributionBit,
@@ -325,6 +322,7 @@ impl AsRef<str> for Step {
                 "aggregate_credit_b_times_successor_credit"
             }
             Self::BitDecomposeBreakdownKey => "bit_decompose_breakdown_key",
+            Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::GeneratePermutationByBreakdownKey => "generate_permutation_by_breakdown_key",
             Self::ApplyPermutationOnBreakdownKey => "apply_permutation_by_breakdown_key",
             Self::GeneratePermutationByAttributionBit => "generate_permutation_by_attribution_bit",
@@ -342,7 +340,6 @@ pub(crate) mod tests {
     use crate::protocol::attribution::{
         AggregateCreditOutputRow, CappedCreditsWithAggregationBit, CreditCappingOutputRow,
     };
-    use crate::protocol::QueryId;
     use crate::rand::Rng;
     use crate::secret_sharing::{IntoShares, Replicated};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
@@ -500,7 +497,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 aggregate_credit(ctx, &share, 8).await.unwrap()
@@ -606,7 +603,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
                 sort_by_breakdown_key(ctx, &share, 8).await.unwrap()

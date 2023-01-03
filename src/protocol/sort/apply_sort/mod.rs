@@ -50,7 +50,6 @@ mod tests {
     use crate::protocol::sort::apply_sort::apply_sort_permutation;
     use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
     use crate::protocol::IpaProtocolStep::SortPreAccumulation;
-    use crate::protocol::QueryId;
     use crate::rand::{thread_rng, Rng};
     use crate::test_fixture::{MaskedMatchKey, Reconstruct, Runner};
     use crate::{ff::Fp32BitPrime, test_fixture::TestWorld};
@@ -59,7 +58,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);

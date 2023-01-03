@@ -134,14 +134,14 @@ mod tests {
         use crate::protocol::prss::SharedRandomness;
         use crate::{
             helpers::Role,
-            protocol::{basics::Reshare, QueryId, RecordId},
+            protocol::{basics::Reshare, RecordId},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
         /// Validates that reshare protocol actually generates new shares using PRSS.
         #[tokio::test]
         async fn generates_unique_shares() {
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new().await;
 
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -174,7 +174,7 @@ mod tests {
         /// the input will pass this test. However `generates_unique_shares` will fail this implementation.
         #[tokio::test]
         async fn correct() {
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new().await;
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -200,7 +200,7 @@ mod tests {
         use crate::protocol::malicious::MaliciousValidator;
         use crate::protocol::prss::SharedRandomness;
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
-        use crate::protocol::{QueryId, RecordId};
+        use crate::protocol::RecordId;
         use crate::rand::{thread_rng, Rng};
         use crate::secret_sharing::{MaliciousReplicated, Replicated};
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
@@ -213,7 +213,7 @@ mod tests {
         /// it.
         #[tokio::test]
         async fn correct() {
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new().await;
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -306,7 +306,7 @@ mod tests {
 
         #[tokio::test]
         async fn malicious_validation_fail() {
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new().await;
             let mut rng = thread_rng();
 
             let a = rng.gen::<Fp32BitPrime>();
@@ -337,7 +337,7 @@ mod tests {
                                 .unwrap()
                         };
                         match v.validate(m_reshared_a).await {
-                            Ok(result) => panic!("Got a result {:?}", result),
+                            Ok(result) => panic!("Got a result {result:?}"),
                             Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                         }
                     })

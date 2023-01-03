@@ -113,7 +113,7 @@ pub async fn accumulate_credit<F: Field>(
         .enumerate()
     {
         let end = num_rows - step_size;
-        let mut futures = Vec::with_capacity(end as usize);
+        let mut futures = Vec::with_capacity(end);
         let c = ctx.narrow(&InteractionPatternStep::from(depth));
 
         for i in 0..end {
@@ -222,7 +222,7 @@ pub(crate) mod tests {
             tests::{BD, H, S, T},
             AttributionInputRow,
         },
-        protocol::{QueryId, RecordId},
+        protocol::RecordId,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -353,7 +353,7 @@ pub(crate) mod tests {
             ])
         });
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, input| async move {
                 accumulate_credit(ctx, &input).await.unwrap()
@@ -380,7 +380,7 @@ pub(crate) mod tests {
         let mut rng = thread_rng();
         let secret: [Fp31; 4] = [(); 4].map(|_| rng.gen::<Fp31>());
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         for &role in Role::all() {
             let new_shares = world

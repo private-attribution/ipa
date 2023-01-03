@@ -171,7 +171,6 @@ mod tests {
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
-        use crate::protocol::QueryId;
         use crate::secret_sharing::Replicated;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
@@ -179,7 +178,7 @@ mod tests {
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new().await;
             let mut rng = thread_rng();
 
             let mut input: Vec<AttributionTestInput<Fp31>> = Vec::with_capacity(BATCHSIZE.into());
@@ -234,7 +233,7 @@ mod tests {
             ];
             let some_numbers_as_bits =
                 some_numbers.map(|x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH));
-            let world = TestWorld::new(QueryId);
+            let world = TestWorld::new().await;
 
             let result = world
                 .semi_honest(

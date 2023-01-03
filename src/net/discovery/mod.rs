@@ -12,28 +12,43 @@ pub enum Error {
 }
 
 pub mod peer {
-    use axum::http::Uri;
+    use hyper::Uri;
+    #[cfg(feature = "enable-serde")]
+    use serde::de::Error;
+    #[cfg(feature = "enable-serde")]
+    use serde::{Deserialize, Deserializer};
     use x25519_dalek::PublicKey;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
     pub struct HttpConfig {
-        pub origin: Uri,
+        #[cfg_attr(feature = "enable-serde", serde(deserialize_with = "pk_from_str"))]
         pub public_key: PublicKey,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
+    #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
     pub struct Config {
-        pub http: HttpConfig,
+        #[cfg_attr(feature = "enable-serde", serde(with = "crate::uri"))]
+        pub origin: Uri,
+        pub tls: HttpConfig,
+    }
+
+    #[cfg(feature = "enable-serde")]
+    fn pk_from_str<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        let mut buf = [0_u8; 32];
+        hex::decode_to_slice(s, &mut buf).map_err(D::Error::custom)?;
+
+        Ok(PublicKey::from(buf))
     }
 }
 
-/// Provides a set of peer helpers for an MPC computation. Also includes the client pointing to the
-/// running server. Since the running server is aware of which [`crate::helpers::Role`] it is (`H1`, `H2`, or
-/// `H3`), it should be able to use only the references to other servers. However, it's possible for
-/// a server to send data to itself.
-///
+/// Provides a set of peer helpers for an MPC computation.
 /// Any potential failures should be captured in the initialization of the implementer.
-#[allow(clippy::module_name_repetitions)] // following standard naming convention
 pub trait PeerDiscovery {
     fn peers(&self) -> &[peer::Config; 3];
 }

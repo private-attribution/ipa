@@ -3,7 +3,7 @@ mod randomized {
     use crate::ff::Fp32BitPrime;
     use crate::helpers::Direction;
     use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::protocol::{QueryId, RecordId};
+    use crate::protocol::RecordId;
     use crate::secret_sharing::Replicated;
     use crate::test_fixture::Reconstruct;
     use crate::test_fixture::{Runner, TestWorld};
@@ -14,7 +14,7 @@ mod randomized {
         shuttle::check_random(
             || {
                 shuttle::future::block_on(async {
-                    let world = TestWorld::new(QueryId);
+                    let world = TestWorld::new().await;
                     let input = (0u32..100).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world
@@ -72,7 +72,7 @@ mod randomized {
         shuttle::check_random(
             || {
                 shuttle::future::block_on(async {
-                    let world = TestWorld::new(QueryId);
+                    let world = TestWorld::new().await;
                     let input = (0u32..10).map(Fp32BitPrime::from).collect::<Vec<_>>();
 
                     let output = world

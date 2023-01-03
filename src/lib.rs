@@ -4,6 +4,7 @@
 #![allow(clippy::similar_names)]
 #![allow(clippy::module_name_repetitions)]
 
+pub mod bits;
 pub mod chunkscan;
 pub mod cli;
 pub mod error;
@@ -13,6 +14,8 @@ pub mod net;
 pub mod protocol;
 pub mod secret_sharing;
 pub mod telemetry;
+#[cfg(feature = "enable-serde")]
+pub mod uri;
 
 #[cfg(any(test, feature = "test-fixture"))]
 pub mod test_fixture;

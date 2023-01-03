@@ -73,11 +73,11 @@ impl ReceiveBuffer {
                 Entry::Occupied(entry) => match entry.remove() {
                     ReceiveBufItem::Requested(s) => {
                         s.send(payload).unwrap_or_else(|_| {
-                            tracing::warn!("No listener for message {:?}", offset);
+                            tracing::warn!("No listener for message {offset:?}");
                         });
                     }
                     ReceiveBufItem::Received(_) => {
-                        panic!("Duplicate message for the same record {:?}", offset)
+                        panic!("Duplicate message for the same record {offset:?}")
                     }
                 },
                 Entry::Vacant(entry) => {

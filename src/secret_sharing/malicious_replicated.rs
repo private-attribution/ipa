@@ -36,9 +36,16 @@ pub trait Downgrade: Send {
 
 #[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
+impl<T> UnauthorizedDowngradeWrapper<T> {
+    pub(crate) fn new(v: T) -> Self {
+        Self(v)
+    }
+}
+
 pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
 }
+
 impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)

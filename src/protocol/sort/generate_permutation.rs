@@ -355,9 +355,8 @@ mod tests {
     use crate::test_fixture::{join3, MaskedMatchKey, Runner};
     use crate::{
         ff::{Field, Fp31},
-        protocol::{
-            sort::generate_permutation::{generate_permutation, shuffle_and_reveal_permutation},
-            QueryId,
+        protocol::sort::generate_permutation::{
+            generate_permutation, shuffle_and_reveal_permutation,
         },
         test_fixture::{generate_shares, Reconstruct, TestWorld},
     };
@@ -366,7 +365,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -413,7 +412,7 @@ mod tests {
         let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
         permutation.shuffle(&mut rng);
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let [ctx0, ctx1, ctx2] = world.contexts();
         let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 
@@ -449,7 +448,7 @@ mod tests {
     pub async fn malicious_sort_in_semi_honest() {
         const COUNT: usize = 5;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);

@@ -100,14 +100,14 @@ where
 mod test {
     use crate::{
         ff::Fp31,
-        protocol::{basics::SecureMul, QueryId, RecordId},
+        protocol::{basics::SecureMul, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     #[tokio::test]
     pub async fn simple() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
         let a = rng.gen::<Fp31>();

@@ -74,12 +74,12 @@ mod test {
 
     use crate::ff::{Field, Fp31};
     use crate::protocol::basics::sum_of_product::SecureSop;
-    use crate::protocol::{QueryId, RecordId};
+    use crate::protocol::RecordId;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
     #[tokio::test]
     async fn basic() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         assert_eq!(11, sop_sync::<Fp31>(&world, &[7], &[6]).await);
         assert_eq!(3, sop_sync::<Fp31>(&world, &[6, 2], &[5, 2]).await);
         assert_eq!(28, sop_sync::<Fp31>(&world, &[5, 3], &[5, 1]).await);
@@ -97,7 +97,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const MULTI_BIT_LEN: usize = 10;
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
 

@@ -74,7 +74,7 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn echo(&self, s: &str) -> Result<Vec<u8>, MpcHelperClientError> {
-        let uri = self.build_uri(format!("/echo?foo={}", s))?;
+        let uri = self.build_uri(format!("/echo?foo={s}"))?;
 
         let response = self.client.get(uri).await?;
         let result = hyper::body::to_bytes(response.into_body()).await?;
@@ -117,10 +117,12 @@ impl MpcHelperClient {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    #[allow(deprecated)]
     use crate::{
         helpers::{
             http::HttpNetwork,
-            network::{ChannelId, MessageChunks, Network},
+            network::{ChannelId, MessageChunks},
+            old_network::Network,
             Role, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::{server::MessageSendMap, BindTarget, MpcHelperServer},
@@ -128,6 +130,7 @@ mod tests {
     use futures::{Stream, StreamExt};
     use hyper_tls::native_tls::TlsConnector;
 
+    #[allow(deprecated)]
     async fn setup_server(bind_target: BindTarget) -> (u16, impl Stream<Item = MessageChunks>) {
         let network = HttpNetwork::new_without_clients(QueryId, None);
         let rx_stream = network.recv_stream();
@@ -171,8 +174,7 @@ mod tests {
 
         // setup client
         let client =
-            MpcHelperClient::with_str_addr(&format!("http://localhost:{}", port), Role::H1)
-                .unwrap();
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{port}"), Role::H1).unwrap();
 
         // test
         send_messages_req(client, rx_stream).await;
@@ -200,7 +202,7 @@ mod tests {
             role: Role::H1,
             client: hyper_client,
             scheme: uri::Scheme::HTTPS,
-            authority: uri::Authority::try_from(format!("localhost:{}", port)).unwrap(),
+            authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
         };
 
         // test

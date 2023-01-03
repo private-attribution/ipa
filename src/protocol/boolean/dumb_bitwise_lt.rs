@@ -174,7 +174,7 @@ mod tests {
     use crate::test_fixture::{get_bits, Runner};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{QueryId, RecordId},
+        protocol::RecordId,
         test_fixture::{into_bits, Reconstruct, TestWorld},
     };
     use proptest::prelude::Rng;
@@ -214,7 +214,7 @@ mod tests {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         assert_eq!(one, bitwise_lt(&world, zero, one).await);
         assert_eq!(zero, bitwise_lt(&world, one, zero).await);
@@ -234,7 +234,7 @@ mod tests {
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
         let u16_max: u32 = u16::MAX.into();
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         assert_eq!(one, bitwise_lt(&world, zero, one).await);
         assert_eq!(zero, bitwise_lt(&world, one, zero).await);
@@ -257,7 +257,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn cmp_different_bit_lengths() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         let input = (
             get_bits::<Fp31>(3, 8), // 8-bit
@@ -290,7 +290,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn cmp_random_32_bit_prime_field_elements() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rand = thread_rng();
         for _ in 0..1000 {
             let a = rand.gen::<Fp32BitPrime>();
@@ -306,7 +306,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn cmp_all_fp31() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(

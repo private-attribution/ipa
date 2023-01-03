@@ -42,8 +42,9 @@ pub async fn multi_bit_permutation_single<
 ) -> Result<Vec<S>, Error> {
     assert_eq!(input.len(), l_el);
     let share_of_one = ctx.share_of_one();
-    // let l_el = input[0].len();
+    let num_inputs = input[0].len();
     let twonminusone = 2 << l_el - 1;
+    let mut rec_no:usize = 0;
     let mut f = Vec::with_capacity(twonminusone);
     for j in 0..twonminusone {
         let b_bee = get_binary_from_int(j, l_el);
@@ -63,7 +64,7 @@ pub async fn multi_bit_permutation_single<
         }
         // multiply all D's for this j for each record => f(j)
         let mut out = Vec::new();
-        for rec in 0..l_el {
+        for rec in 0..num_inputs {
             let mut abc = Vec::new();
             for k in 0..l_el {
                 abc.push(d_dee[k][rec].clone());
@@ -71,11 +72,12 @@ pub async fn multi_bit_permutation_single<
             out.push(
                 multiply_all_shares(
                     ctx.narrow("multiply_across_bits"),
-                    RecordId::from(j),
+                    RecordId::from(rec_no),
                     abc.as_slice(),
                 )
                 .await?,
             );
+            rec_no += 1;
         }
         f.push(out);
     }
@@ -130,17 +132,16 @@ mod tests {
         ff::Fp31,
         protocol::{
             sort::multi_bit_permutation::{get_binary_from_int, multi_bit_permutation_single},
-            QueryId,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
     const INPUT2: [&[u128]; 2] = [&[1, 0], &[1, 0]];
-    const EXPECTED2: &[u128] = &[1, 0];
+    const EXPECTED2: &[u128] = &[2, 1];
 
     #[tokio::test]
     pub async fn semi_honest() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         let input: Vec<Vec<_>> = INPUT2
             .into_iter()

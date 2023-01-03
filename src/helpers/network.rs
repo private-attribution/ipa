@@ -1,23 +1,17 @@
-use crate::{
-    helpers::{error::Error, MessagePayload, Role},
-    protocol::{RecordId, Step},
-};
-use async_trait::async_trait;
-use futures::{ready, Stream};
-use pin_project::pin_project;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::sync::mpsc;
-use tokio_util::sync::{PollSendError, PollSender};
+#![allow(dead_code)] // will use these soon
 
-/// Combination of helper role and step that uniquely identifies a single channel of communication
-/// between two helpers.
-#[derive(Clone, Eq, PartialEq, Hash)]
-pub struct ChannelId {
-    pub role: Role,
-    pub step: Step,
-}
+use crate::helpers::transport::CommandOrigin;
+use crate::helpers::{MessagePayload, RoleAssignment};
+use crate::protocol::RecordId;
+use crate::{
+    helpers::{
+        transport::{SubscriptionType, Transport, TransportCommand},
+        Error, Role,
+    },
+    protocol::{QueryId, Step},
+};
+use futures::{Stream, StreamExt};
+use std::fmt::{Debug, Formatter};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {
@@ -25,21 +19,12 @@ pub struct MessageEnvelope {
     pub payload: MessagePayload,
 }
 
-pub type MessageChunks = (ChannelId, Vec<u8>);
-
-/// Network interface for components that require communication.
-#[async_trait]
-pub trait Network: Sync {
-    /// Type of the channel that is used to send messages to other helpers
-    type Sink: futures::Sink<MessageChunks, Error = Error> + Send + Unpin + 'static;
-    type MessageStream: Stream<Item = MessageChunks> + Send + Unpin + 'static;
-
-    /// Returns a sink that accepts data to be sent to other helper parties.
-    fn sink(&self) -> Self::Sink;
-
-    /// Returns a stream to receive messages that have arrived from other helpers. Note that
-    /// some implementations may panic if this method is called more than once.
-    fn recv_stream(&self) -> Self::MessageStream;
+/// Combination of helper role and step that uniquely identifies a single channel of communication
+/// between two helpers.
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct ChannelId {
+    pub role: Role,
+    pub step: Step,
 }
 
 impl ChannelId {
@@ -55,47 +40,72 @@ impl Debug for ChannelId {
     }
 }
 
-/// Wrapper around a [`PollSender`] to modify the error message to match what the [`NetworkSink`]
-/// requires. The only error that [`PollSender`] will generate is "channel closed", and thus is the
-/// only error message forwarded from this [`NetworkSink`].
-#[pin_project]
-pub struct NetworkSink<T> {
-    #[pin]
-    inner: PollSender<T>,
+pub type MessageChunks = (ChannelId, Vec<u8>);
+
+/// Given any implementation of [`Transport`], a `Network` is able to send and receive
+/// [`MessageChunks`] for a specific query id. The [`Transport`] will receive [`StepData`]
+/// containing the `MessageChunks`
+pub struct Network<T> {
+    transport: T,
+    query_id: QueryId,
+    roles: RoleAssignment,
 }
 
-impl<T: Send + 'static> NetworkSink<T> {
-    #[must_use]
-    pub fn new(sender: mpsc::Sender<T>) -> Self {
+impl<T: Transport> Network<T> {
+    pub fn new(transport: T, query_id: QueryId, roles: RoleAssignment) -> Self {
         Self {
-            inner: PollSender::new(sender),
+            transport,
+            query_id,
+            roles,
         }
     }
-}
 
-impl<T: Send + 'static> futures::Sink<T> for NetworkSink<T>
-where
-    Error: From<PollSendError<T>>,
-{
-    type Error = Error;
+    /// sends a [`StepData`] containing [`MessageChunks`] on the underlying [`Transport`]
+    /// # Errors
+    /// if `message_chunks` fail to be delivered
+    /// # Panics
+    /// if `roles_to_helpers` does not have all 3 roles
+    pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
+        let (channel, payload) = message_chunks;
+        let destination = self.roles.identity(channel.role);
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().inner.poll_ready(cx)?);
-        Poll::Ready(Ok(()))
+        self.transport
+            .send(
+                destination,
+                TransportCommand::StepData(self.query_id, channel.step, payload),
+            )
+            .await
+            .map_err(Error::from)
     }
 
-    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
-        self.project().inner.start_send(item)?;
-        Ok(())
-    }
+    /// returns a [`Stream`] of [`MessageChunks`]s from the underlying [`Transport`]
+    /// # Panics
+    /// if called more than once during the execution of a query.
+    pub async fn recv_stream(&self) -> impl Stream<Item = MessageChunks> {
+        let self_query_id = self.query_id;
+        let query_command_stream = self
+            .transport
+            .subscribe(SubscriptionType::Query(self_query_id))
+            .await;
+        let assignment = self.roles.clone(); // need to move it inside the closure
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().inner.poll_flush(cx)?);
-        Poll::Ready(Ok(()))
-    }
+        query_command_stream.map(move |envelope| match envelope.payload {
+            TransportCommand::StepData(query_id, step, payload) => {
+                debug_assert!(query_id == self_query_id);
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        ready!(self.project().inner.poll_close(cx))?;
-        Poll::Ready(Ok(()))
+                let CommandOrigin::Helper(identity) = &envelope.origin else {
+                    panic!("Message origin is incorrect: expected it to be from a helper, got {:?}", &envelope.origin);
+                };
+                let origin_role = assignment.role(identity);
+                let channel_id = ChannelId::new(origin_role, step);
+
+                (channel_id, payload)
+            }
+            #[allow(unreachable_patterns)] // there will be more commands in the future
+            other_command => panic!(
+                "received unexpected command {other_command:?} for query id {}",
+                self_query_id.as_ref()
+            ),
+        })
     }
 }

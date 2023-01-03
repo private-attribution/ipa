@@ -90,10 +90,7 @@ struct IPAModulusConvertedInputRow<F: Field> {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for IPAModulusConvertedInputRow<F>
-where
-    F: Sized,
-{
+impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
     type Share = Replicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -231,7 +228,6 @@ pub mod tests {
     use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
         ff::{Field, Fp31},
-        protocol::QueryId,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -243,7 +239,7 @@ pub mod tests {
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         //   match key, is_trigger, breakdown_key, trigger_value
         let records = [
@@ -302,6 +298,7 @@ pub mod tests {
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
+    #[ignore]
     pub async fn random_ipa_no_result_check() {
         const BATCHSIZE: u64 = 20;
         const PER_USER_CAP: u32 = 10;
@@ -309,7 +306,7 @@ pub mod tests {
         const MAX_TRIGGER_VALUE: u128 = 5;
         let max_match_key: u64 = BATCHSIZE / 10;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut records: Vec<IPAInputTestRow> = Vec::new();

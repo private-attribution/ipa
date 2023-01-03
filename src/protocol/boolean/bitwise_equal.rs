@@ -64,7 +64,7 @@ mod tests {
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{QueryId, RecordId},
+        protocol::RecordId,
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
 
@@ -95,7 +95,7 @@ mod tests {
     }
 
     async fn run_bitwise_equal(a: u32, b: u32, num_bits: u32) -> u128 {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         let a_fp31 = get_bits::<Fp31>(a, num_bits);
         let b_fp31 = get_bits::<Fp31>(b, num_bits);

@@ -90,8 +90,8 @@ async fn mask_source_credits<F: Field>(
     .await
 }
 
-async fn credit_prefix_sum<'a, F: Field>(
-    ctx: SemiHonestContext<'a, F>,
+async fn credit_prefix_sum<F: Field>(
+    ctx: SemiHonestContext<'_, F>,
     input: &[CreditCappingInputRow<F>],
     mut original_credits: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
@@ -106,7 +106,7 @@ async fn credit_prefix_sum<'a, F: Field>(
     {
         let end = num_rows - step_size;
         let c = ctx.narrow(&InteractionPatternStep::from(depth));
-        let mut futures = Vec::with_capacity(end as usize);
+        let mut futures = Vec::with_capacity(end);
 
         // for each input row, create a future to execute secure multiplications
         for i in 0..end {
@@ -169,7 +169,9 @@ async fn is_credit_larger_than_cap<F: Field>(
 ) -> Result<Vec<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let cap = local_secret_shared_bits(&ctx, cap.into());
-    let random_bits_generator = RandomBitsGenerator::new();
+    let random_bits_generator =
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+    let rbg = &random_bits_generator;
 
     try_join_all(
         prefix_summed_credits
@@ -179,7 +181,6 @@ async fn is_credit_larger_than_cap<F: Field>(
             .map(|(i, (credit, (ctx, cap)))| {
                 // The buffer inside the generator is `Arc`, so these clones
                 // just increment the reference.
-                let rbg = random_bits_generator.clone();
                 async move {
                     let credit_bits = BitDecomposition::execute(
                         ctx.narrow(&Step::BitDecomposeCurrentContribution),
@@ -279,6 +280,7 @@ enum Step {
     MaskSourceCredits,
     CurrentContributionBTimesSuccessorCredit,
     BitDecomposeCurrentContribution,
+    RandomBitsForBitDecomposition,
     IsCapLessThanCurrentContribution,
     IfCurrentExceedsCapOrElse,
     IfNextExceedsCapOrElse,
@@ -297,6 +299,7 @@ impl AsRef<str> for Step {
                 "current_contribution_b_times_successor_credit"
             }
             Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
+            Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
@@ -314,7 +317,6 @@ mod tests {
             credit_capping::credit_capping,
             tests::{BD, H, S, T},
         },
-        protocol::QueryId,
         test_fixture::{Reconstruct, TestWorld},
     };
     use rand::rngs::mock::StepRng;
@@ -348,7 +350,7 @@ mod tests {
         let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
         //TODO: move to the new test framework
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let context = world.contexts::<Fp32BitPrime>();
         let mut rng = StepRng::new(100, 1);
 

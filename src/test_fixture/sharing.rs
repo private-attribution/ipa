@@ -1,8 +1,11 @@
 use crate::ff::Field;
+use crate::protocol::boolean::RandomBitsShare;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::{BitOpStep, RecordId, Substep};
 use crate::rand::Rng;
-use crate::secret_sharing::{IntoShares, MaliciousReplicated, Replicated, XorReplicated};
+use crate::secret_sharing::{
+    IntoShares, MaliciousReplicated, Replicated, SecretSharing, XorReplicated,
+};
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
 use std::borrow::Borrow;
@@ -48,7 +51,7 @@ impl IntoShares<XorReplicated> for MaskedMatchKey {
 
 /// Deconstructs a value into N values, one for each bit.
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {
-    (0..(128 - F::PRIME.into().leading_zeros()) as u32)
+    (0..(128 - F::PRIME.into().leading_zeros()))
         .map(|i| F::from((x.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
 }
@@ -65,7 +68,9 @@ pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
 
 /// Default step type for upgrades.
 struct IntoMaliciousStep;
+
 impl Substep for IntoMaliciousStep {}
+
 impl AsRef<str> for IntoMaliciousStep {
     fn as_ref(&self) -> &str {
         "malicious_upgrade"
@@ -83,9 +88,9 @@ pub trait IntoMalicious<F: Field, M>: Sized {
 
 #[async_trait]
 impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade_with<'a, SS: Substep>(
+    async fn upgrade_with<SS: Substep>(
         self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: MaliciousContext<'_, F>,
         step: &SS,
     ) -> MaliciousReplicated<F> {
         ctx.upgrade_with(step, RecordId::from(0_u32), self)
@@ -105,11 +110,7 @@ where
 {
     // Note that this implementation doesn't work with arbitrary nesting.
     // For that, we'd need a `.narrow_for_upgrade()` function on the context.
-    async fn upgrade_with<'a, SS: Substep>(
-        self,
-        ctx: MaliciousContext<'a, F>,
-        _step: &SS,
-    ) -> (TM, UM) {
+    async fn upgrade_with<SS: Substep>(self, ctx: MaliciousContext<'_, F>, _step: &SS) -> (TM, UM) {
         join(
             self.0.upgrade_with(ctx.clone(), &BitOpStep::from(0)),
             self.1.upgrade_with(ctx, &BitOpStep::from(1)),
@@ -127,9 +128,9 @@ where
 {
     // Note that this implementation doesn't work with arbitrary nesting.
     // For that, we'd need a `.narrow_for_upgrade()` function on the context.
-    async fn upgrade_with<'a, SS: Substep>(
+    async fn upgrade_with<SS: Substep>(
         self,
-        ctx: MaliciousContext<'a, F>,
+        ctx: MaliciousContext<'_, F>,
         step: &SS,
     ) -> Vec<MaliciousReplicated<F>> {
         try_join_all(
@@ -222,6 +223,26 @@ where
         zip(self[0].iter(), zip(self[1].iter(), self[2].iter()))
             .map(|(x0, (x1, x2))| [x0, x1, x2].reconstruct())
             .collect()
+    }
+}
+
+impl<F, S> Reconstruct<F> for [RandomBitsShare<F, S>; 3]
+where
+    F: Field,
+    S: SecretSharing<F>,
+    for<'a> [&'a S; 3]: Reconstruct<F>,
+{
+    fn reconstruct(&self) -> F {
+        let bits = zip(
+            self[0].b_b.iter(),
+            zip(self[1].b_b.iter(), self[2].b_b.iter()),
+        )
+        .enumerate()
+        .map(|(i, (b0, (b1, b2)))| [b0, b1, b2].reconstruct() * F::from(1 << i))
+        .fold(F::ZERO, |a, b| a + b);
+        let value = [&self[0].b_p, &self[1].b_p, &self[2].b_p].reconstruct();
+        assert_eq!(bits, value);
+        value
     }
 }
 

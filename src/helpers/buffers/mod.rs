@@ -3,6 +3,7 @@ mod receive;
 mod send;
 
 pub use receive::ReceiveBuffer;
+pub(super) use send::PushError;
 pub use {send::Config as SendBufferConfig, send::SendBuffer};
 
 #[cfg(debug_assertions)]
@@ -28,7 +29,7 @@ mod waiting {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "[")?;
             for (channel, records) in &self.tasks {
-                write!(f, "\n    {:?}: {:?}", channel, records)?;
+                write!(f, "\n    {channel:?}: {records:?}")?;
             }
             write!(f, "\n]")?;
 

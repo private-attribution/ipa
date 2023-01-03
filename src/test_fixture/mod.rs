@@ -5,7 +5,8 @@ pub mod circuit;
 pub mod ipa_input_row;
 pub mod logging;
 pub mod metrics;
-pub mod network;
+pub mod net;
+mod transport;
 
 use crate::ff::{Field, Fp31};
 use crate::protocol::context::Context;

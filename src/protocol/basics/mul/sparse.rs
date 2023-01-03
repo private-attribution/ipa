@@ -192,7 +192,7 @@ pub(in crate::protocol) mod test {
         protocol::{
             basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions, SecureMul, ZeroPositions},
             malicious::MaliciousValidator,
-            BitOpStep, QueryId, RECORD_0,
+            BitOpStep, RECORD_0,
         },
         rand::{thread_rng, Rng},
         secret_sharing::Replicated,
@@ -364,7 +364,7 @@ pub(in crate::protocol) mod test {
 
     #[tokio::test]
     async fn check_output() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         for &a in ZeroPositions::all() {
@@ -390,7 +390,7 @@ pub(in crate::protocol) mod test {
 
     #[tokio::test]
     async fn check_output_malicious() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         for &a in ZeroPositions::all() {

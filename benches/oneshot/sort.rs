@@ -3,7 +3,6 @@ use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
 use raw_ipa::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
 use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
-use raw_ipa::protocol::QueryId;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
 use shuttle_crate::rand::{thread_rng, Rng};
@@ -14,7 +13,7 @@ async fn main() -> Result<(), Error> {
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = 1;
     config.gateway_config.send_buffer_config.batch_count = 1000;
-    let world = TestWorld::new_with(QueryId, config);
+    let world = TestWorld::new_with(config).await;
     let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
     let num_bits = 64;
     let mut rng = thread_rng();

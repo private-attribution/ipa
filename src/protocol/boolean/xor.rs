@@ -45,7 +45,7 @@ mod tests {
         protocol::{
             basics::{mul::sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             boolean::xor_sparse,
-            QueryId, RecordId,
+            RecordId,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -85,7 +85,7 @@ mod tests {
     pub async fn all_combinations() {
         type F = Fp32BitPrime;
 
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         assert_eq!(F::ZERO, run(&world, F::ZERO, F::ZERO).await);
         assert_eq!(F::ONE, run(&world, F::ONE, F::ZERO).await);
@@ -124,7 +124,7 @@ mod tests {
     /// Run all XOR operations with all combinations of sparse inputs.
     #[tokio::test]
     pub async fn all_sparse() {
-        let world = TestWorld::new(QueryId);
+        let world = TestWorld::new().await;
 
         for &a in ZeroPositions::all() {
             for &b in ZeroPositions::all() {
