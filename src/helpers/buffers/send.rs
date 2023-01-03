@@ -165,7 +165,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "index 1 out of range")]
+    #[cfg(debug_assertions)] // assertions only generated for debug builds
+    #[should_panic(expected = "Attempt to insert out of range at index 1 (allowed=0..1)")]
     fn offset_is_per_channel() {
         let mut buf = SendBuffer::new(Config::default());
         let c1 = ChannelId::new(Role::H1, Step::default());
@@ -181,6 +182,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)] // assertions only generated for debug builds
     #[should_panic(expected = "Duplicate send for index 3")]
     fn rejects_duplicates() {
         let mut buf = SendBuffer::new(Config::default().items_in_batch(10));

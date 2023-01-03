@@ -40,19 +40,24 @@ impl<const N: usize> FixedSizeByteVec<N> {
     ///
     /// ## Panics
     /// Panics if `index` is out of bounds or if something was previously inserted at `index`.
+    /// Panics only occur in debug builds; otherwise, a bad index will overwrite that location;
+    /// expect bad things to happen in that case.
     ///
     /// [`new`]: Self::new
     /// [`take`]: Self::take
     pub fn insert<D: Debug>(&mut self, channel: D, index: usize, elem: &[u8; N]) {
+        debug_assert!(
+            ((self.end - self.capacity)..(self.end)).contains(&index),
+            "Attempt to insert out of range at index {index} (allowed={:?})",
+            (self.end - self.capacity)..(self.end)
+        );
         // Translate from an absolute index into a relative one.
-        let index = index
-            .checked_sub(self.end - self.capacity)
-            .unwrap_or_else(|| panic!("Duplicate send for index {index} on channel {channel:?}"));
-        let start = index * N;
+        let i = index % self.capacity;
+        let start = i * N;
         let offset = start..start + N;
 
-        assert!(
-            !self.added.replace(index, true),
+        debug_assert!(
+            !self.added.replace(i, true),
             "Duplicate send for index {index} on channel {channel:?}"
         );
         self.data[offset].copy_from_slice(elem);
@@ -62,7 +67,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
     #[cfg(any(test, debug_assertions))]
     pub fn missing(&self) -> Range<usize> {
         let start = self.end - self.capacity;
-        let absent = self.added.leading_zeros();
+        let i = self.end % self.capacity;
+        let mut absent = self.added[i..].leading_zeros();
+        if i + absent == self.capacity {
+            absent += self.added[..i].leading_zeros();
+        }
         if absent == self.capacity {
             start..start
         } else {
@@ -73,20 +82,34 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// Takes a block of elements from the beginning of the vector, or `None` if
     /// fewer than `min_count` elements have been inserted at the start of the buffer.
     pub fn take(&mut self, min_count: usize) -> Option<Vec<u8>> {
-        let contiguous = self.added.leading_ones();
+        // Find the relative index we're starting at.
+        let i = self.end % self.capacity;
 
-        if contiguous < min_count {
+        // Find how many elements we can return (`tail + wrap`).
+        let tail = self.added[i..].leading_ones();
+        let wrap = if tail + i == self.capacity {
+            self.added[..i].leading_ones()
+        } else {
+            0
+        };
+
+        if tail + wrap < min_count {
             return None;
         }
-        self.added.drain(..contiguous).for_each(drop);
-        let r = self.data.drain(..contiguous * N).collect();
-        self.end += contiguous;
 
-        // clear out last `contiguous` elements in the buffer
-        self.added.resize(self.added.len() + contiguous, false);
-        self.data.resize(self.data.len() + contiguous * N, 0);
-
-        Some(r)
+        // Move `self.end` marker, clear the values in `self.added`, and
+        // return a copy of that part of `self.data` that matters.
+        self.end += tail + wrap;
+        self.added[i..(i + tail)].fill(false);
+        if wrap > 0 {
+            self.added[..wrap].fill(false);
+            let mut buf = Vec::with_capacity((tail + wrap) * N);
+            buf.extend_from_slice(&self.data[(i * N)..]);
+            buf.extend_from_slice(&self.data[..(wrap * N)]);
+            Some(buf)
+        } else {
+            Some(self.data[(i * N)..((i + tail) * N)].to_owned())
+        }
     }
 }
 
@@ -131,6 +154,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)] // This only asserts in debug builds.
     #[should_panic(expected = "Duplicate send for index 0 on channel \"duplicate\"")]
     fn duplicate_insert() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
@@ -139,7 +163,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Duplicate send for index 0 on channel \"taken\"")]
+    #[cfg(debug_assertions)] // This only asserts in debug builds.
+    #[should_panic(expected = "Attempt to insert out of range at index 0 (allowed=1..4)")]
     fn insert_taken() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
         v.insert_test_data(0);
@@ -148,7 +173,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "index 10 out of range")]
+    #[cfg(debug_assertions)] // This only asserts in debug builds.
+    #[should_panic(expected = "Attempt to insert out of range at index 10 (allowed=0..1)")]
     fn index_out_of_bounds() {
         let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(1);
         v.insert("oob", 10, &[1; ELEMENT_SIZE]);
