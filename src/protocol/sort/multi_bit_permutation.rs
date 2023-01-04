@@ -20,10 +20,11 @@ use futures::future::try_join_all;
 /// Protocol to compute a secret sharing of a permutation, after sorting on multiple bits `num_multi_bits`.
 /// At a high level, the protocol works as follows:
 /// 1. Start with a vector of list of `L*n` secret shares `[[x1_1 ... x1_n], .. , [xL_1 ... xL_n]]` where each is a secret sharing of either zero or one.
+///    Here, L is the number of multi bits which are procrssed together (`num_multi_bits`) and n is the number of records
 /// 2. For j in 0 to 2 pow `num_multi_bits`
-///    i. Get binary representation of j (Bk)
+///    i. Get binary representation of j (B1 .. BL)
 ///    ii. For i in `num_multi_bits`
-///      a. Locally compute `mult_inputs` as (Bk * k + (1-Bk)(1- k))
+///      a. Locally compute `mult_inputs` as (Bi * `xi_j` + (1-Bi)(1- `xi_j`))
 ///   iii. Multiply all `mult_inputs` for this j
 /// 4. For j in 0 to 2 pow `num_multi_bits`
 ///    i. For each record
