@@ -230,4 +230,42 @@ mod tests {
         // buffer should be empty by now
         assert_eq!(v.take(1), None);
     }
+
+    proptest::prop_compose! {
+        fn arb_shuffle()(cap in 2..1000_usize) -> Vec<usize> {
+            use rand::seq::SliceRandom;
+
+            let mut indices = (0..cap).collect::<Vec<_>>();
+            indices.shuffle(&mut crate::rand::thread_rng());
+            indices
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn arbitrary_size_seq(cap in 2..1000_usize) {
+            let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(cap).unwrap());
+            assert!(v.missing().is_empty());
+            for j in 0..2 {
+                for i in 0..cap {
+                    v.insert_test_data(j * cap + i);
+                }
+                assert_eq!(v.take(1).unwrap().len(), cap * ELEMENT_SIZE);
+            }
+        }
+
+        #[test]
+        fn arbitrary_size_shuffle(indices in arb_shuffle(), excess in 0..10_usize) {
+            let cap = indices.len();
+            let size = NonZeroUsize::new(cap + excess).unwrap();
+            let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(size);
+            assert!(v.missing().is_empty());
+            for j in 0..2 {
+                for &i in &indices {
+                    v.insert_test_data(j * cap + i);
+                }
+                assert_eq!(v.take(1).unwrap().len(), cap * ELEMENT_SIZE);
+            }
+        }
+    }
 }
