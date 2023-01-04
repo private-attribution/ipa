@@ -1,4 +1,5 @@
 use super::BitArray;
+use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
 use std::{
     fmt::Debug,
@@ -43,6 +44,8 @@ impl BitArray for BitArray64 {
         ))
     }
 }
+
+impl SharedValue for BitArray64 {}
 
 impl BitAnd for BitArray64 {
     type Output = Self;

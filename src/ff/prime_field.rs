@@ -1,4 +1,5 @@
 use super::{field::BinaryField, Field};
+use crate::secret_sharing::SharedValue;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
@@ -14,6 +15,8 @@ macro_rules! field_impl {
             const ZERO: Self = $field(0);
             const ONE: Self = $field(1);
         }
+
+        impl SharedValue for $field {}
 
         impl std::ops::Add for $field {
             type Output = Self;

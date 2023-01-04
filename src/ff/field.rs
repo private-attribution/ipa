@@ -2,7 +2,9 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
+
+use crate::bits::BooleanOps;
+use crate::secret_sharing::SharedValue;
 
 use super::ArithmeticOps;
 
@@ -19,19 +21,7 @@ impl Int for u32 {
     const BITS: u32 = u32::BITS;
 }
 
-pub trait Field:
-    ArithmeticOps
-    + From<u128>
-    + Into<Self::Integer>
-    + Clone
-    + Copy
-    + PartialEq
-    + Debug
-    + Send
-    + Sync
-    + Sized
-    + 'static
-{
+pub trait Field: SharedValue + ArithmeticOps + From<u128> + Into<Self::Integer> {
     type Integer: Int;
 
     const PRIME: Self::Integer;
@@ -102,14 +92,4 @@ pub trait Field:
     }
 }
 
-pub trait BinaryField:
-    Field
-    + BitAnd<Output = Self>
-    + BitAndAssign
-    + BitOr<Output = Self>
-    + BitOrAssign
-    + BitXor<Output = Self>
-    + BitXorAssign
-    + Not<Output = Self>
-{
-}
+pub trait BinaryField: Field + BooleanOps {}

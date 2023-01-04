@@ -1,7 +1,8 @@
 use std::iter::{repeat, zip};
 
+use crate::ff::ArithmeticOps;
 use crate::repeat64str;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::{Replicated, SecretSharing, SharedValue};
 use crate::{
     error::Error,
     ff::Field,
@@ -19,12 +20,12 @@ use crate::protocol::sort::{
 };
 
 #[async_trait]
-pub trait Resharable<F: Field>: Sized {
-    type Share: SecretSharing<F>;
+pub trait Resharable<V: SharedValue + ArithmeticOps>: Sized {
+    type Share: SecretSharing<V>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
+        C: Context<V, Share = <Self as Resharable<V>>::Share> + Send;
 }
 
 pub struct InnerVectorElementStep(usize);

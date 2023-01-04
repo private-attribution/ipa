@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use crate::secret_sharing::SharedValue;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
 mod bit_array;
@@ -7,19 +7,7 @@ pub use bit_array::BitArray64;
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
-pub trait BitArray:
-    BooleanOps
-    + TryFrom<u128>
-    + Index<usize>
-    + Clone
-    + Copy
-    + PartialEq
-    + Debug
-    + Send
-    + Sync
-    + Sized
-    + 'static
-{
+pub trait BitArray: SharedValue + BooleanOps + TryFrom<u128> + Index<usize> {
     /// Size of this data type in bytes. This is the size in memory allocated
     /// for this data type to store the number of bits specified by `BITS`.
     /// `SIZE_IN_BYTES * 8` could be larger than `BITS`, but this type will

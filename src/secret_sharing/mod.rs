@@ -15,14 +15,16 @@ use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 pub use xor::XorReplicated;
 
+pub trait SharedValue: Clone + Copy + PartialEq + Debug + Send + Sync + Sized + 'static {}
+
 /// Secret share of a secret has additive and multiplicative properties.
-pub trait SecretSharing<F>:
+pub trait SecretSharing<V: SharedValue>:
     for<'a> Add<&'a Self, Output = Self>
     + for<'a> AddAssign<&'a Self>
     + Neg<Output = Self>
     + for<'a> Sub<&'a Self, Output = Self>
     + for<'a> SubAssign<&'a Self>
-    + Mul<F, Output = Self>
+    + Mul<V, Output = Self>
     + Clone
     + Debug
     + Sized
