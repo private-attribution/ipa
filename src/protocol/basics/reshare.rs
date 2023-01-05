@@ -2,7 +2,7 @@ use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
-use crate::secret_sharing::{MaliciousReplicated, SecretSharing};
+use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, SecretSharing};
 use crate::{
     error::Error,
     helpers::{Direction, Role},
@@ -28,8 +28,11 @@ use futures::future::try_join;
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
-pub trait Reshare<F: Field> {
-    type Share: SecretSharing<F>;
+pub trait Reshare<V>
+where
+    V: ArithmeticShare,
+{
+    type Share: SecretSharing<V>;
 
     async fn reshare(
         self,

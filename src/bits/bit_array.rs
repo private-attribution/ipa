@@ -1,4 +1,5 @@
 use super::BitArray;
+use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
 use std::{
     fmt::Debug,
@@ -28,16 +29,18 @@ type U8_8 = BitArr!(for 64, in u8, Lsb0);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BitArray64(U8_8);
 
-impl BitArray for BitArray64 {
+impl SharedValue for BitArray64 {
     const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
     const BITS: u32 = 64;
+}
 
+impl BitArray for BitArray64 {
     #[allow(dead_code)]
     const ZERO: Self = Self(U8_8::ZERO);
 
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
         Self(U8_8::new(
-            v.into().to_le_bytes()[0..<Self as BitArray>::SIZE_IN_BYTES]
+            v.into().to_le_bytes()[0..<Self as SharedValue>::SIZE_IN_BYTES]
                 .try_into()
                 .unwrap(),
         ))
@@ -132,7 +135,7 @@ impl Index<u32> for BitArray64 {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitArray64;
-    use crate::bits::BitArray;
+    use crate::{bits::BitArray, secret_sharing::SharedValue};
     use bitvec::prelude::*;
     use rand::{thread_rng, Rng};
 
