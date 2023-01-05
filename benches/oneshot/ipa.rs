@@ -7,7 +7,7 @@ use std::time::Instant;
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
     let mut config = TestWorldConfig::default();
-    config.gateway_config.send_buffer_config.items_in_batch = 1;
+    config.gateway_config.send_buffer_config.items_in_batch = 2;
     config.gateway_config.send_buffer_config.batch_count = 1000;
     let world = TestWorld::new_with(config).await;
     let mut rng = rand::thread_rng();
