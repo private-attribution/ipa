@@ -1,7 +1,7 @@
 use bitvec::bitvec;
 use bitvec::prelude::BitVec;
 use std::fmt::Debug;
-use std::ops::Range;
+use std::num::NonZeroUsize;
 
 /// A store of bytes that allows for random access inserts, but contiguous removal.
 ///
@@ -17,19 +17,19 @@ use std::ops::Range;
 pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
     added: BitVec,
-    capacity: usize,
+    capacity: NonZeroUsize,
     end: usize,
 }
 
 impl<const N: usize> FixedSizeByteVec<N> {
     pub const ELEMENT_SIZE_BYTES: usize = N;
 
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
-            data: vec![0_u8; N * capacity],
-            added: bitvec![0; capacity],
+            data: vec![0_u8; N * capacity.get()],
+            added: bitvec![0; capacity.get()],
             capacity,
-            end: capacity,
+            end: capacity.get(),
         }
     }
 
@@ -47,17 +47,18 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// [`take`]: Self::take
     pub fn insert<D: Debug>(&mut self, channel: D, index: usize, elem: &[u8; N]) {
         debug_assert!(
-            ((self.end - self.capacity)..(self.end)).contains(&index),
+            ((self.end - self.capacity.get())..(self.end)).contains(&index),
             "Attempt to insert out of range at index {index} (allowed={:?})",
-            (self.end - self.capacity)..(self.end)
+            (self.end - self.capacity.get())..(self.end)
         );
         // Translate from an absolute index into a relative one.
-        let i = index % self.capacity;
+        let i = index % self.capacity.get();
         let start = i * N;
         let offset = start..start + N;
 
+        let overwritten = self.added.replace(i, true);
         debug_assert!(
-            !self.added.replace(i, true),
+            !overwritten,
             "Duplicate send for index {index} on channel {channel:?}"
         );
         self.data[offset].copy_from_slice(elem);
@@ -65,14 +66,14 @@ impl<const N: usize> FixedSizeByteVec<N> {
 
     /// Return any gap ahead of the first missing value.
     #[cfg(any(test, debug_assertions))]
-    pub fn missing(&self) -> Range<usize> {
-        let start = self.end - self.capacity;
-        let i = self.end % self.capacity;
+    pub fn missing(&self) -> std::ops::Range<usize> {
+        let start = self.end - self.capacity.get();
+        let i = self.end % self.capacity.get();
         let mut absent = self.added[i..].leading_zeros();
-        if i + absent == self.capacity {
+        if i + absent == self.capacity.get() {
             absent += self.added[..i].leading_zeros();
         }
-        if absent == self.capacity {
+        if absent == self.capacity.get() {
             start..start
         } else {
             start..(start + absent)
@@ -83,11 +84,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// fewer than `min_count` elements have been inserted at the start of the buffer.
     pub fn take(&mut self, min_count: usize) -> Option<Vec<u8>> {
         // Find the relative index we're starting at.
-        let i = self.end % self.capacity;
+        let i = self.end % self.capacity.get();
 
         // Find how many elements we can return (`tail + wrap`).
         let tail = self.added[i..].leading_ones();
-        let wrap = if tail + i == self.capacity {
+        let wrap = if tail + i == self.capacity.get() {
             self.added[..i].leading_ones()
         } else {
             0
@@ -115,8 +116,9 @@ impl<const N: usize> FixedSizeByteVec<N> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use crate::helpers::buffers::fsv::FixedSizeByteVec;
-    use proptest::num::usize;
 
     const ELEMENT_SIZE: usize = 8;
     fn test_data_at(mut index: usize) -> [u8; ELEMENT_SIZE] {
@@ -140,14 +142,14 @@ mod tests {
 
     #[test]
     fn insert() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(3).unwrap());
         v.insert_test_data(0);
         assert_eq!(v.take(1), Some(test_data_at(0).to_vec()));
     }
 
     #[test]
     fn gap() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(3).unwrap());
         assert!(v.missing().is_empty());
         v.insert_test_data(1);
         assert_eq!(0..1_usize, v.missing());
@@ -157,7 +159,7 @@ mod tests {
     #[cfg(debug_assertions)] // This only asserts in debug builds.
     #[should_panic(expected = "Duplicate send for index 0 on channel \"duplicate\"")]
     fn duplicate_insert() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(3).unwrap());
         v.insert_test_data(0);
         v.insert("duplicate", 0, &[10; ELEMENT_SIZE]);
     }
@@ -166,7 +168,7 @@ mod tests {
     #[cfg(debug_assertions)] // This only asserts in debug builds.
     #[should_panic(expected = "Attempt to insert out of range at index 0 (allowed=1..4)")]
     fn insert_taken() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(3).unwrap());
         v.insert_test_data(0);
         assert_eq!(v.take(1), Some(test_data_at(0).to_vec()));
         v.insert("taken", 0, &[10; ELEMENT_SIZE]);
@@ -176,14 +178,13 @@ mod tests {
     #[cfg(debug_assertions)] // This only asserts in debug builds.
     #[should_panic(expected = "Attempt to insert out of range at index 10 (allowed=0..1)")]
     fn index_out_of_bounds() {
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(1);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(1).unwrap());
         v.insert("oob", 10, &[1; ELEMENT_SIZE]);
     }
 
     #[test]
     fn take() {
-        const CAPACITY: usize = 2;
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(CAPACITY);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(3).unwrap());
         v.insert_test_data(0);
 
         // drain the first region
@@ -201,8 +202,7 @@ mod tests {
     fn take_is_greedy() {
         // Insert elements X,X,X,_,X,_,_
         // first take should remove first 3 elements leaving the element at index 4 intact
-        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(3 * 2);
-        assert_eq!(6, v.capacity);
+        let mut v = FixedSizeByteVec::<ELEMENT_SIZE>::new(NonZeroUsize::new(3 * 3).unwrap());
 
         v.insert_test_data(2);
         v.insert_test_data(4);

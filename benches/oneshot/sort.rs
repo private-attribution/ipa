@@ -6,22 +6,23 @@ use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
 use shuttle_crate::rand::{thread_rng, Rng};
+use std::num::NonZeroUsize;
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
+    const BATCHSIZE: usize = 100;
+
     let mut config = TestWorldConfig::default();
-    config.gateway_config.send_buffer_config.items_in_batch = 1;
-    config.gateway_config.send_buffer_config.batch_count = 1000;
+    config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
+    config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
     let world = TestWorld::new_with(config).await;
     let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
     let num_bits = 64;
     let mut rng = thread_rng();
 
-    let batchsize = 100;
-
     let mut match_keys: Vec<u64> = Vec::new();
-    for _ in 0..batchsize {
+    for _ in 0..BATCHSIZE {
         match_keys.push(rng.gen::<u64>());
     }
 

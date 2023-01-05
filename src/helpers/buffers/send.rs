@@ -2,7 +2,7 @@ use crate::helpers::{
     buffers::fsv::FixedSizeByteVec, network::ChannelId, network::MessageEnvelope,
     MESSAGE_PAYLOAD_SIZE_BYTES,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroUsize};
 
 /// Use the buffer that allocates 8 bytes per element. It could probably go down to 4 if the
 /// only thing IPA sends is a single field value. To support arbitrarily sized values, it needs
@@ -13,8 +13,8 @@ type ByteBuf = FixedSizeByteVec<{ MESSAGE_PAYLOAD_SIZE_BYTES }>;
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct SendBuffer {
-    items_in_batch: usize,
-    batch_count: usize,
+    items_in_batch: NonZeroUsize,
+    batch_count: NonZeroUsize,
     pub(super) inner: HashMap<ChannelId, ByteBuf>,
 }
 
@@ -27,15 +27,15 @@ pub struct SendBuffer {
 /// in memory, `4` quadruples the capacity etc.
 #[derive(Debug, Copy, Clone)]
 pub struct Config {
-    pub items_in_batch: usize,
-    pub batch_count: usize,
+    pub items_in_batch: NonZeroUsize,
+    pub batch_count: NonZeroUsize,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            items_in_batch: 1,
-            batch_count: 1,
+            items_in_batch: NonZeroUsize::new(1).unwrap(),
+            batch_count: NonZeroUsize::new(1).unwrap(),
         }
     }
 }
@@ -58,16 +58,18 @@ impl SendBuffer {
         let buf = if let Some(buf) = self.inner.get_mut(channel_id) {
             buf
         } else {
-            self.inner
-                .entry(channel_id.clone())
-                .or_insert_with(|| FixedSizeByteVec::new(self.batch_count * self.items_in_batch))
+            self.inner.entry(channel_id.clone()).or_insert_with(|| {
+                let size =
+                    NonZeroUsize::new(self.batch_count.get() * self.items_in_batch.get()).unwrap();
+                FixedSizeByteVec::new(size)
+            })
         };
 
         // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
         buf.insert(channel_id, usize::from(msg.record_id), &payload);
-        buf.take(self.items_in_batch)
+        buf.take(self.items_in_batch.get())
     }
 
     #[cfg(debug_assertions)]
@@ -93,7 +95,7 @@ impl SendBuffer {
 
 impl Config {
     #[must_use]
-    pub fn batch_count(self, batch_count: usize) -> Self {
+    pub fn batch_count(self, batch_count: NonZeroUsize) -> Self {
         Self {
             items_in_batch: self.items_in_batch,
             batch_count,
@@ -101,7 +103,7 @@ impl Config {
     }
 
     #[must_use]
-    pub fn items_in_batch(self, items_in_batch: usize) -> Self {
+    pub fn items_in_batch(self, items_in_batch: NonZeroUsize) -> Self {
         Self {
             items_in_batch,
             batch_count: self.batch_count,
@@ -144,7 +146,8 @@ mod tests {
     #[test]
     fn does_not_corrupt_messages() {
         let c1 = ChannelId::new(Role::H1, Step::default());
-        let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
+        let config = Config::default().items_in_batch(NonZeroUsize::new(10).unwrap());
+        let mut buf = SendBuffer::new(config);
 
         let batch = (0u8..10)
             .find_map(|i| {
@@ -185,7 +188,8 @@ mod tests {
     #[cfg(debug_assertions)] // assertions only generated for debug builds
     #[should_panic(expected = "Duplicate send for index 3")]
     fn rejects_duplicates() {
-        let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
+        let config = Config::default().items_in_batch(NonZeroUsize::new(10).unwrap());
+        let mut buf = SendBuffer::new(config);
         let channel = ChannelId::new(Role::H1, Step::default());
         let record_id = RecordId::from(3_u32);
         let m1 = empty_msg(record_id);
@@ -197,7 +201,8 @@ mod tests {
 
     #[test]
     fn accepts_records_within_the_valid_range() {
-        let mut buf = SendBuffer::new(Config::default().items_in_batch(10));
+        let config = Config::default().items_in_batch(NonZeroUsize::new(10).unwrap());
+        let mut buf = SendBuffer::new(config);
         let msg = empty_msg(5);
 
         assert!(buf

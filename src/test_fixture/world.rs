@@ -23,6 +23,7 @@ use crate::{
 use std::io::stdout;
 
 use std::mem::ManuallyDrop;
+use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
@@ -69,7 +70,7 @@ impl Default for TestWorldConfig {
                 send_buffer_config: SendBufferConfig {
                     /// This value set to 1 effectively means no buffering. This is the desired mode
                     /// for unit tests to drive them to completion as fast as possible.
-                    items_in_batch: 1,
+                    items_in_batch: NonZeroUsize::new(1).unwrap(),
 
                     /// How many messages can be sent in parallel. This value is picked arbitrarily as
                     /// most unit tests don't send more than this value, so the setup does not have to
@@ -78,7 +79,7 @@ impl Default for TestWorldConfig {
                     /// because they flush the data to network once they've accumulated at least
                     /// `items_in_batch` elements. Ofc setting it to some absurdly large value is going
                     /// to be problematic from memory perspective.
-                    batch_count: 40,
+                    batch_count: NonZeroUsize::new(40).unwrap(),
                 },
                 send_outstanding: 16,
                 recv_outstanding: 16,

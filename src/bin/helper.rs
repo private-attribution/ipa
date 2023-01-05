@@ -8,7 +8,7 @@ use raw_ipa::{
     net::discovery,
     protocol::{QueryId, Step},
 };
-use std::error::Error;
+use std::{error::Error, num::NonZeroUsize};
 
 use tracing::info;
 
@@ -43,8 +43,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .expect("unable to parse config file");
     let gateway_config = GatewayConfig {
         send_buffer_config: SendBufferConfig {
-            items_in_batch: 1,
-            batch_count: 40,
+            items_in_batch: NonZeroUsize::new(32).unwrap(),
+            batch_count: NonZeroUsize::new(128).unwrap(),
         },
         send_outstanding: 16,
         recv_outstanding: 16,

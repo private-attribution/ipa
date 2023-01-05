@@ -317,12 +317,13 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
+    use std::num::NonZeroUsize;
 
     #[tokio::test]
     pub async fn handles_reordering() {
         let mut config = TestWorldConfig::default();
-        config.gateway_config.send_buffer_config.items_in_batch = 1; // Send every record
-        config.gateway_config.send_buffer_config.batch_count = 3; // keep 3 at a time
+        config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap(); // Send every record
+        config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(3).unwrap(); // keep 3 at a time
 
         let world = Box::leak(Box::new(TestWorld::new_with(config).await));
         let contexts = world.contexts::<Fp31>();
