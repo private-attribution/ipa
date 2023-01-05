@@ -40,64 +40,47 @@ pub async fn multi_bit_permutation_single<
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
-    let share_of_one = ctx.share_of_one();
     let num_multi_bits = input.len();
-    let num_recs = input[0].len();
-    let twonminusone = 2 << (num_multi_bits - 1);
+    let num_records = input[0].len();
+    let num_possible_bit_values = 2 << (num_multi_bits - 1);
+    let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values * num_records);
 
-    let mut mult_outputs = Vec::with_capacity(twonminusone);
-    for j in 0..twonminusone {
+    for j in 0..num_possible_bit_values {
         let j_bit_representation = get_binary_from_int(j, num_multi_bits);
-        let mut mult_inputs = Vec::with_capacity(num_multi_bits);
-        for i in 0..num_multi_bits {
-            if j_bit_representation[i] {
-                mult_inputs.push(input[i].clone());
-            } else {
-                mult_inputs.push(
-                    input[i]
-                        .iter()
-                        .map(|v| -v.clone() + &share_of_one)
-                        .collect::<Vec<_>>(),
-                );
+        for rec in 0..num_records {
+            let mut bits_for_record = Vec::with_capacity(num_multi_bits);
+            for jth_bits in input.iter().take(num_multi_bits) {
+                bits_for_record.push(jth_bits[rec].clone());
             }
-        }
-        // multiply all mult_inputs for this j for each record => f(j)
-        let mut j_mult_output = Vec::new();
-        for rec in 0..num_recs {
-            let mut mult_inputs_all = Vec::new();
-            for mult_input in mult_inputs.iter().take(num_multi_bits) {
-                mult_inputs_all.push(mult_input[rec].clone());
-            }
-            j_mult_output.push(
-                multiply_all_shares(
-                    ctx.narrow(&MultiplyAcrossBits),
-                    RecordId::from(j * num_recs + rec),
-                    mult_inputs_all.as_slice(),
+            let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
+            let copy_j_bit = j_bit_representation.clone();
+            equality_check_futures.push(async move {
+                check_bit_equality(
+                    &bits_for_record,
+                    copy_j_bit,
+                    ctx_across_bits,
+                    RecordId::from(j * num_records + rec),
                 )
-                .await?,
-            );
+                .await
+            });
         }
-        mult_outputs.push(j_mult_output);
     }
+    let mult_outputs = try_join_all(equality_check_futures).await?;
 
     let mut sum_local = S::ZERO;
     let mut total_sums = Vec::new();
-    for mult_output in mult_outputs.iter().take(twonminusone) {
-        let mut sum = Vec::new();
-        for rec in mult_output.iter().take(num_recs) {
-            sum_local += rec;
-            sum.push(sum_local.clone());
-        }
-        total_sums.push(sum);
+    for mult_output in &mult_outputs {
+        sum_local += mult_output;
+        total_sums.push(sum_local.clone());
     }
     let mut permutation_futures = Vec::new();
-    for rec in 0..num_recs {
+    for rec in 0..num_records {
         let mut mult_outputs_per_rec = Vec::new();
         let mut total_sums_per_rec = Vec::new();
 
-        for j in 0..twonminusone {
-            mult_outputs_per_rec.push(&mult_outputs[j][rec]);
-            total_sums_per_rec.push(&total_sums[j][rec]);
+        for j in 0..num_possible_bit_values {
+            mult_outputs_per_rec.push(&mult_outputs[j * num_records + rec]);
+            total_sums_per_rec.push(&total_sums[j * num_records + rec]);
         }
         let ctx_sop = ctx.narrow(&Sop);
         permutation_futures.push(async move {
@@ -111,6 +94,31 @@ pub async fn multi_bit_permutation_single<
         });
     }
     try_join_all(permutation_futures).await
+}
+
+async fn check_bit_equality<F, C, S>(
+    bits_for_record: &[S],
+    j_bit_representation: Vec<bool>,
+    ctx: C,
+    record_id: RecordId,
+) -> Result<S, Error>
+where
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+    F: Field,
+{
+    let num_multi_bits = j_bit_representation.len();
+    let share_of_one = ctx.share_of_one();
+    let mut mult_input = Vec::new();
+    for i in 0..num_multi_bits {
+        if j_bit_representation[i] {
+            mult_input.push(bits_for_record[i].clone());
+        } else {
+            mult_input.push(-bits_for_record[i].clone() + &share_of_one);
+        }
+    }
+    // multiply all mult_inputs for this j for each record => f(j)
+    multiply_all_shares(ctx, record_id, mult_input.as_slice()).await
 }
 
 /// Get binary representation of an integer as a vector of bool
@@ -136,8 +144,12 @@ mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
-    const INPUT: [&[u128]; 3] = [&[0, 1, 0, 1, 0], &[1, 1, 0, 0, 0], &[0, 1, 0, 1, 0]];
-    const EXPECTED: &[u128] = &[3, 5, 1, 4, 2]; // 010 111 000 101 000
+    const INPUT: [&[u128]; 3] = [
+        &[1, 0, 1, 0, 1, 0],
+        &[0, 1, 1, 0, 0, 0],
+        &[0, 0, 1, 0, 1, 0],
+    ];
+    const EXPECTED: &[u128] = &[4, 3, 6, 1, 5, 2]; //100 010 111 000 101 000
 
     #[tokio::test]
     pub async fn semi_honest() {
