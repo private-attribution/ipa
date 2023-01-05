@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .expect("unable to parse config file");
     let gateway_config = GatewayConfig {
         send_buffer_config: SendBufferConfig {
-            items_in_batch: NonZeroUsize::new(32).unwrap(),
+            items_in_batch: NonZeroUsize::new(1).unwrap(),
             batch_count: NonZeroUsize::new(128).unwrap(),
         },
         send_outstanding: 16,
