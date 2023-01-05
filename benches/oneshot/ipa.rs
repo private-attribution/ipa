@@ -5,9 +5,9 @@ use raw_ipa::test_fixture::{IPAInputTestRow, Runner, TestWorld, TestWorldConfig}
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
-#[tokio::main(flavor = "multi_thread")]
+#[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 10000;
+    const BATCHSIZE: usize = 100;
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
     const MAX_BREAKDOWN_KEY: u128 = 4;
