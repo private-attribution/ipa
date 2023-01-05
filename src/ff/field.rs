@@ -4,9 +4,7 @@ use std::io;
 use std::io::ErrorKind;
 
 use crate::bits::BooleanOps;
-use crate::secret_sharing::SharedValue;
-
-use super::ArithmeticOps;
+use crate::secret_sharing::ArithmeticShare;
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int: Sized + Copy + Debug + Into<u128> {
@@ -21,7 +19,7 @@ impl Int for u32 {
     const BITS: u32 = u32::BITS;
 }
 
-pub trait Field: SharedValue + ArithmeticOps + From<u128> + Into<Self::Integer> {
+pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     type Integer: Int;
 
     const PRIME: Self::Integer;
@@ -29,9 +27,6 @@ pub trait Field: SharedValue + ArithmeticOps + From<u128> + Into<Self::Integer> 
     const ZERO: Self;
     /// Multiplicative identity element
     const ONE: Self;
-    /// Derived from the size of the backing field, this constant indicates how much
-    /// space is required to store this field value
-    const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`

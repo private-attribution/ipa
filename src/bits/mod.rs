@@ -1,4 +1,4 @@
-use crate::secret_sharing::SharedValue;
+use crate::secret_sharing::BooleanShare;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
 mod bit_array;
@@ -7,14 +7,7 @@ pub use bit_array::BitArray64;
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
-pub trait BitArray: SharedValue + BooleanOps + TryFrom<u128> + Index<usize> {
-    /// Size of this data type in bytes. This is the size in memory allocated
-    /// for this data type to store the number of bits specified by `BITS`.
-    /// `SIZE_IN_BYTES * 8` could be larger than `BITS`, but this type will
-    /// store exactly `BITS` number of bits.
-    const SIZE_IN_BYTES: usize;
-    /// Number of bits stored in this data type.
-    const BITS: u32;
+pub trait BitArray: BooleanShare + TryFrom<u128> + Index<usize> {
     /// A bit array with all its elements initialized to 0.
     const ZERO: Self;
 

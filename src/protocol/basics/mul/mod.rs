@@ -1,8 +1,8 @@
 use crate::error::Error;
-use crate::ff::{ArithmeticOps, Field};
+use crate::ff::Field;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::RecordId;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing, SharedValue};
+use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
 
 pub(crate) mod malicious;
@@ -13,7 +13,7 @@ pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-pub trait SecureMul<V: SharedValue + ArithmeticOps>: Sized {
+pub trait SecureMul<V: ArithmeticShare>: Sized {
     type Share: SecretSharing<V>;
 
     /// Multiply and return the result of `a` * `b`.

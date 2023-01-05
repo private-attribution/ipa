@@ -1,8 +1,8 @@
-use crate::ff::{ArithmeticOps, Field};
+use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
-use crate::secret_sharing::{MaliciousReplicated, SecretSharing, SharedValue};
+use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, SecretSharing};
 use crate::{
     error::Error,
     helpers::{Direction, Role},
@@ -30,7 +30,7 @@ use futures::future::try_join;
 #[async_trait]
 pub trait Reshare<V>
 where
-    V: SharedValue + ArithmeticOps,
+    V: ArithmeticShare,
 {
     type Share: SecretSharing<V>;
 

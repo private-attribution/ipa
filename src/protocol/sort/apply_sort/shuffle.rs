@@ -1,8 +1,7 @@
 use std::iter::{repeat, zip};
 
-use crate::ff::ArithmeticOps;
 use crate::repeat64str;
-use crate::secret_sharing::{Replicated, SecretSharing, SharedValue};
+use crate::secret_sharing::{ArithmeticShare, Replicated, SecretSharing};
 use crate::{
     error::Error,
     ff::Field,
@@ -20,7 +19,7 @@ use crate::protocol::sort::{
 };
 
 #[async_trait]
-pub trait Resharable<V: SharedValue + ArithmeticOps>: Sized {
+pub trait Resharable<V: ArithmeticShare>: Sized {
     type Share: SecretSharing<V>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>

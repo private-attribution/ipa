@@ -1,8 +1,8 @@
 use std::iter::{repeat, zip};
 
-use crate::ff::{ArithmeticOps, Field};
+use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing, SharedValue};
+use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, Replicated, SecretSharing};
 use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -10,7 +10,7 @@ use futures::future::{try_join, try_join_all};
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
-pub trait Reveal<V: SharedValue + ArithmeticOps> {
+pub trait Reveal<V: ArithmeticShare> {
     /// Secret sharing type that reveal implementation works with. Note that field type does not
     /// matter - implementations must be able to reveal secret value from any field.
     type Share: SecretSharing<V>;

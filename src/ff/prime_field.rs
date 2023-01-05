@@ -1,6 +1,5 @@
-use super::{field::BinaryField, Field};
+use super::Field;
 use crate::secret_sharing::SharedValue;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 macro_rules! field_impl {
     ( $field:ident, $int:ty, $prime:expr ) => {
@@ -16,7 +15,10 @@ macro_rules! field_impl {
             const ONE: Self = $field(1);
         }
 
-        impl SharedValue for $field {}
+        impl SharedValue for $field {
+            const BITS: u32 = <Self as Field>::Integer::BITS;
+            const SIZE_IN_BYTES: usize = (Self::BITS / 8) as usize;
+        }
 
         impl std::ops::Add for $field {
             type Output = Self;
@@ -184,116 +186,6 @@ macro_rules! field_impl {
     };
 }
 
-mod fp2 {
-    field_impl! { Fp2, u8, 2 }
-
-    impl BinaryField for Fp2 {}
-
-    impl BitAnd for Fp2 {
-        type Output = Self;
-
-        fn bitand(self, rhs: Self) -> Self::Output {
-            Self(self.0 & rhs.0)
-        }
-    }
-
-    impl BitAndAssign for Fp2 {
-        fn bitand_assign(&mut self, rhs: Self) {
-            *self = *self & rhs;
-        }
-    }
-
-    impl BitOr for Fp2 {
-        type Output = Self;
-
-        fn bitor(self, rhs: Self) -> Self::Output {
-            Self(self.0 | rhs.0)
-        }
-    }
-
-    impl BitOrAssign for Fp2 {
-        fn bitor_assign(&mut self, rhs: Self) {
-            *self = *self | rhs;
-        }
-    }
-
-    impl BitXor for Fp2 {
-        type Output = Self;
-
-        fn bitxor(self, rhs: Self) -> Self::Output {
-            Self(self.0 ^ rhs.0)
-        }
-    }
-
-    impl BitXorAssign for Fp2 {
-        fn bitxor_assign(&mut self, rhs: Self) {
-            *self = *self ^ rhs;
-        }
-    }
-
-    impl Not for Fp2 {
-        type Output = Self;
-
-        fn not(self) -> Self::Output {
-            // Using `::from()` makes sure that the internal value is always 0 or 1, but since
-            // we use `u8` to represent a binary value, `!0` and `!1` will result in 255 and
-            // 254 respectively. Add `& 1` at the end to mask the LSB.
-            Self(!self.0 & 1)
-        }
-    }
-
-    #[cfg(all(test, not(feature = "shuttle")))]
-    mod specialized_tests {
-        use super::*;
-
-        #[test]
-        fn fp2() {
-            let x = Fp2::from(false);
-            let y = Fp2::from(true);
-
-            assert_eq!(Fp2(1), x + y);
-            assert_eq!(Fp2(0), x * y);
-            assert_eq!(Fp2(1), x - y);
-
-            let mut x = Fp2(1);
-            x += Fp2(1);
-            assert_eq!(Fp2(0), x);
-        }
-
-        #[test]
-        fn fp2_binary_op() {
-            let zero = Fp2::ZERO;
-            let one = Fp2::ONE;
-
-            assert_eq!(one, one & one);
-            assert_eq!(zero, zero & one);
-            assert_eq!(zero, one & zero);
-            assert_eq!(zero, zero & zero);
-            assert_eq!(zero, Fp2::from(31_u128) & Fp2::from(32_u128));
-            assert_eq!(one, Fp2::from(31_u128) & Fp2::from(63_u128));
-
-            assert_eq!(zero, zero | zero);
-            assert_eq!(one, one | one);
-            assert_eq!(one, zero | one);
-            assert_eq!(one, one | zero);
-            assert_eq!(one, Fp2::from(31_u128) | Fp2::from(32_u128));
-            assert_eq!(zero, Fp2::from(32_u128) | Fp2::from(64_u128));
-
-            assert_eq!(zero, zero ^ zero);
-            assert_eq!(one, zero ^ one);
-            assert_eq!(one, one ^ zero);
-            assert_eq!(zero, one ^ one);
-            assert_eq!(one, Fp2::from(31_u128) ^ Fp2::from(32_u128));
-            assert_eq!(zero, Fp2::from(32_u128) ^ Fp2::from(64_u128));
-
-            assert_eq!(one, !zero);
-            assert_eq!(zero, !one);
-            assert_eq!(one, !Fp2::from(32_u128));
-            assert_eq!(zero, !Fp2::from(31_u128));
-        }
-    }
-}
-
 mod fp31 {
     field_impl! { Fp31, u8, 31 }
 
@@ -366,6 +258,5 @@ mod fp32bit {
     }
 }
 
-pub use fp2::Fp2;
 pub use fp31::Fp31;
 pub use fp32bit::Fp32BitPrime;
