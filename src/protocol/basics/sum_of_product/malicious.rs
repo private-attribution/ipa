@@ -60,8 +60,7 @@ impl AsRef<str> for Step {
 pub async fn sum_of_products<F>(
     ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
-    a: &[&MaliciousReplicated<F>],
-    b: &[&MaliciousReplicated<F>],
+    pairs: &[(&MaliciousReplicated<F>, &MaliciousReplicated<F>)],
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
@@ -69,27 +68,30 @@ where
     use crate::protocol::context::SpecialAccessToMaliciousContext;
     use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-    assert_eq!(a.len(), b.len());
+    // assert_eq!(pair.0.len(), pair.1.len());
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateSop);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
-    let ax = a
+    let semi_honest_pairs = pairs
         .iter()
-        .map(|a| a.x().access_without_downgrade())
+        .map(|pair| {
+            (
+                pair.0.x().access_without_downgrade(),
+                pair.1.x().access_without_downgrade(),
+            )
+        })
         .collect::<Vec<_>>();
-    let arx = a.iter().map(|a| a.rx()).collect::<Vec<_>>();
-
-    let bx = b
+    let r_pairs = pairs
         .iter()
-        .map(|b| b.x().access_without_downgrade())
+        .map(|pair| (pair.0.rx(), pair.1.x().access_without_downgrade()))
         .collect::<Vec<_>>();
 
     let (ab, rab) = try_join(
         ctx.semi_honest_context()
-            .sum_of_products(record_id, ax.as_slice(), bx.as_slice()),
+            .sum_of_products(record_id, semi_honest_pairs.as_slice()),
         duplicate_multiply_ctx
             .semi_honest_context()
-            .sum_of_products(record_id, arx.as_slice(), bx.as_slice()),
+            .sum_of_products(record_id, r_pairs.as_slice()),
     )
     .await?;
 
@@ -130,9 +132,11 @@ mod test {
 
         let res = world
             .malicious((av, bv), |ctx, (a_share, b_share)| async move {
-                let a_refs = a_share.iter().collect::<Vec<_>>();
-                let b_refs = b_share.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                let mut pairs = Vec::with_capacity(MULTI_BIT_LEN);
+                for i in 0..a_share.len() {
+                    pairs.push((&a_share[i], &b_share[i]));
+                }
+                ctx.sum_of_products(RecordId::from(0), pairs.as_slice())
                     .await
                     .unwrap()
             })

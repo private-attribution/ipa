@@ -22,14 +22,12 @@ use crate::secret_sharing::Replicated;
 pub async fn sum_of_products<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: &[&Replicated<F>],
-    b: &[&Replicated<F>],
+    pair: &[(&Replicated<F>, &Replicated<F>)],
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
-    assert_eq!(a.len(), b.len());
-    let multi_bit_len = a.len();
+    let multi_bit_len = pair.len();
 
     let channel = ctx.mesh();
 
@@ -41,8 +39,8 @@ where
     // compute the value (d_i) we want to send to the right helper (i+1)
     let mut right_sops: F = -s0;
 
-    for i in 0..multi_bit_len {
-        right_sops += a[i].left() * b[i].right() + a[i].right() * b[i].left();
+    for item in pair.iter().take(multi_bit_len) {
+        right_sops += item.0.left() * item.1.right() + item.0.right() * item.1.left();
     }
 
     // notify helper on the right that we've computed our value
@@ -59,9 +57,9 @@ where
     let mut lhs = left_sops + s0;
     let mut rhs = right_sops + s1;
 
-    for i in 0..multi_bit_len {
-        lhs += a[i].left() * b[i].left();
-        rhs += a[i].right() * b[i].right();
+    for item in pair.iter().take(multi_bit_len) {
+        lhs += item.0.left() * item.1.left();
+        rhs += item.0.right() * item.1.right();
     }
     Ok(Replicated::new(lhs, rhs))
 }
@@ -116,9 +114,11 @@ mod test {
 
         let res = world
             .semi_honest((av, bv), |ctx, (a, b)| async move {
-                let a_refs = a.iter().collect::<Vec<_>>();
-                let b_refs = b.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                let mut pairs = Vec::with_capacity(MULTI_BIT_LEN);
+                for i in 0..a.len() {
+                    pairs.push((&a[i], &b[i]));
+                }
+                ctx.sum_of_products(RecordId::from(0), pairs.as_slice())
                     .await
                     .unwrap()
             })
@@ -137,10 +137,12 @@ mod test {
 
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                let a_refs = a_share.iter().collect::<Vec<_>>();
-                let b_refs = b_share.iter().collect::<Vec<_>>();
+                let mut pairs = Vec::with_capacity(a_share.len());
+                for i in 0..a_share.len() {
+                    pairs.push((&a_share[i], &b_share[i]));
+                }
 
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                ctx.sum_of_products(RecordId::from(0), pairs.as_slice())
                     .await
                     .unwrap()
             })
