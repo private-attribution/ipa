@@ -39,7 +39,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     let num_records = input[0].len();
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
-    // Equality bit checker: this checks if each record is equal to any of numbers between 0 and num_possible_bit_values
+    // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values * num_records);
     for j in 0..num_possible_bit_values {
         let ctx_equality_checker = ctx.narrow(&EqualityBitChecker);
@@ -85,7 +85,13 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     try_join_all(permutation_futures).await
 }
 
-/// For a given `idx`
+/// For a given `idx` check if each of the record has same value as idx.
+/// Steps
+/// 1. Get bit representation of `idx`
+/// 2. Calculate equality check
+///   i. keep record bit if `idx` bit is 1
+///   ii.toggle record bit if idx bit is 0 (Done by taking `share_of_one` - value)
+/// 3. Multiply equality checks for all bits per record - in clear per record this will be 1 only for 1 index while 0 for all others
 async fn get_bit_equality_checkers<F, C, S>(
     idx: usize,
     input: &[Vec<S>],
