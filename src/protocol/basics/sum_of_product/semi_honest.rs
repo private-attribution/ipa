@@ -22,12 +22,12 @@ use crate::secret_sharing::Replicated;
 pub async fn sum_of_products<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    pair: &[(&Replicated<F>, &Replicated<F>)],
+    pairs: &[(&Replicated<F>, &Replicated<F>)],
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
-    let multi_bit_len = pair.len();
+    let multi_bit_len = pairs.len();
 
     let channel = ctx.mesh();
 
@@ -39,8 +39,8 @@ where
     // compute the value (d_i) we want to send to the right helper (i+1)
     let mut right_sops: F = -s0;
 
-    for item in pair.iter().take(multi_bit_len) {
-        right_sops += item.0.left() * item.1.right() + item.0.right() * item.1.left();
+    for pair in pairs.iter().take(multi_bit_len) {
+        right_sops += pair.0.left() * pair.1.right() + pair.0.right() * pair.1.left();
     }
 
     // notify helper on the right that we've computed our value
@@ -57,9 +57,9 @@ where
     let mut lhs = left_sops + s0;
     let mut rhs = right_sops + s1;
 
-    for item in pair.iter().take(multi_bit_len) {
-        lhs += item.0.left() * item.1.left();
-        rhs += item.0.right() * item.1.right();
+    for pair in pairs.iter().take(multi_bit_len) {
+        lhs += pair.0.left() * pair.1.left();
+        rhs += pair.0.right() * pair.1.right();
     }
     Ok(Replicated::new(lhs, rhs))
 }

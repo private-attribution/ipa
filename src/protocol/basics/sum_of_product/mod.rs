@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::RecordId;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, Replicated, SecretSharing};
 use async_trait::async_trait;
 
 pub(crate) mod malicious;
@@ -10,7 +10,7 @@ mod semi_honest;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-pub trait SecureSop<F: Field>: Sized {
+pub trait SecureSop<F: ArithmeticShare>: Sized {
     type Share: SecretSharing<F>;
 
     /// Multiply and return the result of `a` * `b`.
@@ -29,9 +29,9 @@ impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
     async fn sum_of_products(
         self,
         record_id: RecordId,
-        pair: &[(&Self::Share, &Self::Share)],
+        pairs: &[(&Self::Share, &Self::Share)],
     ) -> Result<Self::Share, Error> {
-        semi_honest::sum_of_products(self, record_id, pair).await
+        semi_honest::sum_of_products(self, record_id, pairs).await
     }
 }
 
@@ -43,8 +43,8 @@ impl<F: Field> SecureSop<F> for MaliciousContext<'_, F> {
     async fn sum_of_products(
         self,
         record_id: RecordId,
-        pair: &[(&Self::Share, &Self::Share)],
+        pairs: &[(&Self::Share, &Self::Share)],
     ) -> Result<Self::Share, Error> {
-        malicious::sum_of_products(self, record_id, pair).await
+        malicious::sum_of_products(self, record_id, pairs).await
     }
 }

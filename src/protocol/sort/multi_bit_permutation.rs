@@ -85,6 +85,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     try_join_all(permutation_futures).await
 }
 
+/// For a given `idx`
 async fn get_bit_equality_checkers<F, C, S>(
     idx: usize,
     input: &[Vec<S>],

@@ -2,9 +2,9 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
-use super::ArithmeticOps;
+use crate::bits::BooleanOps;
+use crate::secret_sharing::ArithmeticShare;
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int: Sized + Copy + Debug + Into<u128> {
@@ -19,19 +19,7 @@ impl Int for u32 {
     const BITS: u32 = u32::BITS;
 }
 
-pub trait Field:
-    ArithmeticOps
-    + From<u128>
-    + Into<Self::Integer>
-    + Clone
-    + Copy
-    + PartialEq
-    + Debug
-    + Send
-    + Sync
-    + Sized
-    + 'static
-{
+pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     type Integer: Int;
 
     const PRIME: Self::Integer;
@@ -39,9 +27,6 @@ pub trait Field:
     const ZERO: Self;
     /// Multiplicative identity element
     const ONE: Self;
-    /// Derived from the size of the backing field, this constant indicates how much
-    /// space is required to store this field value
-    const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
 
     /// Blanket implementation to represent the instance of this trait as 16 byte integer.
     /// Uses the fact that such conversion already exists via `Self` -> `Self::Integer` -> `Into<u128>`
@@ -58,10 +43,10 @@ pub trait Field:
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity to store this field value
     fn serialize(&self, buf: &mut [u8]) -> io::Result<()> {
-        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES as usize];
+        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES];
 
         if buf.len() >= raw_value.len() {
-            buf[..Self::SIZE_IN_BYTES as usize].copy_from_slice(raw_value);
+            buf[..Self::SIZE_IN_BYTES].copy_from_slice(raw_value);
             Ok(())
         } else {
             let error_text = format!(
@@ -86,10 +71,9 @@ pub trait Field:
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
     fn deserialize(buf_from: &mut [u8]) -> io::Result<Self> {
-        if Self::SIZE_IN_BYTES as usize <= buf_from.len() {
+        if Self::SIZE_IN_BYTES <= buf_from.len() {
             let mut buf_to = [0; 16]; // one day...
-            buf_to[..Self::SIZE_IN_BYTES as usize]
-                .copy_from_slice(&buf_from[..Self::SIZE_IN_BYTES as usize]);
+            buf_to[..Self::SIZE_IN_BYTES].copy_from_slice(&buf_from[..Self::SIZE_IN_BYTES]);
 
             Ok(Self::from(u128::from_le_bytes(buf_to)))
         } else {
@@ -102,14 +86,4 @@ pub trait Field:
     }
 }
 
-pub trait BinaryField:
-    Field
-    + BitAnd<Output = Self>
-    + BitAndAssign
-    + BitOr<Output = Self>
-    + BitOrAssign
-    + BitXor<Output = Self>
-    + BitXorAssign
-    + Not<Output = Self>
-{
-}
+pub trait BinaryField: Field + BooleanOps {}

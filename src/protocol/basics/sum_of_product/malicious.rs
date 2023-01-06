@@ -68,8 +68,6 @@ where
     use crate::protocol::context::SpecialAccessToMaliciousContext;
     use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-    // assert_eq!(pair.0.len(), pair.1.len());
-
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateSop);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
     let semi_honest_pairs = pairs
