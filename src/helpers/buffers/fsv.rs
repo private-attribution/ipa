@@ -52,7 +52,9 @@ impl<const N: usize> FixedSizeByteVec<N> {
         let start = index * N;
         let offset = start..start + N;
 
+        println!("FSV {self:p} {:?}", self.added);
         self.added.set(index, true);
+        println!("FSV {self:p} added {index} -> {:?}", self.added);
         self.data[offset].copy_from_slice(elem);
     }
 
@@ -65,7 +67,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// fewer than `min_count` elements have been inserted at the start of the buffer.
     pub fn take(&mut self, min_count: usize) -> Option<Vec<u8>> {
         let contiguous = self.added.leading_ones();
-
+        println!("FSV {self:p} available {contiguous}");
         if contiguous < min_count {
             return None;
         }

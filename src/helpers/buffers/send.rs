@@ -73,6 +73,7 @@ impl SendBuffer {
         channel_id: &ChannelId,
         msg: &MessageEnvelope,
     ) -> Result<Option<Vec<u8>>, PushError> {
+        println!("Send on {channel_id:?}, {:?}", msg.record_id);
         debug_assert!(
             msg.payload.len() <= ByteBuf::ELEMENT_SIZE_BYTES,
             "Message payload exceeds the maximum allowed size"
@@ -105,13 +106,27 @@ impl SendBuffer {
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
         if buf.added(index) {
+            println!("Duplicate push: {channel_id:?}, {:?}", msg.record_id);
             Err(PushError::Duplicate {
                 channel_id: channel_id.clone(),
                 record_id: msg.record_id,
             })
         } else {
             buf.insert(index, &payload);
-            Ok(buf.take(self.items_in_batch))
+            let out = buf.take(self.items_in_batch);
+            if let Some(v) = out.as_ref() {
+                println!(
+                    "Pushed: {channel_id:?}, {:?}: {} bytes returned",
+                    msg.record_id,
+                    v.len(),
+                );
+            } else {
+                println!(
+                    "Pushed: {channel_id:?}, {:?}: nothing returned, batch size {}",
+                    msg.record_id, self.items_in_batch,
+                );
+            }
+            Ok(out)
         }
     }
 

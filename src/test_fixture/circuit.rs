@@ -4,7 +4,8 @@ use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::rand::thread_rng;
 use crate::secret_sharing::{IntoShares, Replicated};
-use crate::test_fixture::{narrow_contexts, Fp31, Reconstruct, TestWorld};
+use crate::test_fixture::{Fp31, Reconstruct, TestWorld, TestWorldConfig};
+use futures::future::try_join_all;
 use futures_util::future::join_all;
 
 /// Creates an arithmetic circuit with the given width and depth.
@@ -12,11 +13,13 @@ use futures_util::future::join_all;
 /// # Panics
 /// panics when circuits did not produce the expected value.
 pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
-    let world = TestWorld::new().await;
+    let mut config = TestWorldConfig::default();
+    config.gateway_config.send_buffer_config.items_in_batch = 1; // break by setting to 2.
+    let world = TestWorld::new_with(config).await;
 
     let mut multiplications = Vec::new();
-    for record in 0..width {
-        let circuit_result = circuit(&world, RecordId::from(record), depth);
+    for _ in 0..width {
+        let circuit_result = circuit(&world, depth);
         multiplications.push(circuit_result);
     }
 
@@ -29,31 +32,26 @@ pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
     assert_eq!(sum, u128::from(width));
 }
 
-async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicated<Fp31>; 3] {
+async fn circuit(world: &TestWorld, depth: u8) -> [Replicated<Fp31>; 3] {
     let top_ctx = world.contexts();
     let mut a = Fp31::ONE.share_with(&mut thread_rng());
 
+    println!("circuit depth {depth}");
+    let contexts = &top_ctx;
     for bit in 0..depth {
+        println!("multiply a by b_{bit}");
         let b = Fp31::ONE.share_with(&mut thread_rng());
-        let bit_ctx = narrow_contexts(&top_ctx, &format!("b{bit}"));
         a = async move {
-            let mut coll = Vec::new();
-            for (i, ctx) in bit_ctx.iter().enumerate() {
-                let mul = ctx
-                    .narrow(&"mult".to_string())
-                    .multiply(record_id, &a[i], &b[i]);
-                coll.push(mul);
-            }
+            let iter = contexts.iter().enumerate().map(|(i, ctx)| {
+                println!("{:?} multiply a by b_{bit}", ctx.role());
+                ctx.narrow("mult")
+                    .multiply(RecordId::from(u32::from(bit)), &a[i], &b[i])
+            });
 
-            join_all(coll)
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-                .try_into()
-                .unwrap()
+            try_join_all(iter).await.unwrap().try_into().unwrap()
         }
         .await;
+        println!("multiplied a by b_{bit}");
     }
 
     a

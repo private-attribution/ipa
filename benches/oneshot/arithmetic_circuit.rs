@@ -1,5 +1,6 @@
 use clap::Parser;
-use raw_ipa::ff::{Field, Fp31};
+use raw_ipa::ff::Fp31;
+use raw_ipa::secret_sharing::SharedValue;
 use raw_ipa::test_fixture::circuit;
 use std::time::Instant;
 
@@ -26,7 +27,7 @@ pub async fn main() {
     let args = CircuitArgs::parse();
 
     {
-        let field_size = <Fp31 as Field>::Integer::BITS;
+        let field_size = <Fp31 as SharedValue>::BITS;
         let width = args.width;
         let depth = args.depth;
         println!("benchmark parameters: Field size: {field_size} bits, circuit width: {width}, depth: {depth}");
