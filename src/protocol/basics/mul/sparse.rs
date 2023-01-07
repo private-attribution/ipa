@@ -180,7 +180,7 @@ impl MultiplyWork for MultiplyZeroPositions {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub(in crate::protocol) mod test {
     use crate::secret_sharing::IntoShares;
     use crate::{

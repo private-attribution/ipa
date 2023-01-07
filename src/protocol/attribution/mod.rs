@@ -152,7 +152,7 @@ impl AsRef<str> for AttributionResharableStep {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::secret_sharing::IntoShares;
     use crate::{ff::Field, protocol::attribution::AttributionInputRow};
