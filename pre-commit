@@ -51,3 +51,5 @@ cargo clippy --tests -- -D warnings || error "Clippy errors"
 cargo clippy --tests --features shuttle -- -D warnings || error "Clippy concurrency tests errors"
 
 cargo test || error "Test failures"
+
+cargo test --features shuttle || error "Concurrency test failures"
