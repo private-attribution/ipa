@@ -205,26 +205,14 @@ async fn compute_b_bit<F: Field>(
     Ok(b)
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
-pub(crate) mod tests {
-    use rand::distributions::Standard;
-    use rand::prelude::Distribution;
-
-    use crate::protocol::sort::apply_sort::shuffle::Resharable;
-    use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::IntoShares;
-    use crate::secret_sharing::Replicated;
-    use crate::{
-        ff::{Field, Fp31},
-        helpers::Role,
-        protocol::attribution::{
-            accumulate_credit::accumulate_credit,
-            tests::{BD, H, S, T},
-            AttributionInputRow,
-        },
-        protocol::RecordId,
-        test_fixture::{Reconstruct, Runner, TestWorld},
-    };
+#[cfg(test)]
+pub mod input {
+    use crate::ff::{Field, Fp31};
+    use crate::protocol::attribution::{AggregateCreditOutputRow, AttributionInputRow};
+    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::test_fixture::Reconstruct;
+    use rand::distributions::{Distribution, Standard};
+    use rand::Rng;
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct AttributionTestInput<F>(pub [F; 4]);
@@ -287,6 +275,26 @@ pub(crate) mod tests {
         }
     }
 
+    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AggregateCreditOutputRow<F>; 3] {
+        fn reconstruct(&self) -> AttributionTestInput<F> {
+            [&self[0], &self[1], &self[2]].reconstruct()
+        }
+    }
+
+    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AggregateCreditOutputRow<F>; 3] {
+        fn reconstruct(&self) -> AttributionTestInput<F> {
+            let s0 = &self[0];
+            let s1 = &self[1];
+            let s2 = &self[2];
+
+            let breakdown_key =
+                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
+            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+
+            AttributionTestInput([breakdown_key, credit, F::ZERO, F::ZERO])
+        }
+    }
+
     impl From<AttributionTestInput<Fp31>> for [u8; 4] {
         fn from(v: AttributionTestInput<Fp31>) -> Self {
             Self::from(&v)
@@ -303,6 +311,25 @@ pub(crate) mod tests {
             ]
         }
     }
+}
+
+#[cfg(all(test, not(feature = "shuttle")))]
+pub(crate) mod tests {
+    use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
+    use crate::protocol::sort::apply_sort::shuffle::Resharable;
+    use crate::rand::{thread_rng, Rng};
+    use crate::{
+        ff::{Field, Fp31},
+        helpers::Role,
+        protocol::attribution::{
+            accumulate_credit::accumulate_credit,
+            tests::{BD, H, S, T},
+            AttributionInputRow,
+        },
+        protocol::RecordId,
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
+
     #[tokio::test]
     pub async fn accumulate() {
         const TEST_CASE: &[[u128; 5]; 19] = &[

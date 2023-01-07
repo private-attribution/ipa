@@ -43,7 +43,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
-    use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
+    use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
