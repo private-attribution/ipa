@@ -131,7 +131,7 @@ impl<'p> HttpHelper<'p> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use super::*;
     use crate::secret_sharing::IntoShares;
