@@ -10,11 +10,11 @@ fn semi_honest_ipa() {
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                const BATCHSIZE: usize = 20;
+                const BATCHSIZE: usize = 5;
                 const PER_USER_CAP: u32 = 10;
                 const MAX_BREAKDOWN_KEY: u128 = 8;
                 const MAX_TRIGGER_VALUE: u128 = 5;
-                let max_match_key: u64 = BATCHSIZE as u64 / 10;
+                let max_match_key: u64 = 3;
 
                 let world = TestWorld::new().await;
                 let mut rng = thread_rng();
@@ -42,6 +42,6 @@ fn semi_honest_ipa() {
                 assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
             })
         },
-        2,
+        10,
     );
 }
