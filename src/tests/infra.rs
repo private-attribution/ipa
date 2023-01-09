@@ -60,7 +60,7 @@ fn send_receive_sequential() {
                     .reconstruct();
 
                 assert_eq!(input, output);
-            })
+            });
         },
         1000,
     );
@@ -124,7 +124,7 @@ fn send_receive_parallel() {
                     .reconstruct();
 
                 assert_eq!(input, output);
-            })
+            });
         },
         1000,
     );

@@ -40,7 +40,7 @@ fn semi_honest_ipa() {
                     .reconstruct();
 
                 assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
-            })
+            });
         },
         10,
     );
