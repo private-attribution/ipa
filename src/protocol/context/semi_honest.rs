@@ -8,7 +8,7 @@ use crate::protocol::context::{
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{Step, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::ReplicatedAdditiveShares;
 use crate::sync::Arc;
 
 use std::marker::PhantomData;
@@ -44,7 +44,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         malicious_step: &S,
         upgrade_step: &S,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: ReplicatedAdditiveShares<F>,
     ) -> MaliciousContext<'a, F> {
         let upgrade_ctx = self.narrow(upgrade_step);
         MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)
@@ -52,7 +52,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
 }
 
 impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
 
     fn role(&self) -> Role {
         self.inner.role
@@ -94,7 +94,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
-        Replicated::one(self.role())
+        ReplicatedAdditiveShares::one(self.role())
     }
 }
 

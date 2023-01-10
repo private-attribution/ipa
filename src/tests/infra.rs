@@ -4,7 +4,7 @@ use crate::ff::Fp32BitPrime;
 use crate::helpers::Direction;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::RecordId;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::ReplicatedAdditiveShares;
 use crate::test_fixture::Reconstruct;
 use crate::test_fixture::{Runner, TestWorld};
 use futures_util::future::{try_join, try_join_all};
@@ -48,7 +48,7 @@ fn send_receive_sequential() {
                                 let right: Fp32BitPrime =
                                     right_channel.receive(left_peer, record_id).await.unwrap();
 
-                                *share = Replicated::new(left, right);
+                                *share = ReplicatedAdditiveShares::new(left, right);
                             }
 
                             // each helper just swapped their shares, i.e. H1 now holds
@@ -117,7 +117,10 @@ fn send_receive_parallel() {
 
                             let result = try_join_all(futures).await.unwrap();
 
-                            result.into_iter().map(Replicated::from).collect::<Vec<_>>()
+                            result
+                                .into_iter()
+                                .map(ReplicatedAdditiveShares::from)
+                                .collect::<Vec<_>>()
                         },
                     )
                     .await

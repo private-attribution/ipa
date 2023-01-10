@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::repeat64str;
-use crate::secret_sharing::{ArithmeticShare, Replicated, SecretSharing};
+use crate::secret_sharing::{ArithmeticShare, ReplicatedAdditiveShares, SecretSharing};
 use crate::{
     error::Error,
     ff::Field,
@@ -45,8 +45,8 @@ impl From<usize> for InnerVectorElementStep {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
-    type Share = Replicated<F>;
+impl<F: Field> Resharable<F> for Vec<ReplicatedAdditiveShares<F>> {
+    type Share = ReplicatedAdditiveShares<F>;
 
     /// This is intended to be used for resharing vectors of bit-decomposed values.
     /// # Errors
@@ -171,7 +171,7 @@ mod tests {
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
-        use crate::secret_sharing::Replicated;
+        use crate::secret_sharing::ReplicatedAdditiveShares;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
@@ -212,8 +212,8 @@ mod tests {
         }
 
         fn share_appears_anywhere(
-            x: &Replicated<Fp32BitPrime>,
-            inputs: &[Vec<Replicated<Fp32BitPrime>>],
+            x: &ReplicatedAdditiveShares<Fp32BitPrime>,
+            inputs: &[Vec<ReplicatedAdditiveShares<Fp32BitPrime>>],
         ) -> bool {
             inputs.iter().any(|row| {
                 row.iter()

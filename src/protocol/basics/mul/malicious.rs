@@ -5,7 +5,7 @@ use crate::protocol::{
     context::{Context, MaliciousContext},
     RecordId,
 };
-use crate::secret_sharing::MaliciousReplicated;
+use crate::secret_sharing::MaliciousReplicatedAdditiveShares;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -60,10 +60,10 @@ impl AsRef<str> for Step {
 pub async fn multiply<F>(
     ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
-    a: &MaliciousReplicated<F>,
-    b: &MaliciousReplicated<F>,
+    a: &MaliciousReplicatedAdditiveShares<F>,
+    b: &MaliciousReplicatedAdditiveShares<F>,
     zeros_at: MultiplyZeroPositions,
-) -> Result<MaliciousReplicated<F>, Error>
+) -> Result<MaliciousReplicatedAdditiveShares<F>, Error>
 where
     F: Field,
 {
@@ -90,7 +90,7 @@ where
     )
     .await?;
 
-    let malicious_ab = MaliciousReplicated::new(ab, rab);
+    let malicious_ab = MaliciousReplicatedAdditiveShares::new(ab, rab);
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)

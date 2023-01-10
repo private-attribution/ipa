@@ -47,6 +47,7 @@ mod tests {
             boolean::xor_sparse,
             RecordId,
         },
+        secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::distributions::{Distribution, Standard};

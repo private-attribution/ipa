@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::ReplicatedAdditiveShares,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +64,7 @@ impl AsRef<str> for Step {
 pub async fn check_zero<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    v: &Replicated<F>,
+    v: &ReplicatedAdditiveShares<F>,
 ) -> Result<bool, Error> {
     let r_sharing = ctx.prss().generate_replicated(record_id);
 
@@ -87,7 +87,7 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{basics::check_zero, RecordId};
     use crate::rand::thread_rng;
-    use crate::secret_sharing::IntoShares;
+    use crate::secret_sharing::{IntoShares, SharedValue};
     use crate::test_fixture::TestWorld;
 
     #[tokio::test]

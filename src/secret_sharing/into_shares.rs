@@ -1,6 +1,6 @@
 use crate::ff::Field;
 use crate::rand::{thread_rng, Rng};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::ReplicatedAdditiveShares;
 use rand::distributions::{Distribution, Standard};
 
 pub trait IntoShares<T>: Sized {
@@ -10,20 +10,20 @@ pub trait IntoShares<T>: Sized {
     fn share_with<R: Rng>(self, rng: &mut R) -> [T; 3];
 }
 
-impl<F> IntoShares<Replicated<F>> for F
+impl<F> IntoShares<ReplicatedAdditiveShares<F>> for F
 where
     F: Field,
     Standard: Distribution<F>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
+    fn share_with<R: Rng>(self, rng: &mut R) -> [ReplicatedAdditiveShares<F>; 3] {
         let x1 = rng.gen::<F>();
         let x2 = rng.gen::<F>();
         let x3 = self - (x1 + x2);
 
         [
-            Replicated::new(x1, x2),
-            Replicated::new(x2, x3),
-            Replicated::new(x3, x1),
+            ReplicatedAdditiveShares::new(x1, x2),
+            ReplicatedAdditiveShares::new(x2, x3),
+            ReplicatedAdditiveShares::new(x3, x1),
         ]
     }
 }

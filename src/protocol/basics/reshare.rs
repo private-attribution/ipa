@@ -2,12 +2,12 @@ use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
-use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, SecretSharing};
+use crate::secret_sharing::{ArithmeticShare, MaliciousReplicatedAdditiveShares, SecretSharing};
 use crate::{
     error::Error,
     helpers::{Direction, Role},
     protocol::{context::SemiHonestContext, sort::ReshareStep::ReshareRx, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::ReplicatedAdditiveShares,
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -48,7 +48,7 @@ where
 /// Input: Pi-1 and Pi+1 know their secret shares
 /// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
 impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
     async fn reshare(
         self,
         input: &Self::Share,
@@ -71,7 +71,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
                 .receive(to_helper.peer(Direction::Right), record_id)
                 .await?;
 
-            Ok(Replicated::new(part1 + part2, r1))
+            Ok(ReplicatedAdditiveShares::new(part1 + part2, r1))
         } else if self.role() == to_helper.peer(Direction::Right) {
             // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
             // This is same as (a3 - r3) in the diagram
@@ -85,9 +85,9 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
                 .receive(to_helper.peer(Direction::Left), record_id)
                 .await?;
 
-            Ok(Replicated::new(r0, part1 + part2))
+            Ok(ReplicatedAdditiveShares::new(r0, part1 + part2))
         } else {
-            Ok(Replicated::new(r0, r1))
+            Ok(ReplicatedAdditiveShares::new(r0, r1))
         }
     }
 }
@@ -97,7 +97,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
 /// # Errors
 /// If either of reshares fails
 impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
+    type Share = MaliciousReplicatedAdditiveShares<F>;
     async fn reshare(
         self,
         input: &Self::Share,
@@ -119,7 +119,7 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
             ),
         )
         .await?;
-        let malicious_input = MaliciousReplicated::new(x, rx);
+        let malicious_input = MaliciousReplicatedAdditiveShares::new(x, rx);
         random_constant_ctx.accumulate_macs(record_id, &malicious_input);
         Ok(malicious_input)
     }
@@ -205,7 +205,7 @@ mod tests {
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
         use crate::protocol::RecordId;
         use crate::rand::{thread_rng, Rng};
-        use crate::secret_sharing::{MaliciousReplicated, Replicated};
+        use crate::secret_sharing::{MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares};
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
@@ -232,11 +232,11 @@ mod tests {
 
         async fn reshare_with_additive_attack<F: Field>(
             ctx: SemiHonestContext<'_, F>,
-            input: &Replicated<F>,
+            input: &ReplicatedAdditiveShares<F>,
             record_id: RecordId,
             to_helper: Role,
             additive_error: F,
-        ) -> Result<Replicated<F>, Error> {
+        ) -> Result<ReplicatedAdditiveShares<F>, Error> {
             let channel = ctx.mesh();
             let (r0, r1) = ctx.prss().generate_fields(record_id);
 
@@ -253,7 +253,7 @@ mod tests {
                     .receive(to_helper.peer(Direction::Right), record_id)
                     .await?;
 
-                Ok(Replicated::new(part1 + part2, r1))
+                Ok(ReplicatedAdditiveShares::new(part1 + part2, r1))
             } else if ctx.role() == to_helper.peer(Direction::Right) {
                 // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
                 // This is same as (a3 - r3) in the diagram
@@ -267,19 +267,19 @@ mod tests {
                     .receive(to_helper.peer(Direction::Left), record_id)
                     .await?;
 
-                Ok(Replicated::new(r0, part1 + part2))
+                Ok(ReplicatedAdditiveShares::new(r0, part1 + part2))
             } else {
-                Ok(Replicated::new(r0, r1))
+                Ok(ReplicatedAdditiveShares::new(r0, r1))
             }
         }
 
         async fn reshare_malicious_with_additive_attack<F: Field>(
             ctx: MaliciousContext<'_, F>,
-            input: &MaliciousReplicated<F>,
+            input: &MaliciousReplicatedAdditiveShares<F>,
             record_id: RecordId,
             to_helper: Role,
             additive_error: F,
-        ) -> Result<MaliciousReplicated<F>, Error> {
+        ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
             use crate::protocol::context::SpecialAccessToMaliciousContext;
             use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
             let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
@@ -301,7 +301,7 @@ mod tests {
                 ),
             )
             .await?;
-            let malicious_input = MaliciousReplicated::new(x, rx);
+            let malicious_input = MaliciousReplicatedAdditiveShares::new(x, rx);
 
             random_constant_ctx.accumulate_macs(record_id, &malicious_input);
             Ok(malicious_input)

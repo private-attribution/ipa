@@ -1,7 +1,7 @@
 use super::Step;
 use crate::ff::Field;
 use crate::rand::{CryptoRng, RngCore};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::ReplicatedAdditiveShares;
 use crate::sync::{Arc, Mutex};
 
 use aes::{
@@ -85,9 +85,12 @@ pub trait SharedRandomness {
     /// <https://eprint.iacr.org/2018/387.pdf>
     ///
     #[must_use]
-    fn generate_replicated<F: Field, I: Into<u128>>(&self, index: I) -> Replicated<F> {
+    fn generate_replicated<F: Field, I: Into<u128>>(
+        &self,
+        index: I,
+    ) -> ReplicatedAdditiveShares<F> {
         let (l, r) = self.generate_fields(index);
-        Replicated::new(l, r)
+        ReplicatedAdditiveShares::new(l, r)
     }
 
     /// Generate an additive share of zero.

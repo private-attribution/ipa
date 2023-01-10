@@ -1,41 +1,47 @@
+use super::ArithmeticShare;
 use crate::ff::Field;
 use crate::helpers::Role;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Replicated<F: Field>(F, F);
+pub struct ReplicatedAdditiveShares<V: ArithmeticShare>(V, V);
 
-impl<F: Field + Debug> Debug for Replicated<F> {
+impl<V: ArithmeticShare + Debug> Debug for ReplicatedAdditiveShares<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<F: Field> Default for Replicated<F> {
+impl<V: ArithmeticShare> Default for ReplicatedAdditiveShares<V> {
     fn default() -> Self {
-        Replicated::new(F::ZERO, F::ZERO)
+        ReplicatedAdditiveShares::new(V::ZERO, V::ZERO)
     }
 }
 
-impl<F: Field> Replicated<F> {
+impl<V: ArithmeticShare> ReplicatedAdditiveShares<V> {
     #[must_use]
-    pub fn new(a: F, b: F) -> Self {
+    pub fn new(a: V, b: V) -> Self {
         Self(a, b)
     }
 
-    pub fn as_tuple(&self) -> (F, F) {
+    pub fn as_tuple(&self) -> (V, V) {
         (self.0, self.1)
     }
 
-    pub fn left(&self) -> F {
+    pub fn left(&self) -> V {
         self.0
     }
 
-    pub fn right(&self) -> F {
+    pub fn right(&self) -> V {
         self.1
     }
 
+    /// Replicated secret share where both left and right values are `F::ZERO`
+    pub const ZERO: ReplicatedAdditiveShares<V> = Self(V::ZERO, V::ZERO);
+}
+
+impl<F: Field> ReplicatedAdditiveShares<F> {
     /// Returns share of value one.
     #[must_use]
     pub fn one(helper_role: Role) -> Self {
@@ -50,20 +56,17 @@ impl<F: Field> Replicated<F> {
             Role::H3 => Self::new(F::ZERO, a),
         }
     }
-
-    /// Replicated secret share where both left and right values are `F::ZERO`
-    pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
 }
 
-impl<F: Field> Add<Self> for &Replicated<F> {
-    type Output = Replicated<F>;
+impl<V: ArithmeticShare> Add<Self> for &ReplicatedAdditiveShares<V> {
+    type Output = ReplicatedAdditiveShares<V>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Replicated(self.0 + rhs.0, self.1 + rhs.1)
+        ReplicatedAdditiveShares(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
-impl<F: Field> Add<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> Add<&Self> for ReplicatedAdditiveShares<V> {
     type Output = Self;
 
     fn add(mut self, rhs: &Self) -> Self::Output {
@@ -72,14 +75,14 @@ impl<F: Field> Add<&Self> for Replicated<F> {
     }
 }
 
-impl<F: Field> AddAssign<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> AddAssign<&Self> for ReplicatedAdditiveShares<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.0 += rhs.0;
         self.1 += rhs.1;
     }
 }
 
-impl<F: Field> Neg for Replicated<F> {
+impl<V: ArithmeticShare> Neg for ReplicatedAdditiveShares<V> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
@@ -87,15 +90,15 @@ impl<F: Field> Neg for Replicated<F> {
     }
 }
 
-impl<F: Field> Sub<Self> for &Replicated<F> {
-    type Output = Replicated<F>;
+impl<V: ArithmeticShare> Sub<Self> for &ReplicatedAdditiveShares<V> {
+    type Output = ReplicatedAdditiveShares<V>;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Replicated(self.0 - rhs.0, self.1 - rhs.1)
+        ReplicatedAdditiveShares(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
-impl<F: Field> Sub<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> Sub<&Self> for ReplicatedAdditiveShares<V> {
     type Output = Self;
 
     fn sub(mut self, rhs: &Self) -> Self::Output {
@@ -104,44 +107,52 @@ impl<F: Field> Sub<&Self> for Replicated<F> {
     }
 }
 
-impl<F: Field> SubAssign<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> SubAssign<&Self> for ReplicatedAdditiveShares<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.0 -= rhs.0;
         self.1 -= rhs.1;
     }
 }
 
-impl<F: Field> Mul<F> for Replicated<F> {
+impl<V: ArithmeticShare> Mul<V> for ReplicatedAdditiveShares<V> {
     type Output = Self;
 
-    fn mul(self, rhs: F) -> Self::Output {
+    fn mul(self, rhs: V) -> Self::Output {
         Self(self.0 * rhs, self.1 * rhs)
     }
 }
 
-impl<F: Field> From<(F, F)> for Replicated<F> {
-    fn from(s: (F, F)) -> Self {
-        Replicated::new(s.0, s.1)
+impl<V: ArithmeticShare> From<(V, V)> for ReplicatedAdditiveShares<V> {
+    fn from(s: (V, V)) -> Self {
+        ReplicatedAdditiveShares::new(s.0, s.1)
     }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::Replicated;
+    use super::ReplicatedAdditiveShares;
     use crate::ff::Fp31;
 
-    fn secret_share(a: u8, b: u8, c: u8) -> (Replicated<Fp31>, Replicated<Fp31>, Replicated<Fp31>) {
+    fn secret_share(
+        a: u8,
+        b: u8,
+        c: u8,
+    ) -> (
+        ReplicatedAdditiveShares<Fp31>,
+        ReplicatedAdditiveShares<Fp31>,
+        ReplicatedAdditiveShares<Fp31>,
+    ) {
         (
-            Replicated::new(Fp31::from(a), Fp31::from(b)),
-            Replicated::new(Fp31::from(b), Fp31::from(c)),
-            Replicated::new(Fp31::from(c), Fp31::from(a)),
+            ReplicatedAdditiveShares::new(Fp31::from(a), Fp31::from(b)),
+            ReplicatedAdditiveShares::new(Fp31::from(b), Fp31::from(c)),
+            ReplicatedAdditiveShares::new(Fp31::from(c), Fp31::from(a)),
         )
     }
 
     fn assert_valid_secret_sharing(
-        res1: &Replicated<Fp31>,
-        res2: &Replicated<Fp31>,
-        res3: &Replicated<Fp31>,
+        res1: &ReplicatedAdditiveShares<Fp31>,
+        res2: &ReplicatedAdditiveShares<Fp31>,
+        res3: &ReplicatedAdditiveShares<Fp31>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -149,9 +160,9 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: &Replicated<Fp31>,
-        a2: &Replicated<Fp31>,
-        a3: &Replicated<Fp31>,
+        a1: &ReplicatedAdditiveShares<Fp31>,
+        a2: &ReplicatedAdditiveShares<Fp31>,
+        a3: &ReplicatedAdditiveShares<Fp31>,
         expected_value: u128,
     ) {
         assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));

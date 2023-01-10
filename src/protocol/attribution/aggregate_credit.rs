@@ -16,14 +16,14 @@ use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::ReplicatedAdditiveShares;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
 
 #[async_trait]
 impl<F: Field + Sized> Resharable<F> for CappedCreditsWithAggregationBit<F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -187,7 +187,7 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field>(
     capped_credits: &[CreditCappingOutputRow<F>],
     max_breakdown_key: u128,
 ) -> Vec<CappedCreditsWithAggregationBit<F>> {
-    let zero = Replicated::ZERO;
+    let zero = ReplicatedAdditiveShares::ZERO;
     let one = ctx.share_of_one();
 
     // Unique breakdown_key values with all other fields initialized with 0's.
@@ -198,7 +198,7 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field>(
         .map(|i| CappedCreditsWithAggregationBit {
             helper_bit: zero.clone(),
             aggregation_bit: zero.clone(),
-            breakdown_key: Replicated::from_scalar(ctx.role(), F::from(i)),
+            breakdown_key: ReplicatedAdditiveShares::from_scalar(ctx.role(), F::from(i)),
             credit: zero.clone(),
         })
         .collect::<Vec<_>>();
@@ -222,7 +222,7 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field>(
 async fn bit_decompose_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
-) -> Result<Vec<Vec<Replicated<F>>>, Error> {
+) -> Result<Vec<Vec<ReplicatedAdditiveShares<F>>>, Error> {
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
@@ -339,14 +339,14 @@ pub(crate) mod tests {
     use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::{CappedCreditsWithAggregationBit, CreditCappingOutputRow};
     use crate::rand::Rng;
-    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::secret_sharing::{IntoShares, ReplicatedAdditiveShares, SharedValue};
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::{distributions::Standard, prelude::Distribution};
 
     // TODO: There are now too many xxxInputRow and yyyOutputRow. Combine them into one
     impl<F> IntoShares<CreditCappingOutputRow<F>> for AttributionTestInput<F>
     where
-        F: Field + IntoShares<Replicated<F>>,
+        F: Field + IntoShares<ReplicatedAdditiveShares<F>>,
         Standard: Distribution<F>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [CreditCappingOutputRow<F>; 3] {
@@ -371,7 +371,7 @@ pub(crate) mod tests {
 
     impl<F> IntoShares<CappedCreditsWithAggregationBit<F>> for AttributionTestInput<F>
     where
-        F: Field + IntoShares<Replicated<F>>,
+        F: Field + IntoShares<ReplicatedAdditiveShares<F>>,
         Standard: Distribution<F>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [CappedCreditsWithAggregationBit<F>; 3] {

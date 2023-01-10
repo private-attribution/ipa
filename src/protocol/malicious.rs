@@ -8,7 +8,9 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
-    secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
+    secret_sharing::{
+        DowngradeMalicious, MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares,
+    },
 };
 use futures::future::try_join;
 
@@ -108,7 +110,10 @@ pub struct MaliciousValidatorAccumulator<F> {
 }
 
 impl<F: Field> MaliciousValidatorAccumulator<F> {
-    fn compute_dot_product_contribution(a: &Replicated<F>, b: &Replicated<F>) -> F {
+    fn compute_dot_product_contribution(
+        a: &ReplicatedAdditiveShares<F>,
+        b: &ReplicatedAdditiveShares<F>,
+    ) -> F {
         (a.left() + a.right()) * (b.left() + b.right()) - a.right() * b.right()
     }
 
@@ -118,7 +123,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         &self,
         prss: &I,
         record_id: RecordId,
-        input: &MaliciousReplicated<F>,
+        input: &MaliciousReplicatedAdditiveShares<F>,
     ) {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
@@ -141,7 +146,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 
 #[derive(Debug)]
 pub struct MaliciousValidator<'a, F: Field> {
-    r_share: Replicated<F>,
+    r_share: ReplicatedAdditiveShares<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
     protocol_ctx: MaliciousContext<'a, F>,
     validate_ctx: SemiHonestContext<'a, F>,
@@ -178,7 +183,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         }
     }
 
-    pub fn r_share(&self) -> &Replicated<F> {
+    pub fn r_share(&self) -> &ReplicatedAdditiveShares<F> {
         &self.r_share
     }
 
@@ -217,7 +222,9 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
-    async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
+    async fn propagate_u_and_w(
+        &self,
+    ) -> Result<(ReplicatedAdditiveShares<F>, ReplicatedAdditiveShares<F>), Error> {
         let propagate_ctx = self.validate_ctx.narrow(&ValidateStep::PropagateUW);
         let channel = propagate_ctx.mesh();
         let helper_right = propagate_ctx.role().peer(Direction::Right);
@@ -236,8 +243,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             channel.receive(helper_left, RECORD_1),
         )
         .await?;
-        let u_share = Replicated::new(u_left, u_local);
-        let w_share = Replicated::new(w_left, w_local);
+        let u_share = ReplicatedAdditiveShares::new(u_left, u_local);
+        let w_share = ReplicatedAdditiveShares::new(w_left, w_local);
         Ok((u_share, w_share))
     }
 }
@@ -254,7 +261,7 @@ mod tests {
     use crate::protocol::{malicious::MaliciousValidator, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
-        IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        IntoShares, ReplicatedAdditiveShares, ThisCodeIsAuthorizedToDowngradeFromMalicious,
     };
     use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
@@ -351,7 +358,7 @@ mod tests {
                 .semi_honest(a, |ctx, a| async move {
                     let a = if ctx.role() == *malicious_actor {
                         // This role is spoiling the value.
-                        Replicated::new(a.left(), a.right() + Fp32BitPrime::ONE)
+                        ReplicatedAdditiveShares::new(a.left(), a.right() + Fp32BitPrime::ONE)
                     } else {
                         a
                     };
@@ -397,13 +404,16 @@ mod tests {
             let x = rng.gen::<Fp31>();
             original_inputs.push(x);
         }
-        let shared_inputs: Vec<[Replicated<Fp31>; 3]> = original_inputs
+        let shared_inputs: Vec<[ReplicatedAdditiveShares<Fp31>; 3]> = original_inputs
             .iter()
             .map(|x| x.share_with(&mut rng))
             .collect();
-        let h1_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[0].clone()).collect();
-        let h2_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[1].clone()).collect();
-        let h3_shares: Vec<Replicated<Fp31>> = shared_inputs.iter().map(|x| x[2].clone()).collect();
+        let h1_shares: Vec<ReplicatedAdditiveShares<Fp31>> =
+            shared_inputs.iter().map(|x| x[0].clone()).collect();
+        let h2_shares: Vec<ReplicatedAdditiveShares<Fp31>> =
+            shared_inputs.iter().map(|x| x[1].clone()).collect();
+        let h3_shares: Vec<ReplicatedAdditiveShares<Fp31>> =
+            shared_inputs.iter().map(|x| x[2].clone()).collect();
 
         let futures = context
             .into_iter()

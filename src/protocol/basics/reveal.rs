@@ -2,7 +2,9 @@ use std::iter::{repeat, zip};
 
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    ArithmeticShare, MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares, SecretSharing,
+};
 use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -35,7 +37,7 @@ pub trait Reveal<V: ArithmeticShare> {
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
 impl<F: Field> Reveal<F> for SemiHonestContext<'_, F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
         let (role, channel) = (self.role(), self.mesh());
@@ -60,7 +62,7 @@ impl<F: Field> Reveal<F> for SemiHonestContext<'_, F> {
 /// indeed match.
 #[async_trait]
 impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
+    type Share = MaliciousReplicatedAdditiveShares<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
@@ -131,7 +133,9 @@ mod tests {
             context::{Context, MaliciousContext},
             RecordId,
         },
-        secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
+        secret_sharing::{
+            MaliciousReplicatedAdditiveShares, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        },
         test_fixture::{join3, join3v, TestWorld},
     };
 
@@ -221,7 +225,7 @@ mod tests {
     pub async fn reveal_with_additive_attack<F: Field>(
         ctx: MaliciousContext<'_, F>,
         record_id: RecordId,
-        input: &MaliciousReplicated<F>,
+        input: &MaliciousReplicatedAdditiveShares<F>,
         additive_error: F,
     ) -> Result<F, Error> {
         let channel = ctx.mesh();

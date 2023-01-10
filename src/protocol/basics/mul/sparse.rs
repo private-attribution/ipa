@@ -1,4 +1,4 @@
-use crate::{ff::Field, helpers::Role, secret_sharing::Replicated};
+use crate::{ff::Field, helpers::Role, secret_sharing::ReplicatedAdditiveShares};
 
 /// A description of a replicated secret sharing, with zero values at known positions.
 /// Convention here is to refer to the "left" share available at each helper, with
@@ -103,7 +103,7 @@ impl ZeroPositions {
     /// # Panics
     /// When the input value includes a non-zero value in a position marked as having a zero.
     #[cfg_attr(not(debug_assertions), allow(unused_variables))]
-    pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
+    pub fn check<F: Field>(self, role: Role, which: &str, v: &ReplicatedAdditiveShares<F>) {
         #[cfg(debug_assertions)]
         {
             use crate::helpers::Direction::Right;
@@ -195,7 +195,7 @@ pub(in crate::protocol) mod test {
             BitOpStep, RECORD_0,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::Replicated,
+        secret_sharing::ReplicatedAdditiveShares,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join;
@@ -220,14 +220,14 @@ pub(in crate::protocol) mod test {
         }
     }
 
-    impl<F> IntoShares<Replicated<F>> for SparseField<F>
+    impl<F> IntoShares<ReplicatedAdditiveShares<F>> for SparseField<F>
     where
         F: Field,
         Standard: Distribution<F>,
     {
         // Create a sharing of `self.v` with zeros in positions determined by `self.z`.
         // This is a little inefficient, but it shouldn't be so bad in tests.
-        fn share_with<R: rand::Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
+        fn share_with<R: rand::Rng>(self, rng: &mut R) -> [ReplicatedAdditiveShares<F>; 3] {
             let zeros = <[bool; 3]>::from(self.z);
             // Generate one fewer random value than there are values.
             let mut randoms = zeros.iter().filter(|&x| !x).skip(1).map(|_| rng.gen::<F>());
@@ -247,9 +247,9 @@ pub(in crate::protocol) mod test {
                 .collect::<Vec<_>>();
 
             [
-                Replicated::new(values[0], values[1]),
-                Replicated::new(values[1], values[2]),
-                Replicated::new(values[2], values[0]),
+                ReplicatedAdditiveShares::new(values[0], values[1]),
+                ReplicatedAdditiveShares::new(values[1], values[2]),
+                ReplicatedAdditiveShares::new(values[2], values[0]),
             ]
         }
     }
@@ -352,7 +352,7 @@ pub(in crate::protocol) mod test {
     fn check_output_zeros<F, T>(v: &[T; 3], work: MultiplyZeroPositions)
     where
         F: Field,
-        T: Borrow<Replicated<F>>,
+        T: Borrow<ReplicatedAdditiveShares<F>>,
     {
         for (&role, expect_zero) in zip(Role::all(), <[bool; 3]>::from(work.output())) {
             if expect_zero {

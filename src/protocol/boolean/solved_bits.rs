@@ -3,7 +3,8 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::{
-    DowngradeMalicious, MaliciousReplicated, SecretSharing, UnauthorizedDowngradeWrapper,
+    DowngradeMalicious, MaliciousReplicatedAdditiveShares, SecretSharing,
+    UnauthorizedDowngradeWrapper,
 };
 use async_trait::async_trait;
 use std::marker::PhantomData;
@@ -20,11 +21,11 @@ where
 }
 
 #[async_trait]
-impl<F> DowngradeMalicious for RandomBitsShare<F, MaliciousReplicated<F>>
+impl<F> DowngradeMalicious for RandomBitsShare<F, MaliciousReplicatedAdditiveShares<F>>
 where
     F: Field,
 {
-    type Target = RandomBitsShare<F, crate::secret_sharing::Replicated<F>>;
+    type Target = RandomBitsShare<F, crate::secret_sharing::ReplicatedAdditiveShares<F>>;
 
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
@@ -145,6 +146,7 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::protocol::boolean::solved_bits::solved_bits;
     use crate::protocol::context::SemiHonestContext;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::Runner;
     use crate::{
         error::Error,

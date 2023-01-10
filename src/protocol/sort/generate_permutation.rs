@@ -15,7 +15,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
+    secret_sharing::{MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares, SecretSharing},
 };
 
 use super::{
@@ -37,7 +37,7 @@ pub struct RevealedAndRandomPermutations {
 }
 
 pub struct ShuffledPermutationWrapper<'a, F: Field> {
-    pub perm: Vec<MaliciousReplicated<F>>,
+    pub perm: Vec<MaliciousReplicatedAdditiveShares<F>>,
     pub m_ctx: MaliciousContext<'a, F>,
 }
 
@@ -87,7 +87,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
 pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     m_ctx: MaliciousContext<'_, F>,
     input_len: u32,
-    input_permutation: Vec<MaliciousReplicated<F>>,
+    input_permutation: Vec<MaliciousReplicatedAdditiveShares<F>>,
     malicious_validator: MaliciousValidator<'_, F>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
@@ -140,9 +140,9 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
 /// ![Generate sort permutation steps][semi_honest_sort]
 pub async fn generate_permutation<F>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Replicated<F>>],
+    sort_keys: &[Vec<ReplicatedAdditiveShares<F>>],
     num_bits: u32,
-) -> Result<Vec<Replicated<F>>, Error>
+) -> Result<Vec<ReplicatedAdditiveShares<F>>, Error>
 where
     F: Field,
 {
@@ -216,7 +216,7 @@ where
 /// If unable to convert sort keys length to u32
 pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Replicated<F>>],
+    sort_keys: &[Vec<ReplicatedAdditiveShares<F>>],
     num_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let sort_permutation = generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits).await?;
@@ -259,9 +259,15 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// # Errors
 pub async fn malicious_generate_permutation<'a, F>(
     sh_ctx: SemiHonestContext<'a, F>,
-    sort_keys: &[Vec<Replicated<F>>],
+    sort_keys: &[Vec<ReplicatedAdditiveShares<F>>],
     num_bits: u32,
-) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
+) -> Result<
+    (
+        MaliciousValidator<'a, F>,
+        Vec<MaliciousReplicatedAdditiveShares<F>>,
+    ),
+    Error,
+>
 where
     F: Field,
 {
@@ -348,7 +354,7 @@ mod tests {
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::ReplicatedAdditiveShares;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};
@@ -464,7 +470,7 @@ mod tests {
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists =
                     convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
-                let converted_shares: Vec<Vec<Replicated<Fp31>>> =
+                let converted_shares: Vec<Vec<ReplicatedAdditiveShares<Fp31>>> =
                     convert_all_bits(&ctx, &local_lists).await.unwrap();
                 malicious_generate_permutation(
                     ctx.narrow("sort"),

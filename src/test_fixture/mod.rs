@@ -13,7 +13,7 @@ use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{IntoShares, Replicated, SecretSharing};
+use crate::secret_sharing::{IntoShares, ReplicatedAdditiveShares, SecretSharing};
 use futures::future::try_join_all;
 use futures::TryFuture;
 pub use ipa_input_row::IPAInputTestRow;
@@ -62,7 +62,7 @@ pub fn make_participants() -> [PrssEndpoint; 3] {
     [p1, p2, p3]
 }
 
-pub type ReplicatedShares<T> = [Vec<Replicated<T>>; 3];
+pub type ReplicatedShares<T> = [Vec<ReplicatedAdditiveShares<T>>; 3];
 
 // Generate vector shares from vector of inputs for three participant
 #[must_use]

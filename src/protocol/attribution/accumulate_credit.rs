@@ -12,7 +12,7 @@ use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::RecordId;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::ReplicatedAdditiveShares;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -40,7 +40,7 @@ impl AsRef<str> for Step {
 
 #[async_trait]
 impl<F: Field> Resharable<F> for AttributionInputRow<F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -182,11 +182,11 @@ pub async fn accumulate_credit<F: Field>(
 async fn compute_b_bit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    current_stop_bit: &Replicated<F>,
-    sibling_helper_bit: &Replicated<F>,
-    sibling_is_trigger_bit: &Replicated<F>,
+    current_stop_bit: &ReplicatedAdditiveShares<F>,
+    sibling_helper_bit: &ReplicatedAdditiveShares<F>,
+    sibling_is_trigger_bit: &ReplicatedAdditiveShares<F>,
     first_iteration: bool,
-) -> Result<Replicated<F>, Error> {
+) -> Result<ReplicatedAdditiveShares<F>, Error> {
     // Compute `b = current_stop_bit * sibling_helper_bit * sibling_trigger_bit`.
     // Since `current_stop_bit` is initialized with 1, we only multiply it in
     // the second and later iterations.
@@ -209,7 +209,7 @@ async fn compute_b_bit<F: Field>(
 pub mod input {
     use crate::ff::{Field, Fp31};
     use crate::protocol::attribution::{AggregateCreditOutputRow, AttributionInputRow};
-    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::secret_sharing::{IntoShares, ReplicatedAdditiveShares};
     use crate::test_fixture::Reconstruct;
     use rand::distributions::{Distribution, Standard};
     use rand::Rng;
@@ -219,7 +219,7 @@ pub mod input {
 
     impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>
     where
-        F: Field + IntoShares<Replicated<F>>,
+        F: Field + IntoShares<ReplicatedAdditiveShares<F>>,
         Standard: Distribution<F>,
     {
         fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {

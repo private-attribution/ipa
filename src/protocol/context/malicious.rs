@@ -16,7 +16,7 @@ use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{RecordId, Step, Substep};
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::secret_sharing::{MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares};
 use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
@@ -30,7 +30,7 @@ pub struct MaliciousContext<'a, F: Field> {
 }
 
 pub trait SpecialAccessToMaliciousContext<'a, F: Field> {
-    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>);
+    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicatedAdditiveShares<F>);
     fn semi_honest_context(self) -> SemiHonestContext<'a, F>;
 }
 
@@ -40,7 +40,7 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         malicious_step: &S,
         upgrade_ctx: SemiHonestContext<'a, F>,
         acc: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: ReplicatedAdditiveShares<F>,
     ) -> Self {
         Self {
             inner: ContextInner::new(upgrade_ctx, acc, r_share),
@@ -55,8 +55,8 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     pub async fn upgrade(
         &self,
         record_id: RecordId,
-        input: Replicated<F>,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+        input: ReplicatedAdditiveShares<F>,
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         self.upgrade_sparse(record_id, input, ZeroPositions::Pvvv)
             .await
     }
@@ -68,9 +68,9 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     pub async fn upgrade_sparse(
         &self,
         record_id: RecordId,
-        input: Replicated<F>,
+        input: ReplicatedAdditiveShares<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         self.inner.upgrade(record_id, input, zeros_at).await
     }
 
@@ -81,8 +81,8 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     pub async fn upgrade_vector<SS: Substep>(
         &self,
         step: &SS,
-        input: Vec<Replicated<F>>,
-    ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
+        input: Vec<ReplicatedAdditiveShares<F>>,
+    ) -> Result<Vec<MaliciousReplicatedAdditiveShares<F>>, Error> {
         try_join_all(
             zip(repeat(self), input.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
                 ctx.upgrade_with(step, RecordId::from(i), share).await
@@ -100,8 +100,8 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         &self,
         step: &SS,
         record_id: RecordId,
-        input: Replicated<F>,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+        input: ReplicatedAdditiveShares<F>,
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         self.upgrade_with_sparse(step, record_id, input, ZeroPositions::Pvvv)
             .await
     }
@@ -115,9 +115,9 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         &self,
         step: &SS,
         record_id: RecordId,
-        input: Replicated<F>,
+        input: ReplicatedAdditiveShares<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         self.inner
             .upgrade_with(step, record_id, input, zeros_at)
             .await
@@ -131,14 +131,14 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         &self,
         step: &SS,
         record_id: RecordId,
-        triple: BitConversionTriple<Replicated<F>>,
-    ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
+        triple: BitConversionTriple<ReplicatedAdditiveShares<F>>,
+    ) -> Result<BitConversionTriple<MaliciousReplicatedAdditiveShares<F>>, Error> {
         self.inner.upgrade_bit_triple(step, record_id, triple).await
     }
 }
 
 impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
-    type Share = MaliciousReplicated<F>;
+    type Share = MaliciousReplicatedAdditiveShares<F>;
 
     fn role(&self) -> Role {
         self.inner.role
@@ -179,7 +179,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     }
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
-        MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
+        MaliciousReplicatedAdditiveShares::one(self.role(), self.inner.r_share.clone())
     }
 }
 
@@ -188,7 +188,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
 /// `ProtocolContext<'a, S: SecretShare<F>, F: Field>` as the context. If that is not possible,
 /// this implementation makes it easier to reinterpret the context as semi-honest.
 impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'a, F> {
-    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>) {
+    fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicatedAdditiveShares<F>) {
         self.inner
             .accumulator
             .accumulate_macs(&self.prss(), record_id, x);
@@ -237,14 +237,14 @@ struct ContextInner<'a, F: Field> {
     gateway: &'a Gateway,
     upgrade_ctx: SemiHonestContext<'a, F>,
     accumulator: MaliciousValidatorAccumulator<F>,
-    r_share: Replicated<F>,
+    r_share: ReplicatedAdditiveShares<F>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
     fn new(
         upgrade_ctx: SemiHonestContext<'a, F>,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: Replicated<F>,
+        r_share: ReplicatedAdditiveShares<F>,
     ) -> Arc<Self> {
         Arc::new(ContextInner {
             role: upgrade_ctx.inner.role,
@@ -260,9 +260,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
         &self,
         ctx: SemiHonestContext<'a, F>,
         record_id: RecordId,
-        x: Replicated<F>,
+        x: ReplicatedAdditiveShares<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         let rx = ctx
             .clone()
             .multiply_sparse(
@@ -272,7 +272,7 @@ impl<'a, F: Field> ContextInner<'a, F> {
                 (zeros_at, ZeroPositions::Pvvv),
             )
             .await?;
-        let m = MaliciousReplicated::new(x, rx);
+        let m = MaliciousReplicatedAdditiveShares::new(x, rx);
         let ctx = ctx.narrow(&RandomnessForValidation);
         let prss = ctx.prss();
         self.accumulator.accumulate_macs(&prss, record_id, &m);
@@ -282,9 +282,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
     async fn upgrade(
         &self,
         record_id: RecordId,
-        x: Replicated<F>,
+        x: ReplicatedAdditiveShares<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         self.upgrade_one(self.upgrade_ctx.clone(), record_id, x, zeros_at)
             .await
     }
@@ -293,9 +293,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
         &self,
         step: &SS,
         record_id: RecordId,
-        x: Replicated<F>,
+        x: ReplicatedAdditiveShares<F>,
         zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
+    ) -> Result<MaliciousReplicatedAdditiveShares<F>, Error> {
         self.upgrade_one(self.upgrade_ctx.narrow(step), record_id, x, zeros_at)
             .await
     }
@@ -304,8 +304,8 @@ impl<'a, F: Field> ContextInner<'a, F> {
         &self,
         step: &SS,
         record_id: RecordId,
-        triple: BitConversionTriple<Replicated<F>>,
-    ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
+        triple: BitConversionTriple<ReplicatedAdditiveShares<F>>,
+    ) -> Result<BitConversionTriple<MaliciousReplicatedAdditiveShares<F>>, Error> {
         let [v0, v1, v2] = triple.0;
         let c = self.upgrade_ctx.narrow(step);
         Ok(BitConversionTriple(

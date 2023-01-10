@@ -2,7 +2,9 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::RecordId;
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares, SecretSharing,
+};
 use async_trait::async_trait;
 
 pub(crate) mod malicious;
@@ -30,7 +32,7 @@ use {
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
 impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
 
     async fn sum_of_products(
         self,
@@ -45,7 +47,7 @@ impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
 impl<F: Field> SecureSop<F> for MaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
+    type Share = MaliciousReplicatedAdditiveShares<F>;
 
     async fn sum_of_products(
         self,

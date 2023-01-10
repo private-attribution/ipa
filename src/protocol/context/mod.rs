@@ -81,7 +81,7 @@ mod tests {
     use crate::protocol::malicious::Step::MaliciousProtocol;
     use crate::protocol::prss::SharedRandomness;
     use crate::protocol::RecordId;
-    use crate::secret_sharing::{MaliciousReplicated, Replicated};
+    use crate::secret_sharing::{MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares};
     use crate::telemetry::metrics::{
         INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
     };
@@ -99,13 +99,13 @@ mod tests {
         fn right(&self) -> F;
     }
 
-    impl<F: Field> AsReplicated<F> for Replicated<F> {
+    impl<F: Field> AsReplicated<F> for ReplicatedAdditiveShares<F> {
         fn left(&self) -> F {
-            (self as &Replicated<F>).left()
+            (self as &ReplicatedAdditiveShares<F>).left()
         }
 
         fn right(&self) -> F {
-            (self as &Replicated<F>).right()
+            (self as &ReplicatedAdditiveShares<F>).right()
         }
     }
 
@@ -113,18 +113,18 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicated<F> for MaliciousReplicated<F> {
+    impl<F: Field> AsReplicated<F> for MaliciousReplicatedAdditiveShares<F> {
         fn left(&self) -> F {
-            (self as &MaliciousReplicated<F>).rx().left()
+            (self as &MaliciousReplicatedAdditiveShares<F>).rx().left()
         }
 
         fn right(&self) -> F {
-            (self as &MaliciousReplicated<F>).rx().right()
+            (self as &MaliciousReplicatedAdditiveShares<F>).rx().right()
         }
     }
 
     /// Toy protocol to execute PRSS generation and send/receive logic
-    async fn toy_protocol<F, S, C>(ctx: C, index: usize, share: &S) -> Replicated<F>
+    async fn toy_protocol<F, S, C>(ctx: C, index: usize, share: &S) -> ReplicatedAdditiveShares<F>
     where
         F: Field,
         Standard: Distribution<F>,
@@ -152,7 +152,7 @@ mod tests {
         )
         .unwrap();
 
-        Replicated::new(share.left(), right_share + r + seq_r)
+        ReplicatedAdditiveShares::new(share.left(), right_share + r + seq_r)
     }
 
     #[tokio::test]

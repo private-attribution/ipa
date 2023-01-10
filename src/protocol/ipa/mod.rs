@@ -16,7 +16,7 @@ use crate::{
         },
         RecordId,
     },
-    secret_sharing::{Replicated, XorReplicated},
+    secret_sharing::{ReplicatedAdditiveShares, XorReplicated},
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
@@ -77,21 +77,21 @@ impl AsRef<str> for IPAInputRowResharableStep {
 
 pub struct IPAInputRow<F: Field> {
     pub mk_shares: XorReplicated,
-    pub is_trigger_bit: Replicated<F>,
-    pub breakdown_key: Replicated<F>,
-    pub trigger_value: Replicated<F>,
+    pub is_trigger_bit: ReplicatedAdditiveShares<F>,
+    pub breakdown_key: ReplicatedAdditiveShares<F>,
+    pub trigger_value: ReplicatedAdditiveShares<F>,
 }
 
 struct IPAModulusConvertedInputRow<F: Field> {
-    mk_shares: Vec<Replicated<F>>,
-    is_trigger_bit: Replicated<F>,
-    breakdown_key: Replicated<F>,
-    trigger_value: Replicated<F>,
+    mk_shares: Vec<ReplicatedAdditiveShares<F>>,
+    is_trigger_bit: ReplicatedAdditiveShares<F>,
+    breakdown_key: ReplicatedAdditiveShares<F>,
+    trigger_value: ReplicatedAdditiveShares<F>,
 }
 
 #[async_trait]
 impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
-    type Share = Replicated<F>;
+    type Share = ReplicatedAdditiveShares<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -190,7 +190,7 @@ where
         let record_id = RecordId::from(i);
         async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
     });
-    let helper_bits = Some(Replicated::ZERO)
+    let helper_bits = Some(ReplicatedAdditiveShares::ZERO)
         .into_iter()
         .chain(try_join_all(futures).await?);
 
