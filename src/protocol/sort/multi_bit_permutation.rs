@@ -10,6 +10,8 @@ use crate::{
     secret_sharing::SecretSharing,
 };
 
+use bitvec::prelude::Lsb0;
+use bitvec::view::BitView;
 use futures::future::try_join_all;
 
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
@@ -73,7 +75,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     for rec in 0..num_records {
         let ctx_sop = ctx.narrow(&Sop);
         let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
-        for sop_input_transposed in sop_inputs_transposed.iter().take(num_possible_bit_values) {
+        for sop_input_transposed in &sop_inputs_transposed {
             sop_inputs.push((&sop_input_transposed[rec].0, &sop_input_transposed[rec].1));
         }
         permutation_futures.push(async move {
@@ -107,18 +109,16 @@ where
 
     let mut equality_check_futures = Vec::with_capacity(num_records);
 
-    let j_bit_representation = get_binary_from_int(idx, num_multi_bits);
-
     for rec in 0..num_records {
         let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
         let share_of_one = ctx_across_bits.share_of_one();
 
         let mut bits_for_record = Vec::with_capacity(num_multi_bits);
-        for jth_bits in input.iter().take(num_multi_bits) {
+        for jth_bits in input.iter() {
             bits_for_record.push(jth_bits[rec].clone());
         }
         let mut mult_input = Vec::with_capacity(num_multi_bits);
-        for jth_bit in j_bit_representation.iter().take(num_multi_bits) {
+        for jth_bit in idx.view_bits::<Lsb0>()[..num_multi_bits].iter().rev() {
             if *jth_bit {
                 mult_input.push(bits_for_record.remove(0));
             } else {
@@ -138,19 +138,6 @@ where
     try_join_all(equality_check_futures).await
 }
 
-/// Get binary representation of an integer as a vector of bool
-fn get_binary_from_int(input_num: usize, num_bits: usize) -> Vec<bool> {
-    let mut num = input_num;
-    let mut bits = Vec::with_capacity(num_bits);
-    while num != 0 {
-        bits.push(num & 1 == 1);
-        num >>= 1;
-    }
-    bits.resize_with(num_bits, Default::default);
-    bits.reverse();
-    bits
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use futures::future::try_join_all;
@@ -160,9 +147,7 @@ mod tests {
         protocol::{
             context::Context,
             sort::{
-                multi_bit_permutation::{
-                    get_binary_from_int, get_bit_equality_checkers, multi_bit_permutation,
-                },
+                multi_bit_permutation::{get_bit_equality_checkers, multi_bit_permutation},
                 MultiBitPermutationStep::EqualityBitChecker,
             },
         },
@@ -223,11 +208,7 @@ mod tests {
             })
             .await;
         let reconstructs = result.reconstruct();
-        for (j, item) in reconstructs
-            .iter()
-            .enumerate()
-            .take(num_possible_bit_values)
-        {
+        for (j, item) in reconstructs.iter().enumerate() {
             for rec in 0..num_records {
                 if EXPECTED_NUMS[rec] == j {
                     assert_eq!(item[rec], Fp31::ONE);
@@ -236,21 +217,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn get_binary_from_int_basic() {
-        assert_eq!(
-            get_binary_from_int(1024, 12),
-            vec![false, true, false, false, false, false, false, false, false, false, false, false]
-        );
-        assert_eq!(
-            get_binary_from_int(127, 7),
-            vec![true, true, true, true, true, true, true]
-        );
-        assert_eq!(
-            get_binary_from_int(21, 5),
-            vec![true, false, true, false, true]
-        );
     }
 }
