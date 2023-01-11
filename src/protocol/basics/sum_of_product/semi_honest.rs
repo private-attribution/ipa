@@ -27,8 +27,6 @@ pub async fn sum_of_products<F>(
 where
     F: Field,
 {
-    let multi_bit_len = pairs.len();
-
     let channel = ctx.mesh();
 
     // generate shared randomness.
@@ -39,7 +37,7 @@ where
     // compute the value (d_i) we want to send to the right helper (i+1)
     let mut right_sops: F = -s0;
 
-    for pair in pairs.iter().take(multi_bit_len) {
+    for pair in pairs.iter() {
         right_sops += pair.0.left() * pair.1.right() + pair.0.right() * pair.1.left();
     }
 
@@ -57,7 +55,7 @@ where
     let mut lhs = left_sops + s0;
     let mut rhs = right_sops + s1;
 
-    for pair in pairs.iter().take(multi_bit_len) {
+    for pair in pairs.iter() {
         lhs += pair.0.left() * pair.1.left();
         rhs += pair.0.right() * pair.1.right();
     }
@@ -113,10 +111,10 @@ mod test {
         }
 
         let res = world
-            .semi_honest((av, bv), |ctx, (a, b)| async move {
-                let mut pairs = Vec::with_capacity(MULTI_BIT_LEN);
-                for i in 0..a.len() {
-                    pairs.push((&a[i], &b[i]));
+            .semi_honest((av, bv), |ctx, (a_share, b_share)| async move {
+                let mut pairs = Vec::with_capacity(a_share.len());
+                for i in 0..a_share.len() {
+                    pairs.push((&a_share[i], &b_share[i]));
                 }
                 ctx.sum_of_products(RecordId::from(0), pairs.as_slice())
                     .await

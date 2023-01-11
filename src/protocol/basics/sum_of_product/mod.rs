@@ -17,7 +17,7 @@ pub trait SecureSop<F: ArithmeticShare>: Sized {
     async fn sum_of_products(
         self,
         record_id: RecordId,
-        pair: &[(&Self::Share, &Self::Share)],
+        pairs: &[(&Self::Share, &Self::Share)],
     ) -> Result<Self::Share, Error>;
 }
 
