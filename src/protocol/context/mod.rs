@@ -76,7 +76,7 @@ pub trait Context<V: ArithmeticShare>:
     fn share_of_one(&self) -> <Self as Context<V>>::Share;
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Direction;

@@ -123,8 +123,8 @@ impl PublicKeyBytesBuilder {
     }
 }
 
-#[cfg(test)]
-mod test {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use super::*;
     use rand::thread_rng;
     use x25519_dalek::EphemeralSecret;

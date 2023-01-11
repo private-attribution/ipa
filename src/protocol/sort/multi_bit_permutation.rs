@@ -2,10 +2,8 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        boolean::multiply_all_shares,
-        context::Context,
-        sort::MultiBitPermutationStep::{EqualityBitChecker, MultiplyAcrossBits, Sop},
-        RecordId,
+        boolean::multiply_all_shares, context::Context,
+        sort::MultiBitPermutationStep::MultiplyAcrossBits, RecordId,
     },
     secret_sharing::SecretSharing,
 };
@@ -38,49 +36,42 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
     let num_multi_bits = input.len();
+    assert!(num_multi_bits > 0);
     let num_records = input[0].len();
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
-    let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values * num_records);
+    let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values);
     for j in 0..num_possible_bit_values {
-        let ctx_equality_checker = ctx.narrow(&EqualityBitChecker);
-        equality_check_futures
-            .push(async move { get_bit_equality_checkers(j, input, ctx_equality_checker).await });
+        let ctx = ctx.clone();
+        equality_check_futures.push(async move { get_bit_equality_checkers(j, input, ctx).await });
     }
 
     let equality_checks = try_join_all(equality_check_futures).await?;
 
     // Compute accumulated sum
     let mut sop_inputs_transposed = Vec::with_capacity(num_possible_bit_values * num_records);
-    let mut initial_state = S::ZERO;
-    for equality_check in equality_checks {
-        let out = equality_check
-            .into_iter()
-            .scan(initial_state, |sum, x| {
-                *sum += &x;
-                Some((x, sum.clone()))
-            })
-            .collect::<Vec<_>>();
-        initial_state = out
-            .last()
-            .unwrap_or_else(|| panic!("We should never reach here"))
-            .1
-            .clone();
-        sop_inputs_transposed.push(out);
+    let mut cumulative_sum = S::ZERO;
+    for equality_check in &equality_checks {
+        for check in equality_check {
+            cumulative_sum += check;
+            sop_inputs_transposed.push(cumulative_sum.clone());
+        }
     }
 
     // Take sum of products of output of equality check and accumulated sum
     let mut permutation_futures = Vec::with_capacity(num_records);
     for rec in 0..num_records {
-        let ctx_sop = ctx.narrow(&Sop);
+        let ctx = ctx.clone();
         let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
-        for sop_input_transposed in &sop_inputs_transposed {
-            sop_inputs.push((&sop_input_transposed[rec].0, &sop_input_transposed[rec].1));
+        for idx in 0..num_possible_bit_values {
+            sop_inputs.push((
+                &equality_checks[idx][rec],
+                &sop_inputs_transposed[idx * num_records + rec],
+            ));
         }
         permutation_futures.push(async move {
-            ctx_sop
-                .sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
+            ctx.sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
                 .await
         });
     }
@@ -109,8 +100,9 @@ where
 
     let mut equality_check_futures = Vec::with_capacity(num_records);
 
+    let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
     for rec in 0..num_records {
-        let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
+        let ctx_across_bits = ctx_across_bits.clone();
         let share_of_one = ctx_across_bits.share_of_one();
 
         let mut bits_for_record = Vec::with_capacity(num_multi_bits);
@@ -144,13 +136,7 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp31},
-        protocol::{
-            context::Context,
-            sort::{
-                multi_bit_permutation::{get_bit_equality_checkers, multi_bit_permutation},
-                MultiBitPermutationStep::EqualityBitChecker,
-            },
-        },
+        protocol::sort::multi_bit_permutation::{get_bit_equality_checkers, multi_bit_permutation},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     const INPUT: [&[u128]; 3] = [
@@ -194,13 +180,12 @@ mod tests {
 
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
-                let mut equality_check_futures =
-                    Vec::with_capacity(num_possible_bit_values * num_records);
+                let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values);
                 for j in 0..num_possible_bit_values {
-                    let ctx_equality_checker = ctx.narrow(&EqualityBitChecker);
+                    let ctx = ctx.clone();
                     let m_shares_copy = m_shares.clone();
                     equality_check_futures.push(async move {
-                        get_bit_equality_checkers(j, &m_shares_copy, ctx_equality_checker).await
+                        get_bit_equality_checkers(j, &m_shares_copy, ctx).await
                     });
                 }
 

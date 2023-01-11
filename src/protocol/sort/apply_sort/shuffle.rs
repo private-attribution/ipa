@@ -167,7 +167,7 @@ mod tests {
         use crate::rand::{thread_rng, Rng};
 
         use crate::ff::{Fp31, Fp32BitPrime};
-        use crate::protocol::attribution::accumulate_credit::tests::AttributionTestInput;
+        use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;

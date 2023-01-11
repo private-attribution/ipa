@@ -202,7 +202,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThanPrime;
     use crate::test_fixture::Runner;

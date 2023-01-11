@@ -125,18 +125,14 @@ impl AsRef<str> for ReshareStep {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum MultiBitPermutationStep {
-    EqualityBitChecker,
     MultiplyAcrossBits,
-    Sop,
 }
 impl Substep for MultiBitPermutationStep {}
 
 impl AsRef<str> for MultiBitPermutationStep {
     fn as_ref(&self) -> &str {
         match self {
-            Self::EqualityBitChecker => "equality_bit_checker",
             Self::MultiplyAcrossBits => "multiply_across_bits",
-            Self::Sop => "sop",
         }
     }
 }
