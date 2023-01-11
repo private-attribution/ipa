@@ -1,50 +1,48 @@
-## Testing concurrent code with Shuttle
+# Testing concurrent code with Shuttle
 
 This note explains how to write concurrent tests for IPA using the Shuttle crate. IPA has been onboarded to Shuttle and
 there were already a couple of issues uncovered by using concurrency testing. Having more code tested by Shuttle reduces
 the chance of having intermittent failures in the future and makes software release more smooth.
 
-### Why does IPA need it?
+## Why does IPA need it?
 
 Testing concurrent code is hard because there is often an unbounded number of possible executions. There are multiple
 approaches to it: [exhaustive space exploration](https://docs.rs/loom/latest/loom/) and [stochastic simulation](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/asplos277-pct.pdf). Shuttle takes the latter approach and uses randomized
 scheduling techniques to detect concurrency issues with high probability. Certain IPA layers benefit more from having
 those tests
 
-#### Infrastructure
+### Infrastructure
 Infrastructure uses tasks and schedulers to keep up with the load, so it benefits greatly from having good coverage
 of concurrency tests. In fact, [this issue](https://github.com/private-attribution/ipa/issues/256) was revealed only
 after onboarding infrastructure to Shuttle.
 
-Every module that uses `Arc`, `thread`, `tokio::spawn` benefits from concurrency testing.
-
-#### Protocols
+### Protocols
 Protocols are inherently asynchronous and vulnerable to the same class of concurrency issues as the infrastructure.
 
 ```rust
-async fn sum_of_products(a: &[u32], b: &[u32]) -> u64 {
-    let mut sum: u64 = 0;
-    for x in a {
-        for y in b {
-            let r = secure_mul(x, y).await;
-            sum += r;
-        }
-    }
+/// computes (a*b)/(c*d)
+async fn mul_and_divide(a: Share, b: Share, c: Share, d: Share) -> Share {
+    let mut futures = FuturesUnordered::new();
+    futures.push(secure_mul(a, b));
+    futures.push(secure_mul(c, d));
     
-    sum
+    // bug: c*d may be computed first, so this function may compute an inverse of the intended result
+    let results = futures.collect().await;
+    
+    results[0] / results[1]
 }
 ```
 
 
-### How does it work?
+## How does it work?
 
 There are multiple strategies to run a Shuttle test, most common one used in IPA involves randomized concurrency testing.
 Shuttle picks a possible execution based on random choice. There is more in Shuttle than just a randomized scheduler, more information can be found
 [here](https://docs.rs/shuttle/latest/shuttle/scheduler/index.html).
 
-### Getting started
+## Getting started
 
-Shuttle tests live inside the `tests/` folder. The first line of each test module should be the following
+Shuttle tests live inside the `src/tests/` folder. The first line of each test module should be the following
 
 ```rust
 #![cfg(all(feature = "shuttle", test))]
@@ -77,28 +75,33 @@ fn my_first_concurrency_test() {
 }
 ```
 
-### Running Shuttle tests
+## Running Shuttle tests
 
 Execute the cargo `test` command with shuttle feature enabled:
 ```bash
 cargo test --features shuttle
 ```
 
+Running Shuttle tests and unit tests is not possible at the same time because they use different runtimes. 
+The command above disables unit tests and only run concurrency tests. 
+
 Running just one test is also possible
 
 ```bash
- cargo test --lib tests::protocol::semi_honest_ipa --features shuttle
+ cargo test --lib tests::protocol::semi_honest_ipa --features shuttle --exact
 ```
 
-### Failures
+Omitting `--exact` flag will run all tests that match the `--lib` argument.
 
-Concurrency bugs reveal themselves as assertion violations, panics and deadlock errors.
+## Failures
+
+Concurrency bugs manifest themselves as assertion violations, panics and deadlock errors.
 
 #### Assertion violations 
 Concurrency tests provide the most value when they can validate the results produced by a randomized execution. If results
 are not correct, test will fail
 
-```bash
+```
 test panicked in task 'main-thread'
 failing schedule: "91038e14b4c9b..."
 pass that string to `shuttle::replay` to replay the failure
@@ -110,10 +113,10 @@ Right: 13_mod31
 
 In case of random input (PRSS, secret shares), left and right values will be different for each test execution.
 
-#### Panics
+### Panics
 If an internal assertion does not hold under randomized test, it will panic:
 
-```bash
+```
 test panicked in task 'main-thread'
 index out of bounds: the len is 50 but the index is 1942298774
 thread 'tests::randomized::sort' panicked at 'index out of bounds: the len is 50 but the index is 1942298774', src/protocol/sort/apply.rs:23:24
@@ -122,7 +125,7 @@ thread 'tests::randomized::sort' panicked at 'index out of bounds: the len is 50
 Typically running the same test as regular Rust test does not result in the same panic. 
 
 
-#### Deadlocks
+### Deadlocks
 This failure mode occurs when Shuttle cannot pick next execution because every task/thread is blocked. It must be taken seriously because it means
 that some execution leads to the whole system getting stalled under some circumstances.
 
@@ -148,7 +151,7 @@ fn deadlock() {
 ```
 
 
-```bash
+```
 deadlock! blocked tasks: [main-thread (task 0, pending future), <unknown> (task 1, pending future), <unknown> (task 2, pending future), <unknown> (task 3, pending future), <unknown> (task 4, pending future), <unknown> (task 5, pending future), <unknown> (task 6, pending future)]
 failing schedule: "91033..."
 pass that string to `shuttle::replay` to replay the failure
@@ -158,35 +161,21 @@ The error does not have enough information to say exactly what happened, but nev
 it reliably shows an execution that leads to a stall.
 
 
-### Replaying errors
+## Replaying errors
 This is a hit-or-miss feature, as of Jan 2023 not working very reliably. Shuttle generates a unique string to make
 any random execution deterministically reproducible. In some simple cases it works fine but any sort of non-determinism
 inside the test or code being tested leads to Shuttle failing to replay failures.
 
 
+## FAQ
 
-### FAQ
-
-#### What class of issues is intended to be covered by concurrency testing?
+### What class of issues is intended to be covered by concurrency testing?
 As a rule of thumb, if there is an `await` point or `thread::spawn`, it is strongly preferred to have a concurrency test 
 for it. 
 
 **There is no added value** running the following code under Shuttle schedulers
 
-```rust
-/// no await
-pub fn get_two_of_three_random_permutations<R: Rng>(batch_size: u32, mut rng: (R, R)) -> (Vec<u32>, Vec<u32>) {
-    let mut left_permutation = (0..batch_size).collect::<Vec<_>>();
-    let mut right_permutation = left_permutation.clone();
-
-    left_permutation.shuffle(&mut rng.0);
-    right_permutation.shuffle(&mut rng.1);
-
-    (left_permutation, right_permutation)
-}
-```
-
-#### Can Shuttle tests serve as unit tests?
+### Can Shuttle tests serve as unit tests?
 No. Concurrency testing complements unit testing, but it is not a replacement for it. 
 
 ```rust
@@ -196,7 +185,7 @@ async fn foo(a: u32, b: u32) -> u32 {
 }
 ```
 
-#### How fast Shuttle tests are compared to unit tests?
+### How fast Shuttle tests are compared to unit tests?
 In general, expect them to be much slower than unit tests. While not performing exhaustive search, randomized schedulers
 tend to explore much bigger space compared to unit tests, so they need more time to work. 
 
