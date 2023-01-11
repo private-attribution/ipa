@@ -6,6 +6,7 @@ pub mod apply_sort;
 pub mod bit_permutation;
 mod compose;
 pub mod generate_permutation;
+mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
 
@@ -118,6 +119,20 @@ impl AsRef<str> for ReshareStep {
         match self {
             Self::RandomnessForValidation => "randomness_for_validation",
             Self::ReshareRx => "reshare_rx",
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum MultiBitPermutationStep {
+    MultiplyAcrossBits,
+}
+impl Substep for MultiBitPermutationStep {}
+
+impl AsRef<str> for MultiBitPermutationStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::MultiplyAcrossBits => "multiply_across_bits",
         }
     }
 }
