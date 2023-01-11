@@ -110,17 +110,14 @@ mod test {
 
     #[tokio::test]
     pub async fn simple() {
-        const MULTI_BIT_LEN: usize = 10;
+        const BATCHSIZE: usize = 10;
         let world = TestWorld::new().await;
 
         let mut rng = thread_rng();
 
-        let (mut av, mut bv) = (
-            Vec::with_capacity(MULTI_BIT_LEN),
-            Vec::with_capacity(MULTI_BIT_LEN),
-        );
+        let (mut av, mut bv) = (Vec::with_capacity(BATCHSIZE), Vec::with_capacity(BATCHSIZE));
         let mut expected = Fp31::ZERO;
-        for _ in 0..MULTI_BIT_LEN {
+        for _ in 0..BATCHSIZE {
             let a = rng.gen::<Fp31>();
             let b = rng.gen::<Fp31>();
             expected += a * b;
@@ -130,7 +127,7 @@ mod test {
 
         let res = world
             .malicious((av, bv), |ctx, (a_share, b_share)| async move {
-                let mut pairs = Vec::with_capacity(MULTI_BIT_LEN);
+                let mut pairs = Vec::with_capacity(BATCHSIZE);
                 for i in 0..a_share.len() {
                     pairs.push((&a_share[i], &b_share[i]));
                 }
