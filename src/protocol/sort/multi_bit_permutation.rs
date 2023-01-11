@@ -30,7 +30,7 @@ use futures::future::try_join_all;
 ///   iii. Multiply all `mult_inputs` for this j
 /// 3. Compute accumulated sum: For j in 0 to 2 pow `num_multi_bits`
 ///    i. For each record
-///       a. Calculate accumulated `total_sum` = s + `mult_output`
+///       a. Calculate accumulated `prefix_sum` = s + `mult_output`
 /// 4. Compute the final output using sum of products executed in parallel for each record.
 #[allow(dead_code)]
 pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
@@ -52,12 +52,12 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     let equality_checks = try_join_all(equality_check_futures).await?;
 
     // Compute accumulated sum
-    let mut sop_inputs_transposed = Vec::with_capacity(num_possible_bit_values * num_records);
+    let mut prefix_sum = Vec::with_capacity(num_possible_bit_values * num_records);
     let mut cumulative_sum = S::ZERO;
     for equality_check in &equality_checks {
         for check in equality_check {
             cumulative_sum += check;
-            sop_inputs_transposed.push(cumulative_sum.clone());
+            prefix_sum.push(cumulative_sum.clone());
         }
     }
 
@@ -69,7 +69,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
         for idx in 0..num_possible_bit_values {
             sop_inputs.push((
                 &equality_checks[idx][rec],
-                &sop_inputs_transposed[idx * num_records + rec],
+                &prefix_sum[idx * num_records + rec],
             ));
         }
         permutation_futures.push(async move {
