@@ -34,6 +34,7 @@ pub enum TransportCommand {
 }
 
 impl TransportCommand {
+    /// TODO: why do we need this? can `#[derive(Debug)]` be enough?
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {

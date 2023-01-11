@@ -104,6 +104,10 @@ impl<T: Transport + Clone> Processor<T> {
     /// * sends `prepare` request that describes the query configuration (query id, query type, field type, roles -> endpoints or reverse) to followers and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
     /// * returns query configuration
+    ///
+    /// ## Errors
+    /// When other peers failed to acknowledge this query
+    #[allow(clippy::missing_panics_doc)]
     pub async fn new_query(&self, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
@@ -157,6 +161,9 @@ impl<T: Transport + Clone> Processor<T> {
     /// * query is not registered yet
     /// * creates gateway and network
     /// * registers query
+    ///
+    /// ## Errors
+    /// if query is already running or this helper cannot be a follower in it
     pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
         let my_role = req.roles.role(&self.transport.identity());
 
@@ -177,6 +184,12 @@ impl<T: Transport + Clone> Processor<T> {
     }
 
     /// Receive inputs for the specified query. That triggers query processing
+    ///
+    /// ## Errors
+    /// if query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If failed to obtain an exclusive access to the query collection.
     pub fn receive_inputs(&self, input: QueryInput) -> Result<(), QueryInputError> {
         let mut queries = self.queries.inner.lock().unwrap();
         match queries.entry(input.query_id) {
@@ -215,6 +228,7 @@ impl<T: Transport + Clone> Processor<T> {
     /// if command is not a query command or if the command stream is closed
     pub async fn handle_next(&mut self) {
         if let Some(command) = self.command_stream.next().await {
+            tracing::trace!("new command: {:?}", command);
             match command.payload {
                 TransportCommand::Query(QueryCommand::Create(req, resp)) => {
                     let result = self.new_query(req).await.unwrap();
@@ -228,12 +242,23 @@ impl<T: Transport + Clone> Processor<T> {
                     self.receive_inputs(query_input).unwrap();
                     resp.send(()).unwrap();
                 }
+                // TODO no tests
+                TransportCommand::Query(QueryCommand::Results(query_id, resp)) => {
+                    let result = self.complete(query_id).await.unwrap();
+                    resp.send(result).unwrap();
+                }
                 TransportCommand::StepData { .. } => panic!("unexpected command: {command:?}"),
             }
         }
     }
 
     /// Awaits the query completion
+    ///
+    /// ## Errors
+    /// if query is not registered on this helper.
+    ///
+    /// ## Panics
+    /// If failed to obtain an exclusive access to the query collection.
     pub async fn complete(
         &mut self,
         query_id: QueryId,

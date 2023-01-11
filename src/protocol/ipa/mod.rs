@@ -85,7 +85,8 @@ pub struct IPAInputRow<F: Field> {
 }
 
 impl<F: Field> IPAInputRow<F> {
-    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+    pub const SIZE_IN_BYTES: usize =
+        3 * Replicated::<F>::SIZE_IN_BYTES + XorReplicated::SIZE_IN_BYTES;
 
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.

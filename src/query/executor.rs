@@ -14,8 +14,9 @@ use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use std::fmt::Debug;
 
-pub trait Result: Send {
+pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
 }
 
@@ -55,7 +56,7 @@ impl<F: Field> Result for Vec<AggregateCreditOutputRow<F>> {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
+#[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 async fn execute_test_multiply<
     F: Field,
     St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
@@ -136,7 +137,7 @@ pub fn start_query<
             FieldType::Fp31 => {
                 let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                 match config.query_type {
-                    #[cfg(any(test, feature = "test-fixture"))]
+                    #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                     QueryType::TestMultiply => {
                         Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                     }

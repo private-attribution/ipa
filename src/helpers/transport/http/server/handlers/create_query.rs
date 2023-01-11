@@ -1,30 +1,21 @@
-use crate::{
-    ff::FieldType,
-    helpers::{
-        query::{QueryCommand, QueryConfig, QueryType},
-        transport::{http::server::Error, TransportCommand},
-        CommandEnvelope, CommandOrigin, HelperIdentity,
+use crate::helpers::{
+    query::QueryCommand,
+    transport::{
+        http::{
+            server::{handlers::QueryConfigFromReq, Error},
+            CreateQueryResp,
+        },
+        TransportCommand,
     },
-    protocol::QueryId,
+    CommandEnvelope, CommandOrigin, HelperIdentity,
 };
-use axum::{extract::Query, routing::post, Extension, Json, Router};
+use axum::{routing::post, Extension, Json, Router};
 use hyper::{Body, Request};
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct CreateQueryParams {
-    field_type: FieldType,
-    query_type: QueryType,
-}
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 struct CreateQueryBody {
     helper_positions: [HelperIdentity; 3],
-}
-
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize))]
-struct CreateQueryResp {
-    query_id: QueryId,
 }
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
@@ -32,7 +23,7 @@ struct CreateQueryResp {
 /// last so that it can be rejected before parsing if needed.
 async fn handler(
     transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
-    params: Query<CreateQueryParams>,
+    query_config: QueryConfigFromReq,
     _req: Request<Body>,
 ) -> Result<Json<CreateQueryResp>, Error> {
     let permit = transport_sender.reserve().await?;
@@ -42,15 +33,11 @@ async fn handler(
 
     // prepare command data
     let (tx, rx) = oneshot::channel();
-    let query_conf = QueryConfig {
-        field_type: params.0.field_type,
-        query_type: params.0.query_type,
-    };
 
     // send command, receive response
     let command = CommandEnvelope {
         origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Create(query_conf, tx)),
+        payload: TransportCommand::Query(QueryCommand::Create(query_config.0, tx)),
     };
     permit.send(command);
     let query_id = rx.await?;

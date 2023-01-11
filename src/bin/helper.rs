@@ -1,15 +1,16 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-use rand::thread_rng;
-use raw_ipa::{
-    cli::Verbosity,
-    ff::Fp31,
-    helpers::{old_http::HttpHelper, GatewayConfig, Role, SendBufferConfig},
-    net::discovery,
-    protocol::{QueryId, Step},
-};
-use std::error::Error;
 
+use raw_ipa::cli::Verbosity;
+use std::error::Error;
+use std::sync::Arc;
+
+use raw_ipa::cli::helpers_config;
+use raw_ipa::helpers::transport::http::discovery::PeerDiscovery;
+use raw_ipa::helpers::transport::http::HttpTransport;
+use raw_ipa::helpers::HelperIdentity;
+use raw_ipa::helpers::Transport;
+use raw_ipa::query::Processor;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -19,9 +20,9 @@ struct Args {
     #[clap(flatten)]
     logging: Verbosity,
 
-    /// Indicates which role this helper is
-    #[arg(short, long, value_enum)]
-    role: Role,
+    /// Indicates which identity this helper has
+    #[arg(short, long)]
+    identity: usize,
 
     /// Port to listen. If not specified, will ask Kernel to assign the port
     #[arg(short, long)]
@@ -36,28 +37,35 @@ struct Args {
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
+    let config = helpers_config();
 
-    let peer_discovery_str =
-        std::fs::read_to_string("./peer_conf.toml").expect("unable to read file");
-    let peer_discovery = discovery::conf::Conf::from_toml_str(&peer_discovery_str)
-        .expect("unable to parse config file");
-    let gateway_config = GatewayConfig {
-        send_buffer_config: SendBufferConfig {
-            items_in_batch: 1,
-            batch_count: 40,
-        },
-        send_outstanding: 16,
-        recv_outstanding: 16,
-    };
-    let helper = HttpHelper::new(args.role, &peer_discovery, gateway_config);
+    let my_identity = HelperIdentity::try_from(args.identity).unwrap();
+    let helper = HttpTransport::new(my_identity.clone(), Arc::new(config.peers_map().clone()));
+    let mut all_identities = HelperIdentity::make_three()
+        .into_iter()
+        .filter(|id| id != &my_identity);
+
+    let processor_identities = [
+        my_identity.clone(),
+        all_identities.next().unwrap(),
+        all_identities.next().unwrap(),
+    ];
+
+    let query_handle = tokio::spawn({
+        let helper = helper.clone();
+        async {
+            let my_identity = helper.identity();
+            let mut query_processor = Processor::new(helper, processor_identities).await;
+            loop {
+                tracing::debug!(
+                    "Query processor is active and listening as {:?}",
+                    my_identity
+                );
+                query_processor.handle_next().await;
+            }
+        }
+    });
     let (addr, server_handle) = helper.bind().await;
-    let gateway = helper.query(QueryId).expect("unable to create gateway");
-    let step = Step::default();
-    let prss_endpoint = helper
-        .prss_endpoint(&gateway, &step, &mut thread_rng())
-        .await
-        .expect("unable to setup prss");
-    let _ctx = helper.context::<Fp31>(&gateway, &prss_endpoint);
 
     info!(
         "listening to {}://{}, press Enter to quit",
@@ -65,6 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let _ = std::io::stdin().read_line(&mut String::new())?;
     server_handle.abort();
+    query_handle.abort();
 
     Ok(())
 }

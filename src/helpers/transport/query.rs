@@ -1,6 +1,9 @@
-use crate::ff::FieldType;
-use crate::helpers::{RoleAssignment, TransportCommand, TransportError};
-use crate::protocol::{QueryId, Substep};
+use crate::query::ProtocolResult;
+use crate::{
+    ff::FieldType,
+    helpers::{RoleAssignment, TransportCommand, TransportError},
+    protocol::{QueryId, Substep},
+};
 use futures::Stream;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
@@ -25,6 +28,8 @@ pub struct QueryInput {
     pub query_id: QueryId,
     /// TODO: remove, we already have this information in query configuration
     pub field_type: FieldType,
+    // TODO: there are no errors that need to be streamed from client to server.
+    // this type should be just a Stream<Item = Vec<u8>>
     pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
 }
 
@@ -34,11 +39,31 @@ impl Debug for QueryInput {
     }
 }
 
-#[derive(Debug)]
 pub enum QueryCommand {
     Create(QueryConfig, oneshot::Sender<QueryId>),
     Prepare(PrepareQuery, oneshot::Sender<()>),
     Input(QueryInput, oneshot::Sender<()>),
+    Results(QueryId, oneshot::Sender<Box<dyn ProtocolResult>>),
+}
+
+impl Debug for QueryCommand {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "QueryCommand: {:?}", self.query_id())?;
+        match self {
+            QueryCommand::Create(config, _) => {
+                write!(f, "[{config:?}]")
+            }
+            QueryCommand::Prepare(prepare, _) => {
+                write!(f, "[{prepare:?}]")
+            }
+            QueryCommand::Input(input, _) => {
+                write!(f, "[{input:?}]")
+            }
+            QueryCommand::Results(_, _) => {
+                write!(f, "[Results]")
+            }
+        }
+    }
 }
 
 impl QueryCommand {
@@ -48,6 +73,7 @@ impl QueryCommand {
             Self::Create(_, _) => "Query Create",
             Self::Prepare(_, _) => "Query Prepare",
             Self::Input(_, _) => "Query Input",
+            Self::Results(_, _) => "Query Results",
         }
     }
 
@@ -57,6 +83,7 @@ impl QueryCommand {
             Self::Create(_, _) => None,
             Self::Prepare(data, _) => Some(data.query_id),
             Self::Input(data, _) => Some(data.query_id),
+            Self::Results(query_id, _) => Some(*query_id),
         }
     }
 }
@@ -68,43 +95,25 @@ impl From<QueryCommand> for TransportCommand {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
-)]
 pub enum QueryType {
-    #[cfg(any(test, feature = "test-fixture"))]
+    #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
     IPA(IPAQueryConfig),
 }
 
 impl QueryType {
-    const TEST_MULTIPLY_STR: &'static str = "test-multiply";
-    const IPA_STR: &'static str = "ipa";
+    pub const TEST_MULTIPLY_STR: &'static str = "test-multiply";
+    pub const IPA_STR: &'static str = "ipa";
 }
 
+// TODO: stop using AsRef and implement into path inside the network module
 impl AsRef<str> for QueryType {
     fn as_ref(&self) -> &str {
         match self {
-            #[cfg(any(test, feature = "test-fixture"))]
+            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TestMultiply => Self::TEST_MULTIPLY_STR,
             QueryType::IPA(_) => Self::IPA_STR,
         }
-    }
-}
-
-impl TryFrom<&str> for QueryType {
-    type Error = TransportError;
-
-    fn try_from(_query_type_str: &str) -> Result<Self, Self::Error> {
-        unimplemented!("query type needs more arguments than just name of the protocol")
-        // match query_type_str {
-        //     #[cfg(any(test, feature = "test-fixture"))]
-        //     Self::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-        //     Self::IPA_STR => Ok(QueryType::IPA),
-        //     other => Err(TransportError::UnknownQueryType(other.to_string())),
-        // }
     }
 }
 
