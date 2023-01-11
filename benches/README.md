@@ -7,7 +7,7 @@ By convention, Criterion benchmarks have prefix `ct`, iai benchmark names start 
 To execute a benchmark, run
 
 ```bash
-cargo bench --bench <benchmark_name>
+cargo bench -F test-fixture --bench <benchmark_name>
 ```
 
 Oneshot benchmarks are simply Rust programs that often share the benchmark logic with Criterion/iai benchmarks. They make it easier to produce and interpret flamegraphs. They may also read their input from stdin

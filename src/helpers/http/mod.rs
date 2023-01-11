@@ -133,6 +133,8 @@ impl<'p> HttpHelper<'p> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
+    use std::num::NonZeroUsize;
+
     use super::*;
     use crate::secret_sharing::IntoShares;
     use crate::{
@@ -194,8 +196,8 @@ mod e2e_tests {
     fn gateway_config() -> GatewayConfig {
         GatewayConfig {
             send_buffer_config: SendBufferConfig {
-                items_in_batch: 1,
-                batch_count: 40,
+                items_in_batch: NonZeroUsize::new(1).unwrap(),
+                batch_count: NonZeroUsize::new(40).unwrap(),
             },
             send_outstanding: 16,
             recv_outstanding: 16,
