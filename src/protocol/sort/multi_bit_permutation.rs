@@ -43,13 +43,12 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
-    let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values);
-    for j in 0..num_possible_bit_values {
-        let ctx = ctx.clone();
-        equality_check_futures.push(async move { get_bit_equality_checkers(j, input, ctx).await });
-    }
-
-    let equality_checks = try_join_all(equality_check_futures).await?;
+    let equality_checks = try_join_all(
+        (0..num_possible_bit_values)
+            .zip(repeat(ctx.clone()))
+            .map(|(j, ctx)| async move { get_bit_equality_checkers(j, input, ctx).await }),
+    )
+    .await?;
 
     // Compute accumulated sum
     let mut prefix_sum = Vec::with_capacity(num_possible_bit_values * num_records);
@@ -62,9 +61,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     }
 
     // Take sum of products of output of equality check and accumulated sum
-    let mut permutation_futures = Vec::with_capacity(num_records);
-    for rec in 0..num_records {
-        let ctx = ctx.clone();
+    try_join_all((0..num_records).zip(repeat(ctx)).map(|(rec, ctx)| {
         let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
         for idx in 0..num_possible_bit_values {
             sop_inputs.push((
@@ -72,12 +69,12 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
                 &prefix_sum[idx * num_records + rec],
             ));
         }
-        permutation_futures.push(async move {
+        async move {
             ctx.sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
                 .await
-        });
-    }
-    try_join_all(permutation_futures).await
+        }
+    }))
+    .await
 }
 
 /// For a given `idx` check if each of the record has same value as idx.
