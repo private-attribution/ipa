@@ -1,3 +1,5 @@
+use std::iter::repeat;
+
 use crate::{
     error::Error,
     ff::Field,
@@ -96,36 +98,37 @@ where
     S: SecretSharing<F>,
 {
     let num_multi_bits = multi_bit_input.len();
+    assert_ne!(num_multi_bits, 0);
     let num_records = multi_bit_input[0].len();
 
     let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
-
     let idx_in_bits = idx.view_bits::<Lsb0>()[..num_multi_bits].iter().rev();
-    let equality_check_futures = (0..num_records).map(|rec| {
-        let ctx_across_bits = ctx_across_bits.clone();
-        let share_of_one = ctx_across_bits.share_of_one();
 
-        let mult_input = multi_bit_input
-            .iter()
-            .zip(idx_in_bits.clone())
-            .map(|(single_bit_input, bit)| {
-                if *bit {
-                    single_bit_input[rec].clone()
-                } else {
-                    -single_bit_input[rec].clone() + &share_of_one
-                }
-            })
-            .collect::<Vec<_>>();
+    let equality_check_futures = (0..num_records)
+        .zip(repeat(ctx_across_bits))
+        .zip(repeat(idx_in_bits))
+        .map(|((rec, ctx), idx_in_bits)| async move {
+            let share_of_one = ctx.share_of_one();
 
-        async move {
+            let mult_input = multi_bit_input
+                .iter()
+                .zip(idx_in_bits)
+                .map(|(single_bit_input, bit)| {
+                    if *bit {
+                        single_bit_input[rec].clone()
+                    } else {
+                        -single_bit_input[rec].clone() + &share_of_one
+                    }
+                })
+                .collect::<Vec<_>>();
+
             multiply_all_shares(
-                ctx_across_bits,
+                ctx,
                 RecordId::from(idx * num_records + rec),
                 mult_input.as_slice(),
             )
             .await
-        }
-    });
+        });
 
     try_join_all(equality_check_futures).await
 }
