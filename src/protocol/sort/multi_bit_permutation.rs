@@ -1,4 +1,4 @@
-use std::iter::repeat;
+use std::iter::{repeat, zip};
 
 use crate::{
     error::Error,
@@ -22,7 +22,7 @@ use futures::future::try_join_all;
 /// Protocol to compute a secret sharing of a permutation, after sorting on multiple bits `num_multi_bits`.
 /// At a high level, the protocol works as follows:
 /// 1. Start with a vector of list of `L*n` secret shares `[[x1_1 ... x1_n], .. , [xL_1 ... xL_n]]` where each is a secret sharing of either zero or one.
-///    Here, L is the number of multi bits which are procrssed together (`num_multi_bits`) and n is the number of records
+///    Here, L is the number of multi bits which are processed together (`num_multi_bits`) and n is the number of records
 /// 2. Equality Bit Checker : For j in 0 to 2 pow `num_multi_bits`
 ///    i. Get binary representation of j (B1 .. BL)
 ///    ii. For i in `num_multi_bits`
@@ -110,9 +110,7 @@ where
         .map(|((rec, ctx), idx_in_bits)| async move {
             let share_of_one = ctx.share_of_one();
 
-            let mult_input = multi_bit_input
-                .iter()
-                .zip(idx_in_bits)
+            let mult_input = zip(multi_bit_input, idx_in_bits)
                 .map(|(single_bit_input, bit)| {
                     if *bit {
                         single_bit_input[rec].clone()
