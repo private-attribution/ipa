@@ -87,7 +87,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
 /// 3. Multiply equality checks for all bits per record - in clear per record this will be 1 only for 1 index while 0 for all others
 async fn get_bit_equality_checkers<F, C, S>(
     idx: usize,
-    input: &[Vec<S>],
+    multi_bit_input: &[Vec<S>],
     ctx: C,
 ) -> Result<Vec<S>, Error>
 where
@@ -95,38 +95,38 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let num_multi_bits = input.len();
-    let num_records = input[0].len();
-
-    let mut equality_check_futures = Vec::with_capacity(num_records);
+    let num_multi_bits = multi_bit_input.len();
+    let num_records = multi_bit_input[0].len();
 
     let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
-    for rec in 0..num_records {
+
+    let idx_in_bits = idx.view_bits::<Lsb0>()[..num_multi_bits].iter().rev();
+    let equality_check_futures = (0..num_records).map(|rec| {
         let ctx_across_bits = ctx_across_bits.clone();
         let share_of_one = ctx_across_bits.share_of_one();
 
-        let mut bits_for_record = Vec::with_capacity(num_multi_bits);
-        for jth_bits in input.iter() {
-            bits_for_record.push(jth_bits[rec].clone());
-        }
-        let mut mult_input = Vec::with_capacity(num_multi_bits);
-        for jth_bit in idx.view_bits::<Lsb0>()[..num_multi_bits].iter().rev() {
-            if *jth_bit {
-                mult_input.push(bits_for_record.remove(0));
-            } else {
-                mult_input.push(-bits_for_record.remove(0) + &share_of_one);
-            }
-        }
-        equality_check_futures.push(async move {
-            // multiply all mult_input for this j for each record => f(j)
+        let mult_input = multi_bit_input
+            .iter()
+            .zip(idx_in_bits.clone())
+            .map(|(single_bit_input, bit)| {
+                if *bit {
+                    single_bit_input[rec].clone()
+                } else {
+                    -single_bit_input[rec].clone() + &share_of_one
+                }
+            })
+            .collect::<Vec<_>>();
+
+        async move {
             multiply_all_shares(
                 ctx_across_bits,
                 RecordId::from(idx * num_records + rec),
                 mult_input.as_slice(),
             )
             .await
-        });
-    }
+        }
+    });
+
     try_join_all(equality_check_futures).await
 }
 
