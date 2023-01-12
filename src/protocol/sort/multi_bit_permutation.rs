@@ -4,8 +4,10 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        boolean::multiply_all_shares, context::Context,
-        sort::MultiBitPermutationStep::MultiplyAcrossBits, RecordId,
+        boolean::multiply_all_shares,
+        context::Context,
+        sort::{bit_permutation::bit_permutation, MultiBitPermutationStep::MultiplyAcrossBits},
+        RecordId,
     },
     secret_sharing::SecretSharing,
 };
@@ -39,8 +41,13 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
 ) -> Result<Vec<S>, Error> {
     let num_multi_bits = input.len();
     assert!(num_multi_bits > 0);
+    if num_multi_bits == 1 {
+        return bit_permutation(ctx, &input[0]).await;
+    }
     let num_records = input[0].len();
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
+
+    let share_of_one = ctx.share_of_one();
 
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
@@ -61,20 +68,27 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     }
 
     // Take sum of products of output of equality check and accumulated sum
-    try_join_all((0..num_records).zip(repeat(ctx)).map(|(rec, ctx)| {
-        let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
-        for idx in 0..num_possible_bit_values {
-            sop_inputs.push((
-                &equality_checks[idx][rec],
-                &prefix_sum[idx * num_records + rec],
-            ));
-        }
-        async move {
-            ctx.sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
-                .await
-        }
-    }))
-    .await
+    let mut one_off_permutation =
+        try_join_all((0..num_records).zip(repeat(ctx)).map(|(rec, ctx)| {
+            let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
+            for idx in 0..num_possible_bit_values {
+                sop_inputs.push((
+                    &equality_checks[idx][rec],
+                    &prefix_sum[idx * num_records + rec],
+                ));
+            }
+            async move {
+                ctx.sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
+                    .await
+            }
+        }))
+        .await?;
+    // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
+    // protocols expect 0-indexed permutation
+    for permutation in &mut one_off_permutation {
+        *permutation -= &share_of_one;
+    }
+    Ok(one_off_permutation)
 }
 
 /// For a given `idx` check if each of the record has same value as idx.
@@ -142,7 +156,7 @@ mod tests {
         &[0, 1, 1, 0, 0, 0],
         &[1, 0, 1, 0, 1, 0],
     ];
-    const EXPECTED: &[u128] = &[4, 3, 6, 1, 5, 2]; //100 010 111 000 101 000
+    const EXPECTED: &[u128] = &[3, 2, 5, 0, 4, 1]; //100 010 111 000 101 000
     const EXPECTED_NUMS: &[usize] = &[4, 2, 7, 0, 5, 0];
     #[tokio::test]
     pub async fn semi_honest() {
