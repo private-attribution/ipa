@@ -325,7 +325,7 @@ mod tests {
                     .semi_honest(a, |ctx, a| async move {
                         let v = MaliciousValidator::new(ctx);
                         let record_id = RecordId::from(0);
-                        let m_a = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                        let m_a = v.context().upgrade(a).await.unwrap();
 
                         let m_reshared_a = if v.context().role() == *malicious_actor {
                             // This role is spoiling the value.

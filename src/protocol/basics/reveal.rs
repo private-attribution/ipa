@@ -172,7 +172,7 @@ mod tests {
 
         let m_shares = join3v(
             zip(v.iter(), input.share_with(&mut rng))
-                .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
+                .map(|(v, share)| async { v.context().upgrade(share).await }),
         )
         .await;
 
@@ -201,7 +201,7 @@ mod tests {
 
         let m_shares = join3v(
             zip(v.iter(), input.share_with(&mut rng))
-                .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
+                .map(|(v, share)| async { v.context().upgrade(share).await }),
         )
         .await;
         let result = try_join3(
