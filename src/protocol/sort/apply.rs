@@ -31,6 +31,7 @@ pub fn apply<T>(permutation: &[u32], values: &mut [T]) {
 ///
 /// ![Apply inv steps][applyinv]
 pub fn apply_inv<T>(permutation: &[u32], values: &mut [T]) {
+    assert_eq!(permutation.len(), values.len());
     let mut permuted = bitvec![0; permutation.len()];
 
     for i in 0..permutation.len() {

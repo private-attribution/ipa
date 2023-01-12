@@ -6,6 +6,7 @@ pub mod apply_sort;
 pub mod bit_permutation;
 mod compose;
 pub mod generate_permutation;
+pub mod generate_permutation_multi;
 mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
