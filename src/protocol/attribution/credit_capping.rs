@@ -319,8 +319,8 @@ mod tests {
         },
         test_fixture::{Reconstruct, TestWorld},
     };
+    use futures_util::future::try_join3;
     use rand::rngs::mock::StepRng;
-    use tokio::try_join;
 
     #[tokio::test]
     pub async fn cap() {
@@ -363,7 +363,7 @@ mod tests {
         let h1_future = credit_capping(c1, &s1, CAP);
         let h2_future = credit_capping(c2, &s2, CAP);
 
-        let result = try_join!(h0_future, h1_future, h2_future).unwrap();
+        let result = try_join3(h0_future, h1_future, h2_future).await.unwrap();
 
         assert_eq!(result.0.len(), TEST_CASE.len());
         assert_eq!(result.1.len(), TEST_CASE.len());
