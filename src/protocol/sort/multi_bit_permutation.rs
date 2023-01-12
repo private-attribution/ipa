@@ -99,33 +99,33 @@ where
     let num_records = multi_bit_input[0].len();
 
     let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
-    let idx_in_bits = idx.view_bits::<Lsb0>()[..num_multi_bits].iter().rev();
+    let idx_in_bits = &idx.view_bits::<Lsb0>()[..num_multi_bits];
 
-    let equality_check_futures = (0..num_records)
-        .zip(repeat(ctx_across_bits))
-        .zip(repeat(idx_in_bits))
-        .map(|((rec, ctx), idx_in_bits)| async move {
-            let share_of_one = ctx.share_of_one();
+    try_join_all(
+        (0..num_records)
+            .zip(repeat(ctx_across_bits))
+            .map(|(rec, ctx)| async move {
+                let share_of_one = ctx.share_of_one();
 
-            let mult_input = zip(multi_bit_input, idx_in_bits)
-                .map(|(single_bit_input, bit)| {
-                    if *bit {
-                        single_bit_input[rec].clone()
-                    } else {
-                        -single_bit_input[rec].clone() + &share_of_one
-                    }
-                })
-                .collect::<Vec<_>>();
+                let mult_input = zip(multi_bit_input, idx_in_bits)
+                    .map(|(single_bit_input, bit)| {
+                        if *bit {
+                            single_bit_input[rec].clone()
+                        } else {
+                            -single_bit_input[rec].clone() + &share_of_one
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-            multiply_all_shares(
-                ctx,
-                RecordId::from(idx * num_records + rec),
-                mult_input.as_slice(),
-            )
-            .await
-        });
-
-    try_join_all(equality_check_futures).await
+                multiply_all_shares(
+                    ctx,
+                    RecordId::from(idx * num_records + rec),
+                    mult_input.as_slice(),
+                )
+                .await
+            }),
+    )
+    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -138,9 +138,9 @@ mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     const INPUT: [&[u128]; 3] = [
-        &[1, 0, 1, 0, 1, 0],
-        &[0, 1, 1, 0, 0, 0],
         &[0, 0, 1, 0, 1, 0],
+        &[0, 1, 1, 0, 0, 0],
+        &[1, 0, 1, 0, 1, 0],
     ];
     const EXPECTED: &[u128] = &[4, 3, 6, 1, 5, 2]; //100 010 111 000 101 000
     const EXPECTED_NUMS: &[usize] = &[4, 2, 7, 0, 5, 0];
