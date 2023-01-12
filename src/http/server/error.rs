@@ -49,18 +49,6 @@ impl Error {
     pub fn query_id_not_found(query_id: QueryId) -> Self {
         Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
     }
-
-    /// method to create an `Error::SendError`
-    #[must_use]
-    pub fn sender_already_exists(query_id: QueryId) -> Self {
-        Self::SendFailed(
-            format!(
-                "tried to associated sender with query_id: {}, but sender already exists",
-                query_id.as_ref()
-            )
-            .into(),
-        )
-    }
 }
 
 /// [`From`] implementation for `Error::BadQueryString`

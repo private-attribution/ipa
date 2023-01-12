@@ -1,22 +1,19 @@
-use crate::helpers::{
-    query::QueryCommand,
-    transport::{
-        http::{
-            server::{handlers::QueryConfigFromReq, Error},
-            CreateQueryResp,
-        },
-        TransportCommand,
+use crate::{
+    helpers::{query::QueryCommand, transport::TransportCommand, CommandEnvelope, CommandOrigin},
+    http::{
+        server::{handlers::QueryConfigFromReq, Error},
+        CreateQueryResp,
     },
-    CommandEnvelope, CommandOrigin, HelperIdentity,
 };
 use axum::{routing::post, Extension, Json, Router};
 use hyper::{Body, Request};
 use tokio::sync::{mpsc, oneshot};
 
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct CreateQueryBody {
-    helper_positions: [HelperIdentity; 3],
-}
+// TODO: do we need this?
+// #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
+// struct CreateQueryBody {
+//     helper_positions: [HelperIdentity; 3],
+// }
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
 /// to the [`HttpTransport`]. HTTP request is deconstructed in order to leave parsing the `Body` for

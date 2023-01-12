@@ -1,14 +1,12 @@
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryCommand},
-        transport::{
-            http::{
-                server::{handlers::QueryConfigFromReq, Error},
-                OriginHeader, PrepareQueryBody,
-            },
-            TransportCommand,
-        },
+        transport::TransportCommand,
         CommandEnvelope, CommandOrigin,
+    },
+    http::{
+        server::{handlers::QueryConfigFromReq, Error},
+        OriginHeader, PrepareQueryBody,
     },
     protocol::QueryId,
 };

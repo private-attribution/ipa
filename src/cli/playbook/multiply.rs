@@ -1,13 +1,13 @@
-use crate::cli::playbook::InputSource;
-use crate::ff::{Field, FieldType};
-use crate::secret_sharing::{IntoShares, Replicated};
+use crate::{
+    cli::playbook::InputSource,
+    ff::{Field, FieldType},
+    helpers::query::QueryInput,
+    http::MpcHelperClient,
+    protocol::QueryId,
+    secret_sharing::{IntoShares, Replicated},
+};
+use futures_util::{future::try_join_all, stream};
 use std::fmt::Debug;
-
-use crate::helpers::query::QueryInput;
-use crate::helpers::transport::http::MpcHelperClient;
-use crate::protocol::QueryId;
-use futures_util::future::try_join_all;
-use futures_util::stream;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
 /// `(a, b)` will produce `a` * `b`.

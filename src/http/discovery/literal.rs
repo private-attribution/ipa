@@ -1,6 +1,6 @@
-use crate::helpers::{
-    transport::http::discovery::{peer, PeerDiscovery},
-    HelperIdentity,
+use crate::{
+    helpers::HelperIdentity,
+    http::discovery::{peer, PeerDiscovery},
 };
 use std::collections::HashMap;
 
