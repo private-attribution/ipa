@@ -2,16 +2,16 @@ use raw_ipa::error::Error;
 use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
 use raw_ipa::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
+use raw_ipa::protocol::sort::generate_permutation_opt::generate_permutation_opt;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
-use shuttle_crate::rand::{thread_rng, Rng};
+use rand::Rng;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 100;
+    const BATCHSIZE: usize = 10000;
 
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Error> {
     let world = TestWorld::new_with(config).await;
     let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
     let num_bits = 64;
-    let mut rng = thread_rng();
+    let mut rng = rand::thread_rng();
 
     let mut match_keys: Vec<u64> = Vec::new();
     for _ in 0..BATCHSIZE {
@@ -60,13 +60,13 @@ async fn main() -> Result<(), Error> {
 
     let start = Instant::now();
     let result = join3(
-        generate_permutation(ctx0, &converted_shares[0], num_bits),
-        generate_permutation(ctx1, &converted_shares[1], num_bits),
-        generate_permutation(ctx2, &converted_shares[2], num_bits),
+        generate_permutation_opt(ctx0, &converted_shares[0], num_bits, 3),
+        generate_permutation_opt(ctx1, &converted_shares[1], num_bits, 3),
+        generate_permutation_opt(ctx2, &converted_shares[2], num_bits, 3),
     )
     .await;
     let duration = start.elapsed().as_secs_f32();
-    println!("benchmark complete after {duration}s");
+    println!("sort benchmark records {BATCHSIZE} complete after {duration}s");
 
     assert_eq!(result[0].len(), input_len);
     assert_eq!(result[1].len(), input_len);

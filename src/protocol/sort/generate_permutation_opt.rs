@@ -53,19 +53,17 @@ where
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let lsb_permutation = if num_multi_bits > num_bits {
-        multi_bit_permutation(
-            ctx_0.narrow(&BitPermutationStep),
-            &sort_keys[0..num_bits.try_into().unwrap()],
-        )
-        .await?
+    let last_bit_num = if num_multi_bits > num_bits {
+        num_bits
     } else {
-        multi_bit_permutation(
-            ctx_0.narrow(&BitPermutationStep),
-            &sort_keys[0..num_multi_bits.try_into().unwrap()],
-        )
-        .await?
+        num_multi_bits
     };
+
+    let lsb_permutation = multi_bit_permutation(
+        ctx_0.narrow(&BitPermutationStep),
+        &sort_keys[0..last_bit_num.try_into().unwrap()],
+    )
+    .await?;
 
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
 
@@ -109,11 +107,11 @@ where
                     )
                     .await
                 });
-        let bit_i_sorted_by_less_significant_bits = try_join_all(futures).await?;
+        let bits_i_sorted_by_less_significant_bits = try_join_all(futures).await?;
 
-        let bit_i_permutation = multi_bit_permutation(
+        let bits_i_permutation = multi_bit_permutation(
             ctx_bit.narrow(&BitPermutationStep),
-            &bit_i_sorted_by_less_significant_bits,
+            &bits_i_sorted_by_less_significant_bits,
         )
         .await?;
 
@@ -130,7 +128,7 @@ where
                     .as_slice(),
             ),
             &revealed_and_random_permutations.revealed,
-            bit_i_permutation,
+            bits_i_permutation,
         )
         .await?;
         composed_less_significant_bits_permutation = composed_i_permutation;
