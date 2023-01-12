@@ -1,15 +1,13 @@
 use crate::{
     helpers::{
         query::QueryCommand,
-        transport::{
-            http::{
-                client::MpcHelperClient,
-                discovery::peer,
-                server::{BindTarget, MpcHelperServer},
-            },
-            SubscriptionType, Transport, TransportCommand, TransportError,
-        },
+        transport::{SubscriptionType, Transport, TransportCommand, TransportError},
         CommandEnvelope, HelperIdentity,
+    },
+    http::{
+        client::MpcHelperClient,
+        discovery::peer,
+        server::{BindTarget, MpcHelperServer},
     },
     protocol::QueryId,
     sync::{Arc, Mutex},
@@ -149,21 +147,18 @@ impl Transport for Arc<HttpTransport> {
 #[cfg(test)]
 mod e2e_tests {
     use super::*;
-    use crate::ff::Fp31;
-    use crate::helpers::query::QueryInput;
-    use crate::secret_sharing::{IntoShares, Replicated};
-    use crate::test_fixture::Reconstruct;
     use crate::{
-        ff::FieldType,
-        helpers::{
-            query::{QueryConfig, QueryType},
-            transport::http::discovery::PeerDiscovery,
-        },
+        ff::{FieldType, Fp31},
+        helpers::query::{QueryConfig, QueryInput, QueryType},
+        http::discovery::PeerDiscovery,
         query::Processor,
-        test_fixture::net::localhost_config_map,
+        secret_sharing::{IntoShares, Replicated},
+        test_fixture::{net::localhost_config, Reconstruct},
     };
-    use futures_util::future::{join_all, try_join_all};
-    use futures_util::{join, stream};
+    use futures_util::{
+        future::{join_all, try_join_all},
+        join, stream,
+    };
 
     fn open_port() -> u16 {
         std::net::UdpSocket::bind("127.0.0.1:0")
@@ -209,7 +204,7 @@ mod e2e_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
         const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
-        let conf = localhost_config_map([open_port(), open_port(), open_port()]);
+        let conf = localhost_config([open_port(), open_port(), open_port()]);
         let peers_conf = Arc::new(conf.peers_map().clone());
         let ids: [HelperIdentity; 3] = [
             HelperIdentity::try_from(1usize).unwrap(),

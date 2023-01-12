@@ -1,4 +1,4 @@
-use crate::helpers::transport::http::server::Error;
+use crate::http::server::Error;
 use axum::{
     extract::{FromRequest, Query, RequestParts},
     routing::get,

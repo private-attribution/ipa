@@ -1,22 +1,11 @@
-use crate::{error::BoxError, ff::FieldType, net::MpcHelperServerError};
-use async_trait::async_trait;
-use axum::extract::{BodyStream, FromRequest, Query, RequestParts};
+use crate::error::BoxError;
+use axum::extract::BodyStream;
 use futures::{ready, Stream};
-use hyper::body::{Bytes, HttpBody};
+use hyper::body::Bytes;
 use pin_project::pin_project;
 use std::collections::VecDeque;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-/// the size of the field type specified in the query param of the request
-/// Possible sizes are are currently from:
-/// * `fp2`
-/// * `fp31`
-/// * `fp32_bit_prime`
-#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-struct FieldTypeParam {
-    field_type: FieldType,
-}
 
 /// TODO: Right now, this implementation assumes that each `Item` of the stream is exactly the size
 ///       of 1 [`Field`]. However, this is very inefficient because `Bytes` itself takes up 32 bytes
@@ -152,41 +141,29 @@ impl Stream for ByteArrStream {
     }
 }
 
-#[async_trait]
-impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
-    for ByteArrStream
-{
-    type Rejection = MpcHelperServerError;
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let Query(FieldTypeParam { field_type }) = req.extract().await?;
-        let body: BodyStream = req.extract().await?;
-        // TODO: multiply the field_type by 22; this is a hacky way of making sure IPA can run,
-        //       since `IPAInputRow` is 22 bytes when using `Fp31`. Fix this later to be way less
-        //       hacky.
-        Ok(ByteArrStream::new(body, field_type.size_in_bytes() * 22))
-    }
-}
-
 // TODO: these tests have been ignored due to the multiple TODO's above
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::ff::{self, Field};
-    use axum::http::{HeaderMap, Request};
-    use hyper::Body;
+    use crate::ff::{self, Field, FieldType};
+    use axum::{
+        extract::{rejection::BodyAlreadyExtracted, FromRequest, RequestParts},
+        http::{HeaderMap, Request},
+    };
+    use hyper::{body::HttpBody, Body};
 
-    async fn to_byte_arr_stream(
+    async fn from_slice(
         slice: &[u8],
-        field_type: &'static str,
-    ) -> Result<ByteArrStream, MpcHelperServerError> {
+        field_type: FieldType,
+    ) -> Result<ByteArrStream, BodyAlreadyExtracted> {
         let b = Body::from(Bytes::from(slice.to_owned()));
         let mut req_parts = RequestParts::new(
-            Request::post(format!("/example?field_type={field_type}"))
+            Request::post(format!("/example?field_type={field_type:?}"))
                 .body(b)
                 .unwrap(),
         );
-        ByteArrStream::from_request(&mut req_parts).await
+        let body_stream = BodyStream::from_request(&mut req_parts).await?;
+        Ok(ByteArrStream::new(body_stream, field_type.size_in_bytes()))
     }
 
     /// Simple body that represents a stream of `Bytes` chunks.
@@ -214,6 +191,24 @@ mod test {
         }
     }
 
+    async fn from_chunked<'a, Item: IntoIterator<Item = &'a u8>, I: IntoIterator<Item = Item>>(
+        it: I,
+        field_type: FieldType,
+    ) -> ByteArrStream {
+        let chunks = it
+            .into_iter()
+            .map(|chunk| Ok(Bytes::from(chunk.into_iter().copied().collect::<Vec<_>>())))
+            .collect::<Vec<_>>();
+
+        let mut req_parts = RequestParts::new(
+            Request::post("/")
+                .body(ChunkedBody(futures::stream::iter(chunks)))
+                .unwrap(),
+        );
+        let body_stream = req_parts.extract::<BodyStream>().await.unwrap();
+        ByteArrStream::new(body_stream, field_type.size_in_bytes())
+    }
+
     mod unit_test {
         use super::*;
         use futures_util::{StreamExt, TryStreamExt};
@@ -222,7 +217,7 @@ mod test {
         #[ignore]
         async fn byte_arr_stream_produces_bytes_fp2() {
             let vec = vec![3; 10];
-            let stream = to_byte_arr_stream(&vec, ff::Fp2::TYPE_STR).await.unwrap();
+            let stream = from_slice(&vec, FieldType::Fp2).await.unwrap();
             let collected = stream.try_collect::<Vec<_>>().await.unwrap();
             for (expected, got) in vec.chunks(ff::Fp2::SIZE_IN_BYTES as usize).zip(collected) {
                 assert_eq!(expected, got.as_ref());
@@ -234,9 +229,7 @@ mod test {
         async fn byte_arr_stream_produces_bytes_fp32_bit_prime() {
             const ARR_SIZE: usize = 20;
             let vec = vec![7; ARR_SIZE * 10];
-            let stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::TYPE_STR)
-                .await
-                .unwrap();
+            let stream = from_slice(&vec, FieldType::Fp32BitPrime).await.unwrap();
             let collected = stream.try_collect::<Vec<_>>().await.unwrap();
             for (expected, got) in vec
                 .chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize)
@@ -248,24 +241,11 @@ mod test {
 
         #[tokio::test]
         #[ignore]
-        async fn byte_arr_stream_fails_with_bad_field_type() {
-            let vec = vec![6; 8];
-            let stream = to_byte_arr_stream(&vec, "bad_field_type").await;
-            assert!(matches!(
-                stream,
-                Err(MpcHelperServerError::BadQueryString(_))
-            ));
-        }
-
-        #[tokio::test]
-        #[ignore]
         async fn byte_arr_stream_fails_on_invalid_size() {
             const ARR_SIZE: usize = 2;
             // 1 extra byte
             let vec = vec![4u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize) + 1];
-            let mut stream = to_byte_arr_stream(&vec, ff::Fp32BitPrime::TYPE_STR)
-                .await
-                .unwrap();
+            let mut stream = from_slice(&vec, FieldType::Fp32BitPrime).await.unwrap();
 
             // valid values
             for _ in 0..ARR_SIZE {
@@ -288,20 +268,8 @@ mod test {
             const ARR_SIZE: usize = 20;
             const CHUNK_SIZE: usize = 3;
             let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
-            let chunks = futures::stream::iter(
-                vec.chunks(CHUNK_SIZE)
-                    .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
-                    .collect::<Vec<_>>(),
-            );
-            let mut req_parts = RequestParts::new(
-                Request::post(format!(
-                    "/example?field_type={}",
-                    ff::Fp32BitPrime::TYPE_STR
-                ))
-                .body(ChunkedBody(chunks))
-                .unwrap(),
-            );
-            let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
+            let mut byte_arr_stream =
+                from_chunked(vec.chunks(CHUNK_SIZE), FieldType::Fp32BitPrime).await;
             assert_eq!(byte_arr_stream.buffered.len(), 0);
             for expected_chunk in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES as usize) {
                 let n = byte_arr_stream.next().await.unwrap().unwrap();
@@ -323,20 +291,8 @@ mod test {
             const ARR_SIZE: usize = 20;
             const CHUNK_SIZE: u32 = 9;
             let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize)];
-            let chunks = futures::stream::iter(
-                vec.chunks(CHUNK_SIZE as usize)
-                    .map(|chunk| Ok(Bytes::from(chunk.to_owned())))
-                    .collect::<Vec<_>>(),
-            );
-            let mut req_parts = RequestParts::new(
-                Request::post(format!(
-                    "/example?field_type={}",
-                    ff::Fp32BitPrime::TYPE_STR
-                ))
-                .body(ChunkedBody(chunks))
-                .unwrap(),
-            );
-            let mut byte_arr_stream = ByteArrStream::from_request(&mut req_parts).await.unwrap();
+            let mut byte_arr_stream =
+                from_chunked(vec.chunks(CHUNK_SIZE as usize), FieldType::Fp32BitPrime).await;
             assert_eq!(byte_arr_stream.buffered.len(), 0);
 
             // number of bytes pushed downstream
@@ -387,9 +343,9 @@ mod test {
         use rand::{rngs::StdRng, SeedableRng};
 
         prop_compose! {
-            fn arb_aligned_bytes(size_in_bytes: u32, max_len: u32)
-                                (size_in_bytes in Just(size_in_bytes), len in 1..(max_len as usize))
-                                (vec in prop::collection::vec(any::<u8>(), len * size_in_bytes as usize))
+            fn arb_aligned_bytes(field_type: FieldType, max_len: u32)
+                                (field_type in Just(field_type), len in 1..(max_len as usize))
+                                (vec in prop::collection::vec(any::<u8>(), len * field_type.size_in_bytes() as usize))
             -> Vec<u8> {
                 vec
             }
@@ -416,33 +372,20 @@ mod test {
         }
 
         fn arb_chunked_body<R: RngCore>(
-            vec: Vec<u8>,
-            field_type: &'static str,
+            vec: &[u8],
+            field_type: FieldType,
             rng: &mut R,
         ) -> ByteArrStream {
             tokio::runtime::Runtime::new()
                 .unwrap()
-                .block_on(async move {
-                    let chunked_body = ChunkedBody(futures::stream::iter(
-                        random_chunks(&vec, rng)
-                            .into_iter()
-                            .map(|chunk| Ok(Bytes::from(chunk))),
-                    ));
-                    let mut req_parts = RequestParts::new(
-                        Request::post(format!("/example?field_type={field_type}"))
-                            .body(chunked_body)
-                            .unwrap(),
-                    );
-
-                    ByteArrStream::from_request(&mut req_parts).await.unwrap()
-                })
+                .block_on(from_chunked(&random_chunks(vec, rng), field_type))
         }
 
         prop_compose! {
-            fn arb_expected_and_chunked_body(size_in_bytes: u32, max_len: u32, field_type: &'static str)
-                                            (expected in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
+            fn arb_expected_and_chunked_body(field_type: FieldType, max_len: u32)
+                                            (expected in arb_aligned_bytes(field_type, max_len), seed in any::<u64>())
             -> (Vec<u8>, ByteArrStream, u64) {
-                (expected.clone(), arb_chunked_body(expected, field_type, &mut StdRng::seed_from_u64(seed)), seed)
+                (expected.clone(), arb_chunked_body(&expected, field_type, &mut StdRng::seed_from_u64(seed)), seed)
             }
         }
 
@@ -450,7 +393,7 @@ mod test {
             #[test]
             #[ignore]
             fn test_byte_arr_stream_works_with_any_chunks(
-                (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(ff::Fp32BitPrime::SIZE_IN_BYTES, 100, ff::Fp32BitPrime::TYPE_STR)
+                (expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(FieldType::Fp32BitPrime, 100)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     let collected = chunked_bytes.try_collect::<Vec<_>>().await.unwrap();

@@ -1,8 +1,8 @@
-use crate::helpers::transport::http::server::Error;
-use crate::helpers::{
-    query::QueryCommand, transport::TransportCommand, CommandEnvelope, CommandOrigin,
+use crate::{
+    helpers::{query::QueryCommand, transport::TransportCommand, CommandEnvelope, CommandOrigin},
+    http::server::Error,
+    protocol::QueryId,
 };
-use crate::protocol::QueryId;
 use axum::extract::Path;
 use axum::routing::get;
 use axum::{Extension, Router};
