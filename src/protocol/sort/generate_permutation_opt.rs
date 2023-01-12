@@ -193,6 +193,5 @@ mod tests {
         }
 
         assert_eq!(expected, mpc_sorted_list);
-        // }
     }
 }

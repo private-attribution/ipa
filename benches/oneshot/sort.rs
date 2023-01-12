@@ -1,3 +1,4 @@
+use rand::Rng;
 use raw_ipa::error::Error;
 use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
@@ -5,7 +6,6 @@ use raw_ipa::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_l
 use raw_ipa::protocol::sort::generate_permutation_opt::generate_permutation_opt;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
-use rand::Rng;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
