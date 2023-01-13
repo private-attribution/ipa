@@ -7,13 +7,6 @@ use crate::{
     protocol::{context::Context, RecordId},
     secret_sharing::Replicated,
 };
-use serde::{Deserialize, Serialize};
-
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {

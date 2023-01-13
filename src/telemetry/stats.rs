@@ -2,9 +2,7 @@ use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use std::io::Write;
 
-use comfy_table::Table;
 use metrics::{KeyName, Label, SharedString};
 
 use crate::helpers::Role;
@@ -131,8 +129,9 @@ impl Metrics {
     ///
     /// ## Errors
     /// returns an IO error if it fails to write to the provided writer.
-    pub fn print(&self, w: &mut impl Write) -> Result<(), std::io::Error> {
-        let mut metrics_table = Table::new();
+    #[cfg(feature = "cli")]
+    pub fn print(&self, w: &mut impl std::io::Write) -> Result<(), std::io::Error> {
+        let mut metrics_table = comfy_table::Table::new();
         metrics_table.set_header(vec!["metric", "description", "value", "dimensions"]);
 
         for (key_name, counter_stats) in &self.counters {
