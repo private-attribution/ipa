@@ -1,50 +1,14 @@
+use crate::bits::BitArray40;
 use crate::ff::Field;
 use crate::protocol::boolean::RandomBitsShare;
-use crate::rand::Rng;
 use crate::secret_sharing::{
     replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SecretSharing, XorReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
 };
 use std::borrow::Borrow;
 use std::iter::zip;
 
-#[derive(Clone, Copy)]
-pub struct MaskedMatchKey(u64);
-
-impl MaskedMatchKey {
-    pub const BITS: u32 = 23;
-    const MASK: u64 = u64::MAX >> (64 - Self::BITS);
-
-    #[must_use]
-    pub fn mask(v: u64) -> Self {
-        Self(v & Self::MASK)
-    }
-
-    #[must_use]
-    pub fn bit(self, bit_num: u32) -> u64 {
-        (self.0 >> bit_num) & 1
-    }
-}
-
-impl From<MaskedMatchKey> for u64 {
-    fn from(v: MaskedMatchKey) -> Self {
-        v.0
-    }
-}
-
-impl IntoShares<XorReplicated> for MaskedMatchKey {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [XorReplicated; 3] {
-        debug_assert_eq!(self.0, self.0 & Self::MASK);
-        let s0 = rng.gen::<u64>() & Self::MASK;
-        let s1 = rng.gen::<u64>() & Self::MASK;
-        let s2 = self.0 ^ s0 ^ s1;
-        [
-            XorReplicated::new(s0, s1),
-            XorReplicated::new(s1, s2),
-            XorReplicated::new(s2, s0),
-        ]
-    }
-}
+pub type MaskedMatchKey = BitArray40;
 
 /// Deconstructs a value into N values, one for each bit.
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {

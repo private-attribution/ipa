@@ -1,13 +1,11 @@
-use std::iter::repeat;
-
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BitOpStep, RecordId},
-    secret_sharing::SecretSharing,
+    secret_sharing::{ArithmeticSecretSharing, SecretSharing},
 };
-
 use futures::future::try_join_all;
+use std::iter::repeat;
 
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -28,7 +26,12 @@ use futures::future::try_join_all;
 ///       a. Calculate accumulated `prefix_sum` = s + `mult_output`
 /// 4. Compute the final output using sum of products executed in parallel for each record.
 #[allow(dead_code)]
-pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+pub async fn multi_bit_permutation<
+    'a,
+    F: Field,
+    S: ArithmeticSecretSharing<F>,
+    C: Context<F, Share = S>,
+>(
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
@@ -99,7 +102,7 @@ async fn check_everything<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let num_bits = input.len();
 

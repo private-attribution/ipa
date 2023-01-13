@@ -6,8 +6,10 @@ mod field;
 mod prime_field;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-pub use field::{BinaryField, Field, Int};
+pub use field::{Field, Int};
 pub use prime_field::{Fp31, Fp32BitPrime};
+
+use crate::secret_sharing::ArithmeticShare;
 
 pub trait ArithmeticOps:
     Add<Output = Self>
@@ -30,5 +32,27 @@ impl<T> ArithmeticOps for T where
         + MulAssign
         + Neg<Output = Self>
         + Sized
+{
+}
+
+pub trait ArithmeticRefOps<V: ArithmeticShare>:
+    for<'a> Add<&'a Self, Output = Self>
+    + for<'a> AddAssign<&'a Self>
+    + Neg<Output = Self>
+    + for<'a> Sub<&'a Self, Output = Self>
+    + for<'a> SubAssign<&'a Self>
+    + Mul<V, Output = Self>
+{
+}
+
+impl<T, V> ArithmeticRefOps<V> for T
+where
+    T: for<'a> Add<&'a Self, Output = Self>
+        + for<'a> AddAssign<&'a Self>
+        + Neg<Output = Self>
+        + for<'a> Sub<&'a Self, Output = Self>
+        + for<'a> SubAssign<&'a Self>
+        + Mul<V, Output = Self>,
+    V: ArithmeticShare,
 {
 }

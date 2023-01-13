@@ -1,17 +1,15 @@
 mod into_shares;
 pub mod replicated;
-mod xor;
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use into_shares::IntoShares;
 
-use crate::bits::BooleanOps;
-use crate::ff::ArithmeticOps;
+use crate::bits::{BooleanOps, BooleanRefOps};
+use crate::ff::{ArithmeticOps, ArithmeticRefOps};
 use std::fmt::Debug;
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
-pub use xor::XorReplicated;
 
 use self::replicated::malicious::AdditiveShare as MaliciousAdditiveShare;
 use self::replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare;
+use self::replicated::semi_honest::XorShare as SemiHonestXorShare;
 
 pub trait SharedValue: Clone + Copy + PartialEq + Debug + Send + Sync + Sized + 'static {
     /// Number of bits stored in this data type.
@@ -33,19 +31,7 @@ impl<T> ArithmeticShare for T where T: SharedValue + ArithmeticOps {}
 impl<T> BooleanShare for T where T: SharedValue + BooleanOps {}
 
 /// Secret share of a secret has additive and multiplicative properties.
-pub trait SecretSharing<V: SharedValue>:
-    for<'a> Add<&'a Self, Output = Self>
-    + for<'a> AddAssign<&'a Self>
-    + Neg<Output = Self>
-    + for<'a> Sub<&'a Self, Output = Self>
-    + for<'a> SubAssign<&'a Self>
-    + Mul<V, Output = Self>
-    + Clone
-    + Debug
-    + Sized
-    + Send
-    + Sync
-{
+pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
     const ZERO: Self;
 }
 
@@ -55,3 +41,17 @@ impl<V: ArithmeticShare> SecretSharing<V> for SemiHonestAdditiveShare<V> {
 impl<V: ArithmeticShare> SecretSharing<V> for MaliciousAdditiveShare<V> {
     const ZERO: Self = MaliciousAdditiveShare::ZERO;
 }
+impl<V: BooleanShare> SecretSharing<V> for SemiHonestXorShare<V> {
+    const ZERO: Self = SemiHonestXorShare::ZERO;
+}
+
+pub trait ArithmeticSecretSharing<V: ArithmeticShare>:
+    SecretSharing<V> + ArithmeticRefOps<V>
+{
+}
+
+pub trait BooleanSecretSharing<V: BooleanShare>: SecretSharing<V> + BooleanRefOps {}
+
+impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for SemiHonestAdditiveShare<V> {}
+impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for MaliciousAdditiveShare<V> {}
+impl<V: BooleanShare> BooleanSecretSharing<V> for SemiHonestXorShare<V> {}
