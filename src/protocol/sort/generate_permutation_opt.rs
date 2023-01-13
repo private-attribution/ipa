@@ -53,11 +53,7 @@ where
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let last_bit_num = if num_multi_bits > num_bits {
-        num_bits
-    } else {
-        num_multi_bits
-    };
+    let last_bit_num = std::cmp::min(num_multi_bits, num_bits);
 
     let lsb_permutation = multi_bit_permutation(
         ctx_0.narrow(&BitPermutationStep),
@@ -89,11 +85,7 @@ where
             revealed_and_random_permutations.revealed.as_slice(),
         );
 
-        let last_bit_num = if bit_num + num_multi_bits > num_bits {
-            num_bits
-        } else {
-            bit_num + num_multi_bits
-        };
+        let last_bit_num = std::cmp::min(bit_num + num_multi_bits, num_bits);
 
         let futures =
             (bit_num..last_bit_num)
@@ -107,15 +99,15 @@ where
                     )
                     .await
                 });
-        let bits_i_sorted_by_less_significant_bits = try_join_all(futures).await?;
+        let next_few_bits_sorted_by_less_significant_bits = try_join_all(futures).await?;
 
-        let bits_i_permutation = multi_bit_permutation(
+        let next_few_bits_permutation = multi_bit_permutation(
             ctx_bit.narrow(&BitPermutationStep),
-            &bits_i_sorted_by_less_significant_bits,
+            &next_few_bits_sorted_by_less_significant_bits,
         )
         .await?;
 
-        let composed_i_permutation = compose(
+        composed_less_significant_bits_permutation = compose(
             ctx_bit.narrow(&ComposeStep),
             (
                 revealed_and_random_permutations
@@ -128,10 +120,9 @@ where
                     .as_slice(),
             ),
             &revealed_and_random_permutations.revealed,
-            bits_i_permutation,
+            next_few_bits_permutation,
         )
         .await?;
-        composed_less_significant_bits_permutation = composed_i_permutation;
     }
     Ok(composed_less_significant_bits_permutation)
 }
