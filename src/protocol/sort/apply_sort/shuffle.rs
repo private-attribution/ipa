@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::repeat64str;
-use crate::secret_sharing::{ArithmeticShare, Replicated, SecretSharing};
+use crate::secret_sharing::{ArithmeticShare, SecretSharing};
 use crate::{
     error::Error,
     ff::Field,

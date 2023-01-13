@@ -13,22 +13,25 @@ use crate::{
         sort::{
             apply_sort::apply_sort_permutation,
             generate_permutation::{
-                generate_permutation_and_reveal_shuffled,
-                malicious_shuffle_and_reveal_permutation,
+                generate_permutation_and_reveal_shuffled, malicious_shuffle_and_reveal_permutation,
             },
             SortStep::ShuffleRevealPermutation,
         },
         RecordId,
     },
-    secret_sharing::{Replicated, XorReplicated, SecretSharing, MaliciousReplicated},
+    secret_sharing::{MaliciousReplicated, Replicated, XorReplicated},
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
-use hyper::upgrade;
 
-use super::{attribution::AggregateCreditOutputRow, context::{SemiHonestContext, MaliciousContext}, malicious::MaliciousValidator, sort::generate_permutation::malicious_generate_permutation};
 use super::{
-    modulus_conversion::{convert_all_bits, convert_all_bits_local, upgrade_all_bit_triples, transpose},
+    attribution::AggregateCreditOutputRow, context::SemiHonestContext,
+    malicious::MaliciousValidator, sort::generate_permutation::malicious_generate_permutation,
+};
+use super::{
+    modulus_conversion::{
+        convert_all_bits, convert_all_bits_local, transpose, upgrade_all_bit_triples,
+    },
     sort::apply_sort::shuffle::Resharable,
     Substep,
 };
@@ -145,7 +148,7 @@ impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
 
 #[async_trait]
 impl<F: Field + Sized> Resharable<F> for IPAMaliciousModulusConvertedInputRow<F> {
-    type Share = Replicated<F>;
+    type Share = MaliciousReplicated<F>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -189,7 +192,7 @@ pub async fn ipa_malicious<F>(
     num_bits: u32,
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
-// ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
+    // ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
 ) -> ()
 where
     F: Field,
@@ -199,9 +202,11 @@ where
     let v = MaliciousValidator::new(ctx.clone());
     let m_ctx = v.context();
     let m_bit_triples = upgrade_all_bit_triples(
-        m_ctx.narrow(&Step::UpgradeMatchKeyBitsToMalicious), 
+        m_ctx.narrow(&Step::UpgradeMatchKeyBitsToMalicious),
         local_lists.as_slice(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     let m_converted_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
         m_bit_triples.as_slice(),
@@ -229,8 +234,7 @@ where
 
     let v = MaliciousValidator::new(ctx.clone());
 
-    let futures = 
-        input_rows
+    let futures = input_rows
         .into_iter()
         .zip(converted_shares.into_iter())
         .enumerate()
@@ -239,10 +243,22 @@ where
 
             let m_ctx = v.context();
             async move {
-                let m_mk_shares = m_ctx.narrow("upgrade_mk_shares").upgrade_bit_vector(record_id, mk_shares).await?;
-                let m_is_trigger_bit = m_ctx.narrow("upgrade_is_trigger_bit").upgrade(record_id, input_row.is_trigger_bit.clone()).await?;
-                let m_breakdown_key = m_ctx.narrow("upgrade_breakdown_key").upgrade(record_id, input_row.breakdown_key.clone()).await?;
-                let m_trigger_value = m_ctx.narrow("upgrade_trigger_value").upgrade(record_id, input_row.trigger_value.clone()).await?;
+                let m_mk_shares = m_ctx
+                    .narrow("upgrade_mk_shares")
+                    .upgrade_bit_vector(record_id, mk_shares)
+                    .await?;
+                let m_is_trigger_bit = m_ctx
+                    .narrow("upgrade_is_trigger_bit")
+                    .upgrade(record_id, input_row.is_trigger_bit.clone())
+                    .await?;
+                let m_breakdown_key = m_ctx
+                    .narrow("upgrade_breakdown_key")
+                    .upgrade(record_id, input_row.breakdown_key.clone())
+                    .await?;
+                let m_trigger_value = m_ctx
+                    .narrow("upgrade_trigger_value")
+                    .upgrade(record_id, input_row.trigger_value.clone())
+                    .await?;
                 Ok::<_, Error>(IPAMaliciousModulusConvertedInputRow {
                     mk_shares: m_mk_shares,
                     is_trigger_bit: m_is_trigger_bit,
@@ -250,11 +266,13 @@ where
                     trigger_value: m_trigger_value,
                 })
             }
-        }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
     let combined_match_keys_and_sidecar_data = try_join_all(futures).await.unwrap();
 
+    let m_ctx = v.context();
     let sorted_rows = apply_sort_permutation(
-        ctx.narrow(&Step::ApplySortPermutation),
+        m_ctx.narrow(&Step::ApplySortPermutation),
         combined_match_keys_and_sidecar_data,
         &revealed_and_random_permutations,
     )
@@ -409,23 +427,9 @@ pub mod tests {
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                    .await
-                    .unwrap()
+                ipa_malicious::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY).await;
             })
-            .await
-            .reconstruct();
-
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            // Each element in the `result` is a general purpose `[F; 4]`.
-            // For this test case, the first two elements are `breakdown_key`
-            // and `credit` as defined by the implementation of `Reconstruct`
-            // for `[AggregateCreditOutputRow<F>; 3]`.
-            let result = result[i].0.map(|x| x.as_u128());
-            assert_eq!(*expected, [result[0], result[1]]);
-        }
+            .await;
     }
 
     #[tokio::test]

@@ -1,5 +1,4 @@
 use crate::protocol::context::MaliciousContext;
-use crate::protocol::malicious::MaliciousValidator;
 use crate::protocol::BitOpStep;
 use crate::protocol::IpaProtocolStep::{ModulusConversion, UpgradeMatchKeyBitsToMalicious};
 use crate::secret_sharing::MaliciousReplicated;
@@ -12,7 +11,6 @@ use crate::{
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
-use tracing::log::Record;
 
 ///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
 ///! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
