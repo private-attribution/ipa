@@ -310,12 +310,11 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::super::tests::generate_shared_input;
     use crate::{
         ff::{Field, Fp32BitPrime},
         protocol::attribution::{
             credit_capping::credit_capping,
-            tests::{BD, H, S, T},
+            tests::{generate_shared_input, BD, H, S, T},
         },
         test_fixture::{Reconstruct, TestWorld},
     };

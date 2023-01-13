@@ -13,6 +13,7 @@ use crate::{
     protocol::{context::SemiHonestContext, prss, QueryId, RecordId, Step},
     task::JoinHandle,
 };
+use futures_util::future::try_join4;
 use prss_exchange_protocol::{PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk};
 use rand_core::{CryptoRng, RngCore};
 use std::iter::zip;
@@ -107,7 +108,7 @@ impl<'p> HttpHelper<'p> {
             let recv_from_left = channel.receive::<PublicKeyChunk>(left_peer, record_id);
             let recv_from_right = channel.receive::<PublicKeyChunk>(right_peer, record_id);
             let (_, _, recv_left_key_chunk, recv_right_key_chunk) =
-                tokio::try_join!(send_to_left, send_to_right, recv_from_left, recv_from_right)?;
+                try_join4(send_to_left, send_to_right, recv_from_left, recv_from_right).await?;
             recv_left_pk_builder.append_chunk(recv_left_key_chunk);
             recv_right_pk_builder.append_chunk(recv_right_key_chunk);
         }
@@ -133,6 +134,7 @@ impl<'p> HttpHelper<'p> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
+    use futures_util::future::try_join3;
     use std::num::NonZeroUsize;
 
     use super::*;
@@ -234,7 +236,9 @@ mod e2e_tests {
         let participant2 = h2.prss_endpoint(&gateway2, &step, &mut rng2);
         let participant3 = h3.prss_endpoint(&gateway3, &step, &mut rng3);
         let (participant1, participant2, participant3) =
-            tokio::try_join!(participant1, participant2, participant3).unwrap();
+            try_join3(participant1, participant2, participant3)
+                .await
+                .unwrap();
 
         let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
         let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
@@ -255,7 +259,9 @@ mod e2e_tests {
         let participant2 = h2.prss_endpoint(&gateway2, &step, &mut rng2);
         let participant3 = h3.prss_endpoint(&gateway3, &step, &mut rng3);
         let (participant1, participant2, participant3) =
-            tokio::try_join!(participant1, participant2, participant3).unwrap();
+            try_join3(participant1, participant2, participant3)
+                .await
+                .unwrap();
 
         let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
         let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
@@ -302,7 +308,9 @@ mod e2e_tests {
         let participant2 = h2.prss_endpoint(&gateway2, &step, &mut rng2);
         let participant3 = h3.prss_endpoint(&gateway3, &step, &mut rng3);
         let (participant1, participant2, participant3) =
-            tokio::try_join!(participant1, participant2, participant3).unwrap();
+            try_join3(participant1, participant2, participant3)
+                .await
+                .unwrap();
 
         let ctx1 = h1.context::<Fp31>(&gateway1, &participant1);
         let ctx2 = h2.context::<Fp31>(&gateway2, &participant2);
@@ -317,11 +325,12 @@ mod e2e_tests {
         let a_shared = Fp31::from(a).share_with(&mut rand);
         let b_shared = Fp31::from(b).share_with(&mut rand);
 
-        let input = tokio::try_join!(
+        let input = try_join3(
             ctx1.multiply(record_id, &a_shared[0], &b_shared[0]),
             ctx2.multiply(record_id, &a_shared[1], &b_shared[1]),
-            ctx3.multiply(record_id, &a_shared[2], &b_shared[2])
+            ctx3.multiply(record_id, &a_shared[2], &b_shared[2]),
         )
+        .await
         .unwrap();
         let reconstructed = [input.0, input.1, input.2].reconstruct();
         assert_eq!(a * b, reconstructed.as_u128());
