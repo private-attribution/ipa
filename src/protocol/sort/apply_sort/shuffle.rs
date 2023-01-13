@@ -45,15 +45,15 @@ impl From<usize> for InnerVectorElementStep {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
-    type Share = Replicated<F>;
+impl<V: ArithmeticShare, S: SecretSharing<V>> Resharable<V> for Vec<S> {
+    type Share = S;
 
     /// This is intended to be used for resharing vectors of bit-decomposed values.
     /// # Errors
     /// If the vector has more than 64 elements
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context<V, Share = <Self as Resharable<V>>::Share> + Send,
     {
         try_join_all(self.iter().enumerate().map(|(i, x)| {
             let c = ctx.narrow(&InnerVectorElementStep::from(i));

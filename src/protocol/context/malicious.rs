@@ -15,7 +15,7 @@ use crate::protocol::context::{
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::{RecordId, Step, Substep};
+use crate::protocol::{RecordId, Step, Substep, BitOpStep};
 use crate::secret_sharing::{MaliciousReplicated, Replicated};
 use crate::sync::Arc;
 
@@ -86,6 +86,19 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
         try_join_all(
             zip(repeat(self), input.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
                 ctx.upgrade_with(step, RecordId::from(i), share).await
+            }),
+        )
+        .await
+    }
+
+    pub async fn upgrade_bit_vector(
+        &self,
+        record_id: RecordId,
+        input: Vec<Replicated<F>>,
+    ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
+        try_join_all(
+            zip(repeat(self), input.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
+                ctx.upgrade_with(&BitOpStep::from(i), record_id, share).await
             }),
         )
         .await

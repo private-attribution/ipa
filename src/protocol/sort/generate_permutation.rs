@@ -84,7 +84,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// 1. Get random permutation 2/3 shared across helpers
 /// 2. Shuffle shares three times
 /// 3. Validate the accumulated macs - this returns the revealed permutation
-pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
+pub async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     m_ctx: MaliciousContext<'_, F>,
     input_len: u32,
     input_permutation: Vec<MaliciousReplicated<F>>,

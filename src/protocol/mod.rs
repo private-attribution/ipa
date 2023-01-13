@@ -166,6 +166,7 @@ impl From<usize> for BitOpStep {
 pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
+    UpgradeMatchKeyBitsToMalicious(u32),
     ModulusConversion(u32),
     /// Sort shares by the match key
     Sort(u32),
@@ -183,6 +184,7 @@ impl AsRef<str> for IpaProtocolStep {
 
         match self {
             Self::ConvertShares => "convert",
+            Self::UpgradeMatchKeyBitsToMalicious(i) => SORT[usize::try_from(*i).unwrap()],
             Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],
             Self::ModulusConversion(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
             Self::Attribution => "attribution",

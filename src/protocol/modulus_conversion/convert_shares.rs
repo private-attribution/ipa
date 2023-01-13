@@ -1,4 +1,8 @@
-use crate::protocol::IpaProtocolStep::ModulusConversion;
+use crate::protocol::context::MaliciousContext;
+use crate::protocol::malicious::MaliciousValidator;
+use crate::protocol::BitOpStep;
+use crate::protocol::IpaProtocolStep::{ModulusConversion, UpgradeMatchKeyBitsToMalicious};
+use crate::secret_sharing::MaliciousReplicated;
 use crate::{
     error::Error,
     ff::Field,
@@ -8,6 +12,7 @@ use crate::{
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
+use tracing::log::Record;
 
 ///! This takes a replicated secret sharing of a sequence of bits (in a packed format)
 ///! and converts them, one bit-place at a time, to secret sharings of that bit value (either one or zero) in the target field.
@@ -47,6 +52,7 @@ impl AsRef<str> for Step {
     }
 }
 
+#[derive(Clone)]
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 
 /// Convert one bit of an XOR sharing into a triple of replicated sharings of that bit.
@@ -97,6 +103,24 @@ pub fn convert_all_bits_local<F: Field>(
         total_list.push(one_list);
     }
     total_list
+}
+
+pub async fn upgrade_all_bit_triples<F: Field>(
+    m_ctx: MaliciousContext<'_, F>,
+    locally_converted_bits: &[Vec<BitConversionTriple<Replicated<F>>>],
+) -> Result<Vec<Vec<BitConversionTriple<MaliciousReplicated<F>>>>, Error> {
+    let futures = locally_converted_bits
+        .iter()
+        .enumerate()
+        .map(|(bit_num, one_column)| {
+            upgrade_bit_list(
+                m_ctx.narrow(&UpgradeMatchKeyBitsToMalicious(bit_num.try_into().unwrap())),
+                one_column,
+            )
+        })
+        .collect::<Vec<_>>();
+    let converted_shares = try_join_all(futures).await?;
+    Ok(converted_shares)
 }
 
 /// Convert a locally-decomposed single bit into field elements.
@@ -152,6 +176,21 @@ where
         .collect::<Vec<_>>();
     let converted_shares = try_join_all(futures).await?;
     Ok(converted_shares)
+}
+
+pub async fn upgrade_bit_list<F: Field>(
+    ctx: MaliciousContext<'_, F>,
+    locally_converted_bits: &[BitConversionTriple<Replicated<F>>],
+) -> Result<Vec<BitConversionTriple<MaliciousReplicated<F>>>, Error> {
+    try_join_all(
+        zip(repeat(ctx), locally_converted_bits.into_iter())
+            .enumerate()
+            .map(|(i, (ctx, row))| async move {
+                ctx.upgrade_bit_triple(&BitOpStep::from(0), RecordId::from(i), row.clone())
+                    .await
+            }),
+    )
+    .await
 }
 
 /// # Errors
