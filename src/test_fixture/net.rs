@@ -1,4 +1,3 @@
-
 /// Creates a new config for helpers configured to run on local machine using unique port.
 #[allow(clippy::missing_panics_doc)]
 #[cfg(feature = "web-app")]

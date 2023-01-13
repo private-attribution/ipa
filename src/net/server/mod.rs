@@ -7,10 +7,7 @@ use crate::{
     helpers::{http::HttpNetwork, network::MessageChunks},
     net::LastSeenMessages,
     protocol::QueryId,
-    telemetry::metrics::{
-        web::RequestProtocolVersion,
-        REQUESTS_RECEIVED
-    }
+    telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
 use ::tokio::sync::mpsc;
 use axum::{
@@ -419,7 +416,7 @@ mod e2e_tests {
         helpers::http::HttpNetwork,
         net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::QueryId,
-        telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
+        telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
         test_fixture::metrics::MetricsHandle,
     };
     use hyper::{

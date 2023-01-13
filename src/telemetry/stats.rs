@@ -2,7 +2,6 @@ use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-
 use metrics::{KeyName, Label, SharedString};
 
 use crate::helpers::Role;
