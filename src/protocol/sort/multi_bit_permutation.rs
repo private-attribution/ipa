@@ -145,12 +145,8 @@ fn check_equality_to<F: Field, S: SecretSharing<F>>(
 ) -> S {
     if bit_number == 0 {
         if sign == 1_i8 {
-            println!("checking if value is equal to: {}", value);
-            println!("Return index: {}, sign: {}", idx, sign);
             return precomputed_combinations[idx].clone();
         }
-        println!("checking if value is equal to: {}", value);
-        println!("Return index: {}, sign: {}", idx, sign);
         return -precomputed_combinations[idx].clone();
     }
     let bit = (value >> (bit_number - 1)) & 1;
@@ -236,7 +232,6 @@ mod tests {
             })
             .await;
         let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();
-        println!("{:#?}", reconstructs);
         for (rec, row) in reconstructs.iter().enumerate() {
             for (j, check) in row.iter().enumerate() {
                 if EXPECTED_NUMS[rec] == j {
