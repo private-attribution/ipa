@@ -14,6 +14,7 @@ pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 
+use super::basics::sum_of_product::SecureSop;
 use super::basics::Reshare;
 use super::boolean::RandomBits;
 
@@ -21,6 +22,7 @@ use super::boolean::RandomBits;
 /// generator and communication channel.
 pub trait Context<V: ArithmeticShare>:
     SecureMul<V, Share = <Self as Context<V>>::Share>
+    + SecureSop<V, Share = <Self as Context<V>>::Share>
     + Reshare<V, Share = <Self as Context<V>>::Share>
     + Reveal<V, Share = <Self as Context<V>>::Share>
     + RandomBits<V, Share = <Self as Context<V>>::Share>
