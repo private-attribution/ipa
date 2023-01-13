@@ -140,7 +140,7 @@ impl MpcHelperClient {
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
         let uri = self.build_uri(format!(
             "/query?{}",
-            QueryConfigQueryParams(data).as_params() // TODO: is there a way to automatically convert?
+            QueryConfigQueryParams(data).as_params()
         ))?;
         let req = Request::post(uri).body(Body::empty())?;
         let resp = self.client.request(req).await?;
