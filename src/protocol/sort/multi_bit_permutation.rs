@@ -1,19 +1,12 @@
-use std::iter::{repeat, zip};
+use std::iter::repeat;
 
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{
-        boolean::multiply_all_shares,
-        context::Context,
-        sort::{bit_permutation::bit_permutation, MultiBitPermutationStep::MultiplyAcrossBits},
-        RecordId,
-    },
+    protocol::{context::Context, sort::bit_permutation::bit_permutation, BitOpStep, RecordId},
     secret_sharing::SecretSharing,
 };
 
-use bitvec::prelude::Lsb0;
-use bitvec::view::BitView;
 use futures::future::try_join_all;
 
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
@@ -50,20 +43,22 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     let share_of_one = ctx.share_of_one();
 
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
-    let equality_checks = try_join_all(
-        (0..num_possible_bit_values)
-            .zip(repeat(ctx.clone()))
-            .map(|(j, ctx)| async move { get_bit_equality_checkers(j, input, ctx).await }),
-    )
-    .await?;
+    let mut equality_check_futures = Vec::with_capacity(num_records);
+    for i in 0..num_records {
+        equality_check_futures.push(check_everything(ctx.clone(), i, input));
+    }
+    let equality_checks = try_join_all(equality_check_futures).await?;
 
     // Compute accumulated sum
-    let mut prefix_sum = Vec::with_capacity(num_possible_bit_values * num_records);
+    let mut prefix_sum = Vec::with_capacity(num_records);
     let mut cumulative_sum = S::ZERO;
-    for equality_check in &equality_checks {
-        for check in equality_check {
-            cumulative_sum += check;
-            prefix_sum.push(cumulative_sum.clone());
+    for bit_idx in 0..num_possible_bit_values {
+        for record_idx in 0..num_records {
+            if bit_idx == 0 {
+                prefix_sum.push(Vec::with_capacity(num_multi_bits));
+            }
+            cumulative_sum += &equality_checks[record_idx][bit_idx];
+            prefix_sum[record_idx].push(cumulative_sum.clone());
         }
     }
 
@@ -72,10 +67,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
         try_join_all((0..num_records).zip(repeat(ctx)).map(|(rec, ctx)| {
             let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
             for idx in 0..num_possible_bit_values {
-                sop_inputs.push((
-                    &equality_checks[idx][rec],
-                    &prefix_sum[idx * num_records + rec],
-                ));
+                sop_inputs.push((&equality_checks[rec][idx], &prefix_sum[rec][idx]));
             }
             async move {
                 ctx.sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
@@ -91,55 +83,96 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     Ok(one_off_permutation)
 }
 
-/// For a given `idx` check if each of the record has same value as idx.
-/// Steps
-/// 1. Get bit representation of `idx`
-/// 2. Calculate equality check
-///   i. keep record bit if `idx` bit is 1
-///   ii.toggle record bit if idx bit is 0 (Done by taking `share_of_one` - value)
-/// 3. Multiply equality checks for all bits per record - in clear per record this will be 1 only for 1 index while 0 for all others
-async fn get_bit_equality_checkers<F, C, S>(
-    idx: usize,
-    multi_bit_input: &[Vec<S>],
+async fn check_everything<F, C, S>(
     ctx: C,
+    record_idx: usize,
+    input: &[Vec<S>],
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let num_multi_bits = multi_bit_input.len();
-    assert_ne!(num_multi_bits, 0);
-    let num_records = multi_bit_input[0].len();
+    let record_id = RecordId::from(record_idx);
+    let num_bits = input.len();
+    let mut step = 1 << num_bits;
+    let mut precomputed_combinations = vec![S::ZERO; step];
+    for bit_idx in 0..num_bits {
+        let bit = &input[num_bits - bit_idx - 1][record_idx];
+        step >>= 1;
+        if bit_idx == 0 {
+            precomputed_combinations[0] = ctx.share_of_one();
+            precomputed_combinations[step] = bit.clone();
+        } else {
+            let num_children_to_add = 1 << bit_idx;
+            let mut multiplication_futures = Vec::with_capacity(num_children_to_add - 1);
+            for j in 1..num_children_to_add {
+                let parent_idx = 2 * j * step;
+                let child_idx = parent_idx + step;
+                let parent = &precomputed_combinations[parent_idx];
+                multiplication_futures.push(
+                    ctx.narrow(&BitOpStep::from(child_idx))
+                        .multiply(record_id, parent, bit),
+                );
+            }
+            let multiplication_results = try_join_all(multiplication_futures).await?;
+            precomputed_combinations[step] = (*bit).clone();
+            for (j, mult_result) in multiplication_results.into_iter().enumerate() {
+                precomputed_combinations[step * (2 * (j + 1) + 1)] = mult_result;
+            }
+        }
+    }
 
-    let ctx_across_bits = ctx.narrow(&MultiplyAcrossBits);
-    let idx_in_bits = &idx.view_bits::<Lsb0>()[..num_multi_bits];
+    let mut equality_checks = Vec::with_capacity(1 << num_bits);
+    for i in 0..(1 << num_bits) {
+        equality_checks.push(check_equality_to(
+            i,
+            num_bits,
+            0,
+            1_i8,
+            precomputed_combinations.as_slice(),
+        ));
+    }
+    Ok(equality_checks)
+}
 
-    try_join_all(
-        (0..num_records)
-            .zip(repeat(ctx_across_bits))
-            .map(|(rec, ctx)| async move {
-                let share_of_one = ctx.share_of_one();
-
-                let mult_input = zip(multi_bit_input, idx_in_bits)
-                    .map(|(single_bit_input, bit)| {
-                        if *bit {
-                            single_bit_input[rec].clone()
-                        } else {
-                            -single_bit_input[rec].clone() + &share_of_one
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                multiply_all_shares(
-                    ctx,
-                    RecordId::from(idx * num_records + rec),
-                    mult_input.as_slice(),
-                )
-                .await
-            }),
+fn check_equality_to<F: Field, S: SecretSharing<F>>(
+    value: u32,
+    bit_number: usize,
+    idx: usize,
+    sign: i8,
+    precomputed_combinations: &[S],
+) -> S {
+    if bit_number == 0 {
+        if sign == 1_i8 {
+            println!("checking if value is equal to: {}", value);
+            println!("Return index: {}, sign: {}", idx, sign);
+            return precomputed_combinations[idx].clone();
+        }
+        println!("checking if value is equal to: {}", value);
+        println!("Return index: {}, sign: {}", idx, sign);
+        return -precomputed_combinations[idx].clone();
+    }
+    let bit = (value >> (bit_number - 1)) & 1;
+    let half_step = 1 << (bit_number - 1);
+    if bit == 0 {
+        let left = check_equality_to(value, bit_number - 1, idx, sign, precomputed_combinations);
+        let right = check_equality_to(
+            value,
+            bit_number - 1,
+            idx + half_step,
+            -sign,
+            precomputed_combinations,
+        );
+        return left + &right;
+    }
+    check_equality_to(
+        value,
+        bit_number - 1,
+        idx + half_step,
+        sign,
+        precomputed_combinations,
     )
-    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -148,10 +181,12 @@ mod tests {
 
     use crate::{
         ff::{Field, Fp31},
-        protocol::sort::multi_bit_permutation::{get_bit_equality_checkers, multi_bit_permutation},
-        secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
+        secret_sharing::SharedValue,
     };
+    use super::multi_bit_permutation;
+
+    use super::check_everything;
     const INPUT: [&[u128]; 3] = [
         &[0, 0, 1, 0, 1, 0],
         &[0, 1, 1, 0, 0, 0],
@@ -159,6 +194,7 @@ mod tests {
     ];
     const EXPECTED: &[u128] = &[3, 2, 5, 0, 4, 1]; //100 010 111 000 101 000
     const EXPECTED_NUMS: &[usize] = &[4, 2, 7, 0, 5, 0];
+
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::new().await;
@@ -179,7 +215,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn bit_equality_checkers() {
+    pub async fn equality_checks() {
         let world = TestWorld::new().await;
 
         let input: Vec<Vec<_>> = INPUT
@@ -187,31 +223,26 @@ mod tests {
             .map(|v| v.iter().map(|x| Fp31::from(*x)).collect())
             .collect();
 
-        let num_multi_bits = INPUT.len();
         let num_records = INPUT[0].len();
-        let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
-                let mut equality_check_futures = Vec::with_capacity(num_possible_bit_values);
-                for j in 0..num_possible_bit_values {
+                let mut equality_check_futures = Vec::with_capacity(num_records);
+                for i in 0..num_records {
                     let ctx = ctx.clone();
-                    let m_shares_copy = m_shares.clone();
-                    equality_check_futures.push(async move {
-                        get_bit_equality_checkers(j, &m_shares_copy, ctx).await
-                    });
+                    equality_check_futures.push(check_everything(ctx, i, m_shares.as_slice()));
                 }
-
                 try_join_all(equality_check_futures).await.unwrap()
             })
             .await;
-        let reconstructs = result.reconstruct();
-        for (j, item) in reconstructs.iter().enumerate() {
-            for rec in 0..num_records {
+        let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();
+        println!("{:#?}", reconstructs);
+        for (rec, row) in reconstructs.iter().enumerate() {
+            for (j, check) in row.iter().enumerate() {
                 if EXPECTED_NUMS[rec] == j {
-                    assert_eq!(item[rec], Fp31::ONE);
+                    assert_eq!(*check, Fp31::ONE);
                 } else {
-                    assert_eq!(item[rec], Fp31::ZERO);
+                    assert_eq!(*check, Fp31::ZERO);
                 }
             }
         }
