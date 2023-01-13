@@ -3,12 +3,12 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::ReplicatedAdditiveShares;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use async_trait::async_trait;
 
 #[async_trait]
 impl<F: Field> RandomBits<F> for SemiHonestContext<'_, F> {
-    type Share = ReplicatedAdditiveShares<F>;
+    type Share = Replicated<F>;
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {

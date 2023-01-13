@@ -5,7 +5,7 @@ pub use convert_shares::{
     BitConversionTriple,
 };
 
-use crate::{ff::Field, secret_sharing::ReplicatedAdditiveShares};
+use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated};
 
 /// Transpose rows of bits into bits of rows
 ///
@@ -25,9 +25,7 @@ use crate::{ff::Field, secret_sharing::ReplicatedAdditiveShares};
 ///     `[ row[0].bit31, row[1].bit31, ..., row[n].bit31 ]`,
 /// `]`
 #[must_use]
-pub fn transpose<F: Field>(
-    input: &[Vec<ReplicatedAdditiveShares<F>>],
-) -> Vec<Vec<ReplicatedAdditiveShares<F>>> {
+pub fn transpose<F: Field>(input: &[Vec<Replicated<F>>]) -> Vec<Vec<Replicated<F>>> {
     (0..input[0].len())
         .map(|i| input.iter().map(|b| b[i].clone()).collect::<Vec<_>>())
         .collect::<Vec<_>>()

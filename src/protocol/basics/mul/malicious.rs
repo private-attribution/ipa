@@ -5,7 +5,7 @@ use crate::protocol::{
     context::{Context, MaliciousContext},
     RecordId,
 };
-use crate::secret_sharing::MaliciousReplicatedAdditiveShares;
+use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -60,15 +60,15 @@ impl AsRef<str> for Step {
 pub async fn multiply<F>(
     ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
-    a: &MaliciousReplicatedAdditiveShares<F>,
-    b: &MaliciousReplicatedAdditiveShares<F>,
+    a: &MaliciousReplicated<F>,
+    b: &MaliciousReplicated<F>,
     zeros_at: MultiplyZeroPositions,
-) -> Result<MaliciousReplicatedAdditiveShares<F>, Error>
+) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
 {
     use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
@@ -90,7 +90,7 @@ where
     )
     .await?;
 
-    let malicious_ab = MaliciousReplicatedAdditiveShares::new(ab, rab);
+    let malicious_ab = MaliciousReplicated::new(ab, rab);
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)

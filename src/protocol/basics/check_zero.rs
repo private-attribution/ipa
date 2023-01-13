@@ -5,7 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, RecordId},
-    secret_sharing::ReplicatedAdditiveShares,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +64,7 @@ impl AsRef<str> for Step {
 pub async fn check_zero<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    v: &ReplicatedAdditiveShares<F>,
+    v: &Replicated<F>,
 ) -> Result<bool, Error> {
     let r_sharing = ctx.prss().generate_replicated(record_id);
 

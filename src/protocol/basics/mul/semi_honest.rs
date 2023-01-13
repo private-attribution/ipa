@@ -7,7 +7,7 @@ use crate::protocol::{
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::secret_sharing::ReplicatedAdditiveShares;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -25,10 +25,10 @@ use crate::secret_sharing::ReplicatedAdditiveShares;
 pub async fn multiply<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: &ReplicatedAdditiveShares<F>,
-    b: &ReplicatedAdditiveShares<F>,
+    a: &Replicated<F>,
+    b: &Replicated<F>,
     zeros: MultiplyZeroPositions,
-) -> Result<ReplicatedAdditiveShares<F>, Error>
+) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
@@ -73,7 +73,7 @@ where
         lhs += s0;
     }
 
-    Ok(ReplicatedAdditiveShares::new(lhs, rhs))
+    Ok(Replicated::new(lhs, rhs))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

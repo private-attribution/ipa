@@ -16,7 +16,7 @@ use crate::{
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
     },
-    secret_sharing::DowngradeMalicious,
+    secret_sharing::replicated::malicious::DowngradeMalicious,
     test_fixture::{logging, make_participants},
 };
 

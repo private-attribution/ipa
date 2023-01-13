@@ -9,7 +9,7 @@ use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::ReplicatedAdditiveShares;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
@@ -73,7 +73,7 @@ pub async fn credit_capping<F: Field>(
 async fn mask_source_credits<F: Field>(
     input: &[CreditCappingInputRow<F>],
     ctx: SemiHonestContext<'_, F>,
-) -> Result<Vec<ReplicatedAdditiveShares<F>>, Error> {
+) -> Result<Vec<Replicated<F>>, Error> {
     try_join_all(
         input
             .iter()
@@ -93,8 +93,8 @@ async fn mask_source_credits<F: Field>(
 async fn credit_prefix_sum<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CreditCappingInputRow<F>],
-    mut original_credits: Vec<ReplicatedAdditiveShares<F>>,
-) -> Result<Vec<ReplicatedAdditiveShares<F>>, Error> {
+    mut original_credits: Vec<Replicated<F>>,
+) -> Result<Vec<Replicated<F>>, Error> {
     let one = ctx.share_of_one();
     let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
 
@@ -164,9 +164,9 @@ async fn credit_prefix_sum<F: Field>(
 
 async fn is_credit_larger_than_cap<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    prefix_summed_credits: &[ReplicatedAdditiveShares<F>],
+    prefix_summed_credits: &[Replicated<F>],
     cap: u32,
-) -> Result<Vec<ReplicatedAdditiveShares<F>>, Error> {
+) -> Result<Vec<Replicated<F>>, Error> {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let cap = local_secret_shared_bits(&ctx, cap.into());
     let random_bits_generator =
@@ -208,13 +208,13 @@ async fn is_credit_larger_than_cap<F: Field>(
 async fn compute_final_credits<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CreditCappingInputRow<F>],
-    prefix_summed_credits: &[ReplicatedAdditiveShares<F>],
-    exceeds_cap_bits: &[ReplicatedAdditiveShares<F>],
-    original_credits: &[ReplicatedAdditiveShares<F>],
+    prefix_summed_credits: &[Replicated<F>],
+    exceeds_cap_bits: &[Replicated<F>],
+    original_credits: &[Replicated<F>],
     cap: u32,
-) -> Result<Vec<ReplicatedAdditiveShares<F>>, Error> {
+) -> Result<Vec<Replicated<F>>, Error> {
     let num_rows = input.len();
-    let cap = ReplicatedAdditiveShares::from_scalar(ctx.role(), F::from(cap.into()));
+    let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:
@@ -250,7 +250,7 @@ async fn compute_final_credits<F: Field>(
                 ctx.narrow(&Step::IfNextExceedsCapOrElse),
                 record_id,
                 next_credit_exceeds_cap,
-                &ReplicatedAdditiveShares::ZERO,
+                &Replicated::ZERO,
                 &(cap.clone() - next_prefix_summed_credit),
             )
             .await?,

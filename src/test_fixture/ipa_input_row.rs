@@ -2,7 +2,8 @@ use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::secret_sharing::IntoShares;
 use crate::{
-    ff::Field, protocol::ipa::IPAInputRow, rand::Rng, secret_sharing::ReplicatedAdditiveShares,
+    ff::Field, protocol::ipa::IPAInputRow, rand::Rng,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
 use super::MaskedMatchKey;
@@ -37,7 +38,7 @@ impl IPAInputTestRow {
 
 impl<F> IntoShares<IPAInputRow<F>> for IPAInputTestRow
 where
-    F: Field + IntoShares<ReplicatedAdditiveShares<F>>,
+    F: Field + IntoShares<Replicated<F>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F>; 3] {

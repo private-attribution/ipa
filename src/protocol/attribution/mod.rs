@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
-use crate::secret_sharing::{ReplicatedAdditiveShares, SecretSharing};
+use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
@@ -10,10 +10,10 @@ pub mod credit_capping;
 
 #[derive(Debug, Clone)]
 pub struct AttributionInputRow<F: Field> {
-    pub is_trigger_bit: ReplicatedAdditiveShares<F>,
-    pub helper_bit: ReplicatedAdditiveShares<F>,
-    pub breakdown_key: ReplicatedAdditiveShares<F>,
-    pub credit: ReplicatedAdditiveShares<F>,
+    pub is_trigger_bit: Replicated<F>,
+    pub helper_bit: Replicated<F>,
+    pub breakdown_key: Replicated<F>,
+    pub credit: Replicated<F>,
 }
 
 pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
@@ -21,23 +21,23 @@ pub type AccumulateCreditOutputRow<F> = AttributionInputRow<F>;
 pub type CreditCappingInputRow<F> = AccumulateCreditOutputRow<F>;
 
 pub struct CreditCappingOutputRow<F: Field> {
-    breakdown_key: ReplicatedAdditiveShares<F>,
-    credit: ReplicatedAdditiveShares<F>,
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CappedCreditsWithAggregationBit<F: Field> {
-    helper_bit: ReplicatedAdditiveShares<F>,
-    aggregation_bit: ReplicatedAdditiveShares<F>,
-    breakdown_key: ReplicatedAdditiveShares<F>,
-    credit: ReplicatedAdditiveShares<F>,
+    helper_bit: Replicated<F>,
+    aggregation_bit: Replicated<F>,
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
 }
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct AggregateCreditOutputRow<F: Field> {
-    breakdown_key: ReplicatedAdditiveShares<F>,
-    credit: ReplicatedAdditiveShares<F>,
+    breakdown_key: Replicated<F>,
+    credit: Replicated<F>,
 }
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.

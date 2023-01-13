@@ -4,7 +4,9 @@ use crate::{
     ff::Field,
     helpers::Role,
     protocol::{basics::ZeroPositions, boolean::xor_sparse, context::Context, RecordId},
-    secret_sharing::{ReplicatedAdditiveShares, SecretSharing, XorReplicated},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, XorReplicated,
+    },
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -60,24 +62,24 @@ pub fn convert_bit_local<F: Field>(
     helper_role: Role,
     bit_index: u32,
     input: &XorReplicated,
-) -> BitConversionTriple<ReplicatedAdditiveShares<F>> {
+) -> BitConversionTriple<Replicated<F>> {
     let left = u128::from(input.left() >> bit_index) & 1;
     let right = u128::from(input.right() >> bit_index) & 1;
     BitConversionTriple(match helper_role {
         Role::H1 => [
-            ReplicatedAdditiveShares::new(F::from(left), F::ZERO),
-            ReplicatedAdditiveShares::new(F::ZERO, F::from(right)),
-            ReplicatedAdditiveShares::new(F::ZERO, F::ZERO),
+            Replicated::new(F::from(left), F::ZERO),
+            Replicated::new(F::ZERO, F::from(right)),
+            Replicated::new(F::ZERO, F::ZERO),
         ],
         Role::H2 => [
-            ReplicatedAdditiveShares::new(F::ZERO, F::ZERO),
-            ReplicatedAdditiveShares::new(F::from(left), F::ZERO),
-            ReplicatedAdditiveShares::new(F::ZERO, F::from(right)),
+            Replicated::new(F::ZERO, F::ZERO),
+            Replicated::new(F::from(left), F::ZERO),
+            Replicated::new(F::ZERO, F::from(right)),
         ],
         Role::H3 => [
-            ReplicatedAdditiveShares::new(F::ZERO, F::from(right)),
-            ReplicatedAdditiveShares::new(F::ZERO, F::ZERO),
-            ReplicatedAdditiveShares::new(F::from(left), F::ZERO),
+            Replicated::new(F::ZERO, F::from(right)),
+            Replicated::new(F::ZERO, F::ZERO),
+            Replicated::new(F::from(left), F::ZERO),
         ],
     })
 }
@@ -87,7 +89,7 @@ pub fn convert_all_bits_local<F: Field>(
     helper_role: Role,
     input: &[XorReplicated],
     num_bits: u32,
-) -> Vec<Vec<BitConversionTriple<ReplicatedAdditiveShares<F>>>> {
+) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
     let mut total_list = Vec::new();
     for bit_index in 0..num_bits {
         let one_list = input
@@ -184,7 +186,7 @@ mod tests {
     use crate::protocol::malicious::MaliciousValidator;
     use crate::protocol::BitOpStep;
     use crate::rand::thread_rng;
-    use crate::secret_sharing::ReplicatedAdditiveShares;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{
         error::Error,
         ff::Fp31,
@@ -203,7 +205,7 @@ mod tests {
 
         let world = TestWorld::new().await;
         let match_key = MaskedMatchKey::mask(rng.gen());
-        let result: [ReplicatedAdditiveShares<Fp31>; 3] = world
+        let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
                 convert_bit(ctx, RecordId::from(0), &triple).await.unwrap()
@@ -219,7 +221,7 @@ mod tests {
 
         let world = TestWorld::new().await;
         let match_key = MaskedMatchKey::mask(rng.gen());
-        let result: [ReplicatedAdditiveShares<Fp31>; 3] = world
+        let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
                 let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
 
@@ -249,15 +251,15 @@ mod tests {
             fn flip_bit<F: Field>(
                 &self,
                 role: Role,
-                mut triple: BitConversionTriple<ReplicatedAdditiveShares<F>>,
-            ) -> BitConversionTriple<ReplicatedAdditiveShares<F>> {
+                mut triple: BitConversionTriple<Replicated<F>>,
+            ) -> BitConversionTriple<Replicated<F>> {
                 if role != self.role {
                     return triple;
                 }
                 let v = &mut triple.0[self.index];
                 *v = match self.dir {
-                    Direction::Left => ReplicatedAdditiveShares::new(F::ONE - v.left(), v.right()),
-                    Direction::Right => ReplicatedAdditiveShares::new(v.left(), F::ONE - v.right()),
+                    Direction::Left => Replicated::new(F::ONE - v.left(), v.right()),
+                    Direction::Right => Replicated::new(v.left(), F::ONE - v.right()),
                 };
                 triple
             }

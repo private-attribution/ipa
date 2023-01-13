@@ -4,7 +4,8 @@ use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitCon
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::{
-    ArithmeticShare, ReplicatedAdditiveShares, SecretSharing, XorReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+    XorReplicated,
 };
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -23,7 +24,7 @@ pub trait RandomBits<V: ArithmeticShare> {
 fn random_bits_triples<F, C, S>(
     ctx: &C,
     record_id: RecordId,
-) -> Vec<BitConversionTriple<ReplicatedAdditiveShares<F>>>
+) -> Vec<BitConversionTriple<Replicated<F>>>
 where
     F: Field,
     C: Context<F, Share = S>,

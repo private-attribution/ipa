@@ -6,7 +6,7 @@ use crate::protocol::{
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::secret_sharing::ReplicatedAdditiveShares;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// Sum of product protocol developed using IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -22,9 +22,9 @@ use crate::secret_sharing::ReplicatedAdditiveShares;
 pub async fn sum_of_products<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: &[&ReplicatedAdditiveShares<F>],
-    b: &[&ReplicatedAdditiveShares<F>],
-) -> Result<ReplicatedAdditiveShares<F>, Error>
+    a: &[&Replicated<F>],
+    b: &[&Replicated<F>],
+) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
@@ -63,7 +63,7 @@ where
         lhs += a[i].left() * b[i].left();
         rhs += a[i].right() * b[i].right();
     }
-    Ok(ReplicatedAdditiveShares::new(lhs, rhs))
+    Ok(Replicated::new(lhs, rhs))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

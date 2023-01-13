@@ -8,7 +8,7 @@ use crate::protocol::context::{
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{Step, Substep};
-use crate::secret_sharing::ReplicatedAdditiveShares;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::sync::Arc;
 
 use std::marker::PhantomData;
@@ -36,7 +36,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
     /// Upgrade this context to malicious.
     /// `malicious_step` is the step that will be used for malicious protocol execution.
     /// `upgrade_step` is the step that will be used for upgrading inputs
-    /// from `Replicated` to `MaliciousReplicated`.
+    /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
     /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
     pub fn upgrade<S: Substep + ?Sized>(
@@ -44,7 +44,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
         malicious_step: &S,
         upgrade_step: &S,
         accumulator: MaliciousValidatorAccumulator<F>,
-        r_share: ReplicatedAdditiveShares<F>,
+        r_share: Replicated<F>,
     ) -> MaliciousContext<'a, F> {
         let upgrade_ctx = self.narrow(upgrade_step);
         MaliciousContext::new(&self, malicious_step, upgrade_ctx, accumulator, r_share)
@@ -52,7 +52,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
 }
 
 impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
-    type Share = ReplicatedAdditiveShares<F>;
+    type Share = Replicated<F>;
 
     fn role(&self) -> Role {
         self.inner.role
@@ -94,7 +94,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
-        ReplicatedAdditiveShares::one(self.role())
+        Replicated::one(self.role())
     }
 }
 

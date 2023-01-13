@@ -4,8 +4,8 @@ use crate::protocol::context::MaliciousContext;
 use crate::protocol::{BitOpStep, RecordId, Substep};
 use crate::rand::Rng;
 use crate::secret_sharing::{
-    IntoShares, MaliciousReplicatedAdditiveShares, ReplicatedAdditiveShares, SecretSharing,
-    XorReplicated,
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SecretSharing, XorReplicated,
 };
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
@@ -88,14 +88,12 @@ pub trait IntoMalicious<F: Field, M>: Sized {
 }
 
 #[async_trait]
-impl<F: Field> IntoMalicious<F, MaliciousReplicatedAdditiveShares<F>>
-    for ReplicatedAdditiveShares<F>
-{
+impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
     async fn upgrade_with<SS: Substep>(
         self,
         ctx: MaliciousContext<'_, F>,
         step: &SS,
-    ) -> MaliciousReplicatedAdditiveShares<F> {
+    ) -> MaliciousReplicated<F> {
         ctx.upgrade_with(step, RecordId::from(0_u32), self)
             .await
             .unwrap()
@@ -123,10 +121,10 @@ where
 }
 
 #[async_trait]
-impl<F, I> IntoMalicious<F, Vec<MaliciousReplicatedAdditiveShares<F>>> for I
+impl<F, I> IntoMalicious<F, Vec<MaliciousReplicated<F>>> for I
 where
     F: Field,
-    I: IntoIterator<Item = ReplicatedAdditiveShares<F>> + Send,
+    I: IntoIterator<Item = Replicated<F>> + Send,
     <I as IntoIterator>::IntoIter: Send,
 {
     // Note that this implementation doesn't work with arbitrary nesting.
@@ -135,7 +133,7 @@ where
         self,
         ctx: MaliciousContext<'_, F>,
         step: &SS,
-    ) -> Vec<MaliciousReplicatedAdditiveShares<F>> {
+    ) -> Vec<MaliciousReplicated<F>> {
         try_join_all(
             zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
                 ctx.upgrade_with(step, RecordId::from(i), share).await
@@ -155,7 +153,7 @@ pub trait Reconstruct<T> {
     fn reconstruct(&self) -> T;
 }
 
-impl<F: Field> Reconstruct<F> for [&ReplicatedAdditiveShares<F>; 3] {
+impl<F: Field> Reconstruct<F> for [&Replicated<F>; 3] {
     fn reconstruct(&self) -> F {
         let s0 = &self[0];
         let s1 = &self[1];
@@ -174,7 +172,7 @@ impl<F: Field> Reconstruct<F> for [&ReplicatedAdditiveShares<F>; 3] {
     }
 }
 
-impl<F: Field> Reconstruct<F> for [ReplicatedAdditiveShares<F>; 3] {
+impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     fn reconstruct(&self) -> F {
         [&self[0], &self[1], &self[2]].reconstruct()
     }
@@ -183,9 +181,9 @@ impl<F: Field> Reconstruct<F> for [ReplicatedAdditiveShares<F>; 3] {
 impl<F, T, U, V> Reconstruct<F> for (T, U, V)
 where
     F: Field,
-    T: Borrow<ReplicatedAdditiveShares<F>>,
-    U: Borrow<ReplicatedAdditiveShares<F>>,
-    V: Borrow<ReplicatedAdditiveShares<F>>,
+    T: Borrow<Replicated<F>>,
+    U: Borrow<Replicated<F>>,
+    V: Borrow<Replicated<F>>,
 {
     fn reconstruct(&self) -> F {
         [self.0.borrow(), self.1.borrow(), self.2.borrow()].reconstruct()
@@ -256,10 +254,10 @@ pub trait ValidateMalicious<F> {
 impl<F, T> ValidateMalicious<F> for [T; 3]
 where
     F: Field,
-    T: Borrow<MaliciousReplicatedAdditiveShares<F>>,
+    T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
             self[0].borrow().x().access_without_downgrade(),
@@ -275,7 +273,7 @@ where
     }
 }
 
-impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicatedAdditiveShares<F>>; 3] {
+impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicated<F>>; 3] {
     fn validate(&self, r: F) {
         assert_eq!(self[0].len(), self[1].len());
         assert_eq!(self[0].len(), self[2].len());
@@ -286,12 +284,7 @@ impl<F: Field> ValidateMalicious<F> for [Vec<MaliciousReplicatedAdditiveShares<F
     }
 }
 
-impl<F: Field> ValidateMalicious<F>
-    for [(
-        MaliciousReplicatedAdditiveShares<F>,
-        Vec<MaliciousReplicatedAdditiveShares<F>>,
-    ); 3]
-{
+impl<F: Field> ValidateMalicious<F> for [(MaliciousReplicated<F>, Vec<MaliciousReplicated<F>>); 3] {
     fn validate(&self, r: F) {
         let [t0, t1, t2] = self;
         let ((s0, v0), (s1, v1), (s2, v2)) = (t0, t1, t2);
