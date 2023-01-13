@@ -4,7 +4,7 @@ pub use error::Error;
 
 use crate::{
     helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
+        query::{PrepareQuery, QueryConfig, QueryInput, QueryType},
         HelperIdentity, TransportError,
     },
     http::{discovery::peer, CreateQueryResp, OriginHeader, PrepareQueryBody, StepHeaders},
@@ -22,6 +22,33 @@ use hyper::{body, client::HttpConnector, header::CONTENT_TYPE, Body, Client, Res
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
 use std::pin::Pin;
+
+struct QueryConfigQueryParams(QueryConfig);
+
+impl std::ops::Deref for QueryConfigQueryParams {
+    type Target = QueryConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl QueryConfigQueryParams {
+    fn as_params(&self) -> String {
+        let field_type_param = format!("field-type={}", self.field_type.as_ref());
+        let query_type_param = match self.query_type {
+            QueryType::TestMultiply => format!("query-type={}", QueryType::TEST_MULTIPLY_STR),
+            QueryType::IPA(config) => format!(
+                "query-type={}&num-bits={}&per-user-credit-cap={}&max-breakdown-key={}",
+                QueryType::IPA_STR,
+                config.num_bits,
+                config.per_user_credit_cap,
+                config.max_breakdown_key
+            ),
+        };
+        format!("{field_type_param}&{query_type_param}")
+    }
+}
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
@@ -112,9 +139,8 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
         let uri = self.build_uri(format!(
-            "/query?field_type={}&query_type={}",
-            data.field_type.as_ref(),
-            data.query_type.as_ref()
+            "/query?{}",
+            QueryConfigQueryParams(data).as_params() // TODO: is there a way to automatically convert?
         ))?;
         let req = Request::post(uri).body(Body::empty())?;
         let resp = self.client.request(req).await?;
@@ -138,10 +164,9 @@ impl MpcHelperClient {
         data: PrepareQuery,
     ) -> Result<(), Error> {
         let uri = self.build_uri(format!(
-            "/query/{}?field_type={}&query_type={}",
+            "/query/{}?{}",
             data.query_id.as_ref(),
-            data.config.field_type.as_ref(),
-            data.config.query_type.as_ref(),
+            QueryConfigQueryParams(data.config).as_params()
         ))?;
         let origin_header = OriginHeader {
             origin: origin.clone(),

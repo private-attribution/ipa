@@ -47,11 +47,21 @@ impl<B: Send> FromRequest<B> for QueryConfigFromReq {
             #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
             QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
             QueryType::IPA_STR => {
-                // TODO: these are hard-coded, but should be retrieved from the request
+                #[derive(serde::Deserialize)]
+                struct IPAQueryConfigParam {
+                    num_bits: u32,
+                    per_user_credit_cap: u32,
+                    max_breakdown_key: u128,
+                }
+                let Query(IPAQueryConfigParam {
+                    num_bits,
+                    per_user_credit_cap,
+                    max_breakdown_key,
+                }) = req.extract().await?;
                 Ok(QueryType::IPA(IPAQueryConfig {
-                    num_bits: 20,
-                    per_user_credit_cap: 3,
-                    max_breakdown_key: 3,
+                    num_bits,
+                    per_user_credit_cap,
+                    max_breakdown_key,
                 }))
             }
             other => Err(Error::bad_query_value("query_type", other)),

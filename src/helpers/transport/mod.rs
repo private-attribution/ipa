@@ -1,6 +1,3 @@
-#![allow(dead_code)] // TODO: remove
-#![allow(clippy::mutable_key_type)] // `HelperIdentity` cannot be modified
-
 pub mod query;
 
 mod bytearrstream;
