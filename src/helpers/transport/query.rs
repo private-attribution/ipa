@@ -106,7 +106,7 @@ impl QueryType {
     pub const IPA_STR: &'static str = "ipa";
 }
 
-// TODO: stop using AsRef and implement into path inside the network module
+/// TODO: should this `AsRef` impl (used for `Substep`) take into account config of IPA?
 impl AsRef<str> for QueryType {
     fn as_ref(&self) -> &str {
         match self {
