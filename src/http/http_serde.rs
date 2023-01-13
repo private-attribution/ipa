@@ -179,13 +179,16 @@ pub fn echo_uri(payload: &str) -> String {
     format!("/echo?foo={payload}")
 }
 
+// all queries
+pub const BASE_QUERY_AXUM_PATH: &str = "/query";
+
 // create query
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CreateQueryResp {
     pub query_id: QueryId,
 }
 
-pub const CREATE_QUERY_AXUM_PATH: &str = "/query";
+pub const CREATE_QUERY_AXUM_PATH: &str = "/";
 
 pub fn create_query_uri(data: QueryConfig) -> String {
     format!("/query?{}", QueryConfigQueryParams(data))
@@ -198,7 +201,7 @@ pub struct PrepareQueryBody {
 }
 
 // there is no easy way to append consts at compile time
-pub const PREPARE_QUERY_AXUM_PATH: &str = "/query/:query_id";
+pub const PREPARE_QUERY_AXUM_PATH: &str = "/:query_id";
 
 pub fn prepare_query_uri(query_id: QueryId, data: QueryConfig) -> String {
     format!(
@@ -209,7 +212,7 @@ pub fn prepare_query_uri(query_id: QueryId, data: QueryConfig) -> String {
 }
 
 // query input
-pub const QUERY_INPUT_AXUM_PATH: &str = "/query/:query_id/input";
+pub const QUERY_INPUT_AXUM_PATH: &str = "/:query_id/input";
 
 pub fn query_input_uri(query_id: QueryId, field_type: FieldType) -> String {
     format!(
@@ -220,14 +223,14 @@ pub fn query_input_uri(query_id: QueryId, field_type: FieldType) -> String {
 }
 
 // step
-pub const STEP_AXUM_PATH: &str = "/query/:query_id/step/*step";
+pub const STEP_AXUM_PATH: &str = "/:query_id/step/*step";
 
 pub fn step_uri(query_id: QueryId, step: &Step) -> String {
     format!("/query/{}/step/{}", query_id.as_ref(), step.as_ref())
 }
 
 // query results
-pub const QUERY_RESULTS_AXUM_PATH: &str = "/query/:query_id/complete";
+pub const QUERY_RESULTS_AXUM_PATH: &str = "/:query_id/complete";
 
 pub fn query_results_uri(query_id: QueryId) -> String {
     format!("/query/{}/complete", query_id.as_ref())

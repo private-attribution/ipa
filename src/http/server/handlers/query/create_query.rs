@@ -22,7 +22,7 @@ async fn handler(
 ) -> Result<Json<http_serde::CreateQueryResp>, Error> {
     let permit = transport_sender.reserve().await?;
 
-    // T(ODO: do we need this?
+    // TODO: do we need this?
     // let Json(CreateQueryBody { helper_positions }) = RequestParts::new(req).extract().await?;
 
     // prepare command data

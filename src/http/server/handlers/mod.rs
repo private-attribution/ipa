@@ -1,14 +1,10 @@
-mod create_query;
 mod echo;
-mod prepare_query;
-mod query_input;
-mod query_results;
-mod step;
+mod query;
 
 use crate::{
     ff::FieldType,
     helpers::{transport::ByteArrStream, CommandEnvelope},
-    http::server::Error,
+    http::{http_serde, server::Error},
     protocol::QueryId,
     sync::{Arc, Mutex},
 };
@@ -46,16 +42,12 @@ impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromReque
     }
 }
 
-// TODO: move all query handlers to query sub folder
 pub fn router(
     transport_sender: mpsc::Sender<CommandEnvelope>,
-    // TODO: clean up after query has been processed
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
 ) -> Router {
-    echo::router()
-        .merge(create_query::router(transport_sender.clone()))
-        .merge(prepare_query::router(transport_sender.clone()))
-        .merge(query_input::router(transport_sender.clone()))
-        .merge(query_results::router(transport_sender))
-        .merge(step::router(ongoing_queries))
+    echo::router().nest(
+        http_serde::BASE_QUERY_AXUM_PATH,
+        query::router(transport_sender, ongoing_queries),
+    )
 }
