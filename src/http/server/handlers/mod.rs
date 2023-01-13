@@ -7,11 +7,7 @@ mod step;
 
 use crate::{
     ff::FieldType,
-    helpers::{
-        query::{IPAQueryConfig, QueryConfig, QueryType},
-        transport::ByteArrStream,
-        CommandEnvelope,
-    },
+    helpers::{transport::ByteArrStream, CommandEnvelope},
     http::server::Error,
     protocol::QueryId,
     sync::{Arc, Mutex},
@@ -25,53 +21,6 @@ use axum::{
 use hyper::body::{Bytes, HttpBody};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-
-struct QueryConfigFromReq(QueryConfig);
-
-#[cfg(feature = "enable-serde")]
-#[async_trait]
-impl<B: Send> FromRequest<B> for QueryConfigFromReq {
-    type Rejection = Error;
-
-    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        #[derive(serde::Deserialize)]
-        struct QueryTypeParam {
-            field_type: FieldType,
-            query_type: String,
-        }
-        let Query(QueryTypeParam {
-            field_type,
-            query_type,
-        }) = req.extract().await?;
-        let query_type = match query_type.as_str() {
-            #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-            QueryType::TEST_MULTIPLY_STR => Ok(QueryType::TestMultiply),
-            QueryType::IPA_STR => {
-                #[derive(serde::Deserialize)]
-                struct IPAQueryConfigParam {
-                    num_bits: u32,
-                    per_user_credit_cap: u32,
-                    max_breakdown_key: u128,
-                }
-                let Query(IPAQueryConfigParam {
-                    num_bits,
-                    per_user_credit_cap,
-                    max_breakdown_key,
-                }) = req.extract().await?;
-                Ok(QueryType::IPA(IPAQueryConfig {
-                    num_bits,
-                    per_user_credit_cap,
-                    max_breakdown_key,
-                }))
-            }
-            other => Err(Error::bad_query_value("query_type", other)),
-        }?;
-        Ok(QueryConfigFromReq(QueryConfig {
-            field_type,
-            query_type,
-        }))
-    }
-}
 
 struct ByteArrStreamFromReq(ByteArrStream);
 
@@ -88,12 +37,11 @@ impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromReque
             field_type: FieldType,
         }
 
+        // TODO: don't use `field_type` here. we need to use `size_in_bytes`, and possibly defer
+        //       defer this decision to query processing layer
         let Query(FieldTypeParam { field_type }) = req.extract().await?;
         let body: BodyStream = req.extract().await?;
-        // TODO: multiply the field_type by 22; this is a hacky way of making sure IPA can run,
-        //       since `IPAInputRow` is 22 bytes when using `Fp31`. Fix this later to be way less
-        //       hacky.
-        let bas = ByteArrStream::new(body, field_type.size_in_bytes() * 22);
+        let bas = ByteArrStream::new(body, field_type.size_in_bytes());
         Ok(ByteArrStreamFromReq(bas))
     }
 }

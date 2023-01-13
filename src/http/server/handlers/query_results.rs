@@ -1,6 +1,6 @@
 use crate::{
     helpers::{query::QueryCommand, transport::TransportCommand, CommandEnvelope, CommandOrigin},
-    http::server::Error,
+    http::{http_serde, server::Error},
     protocol::QueryId,
 };
 use axum::extract::Path;
@@ -33,6 +33,6 @@ async fn handler(
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route("/query/:query_id/complete", get(handler))
+        .route(http_serde::QUERY_RESULTS_AXUM_PATH, get(handler))
         .layer(Extension(transport_sender))
 }

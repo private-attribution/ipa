@@ -5,7 +5,10 @@ use crate::{
         transport::TransportCommand,
         CommandEnvelope, CommandOrigin, TransportError,
     },
-    http::server::{handlers::ByteArrStreamFromReq, Error},
+    http::{
+        http_serde,
+        server::{handlers::ByteArrStreamFromReq, Error},
+    },
     protocol::QueryId,
 };
 use axum::{
@@ -56,6 +59,6 @@ async fn handler(
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route("/query/:query_id/input", post(handler))
+        .route(http_serde::QUERY_INPUT_AXUM_PATH, post(handler))
         .layer(Extension(transport_sender))
 }

@@ -1,4 +1,4 @@
-use crate::http::server::Error;
+use crate::http::{http_serde, server::Error};
 use axum::{
     extract::{FromRequest, Query, RequestParts},
     routing::get,
@@ -34,7 +34,7 @@ async fn handler(req: Request<Body>) -> Result<Json<Payload>, Error> {
 }
 
 pub fn router() -> Router {
-    Router::new().route("/echo", get(handler))
+    Router::new().route(http_serde::ECHO_AXUM_PATH, get(handler))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

@@ -1,6 +1,6 @@
 use crate::{
     helpers::{transport::TransportCommand, CommandEnvelope, CommandOrigin},
-    http::{server::Error, OriginHeader, StepHeaders},
+    http::{http_serde, server::Error},
     protocol::{QueryId, Step},
     sync::{Arc, Mutex},
 };
@@ -12,8 +12,8 @@ use tokio::sync::mpsc;
 #[allow(clippy::type_complexity)] // it's a hashmap
 async fn handler(
     query_id: Path<(QueryId, Step)>,
-    origin_header: OriginHeader,
-    step_headers: StepHeaders,
+    origin_header: http_serde::OriginHeader,
+    step_headers: http_serde::StepHeaders,
     ongoing_queries: Extension<Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>>,
     req: Request<Body>,
 ) -> Result<(), Error> {
@@ -49,6 +49,6 @@ pub fn router(
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
 ) -> Router {
     Router::new()
-        .route("/query/:query_id/step/*step", post(handler))
+        .route(http_serde::STEP_AXUM_PATH, post(handler))
         .layer(Extension(ongoing_queries))
 }

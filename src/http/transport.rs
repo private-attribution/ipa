@@ -128,7 +128,7 @@ impl Transport for Arc<HttpTransport> {
                 payload,
                 offset,
             } => client
-                .step(&self.id, query_id, step, payload, offset)
+                .step(&self.id, query_id, &step, payload, offset)
                 .await
                 .map_err(|err| TransportError::SendFailed {
                     command_name: Some(command_name),

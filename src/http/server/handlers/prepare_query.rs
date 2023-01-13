@@ -4,10 +4,7 @@ use crate::{
         transport::TransportCommand,
         CommandEnvelope, CommandOrigin,
     },
-    http::{
-        server::{handlers::QueryConfigFromReq, Error},
-        OriginHeader, PrepareQueryBody,
-    },
+    http::{http_serde, server::Error},
     protocol::QueryId,
 };
 use axum::{
@@ -21,14 +18,14 @@ use tokio::sync::{mpsc, oneshot};
 
 async fn handler(
     query_id: Path<QueryId>,
-    query_config: QueryConfigFromReq,
-    origin_header: OriginHeader,
+    query_config: http_serde::QueryConfigQueryParams,
+    origin_header: http_serde::OriginHeader,
     transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
     req: Request<Body>,
 ) -> Result<(), Error> {
     let permit = transport_sender.reserve().await?;
 
-    let Json(PrepareQueryBody { roles }) = RequestParts::new(req).extract().await?;
+    let Json(http_serde::PrepareQueryBody { roles }) = RequestParts::new(req).extract().await?;
 
     let data = PrepareQuery {
         query_id: *query_id,
@@ -48,6 +45,6 @@ async fn handler(
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route("/query/:query_id", post(handler))
+        .route(http_serde::PREPARE_QUERY_AXUM_PATH, post(handler))
         .layer(Extension(transport_sender))
 }
