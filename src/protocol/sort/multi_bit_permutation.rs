@@ -95,32 +95,28 @@ where
 {
     let record_id = RecordId::from(record_idx);
     let num_bits = input.len();
-    let mut step = 1 << num_bits;
-    let mut precomputed_combinations = vec![S::ZERO; step];
+    let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
+    precomputed_combinations.push(ctx.share_of_one());
     for bit_idx in 0..num_bits {
         let bit = &input[num_bits - bit_idx - 1][record_idx];
-        step >>= 1;
+        let step = 1 << bit_idx;
+        let num_children_to_add = precomputed_combinations.len();
+        precomputed_combinations.push(bit.clone());
         if bit_idx == 0 {
-            precomputed_combinations[0] = ctx.share_of_one();
-            precomputed_combinations[step] = bit.clone();
-        } else {
-            let num_children_to_add = 1 << bit_idx;
-            let mut multiplication_futures = Vec::with_capacity(num_children_to_add - 1);
-            for j in 1..num_children_to_add {
-                let parent_idx = 2 * j * step;
-                let child_idx = parent_idx + step;
-                let parent = &precomputed_combinations[parent_idx];
-                multiplication_futures.push(
-                    ctx.narrow(&BitOpStep::from(child_idx))
-                        .multiply(record_id, parent, bit),
-                );
-            }
-            let multiplication_results = try_join_all(multiplication_futures).await?;
-            precomputed_combinations[step] = (*bit).clone();
-            for (j, mult_result) in multiplication_results.into_iter().enumerate() {
-                precomputed_combinations[step * (2 * (j + 1) + 1)] = mult_result;
-            }
+            continue;
         }
+        let mut multiplication_futures = Vec::with_capacity(num_children_to_add - 1);
+        #[allow(clippy::needless_range_loop)]
+        for j in 1..num_children_to_add {
+            let child_idx = j + step;
+            multiplication_futures.push(ctx.narrow(&BitOpStep::from(child_idx)).multiply(
+                record_id,
+                &precomputed_combinations[j],
+                bit,
+            ));
+        }
+        let mut multiplication_results = try_join_all(multiplication_futures).await?;
+        precomputed_combinations.append(&mut multiplication_results);
     }
 
     let mut equality_checks = Vec::with_capacity(1 << num_bits);
@@ -131,6 +127,7 @@ where
             0,
             1_i8,
             precomputed_combinations.as_slice(),
+            1,
         ));
     }
     Ok(equality_checks)
@@ -142,6 +139,7 @@ fn check_equality_to<F: Field, S: SecretSharing<F>>(
     idx: usize,
     sign: i8,
     precomputed_combinations: &[S],
+    step: usize,
 ) -> S {
     if bit_number == 0 {
         if sign == 1_i8 {
@@ -150,24 +148,32 @@ fn check_equality_to<F: Field, S: SecretSharing<F>>(
         return -precomputed_combinations[idx].clone();
     }
     let bit = (value >> (bit_number - 1)) & 1;
-    let half_step = 1 << (bit_number - 1);
     if bit == 0 {
-        let left = check_equality_to(value, bit_number - 1, idx, sign, precomputed_combinations);
+        let left = check_equality_to(
+            value,
+            bit_number - 1,
+            idx,
+            sign,
+            precomputed_combinations,
+            step << 1,
+        );
         let right = check_equality_to(
             value,
             bit_number - 1,
-            idx + half_step,
+            idx + step,
             -sign,
             precomputed_combinations,
+            step << 1,
         );
         return left + &right;
     }
     check_equality_to(
         value,
         bit_number - 1,
-        idx + half_step,
+        idx + step,
         sign,
         precomputed_combinations,
+        step << 1,
     )
 }
 
