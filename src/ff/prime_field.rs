@@ -147,17 +147,16 @@ macro_rules! field_impl {
 
             #[test]
             fn can_write_into_buf_larger_than_required() {
-                let mut buf = vec![0_u8; $field::SIZE_IN_BYTES as usize + 1];
+                let mut buf = vec![0_u8; $field::SIZE_IN_BYTES + 1];
 
                 // panic will show the error while assert will just tell us that something went wrong
                 $field::ONE.serialize(&mut buf).unwrap();
             }
 
             proptest! {
-
                 #[test]
                 fn ser_not_enough_capacity(buf_capacity in 0..$field::SIZE_IN_BYTES) {
-                    let mut buf = vec![0u8; buf_capacity as usize];
+                    let mut buf = vec![0u8; buf_capacity];
                     assert!(matches!(
                         $field::ONE.serialize(&mut buf),
                         Err(e) if e.kind() == std::io::ErrorKind::WriteZero
@@ -166,9 +165,9 @@ macro_rules! field_impl {
 
                 #[test]
                 fn de_buf_too_small(buf_capacity in 0..$field::SIZE_IN_BYTES) {
-                    let mut buf = vec![0u8; buf_capacity as usize];
+                    let buf = vec![0u8; buf_capacity];
                     assert!(matches!(
-                                    $field::deserialize(&mut buf),
+                                    $field::deserialize(&buf),
                                     Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
                 }
 
@@ -176,10 +175,10 @@ macro_rules! field_impl {
                 #[test]
                 fn serde(v in 0..$field::PRIME) {
                     let field_v = $field(v);
-                    let mut buf = vec![0; $field::SIZE_IN_BYTES as usize];
+                    let mut buf = vec![0; $field::SIZE_IN_BYTES];
                     field_v.serialize(&mut buf).unwrap();
 
-                    assert_eq!(field_v, $field::deserialize(&mut buf).unwrap());
+                    assert_eq!(field_v, $field::deserialize(&buf).unwrap());
                 }
             }
         }

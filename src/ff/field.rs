@@ -70,7 +70,7 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     ///
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
-    fn deserialize(buf_from: &mut [u8]) -> io::Result<Self> {
+    fn deserialize(buf_from: &[u8]) -> io::Result<Self> {
         if Self::SIZE_IN_BYTES <= buf_from.len() {
             let mut buf_to = [0; 16]; // one day...
             buf_to[..Self::SIZE_IN_BYTES].copy_from_slice(&buf_from[..Self::SIZE_IN_BYTES]);
