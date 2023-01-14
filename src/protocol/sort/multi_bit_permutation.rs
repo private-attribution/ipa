@@ -97,8 +97,9 @@ where
     let num_bits = input.len();
     let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
     precomputed_combinations.push(ctx.share_of_one());
+    #[allow(clippy::needless_range_loop)]
     for bit_idx in 0..num_bits {
-        let bit = &input[num_bits - bit_idx - 1][record_idx];
+        let bit = &input[bit_idx][record_idx];
         let step = 1 << bit_idx;
         let num_children_to_add = precomputed_combinations.len();
         precomputed_combinations.push(bit.clone());
@@ -124,10 +125,9 @@ where
         equality_checks.push(check_equality_to(
             i,
             num_bits,
-            0,
-            1_i8,
             precomputed_combinations.as_slice(),
-            1,
+            0,
+            0,
         ));
     }
     Ok(equality_checks)
@@ -135,46 +135,23 @@ where
 
 fn check_equality_to<F: Field, S: SecretSharing<F>>(
     value: u32,
-    bit_number: usize,
+    num_bits: usize,
+    tree: &[S],
+    bit_idx: usize,
     idx: usize,
-    sign: i8,
-    precomputed_combinations: &[S],
-    step: usize,
 ) -> S {
-    if bit_number == 0 {
-        if sign == 1_i8 {
-            return precomputed_combinations[idx].clone();
-        }
-        return -precomputed_combinations[idx].clone();
+    if bit_idx == num_bits {
+        return tree[idx].clone();
     }
-    let bit = (value >> (bit_number - 1)) & 1;
+    let bit = (value >> bit_idx) & 1;
+    let step = 1 << bit_idx;
+    let next_bit_idx = bit_idx + 1;
+    let times_bit = check_equality_to(value, num_bits, tree, next_bit_idx, idx + step);
     if bit == 0 {
-        let left = check_equality_to(
-            value,
-            bit_number - 1,
-            idx,
-            sign,
-            precomputed_combinations,
-            step << 1,
-        );
-        let right = check_equality_to(
-            value,
-            bit_number - 1,
-            idx + step,
-            -sign,
-            precomputed_combinations,
-            step << 1,
-        );
-        return left + &right;
+        let times_one = check_equality_to(value, num_bits, tree, next_bit_idx, idx);
+        return times_one - &times_bit;
     }
-    check_equality_to(
-        value,
-        bit_number - 1,
-        idx + step,
-        sign,
-        precomputed_combinations,
-        step << 1,
-    )
+    times_bit
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
