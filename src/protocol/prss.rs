@@ -4,12 +4,16 @@ use crate::rand::{CryptoRng, RngCore};
 use crate::secret_sharing::Replicated;
 use crate::sync::{Arc, Mutex};
 
-use aes::{
-    cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
-    Aes256,
+#[cfg(not(feature = "turn-off-prss"))]
+use {
+    aes::{
+        cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
+        Aes256,
+    },
+    hkdf::Hkdf,
+    sha2::Sha256,
 };
-use hkdf::Hkdf;
-use sha2::Sha256;
+
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
 use std::{collections::HashSet, fmt::Formatter};
@@ -68,6 +72,12 @@ pub trait SharedRandomness {
     #[must_use]
     fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128);
 
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    fn generate_fields<F: Field, I: Into<u128>>(&self, _index: I) -> (F, F) {
+        (F::ZERO, F::ZERO)
+    }
+    #[cfg(not(feature = "turn-off-prss"))]
     /// Generate two random field values, one that is known to the left helper
     /// and one that is known to the right helper.
     #[must_use]
@@ -90,6 +100,12 @@ pub trait SharedRandomness {
         Replicated::new(l, r)
     }
 
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    fn zero_u128<I: Into<u128>>(&self, _index: I) -> u128 {
+        0
+    }
+    #[cfg(not(feature = "turn-off-prss"))]
     /// Generate an additive share of zero.
     /// Each party generates two values, one that is shared with the party to their left,
     /// one with the party to their right.  If all entities add their left share
@@ -100,14 +116,26 @@ pub trait SharedRandomness {
         let (l, r) = self.generate_values(index);
         l.wrapping_sub(r)
     }
-
     /// Generate an XOR share of zero.
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    fn zero_xor<I: Into<u128>>(&self, _index: I) -> u128 {
+        0
+    }
+    #[cfg(not(feature = "turn-off-prss"))]
     #[must_use]
     fn zero_xor<I: Into<u128>>(&self, index: I) -> u128 {
         let (l, r) = self.generate_values(index);
         l ^ r
     }
 
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    fn random_u128<I: Into<u128>>(&self, _index: I) -> u128 {
+        0
+    }
+
+    #[cfg(not(feature = "turn-off-prss"))]
     /// Generate an additive shares of a random value.
     /// This is like `zero_u128`, except that the values are added.
     /// The result is that each random value is added twice.  Note that thanks to
@@ -120,6 +148,13 @@ pub trait SharedRandomness {
     }
 
     /// Generate additive shares of zero in a field.
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    fn zero<F: Field, I: Into<u128>>(&self, _index: I) -> F {
+        F::ZERO
+    }
+
+    #[cfg(not(feature = "turn-off-prss"))]
     #[must_use]
     fn zero<F: Field, I: Into<u128>>(&self, index: I) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
@@ -127,6 +162,13 @@ pub trait SharedRandomness {
     }
 
     /// Generate additive shares of a random field value.
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    fn random<F: Field, I: Into<u128>>(&self, _index: I) -> F {
+        F::ZERO
+    }
+
+    #[cfg(not(feature = "turn-off-prss"))]
     #[must_use]
     fn random<F: Field, I: Into<u128>>(&self, index: I) -> F {
         let (l, r): (F, F) = self.generate_fields(index);
@@ -347,6 +389,13 @@ impl KeyExchange {
         PublicKey::from(&self.sk)
     }
 
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    pub fn key_exchange(self, _pk: &PublicKey) -> GeneratorFactory {
+        #[cfg(feature = "turn-off-prss")]
+        GeneratorFactory {}
+    }
+    #[cfg(not(feature = "turn-off-prss"))]
     #[must_use]
     pub fn key_exchange(self, pk: &PublicKey) -> GeneratorFactory {
         debug_assert_ne!(pk, &self.public_key(), "self key exchange detected");
@@ -356,15 +405,25 @@ impl KeyExchange {
     }
 }
 
+#[cfg(feature = "turn-off-prss")]
+pub struct GeneratorFactory {}
 /// This intermediate object exists so that multiple generators can be constructed,
 /// with each one dedicated to one purpose.
+#[cfg(not(feature = "turn-off-prss"))]
 pub struct GeneratorFactory {
     kdf: Hkdf<Sha256>,
 }
 
 impl GeneratorFactory {
-    /// Create a new generator using the provided context string.
+    #[must_use]
+    #[cfg(feature = "turn-off-prss")]
+    pub fn generator(&self, _context: &[u8]) -> Generator {
+        #[cfg(feature = "turn-off-prss")]
+        Generator {}
+    }
+    #[cfg(not(feature = "turn-off-prss"))]
     #[allow(clippy::missing_panics_doc)] // Panic should be impossible.
+    /// Create a new generator using the provided context string.
     #[must_use]
     pub fn generator(&self, context: &[u8]) -> Generator {
         let mut k = GenericArray::default();
@@ -375,7 +434,11 @@ impl GeneratorFactory {
     }
 }
 
+#[cfg(feature = "turn-off-prss")]
+#[derive(Debug, Clone)]
+pub struct Generator {}
 /// The basic generator.  This generates values based on an arbitrary index.
+#[cfg(not(feature = "turn-off-prss"))]
 #[derive(Debug, Clone)]
 pub struct Generator {
     cipher: Aes256,
@@ -384,6 +447,13 @@ pub struct Generator {
 impl Generator {
     /// Generate the value at the given index.
     /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
+    #[cfg(feature = "turn-off-prss")]
+    #[must_use]
+    pub fn generate(&self, _index: u128) -> u128 {
+        0
+    }
+
+    #[cfg(not(feature = "turn-off-prss"))]
     #[must_use]
     pub fn generate(&self, index: u128) -> u128 {
         let mut buf = index.to_le_bytes();

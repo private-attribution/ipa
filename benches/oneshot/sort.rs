@@ -4,7 +4,6 @@ use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
 use raw_ipa::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
 use raw_ipa::protocol::sort::generate_permutation_opt::generate_permutation_opt;
-// use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
 use std::num::NonZeroUsize;
