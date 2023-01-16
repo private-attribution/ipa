@@ -280,13 +280,13 @@ fn get_big_endian_bits(value: usize, num_bits: usize) -> Vec<i8> {
 fn check_equality_to<F: Field, S: SecretSharing<F>>(
     value: usize,
     num_bits: usize,
-    tree: &[S],
+    precomputed_combinations: &[S],
 ) -> S {
     debug_assert!(num_bits <= 4, "Lookup table only supports up to 4 bits");
     let coefficients = &COEFFICIENT_LOOK_UP_TABLE[value];
     coefficients
         .iter()
-        .zip(tree)
+        .zip(precomputed_combinations)
         .fold(S::ZERO, |acc, (coef, value)| {
             if *coef == P {
                 acc + value
