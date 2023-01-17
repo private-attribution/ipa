@@ -91,7 +91,7 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn echo(&self, s: &str) -> Result<Vec<u8>, Error> {
-        let uri = self.build_uri(http_serde::echo_uri(s))?;
+        let uri = self.build_uri(http_serde::echo::uri(s))?;
 
         let response = self.client.get(uri).await?;
         let result = hyper::body::to_bytes(response.into_body()).await?;
@@ -111,12 +111,13 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
-        let uri = self.build_uri(http_serde::create_query_uri(data))?;
+        let uri = self.build_uri(http_serde::query::create::uri(data))?;
         let req = Request::post(uri).body(Body::empty())?;
         let resp = self.client.request(req).await?;
         if resp.status().is_success() {
             let body_bytes = body::to_bytes(resp.into_body()).await?;
-            let http_serde::CreateQueryResp { query_id } = serde_json::from_slice(&body_bytes)?;
+            let http_serde::query::create::ResponseBody { query_id } =
+                serde_json::from_slice(&body_bytes)?;
             Ok(query_id)
         } else {
             Err(Error::from_failed_resp(resp).await)
@@ -133,11 +134,11 @@ impl MpcHelperClient {
         origin: &HelperIdentity,
         data: PrepareQuery,
     ) -> Result<(), Error> {
-        let uri = self.build_uri(http_serde::prepare_query_uri(data.query_id, data.config))?;
-        let origin_header = http_serde::OriginHeader {
+        let uri = self.build_uri(http_serde::query::prepare::uri(data.query_id, data.config))?;
+        let origin_header = http_serde::query::OriginHeader {
             origin: origin.clone(),
         };
-        let body = http_serde::PrepareQueryBody { roles: data.roles };
+        let body = http_serde::query::prepare::RequestBody { roles: data.roles };
         let body = Body::from(serde_json::to_string(&body)?);
         let req = origin_header
             .add_to(Request::post(uri))
@@ -154,7 +155,10 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
         // TODO: uri must be shared between server and client
-        let uri = self.build_uri(http_serde::query_input_uri(data.query_id, data.field_type))?;
+        let uri = self.build_uri(http_serde::query::input::uri(
+            data.query_id,
+            data.field_type,
+        ))?;
         let body = StreamBody::new(data.input_stream);
         let req = Request::post(uri)
             .header(CONTENT_TYPE, "application/octet-stream")
@@ -178,9 +182,9 @@ impl MpcHelperClient {
         payload: Vec<u8>,
         offset: u32,
     ) -> Result<(), Error> {
-        let uri = self.build_uri(http_serde::step_uri(query_id, step))?;
-        let headers = http_serde::StepHeaders { offset };
-        let origin_header = http_serde::OriginHeader {
+        let uri = self.build_uri(http_serde::query::step::uri(query_id, step))?;
+        let headers = http_serde::query::step::Headers { offset };
+        let origin_header = http_serde::query::OriginHeader {
             origin: origin.clone(),
         };
 
@@ -203,7 +207,7 @@ impl MpcHelperClient {
     /// if there is a problem reading the response body
     #[cfg(feature = "cli")]
     pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
-        let uri = self.build_uri(http_serde::query_results_uri(query_id))?;
+        let uri = self.build_uri(http_serde::query::results::uri(query_id))?;
 
         let req = Request::get(uri).body(Body::empty())?;
 

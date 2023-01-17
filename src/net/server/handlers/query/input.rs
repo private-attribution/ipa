@@ -59,6 +59,6 @@ async fn handler(
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route(http_serde::QUERY_INPUT_AXUM_PATH, post(handler))
+        .route(http_serde::query::input::AXUM_PATH, post(handler))
         .layer(Extension(transport_sender))
 }

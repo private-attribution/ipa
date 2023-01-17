@@ -34,7 +34,7 @@ async fn handler(req: Request<Body>) -> Result<Json<Payload>, Error> {
 }
 
 pub fn router() -> Router {
-    Router::new().route(http_serde::ECHO_AXUM_PATH, get(handler))
+    Router::new().route(http_serde::echo::AXUM_PATH, get(handler))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

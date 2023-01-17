@@ -18,14 +18,15 @@ use tokio::sync::{mpsc, oneshot};
 
 async fn handler(
     query_id: Path<QueryId>,
-    query_config: http_serde::QueryConfigQueryParams,
-    origin_header: http_serde::OriginHeader,
+    query_config: http_serde::query::QueryConfigQueryParams,
+    origin_header: http_serde::query::OriginHeader,
     transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
     req: Request<Body>,
 ) -> Result<(), Error> {
     let permit = transport_sender.reserve().await?;
 
-    let Json(http_serde::PrepareQueryBody { roles }) = RequestParts::new(req).extract().await?;
+    let Json(http_serde::query::prepare::RequestBody { roles }) =
+        RequestParts::new(req).extract().await?;
 
     let data = PrepareQuery {
         query_id: *query_id,
@@ -45,6 +46,6 @@ async fn handler(
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route(http_serde::PREPARE_QUERY_AXUM_PATH, post(handler))
+        .route(http_serde::query::prepare::AXUM_PATH, post(handler))
         .layer(Extension(transport_sender))
 }

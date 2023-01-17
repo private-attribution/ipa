@@ -1,7 +1,7 @@
-mod create_query;
-mod prepare_query;
-mod query_input;
-mod query_results;
+mod create;
+mod input;
+mod prepare;
+mod results;
 mod step;
 
 use crate::{
@@ -19,9 +19,9 @@ pub fn router(
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
 ) -> Router {
     Router::new()
-        .merge(create_query::router(transport_sender.clone()))
-        .merge(prepare_query::router(transport_sender.clone()))
-        .merge(query_input::router(transport_sender.clone()))
-        .merge(query_results::router(transport_sender))
+        .merge(create::router(transport_sender.clone()))
+        .merge(prepare::router(transport_sender.clone()))
+        .merge(input::router(transport_sender.clone()))
+        .merge(results::router(transport_sender))
         .merge(step::router(ongoing_queries))
 }

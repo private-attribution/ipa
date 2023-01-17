@@ -47,7 +47,7 @@ pub fn router(
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
 ) -> Router {
     echo::router().nest(
-        http_serde::BASE_QUERY_AXUM_PATH,
+        http_serde::query::BASE_AXUM_PATH,
         query::router(transport_sender, ongoing_queries),
     )
 }
