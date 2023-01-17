@@ -5,8 +5,12 @@ pub mod context;
 pub mod ipa;
 pub mod malicious;
 pub mod modulus_conversion;
+#[cfg(feature = "no-prss")]
+pub mod no_prss;
 pub mod prss;
 pub mod sort;
+#[cfg(not(feature = "no-prss"))]
+pub mod use_prss;
 
 use crate::error::Error;
 use std::fmt::Debug;

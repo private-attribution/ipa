@@ -1,7 +1,10 @@
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
-use crate::protocol::prss::SharedRandomness;
+#[cfg(feature = "no-prss")]
+use crate::protocol::no_prss::SharedRandomness;
+#[cfg(not(feature = "no-prss"))]
+use crate::protocol::use_prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::{ArithmeticShare, Replicated, SecretSharing, XorReplicated};
 use async_trait::async_trait;

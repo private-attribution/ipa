@@ -1,7 +1,10 @@
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
-use crate::protocol::prss::SharedRandomness;
+#[cfg(feature = "no-prss")]
+use crate::protocol::no_prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
+#[cfg(not(feature = "no-prss"))]
+use crate::protocol::use_prss::SharedRandomness;
 use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, SecretSharing};
 use crate::{
     error::Error,
@@ -134,7 +137,10 @@ mod tests {
 
         use crate::ff::Fp32BitPrime;
         use crate::protocol::context::Context;
-        use crate::protocol::prss::SharedRandomness;
+        #[cfg(feature = "no-prss")]
+        use crate::protocol::no_prss::SharedRandomness;
+        #[cfg(not(feature = "no-prss"))]
+        use crate::protocol::use_prss::SharedRandomness;
         use crate::{
             helpers::Role,
             protocol::{basics::Reshare, RecordId},
@@ -201,8 +207,11 @@ mod tests {
         use crate::protocol::basics::Reshare;
         use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
         use crate::protocol::malicious::MaliciousValidator;
-        use crate::protocol::prss::SharedRandomness;
+        #[cfg(feature = "no-prss")]
+        use crate::protocol::no_prss::SharedRandomness;
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
+        #[cfg(not(feature = "no-prss"))]
+        use crate::protocol::use_prss::SharedRandomness;
         use crate::protocol::RecordId;
         use crate::rand::{thread_rng, Rng};
         use crate::secret_sharing::{MaliciousReplicated, Replicated};

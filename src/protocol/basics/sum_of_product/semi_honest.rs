@@ -1,7 +1,10 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
-use crate::protocol::prss::SharedRandomness;
+#[cfg(feature = "no-prss")]
+use crate::protocol::no_prss::SharedRandomness;
+#[cfg(not(feature = "no-prss"))]
+use crate::protocol::use_prss::SharedRandomness;
 use crate::protocol::{
     context::{Context, SemiHonestContext},
     RecordId,

@@ -1,9 +1,11 @@
 //! Metric-aware PRSS decorators
 
 use crate::helpers::Role;
-use crate::protocol::prss::{
-    IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness,
-};
+#[cfg(feature = "no-prss")]
+use crate::protocol::no_prss::SharedRandomness;
+use crate::protocol::prss::{IndexedSharedRandomness, SequentialSharedRandomness};
+#[cfg(not(feature = "no-prss"))]
+use crate::protocol::use_prss::SharedRandomness;
 use crate::protocol::Step;
 use crate::telemetry::labels::{ROLE, STEP};
 use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};

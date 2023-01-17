@@ -1,6 +1,9 @@
 use crate::protocol::basics::Reveal;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::prss::SharedRandomness;
+#[cfg(feature = "no-prss")]
+use crate::protocol::no_prss::SharedRandomness;
+#[cfg(not(feature = "no-prss"))]
+use crate::protocol::use_prss::SharedRandomness;
 use crate::protocol::RecordId;
 use crate::sync::{Arc, Mutex, Weak};
 use crate::{
