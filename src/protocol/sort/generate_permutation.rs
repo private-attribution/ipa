@@ -23,6 +23,7 @@ use crate::{
 
 use super::{
     compose::compose,
+    generate_permutation_opt::generate_permutation_opt,
     secureapplyinv::secureapplyinv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
@@ -222,7 +223,8 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error> {
-    let sort_permutation = generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits).await?;
+    let sort_permutation =
+        generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys, num_bits, 3).await?;
     shuffle_and_reveal_permutation(
         ctx.narrow(&ShuffleRevealPermutation),
         u32::try_from(sort_keys[0].len()).unwrap(),
