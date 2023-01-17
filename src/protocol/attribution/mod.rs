@@ -45,7 +45,7 @@ impl<F: Field> AggregateCreditOutputRow<F> {
     // TODO: this gets repetitive. For the most of our structures we need to be able to serialize
     // and deserialize them from a slice of bytes. Perhaps bincode crate or a homemade macro
     // can make it easier to deal with?
-    pub const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
+    pub const SIZE_IN_BYTES: usize = Replicated::<F>::SIZE_IN_BYTES * 2;
 
     /// Serializes this instance into a mutable slice of bytes, writing from index 0.
     ///
