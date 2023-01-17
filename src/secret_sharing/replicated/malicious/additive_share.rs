@@ -1,13 +1,6 @@
-use std::{
-    fmt::{Debug, Formatter},
-    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
-};
-
-use async_trait::async_trait;
-use futures::future::{join, join_all};
-
 use crate::helpers::Role;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare;
+use crate::secret_sharing::ArithmeticShare;
 use crate::{
     ff::Field,
     protocol::{
@@ -18,15 +11,21 @@ use crate::{
         },
     },
 };
+use async_trait::async_trait;
+use futures::future::{join, join_all};
+use std::{
+    fmt::{Debug, Formatter},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct MaliciousReplicated<F: Field> {
-    x: Replicated<F>,
-    rx: Replicated<F>,
+pub struct AdditiveShare<V: ArithmeticShare> {
+    x: SemiHonestAdditiveShare<V>,
+    rx: SemiHonestAdditiveShare<V>,
 }
 
-/// A trait that is implemented for various collections of `MaliciousReplicated`
-/// shares.  This allows a protocol to downgrade to ordinary `Replicated` shares
+/// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
+/// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
 /// when the protocol is done.  This should not be used directly.
 #[async_trait]
 pub trait Downgrade: Send {
@@ -34,7 +33,7 @@ pub trait Downgrade: Send {
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
 }
 
-#[must_use = "You should not be downgrading `MaliciousReplicated` values without calling `MaliciousValidator::validate()`"]
+#[must_use = "You should not be downgrading `replicated::malicious::AdditiveShare` values without calling `MaliciousValidator::validate()`"]
 pub struct UnauthorizedDowngradeWrapper<T>(T);
 impl<T> UnauthorizedDowngradeWrapper<T> {
     pub(crate) fn new(v: T) -> Self {
@@ -46,55 +45,60 @@ pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
 }
 
-impl<F: Field + Debug> Debug for MaliciousReplicated<F> {
+impl<V: ArithmeticShare + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
     }
 }
 
-impl<F: Field> Default for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> Default for AdditiveShare<V> {
     fn default() -> Self {
-        MaliciousReplicated::new(Replicated::default(), Replicated::default())
+        AdditiveShare::new(
+            SemiHonestAdditiveShare::default(),
+            SemiHonestAdditiveShare::default(),
+        )
     }
 }
 
-impl<F: Field> MaliciousReplicated<F> {
-    pub const ZERO: Self = Self {
-        x: Replicated::ZERO,
-        rx: Replicated::ZERO,
-    };
-
+impl<V: ArithmeticShare> AdditiveShare<V> {
     #[must_use]
-    pub fn new(x: Replicated<F>, rx: Replicated<F>) -> Self {
+    pub fn new(x: SemiHonestAdditiveShare<V>, rx: SemiHonestAdditiveShare<V>) -> Self {
         Self { x, rx }
     }
 
-    pub fn x(&self) -> UnauthorizedDowngradeWrapper<&Replicated<F>> {
+    pub fn x(&self) -> UnauthorizedDowngradeWrapper<&SemiHonestAdditiveShare<V>> {
         UnauthorizedDowngradeWrapper(&self.x)
     }
 
-    pub fn rx(&self) -> &Replicated<F> {
+    pub fn rx(&self) -> &SemiHonestAdditiveShare<V> {
         &self.rx
     }
 
+    pub const ZERO: Self = Self {
+        x: SemiHonestAdditiveShare::ZERO,
+        rx: SemiHonestAdditiveShare::ZERO,
+    };
+}
+
+impl<F: Field> AdditiveShare<F> {
     /// Returns a pair of replicated secret sharings. One of "one", one of "r"
-    pub fn one(helper_role: Role, r_share: Replicated<F>) -> Self {
-        Self::new(Replicated::one(helper_role), r_share)
+    pub fn one(helper_role: Role, r_share: SemiHonestAdditiveShare<F>) -> Self {
+        Self::new(SemiHonestAdditiveShare::one(helper_role), r_share)
     }
 }
 
-impl<F: Field> Add<Self> for &MaliciousReplicated<F> {
-    type Output = MaliciousReplicated<F>;
+impl<V: ArithmeticShare> Add<Self> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        MaliciousReplicated {
+        AdditiveShare {
             x: &self.x + &rhs.x,
             rx: &self.rx + &rhs.rx,
         }
     }
 }
 
-impl<F: Field> Add<&Self> for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> Add<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn add(mut self, rhs: &Self) -> Self::Output {
@@ -103,14 +107,14 @@ impl<F: Field> Add<&Self> for MaliciousReplicated<F> {
     }
 }
 
-impl<F: Field> AddAssign<&Self> for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> AddAssign<&Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.x += &rhs.x;
         self.rx += &rhs.rx;
     }
 }
 
-impl<F: Field> Neg for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> Neg for AdditiveShare<V> {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -121,17 +125,17 @@ impl<F: Field> Neg for MaliciousReplicated<F> {
     }
 }
 
-impl<F: Field> Sub<Self> for &MaliciousReplicated<F> {
-    type Output = MaliciousReplicated<F>;
+impl<V: ArithmeticShare> Sub<Self> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        MaliciousReplicated {
+        AdditiveShare {
             x: &self.x - &rhs.x,
             rx: &self.rx - &rhs.rx,
         }
     }
 }
-impl<F: Field> Sub<&Self> for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> Sub<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn sub(mut self, rhs: &Self) -> Self::Output {
@@ -140,17 +144,17 @@ impl<F: Field> Sub<&Self> for MaliciousReplicated<F> {
     }
 }
 
-impl<F: Field> SubAssign<&Self> for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> SubAssign<&Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.x -= &rhs.x;
         self.rx -= &rhs.rx;
     }
 }
 
-impl<F: Field> Mul<F> for MaliciousReplicated<F> {
+impl<V: ArithmeticShare> Mul<V> for AdditiveShare<V> {
     type Output = Self;
 
-    fn mul(self, rhs: F) -> Self::Output {
+    fn mul(self, rhs: V) -> Self::Output {
         Self {
             x: self.x * rhs,
             rx: self.rx * rhs,
@@ -159,8 +163,8 @@ impl<F: Field> Mul<F> for MaliciousReplicated<F> {
 }
 
 #[async_trait]
-impl<F: Field> Downgrade for MaliciousReplicated<F> {
-    type Target = Replicated<F>;
+impl<F: Field> Downgrade for AdditiveShare<F> {
+    type Target = SemiHonestAdditiveShare<F>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         UnauthorizedDowngradeWrapper(self.x)
     }
@@ -217,11 +221,13 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::{Downgrade, MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious};
+    use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
     use crate::ff::{Field, Fp31};
     use crate::helpers::Role;
     use crate::rand::thread_rng;
-    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::secret_sharing::{
+        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+    };
     use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;
 
@@ -269,17 +275,17 @@ mod tests {
             let helper_role = roles[i];
 
             // Avoiding copies here is a real pain: clone!
-            let malicious_a = MaliciousReplicated::new(a_shared[i].clone(), ra_shared[i].clone());
-            let malicious_b = MaliciousReplicated::new(b_shared[i].clone(), rb_shared[i].clone());
-            let malicious_c = MaliciousReplicated::new(c_shared[i].clone(), rc_shared[i].clone());
-            let malicious_d = MaliciousReplicated::new(d_shared[i].clone(), rd_shared[i].clone());
-            let malicious_e = MaliciousReplicated::new(e_shared[i].clone(), re_shared[i].clone());
-            let malicious_f = MaliciousReplicated::new(f_shared[i].clone(), rf_shared[i].clone());
+            let malicious_a = AdditiveShare::new(a_shared[i].clone(), ra_shared[i].clone());
+            let malicious_b = AdditiveShare::new(b_shared[i].clone(), rb_shared[i].clone());
+            let malicious_c = AdditiveShare::new(c_shared[i].clone(), rc_shared[i].clone());
+            let malicious_d = AdditiveShare::new(d_shared[i].clone(), rd_shared[i].clone());
+            let malicious_e = AdditiveShare::new(e_shared[i].clone(), re_shared[i].clone());
+            let malicious_f = AdditiveShare::new(f_shared[i].clone(), rf_shared[i].clone());
 
             let malicious_a_plus_b = malicious_a + &malicious_b;
             let malicious_c_minus_d = malicious_c - &malicious_d;
             let malicious_1_minus_e =
-                MaliciousReplicated::one(helper_role, r_shared[i].clone()) - &malicious_e;
+                AdditiveShare::one(helper_role, r_shared[i].clone()) - &malicious_e;
             let malicious_2f = malicious_f * Fp31::from(2_u128);
 
             let mut temp = -malicious_a_plus_b - &malicious_c_minus_d - &malicious_1_minus_e;
@@ -308,9 +314,9 @@ mod tests {
     #[tokio::test]
     async fn downgrade() {
         let mut rng = thread_rng();
-        let x = Replicated::new(rng.gen::<Fp31>(), rng.gen());
-        let y = Replicated::new(rng.gen::<Fp31>(), rng.gen());
-        let m = MaliciousReplicated::new(x.clone(), y);
+        let x = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
+        let y = SemiHonestAdditiveShare::new(rng.gen::<Fp31>(), rng.gen());
+        let m = AdditiveShare::new(x.clone(), y);
         assert_eq!(x, m.downgrade().await.access_without_downgrade());
     }
 }

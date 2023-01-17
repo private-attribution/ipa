@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::MaliciousReplicated;
+use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 

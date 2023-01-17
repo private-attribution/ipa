@@ -1,14 +1,11 @@
 use crate::protocol::basics::{reveal::Reveal, SecureMul};
 use crate::protocol::context::SemiHonestContext;
-#[cfg(feature = "no-prss")]
-use crate::protocol::no_prss::SharedRandomness;
-#[cfg(not(feature = "no-prss"))]
-use crate::protocol::use_prss::SharedRandomness;
+use crate::protocol::prss::SharedRandomness;
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 use serde::{Deserialize, Serialize};
 
@@ -90,7 +87,7 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{basics::check_zero, RecordId};
     use crate::rand::thread_rng;
-    use crate::secret_sharing::IntoShares;
+    use crate::secret_sharing::{IntoShares, SharedValue};
     use crate::test_fixture::TestWorld;
     use futures_util::future::try_join3;
 

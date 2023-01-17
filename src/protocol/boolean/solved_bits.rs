@@ -2,9 +2,10 @@ use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::{
-    DowngradeMalicious, MaliciousReplicated, SecretSharing, UnauthorizedDowngradeWrapper,
+use crate::secret_sharing::replicated::malicious::{
+    AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
 };
+use crate::secret_sharing::SecretSharing;
 use async_trait::async_trait;
 use std::marker::PhantomData;
 
@@ -24,10 +25,11 @@ impl<F> DowngradeMalicious for RandomBitsShare<F, MaliciousReplicated<F>>
 where
     F: Field,
 {
-    type Target = RandomBitsShare<F, crate::secret_sharing::Replicated<F>>;
+    type Target =
+        RandomBitsShare<F, crate::secret_sharing::replicated::semi_honest::AdditiveShare<F>>;
 
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         // Note that this clones the values rather than moving them.
         // This code is only used in test code, so that's probably OK.
@@ -145,6 +147,7 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::protocol::boolean::solved_bits::solved_bits;
     use crate::protocol::context::SemiHonestContext;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::Runner;
     use crate::{
         error::Error,

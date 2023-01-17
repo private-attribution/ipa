@@ -5,7 +5,7 @@ use crate::protocol::{
     context::{Context, MaliciousContext},
     RecordId,
 };
-use crate::secret_sharing::MaliciousReplicated;
+use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -68,7 +68,7 @@ where
     F: Field,
 {
     use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);

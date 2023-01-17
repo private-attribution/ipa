@@ -1,4 +1,5 @@
-use crate::{ff::Field, secret_sharing::Replicated};
+use crate::ff::Field;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use aes::cipher::KeyInit;
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt},

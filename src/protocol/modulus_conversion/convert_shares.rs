@@ -4,7 +4,9 @@ use crate::{
     ff::Field,
     helpers::Role,
     protocol::{basics::ZeroPositions, boolean::xor_sparse, context::Context, RecordId},
-    secret_sharing::{Replicated, SecretSharing, XorReplicated},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, XorReplicated,
+    },
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -184,7 +186,7 @@ mod tests {
     use crate::protocol::malicious::MaliciousValidator;
     use crate::protocol::BitOpStep;
     use crate::rand::thread_rng;
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{
         error::Error,
         ff::Fp31,

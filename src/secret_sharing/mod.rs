@@ -1,20 +1,17 @@
 mod into_shares;
-mod malicious_replicated;
-mod replicated;
+pub mod replicated;
 mod xor;
 #[cfg(any(feature = "test-fixture", feature = "cli"))]
 pub use into_shares::IntoShares;
 
 use crate::bits::BooleanOps;
-use crate::ff::{ArithmeticOps, Field};
-pub use malicious_replicated::{Downgrade as DowngradeMalicious, MaliciousReplicated};
-pub(crate) use malicious_replicated::{
-    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
-};
-pub use replicated::Replicated;
+use crate::ff::ArithmeticOps;
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 pub use xor::XorReplicated;
+
+use self::replicated::malicious::AdditiveShare as MaliciousAdditiveShare;
+use self::replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare;
 
 pub trait SharedValue: Clone + Copy + PartialEq + Debug + Send + Sync + Sized + 'static {
     /// Number of bits stored in this data type.
@@ -23,6 +20,8 @@ pub trait SharedValue: Clone + Copy + PartialEq + Debug + Send + Sync + Sized + 
     /// Size of this data type in bytes. This is the size in memory allocated
     /// for this data type to store the number of bits specified by `BITS`.
     const SIZE_IN_BYTES: usize;
+
+    const ZERO: Self;
 }
 
 pub trait ArithmeticShare: SharedValue + ArithmeticOps {}
@@ -50,9 +49,9 @@ pub trait SecretSharing<V: SharedValue>:
     const ZERO: Self;
 }
 
-impl<F: Field> SecretSharing<F> for Replicated<F> {
-    const ZERO: Self = Replicated::ZERO;
+impl<V: ArithmeticShare> SecretSharing<V> for SemiHonestAdditiveShare<V> {
+    const ZERO: Self = SemiHonestAdditiveShare::ZERO;
 }
-impl<F: Field> SecretSharing<F> for MaliciousReplicated<F> {
-    const ZERO: Self = MaliciousReplicated::ZERO;
+impl<V: ArithmeticShare> SecretSharing<V> for MaliciousAdditiveShare<V> {
+    const ZERO: Self = MaliciousAdditiveShare::ZERO;
 }

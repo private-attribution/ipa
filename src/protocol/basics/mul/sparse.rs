@@ -1,4 +1,6 @@
-use crate::{ff::Field, helpers::Role, secret_sharing::Replicated};
+use crate::{
+    ff::Field, helpers::Role, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+};
 
 /// A description of a replicated secret sharing, with zero values at known positions.
 /// Convention here is to refer to the "left" share available at each helper, with
@@ -195,7 +197,7 @@ pub(in crate::protocol) mod test {
             BitOpStep, RECORD_0,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::Replicated,
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join;

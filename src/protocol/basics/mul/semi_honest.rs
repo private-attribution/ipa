@@ -1,16 +1,13 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Direction;
-#[cfg(feature = "no-prss")]
-use crate::protocol::no_prss::SharedRandomness;
-#[cfg(not(feature = "no-prss"))]
-use crate::protocol::use_prss::SharedRandomness;
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{
     basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.

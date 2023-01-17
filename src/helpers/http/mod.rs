@@ -138,19 +138,14 @@ mod e2e_tests {
     use std::num::NonZeroUsize;
 
     use super::*;
-    #[cfg(feature = "no-prss")]
-    use crate::protocol::no_prss::SharedRandomness;
-    #[cfg(not(feature = "no-prss"))]
-    use crate::protocol::use_prss::SharedRandomness;
     use crate::secret_sharing::IntoShares;
     use crate::{
         ff::Fp31,
         helpers::SendBufferConfig,
         net::discovery,
-        protocol::{basics::mul::SecureMul, context::Context, RecordId},
+        protocol::{basics::mul::SecureMul, context::Context, prss::SharedRandomness, RecordId},
         test_fixture::{logging, Reconstruct},
     };
-
     use rand::rngs::mock::StepRng;
     use rand::rngs::StdRng;
     use rand_core::SeedableRng;

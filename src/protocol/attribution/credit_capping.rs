@@ -9,7 +9,7 @@ use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 

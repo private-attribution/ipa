@@ -13,7 +13,9 @@ use crate::protocol::context::Context;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::rand::thread_rng;
-use crate::secret_sharing::{IntoShares, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SecretSharing,
+};
 use futures::future::try_join_all;
 use futures::TryFuture;
 pub use ipa_input_row::IPAInputTestRow;

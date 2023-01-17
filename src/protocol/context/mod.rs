@@ -81,12 +81,11 @@ mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Direction;
     use crate::protocol::malicious::Step::MaliciousProtocol;
-    #[cfg(feature = "no-prss")]
-    use crate::protocol::no_prss::SharedRandomness;
-    #[cfg(not(feature = "no-prss"))]
-    use crate::protocol::use_prss::SharedRandomness;
+    use crate::protocol::prss::SharedRandomness;
     use crate::protocol::RecordId;
-    use crate::secret_sharing::{MaliciousReplicated, Replicated};
+    use crate::secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    };
     use crate::telemetry::metrics::{
         INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
     };

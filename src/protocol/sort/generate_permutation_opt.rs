@@ -10,7 +10,7 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::Replicated,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 use std::iter::repeat;
 

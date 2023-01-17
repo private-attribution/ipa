@@ -1,7 +1,7 @@
 #[cfg(feature = "no-prss")]
-use super::no_prss::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
+pub use super::no_prss::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 #[cfg(not(feature = "no-prss"))]
-use super::use_prss::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
+pub use super::use_prss::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
 use super::Step;
 use crate::rand::{CryptoRng, RngCore};
@@ -257,8 +257,8 @@ impl EndpointSetup {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test {
-    use super::SequentialSharedRandomness;
-    use crate::protocol::use_prss::{Generator, KeyExchange, SharedRandomness};
+    use super::{Generator, KeyExchange, SequentialSharedRandomness};
+    use crate::protocol::prss::SharedRandomness;
     use crate::rand::{thread_rng, Rng};
     use crate::{ff::Fp31, protocol::Step, test_fixture::make_participants};
     use rand::prelude::SliceRandom;
