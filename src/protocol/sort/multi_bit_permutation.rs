@@ -106,13 +106,40 @@ where
     // and checks if the bits are equal to this value. It does so my computing a linear combination of the
     // pre-computed coefficients.
     //
-    // Observe that the coefficients necessary to compute a given equality check form a Sierpiński triangle
-    // <https://en.wikipedia.org/wiki/Sierpi%C5%84ski_triangle#/media/File:Multigrade_operator_AND.svg>
+    // Observe that whether a given precomputed coefficient contributes to a
+    // given equality check follows a Sierpiński triangle
+    // https://en.wikipedia.org/wiki/Sierpi%C5%84ski_triangle#/media/File:Multigrade_operator_AND.svg.
     //
-    // Martin Thomson found that the sign of the coefficients follows the following pattern:
-    // 1. Take the row and column and bitwise AND them: $(!i & j)$
-    // 2. Count the number of non-zero bits in the result
-    // 3. If the result is an odd number, the coefficient is negative. If the result is even, the coefficient is positive.
+    // For example, for a three bit value, we have the following:
+    // 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1
+    // 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1
+    // 0 | 0 | 1 | 1 | 0 | 0 | 1 | 1
+    // 0 | 0 | 0 | 1 | 0 | 0 | 0 | 1
+    // 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1
+    // 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1
+    // 0 | 0 | 0 | 0 | 0 | 0 | 1 | 1
+    // 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1
+    //
+    // This can be computed from row (i) and column (j) indices with i & j == i
+    //
+    // The sign of the inclusion is less obvious, but we discovered that this
+    // can be found by taking the same row (i) and column (j) indices:
+    // 1. Invert the row index and bitwise AND the values: a = !i & j
+    // 2. Count the number of bits that are set: b = a.count_ones()
+    // 3. An odd number means a positive coefficient; an odd number means a negative.
+    //
+    // For example, for a three bit value, step 1 produces (in binary):
+    // 000 | 001 | 010 | 011 | 100 | 101 | 110 | 111
+    // 000 | 000 | 010 | 010 | 100 | 100 | 110 | 110
+    // 000 | 001 | 000 | 001 | 100 | 101 | 100 | 101
+    // 000 | 000 | 000 | 000 | 100 | 100 | 100 | 100
+    // 000 | 001 | 010 | 011 | 000 | 001 | 010 | 011
+    // 000 | 000 | 010 | 010 | 000 | 000 | 010 | 010
+    // 000 | 001 | 000 | 001 | 000 | 001 | 000 | 001
+    // 000 | 000 | 000 | 000 | 000 | 000 | 000 | 000
+    //
+    // Where 000, 101, 011, and 110 mean positive contributions, and
+    // 001, 010, 100, and 111 mean negative contributions.
     let side_length = 1 << num_bits;
     let mut equality_checks = Vec::with_capacity(side_length);
     for i in 0..side_length {
@@ -170,27 +197,19 @@ where
     for (bit_idx, column) in input.iter().enumerate() {
         let bit = &column[record_idx];
         let step = 1 << bit_idx;
-        let num_children_to_add = precomputed_combinations.len();
-        precomputed_combinations.push(bit.clone());
-        if bit_idx == 0 {
-            continue;
-        }
-        let mut multiplication_results = try_join_all(
-            precomputed_combinations
-                .iter()
-                .enumerate()
-                .skip(1)
-                .take(num_children_to_add - 1)
-                .map(|(j, precomputed_combination)| {
+        let mut multiplication_results =
+            try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
+                |(j, precomputed_combination)| {
                     let child_idx = j + step;
                     ctx.narrow(&BitOpStep::from(child_idx)).multiply(
                         record_id,
                         precomputed_combination,
                         bit,
                     )
-                }),
-        )
-        .await?;
+                },
+            ))
+            .await?;
+        precomputed_combinations.push(bit.clone());
         precomputed_combinations.append(&mut multiplication_results);
     }
     Ok(precomputed_combinations)
