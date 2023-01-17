@@ -1,9 +1,7 @@
 use crate::secret_sharing::BooleanShare;
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
-mod bit_array;
-
-pub use bit_array::BitArray64;
+pub mod bit_array;
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
