@@ -5,7 +5,7 @@ pub use convert_shares::{
     BitConversionTriple,
 };
 
-use crate::{ff::Field, secret_sharing::Replicated};
+use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated};
 
 /// Transpose rows of bits into bits of rows
 ///

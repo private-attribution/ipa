@@ -1,6 +1,6 @@
 use crate::cli::playbook::InputSource;
 use crate::ff::Field;
-use crate::secret_sharing::{IntoShares, Replicated};
+use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares};
 use std::fmt::Debug;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.

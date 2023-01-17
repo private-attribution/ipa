@@ -2,7 +2,10 @@ use std::iter::{repeat, zip};
 
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+};
 use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -63,7 +66,7 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let (role, channel) = (self.role(), self.mesh());
         let (left, right) = input.x().access_without_downgrade().as_tuple();
@@ -131,7 +134,9 @@ mod tests {
             context::{Context, MaliciousContext},
             RecordId,
         },
-        secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
+        secret_sharing::replicated::malicious::{
+            AdditiveShare as MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        },
         test_fixture::{join3, join3v, TestWorld},
     };
 

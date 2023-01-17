@@ -171,6 +171,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitwiseLessThan;
     use crate::rand::thread_rng;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{get_bits, Runner};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},

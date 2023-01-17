@@ -1,6 +1,6 @@
 use crate::ff::Field;
 use crate::rand::{thread_rng, Rng};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use rand::distributions::{Distribution, Standard};
 
 pub trait IntoShares<T>: Sized {

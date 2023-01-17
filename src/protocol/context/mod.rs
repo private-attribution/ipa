@@ -83,7 +83,9 @@ mod tests {
     use crate::protocol::malicious::Step::MaliciousProtocol;
     use crate::protocol::prss::SharedRandomness;
     use crate::protocol::RecordId;
-    use crate::secret_sharing::{MaliciousReplicated, Replicated};
+    use crate::secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    };
     use crate::telemetry::metrics::{
         INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
     };

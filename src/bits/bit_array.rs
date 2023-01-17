@@ -23,11 +23,10 @@ macro_rules! bit_array_impl {
             impl SharedValue for $name {
                 const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
                 const BITS: u32 = $bits;
+                const ZERO: Self = Self(<$store>::ZERO);
             }
 
             impl BitArray for $name {
-                const ZERO: Self = Self(<$store>::ZERO);
-
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     Self(<$store>::new(
                         v.into().to_le_bytes()[0..<Self as SharedValue>::SIZE_IN_BYTES]

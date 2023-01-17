@@ -8,7 +8,10 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
-    secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
+    secret_sharing::replicated::{
+        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
+        semi_honest::AdditiveShare as Replicated,
+    },
 };
 use futures::future::try_join;
 
@@ -120,7 +123,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
     ) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let random_constant = prss.generate_replicated(record_id);
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
@@ -209,7 +212,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
-            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
             Ok(values.downgrade().await.access_without_downgrade())
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
@@ -254,7 +257,8 @@ mod tests {
     use crate::protocol::{malicious::MaliciousValidator, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
-        IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares,
     };
     use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;

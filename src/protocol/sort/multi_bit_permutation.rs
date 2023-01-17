@@ -149,6 +149,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::sort::multi_bit_permutation::{get_bit_equality_checkers, multi_bit_permutation},
+        secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     const INPUT: [&[u128]; 3] = [
