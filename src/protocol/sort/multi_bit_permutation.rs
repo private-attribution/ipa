@@ -110,7 +110,7 @@ where
     // <https://en.wikipedia.org/wiki/Sierpi%C5%84ski_triangle#/media/File:Multigrade_operator_AND.svg>
     //
     // Martin Thomson found that the sign of the coefficients follows the following pattern:
-    // 1. Take the row and column and bitwise AND them: $(i & j)$
+    // 1. Take the row and column and bitwise AND them: $(!i & j)$
     // 2. Count the number of non-zero bits in the result
     // 3. If the result is an odd number, the coefficient is negative. If the result is even, the coefficient is positive.
     let side_length = 1 << num_bits;
@@ -120,11 +120,10 @@ where
         for (j, combination) in precomputed_combinations.iter().enumerate() {
             let bit: i8 = i8::from((i & j) == i);
             if bit > 0 {
-                let sign = 1 - 2 * i8::try_from((!i & j).count_ones() & 1).unwrap();
-                if sign > 0 {
-                    check += combination;
-                } else {
+                if (!i & j).count_ones() & 1 == 1 {
                     check -= combination;
+                } else {
+                    check += combination;
                 }
             }
         }
@@ -201,12 +200,12 @@ where
 mod tests {
     use futures::future::try_join_all;
 
+    use super::multi_bit_permutation;
     use crate::{
         ff::{Field, Fp31},
-        test_fixture::{Reconstruct, Runner, TestWorld},
         secret_sharing::SharedValue,
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use super::multi_bit_permutation;
 
     use super::check_everything;
 
