@@ -7,7 +7,7 @@ use crate::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity, TransportError,
     },
-    http::{discovery::peer, http_serde},
+    net::{discovery::peer, http_serde},
     protocol::{QueryId, Step},
 };
 use axum::{

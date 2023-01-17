@@ -10,7 +10,7 @@ pub mod cli;
 pub mod error;
 pub mod ff;
 pub mod helpers;
-pub mod http;
+pub mod net;
 pub mod protocol;
 pub mod query;
 pub mod secret_sharing;

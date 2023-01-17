@@ -4,7 +4,7 @@ use crate::{
         query::{IPAQueryConfig, QueryConfig, QueryType},
         HelperIdentity, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
-    http::server,
+    net::server,
     protocol::{QueryId, Step},
 };
 use async_trait::async_trait;

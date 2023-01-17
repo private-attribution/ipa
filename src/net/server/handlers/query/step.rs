@@ -1,6 +1,6 @@
 use crate::{
     helpers::{transport::TransportCommand, CommandEnvelope, CommandOrigin},
-    http::{http_serde, server::Error},
+    net::{http_serde, server::Error},
     protocol::{QueryId, Step},
     sync::{Arc, Mutex},
 };

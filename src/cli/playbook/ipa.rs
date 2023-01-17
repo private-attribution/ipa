@@ -2,7 +2,7 @@ use crate::{
     cli::playbook::InputSource,
     ff::{Field, FieldType},
     helpers::query::QueryInput,
-    http::MpcHelperClient,
+    net::MpcHelperClient,
     protocol::{attribution::AggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
     secret_sharing::IntoShares,
     test_fixture::IPAInputTestRow,

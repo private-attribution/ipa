@@ -4,7 +4,7 @@ use crate::{
         transport::{SubscriptionType, Transport, TransportCommand, TransportError},
         CommandEnvelope, HelperIdentity,
     },
-    http::{
+    net::{
         client::MpcHelperClient,
         discovery::peer,
         server::{BindTarget, MpcHelperServer},
@@ -150,7 +150,7 @@ mod e2e_tests {
     use crate::{
         ff::{FieldType, Fp31},
         helpers::query::{QueryConfig, QueryInput, QueryType},
-        http::discovery::PeerDiscovery,
+        net::discovery::PeerDiscovery,
         query::Processor,
         secret_sharing::{IntoShares, Replicated},
         test_fixture::{net::localhost_config, Reconstruct},

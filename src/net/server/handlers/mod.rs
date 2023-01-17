@@ -4,7 +4,7 @@ mod query;
 use crate::{
     ff::FieldType,
     helpers::{transport::ByteArrStream, CommandEnvelope},
-    http::{http_serde, server::Error},
+    net::{http_serde, server::Error},
     protocol::QueryId,
     sync::{Arc, Mutex},
 };

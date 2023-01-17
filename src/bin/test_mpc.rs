@@ -11,7 +11,7 @@ use raw_ipa::{
         query::{IPAQueryConfig, QueryConfig, QueryType},
         HelperIdentity,
     },
-    http::{discovery::PeerDiscovery, MpcHelperClient},
+    net::{discovery::PeerDiscovery, MpcHelperClient},
 };
 use std::error::Error;
 use std::fmt::Debug;

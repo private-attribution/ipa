@@ -1,4 +1,4 @@
-use crate::http::discovery::conf::Conf;
+use crate::net::discovery::conf::Conf;
 use std::fmt::Debug;
 
 /// Creates a new config for helpers configured to run on local machine using unique port.

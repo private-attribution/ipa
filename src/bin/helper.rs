@@ -3,7 +3,7 @@ use hyper::http::uri::Scheme;
 use raw_ipa::{
     cli::{helpers_config, Verbosity},
     helpers::{HelperIdentity, Transport},
-    http::{discovery::PeerDiscovery, HttpTransport},
+    net::{discovery::PeerDiscovery, HttpTransport},
     query::Processor,
 };
 use std::error::Error;

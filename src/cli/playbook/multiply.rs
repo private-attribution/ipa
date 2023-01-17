@@ -2,7 +2,7 @@ use crate::{
     cli::playbook::InputSource,
     ff::{Field, FieldType},
     helpers::query::QueryInput,
-    http::MpcHelperClient,
+    net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{IntoShares, Replicated},
 };

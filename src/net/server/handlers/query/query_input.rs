@@ -5,7 +5,7 @@ use crate::{
         transport::TransportCommand,
         CommandEnvelope, CommandOrigin, TransportError,
     },
-    http::{
+    net::{
         http_serde,
         server::{handlers::ByteArrStreamFromReq, Error},
     },
