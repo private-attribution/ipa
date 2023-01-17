@@ -9,27 +9,6 @@ use crate::{
 
 use futures::future::try_join_all;
 
-const P: i8 = 1;
-const N: i8 = -1;
-const COEFFICIENT_LOOK_UP_TABLE: [[i8; 16]; 16] = [
-    [P, N, N, P, N, P, P, N, N, P, P, N, P, N, N, P],
-    [0, P, 0, N, 0, N, 0, P, 0, N, 0, P, 0, P, 0, N],
-    [0, 0, P, N, 0, 0, N, P, 0, 0, N, P, 0, 0, P, N],
-    [0, 0, 0, P, 0, 0, 0, N, 0, 0, 0, N, 0, 0, 0, P],
-    [0, 0, 0, 0, P, N, N, P, 0, 0, 0, 0, N, P, P, N],
-    [0, 0, 0, 0, 0, P, 0, N, 0, 0, 0, 0, 0, N, 0, P],
-    [0, 0, 0, 0, 0, 0, P, N, 0, 0, 0, 0, 0, 0, N, P],
-    [0, 0, 0, 0, 0, 0, 0, P, 0, 0, 0, 0, 0, 0, 0, N],
-    [0, 0, 0, 0, 0, 0, 0, 0, P, N, N, P, N, P, P, N],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, P, 0, N, 0, N, 0, P],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, N, 0, 0, N, P],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, 0, 0, 0, N],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, N, N, P],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, 0, N],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, N],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P],
-];
-
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -126,13 +105,30 @@ where
     // This loop just iterates over all the possible values this N-bit input could potentially represent
     // and checks if the bits are equal to this value. It does so my computing a linear combination of the
     // pre-computed coefficients.
-    let mut equality_checks = Vec::with_capacity(1 << num_bits);
-    for i in 0..(1 << num_bits) {
-        equality_checks.push(check_equality_to(
-            i,
-            num_bits,
-            precomputed_combinations.as_slice(),
-        ));
+    //
+    // Observe that the coefficients necessary to compute a given equality check form a Sierpiński triangle
+    // <https://en.wikipedia.org/wiki/Sierpi%C5%84ski_triangle#/media/File:Multigrade_operator_AND.svg>
+    //
+    // Martin Thomson found that the sign of the coefficients follows the following pattern:
+    // 1. Take the row and column and bitwise AND them: $(i & j)$
+    // 2. Count the number of non-zero bits in the result
+    // 3. If the result is an odd number, the coefficient is negative. If the result is even, the coefficient is positive.
+    let side_length = 1 << num_bits;
+    let mut equality_checks = Vec::with_capacity(side_length);
+    for i in 0..side_length {
+        let mut check = S::ZERO;
+        for (j, combination) in precomputed_combinations.iter().enumerate() {
+            let bit: i8 = i8::from((i & j) == i);
+            if bit > 0 {
+                let sign = 1 - 2 * i8::try_from((!i & j).count_ones() & 1).unwrap();
+                if sign > 0 {
+                    check += combination;
+                } else {
+                    check -= combination;
+                }
+            }
+        }
+        equality_checks.push(check);
     }
     Ok(equality_checks)
 }
@@ -201,103 +197,6 @@ where
     Ok(precomputed_combinations)
 }
 
-///
-/// This function is used to generate the look-up tables saved as constants at the top of this file.
-/// This function appears to be "unused" because it is only used to generate the constants.
-///
-/// Observe that the coefficients necessary to compute a given equality check form a Sierpiński triangle
-/// <https://en.wikipedia.org/wiki/Sierpi%C5%84ski_triangle#/media/File:Multigrade_operator_AND.svg>
-/// The Sierpiński triangle can be generated iteratively using the simple formula:
-/// $f(n+1) = f(n) XOR 2*f(n)$
-/// where $f(0) = 1$
-///
-/// This produces the following sequence:
-/// 1, 3, 5, 15, 17, 51, 85, 255, ...
-/// Considering these as binary numbers, you'll see they produce the Sierpiński triangle
-/// 00000001
-/// 00000011
-/// 00000101
-/// 00001111
-/// 00010001
-/// 00110011
-/// 01010101
-/// 11111111
-///
-/// In our case, we just have to reverse the order of the rows, so that the final one comes first,
-/// and represents the coefficients used to compute equality to zero.
-///
-/// The signs of the coefficients are a bit more complex. Martin Thomson has observed that they follow
-/// the following pattern:
-///
-/// 1. Take the row and column and bitwise AND them: $(i & j)$
-/// 2. Count the number of non-zero bits in the result
-/// 3. If the result is an odd number, the coefficient is negative. If the result is even, the coefficient is positive.
-#[allow(dead_code)]
-fn generate_lookup_table(num_bits: usize) -> Vec<Vec<i8>> {
-    let side_length = 1 << num_bits;
-    let mut sterpinski_triangle = Vec::with_capacity(side_length);
-    for _ in 0..side_length {
-        sterpinski_triangle.push(Vec::with_capacity(side_length));
-    }
-    let mut binary_representation = 1;
-    for i in 0..side_length {
-        if i > 0 {
-            binary_representation = binary_representation ^ (binary_representation << 1);
-        }
-        let bits = get_big_endian_bits(binary_representation, side_length);
-        for (j, bit) in bits.iter().enumerate() {
-            let rows_from_bottom = side_length - i - 1;
-            let sign = 1 - 2 * i8::try_from((j & i).count_ones() & 1).unwrap();
-
-            sterpinski_triangle[rows_from_bottom].push(bit * sign);
-        }
-    }
-    sterpinski_triangle
-}
-
-fn get_big_endian_bits(value: usize, num_bits: usize) -> Vec<i8> {
-    let mut output = Vec::with_capacity(num_bits);
-    for i in 0..num_bits {
-        let bit = (value >> i) & 1;
-        output.push(i8::from(bit != 0));
-    }
-    output.reverse();
-    output
-}
-
-///
-/// This function checks to see if a sequence of bits is a representation of a specific value.
-/// It does so by computing a linear-combination of coefficients.
-/// For example, to check if a 4-bit value is equal to 8, we would logically compute:
-/// `(x_4)(1 - x_3)(1 - x_2)(1 - x_1)`
-/// If you multiply this all out, that's equivalent to:
-/// `x_4 - x_3*x_4 - x_2*x_4 + x_2*x_3*x_4 - x_1*x_4 + x_1*x_3*x_4 + x_1*x_2*x_4 - x_1*x_2*x_3*x_4`
-///
-/// All of these coefficients have been pre-computed and are stored in an array.
-/// This function just looks up which coefficients are needed. In this case it would retrieve:
-/// `[0, 0, 0, 0, 0, 0, 0, 0, 1, -1, -1, 1, -1, 1, 1, -1],`
-/// The sign of each element indicates if that coefficient should be added or subtracted.
-fn check_equality_to<F: Field, S: SecretSharing<F>>(
-    value: usize,
-    num_bits: usize,
-    precomputed_combinations: &[S],
-) -> S {
-    debug_assert!(num_bits <= 4, "Lookup table only supports up to 4 bits");
-    let coefficients = &COEFFICIENT_LOOK_UP_TABLE[value];
-    coefficients
-        .iter()
-        .zip(precomputed_combinations)
-        .fold(S::ZERO, |acc, (coef, value)| {
-            if *coef == P {
-                acc + value
-            } else if *coef == N {
-                acc - value
-            } else {
-                acc
-            }
-        })
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use futures::future::try_join_all;
@@ -309,7 +208,8 @@ mod tests {
     };
     use super::multi_bit_permutation;
 
-    use super::{check_everything, generate_lookup_table};
+    use super::check_everything;
+
     const INPUT: [&[u128]; 3] = [
         &[0, 0, 1, 0, 1, 0],
         &[0, 1, 1, 0, 0, 0],
@@ -368,28 +268,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    // This is used to generate the lookup tables of constants at the top of this file.
-    #[ignore]
-    #[test]
-    pub fn generate_lookup_table_constants() {
-        let look_up_table = generate_lookup_table(4);
-        for row in look_up_table {
-            println!(
-                "    [{}],",
-                row.iter()
-                    .map(|x| if *x == 1 {
-                        "P"
-                    } else if *x == -1 {
-                        "N"
-                    } else {
-                        "0"
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        panic!();
     }
 }
