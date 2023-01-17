@@ -23,7 +23,7 @@ pub enum SortStep {
     MultiApplyInv(u32),
     //malicious features
     MaliciousUpgradeContext,
-    MaliciousUpgradeInput,
+    MaliciousUpgradeInput(u32),
 }
 
 impl Substep for SortStep {}
@@ -31,6 +31,7 @@ impl Substep for SortStep {}
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
         const MULTI_APPLY_INV: [&str; 64] = repeat64str!["multi_apply_inv"];
+        const MALICIOUS_UPGRADE_INPUT: [&str; 64] = repeat64str!["malicious_upgrade_input"];
         match self {
             Self::BitPermutationStep => "bit_permute",
             Self::ApplyInv => "apply_inv",
@@ -40,7 +41,7 @@ impl AsRef<str> for SortStep {
             Self::MultiApplyInv(i) => MULTI_APPLY_INV[usize::try_from(*i).unwrap()],
             //malicious features
             Self::MaliciousUpgradeContext => "malicious_upgrade_context",
-            Self::MaliciousUpgradeInput => "malicious_upgrade_input",
+            Self::MaliciousUpgradeInput(i) => MALICIOUS_UPGRADE_INPUT[usize::try_from(*i).unwrap()],
         }
     }
 }

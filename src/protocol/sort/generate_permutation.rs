@@ -276,7 +276,7 @@ where
     assert_eq!(sort_keys.len(), num_bits as usize);
 
     let upgraded_sort_keys = m_ctx
-        .upgrade_vector(&MaliciousUpgradeInput, sort_keys[0].clone())
+        .upgrade_vector(&MaliciousUpgradeInput(0), sort_keys[0].clone())
         .await?;
     let bit_0_permutation =
         bit_permutation(m_ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
@@ -296,7 +296,10 @@ where
         malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num)));
         m_ctx_bit = malicious_validator.context();
         let upgraded_sort_keys = m_ctx_bit
-            .upgrade_vector(&MaliciousUpgradeInput, sort_keys[bit_num as usize].clone())
+            .upgrade_vector(
+                &MaliciousUpgradeInput(0),
+                sort_keys[bit_num as usize].clone(),
+            )
             .await?;
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             m_ctx_bit.narrow(&ApplyInv),
