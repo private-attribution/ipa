@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SecretSharing};
 
 pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;

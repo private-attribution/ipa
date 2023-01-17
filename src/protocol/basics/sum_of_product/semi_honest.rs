@@ -6,7 +6,7 @@ use crate::protocol::{
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// Sum of product protocol developed using IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -71,6 +71,7 @@ mod test {
     use crate::ff::{Field, Fp31};
     use crate::protocol::basics::sum_of_product::SecureSop;
     use crate::protocol::RecordId;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
     #[tokio::test]

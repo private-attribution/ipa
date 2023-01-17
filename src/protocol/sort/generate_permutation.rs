@@ -15,7 +15,10 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
+    secret_sharing::{
+        replicated::malicious::AdditiveShare as MaliciousReplicated,
+        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
+    },
 };
 
 use super::{
@@ -348,7 +351,7 @@ mod tests {
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};

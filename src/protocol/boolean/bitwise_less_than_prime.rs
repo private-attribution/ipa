@@ -205,6 +205,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThanPrime;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},

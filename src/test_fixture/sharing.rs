@@ -4,7 +4,8 @@ use crate::protocol::context::MaliciousContext;
 use crate::protocol::{BitOpStep, RecordId, Substep};
 use crate::rand::Rng;
 use crate::secret_sharing::{
-    IntoShares, MaliciousReplicated, Replicated, SecretSharing, XorReplicated,
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SecretSharing, XorReplicated,
 };
 use async_trait::async_trait;
 use futures::future::{join, try_join_all};
@@ -256,7 +257,7 @@ where
     T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
             self[0].borrow().x().access_without_downgrade(),

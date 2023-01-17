@@ -1,7 +1,9 @@
 use std::iter::{repeat, zip};
 
 use crate::repeat64str;
-use crate::secret_sharing::{ArithmeticShare, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+};
 use crate::{
     error::Error,
     ff::Field,
@@ -171,7 +173,7 @@ mod tests {
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
-        use crate::secret_sharing::Replicated;
+        use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 

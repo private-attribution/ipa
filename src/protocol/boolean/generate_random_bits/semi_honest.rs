@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use async_trait::async_trait;
 
 #[async_trait]

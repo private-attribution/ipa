@@ -16,7 +16,9 @@ use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{RecordId, Step, Substep};
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::secret_sharing::replicated::{
+    malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+};
 use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary

@@ -32,12 +32,10 @@ pub struct BitArray64(U8_8);
 impl SharedValue for BitArray64 {
     const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
     const BITS: u32 = 64;
+    const ZERO: Self = Self(U8_8::ZERO);
 }
 
 impl BitArray for BitArray64 {
-    #[allow(dead_code)]
-    const ZERO: Self = Self(U8_8::ZERO);
-
     fn truncate_from<T: Into<u128>>(v: T) -> Self {
         Self(U8_8::new(
             v.into().to_le_bytes()[0..<Self as SharedValue>::SIZE_IN_BYTES]

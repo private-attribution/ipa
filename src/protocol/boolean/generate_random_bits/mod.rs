@@ -3,7 +3,10 @@ use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::{ArithmeticShare, Replicated, SecretSharing, XorReplicated};
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+    XorReplicated,
+};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use std::iter::repeat;

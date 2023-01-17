@@ -12,7 +12,7 @@ use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::RecordId;
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -209,7 +209,7 @@ async fn compute_b_bit<F: Field>(
 pub mod input {
     use crate::ff::{Field, Fp31};
     use crate::protocol::attribution::{AggregateCreditOutputRow, AttributionInputRow};
-    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares};
     use crate::test_fixture::Reconstruct;
     use rand::distributions::{Distribution, Standard};
     use rand::Rng;

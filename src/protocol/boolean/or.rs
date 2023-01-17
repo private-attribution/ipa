@@ -22,6 +22,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         protocol::RecordId,
+        secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::distributions::{Distribution, Standard};

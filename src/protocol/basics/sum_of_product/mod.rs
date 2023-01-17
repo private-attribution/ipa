@@ -2,7 +2,10 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::RecordId;
-use crate::secret_sharing::{ArithmeticShare, MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+};
 use async_trait::async_trait;
 
 pub(crate) mod malicious;

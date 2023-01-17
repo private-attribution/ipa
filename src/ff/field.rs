@@ -23,8 +23,6 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     type Integer: Int;
 
     const PRIME: Self::Integer;
-    /// Additive identity element
-    const ZERO: Self;
     /// Multiplicative identity element
     const ONE: Self;
 
