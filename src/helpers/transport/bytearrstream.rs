@@ -51,11 +51,11 @@ impl ByteArrStream {
 
             // if buffer is exactly aligned with `size_in_bytes`, remove and return it; otherwise,
             // just split as much as can be aligned.
-            if out_count == buff_len {
-                Some(self.buffered.pop_front().unwrap())
-            } else {
-                Some(self.buffered[0].split_to(usize::try_from(out_count).unwrap()))
+            let res = self.buffered[0].split_to(usize::try_from(out_count).unwrap());
+            if self.buffered[0].is_empty() {
+                self.buffered.pop_front();
             }
+            Some(res)
         } else {
             // first buffer is smaller than `size_in_bytes`, so will need to combine bytes across
             // buffers. Will require a memcpy of u8's across buffers to create 1 contiguous aligned

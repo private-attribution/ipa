@@ -1,8 +1,5 @@
 pub mod messaging;
 pub mod network;
-// pub mod old_http;
-// #[deprecated(note = "Use `Transport` instead")]
-// pub mod old_network;
 pub mod transport;
 
 mod buffers;
