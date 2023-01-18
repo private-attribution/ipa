@@ -153,7 +153,7 @@ impl Debug for ByteArrStream {
 mod test {
     use super::*;
     use crate::{
-        ff::{self, Field, FieldType},
+        ff::{self, Field},
         helpers::transport::ByteArrStream as UnalignedByteArrStream,
     };
     use axum::{
@@ -164,17 +164,15 @@ mod test {
 
     async fn from_slice(
         slice: &[u8],
-        field_type: FieldType,
+        size_in_bytes: u32,
     ) -> Result<ByteArrStream, BodyAlreadyExtracted> {
         let b = Body::from(Bytes::from(slice.to_owned()));
-        let mut req_parts = RequestParts::new(
-            Request::post(format!("/example?field_type={field_type:?}"))
-                .body(b)
-                .unwrap(),
-        );
+        let mut req_parts = RequestParts::new(Request::post("/example").body(b).unwrap());
         let body_stream = BodyStream::from_request(&mut req_parts).await?;
-        Ok(UnalignedByteArrStream::from(body_stream)
-            .align(usize::try_from(field_type.size_in_bytes()).unwrap()))
+        Ok(
+            UnalignedByteArrStream::from(body_stream)
+                .align(usize::try_from(size_in_bytes).unwrap()),
+        )
     }
 
     /// Simple body that represents a stream of `Bytes` chunks.
@@ -227,7 +225,7 @@ mod test {
         #[tokio::test]
         async fn byte_arr_stream_produces_bytes_fp2() {
             let vec = vec![3; 10];
-            let stream = from_slice(&vec, FieldType::Fp2).await.unwrap();
+            let stream = from_slice(&vec, ff::Fp2::SIZE_IN_BYTES).await.unwrap();
             let collected = stream.try_collect::<Vec<_>>().await.unwrap();
 
             // since `from_slice` chunks by the entire slice, expect the entire slice in `collected`
@@ -239,7 +237,9 @@ mod test {
         async fn byte_arr_stream_produces_bytes_fp32_bit_prime() {
             const ARR_SIZE: usize = 20;
             let vec = vec![7; ARR_SIZE * 10];
-            let stream = from_slice(&vec, FieldType::Fp32BitPrime).await.unwrap();
+            let stream = from_slice(&vec, ff::Fp32BitPrime::SIZE_IN_BYTES)
+                .await
+                .unwrap();
             let collected = stream.try_collect::<Vec<_>>().await.unwrap();
 
             // since `from_slice` chunks by the entire slice, expect the entire slice in `collected`
@@ -252,7 +252,9 @@ mod test {
             const ARR_SIZE: usize = 5;
             // 1 extra byte
             let vec = vec![4u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES as usize) + 1];
-            let mut stream = from_slice(&vec, FieldType::Fp32BitPrime).await.unwrap();
+            let mut stream = from_slice(&vec, ff::Fp32BitPrime::SIZE_IN_BYTES)
+                .await
+                .unwrap();
 
             // valid values
             let n = stream.next().await;
@@ -351,10 +353,10 @@ mod test {
         use rand::{rngs::StdRng, SeedableRng};
 
         prop_compose! {
-            fn arb_size_in_bytes(field_type: FieldType, max_multiplier: u32)
+            fn arb_size_in_bytes(field_size: u32, max_multiplier: u32)
                                 (multiplier in 1..max_multiplier)
             -> u32 {
-                field_type.size_in_bytes() * multiplier
+                field_size * multiplier
             }
         }
 
@@ -398,8 +400,8 @@ mod test {
         }
 
         prop_compose! {
-            fn arb_expected_and_chunked_body(field_type: FieldType, max_multiplier: u32, max_len: u32)
-                                            (size_in_bytes in arb_size_in_bytes(field_type, max_multiplier), max_len in Just(max_len))
+            fn arb_expected_and_chunked_body(field_size: u32, max_multiplier: u32, max_len: u32)
+                                            (size_in_bytes in arb_size_in_bytes(field_size, max_multiplier), max_len in Just(max_len))
                                             (size_in_bytes in Just(size_in_bytes), expected in arb_aligned_bytes(size_in_bytes, max_len), seed in any::<u64>())
             -> (u32, Vec<u8>, ByteArrStream, u64) {
                 (size_in_bytes, expected.clone(), arb_chunked_body(&expected, size_in_bytes, &mut StdRng::seed_from_u64(seed)), seed)
@@ -409,7 +411,7 @@ mod test {
         proptest::proptest! {
             #[test]
             fn test_byte_arr_stream_works_with_any_chunks(
-                (size_in_bytes, expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(FieldType::Fp32BitPrime, 30, 100)
+                (size_in_bytes, expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(ff::Fp32BitPrime::SIZE_IN_BYTES, 30, 100)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     // flatten the chunks to compare with expected

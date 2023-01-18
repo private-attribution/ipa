@@ -157,7 +157,7 @@ macro_rules! field_impl {
                         "Must add type {} to FieldType::from_str; See Field::TYPE_STR for instructions",
                         stringify!($field)
                     ));
-                assert_eq!(field_type.size_in_bytes(), $field::SIZE_IN_BYTES);
+                assert_eq!(field_type, crate::ff::FieldType::$field)
             }
 
             proptest! {

@@ -118,17 +118,6 @@ pub enum FieldType {
     Fp32BitPrime,
 }
 
-impl FieldType {
-    #[must_use]
-    pub fn size_in_bytes(&self) -> u32 {
-        match self {
-            Self::Fp2 => ff::Fp2::SIZE_IN_BYTES,
-            Self::Fp31 => ff::Fp31::SIZE_IN_BYTES,
-            Self::Fp32BitPrime => ff::Fp32BitPrime::SIZE_IN_BYTES,
-        }
-    }
-}
-
 impl AsRef<str> for FieldType {
     fn as_ref(&self) -> &str {
         match self {
@@ -208,6 +197,6 @@ mod test {
     fn field_type_str_is_case_insensitive() {
         let field_type: FieldType = serde_json::from_str("\"fP32bItPrImE\"")
             .expect("FieldType should match regardless of character case");
-        assert_eq!(field_type.size_in_bytes(), ff::Fp32BitPrime::SIZE_IN_BYTES);
+        assert_eq!(field_type, FieldType::Fp32BitPrime);
     }
 }
