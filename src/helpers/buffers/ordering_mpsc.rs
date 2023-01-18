@@ -216,23 +216,25 @@ impl OrderingMpscEnd {
     }
 }
 
-#[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
+#[cfg(test)]
+mod fixture {
     use crate::{
-        ff::{Fp31, Fp32BitPrime},
+        ff::Fp32BitPrime,
         helpers::{
-            buffers::ordering_mpsc::{ordering_mpsc, OrderingMpscSender},
+            buffers::ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender},
             messaging::Message,
         },
+        rand::thread_rng,
     };
     use async_trait::async_trait;
-    use futures::{future::join, FutureExt};
-    use std::{mem, num::NonZeroUsize};
+    use futures::future::join_all;
+    use std::num::NonZeroUsize;
+    use tokio::sync::mpsc::{channel, Receiver};
 
-    pub(crate) const FP32BIT_SIZE: usize = <Fp32BitPrime as Message>::SIZE_IN_BYTES;
+    pub const FP32BIT_SIZE: usize = <Fp32BitPrime as Message>::SIZE_IN_BYTES;
 
     #[async_trait]
-    pub(crate) trait TestSender {
+    pub trait TestSender {
         async fn send_test(&self, i: usize);
     }
 
@@ -244,6 +246,73 @@ mod tests {
                 .unwrap();
         }
     }
+
+    /// Shuffle `count` indices.
+    pub fn shuffle_indices(count: usize) -> Vec<usize> {
+        use rand::seq::SliceRandom;
+        let mut indices = (0..count).collect::<Vec<_>>();
+        indices.shuffle(&mut thread_rng());
+        indices
+    }
+
+    /// For the provided receiver, read from it and report out when
+    /// the number of bytes produced hits a multiple of `report_multiple`.
+    ///
+    /// Unlike other tests, which only send in a few values, a separate
+    /// spawned task is necessary here so that the mpsc buffer
+    /// internal to the `ordering_mpsc` channel doesn't fill up.
+    fn read_and_report(
+        mut rx: OrderingMpscReceiver<Fp32BitPrime>,
+        report_multiple: usize,
+    ) -> Receiver<usize> {
+        #[cfg(feature = "shuttle")]
+        use shuttle::future::spawn;
+        #[cfg(not(feature = "shuttle"))]
+        use tokio::spawn;
+
+        let (tx, report) = channel::<usize>(1);
+        spawn(async move {
+            let mut bytes = 0;
+            while let Some(buf) = rx.next(1).await {
+                bytes += buf.len();
+                if bytes % report_multiple == 0 {
+                    tx.send(bytes).await.unwrap();
+                }
+            }
+        });
+        report
+    }
+
+    /// A test that validates that reading and writing `cap` items works,
+    /// if the items are sent in the specified order.
+    pub async fn shuffled_send_recv(indices: &[usize], excess: usize) {
+        let cap = indices.len();
+        let (tx, rx) = ordering_mpsc("test", NonZeroUsize::new(cap + excess).unwrap());
+        assert!(rx.missing().is_empty());
+
+        let output_size = cap * FP32BIT_SIZE;
+        let mut recvd = read_and_report(rx, output_size);
+        for j in 0..2 {
+            join_all(indices.iter().map(|&i| tx.send_test(j * cap + i))).await;
+            assert_eq!(recvd.recv().await.unwrap(), output_size * (j + 1));
+        }
+    }
+}
+
+#[cfg(all(test, not(feature = "shuttle")))]
+mod unit {
+    use crate::{
+        ff::Fp31,
+        helpers::{
+            buffers::ordering_mpsc::{
+                fixture::{TestSender, FP32BIT_SIZE},
+                ordering_mpsc,
+            },
+            messaging::Message,
+        },
+    };
+    use futures::{future::join, FutureExt};
+    use std::{mem, num::NonZeroUsize};
 
     /// Test that a single value can be sent and received successfully.
     #[tokio::test]
@@ -337,65 +406,31 @@ mod tests {
     }
 }
 
+#[cfg(all(test, feature = "shuttle"))]
+mod concurrency {
+    use crate::helpers::buffers::ordering_mpsc::fixture::{shuffle_indices, shuffled_send_recv};
+    use shuttle::{check_random, future::block_on};
+
+    #[test]
+    fn shuffle() {
+        check_random(
+            || {
+                block_on(async {
+                    shuffled_send_recv(&shuffle_indices(100), 0).await;
+                });
+            },
+            1000,
+        );
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod proptests {
-    use crate::{
-        ff::Fp32BitPrime,
-        helpers::buffers::ordering_mpsc::{
-            ordering_mpsc,
-            tests::{TestSender, FP32BIT_SIZE},
-            OrderingMpscReceiver,
-        },
-        rand::thread_rng,
-    };
-    use futures::future::join_all;
-    use std::num::NonZeroUsize;
-    use tokio::sync::mpsc::{channel, Receiver};
-
-    /// For the provided receiver, read from it and report out when
-    /// the number of bytes produced hits a multiple of `report_multiple`.
-    ///
-    /// Unlike other tests, which only send in a few values, a separate
-    /// spawned task is necessary here so that the mpsc buffer
-    /// internal to the `ordering_mpsc` channel doesn't fill up.
-    fn read_and_report(
-        mut rx: OrderingMpscReceiver<Fp32BitPrime>,
-        report_multiple: usize,
-    ) -> Receiver<usize> {
-        let (tx, report) = channel::<usize>(1);
-        tokio::spawn(async move {
-            let mut bytes = 0;
-            while let Some(buf) = rx.next(1).await {
-                bytes += buf.len();
-                if bytes % report_multiple == 0 {
-                    tx.send(bytes).await.unwrap();
-                }
-            }
-        });
-        report
-    }
-
-    /// A test that validates that reading and writing `cap` items works,
-    /// if the items are sent in the specified order.
-    async fn proptest_shuffle(indices: &[usize], excess: usize) {
-        let cap = indices.len();
-        let (tx, rx) = ordering_mpsc("test", NonZeroUsize::new(cap + excess).unwrap());
-        assert!(rx.missing().is_empty());
-
-        let output_size = cap * FP32BIT_SIZE;
-        let mut recvd = read_and_report(rx, output_size);
-        for j in 0..2 {
-            join_all(indices.iter().map(|&i| tx.send_test(j * cap + i))).await;
-            assert_eq!(recvd.recv().await.unwrap(), output_size * (j + 1));
-        }
-    }
+    use crate::helpers::buffers::ordering_mpsc::fixture::{shuffle_indices, shuffled_send_recv};
 
     proptest::prop_compose! {
-        fn shuffle_indices()(cap in 2..1000_usize) -> Vec<usize> {
-            use rand::seq::SliceRandom;
-            let mut indices = (0..cap).collect::<Vec<_>>();
-            indices.shuffle(&mut thread_rng());
-            indices
+        fn shuffled()(cap in 2..1000_usize) -> Vec<usize> {
+            shuffle_indices(cap)
         }
     }
 
@@ -407,16 +442,16 @@ mod proptests {
                 .enable_all()
                 .build()
                 .unwrap()
-                .block_on(async move { proptest_shuffle(&indices, 0).await });
+                .block_on(async move { shuffled_send_recv(&indices, 0).await });
         }
 
         #[test]
-        fn arbitrary_size_shuffle(indices in shuffle_indices(), excess in 0..10_usize) {
+        fn arbitrary_size_shuffle(indices in shuffled(), excess in 0..10_usize) {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap()
-                .block_on(async { proptest_shuffle(&indices, excess).await });
+                .block_on(async { shuffled_send_recv(&indices, excess).await });
         }
     }
 }
