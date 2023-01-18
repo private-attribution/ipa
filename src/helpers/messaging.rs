@@ -35,13 +35,13 @@ use shuttle::future as tokio;
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
     /// Required number of bytes to store this message on disk/network
-    const SIZE_IN_BYTES: u32;
+    const SIZE_IN_BYTES: usize;
 
     /// Deserialize message from a sequence of bytes.
     ///
     /// ## Errors
     /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize(buf: &mut [u8]) -> io::Result<Self>;
+    fn deserialize(buf: &[u8]) -> io::Result<Self>;
 
     /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
     /// capacity to store this message.
@@ -54,9 +54,9 @@ pub trait Message: Debug + Send + Sized + 'static {
 
 /// Any field value can be send as a message
 impl<F: Field> Message for F {
-    const SIZE_IN_BYTES: u32 = F::Integer::BITS / 8;
+    const SIZE_IN_BYTES: usize = (F::Integer::BITS / 8) as usize;
 
-    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
         <F as Field>::deserialize(buf)
     }
 
@@ -114,7 +114,7 @@ impl Mesh<'_, '_> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        if T::SIZE_IN_BYTES as usize > MESSAGE_PAYLOAD_SIZE_BYTES {
+        if T::SIZE_IN_BYTES > MESSAGE_PAYLOAD_SIZE_BYTES {
             Err(Error::serialization_error::<String>(record_id,
                                                      self.step,
                                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
@@ -137,12 +137,12 @@ impl Mesh<'_, '_> {
     /// # Errors
     /// Returns an error if it fails to receive the message or if a deserialization error occurred
     pub async fn receive<T: Message>(&self, source: Role, record_id: RecordId) -> Result<T, Error> {
-        let mut payload = self
+        let payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj = T::deserialize(&mut payload)
+        let obj = T::deserialize(&payload)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         Ok(obj)

@@ -46,7 +46,7 @@ jobs:
         run: cargo build --release
 
       - name: Build benchmarks
-        run: cargo build --benches --all-features
+        run: cargo build --benches --features enable-benches
 
       - name: Build concurrency tests
         run: cargo build --features shuttle

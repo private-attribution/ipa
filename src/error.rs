@@ -25,9 +25,6 @@ pub enum Error {
     MaliciousSecurityCheckFailed,
     #[error("malicious reveal failed")]
     MaliciousRevealFailed,
-    #[error("failed to decode hex: {0}")]
-    #[cfg(feature = "cli")]
-    Hex(#[from] hex::FromHexError),
     #[error("problem during IO: {0}")]
     Io(#[from] std::io::Error),
     #[error("failed to parse json: {0}")]

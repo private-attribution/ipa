@@ -57,12 +57,12 @@ impl PublicKeyChunk {
 
 impl Message for PublicKeyChunk {
     #[allow(clippy::cast_possible_truncation)]
-    const SIZE_IN_BYTES: u32 = MESSAGE_PAYLOAD_SIZE_BYTES as u32;
+    const SIZE_IN_BYTES: usize = MESSAGE_PAYLOAD_SIZE_BYTES;
 
-    fn deserialize(buf: &mut [u8]) -> std::io::Result<Self> {
-        if Self::SIZE_IN_BYTES as usize <= buf.len() {
-            let mut chunk = [0; Self::SIZE_IN_BYTES as usize];
-            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES as usize]);
+    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+        if Self::SIZE_IN_BYTES <= buf.len() {
+            let mut chunk = [0; Self::SIZE_IN_BYTES];
+            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
             Ok(PublicKeyChunk(chunk))
         } else {
             Err(std::io::Error::new(
@@ -78,7 +78,7 @@ impl Message for PublicKeyChunk {
 
     fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
         if buf.len() >= self.0.len() {
-            buf[..Self::SIZE_IN_BYTES as usize].copy_from_slice(&self.0);
+            buf[..Self::SIZE_IN_BYTES].copy_from_slice(&self.0);
             Ok(())
         } else {
             Err(std::io::Error::new(
@@ -138,7 +138,7 @@ mod tests {
         chunk.serialize(&mut serialized).unwrap();
         assert_eq!(chunk_bytes, serialized);
 
-        let deserialized = PublicKeyChunk::deserialize(&mut serialized).unwrap();
+        let deserialized = PublicKeyChunk::deserialize(&serialized).unwrap();
         assert_eq!(chunk, deserialized);
     }
 
