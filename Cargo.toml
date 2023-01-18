@@ -9,6 +9,8 @@ edition = "2021"
 default = ["web-app", "tracing/max_level_trace", "tracing/release_max_level_info"]
 cli = ["comfy-table", "clap"]
 enable-serde = ["serde", "serde_json"]
+protocol-perf-testing = ["no-prss"]
+no-prss = []
 # TODO move web-app to a separate crate. It adds a lot of build time to people who mostly write protocols
 # TODO Consider moving out benches as well
 web-app = ["axum", "axum-server", "enable-serde", "hex", "hyper", "hyper-tls", "tower", "tower-http"]
