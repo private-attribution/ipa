@@ -7,7 +7,7 @@ use crate::{
     helpers::{http::HttpNetwork, network::MessageChunks},
     net::LastSeenMessages,
     protocol::QueryId,
-    telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
+    telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
 use ::tokio::sync::mpsc;
 use axum::{
@@ -50,6 +50,7 @@ pub enum MpcHelperServerError {
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
     #[error(transparent)]
     HyperError(#[from] hyper::Error),
+    #[cfg(feature = "enable-serde")]
     #[error("parse error: {0}")]
     SerdeError(#[from] serde_json::Error),
     #[error("could not forward messages: {0}")]
@@ -415,7 +416,7 @@ mod e2e_tests {
         helpers::http::HttpNetwork,
         net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::QueryId,
-        telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
+        telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
         test_fixture::metrics::MetricsHandle,
     };
     use hyper::{

@@ -304,7 +304,6 @@ struct TriggerFanoutQuery {
     value_range: Range<u32>,
 }
 
-#[cfg(feature = "debug")]
 impl Debug for TriggerFanoutQuery {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(

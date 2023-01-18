@@ -1,7 +1,7 @@
 mod into_shares;
 pub mod replicated;
 mod xor;
-#[cfg(any(feature = "test-fixture", feature = "cli"))]
+#[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use into_shares::IntoShares;
 
 use crate::bits::BooleanOps;

@@ -6,7 +6,6 @@ use crate::{
         network::{ChannelId, MessageChunks},
         HelperIdentity, Role,
     },
-    net::MpcHelperServerError,
     protocol::{RecordId, Step},
 };
 use thiserror::Error;
@@ -47,12 +46,14 @@ pub enum Error {
     },
     #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
+    #[cfg(feature = "web-app")]
     #[error("identity had invalid format: {0}")]
     InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to send command on the transport: {0}")]
     TransportError(#[from] TransportError),
+    #[cfg(feature = "web-app")]
     #[error("server encountered an error: {0}")]
-    ServerError(#[from] MpcHelperServerError),
+    ServerError(#[from] crate::net::MpcHelperServerError),
 }
 
 impl Error {
