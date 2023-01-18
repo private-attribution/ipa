@@ -41,6 +41,7 @@ struct OrderingMpscEnd {
 /// A multi-producer, single-consumer channel that performs buffered reordering
 /// of inputs, with back pressure if the insertion is beyond the end of its buffer.
 /// This requires that each item be serializable and fixed size.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))] // For name.
 pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
     name: S,
     capacity: NonZeroUsize,
@@ -79,7 +80,8 @@ impl<M: Message> OrderingMpscReceiver<M> {
     /// [`new`]: Self::new
     /// [`take`]: Self::take
     fn insert(&mut self, index: usize, msg: M) {
-        if cfg!(debug_assertions) {
+        #[cfg(debug_assertions)]
+        {
             let end = self.end.get();
             assert!(
                 ((end - self.capacity.get())..end).contains(&index),
@@ -93,8 +95,10 @@ impl<M: Message> OrderingMpscReceiver<M> {
         let start = i * M::SIZE_IN_BYTES;
         let offset = start..start + M::SIZE_IN_BYTES;
 
+        #[cfg_attr(not(debug_assertions), allow(unused_variables))]
         let overwritten = self.added.replace(i, true);
-        debug_assert!(
+        #[cfg(debug_assertions)]
+        assert!(
             !overwritten,
             "Duplicate send for index {index} on channel \"{}\"",
             self.name,
