@@ -17,7 +17,7 @@ macro_rules! bit_array_impl {
             ///
             /// Bits are stored in the Little-Endian format. Accessing the first element
             /// like `b[0]` will return the LSB.
-            #[derive(std::fmt::Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+            #[derive(std::fmt::Debug, Clone, Copy, PartialEq, Eq)]
             pub struct $name($store);
 
             impl SharedValue for $name {
@@ -101,6 +101,29 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            impl TryFrom<$name> for u128 {
+                type Error = String;
+
+                /// Fallible conversion from this data type to `u128`. The inner value must be
+                /// at most `Self::BITS` long. That is, the integer value must be less than
+                /// or equal to `2^Self::BITS`, or it will return an error.
+                fn try_from(value: $name) -> Result<Self, Self::Error> {
+                    if <$name>::BITS <= 128 {
+                        Ok(value
+                            .0
+                            .iter()
+                            .by_refs()
+                            .enumerate()
+                            .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i)))
+                    } else {
+                        Err(format!(
+                            "Bit array size {} is too large to convert to u128.",
+                            Self::BITS,
+                        ))
+                    }
+                }
+            }
+
             impl std::ops::Index<usize> for $name {
                 type Output = bool;
 
@@ -114,6 +137,27 @@ macro_rules! bit_array_impl {
 
                 fn index(&self, index: u32) -> &Self::Output {
                     &self[index as usize]
+                }
+            }
+
+            /// Compares two `BitArray`s by their representational ordering
+            ///
+            /// The original implementation of `Ord` for `bitvec::BitArray` compares two arrays
+            /// from LSB, and at the first index where the arrays differ, the array with the high
+            /// bit is greater. For our use case, however, we want to compare two arrays by their
+            /// integer values represented by the bits. In other words, if `a < b` is true, then
+            /// `BitArray::try_from(a).unwrap() < BitArray::try_from(b).unwrap()` must also be true.
+            impl Ord for $name {
+                fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                    u128::try_from(*self)
+                        .unwrap()
+                        .cmp(&u128::try_from(*other).unwrap())
+                }
+            }
+
+            impl PartialOrd for $name {
+                fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                    Some(self.cmp(other))
                 }
             }
 
@@ -178,6 +222,18 @@ macro_rules! bit_array_impl {
                     assert_eq!(a | b, or);
                     assert_eq!(a ^ b, xor);
                     assert_eq!(!a, not);
+                }
+
+                #[test]
+                pub fn ordering() {
+                    let mut rng = thread_rng();
+                    let a = rng.gen::<u128>() & MASK;
+                    let b = rng.gen::<u128>() & MASK;
+
+                    println!("a: {a}");
+                    println!("b: {b}");
+
+                    assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
                 }
             }
         }
