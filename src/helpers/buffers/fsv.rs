@@ -2,8 +2,6 @@ use bitvec::bitvec;
 use bitvec::prelude::BitVec;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::{AcqRel, Acquire};
 
 /// A store of bytes that allows for random access inserts, but contiguous removal.
 ///
@@ -20,7 +18,7 @@ pub struct FixedSizeByteVec<const N: usize> {
     data: Vec<u8>,
     added: BitVec,
     capacity: NonZeroUsize,
-    end: AtomicUsize,
+    end: usize,
 }
 
 impl<const N: usize> FixedSizeByteVec<N> {
@@ -31,7 +29,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
             data: vec![0_u8; N * capacity.get()],
             added: bitvec![0; capacity.get()],
             capacity,
-            end: AtomicUsize::new(capacity.get()),
+            end: capacity.get(),
         }
     }
 
@@ -48,14 +46,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// [`new`]: Self::new
     /// [`take`]: Self::take
     pub fn insert<D: Debug>(&mut self, channel: D, index: usize, elem: &[u8; N]) {
-        if cfg!(debug_assertions) {
-            let end = self.end.load(Acquire);
-            assert!(
-                ((end - self.capacity.get())..end).contains(&index),
-                "Attempt to insert out of range at index {index} (allowed={:?})",
-                (end - self.capacity.get())..end
-            );
-        }
+        debug_assert!(
+            ((self.end - self.capacity.get())..(self.end)).contains(&index),
+            "Attempt to insert out of range at index {index} (allowed={:?})",
+            (self.end - self.capacity.get())..(self.end)
+        );
         // Translate from an absolute index into a relative one.
         let i = index % self.capacity.get();
         let start = i * N;
@@ -72,9 +67,8 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// Return any gap ahead of the first missing value.
     #[cfg(any(test, debug_assertions))]
     pub fn missing(&self) -> std::ops::Range<usize> {
-        let end = self.end.load(Acquire);
-        let start = end - self.capacity.get();
-        let i = end % self.capacity.get();
+        let start = self.end - self.capacity.get();
+        let i = self.end % self.capacity.get();
         let mut absent = self.added[i..].leading_zeros();
         if i + absent == self.capacity.get() {
             absent += self.added[..i].leading_zeros();
@@ -90,7 +84,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
     /// fewer than `min_count` elements have been inserted at the start of the buffer.
     pub fn take(&mut self, min_count: usize) -> Option<Vec<u8>> {
         // Find the relative index we're starting at.
-        let i = self.end.load(Acquire) % self.capacity.get();
+        let i = self.end % self.capacity.get();
 
         // Find how many elements we can return (`tail + wrap`).
         let tail = self.added[i..].leading_ones();
@@ -106,7 +100,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
 
         // Move `self.end` marker, clear the values in `self.added`, and
         // return a copy of that part of `self.data` that matters.
-        self.end.fetch_add(tail + wrap, AcqRel);
+        self.end += tail + wrap;
         self.added[i..(i + tail)].fill(false);
         if wrap > 0 {
             self.added[..wrap].fill(false);
