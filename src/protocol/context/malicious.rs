@@ -286,7 +286,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// ```no_run
 /// use raw_ipa::protocol::{context::{NoRecord, UpgradeContext, UpgradeToMalicious}, RecordId};
 /// use raw_ipa::ff::Fp31;
-/// use raw_ipa::secret_sharing::{MaliciousReplicated, Replicated};
+/// use raw_ipa::secret_sharing::replicated::{
+///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+/// };
 /// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
 /// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
 /// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Replicated<Fp31>, Replicated<Fp31>), _>>::upgrade;
@@ -297,7 +299,9 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// ```compile_fail
 /// use raw_ipa::protocol::{context::{NoRecord, UpgradeContext, UpgradeToMalicious}, RecordId};
 /// use raw_ipa::ff::Fp31;
-/// use raw_ipa::secret_sharing::{MaliciousReplicated, Replicated};
+/// use raw_ipa::secret_sharing::replicated::{
+///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+/// };
 /// // This can't be upgraded with a record-bound context because the record ID
 /// // is used internally for vector indexing.
 /// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
@@ -398,8 +402,7 @@ where
     U: Send + 'static,
     TM: Send + Sized,
     UM: Send + Sized,
-    for<'u> UpgradeContext<'u, F, NoRecord>: UpgradeToMalicious<T, TM>,
-    for<'u> UpgradeContext<'u, F, NoRecord>: UpgradeToMalicious<U, UM>,
+    for<'u> UpgradeContext<'u, F, NoRecord>: UpgradeToMalicious<T, TM> + UpgradeToMalicious<U, UM>,
 {
     async fn upgrade(self, input: (T, U)) -> Result<(TM, UM), Error> {
         try_join(
