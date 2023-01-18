@@ -4,11 +4,10 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 use std::fmt::Debug;
 
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::PublicKey;
 
+/// This is a no-op prss implementation which has been introduced for performance testing of protocols to isolate any PRSS related bottlenecks.
 pub trait SharedRandomness {
-    /// Generate two random values, one that is known to the left helper
-    /// and one that is known to the right helper.
     #[must_use]
     fn generate_values<I: Into<u128>>(&self, index: I) -> (u128, u128);
 
@@ -17,14 +16,6 @@ pub trait SharedRandomness {
         (F::ZERO, F::ZERO)
     }
 
-    ///
-    /// Generate a replicated secret sharing of a random value, which none
-    /// of the helpers knows. This is an implementation of the functionality 2.1 `F_rand`
-    /// described on page 5 of the paper:
-    /// "Efficient Bit-Decomposition and Modulus Conversion Protocols with an Honest Majority"
-    /// by Ryo Kikuchi, Dai Ikarashi, Takahiro Matsuda, Koki Hamada, and Koji Chida
-    /// <https://eprint.iacr.org/2018/387.pdf>
-    ///
     #[must_use]
     fn generate_replicated<F: Field, I: Into<u128>>(&self, index: I) -> Replicated<F> {
         let (l, r) = self.generate_fields(index);
@@ -58,20 +49,16 @@ pub trait SharedRandomness {
 }
 
 /// The key exchange component of a participant.
-pub struct KeyExchange {
-    sk: EphemeralSecret,
-}
+pub struct KeyExchange {}
 
 impl KeyExchange {
-    pub fn new<R: RngCore + CryptoRng>(r: &mut R) -> Self {
-        Self {
-            sk: EphemeralSecret::new(r),
-        }
+    pub fn new<R: RngCore + CryptoRng>(_r: &mut R) -> Self {
+        Self {}
     }
 
     #[must_use]
     pub fn public_key(&self) -> PublicKey {
-        PublicKey::from(&self.sk)
+        PublicKey::from([0_u8; 32])
     }
 
     #[must_use]
@@ -91,10 +78,7 @@ impl GeneratorFactory {
 
 #[derive(Debug, Clone)]
 pub struct Generator {}
-/// The basic generator.  This generates values based on an arbitrary index.
 impl Generator {
-    /// Generate the value at the given index.
-    /// This uses the MMO^{\pi} function described in <https://eprint.iacr.org/2019/074>.
     #[must_use]
     pub fn generate(&self, _index: u128) -> u128 {
         0
