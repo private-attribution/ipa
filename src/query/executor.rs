@@ -1,14 +1,20 @@
-use crate::ff::{Field, FieldType, Fp31};
-use crate::helpers::messaging::Gateway;
-use crate::helpers::query::{IPAQueryConfig, QueryConfig, QueryType};
-use crate::helpers::{negotiate_prss, TransportError};
-use crate::protocol::attribution::AggregateCreditOutputRow;
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::ipa::{ipa, IPAInputRow};
-use crate::protocol::Step;
-use crate::secret_sharing::Replicated;
-use crate::task::JoinHandle;
-use futures::Stream;
+use crate::{
+    ff::{Field, FieldType, Fp31},
+    helpers::{
+        messaging::Gateway,
+        negotiate_prss,
+        query::{IPAQueryConfig, QueryConfig, QueryType},
+        transport::{AlignedByteArrStream, ByteArrStream},
+    },
+    protocol::{
+        attribution::AggregateCreditOutputRow,
+        context::SemiHonestContext,
+        ipa::{ipa, IPAInputRow},
+        Step,
+    },
+    secret_sharing::Replicated,
+    task::JoinHandle,
+};
 use futures_util::StreamExt;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
@@ -57,12 +63,9 @@ impl<F: Field> Result for Vec<AggregateCreditOutputRow<F>> {
 }
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-async fn execute_test_multiply<
-    F: Field,
-    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
->(
+async fn execute_test_multiply<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    mut input: St,
+    mut input: AlignedByteArrStream,
 ) -> Vec<Replicated<F>> {
     use crate::protocol::basics::SecureMul;
     use crate::protocol::RecordId;
@@ -94,13 +97,10 @@ async fn execute_test_multiply<
     results
 }
 
-async fn execute_ipa<
-    F: Field,
-    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin,
->(
+async fn execute_ipa<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
-    mut input: St,
+    mut input: AlignedByteArrStream,
 ) -> Vec<AggregateCreditOutputRow<F>> {
     let mut inputs = Vec::new();
     while let Some(data) = input.next().await {
@@ -118,12 +118,10 @@ async fn execute_ipa<
     .unwrap()
 }
 
-pub fn start_query<
-    St: Stream<Item = std::result::Result<Vec<u8>, TransportError>> + Send + Unpin + 'static,
->(
+pub fn start_query(
     config: QueryConfig,
     gateway: Gateway,
-    input: St,
+    input: ByteArrStream,
 ) -> JoinHandle<Box<dyn Result>> {
     tokio::spawn(async move {
         // TODO: make it a generic argument for this function
@@ -139,9 +137,11 @@ pub fn start_query<
                 match config.query_type {
                     #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                     QueryType::TestMultiply => {
+                        let input = input.align(Replicated::<Fp31>::SIZE_IN_BYTES);
                         Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                     }
                     QueryType::IPA(config) => {
+                        let input = input.align(IPAInputRow::<Fp31>::SIZE_IN_BYTES);
                         Box::new(execute_ipa(ctx, config, input).await) as Box<dyn Result>
                     }
                 }
@@ -156,11 +156,12 @@ pub fn start_query<
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::protocol::ipa::test_cases;
-    use crate::secret_sharing::IntoShares;
-    use crate::test_fixture::{Reconstruct, TestWorld};
+    use crate::{
+        protocol::ipa::test_cases,
+        secret_sharing::IntoShares,
+        test_fixture::{Reconstruct, TestWorld},
+    };
     use futures_util::future::join_all;
-    use futures_util::stream;
 
     #[tokio::test]
     async fn multiply() {
@@ -183,7 +184,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            Box::new(stream::iter(std::iter::once(Ok(r))))
+            ByteArrStream::from(r).align(SIZE)
         });
 
         let results: [_; 3] = join_all(
@@ -226,7 +227,9 @@ mod tests {
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,
             };
-            execute_ipa(ctx, query_config, stream::iter(std::iter::once(Ok(shares))))
+            let input =
+                ByteArrStream::from(shares.as_slice()).align(IPAInputRow::<Fp31>::SIZE_IN_BYTES);
+            execute_ipa(ctx, query_config, input)
         }))
         .await
         .try_into()

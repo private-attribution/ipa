@@ -1,11 +1,10 @@
-use crate::helpers::TransportError;
 use crate::{
     helpers::{
         messaging::Gateway,
         network::Network,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
         GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport,
-        TransportCommand,
+        TransportCommand, TransportError,
     },
     protocol::QueryId,
     query::{
@@ -292,13 +291,14 @@ impl<T: Transport + Clone> Processor<T> {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::ff::FieldType;
-    use crate::helpers::query::QueryType;
-    use crate::helpers::TransportError;
-    use crate::test_fixture::transport::{DelayedTransport, FailingTransport, InMemoryNetwork};
+    use crate::{
+        ff::FieldType,
+        helpers::query::QueryType,
+        sync::Arc,
+        test_fixture::transport::{DelayedTransport, FailingTransport, InMemoryNetwork},
+    };
     use futures::pin_mut;
     use futures_util::future::poll_immediate;
-    use std::sync::Arc;
 
     /// set up 3 query processors in active-passive mode. The first processor is returned and can be
     /// used to drive query workflow, while two others will be spawned in a tokio task and will
@@ -454,18 +454,18 @@ mod tests {
 
     mod e2e {
         use super::*;
-        use crate::ff::Fp31;
-        use crate::helpers::query::{IPAQueryConfig, QueryInput};
-        use crate::protocol::attribution::AggregateCreditOutputRow;
-        use crate::protocol::ipa::test_cases::Simple;
-        use crate::protocol::ipa::IPAInputRow;
-        use crate::secret_sharing::{IntoShares, Replicated};
-        use crate::sync::Weak;
-        use crate::test_fixture::transport::InMemoryTransport;
-        use crate::test_fixture::Reconstruct;
+        use crate::{
+            ff::Fp31,
+            helpers::{query::IPAQueryConfig, transport::ByteArrStream},
+            protocol::{
+                attribution::AggregateCreditOutputRow,
+                ipa::{test_cases::Simple, IPAInputRow},
+            },
+            secret_sharing::{IntoShares, Replicated},
+            sync::Weak,
+            test_fixture::{transport::InMemoryTransport, Reconstruct},
+        };
         use futures_util::future::{join_all, try_join_all};
-        use futures_util::stream;
-        use tokio::sync::oneshot;
 
         async fn make_three(network: &InMemoryNetwork) -> [Processor<Weak<InMemoryTransport>>; 3] {
             let identities = HelperIdentity::make_three();
@@ -514,8 +514,7 @@ mod tests {
                 let mut slice = [0u8; 2 * SZ];
                 a.serialize(&mut slice).unwrap();
                 b.serialize(&mut slice[SZ..]).unwrap();
-                let oks = std::iter::once(slice.to_vec()).map(Ok);
-                Box::pin(stream::iter(oks))
+                ByteArrStream::from(slice.as_slice())
             });
 
             // at this point, all helpers must be awaiting inputs
@@ -526,7 +525,6 @@ mod tests {
                     .deliver(QueryCommand::Input(
                         QueryInput {
                             query_id,
-                            field_type: FieldType::Fp31,
                             input_stream: input,
                         },
                         tx,
@@ -587,18 +585,17 @@ mod tests {
                         })
                         .collect::<Vec<_>>();
 
-                    Box::pin(stream::iter(std::iter::once(Ok(data))))
+                    ByteArrStream::from(data)
                 })
                 .collect::<Vec<_>>();
 
-            for (i, input) in helper_shares.into_iter().enumerate() {
+            for (i, input_stream) in helper_shares.into_iter().enumerate() {
                 let (tx, rx) = oneshot::channel();
                 network.transports[i]
                     .deliver(QueryCommand::Input(
                         QueryInput {
                             query_id,
-                            field_type: FieldType::Fp31,
-                            input_stream: input,
+                            input_stream,
                         },
                         tx,
                     ))

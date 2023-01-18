@@ -5,7 +5,8 @@ pub use error::Error;
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        HelperIdentity, TransportError,
+        transport::ByteArrStream,
+        HelperIdentity,
     },
     net::{discovery::peer, http_serde},
     protocol::{QueryId, Step},
@@ -14,11 +15,9 @@ use axum::{
     body::{Bytes, StreamBody},
     http::uri::{self, PathAndQuery},
 };
-use futures::Stream;
 use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
-use std::pin::Pin;
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
@@ -27,10 +26,7 @@ use std::pin::Pin;
 #[derive(Debug, Clone)]
 pub struct MpcHelperClient {
     client: Client<HttpsConnector<HttpConnector>, Body>,
-    streaming_client: Client<
-        HttpsConnector<HttpConnector>,
-        StreamBody<Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>>,
-    >,
+    streaming_client: Client<HttpsConnector<HttpConnector>, StreamBody<ByteArrStream>>,
     scheme: uri::Scheme,
     authority: uri::Authority,
 }

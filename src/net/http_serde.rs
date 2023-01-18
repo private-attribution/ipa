@@ -84,12 +84,12 @@ pub mod query {
 
     impl Display for QueryConfigQueryParams {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(f, "field-type={}&", self.field_type.as_ref())?;
+            write!(f, "field_type={}&", self.field_type.as_ref())?;
             match self.query_type {
-                QueryType::TestMultiply => write!(f, "query-type={}", QueryType::TEST_MULTIPLY_STR),
+                QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
                 QueryType::IPA(config) => write!(
                     f,
-                    "query-type={}&num-bits={}&per-user-credit-cap={}&max-breakdown-key={}",
+                    "query_type={}&num_bits={}&per_user_credit_cap={}&max_breakdown_key={}",
                     QueryType::IPA_STR,
                     config.num_bits,
                     config.per_user_credit_cap,
@@ -287,24 +287,20 @@ pub mod query {
 
     pub mod input {
         use crate::{
-            ff::FieldType,
-            helpers::{query::QueryInput, transport::ByteArrStream, TransportError},
+            helpers::{query::QueryInput, transport::ByteArrStream},
             net::{client, http_serde::query::BASE_AXUM_PATH, server},
         };
         use async_trait::async_trait;
         use axum::{
             body::StreamBody,
-            extract::{BodyStream, FromRequest, Path, Query, RequestParts},
+            extract::{BodyStream, FromRequest, Path, RequestParts},
             http::uri,
         };
-        use futures::Stream;
-        use futures_util::TryStreamExt;
         use hyper::{
             body::{Bytes, HttpBody},
             header::CONTENT_TYPE,
             Body,
         };
-        use std::pin::Pin;
 
         pub struct Request {
             pub query_input: QueryInput,
@@ -320,37 +316,24 @@ pub mod query {
                 self,
                 scheme: uri::Scheme,
                 authority: uri::Authority,
-            ) -> Result<
-                hyper::Request<
-                    StreamBody<Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>>,
-                >,
-                client::Error,
-            > {
+            ) -> Result<hyper::Request<StreamBody<ByteArrStream>>, client::Error> {
                 let uri = uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
                     .path_and_query(format!(
-                        "{}/{}/input?field_name={}",
+                        "{}/{}/input",
                         BASE_AXUM_PATH,
                         self.query_input.query_id.as_ref(),
-                        self.query_input.field_type.as_ref()
                     ))
                     .build()?;
-                let body = StreamBody::new(self.query_input.input_stream);
                 Ok(hyper::Request::post(uri)
                     .header(CONTENT_TYPE, "application/octet-stream")
-                    .body(body)?)
+                    .body(StreamBody::new(self.query_input.input_stream))?)
             }
-        }
-
-        #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-        struct InputParams {
-            field_type: FieldType,
         }
 
         struct ByteArrStreamFromReq(ByteArrStream);
 
-        #[cfg(feature = "enable-serde")]
         #[async_trait]
         impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
             for ByteArrStreamFromReq
@@ -358,17 +341,9 @@ pub mod query {
             type Rejection = server::Error;
 
             async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-                #[derive(serde::Deserialize)]
-                struct FieldTypeParam {
-                    field_type: FieldType,
-                }
-
-                // TODO: don't use `field_type` here. we need to use `size_in_bytes`, and possibly defer
-                //       defer this decision to query processing layer
-                let Query(FieldTypeParam { field_type }) = req.extract().await?;
                 let body: BodyStream = req.extract().await?;
-                let bas = ByteArrStream::new(body, field_type.size_in_bytes());
-                Ok(ByteArrStreamFromReq(bas))
+
+                Ok(ByteArrStreamFromReq(body.into()))
             }
         }
 
@@ -378,20 +353,12 @@ pub mod query {
 
             async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
-                let Query::<InputParams>(input) = req.extract().await?;
-                let input_stream = req
-                    .extract::<ByteArrStreamFromReq>()
-                    .await?
-                    .0
-                    .and_then(|bytes| futures::future::ok(bytes.to_vec()))
-                    .map_err(TransportError::from);
+                let ByteArrStreamFromReq(input_stream) = req.extract().await?;
 
                 Ok(Request {
                     query_input: QueryInput {
                         query_id,
-                        field_type: input.field_type,
-                        input_stream: Box::pin(input_stream)
-                            as Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
+                        input_stream,
                     },
                 })
             }

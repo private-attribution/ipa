@@ -1,12 +1,10 @@
-use crate::query::ProtocolResult;
 use crate::{
     ff::FieldType,
-    helpers::{RoleAssignment, TransportCommand, TransportError},
+    helpers::{transport::ByteArrStream, RoleAssignment, TransportCommand},
     protocol::{QueryId, Substep},
+    query::ProtocolResult,
 };
-use futures::Stream;
 use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
 use tokio::sync::oneshot;
 
 #[derive(Copy, Clone, Debug)]
@@ -26,11 +24,7 @@ pub struct PrepareQuery {
 
 pub struct QueryInput {
     pub query_id: QueryId,
-    /// TODO: remove, we already have this information in query configuration
-    pub field_type: FieldType,
-    // TODO: there are no errors that need to be streamed from client to server.
-    // this type should be just a Stream<Item = Vec<u8>>
-    pub input_stream: Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
+    pub input_stream: ByteArrStream,
 }
 
 impl Debug for QueryInput {

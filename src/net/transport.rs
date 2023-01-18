@@ -149,7 +149,10 @@ mod e2e_tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::query::{QueryConfig, QueryInput, QueryType},
+        helpers::{
+            query::{QueryConfig, QueryInput, QueryType},
+            transport::ByteArrStream,
+        },
         net::discovery::PeerDiscovery,
         query::Processor,
         secret_sharing::{IntoShares, Replicated},
@@ -157,7 +160,7 @@ mod e2e_tests {
     };
     use futures_util::{
         future::{join_all, try_join_all},
-        join, stream,
+        join,
     };
 
     fn open_port() -> u16 {
@@ -202,7 +205,6 @@ mod e2e_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore] // TODO: this is now failing due to changes made to `ByteArrStream`
     async fn happy_case() {
         const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
         let conf = localhost_config([open_port(), open_port(), open_port()]);
@@ -237,15 +239,13 @@ mod e2e_tests {
             let mut slice = [0u8; 2 * SZ];
             a.serialize(&mut slice).unwrap();
             b.serialize(&mut slice[SZ..]).unwrap();
-            let oks = std::iter::once(slice.to_vec()).map(Ok);
-            Box::pin(stream::iter(oks))
+            ByteArrStream::from(slice.as_slice())
         });
 
         let mut handle_resps = Vec::with_capacity(helper_shares.len());
         for (i, input_stream) in helper_shares.into_iter().enumerate() {
             let data = QueryInput {
                 query_id,
-                field_type: FieldType::Fp31,
                 input_stream,
             };
             handle_resps.push(clients[i].query_input(data));

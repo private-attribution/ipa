@@ -1,20 +1,19 @@
-use crate::error::BoxError;
-use axum::extract::BodyStream;
+use crate::{error::BoxError, helpers::transport::bytearrstream::PinnedStream};
 use futures::{ready, Stream};
 use hyper::body::Bytes;
 use pin_project::pin_project;
 use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Wraps a [`BodyStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
+/// Wraps a [`PinnedStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
 /// # Errors
 /// If the downstream body is not a multiple of `size_in_bytes`.
-#[derive(Debug)]
 #[pin_project]
 pub struct ByteArrStream {
     #[pin]
-    body: BodyStream,
+    stream: PinnedStream,
     size_in_bytes: u32,
     buffered_size: u32,
     buffered: VecDeque<Bytes>,
@@ -24,10 +23,10 @@ impl ByteArrStream {
     /// # Panics
     /// if `size_in_bytes` is 0
     #[must_use]
-    pub fn new(body: BodyStream, size_in_bytes: u32) -> Self {
+    pub fn new(stream: PinnedStream, size_in_bytes: u32) -> Self {
         assert_ne!(size_in_bytes, 0);
         Self {
-            body,
+            stream,
             size_in_bytes,
             buffered_size: 0,
             buffered: VecDeque::new(),
@@ -103,7 +102,7 @@ impl Stream for ByteArrStream {
             }
             // if we need more bytes, poll the body
             let mut this = self.as_mut().project();
-            match ready!(this.body.as_mut().poll_next(cx)) {
+            match ready!(this.stream.as_mut().poll_next(cx)) {
                 // if body is expended, but we have some bytes leftover, error due to misaligned
                 // output
                 None if *this.buffered_size > 0 => {
@@ -125,7 +124,7 @@ impl Stream for ByteArrStream {
                 Some(Err(err)) => {
                     return Poll::Ready(Some(Err(std::io::Error::new::<BoxError>(
                         std::io::ErrorKind::UnexpectedEof,
-                        err.into(),
+                        err,
                     ))));
                 }
 
@@ -138,12 +137,27 @@ impl Stream for ByteArrStream {
     }
 }
 
+impl Debug for ByteArrStream {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "AlignedByteArrStream {{ stream: <PinnedStream>, size_in_bytes: {:?}, buffered_size: {:?}, buffered: {:?} }}",
+            self.size_in_bytes,
+            self.buffered_size,
+            self.buffered
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::ff::{self, Field, FieldType};
+    use crate::{
+        ff::{self, Field, FieldType},
+        helpers::transport::ByteArrStream as UnalignedByteArrStream,
+    };
     use axum::{
-        extract::{rejection::BodyAlreadyExtracted, FromRequest, RequestParts},
+        extract::{rejection::BodyAlreadyExtracted, BodyStream, FromRequest, RequestParts},
         http::{HeaderMap, Request},
     };
     use hyper::{body::HttpBody, Body};
@@ -159,7 +173,8 @@ mod test {
                 .unwrap(),
         );
         let body_stream = BodyStream::from_request(&mut req_parts).await?;
-        Ok(ByteArrStream::new(body_stream, field_type.size_in_bytes()))
+        Ok(UnalignedByteArrStream::from(body_stream)
+            .align(usize::try_from(field_type.size_in_bytes()).unwrap()))
     }
 
     /// Simple body that represents a stream of `Bytes` chunks.
@@ -202,7 +217,7 @@ mod test {
                 .unwrap(),
         );
         let body_stream = req_parts.extract::<BodyStream>().await.unwrap();
-        ByteArrStream::new(body_stream, size_in_bytes)
+        UnalignedByteArrStream::from(body_stream).align(usize::try_from(size_in_bytes).unwrap())
     }
 
     mod unit_test {

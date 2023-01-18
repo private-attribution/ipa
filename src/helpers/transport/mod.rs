@@ -3,7 +3,7 @@ pub mod query;
 mod bytearrstream;
 mod error;
 
-pub use bytearrstream::ByteArrStream;
+pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use error::Error as TransportError;
 
 use crate::{
