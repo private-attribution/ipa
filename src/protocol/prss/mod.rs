@@ -1,7 +1,12 @@
-#[cfg(feature = "no-prss")]
-pub use super::no_prss::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 #[cfg(not(feature = "no-prss"))]
-pub use super::use_prss::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
+mod crypto;
+#[cfg(feature = "no-prss")]
+mod no_op;
+
+#[cfg(not(feature = "no-prss"))]
+pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
+#[cfg(feature = "no-prss")]
+pub use no_op::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
 use super::Step;
 use crate::rand::{CryptoRng, RngCore};
