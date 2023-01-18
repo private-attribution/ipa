@@ -225,6 +225,16 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
+                pub fn conversion() {
+                    let max = $name::try_from(MASK).unwrap();
+
+                    assert_eq!(
+                        u128::try_from(max).unwrap(),
+                        MASK,
+                    );
+                }
+
+                #[test]
                 pub fn ordering() {
                     let mut rng = thread_rng();
                     let a = rng.gen::<u128>() & MASK;
