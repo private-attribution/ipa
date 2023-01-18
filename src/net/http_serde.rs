@@ -26,7 +26,7 @@ pub mod query {
 
     /// wrapper around [`QueryConfig`] to enable extraction from an `Axum` request. To be used with
     /// the `create` and `prepare` commands
-    pub struct QueryConfigQueryParams(pub QueryConfig);
+    struct QueryConfigQueryParams(pub QueryConfig);
 
     impl std::ops::Deref for QueryConfigQueryParams {
         type Target = QueryConfig;
@@ -120,15 +120,12 @@ pub mod query {
     /// Header indicating the originating `HelperIdentity`.
     /// May be replaced in the future with a method with better security
     #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
-    pub struct OriginHeader {
-        pub origin: HelperIdentity,
+    struct OriginHeader {
+        origin: HelperIdentity,
     }
 
     impl OriginHeader {
-        pub(crate) fn add_to(
-            self,
-            req: axum::http::request::Builder,
-        ) -> axum::http::request::Builder {
+        fn add_to(self, req: axum::http::request::Builder) -> axum::http::request::Builder {
             req.header(ORIGIN_HEADER_NAME.clone(), self.origin)
         }
     }
@@ -149,9 +146,53 @@ pub mod query {
 
     pub mod create {
         use crate::{
-            helpers::query::QueryConfig, net::http_serde::query::QueryConfigQueryParams,
+            helpers::query::QueryConfig,
+            net::{
+                client,
+                http_serde::query::{server, QueryConfigQueryParams, BASE_AXUM_PATH},
+            },
             protocol::QueryId,
         };
+        use async_trait::async_trait;
+        use axum::extract::{FromRequest, RequestParts};
+        use hyper::http::uri;
+
+        pub struct Request {
+            pub query_config: QueryConfig,
+        }
+
+        impl Request {
+            pub fn new(query_config: QueryConfig) -> Request {
+                Request { query_config }
+            }
+
+            pub fn try_into_http_request(
+                self,
+                scheme: uri::Scheme,
+                authority: uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+                let uri = uri::Builder::new()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}?{}",
+                        BASE_AXUM_PATH,
+                        QueryConfigQueryParams(self.query_config)
+                    ))
+                    .build()?;
+                Ok(hyper::Request::post(uri).body(hyper::Body::empty())?)
+            }
+        }
+
+        #[async_trait]
+        impl<B: Send> FromRequest<B> for Request {
+            type Rejection = server::Error;
+
+            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+                let QueryConfigQueryParams(query_config) = req.extract().await?;
+                Ok(Self { query_config })
+            }
+        }
 
         #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
         pub struct ResponseBody {
@@ -159,57 +200,221 @@ pub mod query {
         }
 
         pub const AXUM_PATH: &str = "/";
-
-        pub fn uri(data: QueryConfig) -> String {
-            format!("/query?{}", QueryConfigQueryParams(data))
-        }
     }
 
     pub mod prepare {
         use crate::{
-            helpers::{query::QueryConfig, RoleAssignment},
-            net::http_serde::query::QueryConfigQueryParams,
-            protocol::QueryId,
+            helpers::{query::PrepareQuery, HelperIdentity, RoleAssignment},
+            net::{
+                client,
+                http_serde::query::{OriginHeader, QueryConfigQueryParams, BASE_AXUM_PATH},
+                server,
+            },
         };
+        use async_trait::async_trait;
+        use axum::{
+            extract::{FromRequest, Path, RequestParts},
+            http::uri,
+            Json,
+        };
+        use hyper::{header::CONTENT_TYPE, Body};
+
+        pub struct Request {
+            pub origin: HelperIdentity,
+            pub data: PrepareQuery,
+        }
+
+        impl Request {
+            pub fn new(origin: HelperIdentity, data: PrepareQuery) -> Self {
+                Self { origin, data }
+            }
+            pub fn try_into_http_request(
+                self,
+                scheme: uri::Scheme,
+                authority: uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+                let uri = uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}?{}",
+                        BASE_AXUM_PATH,
+                        self.data.query_id.as_ref(),
+                        QueryConfigQueryParams(self.data.config),
+                    ))
+                    .build()?;
+                let origin_header = OriginHeader {
+                    origin: self.origin,
+                };
+                let body = RequestBody {
+                    roles: self.data.roles,
+                };
+                let body = hyper::Body::from(serde_json::to_string(&body)?);
+                Ok(origin_header
+                    .add_to(hyper::Request::post(uri))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(body)?)
+            }
+        }
+
+        #[async_trait]
+        impl FromRequest<Body> for Request {
+            type Rejection = server::Error;
+
+            async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
+                let Path(query_id) = req.extract().await?;
+                let QueryConfigQueryParams(config) = req.extract().await?;
+                let origin_header = req.extract::<OriginHeader>().await?;
+                let Json(RequestBody { roles }) = req.extract().await?;
+                Ok(Request {
+                    origin: origin_header.origin,
+                    data: PrepareQuery {
+                        query_id,
+                        config,
+                        roles,
+                    },
+                })
+            }
+        }
 
         #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-        pub struct RequestBody {
-            pub roles: RoleAssignment,
+        struct RequestBody {
+            roles: RoleAssignment,
         }
 
         pub const AXUM_PATH: &str = "/:query_id";
-
-        pub fn uri(query_id: QueryId, data: QueryConfig) -> String {
-            format!(
-                "/query/{}?{}",
-                query_id.as_ref(),
-                QueryConfigQueryParams(data)
-            )
-        }
     }
 
     pub mod input {
-        use crate::{ff::FieldType, protocol::QueryId};
+        use crate::{
+            ff::FieldType,
+            helpers::{query::QueryInput, transport::ByteArrStream, TransportError},
+            net::{client, http_serde::query::BASE_AXUM_PATH, server},
+        };
+        use async_trait::async_trait;
+        use axum::{
+            body::StreamBody,
+            extract::{BodyStream, FromRequest, Path, Query, RequestParts},
+            http::uri,
+        };
+        use futures::Stream;
+        use futures_util::TryStreamExt;
+        use hyper::{
+            body::{Bytes, HttpBody},
+            header::CONTENT_TYPE,
+            Body,
+        };
+        use std::pin::Pin;
+
+        pub struct Request {
+            pub query_input: QueryInput,
+        }
+
+        impl Request {
+            pub fn new(query_input: QueryInput) -> Self {
+                Self { query_input }
+            }
+
+            #[allow(clippy::type_complexity)] // to be addressed in follow-up
+            pub fn try_into_http_request(
+                self,
+                scheme: uri::Scheme,
+                authority: uri::Authority,
+            ) -> Result<
+                hyper::Request<
+                    StreamBody<Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>>,
+                >,
+                client::Error,
+            > {
+                let uri = uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}/input?field_name={}",
+                        BASE_AXUM_PATH,
+                        self.query_input.query_id.as_ref(),
+                        self.query_input.field_type.as_ref()
+                    ))
+                    .build()?;
+                let body = StreamBody::new(self.query_input.input_stream);
+                Ok(hyper::Request::post(uri)
+                    .header(CONTENT_TYPE, "application/octet-stream")
+                    .body(body)?)
+            }
+        }
+
+        #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
+        struct InputParams {
+            field_type: FieldType,
+        }
+
+        struct ByteArrStreamFromReq(ByteArrStream);
+
+        #[cfg(feature = "enable-serde")]
+        #[async_trait]
+        impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
+            for ByteArrStreamFromReq
+        {
+            type Rejection = server::Error;
+
+            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+                #[derive(serde::Deserialize)]
+                struct FieldTypeParam {
+                    field_type: FieldType,
+                }
+
+                // TODO: don't use `field_type` here. we need to use `size_in_bytes`, and possibly defer
+                //       defer this decision to query processing layer
+                let Query(FieldTypeParam { field_type }) = req.extract().await?;
+                let body: BodyStream = req.extract().await?;
+                let bas = ByteArrStream::new(body, field_type.size_in_bytes());
+                Ok(ByteArrStreamFromReq(bas))
+            }
+        }
+
+        #[async_trait]
+        impl FromRequest<Body> for Request {
+            type Rejection = server::Error;
+
+            async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
+                let Path(query_id) = req.extract().await?;
+                let Query::<InputParams>(input) = req.extract().await?;
+                let input_stream = req
+                    .extract::<ByteArrStreamFromReq>()
+                    .await?
+                    .0
+                    .and_then(|bytes| futures::future::ok(bytes.to_vec()))
+                    .map_err(TransportError::from);
+
+                Ok(Request {
+                    query_input: QueryInput {
+                        query_id,
+                        field_type: input.field_type,
+                        input_stream: Box::pin(input_stream)
+                            as Pin<Box<dyn Stream<Item = Result<Vec<u8>, TransportError>> + Send>>,
+                    },
+                })
+            }
+        }
 
         pub const AXUM_PATH: &str = "/:query_id/input";
-
-        pub fn uri(query_id: QueryId, field_type: FieldType) -> String {
-            format!(
-                "/query/{}/input?field_name={}",
-                query_id.as_ref(),
-                field_type.as_ref()
-            )
-        }
     }
 
     pub mod step {
         use crate::{
-            helpers::MESSAGE_PAYLOAD_SIZE_BYTES,
-            net::{http_serde::query::get_header, server},
+            helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
+            net::{
+                client,
+                http_serde::query::{get_header, OriginHeader, BASE_AXUM_PATH},
+                server,
+            },
             protocol::{QueryId, Step},
         };
         use async_trait::async_trait;
-        use axum::extract::{FromRequest, RequestParts};
+        use axum::{
+            extract::{FromRequest, Path, RequestParts},
+            http::uri,
+        };
         use hyper::header::HeaderName;
 
         /// name of the `content-type` header used to get the length of the body, to verify valid `data-size`
@@ -222,7 +427,7 @@ pub mod query {
         /// For any given batch, their `record_id`s must be known. The first record in the batch will have
         /// id `offset`, and subsequent records will be in-order from there.
         #[derive(Copy, Clone)]
-        pub struct Headers {
+        struct Headers {
             pub offset: u32,
         }
 
@@ -254,20 +459,132 @@ pub mod query {
             }
         }
 
-        pub const AXUM_PATH: &str = "/:query_id/step/*step";
-
-        pub fn uri(query_id: QueryId, step: &Step) -> String {
-            format!("/query/{}/step/{}", query_id.as_ref(), step.as_ref())
+        pub struct Request {
+            pub origin: HelperIdentity,
+            pub query_id: QueryId,
+            pub step: Step,
+            pub payload: Vec<u8>,
+            pub offset: u32,
         }
+
+        impl Request {
+            pub fn new(
+                origin: HelperIdentity,
+                query_id: QueryId,
+                step: Step,
+                payload: Vec<u8>,
+                offset: u32,
+            ) -> Self {
+                Self {
+                    origin,
+                    query_id,
+                    step,
+                    payload,
+                    offset,
+                }
+            }
+
+            pub fn try_into_http_request(
+                self,
+                scheme: uri::Scheme,
+                authority: uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+                let uri = uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}/step/{}",
+                        BASE_AXUM_PATH,
+                        self.query_id.as_ref(),
+                        self.step.as_ref()
+                    ))
+                    .build()?;
+                let headers = Headers {
+                    offset: self.offset,
+                };
+                let origin_header = OriginHeader {
+                    origin: self.origin,
+                };
+                let body = hyper::Body::from(self.payload);
+                let req = hyper::Request::post(uri);
+                let req = headers.add_to(origin_header.add_to(req));
+                Ok(req.body(body)?)
+            }
+        }
+
+        #[async_trait]
+        impl FromRequest<hyper::Body> for Request {
+            type Rejection = server::Error;
+
+            async fn from_request(
+                req: &mut RequestParts<hyper::Body>,
+            ) -> Result<Self, Self::Rejection> {
+                let Path((query_id, step)) = req.extract().await?;
+                let origin_header = req.extract::<OriginHeader>().await?;
+                let step_headers = req.extract::<Headers>().await?;
+                let body = req.take_body().unwrap();
+                let payload = hyper::body::to_bytes(body).await?.to_vec();
+                Ok(Self {
+                    origin: origin_header.origin,
+                    query_id,
+                    step,
+                    payload,
+                    offset: step_headers.offset,
+                })
+            }
+        }
+
+        pub const AXUM_PATH: &str = "/:query_id/step/*step";
     }
 
     pub mod results {
-        use crate::protocol::QueryId;
+        use crate::{
+            net::{client, http_serde::query::BASE_AXUM_PATH, server},
+            protocol::QueryId,
+        };
+        use async_trait::async_trait;
+        use axum::{
+            extract::{FromRequest, Path, RequestParts},
+            http::uri,
+        };
+
+        pub struct Request {
+            pub query_id: QueryId,
+        }
+
+        impl Request {
+            pub fn new(query_id: QueryId) -> Self {
+                Self { query_id }
+            }
+
+            pub fn try_into_http_request(
+                self,
+                scheme: uri::Scheme,
+                authority: uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+                let uri = uri::Uri::builder()
+                    .scheme(scheme)
+                    .authority(authority)
+                    .path_and_query(format!(
+                        "{}/{}/complete",
+                        BASE_AXUM_PATH,
+                        self.query_id.as_ref()
+                    ))
+                    .build()?;
+                Ok(hyper::Request::get(uri).body(hyper::Body::empty())?)
+            }
+        }
+
+        #[async_trait]
+        impl<B: Send> FromRequest<B> for Request {
+            type Rejection = server::Error;
+
+            async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+                let Path(query_id) = req.extract().await?;
+                Ok(Request { query_id })
+            }
+        }
 
         pub const AXUM_PATH: &str = "/:query_id/complete";
-
-        pub fn uri(query_id: QueryId) -> String {
-            format!("/query/{}/complete", query_id.as_ref())
-        }
     }
 }

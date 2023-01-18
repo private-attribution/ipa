@@ -6,11 +6,10 @@ use axum::{routing::post, Extension, Json, Router};
 use tokio::sync::{mpsc, oneshot};
 
 /// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
-/// to the [`HttpTransport`]. HTTP request is deconstructed in order to leave parsing the `Body` for
-/// last so that it can be rejected before parsing if needed.
+/// to the [`HttpTransport`].
 async fn handler(
     transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
-    query_config: http_serde::query::QueryConfigQueryParams,
+    req: http_serde::query::create::Request,
 ) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
     let permit = transport_sender.reserve().await?;
 
@@ -20,7 +19,7 @@ async fn handler(
     // send command, receive response
     let command = CommandEnvelope {
         origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Create(query_config.0, tx)),
+        payload: TransportCommand::Query(QueryCommand::Create(req.query_config, tx)),
     };
     permit.send(command);
     let query_id = rx.await?;

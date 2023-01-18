@@ -12,13 +12,10 @@ use crate::{
 };
 use axum::{
     body::{Bytes, StreamBody},
-    http::{
-        uri::{self, PathAndQuery},
-        Request,
-    },
+    http::uri::{self, PathAndQuery},
 };
 use futures::Stream;
-use hyper::{body, client::HttpConnector, header::CONTENT_TYPE, Body, Client, Response, Uri};
+use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -111,8 +108,8 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn create_query(&self, data: QueryConfig) -> Result<QueryId, Error> {
-        let uri = self.build_uri(http_serde::query::create::uri(data))?;
-        let req = Request::post(uri).body(Body::empty())?;
+        let req = http_serde::query::create::Request::new(data);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.client.request(req).await?;
         if resp.status().is_success() {
             let body_bytes = body::to_bytes(resp.into_body()).await?;
@@ -134,16 +131,8 @@ impl MpcHelperClient {
         origin: &HelperIdentity,
         data: PrepareQuery,
     ) -> Result<(), Error> {
-        let uri = self.build_uri(http_serde::query::prepare::uri(data.query_id, data.config))?;
-        let origin_header = http_serde::query::OriginHeader {
-            origin: origin.clone(),
-        };
-        let body = http_serde::query::prepare::RequestBody { roles: data.roles };
-        let body = Body::from(serde_json::to_string(&body)?);
-        let req = origin_header
-            .add_to(Request::post(uri))
-            .header(CONTENT_TYPE, "application/json")
-            .body(body)?;
+        let req = http_serde::query::prepare::Request::new(origin.clone(), data);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
     }
@@ -154,15 +143,8 @@ impl MpcHelperClient {
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn query_input(&self, data: QueryInput) -> Result<(), Error> {
-        // TODO: uri must be shared between server and client
-        let uri = self.build_uri(http_serde::query::input::uri(
-            data.query_id,
-            data.field_type,
-        ))?;
-        let body = StreamBody::new(data.input_stream);
-        let req = Request::post(uri)
-            .header(CONTENT_TYPE, "application/octet-stream")
-            .body(body)?;
+        let req = http_serde::query::input::Request::new(data);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.streaming_client.request(req).await?;
         Self::resp_ok(resp).await
     }
@@ -182,18 +164,14 @@ impl MpcHelperClient {
         payload: Vec<u8>,
         offset: u32,
     ) -> Result<(), Error> {
-        let uri = self.build_uri(http_serde::query::step::uri(query_id, step))?;
-        let headers = http_serde::query::step::Headers { offset };
-        let origin_header = http_serde::query::OriginHeader {
-            origin: origin.clone(),
-        };
-
-        let body = Body::from(payload);
-        let req = Request::post(uri);
-        let req = headers
-            .add_to(origin_header.add_to(req))
-            .header(CONTENT_TYPE, "application/octet-stream");
-        let req = req.body(body)?;
+        let req = http_serde::query::step::Request::new(
+            origin.clone(),
+            query_id,
+            step.clone(),
+            payload,
+            offset,
+        );
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
     }
@@ -207,9 +185,8 @@ impl MpcHelperClient {
     /// if there is a problem reading the response body
     #[cfg(feature = "cli")]
     pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
-        let uri = self.build_uri(http_serde::query::results::uri(query_id))?;
-
-        let req = Request::get(uri).body(Body::empty())?;
+        let req = http_serde::query::results::Request::new(query_id);
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
 
         let resp = self.client.request(req).await?;
         if resp.status().is_success() {
