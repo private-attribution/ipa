@@ -1,16 +1,17 @@
-use crate::{error::BoxError, helpers::transport::bytearrstream::PinnedStream};
+use crate::{error::BoxError, helpers::transport::bytearrstream::Item};
 use futures::{ready, Stream};
+use futures_util::stream::BoxStream;
 use hyper::body::Bytes;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Wraps a [`PinnedStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
+/// Wraps a [`BoxStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
 /// # Errors
 /// If the downstream body is not a multiple of `size_in_bytes`.
 pub struct ByteArrStream {
-    stream: PinnedStream,
+    stream: BoxStream<'static, Item>,
     size_in_bytes: u32,
     buffered_size: u32,
     buffered: VecDeque<Bytes>,
@@ -20,7 +21,7 @@ impl ByteArrStream {
     /// # Panics
     /// if `size_in_bytes` is 0
     #[must_use]
-    pub fn new(stream: PinnedStream, size_in_bytes: u32) -> Self {
+    pub fn new(stream: BoxStream<'static, Item>, size_in_bytes: u32) -> Self {
         assert_ne!(size_in_bytes, 0);
         Self {
             stream,
@@ -137,7 +138,7 @@ impl Debug for ByteArrStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "AlignedByteArrStream {{ stream: <PinnedStream>, size_in_bytes: {:?}, buffered_size: {:?}, buffered: {:?} }}",
+            "AlignedByteArrStream {{ stream: <BoxStream>, size_in_bytes: {:?}, buffered_size: {:?}, buffered: {:?} }}",
             self.size_in_bytes,
             self.buffered_size,
             self.buffered

@@ -5,23 +5,24 @@ pub use aligned::ByteArrStream as AlignedByteArrStream;
 use crate::error::BoxError;
 use axum::extract::BodyStream;
 use futures::Stream;
-use futures_util::{stream, TryStreamExt};
+use futures_util::{
+    stream::{self, BoxStream},
+    TryStreamExt,
+};
 use hyper::body::Bytes;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 /// represents the item of an underlying stream
 type Item = Result<Bytes, BoxError>;
-/// represents the underlying stream
-type PinnedStream = Pin<Box<dyn Stream<Item = Item> + Send>>;
 
 pub struct ByteArrStream {
-    stream: PinnedStream,
+    stream: BoxStream<'static, Item>,
 }
 
 impl ByteArrStream {
     #[must_use]
-    pub fn new(stream: PinnedStream) -> Self {
+    pub fn new(stream: BoxStream<'static, Item>) -> Self {
         Self { stream }
     }
 
@@ -34,7 +35,7 @@ impl ByteArrStream {
 
 impl From<BodyStream> for ByteArrStream {
     fn from(stream: BodyStream) -> Self {
-        ByteArrStream::new(Box::pin(stream.map_err(<BoxError>::from)) as PinnedStream)
+        ByteArrStream::new(Box::pin(stream.map_err(<BoxError>::from)) as BoxStream<'static, Item>)
     }
 }
 
