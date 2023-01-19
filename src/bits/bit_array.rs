@@ -101,26 +101,20 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            impl TryFrom<$name> for u128 {
-                type Error = String;
-
-                /// Fallible conversion from this data type to `u128`. The inner value must be
-                /// at most `Self::BITS` long. That is, the integer value must be less than
-                /// or equal to `2^Self::BITS`, or it will return an error.
-                fn try_from(value: $name) -> Result<Self, Self::Error> {
-                    if <$name>::BITS <= 128 {
-                        Ok(value
-                            .0
-                            .iter()
-                            .by_refs()
-                            .enumerate()
-                            .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i)))
-                    } else {
-                        Err(format!(
-                            "Bit array size {} is too large to convert to u128.",
-                            Self::BITS,
-                        ))
-                    }
+            #[allow(clippy::from_over_into)]
+            impl Into<u128> for $name {
+                /// Infallible conversion from this data type to `u128`. We assume that the
+                /// inner value is at most 128-bit long. That is, the integer value must be
+                /// less than or equal to `2^Self::BITS`. Should be long enough for our use
+                /// case.
+                fn into(self) -> u128 {
+                    debug_assert!(<$name>::BITS <= 128);
+                    self
+                        .0
+                        .iter()
+                        .by_refs()
+                        .enumerate()
+                        .fold(0_u128, |acc, (i, b)| acc + ((*b as u128) << i))
                 }
             }
 
@@ -149,9 +143,7 @@ macro_rules! bit_array_impl {
             /// `BitArray::try_from(a).unwrap() < BitArray::try_from(b).unwrap()` must also be true.
             impl Ord for $name {
                 fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-                    u128::try_from(*self)
-                        .unwrap()
-                        .cmp(&u128::try_from(*other).unwrap())
+                    <$name as Into<u128>>::into(*self).cmp(&<$name as Into<u128>>::into(*other))
                 }
             }
 
@@ -229,7 +221,7 @@ macro_rules! bit_array_impl {
                     let max = $name::try_from(MASK).unwrap();
 
                     assert_eq!(
-                        u128::try_from(max).unwrap(),
+                        <$name as Into<u128>>::into(max),
                         MASK,
                     );
                 }
