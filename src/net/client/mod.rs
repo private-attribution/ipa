@@ -17,7 +17,6 @@ use axum::{
 };
 use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
 use hyper_tls::HttpsConnector;
-use std::collections::HashMap;
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
@@ -33,14 +32,14 @@ pub struct MpcHelperClient {
 
 impl MpcHelperClient {
     #[must_use]
-    pub fn from_conf(
-        peers_conf: &HashMap<HelperIdentity, peer::Config>,
-    ) -> HashMap<HelperIdentity, MpcHelperClient> {
-        let mut clients = HashMap::with_capacity(peers_conf.len());
-        for (id, conf) in peers_conf {
-            clients.insert(id.clone(), Self::new(conf.origin.clone()));
-        }
-        clients
+    #[allow(clippy::missing_panics_doc)]
+    pub fn from_conf(peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+        peers_conf
+            .iter()
+            .map(|conf| Self::new(conf.origin.clone()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 
     /// addr must have a valid scheme and authority
@@ -124,10 +123,10 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     pub async fn prepare_query(
         &self,
-        origin: &HelperIdentity,
+        origin: HelperIdentity,
         data: PrepareQuery,
     ) -> Result<(), Error> {
-        let req = http_serde::query::prepare::Request::new(origin.clone(), data);
+        let req = http_serde::query::prepare::Request::new(origin, data);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await
@@ -154,19 +153,14 @@ impl MpcHelperClient {
     /// If messages size > max u32 (unlikely)
     pub async fn step(
         &self,
-        origin: &HelperIdentity,
+        origin: HelperIdentity,
         query_id: QueryId,
         step: &Step,
         payload: Vec<u8>,
         offset: u32,
     ) -> Result<(), Error> {
-        let req = http_serde::query::step::Request::new(
-            origin.clone(),
-            query_id,
-            step.clone(),
-            payload,
-            offset,
-        );
+        let req =
+            http_serde::query::step::Request::new(origin, query_id, step.clone(), payload, offset);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
         let resp = self.client.request(req).await?;
         Self::resp_ok(resp).await

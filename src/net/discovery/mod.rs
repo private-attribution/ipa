@@ -1,8 +1,8 @@
-use crate::helpers::HelperIdentity;
-use std::collections::HashMap;
+mod conf;
+mod literal;
 
-pub mod conf;
-pub mod literal;
+pub use conf::Conf;
+pub use literal::Literal;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -53,5 +53,5 @@ pub mod peer {
 /// Provides a set of peer helpers for an MPC computation.
 /// Any potential failures should be captured in the initialization of the implementer.
 pub trait PeerDiscovery {
-    fn peers_map(&self) -> &HashMap<HelperIdentity, peer::Config>;
+    fn peers(&self) -> &[peer::Config; 3];
 }

@@ -37,20 +37,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = helpers_config();
 
     let my_identity = HelperIdentity::try_from(args.identity).unwrap();
-    let helper = HttpTransport::new(my_identity.clone(), Arc::new(config.peers_map().clone()));
+    let helper = HttpTransport::new(my_identity, Arc::new(config.peers().clone()));
     let mut all_identities = HelperIdentity::make_three()
         .into_iter()
         .filter(|id| id != &my_identity);
 
     let processor_identities = [
-        my_identity.clone(),
+        my_identity,
         all_identities.next().unwrap(),
         all_identities.next().unwrap(),
     ];
 
     let query_handle = tokio::spawn({
         let helper = helper.clone();
-        async {
+        async move {
             let my_identity = helper.identity();
             let mut query_processor = Processor::new(helper, processor_identities).await;
             loop {

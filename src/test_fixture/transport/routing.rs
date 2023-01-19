@@ -92,7 +92,7 @@ impl Switch {
 
         let mut peer_links = SelectAll::new();
         for (addr, link) in setup.peers {
-            peer_links.push(ReceiverStream::new(link).map(move |command| (addr.clone(), command)));
+            peer_links.push(ReceiverStream::new(link).map(move |command| (addr, command)));
         }
 
         let handle = tokio::spawn(async move {
@@ -143,8 +143,8 @@ impl Switch {
         ReceiverStream::new(rx)
     }
 
-    pub fn identity(&self) -> &HelperIdentity {
-        &self.identity
+    pub fn identity(&self) -> HelperIdentity {
+        self.identity
     }
 
     pub async fn direct_delivery(&self, c: QueryCommand) {

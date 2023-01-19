@@ -7,10 +7,7 @@ use raw_ipa::{
         Verbosity,
     },
     ff::{FieldType, Fp31},
-    helpers::{
-        query::{IPAQueryConfig, QueryConfig, QueryType},
-        HelperIdentity,
-    },
+    helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
     net::{discovery::PeerDiscovery, MpcHelperClient},
 };
 use std::error::Error;
@@ -87,8 +84,7 @@ fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
 
 fn make_clients() -> [MpcHelperClient; 3] {
     let config = helpers_config();
-    let mut clients = MpcHelperClient::from_conf(config.peers_map());
-    HelperIdentity::make_three().map(|id| clients.remove(&id).unwrap())
+    MpcHelperClient::from_conf(config.peers())
 }
 
 #[tokio::main]

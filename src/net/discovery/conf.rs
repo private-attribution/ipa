@@ -1,17 +1,10 @@
-use crate::{
-    helpers::HelperIdentity,
-    net::discovery::{peer, Error, PeerDiscovery},
-};
-use std::collections::HashMap;
+use crate::net::discovery::{peer, Error, PeerDiscovery};
 
 /// All config value necessary to discover other peer helpers of the MPC ring
-#[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(transparent)
-)]
+#[derive(Debug)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 pub struct Conf {
-    peers_map: HashMap<HelperIdentity, peer::Config>,
+    peers: [peer::Config; 3],
 }
 
 impl Conf {
@@ -33,15 +26,15 @@ impl Conf {
 }
 
 impl PeerDiscovery for Conf {
-    fn peers_map(&self) -> &HashMap<HelperIdentity, peer::Config> {
-        &self.peers_map
+    fn peers(&self) -> &[peer::Config; 3] {
+        &self.peers
     }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::test_fixture::net::localhost_config;
+    use crate::{helpers::HelperIdentity, test_fixture::net::localhost_config};
     use hyper::Uri;
 
     const PUBLIC_KEY_1: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
@@ -65,25 +58,19 @@ mod tests {
 
         let uri1 = URI_1.parse::<Uri>().unwrap();
         let id1 = HelperIdentity::try_from(1usize).unwrap();
-        let value1 = conf.peers_map().get(&id1);
-        assert!(value1.is_some(), "helper id {id1:?} not found");
-        let value1 = value1.unwrap();
+        let value1 = &conf.peers()[id1];
         assert_eq!(value1.origin, uri1);
         assert_eq!(value1.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_1));
 
         let uri2 = URI_2.parse::<Uri>().unwrap();
         let id2 = HelperIdentity::try_from(2usize).unwrap();
-        let value2 = conf.peers_map().get(&id2);
-        assert!(value2.is_some(), "helper id {id2:?} not found");
-        let value2 = value2.unwrap();
+        let value2 = &conf.peers()[id2];
         assert_eq!(value2.origin, uri2);
         assert_eq!(value2.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_2));
 
         let uri3 = URI_3.parse::<Uri>().unwrap();
         let id3 = HelperIdentity::try_from(3usize).unwrap();
-        let value3 = conf.peers_map().get(&id3);
-        assert!(value3.is_some(), "helper id {id3:?} not found");
-        let value3 = value3.unwrap();
+        let value3 = &conf.peers()[id3];
         assert_eq!(value3.origin, uri3);
         assert_eq!(value3.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_3));
     }

@@ -7,7 +7,6 @@ use axum::extract::BodyStream;
 use futures::Stream;
 use futures_util::{stream, TryStreamExt};
 use hyper::body::Bytes;
-use pin_project::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -16,9 +15,7 @@ type Item = Result<Bytes, BoxError>;
 /// represents the underlying stream
 type PinnedStream = Pin<Box<dyn Stream<Item = Item> + Send>>;
 
-#[pin_project]
 pub struct ByteArrStream {
-    #[pin]
     stream: PinnedStream,
 }
 
@@ -60,7 +57,6 @@ impl Stream for ByteArrStream {
     type Item = Item;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.as_mut().project();
-        this.stream.as_mut().poll_next(cx)
+        self.stream.as_mut().poll_next(cx)
     }
 }

@@ -1,27 +1,19 @@
-use crate::{
-    helpers::HelperIdentity,
-    net::discovery::{peer, PeerDiscovery},
-};
-use std::collections::HashMap;
+use crate::net::discovery::{peer, PeerDiscovery};
 
 pub struct Literal {
-    peers_map: HashMap<HelperIdentity, peer::Config>,
+    peers: [peer::Config; 3],
 }
 
 impl Literal {
-    pub fn new(
-        h1: (HelperIdentity, peer::Config),
-        h2: (HelperIdentity, peer::Config),
-        h3: (HelperIdentity, peer::Config),
-    ) -> Self {
+    pub fn new(h1: peer::Config, h2: peer::Config, h3: peer::Config) -> Self {
         Self {
-            peers_map: HashMap::from([h1, h2, h3]),
+            peers: [h1, h2, h3],
         }
     }
 }
 
 impl PeerDiscovery for Literal {
-    fn peers_map(&self) -> &HashMap<HelperIdentity, peer::Config> {
-        &self.peers_map
+    fn peers(&self) -> &[peer::Config; 3] {
+        &self.peers
     }
 }

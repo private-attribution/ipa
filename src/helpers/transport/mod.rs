@@ -103,7 +103,7 @@ pub trait Transport: Send + Sync + 'static {
     /// To be called when an entity wants to send commands to the `Transport`.
     async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        destination: &HelperIdentity,
+        destination: HelperIdentity,
         command: C,
     ) -> Result<(), TransportError>;
 }

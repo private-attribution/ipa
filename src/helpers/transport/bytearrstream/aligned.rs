@@ -1,7 +1,6 @@
 use crate::{error::BoxError, helpers::transport::bytearrstream::PinnedStream};
 use futures::{ready, Stream};
 use hyper::body::Bytes;
-use pin_project::pin_project;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
@@ -10,9 +9,7 @@ use std::task::{Context, Poll};
 /// Wraps a [`PinnedStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
 /// # Errors
 /// If the downstream body is not a multiple of `size_in_bytes`.
-#[pin_project]
 pub struct ByteArrStream {
-    #[pin]
     stream: PinnedStream,
     size_in_bytes: u32,
     buffered_size: u32,
@@ -101,23 +98,22 @@ impl Stream for ByteArrStream {
                 return Poll::Ready(Some(Ok(bytes)));
             }
             // if we need more bytes, poll the body
-            let mut this = self.as_mut().project();
-            match ready!(this.stream.as_mut().poll_next(cx)) {
+            match ready!(self.stream.as_mut().poll_next(cx)) {
                 // if body is expended, but we have some bytes leftover, error due to misaligned
                 // output
-                None if *this.buffered_size > 0 => {
+                None if self.buffered_size > 0 => {
                     return Poll::Ready(Some(Err(std::io::Error::new::<BoxError>(
                         std::io::ErrorKind::WriteZero,
                         format!(
                             "{} bytes remaining, but needed {} bytes to align with expected output",
-                            this.buffered_size, this.size_in_bytes
+                            self.buffered_size, self.size_in_bytes
                         )
                         .into(),
                     ))));
                 }
 
                 // if body is finished with no more bytes remaining, this stream is finished.
-                // equivalent of `None if *this.buffered_size == 0 =>`
+                // equivalent of `None if self.buffered_size == 0 =>`
                 None => return Poll::Ready(None),
 
                 // if body produces error, forward the error
@@ -161,6 +157,7 @@ mod test {
         http::{HeaderMap, Request},
     };
     use hyper::{body::HttpBody, Body};
+    use pin_project::pin_project;
 
     async fn from_slice(
         slice: &[u8],
