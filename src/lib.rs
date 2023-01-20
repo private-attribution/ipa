@@ -6,10 +6,12 @@
 
 pub mod bits;
 pub mod chunkscan;
+#[cfg(feature = "cli")]
 pub mod cli;
 pub mod error;
 pub mod ff;
 pub mod helpers;
+#[cfg(feature = "web-app")]
 pub mod net;
 pub mod protocol;
 pub mod secret_sharing;

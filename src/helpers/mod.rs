@@ -1,3 +1,4 @@
+#[cfg(feature = "web-app")]
 pub mod http;
 pub mod messaging;
 pub mod network;
@@ -56,7 +57,8 @@ impl TryFrom<usize> for HelperIdentity {
 /// may be `H2` or `H3`.
 /// Each helper instance must be able to take any role, but once the role is assigned, it cannot
 /// be changed for the remainder of the query.
-#[derive(Copy, Clone, Debug, PartialEq, Hash, Eq, clap::ValueEnum)]
+#[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Deserialize),

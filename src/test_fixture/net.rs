@@ -1,12 +1,12 @@
-use crate::net::discovery::conf::Conf;
-use std::fmt::Debug;
-
 /// Creates a new config for helpers configured to run on local machine using unique port.
 #[allow(clippy::missing_panics_doc)]
-pub fn localhost_config<P: TryInto<u16>>(ports: [P; 3]) -> Conf
+#[cfg(feature = "web-app")]
+pub fn localhost_config<P: TryInto<u16>>(ports: [P; 3]) -> crate::net::discovery::conf::Conf
 where
-    P::Error: Debug,
+    P::Error: std::fmt::Debug,
 {
+    use crate::net::discovery::conf::Conf;
+
     let ports = ports.map(|v| v.try_into().expect("Failed to parse the value into u16"));
     let config_str = format!(
         r#"

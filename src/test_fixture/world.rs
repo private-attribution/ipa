@@ -12,7 +12,9 @@ use crate::{
         Role, SendBufferConfig,
     },
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{
+            Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
+        },
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
     },
@@ -36,10 +38,7 @@ use crate::telemetry::StepStatsCsvExporter;
 use crate::test_fixture::transport::network::InMemoryNetwork;
 use tracing::Level;
 
-use super::{
-    sharing::{IntoMalicious, ValidateMalicious},
-    Reconstruct,
-};
+use super::{sharing::ValidateMalicious, Reconstruct};
 
 /// Test environment for protocols to run tests that require communication between helpers.
 /// For now the messages sent through it never leave the test infra memory perimeter, so
@@ -210,7 +209,7 @@ pub trait Runner<I, A, F> {
 
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        A: IntoMalicious<F, M>,
+        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
         F: Field,
         O: Send + Debug,
         M: Send,
@@ -255,7 +254,7 @@ where
 
     async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        A: IntoMalicious<F, M>,
+        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send,
         H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -267,7 +266,7 @@ where
         let (m_results, r_shares, output) = split_array_of_tuples(
             self.semi_honest(input, |ctx, share| async {
                 let v = MaliciousValidator::new(ctx);
-                let m_share = share.upgrade(v.context()).await;
+                let m_share = v.context().upgrade(share).await.unwrap();
                 let m_result = helper_fn(v.context(), m_share).await;
                 let m_result_clone = m_result.clone();
                 let r_share = v.r_share().clone();

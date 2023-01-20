@@ -9,8 +9,8 @@ mod malicious;
 mod prss;
 mod semi_honest;
 
-pub use malicious::MaliciousContext;
 pub(super) use malicious::SpecialAccessToMaliciousContext;
+pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 

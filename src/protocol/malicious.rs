@@ -293,12 +293,12 @@ mod tests {
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
                 let v = MaliciousValidator::new(ctx);
-                let m_ctx = v.context();
 
-                let a_malicious = m_ctx.upgrade(RecordId::from(0), a_share).await?;
-                let b_malicious = m_ctx.upgrade(RecordId::from(1), b_share).await?;
+                let (a_malicious, b_malicious) =
+                    v.context().upgrade((a_share, b_share)).await.unwrap();
 
-                let m_result = m_ctx
+                let m_result = v
+                    .context()
                     .multiply(RecordId::from(0), &a_malicious, &b_malicious)
                     .await?;
 
@@ -336,7 +336,7 @@ mod tests {
         let result = world
             .semi_honest(a, |ctx, a| async move {
                 let v = MaliciousValidator::new(ctx);
-                let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                let m = v.context().upgrade(a).await.unwrap();
                 v.validate(m).await.unwrap()
             })
             .await;
@@ -360,7 +360,7 @@ mod tests {
                         a
                     };
                     let v = MaliciousValidator::new(ctx);
-                    let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                    let m = v.context().upgrade(a).await.unwrap();
                     match v.validate(m).await {
                         Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
@@ -416,14 +416,7 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
 
-                let m_input = try_join_all(
-                    input_shares
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, share)| m_ctx.upgrade(RecordId::from(i), share)),
-                )
-                .await
-                .unwrap();
+                let m_input = m_ctx.upgrade(input_shares).await.unwrap();
 
                 let m_results = try_join_all(
                     zip(

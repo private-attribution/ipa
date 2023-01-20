@@ -184,7 +184,6 @@ mod tests {
     use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;
     use crate::protocol::malicious::MaliciousValidator;
-    use crate::protocol::BitOpStep;
     use crate::rand::thread_rng;
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{
@@ -227,10 +226,7 @@ mod tests {
 
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
-                let m_triple = m_ctx
-                    .upgrade_bit_triple(&BitOpStep::from(0), RecordId::from(0), triple)
-                    .await
-                    .unwrap();
+                let m_triple = m_ctx.upgrade(triple).await.unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
                     .unwrap();
@@ -289,10 +285,7 @@ mod tests {
 
                     let v = MaliciousValidator::new(ctx);
                     let m_ctx = v.context();
-                    let m_triple = m_ctx
-                        .upgrade_bit_triple(&BitOpStep::from(0), RecordId::from(0), tweaked)
-                        .await
-                        .unwrap();
+                    let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await
                         .unwrap();
