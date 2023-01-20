@@ -29,6 +29,7 @@ use super::{
 };
 use crate::protocol::context::SemiHonestContext;
 use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
+use crate::secret_sharing::SharedValue;
 use embed_doc_image::embed_doc_image;
 
 #[derive(Debug)]
@@ -122,43 +123,11 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     })
 }
 
-#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
-/// This is an implementation of `GenPerm` (Algorithm 6) described in:
-/// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
-/// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
-/// <https://eprint.iacr.org/2019/695.pdf>.
-/// This protocol generates permutation of a stable sort for the given shares of inputs.
-///
-/// Steps
-/// For the 0th bit
-/// 1. Get replicated shares in Field using modulus conversion
-/// 2. Compute bit permutation that sorts 0th bit
-/// For 1st to N-1th bit of input share
-/// 1. Shuffle and reveal the i-1th composition
-/// 2. Get replicated shares in Field using modulus conversion
-/// 3. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
-/// 4  Compute bit permutation that sorts ith bit
-/// 5. Compute ith composition by composing i-1th composition on ith permutation
-/// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-///
-/// ![Generate sort permutation steps][semi_honest_sort]
-pub async fn generate_permutation<F>(
-    ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Replicated<F>>],
+async fn generate_permutation_internal<C: Context<F, Share = Replicated<F>>, F: Field>(
+    ctx: C,
+    sort_keys: &[Vec<<C as Context<F>>::Share>],
     num_bits: u32,
-    malicious_setting: bool
-) -> Result<Vec<Replicated<F>>, Error>
-where
-    F: Field,
-{
-    let mut malicious_validator = None;
-    let sort_ctx: &dyn Context<F> = if malicious_setting {
-        malicious_validator = Some(MaliciousValidator::new(ctx.narrow(&MaliciousUpgradeContext)));
-        &malicious_validator.unwrap().context()
-    } else {
-        &ctx
-    };
-
+) -> Result<Vec<Replicated<F>>, Error> {
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
@@ -218,6 +187,51 @@ where
         composed_less_significant_bits_permutation = composed_i_permutation;
     }
     Ok(composed_less_significant_bits_permutation)
+}
+
+#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
+/// This is an implementation of `GenPerm` (Algorithm 6) described in:
+/// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
+/// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
+/// <https://eprint.iacr.org/2019/695.pdf>.
+/// This protocol generates permutation of a stable sort for the given shares of inputs.
+///
+/// Steps
+/// For the 0th bit
+/// 1. Get replicated shares in Field using modulus conversion
+/// 2. Compute bit permutation that sorts 0th bit
+/// For 1st to N-1th bit of input share
+/// 1. Shuffle and reveal the i-1th composition
+/// 2. Get replicated shares in Field using modulus conversion
+/// 3. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
+/// 4  Compute bit permutation that sorts ith bit
+/// 5. Compute ith composition by composing i-1th composition on ith permutation
+/// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
+///
+/// ![Generate sort permutation steps][semi_honest_sort]
+pub async fn generate_permutation<F>(
+    ctx: SemiHonestContext<'_, F>,
+    sort_keys: &[Vec<Replicated<F>>],
+    num_bits: u32,
+
+    // I am not a big fan of using flags to indicate the branch it needs to take.
+    // I would prefer to have two different functions that perform malicious/semi-honest sort
+    malicious_setting: bool,
+) -> Result<Vec<Replicated<F>>, Error>
+where
+    F: Field,
+{
+    if malicious_setting {
+        let malicious_validator = Some(MaliciousValidator::new(
+            ctx.narrow(&MaliciousUpgradeContext),
+        ));
+        let ctx = malicious_validator.unwrap().context();
+
+        // this does not work because you need to upgrade shares from semi-honest to malicious
+        generate_permutation_internal(ctx, sort_keys, num_bits)
+    } else {
+        generate_permutation_internal(ctx, sort_keys, num_bits)
+    }
 }
 
 /// This function takes in a semihonest context and sort keys, generates a sort permutation, shuffles and reveals it and
