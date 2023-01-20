@@ -90,12 +90,49 @@ pub struct Gateway {
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
 
+#[derive(Clone, Copy, Debug)]
+pub enum TotalRecords {
+    Unspecified,
+    Specified(NonZeroUsize),
+
+    /// Total number of records is not well-determined. When the record ID is
+    /// counting solved_bits attempts. The total record count for solved_bits
+    /// depends on the number of failures.
+    ///
+    /// The purpose of this is to waive the warning that there is a known
+    /// number of records when creating a channel. If the warning is firing
+    /// and the total number of records is knowable, prefer to specify it
+    /// rather than use this to waive the warning.
+    Indeterminate,
+}
+
+impl TotalRecords {
+    #[must_use]
+    pub fn is_unspecified(&self) -> bool {
+        matches!(self, &TotalRecords::Unspecified)
+    }
+
+    #[must_use]
+    pub fn is_indeterminate(&self) -> bool {
+        matches!(self, &TotalRecords::Indeterminate)
+    }
+}
+
+impl From<usize> for TotalRecords {
+    fn from(value: usize) -> Self {
+        match NonZeroUsize::new(value) {
+            Some(v) => TotalRecords::Specified(v),
+            None => TotalRecords::Unspecified,
+        }
+    }
+}
+
 /// Channel end
 #[derive(Debug)]
 pub struct Mesh<'a, 'b> {
     gateway: &'a Gateway,
     step: &'b Step,
-    total_records: Option<NonZeroUsize>,
+    total_records: TotalRecords,
 }
 
 pub(super) struct ReceiveRequest {
@@ -126,7 +163,7 @@ impl Mesh<'_, '_> {
             )?;
         }
 
-        if let Some(count) = self.total_records {
+        if let TotalRecords::Specified(count) = self.total_records {
             assert!(
                 usize::from(record_id) < usize::from(count),
                 "record ID {:?} is out of range for {:?} (expected {:?} records)",
@@ -155,7 +192,7 @@ impl Mesh<'_, '_> {
     /// # Panics
     /// If the context has a total record count set and the `record_id` to be received is out of range.
     pub async fn receive<T: Message>(&self, source: Role, record_id: RecordId) -> Result<T, Error> {
-        if let Some(count) = self.total_records {
+        if let TotalRecords::Specified(count) = self.total_records {
             assert!(
                 usize::from(record_id) < usize::from(count),
                 "record ID {:?} is out of range for {:?} (expected {:?} records)",
@@ -263,25 +300,8 @@ impl Gateway {
     /// ## Panics
     /// In `debug_assertions` config, if the `ALREADY_WARNED` mutex is poisoned.
     #[must_use]
-    pub fn mesh<'a, 'b>(
-        &'a self,
-        step: &'b Step,
-        total_records: Option<NonZeroUsize>,
-    ) -> Mesh<'a, 'b> {
-        // TODO: to be changed to panic or assert once all instances are eliminated.
-        // Note: update panic docs above.
-        #[cfg(debug_assertions)]
-        {
-            use once_cell::sync::Lazy;
-            use std::collections::HashSet;
-            use std::sync::Mutex;
-
-            static ALREADY_WARNED: Lazy<Mutex<HashSet<Step>>> =
-                Lazy::new(|| Mutex::new(HashSet::new()));
-            if total_records.is_none() && ALREADY_WARNED.lock().unwrap().insert(step.clone()) {
-                tracing::warn!("creating mesh for {:?} with unknown record count", step);
-            }
-        }
+    pub fn mesh<'a, 'b>(&'a self, step: &'b Step, total_records: TotalRecords) -> Mesh<'a, 'b> {
+        debug_assert!(!total_records.is_unspecified());
         Mesh {
             gateway: self,
             step,
@@ -363,6 +383,7 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::ff::Fp31;
+    use crate::helpers::messaging::TotalRecords;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
     use crate::protocol::{RecordId, Step};
@@ -412,7 +433,7 @@ mod tests {
         let peer = Role::H2;
         let record_id = 1.into();
         let step = Step::default();
-        let total_records = NonZeroUsize::new(2);
+        let total_records = TotalRecords::from(2);
         let channel = &world.gateway(Role::H1).mesh(&step, total_records);
 
         channel.send(peer, record_id, v1).await.unwrap();

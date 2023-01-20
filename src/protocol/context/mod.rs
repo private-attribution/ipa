@@ -1,4 +1,4 @@
-use crate::helpers::messaging::Mesh;
+use crate::helpers::messaging::{Mesh, TotalRecords};
 use crate::helpers::Role;
 use crate::protocol::basics::{Reveal, SecureMul};
 
@@ -45,13 +45,14 @@ pub trait Context<V: ArithmeticShare>:
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
 
-    /// Returns true if the context has a known total number of records.
-    fn is_total_records_known(&self) -> bool;
+    /// Returns true if the context does not have a total record count set (regardless
+    /// of whether that total is known or indeterminate).
+    fn is_total_records_unspecified(&self) -> bool;
 
     /// Sets the context's total number of records field. Communication channels are
     /// closed based on sending the expected total number of records.
     #[must_use]
-    fn set_total_records(&self, total_records: usize) -> Self;
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
 
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.
