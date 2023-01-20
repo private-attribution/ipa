@@ -174,7 +174,7 @@ impl MpcHelperClient {
     /// # Panics
     /// if there is a problem reading the response body
     #[cfg(feature = "cli")]
-    pub async fn query_results(&self, query_id: QueryId) -> Result<Bytes, Error> {
+    pub async fn query_results(&self, query_id: QueryId) -> Result<body::Bytes, Error> {
         let req = http_serde::query::results::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
 
