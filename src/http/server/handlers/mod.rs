@@ -9,15 +9,20 @@ use crate::{
     ff::FieldType,
     helpers::{
         query::{IPAQueryConfig, QueryConfig, QueryType},
-        transport::http::server::Error,
+        transport::ByteArrStream,
         CommandEnvelope,
     },
+    http::server::Error,
     protocol::QueryId,
     sync::{Arc, Mutex},
 };
 use async_trait::async_trait;
-use axum::extract::{FromRequest, Query, RequestParts};
-use axum::Router;
+use axum::extract::BodyStream;
+use axum::{
+    extract::{FromRequest, Query, RequestParts},
+    Router,
+};
+use hyper::body::{Bytes, HttpBody};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -55,6 +60,31 @@ impl<B: Send> FromRequest<B> for QueryConfigFromReq {
             field_type,
             query_type,
         }))
+    }
+}
+
+struct ByteArrStreamFromReq(ByteArrStream);
+
+#[cfg(feature = "enable-serde")]
+#[async_trait]
+impl<B: HttpBody<Data = Bytes, Error = hyper::Error> + Send + 'static> FromRequest<B>
+    for ByteArrStreamFromReq
+{
+    type Rejection = Error;
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        #[derive(serde::Deserialize)]
+        struct FieldTypeParam {
+            field_type: FieldType,
+        }
+
+        let Query(FieldTypeParam { field_type }) = req.extract().await?;
+        let body: BodyStream = req.extract().await?;
+        // TODO: multiply the field_type by 22; this is a hacky way of making sure IPA can run,
+        //       since `IPAInputRow` is 22 bytes when using `Fp31`. Fix this later to be way less
+        //       hacky.
+        let bas = ByteArrStream::new(body, field_type.size_in_bytes() * 22);
+        Ok(ByteArrStreamFromReq(bas))
     }
 }
 

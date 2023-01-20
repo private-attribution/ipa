@@ -1,16 +1,14 @@
-use crate::cli::playbook::InputSource;
-use crate::ff::{Field, FieldType};
-use crate::helpers::query::QueryInput;
-use crate::helpers::transport::http::MpcHelperClient;
-use crate::protocol::attribution::AggregateCreditOutputRow;
-use crate::protocol::ipa::IPAInputRow;
-use crate::protocol::QueryId;
-use crate::secret_sharing::IntoShares;
-use crate::test_fixture::IPAInputTestRow;
-use futures_util::future::try_join_all;
-use futures_util::stream;
-use rand::distributions::Standard;
-use rand::prelude::Distribution;
+use crate::{
+    cli::playbook::InputSource,
+    ff::{Field, FieldType},
+    helpers::query::QueryInput,
+    http::MpcHelperClient,
+    protocol::{attribution::AggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
+    secret_sharing::IntoShares,
+    test_fixture::IPAInputTestRow,
+};
+use futures_util::{future::try_join_all, stream};
+use rand::{distributions::Standard, prelude::Distribution};
 use std::fmt::Debug;
 
 /// Semi-honest IPA protocol

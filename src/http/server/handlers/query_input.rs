@@ -1,12 +1,11 @@
-use crate::helpers::TransportError;
 use crate::{
     ff::FieldType,
     helpers::{
         query::{QueryCommand, QueryInput},
-        transport::{http::server::Error, TransportCommand},
-        CommandEnvelope, CommandOrigin,
+        transport::TransportCommand,
+        CommandEnvelope, CommandOrigin, TransportError,
     },
-    net::ByteArrStream,
+    http::server::{handlers::ByteArrStreamFromReq, Error},
     protocol::QueryId,
 };
 use axum::{
@@ -34,9 +33,9 @@ async fn handler(
     let permit = transport_sender.reserve().await?;
 
     let input_stream = RequestParts::new(req)
-        .extract::<ByteArrStream>()
-        .await
-        .map_err(|_| Error::BadQueryString("TODO: move ByteArrStream to the right package".into()))?
+        .extract::<ByteArrStreamFromReq>()
+        .await?
+        .0
         .and_then(|bytes| futures::future::ok(bytes.to_vec()))
         .map_err(TransportError::from);
     let query_input = QueryInput {

@@ -2,15 +2,12 @@ mod error;
 
 pub use error::Error;
 
-use crate::helpers::TransportError;
 use crate::{
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
-        transport::http::{
-            discovery::peer, CreateQueryResp, OriginHeader, PrepareQueryBody, StepHeaders,
-        },
-        HelperIdentity,
+        HelperIdentity, TransportError,
     },
+    http::{discovery::peer, CreateQueryResp, OriginHeader, PrepareQueryBody, StepHeaders},
     protocol::{QueryId, Step},
 };
 use axum::{
@@ -25,13 +22,6 @@ use hyper::{body, client::HttpConnector, header::CONTENT_TYPE, Body, Client, Res
 use hyper_tls::HttpsConnector;
 use std::collections::HashMap;
 use std::pin::Pin;
-
-pub struct HttpSendMessagesArgs<'a> {
-    pub query_id: QueryId,
-    pub step: &'a Step,
-    pub offset: u32,
-    pub messages: Bytes,
-}
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be

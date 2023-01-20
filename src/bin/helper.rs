@@ -1,16 +1,13 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-
-use raw_ipa::cli::Verbosity;
+use raw_ipa::{
+    cli::{helpers_config, Verbosity},
+    helpers::{HelperIdentity, Transport},
+    http::{discovery::PeerDiscovery, HttpTransport},
+    query::Processor,
+};
 use std::error::Error;
 use std::sync::Arc;
-
-use raw_ipa::cli::helpers_config;
-use raw_ipa::helpers::transport::http::discovery::PeerDiscovery;
-use raw_ipa::helpers::transport::http::HttpTransport;
-use raw_ipa::helpers::HelperIdentity;
-use raw_ipa::helpers::Transport;
-use raw_ipa::query::Processor;
 use tracing::info;
 
 #[derive(Debug, Parser)]

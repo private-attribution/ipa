@@ -1,7 +1,4 @@
-mod bytearrstream;
 pub mod handlers;
-
-pub use bytearrstream::ByteArrStream;
 
 use crate::{
     error::BoxError,

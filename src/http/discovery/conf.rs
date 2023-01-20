@@ -1,6 +1,6 @@
-use crate::helpers::{
-    transport::http::discovery::{peer, Error, PeerDiscovery},
-    HelperIdentity,
+use crate::{
+    helpers::HelperIdentity,
+    http::discovery::{peer, Error, PeerDiscovery},
 };
 use std::collections::HashMap;
 
@@ -41,8 +41,7 @@ impl PeerDiscovery for Conf {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::helpers::transport::http::discovery::PeerDiscovery;
-    use crate::test_fixture::net::localhost_config_map;
+    use crate::test_fixture::net::localhost_config;
     use hyper::Uri;
 
     const PUBLIC_KEY_1: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
@@ -62,7 +61,7 @@ mod tests {
 
     #[test]
     fn parse_config() {
-        let conf = localhost_config_map([3000, 3001, 3002]);
+        let conf = localhost_config([3000, 3001, 3002]);
 
         let uri1 = URI_1.parse::<Uri>().unwrap();
         let id1 = HelperIdentity::try_from(1usize).unwrap();
