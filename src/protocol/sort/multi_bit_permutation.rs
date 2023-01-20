@@ -61,18 +61,22 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     }
 
     // Take sum of products of output of equality check and accumulated sum
-    let mut one_off_permutation =
-        try_join_all((0..num_records).zip(repeat(ctx)).map(|(rec, ctx)| {
-            let mut sop_inputs = Vec::with_capacity(num_possible_bit_values);
-            for idx in 0..num_possible_bit_values {
-                sop_inputs.push((&equality_checks[rec][idx], &prefix_sum[rec][idx]));
-            }
-            async move {
-                ctx.sum_of_products(RecordId::from(rec), sop_inputs.as_slice())
-                    .await
-            }
-        }))
-        .await?;
+    let mut one_off_permutation = try_join_all(
+        equality_checks
+            .into_iter()
+            .zip(prefix_sum.into_iter())
+            .zip(repeat(ctx))
+            .enumerate()
+            .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
+                ctx.sum_of_products(
+                    RecordId::from(i),
+                    eq_checks.iter().collect::<Vec<_>>().as_slice(),
+                    prefix_sums.iter().collect::<Vec<_>>().as_slice(),
+                )
+                .await
+            }),
+    )
+    .await?;
     // we are subtracting "1" from the result since this protocol returns 1-index permutation whereas all other
     // protocols expect 0-indexed permutation
     for permutation in &mut one_off_permutation {
