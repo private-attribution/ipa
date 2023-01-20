@@ -5,7 +5,7 @@ pub mod bit_array;
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
-pub trait BitArray: BooleanShare + TryFrom<u128> + Index<usize> {
+pub trait BitArray: BooleanShare + TryFrom<u128> + Into<u128> + Index<usize> {
     /// Truncates the higher-order bits larger than `Self::BITS`, and converts
     /// into this data type. This conversion is lossy. Callers are encouraged
     /// to use `try_from` if the input is not known in advance.
