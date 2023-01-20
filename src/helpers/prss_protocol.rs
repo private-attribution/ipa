@@ -1,6 +1,11 @@
-use crate::helpers::messaging::{Gateway, Message};
-use crate::helpers::{Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES};
-use crate::protocol::{prss, RecordId, Step, Substep};
+use crate::{
+    helpers::{
+        messaging::{Gateway, Message},
+        Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,
+    },
+    protocol::{prss, RecordId, Step, Substep},
+};
+use futures_util::future::try_join4;
 use rand_core::{CryptoRng, RngCore};
 use std::io::ErrorKind;
 use std::iter::zip;
@@ -54,7 +59,7 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
         let recv_from_left = channel.receive::<PublicKeyChunk>(left_peer, record_id);
         let recv_from_right = channel.receive::<PublicKeyChunk>(right_peer, record_id);
         let (_, _, recv_left_key_chunk, recv_right_key_chunk) =
-            tokio::try_join!(send_to_left, send_to_right, recv_from_left, recv_from_right)?;
+            try_join4(send_to_left, send_to_right, recv_from_left, recv_from_right).await?;
         recv_left_pk_builder.append_chunk(recv_left_key_chunk);
         recv_right_pk_builder.append_chunk(recv_right_key_chunk);
     }
@@ -111,12 +116,12 @@ impl PublicKeyChunk {
 
 impl Message for PublicKeyChunk {
     #[allow(clippy::cast_possible_truncation)]
-    const SIZE_IN_BYTES: u32 = MESSAGE_PAYLOAD_SIZE_BYTES as u32;
+    const SIZE_IN_BYTES: usize = MESSAGE_PAYLOAD_SIZE_BYTES;
 
-    fn deserialize(buf: &mut [u8]) -> std::io::Result<Self> {
-        if Self::SIZE_IN_BYTES as usize <= buf.len() {
-            let mut chunk = [0; Self::SIZE_IN_BYTES as usize];
-            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES as usize]);
+    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+        if Self::SIZE_IN_BYTES <= buf.len() {
+            let mut chunk = [0; Self::SIZE_IN_BYTES];
+            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
             Ok(PublicKeyChunk(chunk))
         } else {
             Err(std::io::Error::new(
@@ -132,7 +137,7 @@ impl Message for PublicKeyChunk {
 
     fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
         if buf.len() >= self.0.len() {
-            buf[..Self::SIZE_IN_BYTES as usize].copy_from_slice(&self.0);
+            buf[..Self::SIZE_IN_BYTES].copy_from_slice(&self.0);
             Ok(())
         } else {
             Err(std::io::Error::new(
@@ -177,8 +182,8 @@ impl PublicKeyBytesBuilder {
     }
 }
 
-#[cfg(test)]
-mod test {
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
     use super::*;
     use rand::thread_rng;
     use x25519_dalek::{EphemeralSecret, PublicKey};
@@ -192,7 +197,7 @@ mod test {
         chunk.serialize(&mut serialized).unwrap();
         assert_eq!(chunk_bytes, serialized);
 
-        let deserialized = PublicKeyChunk::deserialize(&mut serialized).unwrap();
+        let deserialized = PublicKeyChunk::deserialize(&serialized).unwrap();
         assert_eq!(chunk, deserialized);
     }
 

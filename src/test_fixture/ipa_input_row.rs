@@ -1,7 +1,10 @@
 use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::secret_sharing::IntoShares;
-use crate::{ff::Field, protocol::ipa::IPAInputRow, rand::Rng, secret_sharing::Replicated};
+use crate::{
+    ff::Field, protocol::ipa::IPAInputRow, rand::Rng,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+};
 
 use super::MaskedMatchKey;
 

@@ -86,6 +86,7 @@ pub mod query {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             write!(f, "field_type={}&", self.field_type.as_ref())?;
             match self.query_type {
+                #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
                 QueryType::IPA(config) => write!(
                     f,

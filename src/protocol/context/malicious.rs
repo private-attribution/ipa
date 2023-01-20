@@ -1,6 +1,5 @@
-use std::iter::{repeat, zip};
-
-use futures::future::try_join_all;
+use async_trait::async_trait;
+use futures::future::{try_join, try_join_all};
 
 use crate::error::Error;
 use crate::ff::Field;
@@ -15,8 +14,10 @@ use crate::protocol::context::{
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::{RecordId, Step, Substep};
-use crate::secret_sharing::{MaliciousReplicated, Replicated};
+use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
+use crate::secret_sharing::replicated::{
+    malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+};
 use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
@@ -52,88 +53,42 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade(
-        &self,
-        record_id: RecordId,
-        input: Replicated<F>,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_sparse(record_id, input, ZeroPositions::Pvvv)
-            .await
+    pub async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
+    where
+        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<T, M>,
+    {
+        self.inner.upgrade(input).await
     }
 
     /// Upgrade a sparse input using this context.
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_sparse(
-        &self,
-        record_id: RecordId,
-        input: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner.upgrade(record_id, input, zeros_at).await
-    }
-
-    /// Upgrade an input vector using this context.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    pub async fn upgrade_vector<SS: Substep>(
-        &self,
-        step: &SS,
-        input: Vec<Replicated<F>>,
-    ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
-        try_join_all(
-            zip(repeat(self), input.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
-                ctx.upgrade_with(step, RecordId::from(i), share).await
-            }),
-        )
-        .await
-    }
-
-    /// Upgrade an input for a specific bit index using this context.  Use this for
-    /// inputs that have multiple bit positions in place of `upgrade()`.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
-    pub async fn upgrade_with<SS: Substep>(
-        &self,
-        step: &SS,
-        record_id: RecordId,
-        input: Replicated<F>,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_with_sparse(step, record_id, input, ZeroPositions::Pvvv)
-            .await
-    }
-
-    /// Upgrade an input for a specific bit index using this context.  Use this for
-    /// inputs that have multiple bit positions in place of `upgrade()`.
-    /// # Errors
-    /// When the multiplication fails. This does not include additive attacks
-    /// by other helpers.  These are caught later.
     pub async fn upgrade_with_sparse<SS: Substep>(
         &self,
         step: &SS,
-        record_id: RecordId,
         input: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        self.inner
-            .upgrade_with(step, record_id, input, zeros_at)
-            .await
+        self.inner.upgrade_with_sparse(step, input, zeros_at).await
     }
 
-    /// Upgrade an bit conversion triple for a specific bit.
+    /// Upgrade an input for a specific bit index and record using this context.
     /// # Errors
     /// When the multiplication fails. This does not include additive attacks
     /// by other helpers.  These are caught later.
-    pub async fn upgrade_bit_triple<SS: Substep>(
+    pub async fn upgrade_for_record_with<SS: Substep, T, M>(
         &self,
         step: &SS,
         record_id: RecordId,
-        triple: BitConversionTriple<Replicated<F>>,
-    ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
-        self.inner.upgrade_bit_triple(step, record_id, triple).await
+        input: T,
+    ) -> Result<M, Error>
+    where
+        for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
+    {
+        self.inner
+            .upgrade_for_record_with(step, record_id, input)
+            .await
     }
 }
 
@@ -279,52 +234,155 @@ impl<'a, F: Field> ContextInner<'a, F> {
         Ok(m)
     }
 
+    async fn upgrade<T, M>(&self, input: T) -> Result<M, Error>
+    where
+        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<T, M>,
+    {
+        UpgradeContext {
+            upgrade_ctx: self.upgrade_ctx.clone(),
+            inner: self,
+            record_binding: NoRecord,
+        }
+        .upgrade(input)
+        .await
+    }
+
+    async fn upgrade_with_sparse<SS: Substep>(
+        &self,
+        step: &SS,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        UpgradeContext {
+            upgrade_ctx: self.upgrade_ctx.narrow(step),
+            inner: self,
+            record_binding: NoRecord,
+        }
+        .upgrade_sparse(input, zeros_at)
+        .await
+    }
+
+    async fn upgrade_for_record_with<SS: Substep, T, M>(
+        &self,
+        step: &SS,
+        record_id: RecordId,
+        input: T,
+    ) -> Result<M, Error>
+    where
+        for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
+    {
+        UpgradeContext {
+            upgrade_ctx: self.upgrade_ctx.narrow(step),
+            inner: self,
+            record_binding: record_id,
+        }
+        .upgrade(input)
+        .await
+    }
+}
+
+/// Helper to prevent using the record ID multiple times to implement an upgrade.
+///
+/// ```no_run
+/// use raw_ipa::protocol::{context::{NoRecord, UpgradeContext, UpgradeToMalicious}, RecordId};
+/// use raw_ipa::ff::Fp31;
+/// use raw_ipa::secret_sharing::replicated::{
+///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+/// };
+/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Replicated<Fp31>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Replicated<Fp31>, Replicated<Fp31>), _>>::upgrade;
+/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
+/// let _ = <UpgradeContext<Fp31, NoRecord> as UpgradeToMalicious<(Vec<Replicated<Fp31>>, Vec<Replicated<Fp31>>), _>>::upgrade;
+/// ```
+///
+/// ```compile_fail
+/// use raw_ipa::protocol::{context::{NoRecord, UpgradeContext, UpgradeToMalicious}, RecordId};
+/// use raw_ipa::ff::Fp31;
+/// use raw_ipa::secret_sharing::replicated::{
+///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+/// };
+/// // This can't be upgraded with a record-bound context because the record ID
+/// // is used internally for vector indexing.
+/// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
+/// ```
+pub trait RecordBinding: Copy + Send + Sync {}
+
+#[derive(Clone, Copy)]
+pub struct NoRecord;
+impl RecordBinding for NoRecord {}
+
+impl RecordBinding for RecordId {}
+
+pub struct UpgradeContext<'a, F: Field, B: RecordBinding = NoRecord> {
+    upgrade_ctx: SemiHonestContext<'a, F>,
+    inner: &'a ContextInner<'a, F>,
+    record_binding: B,
+}
+
+impl<'a, F: Field, B: RecordBinding> UpgradeContext<'a, F, B> {
+    fn narrow<SS: Substep>(&self, step: &SS) -> Self {
+        Self {
+            upgrade_ctx: self.upgrade_ctx.narrow(step),
+            inner: self.inner,
+            record_binding: self.record_binding,
+        }
+    }
+}
+
+// This could also work on a record-bound context, but it's only used in one place for tests where
+// that's not currently required.
+impl<'a, F: Field> UpgradeContext<'a, F, NoRecord> {
+    async fn upgrade_sparse(
+        self,
+        input: Replicated<F>,
+        zeros_at: ZeroPositions,
+    ) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner
+            .upgrade_one(
+                self.upgrade_ctx, /*.set_total_records(1)*/
+                RecordId::from(0u32),
+                input,
+                zeros_at,
+            )
+            .await
+    }
+}
+
+#[async_trait]
+pub trait UpgradeToMalicious<T, M> {
+    async fn upgrade(self, input: T) -> Result<M, Error>;
+}
+
+#[async_trait]
+impl<'a, F: Field>
+    UpgradeToMalicious<
+        BitConversionTriple<Replicated<F>>,
+        BitConversionTriple<MaliciousReplicated<F>>,
+    > for UpgradeContext<'a, F, RecordId>
+{
     async fn upgrade(
-        &self,
-        record_id: RecordId,
-        x: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_one(self.upgrade_ctx.clone(), record_id, x, zeros_at)
-            .await
-    }
-
-    async fn upgrade_with<SS: Substep>(
-        &self,
-        step: &SS,
-        record_id: RecordId,
-        x: Replicated<F>,
-        zeros_at: ZeroPositions,
-    ) -> Result<MaliciousReplicated<F>, Error> {
-        self.upgrade_one(self.upgrade_ctx.narrow(step), record_id, x, zeros_at)
-            .await
-    }
-
-    async fn upgrade_bit_triple<SS: Substep>(
-        &self,
-        step: &SS,
-        record_id: RecordId,
-        triple: BitConversionTriple<Replicated<F>>,
+        self,
+        input: BitConversionTriple<Replicated<F>>,
     ) -> Result<BitConversionTriple<MaliciousReplicated<F>>, Error> {
-        let [v0, v1, v2] = triple.0;
-        let c = self.upgrade_ctx.narrow(step);
+        let [v0, v1, v2] = input.0;
         Ok(BitConversionTriple(
             try_join_all([
-                self.upgrade_one(
-                    c.narrow(&UpgradeTripleStep::V0),
-                    record_id,
+                self.inner.upgrade_one(
+                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V0),
+                    self.record_binding,
                     v0,
                     ZeroPositions::Pvzz,
                 ),
-                self.upgrade_one(
-                    c.narrow(&UpgradeTripleStep::V1),
-                    record_id,
+                self.inner.upgrade_one(
+                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V1),
+                    self.record_binding,
                     v1,
                     ZeroPositions::Pzvz,
                 ),
-                self.upgrade_one(
-                    c.narrow(&UpgradeTripleStep::V2),
-                    record_id,
+                self.inner.upgrade_one(
+                    self.upgrade_ctx.narrow(&UpgradeTripleStep::V2),
+                    self.record_binding,
                     v2,
                     ZeroPositions::Pzzv,
                 ),
@@ -333,5 +391,88 @@ impl<'a, F: Field> ContextInner<'a, F> {
             .try_into()
             .unwrap(),
         ))
+    }
+}
+
+#[async_trait]
+impl<'a, F, T, TM, U, UM> UpgradeToMalicious<(T, U), (TM, UM)> for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+    T: Send + 'static,
+    U: Send + 'static,
+    TM: Send + Sized,
+    UM: Send + Sized,
+    for<'u> UpgradeContext<'u, F, NoRecord>: UpgradeToMalicious<T, TM> + UpgradeToMalicious<U, UM>,
+{
+    async fn upgrade(self, input: (T, U)) -> Result<(TM, UM), Error> {
+        try_join(
+            self.narrow(&BitOpStep::from(0)).upgrade(input.0),
+            self.narrow(&BitOpStep::from(1)).upgrade(input.1),
+        )
+        .await
+    }
+}
+
+#[async_trait]
+impl<'a, F> UpgradeToMalicious<Vec<Replicated<F>>, Vec<MaliciousReplicated<F>>>
+    for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+{
+    async fn upgrade(
+        self,
+        input: Vec<Replicated<F>>,
+    ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
+        let ctx = self.upgrade_ctx/*.set_total_records(input.len())*/;
+        let ctx_ref = &ctx;
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+            self.inner
+                .upgrade_one(
+                    ctx_ref.clone(),
+                    RecordId::from(i),
+                    share,
+                    ZeroPositions::Pvvv,
+                )
+                .await
+        }))
+        .await
+    }
+}
+
+#[async_trait]
+impl<'a, F> UpgradeToMalicious<Replicated<F>, MaliciousReplicated<F>>
+    for UpgradeContext<'a, F, RecordId>
+where
+    F: Field,
+{
+    async fn upgrade(self, input: Replicated<F>) -> Result<MaliciousReplicated<F>, Error> {
+        self.inner
+            .upgrade_one(
+                self.upgrade_ctx,
+                self.record_binding,
+                input,
+                ZeroPositions::Pvvv,
+            )
+            .await
+    }
+}
+
+// Impl for upgrading things that can be upgraded using a single record ID using a non-record-bound
+// context. This gets used e.g. when the protocol takes a single `Replicated<F>` input.
+#[async_trait]
+impl<'a, F, T, M> UpgradeToMalicious<T, M> for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+    T: Send + 'static,
+    for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
+{
+    async fn upgrade(self, input: T) -> Result<M, Error> {
+        UpgradeContext {
+            upgrade_ctx: self.upgrade_ctx, /*.set_total_records(1)*/
+            inner: self.inner,
+            record_binding: RECORD_0,
+        }
+        .upgrade(input)
+        .await
     }
 }

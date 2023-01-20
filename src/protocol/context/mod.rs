@@ -1,36 +1,37 @@
-use crate::ff::Field;
 use crate::helpers::messaging::Mesh;
 use crate::helpers::Role;
 use crate::protocol::basics::{Reveal, SecureMul};
 
 use crate::protocol::{Step, Substep};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::{ArithmeticShare, SecretSharing};
 
 mod malicious;
 mod prss;
 mod semi_honest;
 
-pub use malicious::MaliciousContext;
 pub(super) use malicious::SpecialAccessToMaliciousContext;
+pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 
+use super::basics::sum_of_product::SecureSop;
 use super::basics::Reshare;
 use super::boolean::RandomBits;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
-pub trait Context<F: Field>:
-    SecureMul<F, Share = <Self as Context<F>>::Share>
-    + Reshare<F, Share = <Self as Context<F>>::Share>
-    + Reveal<F, Share = <Self as Context<F>>::Share>
-    + RandomBits<F, Share = <Self as Context<F>>::Share>
+pub trait Context<V: ArithmeticShare>:
+    SecureMul<V, Share = <Self as Context<V>>::Share>
+    + SecureSop<V, Share = <Self as Context<V>>::Share>
+    + Reshare<V, Share = <Self as Context<V>>::Share>
+    + Reveal<V, Share = <Self as Context<V>>::Share>
+    + RandomBits<V, Share = <Self as Context<V>>::Share>
     + Clone
     + Send
     + Sync
 {
     /// Secret sharing type this context supports.
-    type Share: SecretSharing<F>;
+    type Share: SecretSharing<V>;
 
     /// The role of this context.
     fn role(&self) -> Role;
@@ -72,17 +73,19 @@ pub trait Context<F: Field>:
     fn mesh(&self) -> Mesh<'_, '_>;
 
     /// Generates a new share of one
-    fn share_of_one(&self) -> <Self as Context<F>>::Share;
+    fn share_of_one(&self) -> <Self as Context<V>>::Share;
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::ff::{Field, Fp31};
     use crate::helpers::Direction;
     use crate::protocol::malicious::Step::MaliciousProtocol;
     use crate::protocol::prss::SharedRandomness;
     use crate::protocol::RecordId;
-    use crate::secret_sharing::{MaliciousReplicated, Replicated};
+    use crate::secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    };
     use crate::telemetry::metrics::{
         INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED,
     };

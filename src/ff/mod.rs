@@ -6,7 +6,7 @@ mod field;
 mod prime_field;
 
 pub use field::{BinaryField, Field, FieldType, Int};
-pub use prime_field::{Fp2, Fp31, Fp32BitPrime};
+pub use prime_field::{Fp31, Fp32BitPrime};
 
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 

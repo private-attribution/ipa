@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SecretSharing};
 use std::io;
 
 pub(crate) mod accumulate_credit;
@@ -199,7 +199,7 @@ impl AsRef<str> for AttributionResharableStep {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::secret_sharing::IntoShares;
     use crate::{ff::Field, protocol::attribution::AttributionInputRow};

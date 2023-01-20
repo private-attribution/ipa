@@ -5,15 +5,8 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, RecordId},
-    secret_sharing::Replicated,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use serde::{Deserialize, Serialize};
-
-/// A message sent by each helper when they've multiplied their own shares
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct DValue<F> {
-    d: F,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -87,8 +80,9 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{basics::check_zero, RecordId};
     use crate::rand::thread_rng;
-    use crate::secret_sharing::IntoShares;
+    use crate::secret_sharing::{IntoShares, SharedValue};
     use crate::test_fixture::TestWorld;
+    use futures_util::future::try_join3;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
@@ -106,11 +100,12 @@ mod tests {
                 let iteration = format!("{counter}");
                 counter += 1;
 
-                let protocol_output = tokio::try_join!(
-                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0],),
-                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1],),
-                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2],),
-                )?;
+                let protocol_output = try_join3(
+                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0]),
+                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1]),
+                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2]),
+                )
+                .await?;
 
                 // All three helpers should always get the same result
                 assert_eq!(protocol_output.0, protocol_output.1);

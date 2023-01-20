@@ -7,7 +7,7 @@ use crate::protocol::{
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.

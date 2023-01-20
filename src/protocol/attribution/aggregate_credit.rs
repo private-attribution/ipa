@@ -16,7 +16,7 @@ use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -374,10 +374,12 @@ pub(crate) mod tests {
     use super::super::tests::{BD, H};
     use super::{aggregate_credit, sort_by_breakdown_key};
     use crate::ff::{Field, Fp31};
-    use crate::protocol::attribution::accumulate_credit::AttributionTestInput;
+    use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::{CappedCreditsWithAggregationBit, CreditCappingOutputRow};
     use crate::rand::Rng;
-    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+    };
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::{distributions::Standard, prelude::Distribution};
 

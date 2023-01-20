@@ -455,7 +455,7 @@ mod tests {
                 attribution::AggregateCreditOutputRow,
                 ipa::{test_cases::Simple, IPAInputRow},
             },
-            secret_sharing::{IntoShares, Replicated},
+            secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
             sync::Weak,
             test_fixture::{transport::InMemoryTransport, Reconstruct},
         };

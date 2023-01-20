@@ -3,7 +3,10 @@ use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::{Replicated, SecretSharing, XorReplicated};
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+    XorReplicated,
+};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use std::iter::repeat;
@@ -12,8 +15,8 @@ mod malicious;
 mod semi_honest;
 
 #[async_trait]
-pub trait RandomBits<F: Field> {
-    type Share: SecretSharing<F>;
+pub trait RandomBits<V: ArithmeticShare> {
+    type Share: SecretSharing<V>;
 
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error>;
 }

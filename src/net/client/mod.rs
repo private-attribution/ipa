@@ -12,7 +12,7 @@ use crate::{
     protocol::{QueryId, Step},
 };
 use axum::{
-    body::{Bytes, StreamBody},
+    body::StreamBody,
     http::uri::{self, PathAndQuery},
 };
 use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};

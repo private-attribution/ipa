@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::MaliciousContext;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::MaliciousReplicated;
+use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 
@@ -20,7 +20,7 @@ impl<F: Field> RandomBits<F> for MaliciousContext<'_, F> {
         let ctx = &c;
         let malicious_triples =
             try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
-                ctx.upgrade_bit_triple(&BitOpStep::from(i), record_id, t)
+                ctx.upgrade_for_record_with(&BitOpStep::from(i), record_id, t)
                     .await
             }))
             .await?;

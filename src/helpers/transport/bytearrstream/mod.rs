@@ -29,7 +29,7 @@ impl ByteArrStream {
     #[must_use]
     #[allow(clippy::missing_panics_doc)] // `size_in_bytes` known to be small
     pub fn align(self, size_in_bytes: usize) -> AlignedByteArrStream {
-        AlignedByteArrStream::new(self.stream, u32::try_from(size_in_bytes).unwrap())
+        AlignedByteArrStream::new(self.stream, size_in_bytes)
     }
 }
 

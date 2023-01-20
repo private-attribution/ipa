@@ -2,7 +2,7 @@ use super::any_ones;
 use super::or::or;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::boolean::check_if_all_ones;
+use crate::protocol::boolean::multiply_all_shares;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::SecretSharing;
 use futures::future::try_join;
@@ -102,7 +102,7 @@ impl BitwiseLessThanPrime {
         // In that special case, the only way for `x >= p` is if `x == p`,
         // meaning all the bits of `x` are shares of one.
         if prime == (1 << l) - 1 {
-            return check_if_all_ones(ctx.narrow(&Step::CheckIfAllOnes), record_id, x).await;
+            return multiply_all_shares(ctx.narrow(&Step::CheckIfAllOnes), record_id, x).await;
         }
 
         // Assume this is an Fp32BitPrime
@@ -114,7 +114,8 @@ impl BitwiseLessThanPrime {
                     record_id,
                     &x[0..3],
                 ),
-                check_if_all_ones(ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
+                // To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
+                multiply_all_shares(ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
             )
             .await?;
             return ctx
@@ -201,9 +202,10 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThanPrime;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},

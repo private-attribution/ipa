@@ -1,12 +1,8 @@
 use crate::{
     cli::playbook::InputSource,
     ff::Field,
-    helpers::{query::QueryInput, transport::ByteArrStream},
-    net::MpcHelperClient,
-    protocol::QueryId,
-    secret_sharing::{IntoShares, Replicated},
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
-use futures_util::future::try_join_all;
 use std::fmt::Debug;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.

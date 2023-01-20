@@ -2,7 +2,10 @@ use std::iter::{repeat, zip};
 
 use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-use crate::secret_sharing::{MaliciousReplicated, Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+};
 use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -10,15 +13,15 @@ use futures::future::{try_join, try_join_all};
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
-pub trait Reveal<F: Field> {
+pub trait Reveal<V: ArithmeticShare> {
     /// Secret sharing type that reveal implementation works with. Note that field type does not
     /// matter - implementations must be able to reveal secret value from any field.
-    type Share: SecretSharing<F>;
+    type Share: SecretSharing<V>;
 
     /// reveal the secret to all helpers in MPC circuit. Note that after method is called,
     /// it must be assumed that the secret value has been revealed to at least one of the helpers.
     /// Even in case when method never terminates, returns an error, etc.
-    async fn reveal(self, record: RecordId, input: &Self::Share) -> Result<F, Error>;
+    async fn reveal(self, record: RecordId, input: &Self::Share) -> Result<V, Error>;
 }
 
 /// This implements a semi-honest reveal algorithm for replicated secret sharing.
@@ -63,7 +66,7 @@ impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let (role, channel) = (self.role(), self.mesh());
         let (left, right) = input.x().access_without_downgrade().as_tuple();
@@ -117,6 +120,7 @@ pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Sha
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::rand::thread_rng;
+    use crate::test_fixture::Runner;
     use futures::future::{try_join, try_join3};
     use proptest::prelude::Rng;
     use std::iter::zip;
@@ -131,32 +135,28 @@ mod tests {
             context::{Context, MaliciousContext},
             RecordId,
         },
-        secret_sharing::{MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious},
-        test_fixture::{join3, join3v, TestWorld},
+        secret_sharing::replicated::malicious::{
+            AdditiveShare as MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        },
+        test_fixture::{join3v, TestWorld},
     };
 
     #[tokio::test]
     pub async fn simple() -> Result<(), Error> {
         let mut rng = thread_rng();
         let world = TestWorld::new().await;
-        let ctx = world.contexts::<Fp31>();
 
-        for i in 0..10_u32 {
-            let secret = rng.gen::<u128>();
-            let input = Fp31::from(secret);
-            let share = input.share_with(&mut rng);
-            let record_id = RecordId::from(i);
-            let results = join3(
-                ctx[0].clone().reveal(record_id, &share[0]),
-                ctx[1].clone().reveal(record_id, &share[1]),
-                ctx[2].clone().reveal(record_id, &share[2]),
-            )
+        let input = rng.gen::<Fp31>();
+        let results = world
+            .semi_honest(input, |ctx, share| async move {
+                ctx.reveal(RecordId::from(0), &share).await.unwrap()
+            })
             .await;
 
-            assert_eq!(input, results[0]);
-            assert_eq!(input, results[1]);
-            assert_eq!(input, results[2]);
-        }
+        assert_eq!(input, results[0]);
+        assert_eq!(input, results[1]);
+        assert_eq!(input, results[2]);
+
         Ok(())
     }
 
@@ -167,26 +167,25 @@ mod tests {
         let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
 
-        for i in 0..10_u32 {
-            let record_id = RecordId::from(i);
-            let input: Fp31 = rng.gen();
+        let record_id = RecordId::from(0);
+        let input: Fp31 = rng.gen();
 
-            let m_shares = join3v(
-                zip(v.iter(), input.share_with(&mut rng))
-                    .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
-            )
-            .await;
+        let m_shares = join3v(
+            zip(v.iter(), input.share_with(&mut rng))
+                .map(|(v, share)| async { v.context().upgrade(share).await }),
+        )
+        .await;
 
-            let results =
-                join3v(zip(v.iter(), m_shares).map(|(v, m_share)| async move {
-                    v.context().reveal(record_id, &m_share).await
-                }))
-                .await;
+        let results = join3v(
+            zip(v.iter(), m_shares)
+                .map(|(v, m_share)| async move { v.context().reveal(record_id, &m_share).await }),
+        )
+        .await;
 
-            assert_eq!(input, results[0]);
-            assert_eq!(input, results[1]);
-            assert_eq!(input, results[2]);
-        }
+        assert_eq!(input, results[0]);
+        assert_eq!(input, results[1]);
+        assert_eq!(input, results[2]);
+
         Ok(())
     }
 
@@ -197,24 +196,23 @@ mod tests {
         let sh_ctx = world.contexts::<Fp31>();
         let v = sh_ctx.map(MaliciousValidator::new);
 
-        for i in 0..10 {
-            let record_id = RecordId::from(i);
-            let input: Fp31 = rng.gen();
+        let record_id = RecordId::from(0);
+        let input: Fp31 = rng.gen();
 
-            let m_shares = join3v(
-                zip(v.iter(), input.share_with(&mut rng))
-                    .map(|(v, share)| async { v.context().upgrade(record_id, share).await }),
-            )
-            .await;
-            let result = try_join3(
-                v[0].context().reveal(record_id, &m_shares[0]),
-                v[1].context().reveal(record_id, &m_shares[1]),
-                reveal_with_additive_attack(v[2].context(), record_id, &m_shares[2], Fp31::ONE),
-            )
-            .await;
+        let m_shares = join3v(
+            zip(v.iter(), input.share_with(&mut rng))
+                .map(|(v, share)| async { v.context().upgrade(share).await }),
+        )
+        .await;
+        let result = try_join3(
+            v[0].context().reveal(record_id, &m_shares[0]),
+            v[1].context().reveal(record_id, &m_shares[1]),
+            reveal_with_additive_attack(v[2].context(), record_id, &m_shares[2], Fp31::ONE),
+        )
+        .await;
 
-            assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
-        }
+        assert!(matches!(result, Err(Error::MaliciousRevealFailed)));
+
         Ok(())
     }
 

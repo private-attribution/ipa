@@ -5,10 +5,10 @@ use axum::{
     Json, Router,
 };
 use hyper::{Body, Request};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Payload {
     pub query_args: HashMap<String, String>,
     pub headers: HashMap<String, String>,

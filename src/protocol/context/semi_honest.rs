@@ -8,7 +8,7 @@ use crate::protocol::context::{
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{Step, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::sync::Arc;
 
 use std::marker::PhantomData;
@@ -36,7 +36,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
     /// Upgrade this context to malicious.
     /// `malicious_step` is the step that will be used for malicious protocol execution.
     /// `upgrade_step` is the step that will be used for upgrading inputs
-    /// from `Replicated` to `MaliciousReplicated`.
+    /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
     /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
     pub fn upgrade<S: Substep + ?Sized>(

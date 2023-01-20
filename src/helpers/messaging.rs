@@ -19,12 +19,11 @@ use crate::{
 };
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
+use std::io;
 use std::time::Duration;
-use std::{io, panic};
 use tinyvec::array_vec;
 use tracing::Instrument;
 
-use crate::helpers::buffers::PushError;
 use crate::helpers::network::{MessageEnvelope, Network};
 use crate::helpers::time::Timer;
 use crate::helpers::transport::Transport;
@@ -36,13 +35,13 @@ use shuttle::future as tokio;
 /// Trait for messages sent between helpers
 pub trait Message: Debug + Send + Sized + 'static {
     /// Required number of bytes to store this message on disk/network
-    const SIZE_IN_BYTES: u32;
+    const SIZE_IN_BYTES: usize;
 
     /// Deserialize message from a sequence of bytes.
     ///
     /// ## Errors
     /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize(buf: &mut [u8]) -> io::Result<Self>;
+    fn deserialize(buf: &[u8]) -> io::Result<Self>;
 
     /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
     /// capacity to store this message.
@@ -55,9 +54,9 @@ pub trait Message: Debug + Send + Sized + 'static {
 
 /// Any field value can be send as a message
 impl<F: Field> Message for F {
-    const SIZE_IN_BYTES: u32 = F::Integer::BITS / 8;
+    const SIZE_IN_BYTES: usize = (F::Integer::BITS / 8) as usize;
 
-    fn deserialize(buf: &mut [u8]) -> io::Result<Self> {
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
         <F as Field>::deserialize(buf)
     }
 
@@ -116,7 +115,7 @@ impl Mesh<'_, '_> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        if T::SIZE_IN_BYTES as usize > MESSAGE_PAYLOAD_SIZE_BYTES {
+        if T::SIZE_IN_BYTES > MESSAGE_PAYLOAD_SIZE_BYTES {
             Err(Error::serialization_error::<String>(record_id,
                                                      self.step,
                                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
@@ -139,12 +138,12 @@ impl Mesh<'_, '_> {
     /// # Errors
     /// Returns an error if it fails to receive the message or if a deserialization error occurred
     pub async fn receive<T: Message>(&self, source: Role, record_id: RecordId) -> Result<T, Error> {
-        let mut payload = self
+        let payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj = T::deserialize(&mut payload)
+        let obj = T::deserialize(&payload)
             .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
 
         Ok(obj)
@@ -203,8 +202,14 @@ impl Gateway {
                     Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        let data = send_buf.push(&channel_id, &envelope);
-                        pending_sends.push(send_message(&network, channel_id, data));
+                        if let Some(buf_to_send) = send_buf.push(&channel_id, &envelope) {
+                            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
+                            pending_sends.push(async { network
+                                .send((channel_id, buf_to_send))
+                                .await
+                                .expect("Failed to send data to the network");
+                            });
+                        }
                     }
                     Some(_) = &mut pending_sends.next() => {
                         pending_sends.clear();
@@ -256,7 +261,7 @@ impl Gateway {
             .await
             .map_err(|e| {
                 if e.is_panic() {
-                    panic::resume_unwind(e.into_panic())
+                    std::panic::resume_unwind(e.into_panic())
                 } else {
                     "Task cancelled".to_string()
                 }
@@ -309,24 +314,6 @@ impl Debug for ReceiveRequest {
     }
 }
 
-async fn send_message<T: Transport>(
-    network: &Network<T>,
-    channel_id: ChannelId,
-    data: Result<Option<Vec<u8>>, PushError>,
-) {
-    match data {
-        Ok(Some(buf_to_send)) => {
-            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-            network
-                .send((channel_id, buf_to_send))
-                .await
-                .expect("Failed to send data to the network");
-        }
-        Ok(None) => {}
-        Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
-    }
-}
-
 #[cfg(debug_assertions)]
 fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
     let send_tasks_waiting = send_buf.waiting();
@@ -347,12 +334,13 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
+    use std::num::NonZeroUsize;
 
     #[tokio::test]
     pub async fn handles_reordering() {
         let mut config = TestWorldConfig::default();
-        config.gateway_config.send_buffer_config.items_in_batch = 1; // Send every record
-        config.gateway_config.send_buffer_config.batch_count = 3; // keep 3 at a time
+        config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap(); // Send every record
+        config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(3).unwrap(); // keep 3 at a time
 
         let world = Box::leak(Box::new(TestWorld::new_with(config).await));
         let contexts = world.contexts::<Fp31>();
@@ -384,7 +372,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Record RecordId(1) has been received twice")]
+    #[should_panic(expected = "Duplicate send for index 1 on channel")]
     async fn duplicate_message() {
         let world = TestWorld::new().await;
         let (v1, v2) = (Fp31::from(1u128), Fp31::from(2u128));

@@ -8,7 +8,10 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
-    secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
+    secret_sharing::replicated::{
+        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
+        semi_honest::AdditiveShare as Replicated,
+    },
 };
 use futures::future::try_join;
 
@@ -120,7 +123,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
     ) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let random_constant = prss.generate_replicated(record_id);
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
@@ -209,7 +212,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
-            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
             Ok(values.downgrade().await.access_without_downgrade())
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
@@ -254,7 +257,8 @@ mod tests {
     use crate::protocol::{malicious::MaliciousValidator, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
-        IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares,
     };
     use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
@@ -289,12 +293,12 @@ mod tests {
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
                 let v = MaliciousValidator::new(ctx);
-                let m_ctx = v.context();
 
-                let a_malicious = m_ctx.upgrade(RecordId::from(0), a_share).await?;
-                let b_malicious = m_ctx.upgrade(RecordId::from(1), b_share).await?;
+                let (a_malicious, b_malicious) =
+                    v.context().upgrade((a_share, b_share)).await.unwrap();
 
-                let m_result = m_ctx
+                let m_result = v
+                    .context()
                     .multiply(RecordId::from(0), &a_malicious, &b_malicious)
                     .await?;
 
@@ -332,7 +336,7 @@ mod tests {
         let result = world
             .semi_honest(a, |ctx, a| async move {
                 let v = MaliciousValidator::new(ctx);
-                let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                let m = v.context().upgrade(a).await.unwrap();
                 v.validate(m).await.unwrap()
             })
             .await;
@@ -356,7 +360,7 @@ mod tests {
                         a
                     };
                     let v = MaliciousValidator::new(ctx);
-                    let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                    let m = v.context().upgrade(a).await.unwrap();
                     match v.validate(m).await {
                         Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
@@ -412,14 +416,7 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
 
-                let m_input = try_join_all(
-                    input_shares
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, share)| m_ctx.upgrade(RecordId::from(i), share)),
-                )
-                .await
-                .unwrap();
+                let m_input = m_ctx.upgrade(input_shares).await.unwrap();
 
                 let m_results = try_join_all(
                     zip(

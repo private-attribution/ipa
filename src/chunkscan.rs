@@ -31,7 +31,7 @@ pub struct ChunkScan<St: Stream, F, Fut> {
     /// Buffer for items taken off the input stream
     buf: Vec<St::Item>,
 
-    /// Transforms Vec<Item> -> Future<Output=Result<Item, Error>>
+    /// Transforms `Vec<Item>` -> Future<Output=Result<Item, Error>>
     f: F,
 
     /// future in progress

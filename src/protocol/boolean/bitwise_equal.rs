@@ -59,7 +59,7 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::test_fixture::Runner;
     use crate::{

@@ -2,7 +2,7 @@ use crate::helpers::TransportError;
 use crate::{
     error::BoxError,
     helpers::{
-        messaging::{ReceiveRequest, SendRequest},
+        messaging::{Message, ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
         HelperIdentity, Role,
     },
@@ -18,6 +18,11 @@ pub enum Error {
     SendError {
         channel: ChannelId,
 
+        #[source]
+        inner: BoxError,
+    },
+    #[error("An error occurred while sending data over a reordering channel: {inner}")]
+    OrderedChannelError {
         #[source]
         inner: BoxError,
     },
@@ -41,6 +46,7 @@ pub enum Error {
     },
     #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
+    #[cfg(feature = "web-app")]
     #[error("identity had invalid format: {0}")]
     InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to send command on the transport: {0}")]
@@ -87,6 +93,14 @@ impl From<SendError<ReceiveRequest>> for Error {
         Self::SendError {
             channel: source.0.channel_id,
             inner: "channel closed".into(),
+        }
+    }
+}
+
+impl<M: Message> From<SendError<(usize, M)>> for Error {
+    fn from(_: SendError<(usize, M)>) -> Self {
+        Self::OrderedChannelError {
+            inner: "ordered string".into(),
         }
     }
 }

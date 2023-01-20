@@ -17,7 +17,7 @@ use crate::{
         },
         RecordId,
     },
-    secret_sharing::{Replicated, XorReplicated},
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, XorReplicated},
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};

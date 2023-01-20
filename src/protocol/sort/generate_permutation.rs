@@ -7,7 +7,7 @@ use crate::{
         malicious::MaliciousValidator,
         sort::SortStep::{
             ApplyInv, BitPermutationStep, ComposeStep, MaliciousUpgradeContext,
-            MaliciousUpgradeInput, ShuffleRevealPermutation, SortKeys,
+            ShuffleRevealPermutation, SortKeys,
         },
         sort::{
             bit_permutation::bit_permutation,
@@ -15,7 +15,10 @@ use crate::{
         },
         IpaProtocolStep::Sort,
     },
-    secret_sharing::{MaliciousReplicated, Replicated, SecretSharing},
+    secret_sharing::{
+        replicated::malicious::AdditiveShare as MaliciousReplicated,
+        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
+    },
 };
 
 use super::{
@@ -270,9 +273,7 @@ where
     let m_ctx_0 = m_ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let upgraded_sort_keys = m_ctx
-        .upgrade_vector(&MaliciousUpgradeInput, sort_keys[0].clone())
-        .await?;
+    let upgraded_sort_keys = m_ctx.upgrade(sort_keys[0].clone()).await?;
     let bit_0_permutation =
         bit_permutation(m_ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
@@ -291,7 +292,7 @@ where
         malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num)));
         m_ctx_bit = malicious_validator.context();
         let upgraded_sort_keys = m_ctx_bit
-            .upgrade_vector(&MaliciousUpgradeInput, sort_keys[bit_num as usize].clone())
+            .upgrade(sort_keys[bit_num as usize].clone())
             .await?;
         let bit_i_sorted_by_less_significant_bits = secureapplyinv(
             m_ctx_bit.narrow(&ApplyInv),
@@ -348,7 +349,7 @@ mod tests {
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::Replicated;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};

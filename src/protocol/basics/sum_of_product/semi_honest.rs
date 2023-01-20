@@ -6,7 +6,7 @@ use crate::protocol::{
     context::{Context, SemiHonestContext},
     RecordId,
 };
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// Sum of product protocol developed using IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -22,14 +22,14 @@ use crate::secret_sharing::Replicated;
 pub async fn sum_of_products<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: &[&Replicated<F>],
-    b: &[&Replicated<F>],
+    a: &[Replicated<F>],
+    b: &[Replicated<F>],
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
 {
     assert_eq!(a.len(), b.len());
-    let multi_bit_len = a.len();
+    let vec_len = a.len();
 
     let channel = ctx.mesh();
 
@@ -41,7 +41,7 @@ where
     // compute the value (d_i) we want to send to the right helper (i+1)
     let mut right_sops: F = -s0;
 
-    for i in 0..multi_bit_len {
+    for i in 0..vec_len {
         right_sops += a[i].left() * b[i].right() + a[i].right() * b[i].left();
     }
 
@@ -59,7 +59,7 @@ where
     let mut lhs = left_sops + s0;
     let mut rhs = right_sops + s1;
 
-    for i in 0..multi_bit_len {
+    for i in 0..vec_len {
         lhs += a[i].left() * b[i].left();
         rhs += a[i].right() * b[i].right();
     }
@@ -75,6 +75,7 @@ mod test {
     use crate::ff::{Field, Fp31};
     use crate::protocol::basics::sum_of_product::SecureSop;
     use crate::protocol::RecordId;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
     #[tokio::test]
@@ -116,9 +117,7 @@ mod test {
 
         let res = world
             .semi_honest((av, bv), |ctx, (a, b)| async move {
-                let a_refs = a.iter().collect::<Vec<_>>();
-                let b_refs = b.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })
@@ -136,11 +135,8 @@ mod test {
         let b: Vec<_> = b.iter().map(|x| Fp31::from(*x)).collect();
 
         let result = world
-            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                let a_refs = a_share.iter().collect::<Vec<_>>();
-                let b_refs = b_share.iter().collect::<Vec<_>>();
-
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+            .semi_honest((a, b), |ctx, (a, b)| async move {
+                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })

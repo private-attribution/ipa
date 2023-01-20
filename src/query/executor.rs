@@ -12,7 +12,7 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         Step,
     },
-    secret_sharing::Replicated,
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     task::JoinHandle,
 };
 use futures_util::StreamExt;
@@ -131,7 +131,6 @@ pub fn start_query(
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {
-            FieldType::Fp2 => todo!(),
             FieldType::Fp31 => {
                 let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                 match config.query_type {
