@@ -9,7 +9,7 @@ use crate::{
 
 use crate::protocol::sort::ApplyInvStep::ShuffleInputs;
 
-use self::shuffle::{shuffle_shares, Resharable};
+pub use self::shuffle::{shuffle_shares, Resharable};
 
 use super::generate_permutation::RevealedAndRandomPermutations;
 
