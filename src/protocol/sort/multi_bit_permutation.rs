@@ -91,11 +91,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
 /// `2^N` possible values this could have.
 /// This function checks all of these possible values, and returns a vector of secret-shared results.
 /// Only one result will be a secret-sharing of one, all of the others will be secret-sharings of zero.
-async fn check_everything<F, C, S>(
-    ctx: C,
-    record_idx: usize,
-    input: &[S],
-) -> Result<Vec<S>, Error>
+async fn check_everything<F, C, S>(ctx: C, record_idx: usize, input: &[S]) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
@@ -231,11 +227,18 @@ mod tests {
 
     use super::check_everything;
 
-    const INPUT: [&[u128]; 3] = [
-        &[0, 0, 1, 0, 1, 0],
-        &[0, 1, 1, 0, 0, 0],
-        &[1, 0, 1, 0, 1, 0],
+    const INPUT: [[u128; 3]; 6] = [
+        [0, 0, 1],
+        [0, 1, 0],
+        [1, 1, 1],
+        [0, 0, 0],
+        [1, 0, 1],
+        [0, 0, 0],
     ];
+    //     &[0, 0, 1, 0, 1, 0],
+    //     &[0, 1, 1, 0, 0, 0],
+    //     &[1, 0, 1, 0, 1, 0],
+    // ];
     const EXPECTED: &[u128] = &[3, 2, 5, 0, 4, 1]; //100 010 111 000 101 000
     const EXPECTED_NUMS: &[usize] = &[4, 2, 7, 0, 5, 0];
 
@@ -267,14 +270,14 @@ mod tests {
             .map(|v| v.iter().map(|x| Fp31::from(*x)).collect())
             .collect();
 
-        let num_records = INPUT[0].len();
+        let num_records = INPUT.len();
 
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
-                for i in 0..num_records {
+                for (i, record) in m_shares.iter().enumerate() {
                     let ctx = ctx.clone();
-                    equality_check_futures.push(check_everything(ctx, i, &m_shares[i]));
+                    equality_check_futures.push(check_everything(ctx, i, record));
                 }
                 try_join_all(equality_check_futures).await.unwrap()
             })
