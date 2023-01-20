@@ -331,44 +331,6 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(feature = "test-fixture")]
-impl<F: Field>
-    crate::test_fixture::Reconstruct<
-        crate::protocol::attribution::accumulate_credit::AttributionTestInput<F>,
-    > for [AggregateCreditOutputRow<F>; 3]
-{
-    fn reconstruct(
-        &self,
-    ) -> crate::protocol::attribution::accumulate_credit::AttributionTestInput<F> {
-        [&self[0], &self[1], &self[2]].reconstruct()
-    }
-}
-
-#[cfg(feature = "test-fixture")]
-impl<F: Field>
-    crate::test_fixture::Reconstruct<
-        crate::protocol::attribution::accumulate_credit::AttributionTestInput<F>,
-    > for [&AggregateCreditOutputRow<F>; 3]
-{
-    fn reconstruct(
-        &self,
-    ) -> crate::protocol::attribution::accumulate_credit::AttributionTestInput<F> {
-        let s0 = &self[0];
-        let s1 = &self[1];
-        let s2 = &self[2];
-
-        let breakdown_key = (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-        let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
-
-        crate::protocol::attribution::accumulate_credit::AttributionTestInput([
-            breakdown_key,
-            credit,
-            F::ZERO,
-            F::ZERO,
-        ])
-    }
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
     use super::super::tests::{BD, H};

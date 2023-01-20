@@ -506,36 +506,32 @@ pub mod query {
     }
 
     pub mod results {
-        use crate::{
-            net::{client, http_serde::query::BASE_AXUM_PATH, server},
-            protocol::QueryId,
-        };
+        use crate::{net::server, protocol::QueryId};
         use async_trait::async_trait;
-        use axum::{
-            extract::{FromRequest, Path, RequestParts},
-            http::uri,
-        };
+        use axum::extract::{FromRequest, Path, RequestParts};
 
         pub struct Request {
             pub query_id: QueryId,
         }
 
         impl Request {
+            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
             pub fn new(query_id: QueryId) -> Self {
                 Self { query_id }
             }
 
+            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
             pub fn try_into_http_request(
                 self,
-                scheme: uri::Scheme,
-                authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
-                let uri = uri::Uri::builder()
+                scheme: axum::http::uri::Scheme,
+                authority: axum::http::uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, crate::net::client::Error> {
+                let uri = axum::http::uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
                     .path_and_query(format!(
                         "{}/{}/complete",
-                        BASE_AXUM_PATH,
+                        crate::net::http_serde::query::BASE_AXUM_PATH,
                         self.query_id.as_ref()
                     ))
                     .build()?;
