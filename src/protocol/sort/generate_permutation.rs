@@ -146,10 +146,19 @@ pub async fn generate_permutation<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
+    malicious_setting: bool
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
 {
+    let mut malicious_validator = None;
+    let sort_ctx: &dyn Context<F> = if malicious_setting {
+        malicious_validator = Some(MaliciousValidator::new(ctx.narrow(&MaliciousUpgradeContext)));
+        &malicious_validator.unwrap().context()
+    } else {
+        &ctx
+    };
+
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
