@@ -1,5 +1,5 @@
 use crate::ff::Field;
-use crate::helpers::messaging::{Gateway, Mesh};
+use crate::helpers::messaging::{Gateway, Mesh, TotalRecords};
 use crate::helpers::Role;
 use crate::protocol::context::{
     Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
@@ -12,7 +12,6 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::sync::Arc;
 
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
@@ -22,20 +21,20 @@ pub struct SemiHonestContext<'a, F: Field> {
     /// may operate with raw references and be more efficient
     pub(super) inner: Arc<ContextInner<'a>>,
     pub(super) step: Step,
-    pub(super) total_records: Option<NonZeroUsize>,
+    pub(super) total_records: TotalRecords,
     _marker: PhantomData<F>,
 }
 
 impl<'a, F: Field> SemiHonestContext<'a, F> {
     pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self::new_with_total_records(role, participant, gateway, None)
+        Self::new_with_total_records(role, participant, gateway, TotalRecords::Unspecified)
     }
 
     pub fn new_with_total_records(
         role: Role,
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
-        total_records: Option<NonZeroUsize>,
+        total_records: TotalRecords,
     ) -> Self {
         Self {
             inner: ContextInner::new(role, participant, gateway),
@@ -83,19 +82,19 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         }
     }
 
-    fn is_total_records_known(&self) -> bool {
-        self.total_records.is_some()
+    fn is_total_records_unspecified(&self) -> bool {
+        self.total_records.is_unspecified()
     }
 
-    fn set_total_records(&self, total_records: usize) -> Self {
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
         debug_assert!(
-            !self.is_total_records_known(),
+            self.is_total_records_unspecified(),
             "attempt to set total_records more than once"
         );
         Self {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
-            total_records: NonZeroUsize::new(total_records),
+            total_records: total_records.into(),
             _marker: PhantomData::default(),
         }
     }

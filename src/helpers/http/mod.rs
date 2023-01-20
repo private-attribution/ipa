@@ -5,7 +5,10 @@ pub use network::HttpNetwork;
 
 use crate::{
     ff::Field,
-    helpers::{messaging::Gateway, Direction, Error, GatewayConfig, Role},
+    helpers::{
+        messaging::{Gateway, TotalRecords},
+        Direction, Error, GatewayConfig, Role,
+    },
     net::{
         discovery::{peer, PeerDiscovery},
         BindTarget, MessageSendMap, MpcHelperServer,
@@ -18,8 +21,8 @@ use prss_exchange_protocol::{
     PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk, PUBLIC_KEY_CHUNK_COUNT,
 };
 use rand_core::{CryptoRng, RngCore};
+use std::iter::zip;
 use std::net::SocketAddr;
-use std::{iter::zip, num::NonZeroUsize};
 
 pub struct HttpHelper<'p> {
     role: Role,
@@ -84,7 +87,7 @@ impl<'p> HttpHelper<'p> {
     ) -> Result<prss::Endpoint, Error> {
         // setup protocol to exchange prss public keys
         let step = step.narrow(&PrssExchangeStep);
-        let channel = gateway.mesh(&step, NonZeroUsize::new(PUBLIC_KEY_CHUNK_COUNT));
+        let channel = gateway.mesh(&step, TotalRecords::from(PUBLIC_KEY_CHUNK_COUNT));
         let left_peer = self.role.peer(Direction::Left);
         let right_peer = self.role.peer(Direction::Right);
 
