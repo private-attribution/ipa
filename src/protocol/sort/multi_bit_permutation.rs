@@ -32,9 +32,9 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
-    let num_multi_bits = input.len();
+    let num_multi_bits = input[0].len();
     assert!(num_multi_bits > 0);
-    let num_records = input[0].len();
+    let num_records = input.len();
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
     let share_of_one = ctx.share_of_one();
@@ -43,7 +43,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     let equality_checks = try_join_all(
         (0..num_records)
             .zip(repeat(ctx.clone()))
-            .map(|(i, ctx)| check_everything(ctx, i, input)),
+            .map(|(i, ctx)| check_everything(ctx, i, &input[i])),
     )
     .await?;
 
@@ -90,7 +90,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
 async fn check_everything<F, C, S>(
     ctx: C,
     record_idx: usize,
-    input: &[Vec<S>],
+    input: &[S],
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -183,7 +183,7 @@ where
 async fn pregenerate_all_combinations<F, C, S>(
     ctx: C,
     record_idx: usize,
-    input: &[Vec<S>],
+    input: &[S],
     num_bits: usize,
 ) -> Result<Vec<S>, Error>
 where
@@ -194,8 +194,7 @@ where
     let record_id = RecordId::from(record_idx);
     let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
     precomputed_combinations.push(ctx.share_of_one());
-    for (bit_idx, column) in input.iter().enumerate() {
-        let bit = &column[record_idx];
+    for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
         let mut multiplication_results =
             try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
@@ -271,7 +270,7 @@ mod tests {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for i in 0..num_records {
                     let ctx = ctx.clone();
-                    equality_check_futures.push(check_everything(ctx, i, m_shares.as_slice()));
+                    equality_check_futures.push(check_everything(ctx, i, &m_shares[i]));
                 }
                 try_join_all(equality_check_futures).await.unwrap()
             })
