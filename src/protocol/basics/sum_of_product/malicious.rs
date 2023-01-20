@@ -1,11 +1,13 @@
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::basics::sum_of_product::SecureSop;
+use crate::helpers::Direction;
+use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{
     context::{Context, MaliciousContext},
     RecordId,
 };
 use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -60,8 +62,8 @@ impl AsRef<str> for Step {
 pub async fn sum_of_products<F>(
     ctx: MaliciousContext<'_, F>,
     record_id: RecordId,
-    a: &[&MaliciousReplicated<F>],
-    b: &[&MaliciousReplicated<F>],
+    a: &[MaliciousReplicated<F>],
+    b: &[MaliciousReplicated<F>],
 ) -> Result<MaliciousReplicated<F>, Error>
 where
     F: Field,
@@ -70,30 +72,52 @@ where
     use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
     assert_eq!(a.len(), b.len());
+    let vec_len = a.len();
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateSop);
-    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
-    let ax = a
-        .iter()
-        .map(|a| a.x().access_without_downgrade())
-        .collect::<Vec<_>>();
-    let arx = a.iter().map(|a| a.rx()).collect::<Vec<_>>();
 
-    let bx = b
-        .iter()
-        .map(|b| b.x().access_without_downgrade())
-        .collect::<Vec<_>>();
+    // generate shared randomness.
+    let prss = ctx.prss();
+    let duplicate_prss = duplicate_multiply_ctx.prss();
+    let (s0, s1): (F, F) = prss.generate_fields(record_id);
+    let (s0_m, s1_m): (F, F) = duplicate_prss.generate_fields(record_id);
+    let role = ctx.role();
 
-    let (ab, rab) = try_join(
-        ctx.semi_honest_context()
-            .sum_of_products(record_id, ax.as_slice(), bx.as_slice()),
-        duplicate_multiply_ctx
-            .semi_honest_context()
-            .sum_of_products(record_id, arx.as_slice(), bx.as_slice()),
+    // compute the value (d_i) we want to send to the right helper (i+1)
+    let mut right_sops: F = s1 - s0;
+    let mut right_sops_m: F = s1_m - s0_m;
+
+    for i in 0..vec_len {
+        let ax = a[i].x().access_without_downgrade();
+        let bx = b[i].x().access_without_downgrade();
+        let arx = a[i].rx();
+        right_sops += ax.right() * bx.right() + ax.left() * bx.right() + ax.right() * bx.left();
+        right_sops_m +=
+            arx.right() * bx.right() + arx.left() * bx.right() + arx.right() * bx.left();
+    }
+
+    // notify helper on the right that we've computed our value
+    let channel = ctx.mesh();
+    let channel_m = duplicate_multiply_ctx.mesh();
+    try_join(
+        channel.send(role.peer(Direction::Right), record_id, right_sops),
+        channel_m.send(role.peer(Direction::Right), record_id, right_sops_m),
     )
     .await?;
 
-    let malicious_ab = MaliciousReplicated::new(ab, rab);
+    // Sleep until helper on the left sends us their (d_i-1) value
+    let (left_sops, left_sops_m): (F, F) = try_join(
+        channel.receive(role.peer(Direction::Left), record_id),
+        channel_m.receive(role.peer(Direction::Left), record_id),
+    )
+    .await?;
+
+    let malicious_ab = MaliciousReplicated::new(
+        Replicated::new(left_sops, right_sops),
+        Replicated::new(left_sops_m, right_sops_m),
+    );
+
+    let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
     random_constant_ctx.accumulate_macs(record_id, &malicious_ab);
 
     Ok(malicious_ab)
@@ -127,10 +151,8 @@ mod test {
         }
 
         let res = world
-            .malicious((av, bv), |ctx, (a_share, b_share)| async move {
-                let a_refs = a_share.iter().collect::<Vec<_>>();
-                let b_refs = b_share.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+            .malicious((av, bv), |ctx, (a, b)| async move {
+                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })

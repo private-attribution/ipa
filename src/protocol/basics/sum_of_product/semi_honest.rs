@@ -22,8 +22,8 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 pub async fn sum_of_products<F>(
     ctx: SemiHonestContext<'_, F>,
     record_id: RecordId,
-    a: &[&Replicated<F>],
-    b: &[&Replicated<F>],
+    a: &[Replicated<F>],
+    b: &[Replicated<F>],
 ) -> Result<Replicated<F>, Error>
 where
     F: Field,
@@ -117,9 +117,7 @@ mod test {
 
         let res = world
             .semi_honest((av, bv), |ctx, (a, b)| async move {
-                let a_refs = a.iter().collect::<Vec<_>>();
-                let b_refs = b.iter().collect::<Vec<_>>();
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })
@@ -137,11 +135,8 @@ mod test {
         let b: Vec<_> = b.iter().map(|x| Fp31::from(*x)).collect();
 
         let result = world
-            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                let a_refs = a_share.iter().collect::<Vec<_>>();
-                let b_refs = b_share.iter().collect::<Vec<_>>();
-
-                ctx.sum_of_products(RecordId::from(0), a_refs.as_slice(), b_refs.as_slice())
+            .semi_honest((a, b), |ctx, (a, b)| async move {
+                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })
