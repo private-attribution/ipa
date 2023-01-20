@@ -20,8 +20,8 @@ pub trait SecureSop<F: ArithmeticShare>: Sized {
     async fn sum_of_products(
         self,
         record_id: RecordId,
-        a: &[&Self::Share],
-        b: &[&Self::Share],
+        a: &[Self::Share],
+        b: &[Self::Share],
     ) -> Result<Self::Share, Error>;
 }
 
@@ -33,8 +33,8 @@ impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
     async fn sum_of_products(
         self,
         record_id: RecordId,
-        a: &[&Self::Share],
-        b: &[&Self::Share],
+        a: &[Self::Share],
+        b: &[Self::Share],
     ) -> Result<Self::Share, Error> {
         semi_honest::sum_of_products(self, record_id, a, b).await
     }
@@ -48,8 +48,8 @@ impl<F: Field> SecureSop<F> for MaliciousContext<'_, F> {
     async fn sum_of_products(
         self,
         record_id: RecordId,
-        a: &[&Self::Share],
-        b: &[&Self::Share],
+        a: &[Self::Share],
+        b: &[Self::Share],
     ) -> Result<Self::Share, Error> {
         malicious::sum_of_products(self, record_id, a, b).await
     }
