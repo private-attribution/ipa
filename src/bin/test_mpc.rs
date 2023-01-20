@@ -7,11 +7,8 @@ use raw_ipa::{
         Verbosity,
     },
     ff::{FieldType, Fp31},
-    helpers::{
-        query::{IPAQueryConfig, QueryConfig, QueryType},
-        HelperIdentity,
-    },
-    http::{discovery::PeerDiscovery, MpcHelperClient},
+    helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
+    net::{discovery::PeerDiscovery, MpcHelperClient},
 };
 use std::error::Error;
 use std::fmt::Debug;
@@ -87,8 +84,7 @@ fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
 
 fn make_clients() -> [MpcHelperClient; 3] {
     let config = helpers_config();
-    let mut clients = MpcHelperClient::from_conf(config.peers_map());
-    HelperIdentity::make_three().map(|id| clients.remove(&id).unwrap())
+    MpcHelperClient::from_conf(config.peers())
 }
 
 #[tokio::main]
@@ -106,8 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     query_type: QueryType::TestMultiply,
                 };
                 let query_id = clients[0].create_query(query_config).await.unwrap();
-                let output =
-                    secure_mul::<Fp31>(input, &clients, query_id, query_config.field_type).await;
+                let output = secure_mul::<Fp31>(input, &clients, query_id).await;
                 print_output(&output);
             }
             InputType::Fp32BitPrime => {
@@ -126,8 +121,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }),
                 };
                 let query_id = clients[0].create_query(query_config).await.unwrap();
-                let output =
-                    semi_honest::<Fp31>(input, &clients, query_id, query_config.field_type).await;
+                let output = semi_honest::<Fp31>(input, &clients, query_id).await;
                 print_output(&output);
             }
             InputType::Fp32BitPrime => {

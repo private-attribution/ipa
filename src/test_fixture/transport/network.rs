@@ -33,14 +33,14 @@ impl InMemoryNetwork {
     pub fn helper_identities(&self) -> [HelperIdentity; 3] {
         self.transports
             .iter()
-            .map(|t| t.identity().clone())
+            .map(|t| t.identity())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
     }
 
     #[must_use]
-    pub fn transport(&self, id: &HelperIdentity) -> Option<impl Transport + Clone> {
+    pub fn transport(&self, id: HelperIdentity) -> Option<impl Transport + Clone> {
         self.transports
             .iter()
             .find(|t| t.identity() == id)

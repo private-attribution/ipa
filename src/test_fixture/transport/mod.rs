@@ -40,10 +40,8 @@ impl From<HelperIdentity> for Setup {
 impl Setup {
     pub fn connect(&mut self, dest: &mut Self) {
         let (tx, rx) = channel(1);
-        self.peer_connections
-            .insert(dest.switch_setup.identity.clone(), tx);
-        dest.switch_setup
-            .add_peer(self.switch_setup.identity.clone(), rx);
+        self.peer_connections.insert(dest.switch_setup.identity, tx);
+        dest.switch_setup.add_peer(self.switch_setup.identity, rx);
     }
 
     #[must_use]
@@ -77,7 +75,7 @@ impl InMemoryTransport {
     }
 
     #[must_use]
-    pub fn identity(&self) -> &HelperIdentity {
+    pub fn identity(&self) -> HelperIdentity {
         self.switch.identity()
     }
 
@@ -96,7 +94,7 @@ impl Transport for Weak<InMemoryTransport> {
             .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
 
-        InMemoryTransport::identity(&this).clone()
+        InMemoryTransport::identity(&this)
     }
 
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
@@ -109,7 +107,7 @@ impl Transport for Weak<InMemoryTransport> {
 
     async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        destination: &HelperIdentity,
+        destination: HelperIdentity,
         command: C,
     ) -> Result<(), TransportError> {
         let this = self
@@ -117,7 +115,7 @@ impl Transport for Weak<InMemoryTransport> {
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
         Ok(this
             .peer_connections
-            .get(destination)
+            .get(&destination)
             .unwrap()
             .send(command.into())
             .await?)

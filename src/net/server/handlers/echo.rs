@@ -1,7 +1,8 @@
-use crate::net::server::MpcHelperServerError;
+use crate::net::{http_serde, server::Error};
 use axum::{
     extract::{FromRequest, Query, RequestParts},
-    Json,
+    routing::get,
+    Json, Router,
 };
 use hyper::{Body, Request};
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ pub struct Payload {
     pub headers: HashMap<String, String>,
 }
 
-pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcHelperServerError> {
+async fn handler(req: Request<Body>) -> Result<Json<Payload>, Error> {
     let mut parts = RequestParts::new(req);
 
     let query: Query<HashMap<String, String>> = Query::from_request(&mut parts).await?;
@@ -32,9 +33,13 @@ pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcHelperServe
     }))
 }
 
+pub fn router() -> Router {
+    Router::new().route(http_serde::echo::AXUM_PATH, get(handler))
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::net::server::handlers::echo::handler;
+    use super::*;
     use hyper::{Body, Request};
 
     #[tokio::test]

@@ -4,7 +4,7 @@ use crate::{
         transport::{SubscriptionType, Transport, TransportCommand, TransportError},
         CommandEnvelope, HelperIdentity,
     },
-    http::{
+    net::{
         client::MpcHelperClient,
         discovery::peer,
         server::{BindTarget, MpcHelperServer},
@@ -21,19 +21,16 @@ use tokio_stream::wrappers::ReceiverStream;
 
 pub struct HttpTransport {
     id: HelperIdentity,
-    peers_conf: Arc<HashMap<HelperIdentity, peer::Config>>,
+    peers_conf: Arc<[peer::Config; 3]>,
     subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<CommandEnvelope>>>>,
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
     server: MpcHelperServer,
-    clients: HashMap<HelperIdentity, MpcHelperClient>,
+    clients: [MpcHelperClient; 3],
 }
 
 impl HttpTransport {
     #[must_use]
-    pub fn new(
-        id: HelperIdentity,
-        peers_conf: Arc<HashMap<HelperIdentity, peer::Config>>,
-    ) -> Arc<Self> {
+    pub fn new(id: HelperIdentity, peers_conf: Arc<[peer::Config; 3]>) -> Arc<Self> {
         let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         let server = MpcHelperServer::new(subscribe_sender, Arc::clone(&ongoing_queries));
@@ -52,10 +49,7 @@ impl HttpTransport {
     /// # Panics
     /// if self id not found in `peers_conf`
     pub async fn bind(&self) -> (SocketAddr, JoinHandle<()>) {
-        let this_conf = self
-            .peers_conf
-            .get(&self.id)
-            .unwrap_or_else(|| panic!("HelperIdentity {:?} not found in config", self.id));
+        let this_conf = &self.peers_conf[self.id];
         let port = this_conf.origin.port().unwrap();
         let target = BindTarget::Http(format!("127.0.0.1:{}", port.as_str()).parse().unwrap());
         tracing::info!("starting server; binding to port {}", port.as_str());
@@ -68,7 +62,7 @@ impl Transport for Arc<HttpTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
     fn identity(&self) -> HelperIdentity {
-        self.id.clone()
+        self.id
     }
 
     async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
@@ -98,26 +92,22 @@ impl Transport for Arc<HttpTransport> {
 
     async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        destination: &HelperIdentity,
+        destination: HelperIdentity,
         command: C,
     ) -> Result<(), TransportError> {
-        let client = self
-            .clients
-            .get(destination)
-            .ok_or_else(|| TransportError::UnknownHelper(destination.clone()))?;
+        let client = &self.clients[destination];
         let command = command.into();
         let command_name = command.name();
         match command {
             TransportCommand::Query(QueryCommand::Prepare(data, resp)) => {
                 let query_id = data.query_id;
-                client
-                    .prepare_query(&self.id, data)
-                    .await
-                    .map_err(|inner| TransportError::SendFailed {
+                client.prepare_query(self.id, data).await.map_err(|inner| {
+                    TransportError::SendFailed {
                         command_name: Some(command_name),
                         query_id: Some(query_id),
                         inner: inner.into(),
-                    })?;
+                    }
+                })?;
                 // since client has returned, go ahead and respond to query
                 resp.send(()).unwrap();
                 Ok(())
@@ -128,7 +118,7 @@ impl Transport for Arc<HttpTransport> {
                 payload,
                 offset,
             } => client
-                .step(&self.id, query_id, step, payload, offset)
+                .step(self.id, query_id, &step, payload, offset)
                 .await
                 .map_err(|err| TransportError::SendFailed {
                     command_name: Some(command_name),
@@ -149,15 +139,18 @@ mod e2e_tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::query::{QueryConfig, QueryInput, QueryType},
-        http::discovery::PeerDiscovery,
+        helpers::{
+            query::{QueryConfig, QueryInput, QueryType},
+            transport::ByteArrStream,
+        },
+        net::discovery::PeerDiscovery,
         query::Processor,
         secret_sharing::{IntoShares, Replicated},
         test_fixture::{net::localhost_config, Reconstruct},
     };
     use futures_util::{
         future::{join_all, try_join_all},
-        join, stream,
+        join,
     };
 
     fn open_port() -> u16 {
@@ -169,25 +162,26 @@ mod e2e_tests {
     }
 
     async fn make_processors(
-        ids: &[HelperIdentity; 3],
-        conf: Arc<HashMap<HelperIdentity, peer::Config>>,
+        ids: [HelperIdentity; 3],
+        conf: Arc<[peer::Config; 3]>,
     ) -> [Processor<Arc<HttpTransport>>; 3] {
-        let mut processors = Vec::with_capacity(ids.len());
-        for this_id in ids {
-            let transport = HttpTransport::new(this_id.clone(), Arc::clone(&conf));
-            transport.bind().await;
-            let processor = Processor::new(transport, ids.clone()).await;
-            processors.push(processor);
-        }
-        processors.try_into().unwrap()
+        join_all(ids.map(|id| {
+            let conf = Arc::clone(&conf);
+            async move {
+                let transport = HttpTransport::new(id, conf);
+                transport.bind().await;
+                Processor::new(transport, ids).await
+            }
+        }))
+        .await
+        .try_into()
+        .unwrap()
     }
 
-    fn make_clients(
-        ids: &[HelperIdentity; 3],
-        conf: &HashMap<HelperIdentity, peer::Config>,
-    ) -> [MpcHelperClient; 3] {
-        ids.iter()
-            .map(|id| MpcHelperClient::new(conf.get(id).unwrap().origin.clone()))
+    fn make_clients(confs: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+        confs
+            .iter()
+            .map(|conf| MpcHelperClient::new(conf.origin.clone()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
@@ -205,14 +199,14 @@ mod e2e_tests {
     async fn happy_case() {
         const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
         let conf = localhost_config([open_port(), open_port(), open_port()]);
-        let peers_conf = Arc::new(conf.peers_map().clone());
+        let peers_conf = Arc::new(conf.peers().clone());
         let ids: [HelperIdentity; 3] = [
             HelperIdentity::try_from(1usize).unwrap(),
             HelperIdentity::try_from(2usize).unwrap(),
             HelperIdentity::try_from(3usize).unwrap(),
         ];
-        let mut processors = make_processors(&ids, Arc::clone(&peers_conf)).await;
-        let clients = make_clients(&ids, &peers_conf);
+        let mut processors = make_processors(ids, Arc::clone(&peers_conf)).await;
+        let clients = make_clients(&peers_conf);
 
         // send a create query command
         let leader_client = &clients[0];
@@ -236,15 +230,13 @@ mod e2e_tests {
             let mut slice = [0u8; 2 * SZ];
             a.serialize(&mut slice).unwrap();
             b.serialize(&mut slice[SZ..]).unwrap();
-            let oks = std::iter::once(slice.to_vec()).map(Ok);
-            Box::pin(stream::iter(oks))
+            ByteArrStream::from(slice.as_slice())
         });
 
         let mut handle_resps = Vec::with_capacity(helper_shares.len());
         for (i, input_stream) in helper_shares.into_iter().enumerate() {
             let data = QueryInput {
                 query_id,
-                field_type: FieldType::Fp31,
                 input_stream,
             };
             handle_resps.push(clients[i].query_input(data));

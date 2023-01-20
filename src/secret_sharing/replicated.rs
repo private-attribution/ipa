@@ -55,7 +55,7 @@ impl<F: Field> Replicated<F> {
     /// Replicated secret share where both left and right values are `F::ZERO`
     pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
 
-    pub const SIZE_IN_BYTES: usize = 2 * std::mem::size_of::<F>();
+    pub const SIZE_IN_BYTES: usize = 2 * F::SIZE_IN_BYTES as usize;
 
     /// Serialize replicated share into a slice of bytes
     ///

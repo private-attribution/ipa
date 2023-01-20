@@ -1,4 +1,4 @@
-use crate::http::discovery::conf::Conf;
+use crate::net::discovery::Conf;
 use std::fmt::Debug;
 
 /// Creates a new config for helpers configured to run on local machine using unique port.
@@ -10,22 +10,25 @@ where
     let ports = ports.map(|v| v.try_into().expect("Failed to parse the value into u16"));
     let config_str = format!(
         r#"
-[1]
+# H1
+[[peers]]
 origin = "http://localhost:{}"
 
-[1.tls]
+[peers.tls]
 public_key = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924"
 
-[2]
+# H2
+[[peers]]
 origin = "http://localhost:{}"
 
-[2.tls]
+[peers.tls]
 public_key = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b"
 
-[3]
+# H3
+[[peers]]
 origin = "http://localhost:{}"
 
-[3.tls]
+[peers.tls]
 public_key = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074"
 "#,
         ports[0], ports[1], ports[2]

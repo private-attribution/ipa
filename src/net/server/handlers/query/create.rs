@@ -1,20 +1,16 @@
 use crate::{
     helpers::{query::QueryCommand, transport::TransportCommand, CommandEnvelope, CommandOrigin},
-    http::server::Error,
-    protocol::QueryId,
+    net::{http_serde, server::Error},
 };
-use axum::extract::Path;
-use axum::routing::get;
-use axum::{Extension, Router};
-use hyper::{Body, Request};
+use axum::{routing::post, Extension, Json, Router};
 use tokio::sync::{mpsc, oneshot};
 
-/// Handles the completion of the query by blocking the sender until query is completed.
+/// Takes details from the HTTP request and creates a `[TransportCommand]::CreateQuery` that is sent
+/// to the [`HttpTransport`].
 async fn handler(
     transport_sender: Extension<mpsc::Sender<CommandEnvelope>>,
-    query_id: Path<QueryId>,
-    _req: Request<Body>,
-) -> Result<Vec<u8>, Error> {
+    req: http_serde::query::create::Request,
+) -> Result<Json<http_serde::query::create::ResponseBody>, Error> {
     let permit = transport_sender.reserve().await?;
 
     // prepare command data
@@ -23,16 +19,16 @@ async fn handler(
     // send command, receive response
     let command = CommandEnvelope {
         origin: CommandOrigin::Other,
-        payload: TransportCommand::Query(QueryCommand::Results(query_id.0, tx)),
+        payload: TransportCommand::Query(QueryCommand::Create(req.query_config, tx)),
     };
     permit.send(command);
-    let results = rx.await?;
+    let query_id = rx.await?;
 
-    Ok(results.into_bytes())
+    Ok(Json(http_serde::query::create::ResponseBody { query_id }))
 }
 
 pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
     Router::new()
-        .route("/query/:query_id/complete", get(handler))
+        .route(http_serde::query::create::AXUM_PATH, post(handler))
         .layer(Extension(transport_sender))
 }

@@ -51,7 +51,7 @@ pub struct Network<T> {
     transport: T,
     query_id: QueryId,
     roles: RoleAssignment,
-    offset_tracker: Arc<Mutex<HashMap<ChannelId, u32>>>,
+    send_offset_tracker: Arc<Mutex<HashMap<ChannelId, u32>>>,
 }
 
 impl<T: Transport> Network<T> {
@@ -61,7 +61,7 @@ impl<T: Transport> Network<T> {
             transport,
             query_id,
             roles,
-            offset_tracker: Arc::new(Mutex::new(HashMap::new())),
+            send_offset_tracker: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -98,8 +98,8 @@ impl<T: Transport> Network<T> {
     pub async fn send(&self, message_chunks: MessageChunks) -> Result<(), Error> {
         let (channel, payload) = message_chunks;
         let destination = self.roles.identity(channel.role);
-        let offset = Self::inc_and_ensure_offset(
-            &mut self.offset_tracker.lock().unwrap(),
+        let send_offset = Self::inc_and_ensure_offset(
+            &mut self.send_offset_tracker.lock().unwrap(),
             self.query_id,
             &channel,
             None,
@@ -111,7 +111,7 @@ impl<T: Transport> Network<T> {
                     query_id: self.query_id,
                     step: channel.step,
                     payload,
-                    offset,
+                    offset: send_offset,
                 },
             )
             .await
@@ -128,7 +128,7 @@ impl<T: Transport> Network<T> {
             .subscribe(SubscriptionType::Query(self_query_id))
             .await;
         let assignment = self.roles.clone(); // need to move it inside the closure
-        let mut offset_tracker = HashMap::new();
+        let mut recv_offset_tracker = HashMap::new();
 
         query_command_stream.map(move |envelope| match envelope.payload {
             TransportCommand::StepData { query_id, step, payload, offset } => {
@@ -140,7 +140,7 @@ impl<T: Transport> Network<T> {
                 let origin_role = assignment.role(identity);
                 let channel_id = ChannelId::new(origin_role, step);
 
-                Self::inc_and_ensure_offset(&mut offset_tracker, self_query_id, &channel_id, Some(offset));
+                Self::inc_and_ensure_offset(&mut recv_offset_tracker, self_query_id, &channel_id, Some(offset));
 
                 (channel_id, payload)
             }

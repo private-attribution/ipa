@@ -1,12 +1,9 @@
-#![allow(dead_code)] // TODO: remove
-#![allow(clippy::mutable_key_type)] // `HelperIdentity` cannot be modified
-
 pub mod query;
 
 mod bytearrstream;
 mod error;
 
-pub use bytearrstream::ByteArrStream;
+pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use error::Error as TransportError;
 
 use crate::{
@@ -106,7 +103,7 @@ pub trait Transport: Send + Sync + 'static {
     /// To be called when an entity wants to send commands to the `Transport`.
     async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        destination: &HelperIdentity,
+        destination: HelperIdentity,
         command: C,
     ) -> Result<(), TransportError>;
 }

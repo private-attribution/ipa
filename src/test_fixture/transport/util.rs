@@ -41,7 +41,7 @@ impl<T: Transport> Transport for DelayedTransport<T> {
 
     async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        destination: &HelperIdentity,
+        destination: HelperIdentity,
         command: C,
     ) -> Result<(), TransportError> {
         self.barrier.wait().await;
@@ -78,7 +78,7 @@ impl<T: Transport, F: Fn(TransportCommand) -> TransportError + Send + Sync + 'st
 
     async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        _destination: &HelperIdentity,
+        _destination: HelperIdentity,
         command: C,
     ) -> Result<(), TransportError> {
         Err((self.error_fn)(command.into()))

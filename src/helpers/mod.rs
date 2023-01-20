@@ -24,13 +24,14 @@ use std::ops::{Index, IndexMut};
 use tinyvec::ArrayVec;
 
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
+
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
 /// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -73,6 +74,36 @@ impl HelperIdentity {
             Self::try_from(2).unwrap(),
             Self::try_from(3).unwrap(),
         ]
+    }
+}
+
+// `HelperIdentity` is 1-indexed, so subtract 1 for `Index` values
+impl<T> Index<HelperIdentity> for [T] {
+    type Output = T;
+
+    fn index(&self, index: HelperIdentity) -> &Self::Output {
+        self.index(usize::from(index.id) - 1)
+    }
+}
+
+// `HelperIdentity` is 1-indexed, so subtract 1 for `Index` values
+impl<T> IndexMut<HelperIdentity> for [T] {
+    fn index_mut(&mut self, index: HelperIdentity) -> &mut Self::Output {
+        self.index_mut(usize::from(index.id) - 1)
+    }
+}
+
+impl<T> Index<HelperIdentity> for Vec<T> {
+    type Output = T;
+
+    fn index(&self, index: HelperIdentity) -> &Self::Output {
+        self.as_slice().index(index)
+    }
+}
+
+impl<T> IndexMut<HelperIdentity> for Vec<T> {
+    fn index_mut(&mut self, index: HelperIdentity) -> &mut Self::Output {
+        self.as_mut_slice().index_mut(index)
     }
 }
 
@@ -233,8 +264,8 @@ impl RoleAssignment {
     }
 
     #[must_use]
-    pub fn identity(&self, role: Role) -> &HelperIdentity {
-        &self.helper_roles[role]
+    pub fn identity(&self, role: Role) -> HelperIdentity {
+        self.helper_roles[role]
     }
 }
 
@@ -258,6 +289,7 @@ impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+
     mod role_tests {
         use super::*;
 
@@ -306,15 +338,15 @@ mod tests {
             );
 
             assert_eq!(
-                &HelperIdentity::try_from(1).unwrap(),
+                HelperIdentity::try_from(1).unwrap(),
                 assignment.identity(Role::H1)
             );
             assert_eq!(
-                &HelperIdentity::try_from(2).unwrap(),
+                HelperIdentity::try_from(2).unwrap(),
                 assignment.identity(Role::H2)
             );
             assert_eq!(
-                &HelperIdentity::try_from(3).unwrap(),
+                HelperIdentity::try_from(3).unwrap(),
                 assignment.identity(Role::H3)
             );
         }
@@ -343,15 +375,15 @@ mod tests {
             );
 
             assert_eq!(
-                &HelperIdentity::try_from(3).unwrap(),
+                HelperIdentity::try_from(3).unwrap(),
                 assignment.identity(Role::H1)
             );
             assert_eq!(
-                &HelperIdentity::try_from(2).unwrap(),
+                HelperIdentity::try_from(2).unwrap(),
                 assignment.identity(Role::H2)
             );
             assert_eq!(
-                &HelperIdentity::try_from(1).unwrap(),
+                HelperIdentity::try_from(1).unwrap(),
                 assignment.identity(Role::H3)
             );
         }

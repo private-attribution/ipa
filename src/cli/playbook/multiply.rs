@@ -1,12 +1,12 @@
 use crate::{
     cli::playbook::InputSource,
-    ff::{Field, FieldType},
-    helpers::query::QueryInput,
-    http::MpcHelperClient,
+    ff::Field,
+    helpers::{query::QueryInput, transport::ByteArrStream},
+    net::MpcHelperClient,
     protocol::QueryId,
     secret_sharing::{IntoShares, Replicated},
 };
-use futures_util::{future::try_join_all, stream};
+use futures_util::future::try_join_all;
 use std::fmt::Debug;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
@@ -16,7 +16,6 @@ pub async fn secure_mul<F>(
     input: InputSource,
     clients: &[MpcHelperClient; 3],
     query_id: QueryId,
-    field_type: FieldType,
 ) -> [Vec<impl Send + Debug>; 3]
 where
     F: Field + IntoShares<Replicated<F>>,
@@ -35,17 +34,21 @@ where
             })
             .collect::<Vec<_>>();
 
-        Box::pin(stream::iter(std::iter::once(Ok(r))))
+        ByteArrStream::from(r)
     });
 
     // send inputs
-    try_join_all(inputs.into_iter().zip(clients).map(|(input, client)| {
-        client.query_input(QueryInput {
-            query_id,
-            field_type,
-            input_stream: input,
-        })
-    }))
+    try_join_all(
+        inputs
+            .into_iter()
+            .zip(clients)
+            .map(|(input_stream, client)| {
+                client.query_input(QueryInput {
+                    query_id,
+                    input_stream,
+                })
+            }),
+    )
     .await
     .unwrap();
 
