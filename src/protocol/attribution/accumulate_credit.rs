@@ -205,7 +205,7 @@ async fn compute_b_bit<F: Field>(
     Ok(b)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-fixture"))]
 pub mod input {
     use crate::ff::{Field, Fp31};
     use crate::protocol::attribution::{AggregateCreditOutputRow, AttributionInputRow};
