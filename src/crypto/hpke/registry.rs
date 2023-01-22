@@ -1,7 +1,5 @@
-use super::{IpaKem, IpaPrivateKey, IpaPublicKey, KeyIdentifier};
+use super::{IpaPrivateKey, IpaPublicKey, KeyIdentifier};
 use crate::crypto::hpke::Epoch;
-use hpke::Kem;
-use rand::{CryptoRng, RngCore};
 use std::collections::HashMap;
 
 /// A pair of secret key and public key. Public keys used by UA to encrypt the data towards helpers
@@ -39,14 +37,14 @@ pub struct KeyRegistry {
 
 impl KeyRegistry {
     #[cfg(any(test, feature = "test-fixture"))]
-    pub fn random<R: RngCore + CryptoRng>(
+    pub fn random<R: rand::RngCore + rand::CryptoRng>(
         epochs: Epoch,
         keys_per_epoch: usize,
         mut r: &mut R,
     ) -> Self {
         let mut generate_keys = || -> Vec<KeyPair> {
             (0..keys_per_epoch)
-                .map(|_| <IpaKem as Kem>::gen_keypair(&mut r).into())
+                .map(|_| <super::IpaKem as hpke::Kem>::gen_keypair(&mut r).into())
                 .collect::<Vec<_>>()
         };
 
