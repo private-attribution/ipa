@@ -35,7 +35,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             items_in_batch: NonZeroUsize::new(1).unwrap(),
-            batch_count: NonZeroUsize::new(1).unwrap(),
+            batch_count: NonZeroUsize::new(16).unwrap(),
         }
     }
 }
