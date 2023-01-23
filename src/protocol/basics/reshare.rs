@@ -30,10 +30,7 @@ use futures::future::try_join;
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
-pub trait Reshare<V>
-where
-    V: ArithmeticShare,
-{
+pub trait Reshare<V: ArithmeticShare> {
     type Share: SecretSharing<V>;
 
     async fn reshare(

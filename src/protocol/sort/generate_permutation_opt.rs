@@ -2,21 +2,20 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::Context,
-        sort::generate_permutation::shuffle_and_reveal_permutation,
+        context::{Context, SemiHonestContext},
         sort::{
+            compose::compose,
+            generate_permutation::shuffle_and_reveal_permutation,
             multi_bit_permutation::multi_bit_permutation,
+            secureapplyinv::secureapplyinv,
             SortStep::{BitPermutationStep, ComposeStep, MultiApplyInv, ShuffleRevealPermutation},
         },
         IpaProtocolStep::Sort,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use std::iter::repeat;
-
-use super::{compose::compose, secureapplyinv::secureapplyinv};
-use crate::protocol::context::SemiHonestContext;
 use futures::future::try_join_all;
+use std::iter::repeat;
 
 /// This is an implementation of `OptGenPerm` (Algorithm 12) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -40,7 +39,6 @@ use futures::future::try_join_all;
 /// If any underlying protocol fails
 /// # Panics
 /// Panics if input doesn't have same number of bits as `num_bits`
-
 pub async fn generate_permutation_opt<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],

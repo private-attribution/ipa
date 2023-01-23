@@ -1,17 +1,19 @@
 pub mod shuffle;
 
+pub use shuffle::{shuffle_shares, Resharable};
+
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, sort::apply::apply_inv},
+    protocol::{
+        context::Context,
+        sort::{
+            apply::apply_inv, generate_permutation::RevealedAndRandomPermutations,
+            ApplyInvStep::ShuffleInputs,
+        },
+    },
     secret_sharing::SecretSharing,
 };
-
-use crate::protocol::sort::ApplyInvStep::ShuffleInputs;
-
-pub use self::shuffle::{shuffle_shares, Resharable};
-
-use super::generate_permutation::RevealedAndRandomPermutations;
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
@@ -42,7 +44,6 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
     use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
