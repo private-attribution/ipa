@@ -9,7 +9,7 @@ use std::{fmt, io};
 mod aad;
 mod registry;
 
-pub use aad::AssociatedData;
+pub use aad::Info;
 pub use registry::KeyRegistry;
 
 /// IPA ciphersuite
@@ -23,27 +23,27 @@ type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 #[derive(Debug)]
-pub struct BottomError;
+pub struct DecryptionError;
 
-impl From<hpke::HpkeError> for BottomError {
+impl From<hpke::HpkeError> for DecryptionError {
     fn from(_value: hpke::HpkeError) -> Self {
         Self
     }
 }
 
-impl From<io::Error> for BottomError {
+impl From<io::Error> for DecryptionError {
     fn from(_value: io::Error) -> Self {
         Self
     }
 }
 
-impl fmt::Display for BottomError {
+impl fmt::Display for DecryptionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Failed to open ciphertext")
     }
 }
 
-/// Opens ciphertext in place by first obtaining the secret key from [`key_registry`]
+/// Opens the given ciphertext in place by first obtaining the secret key from [`key_registry`]
 /// using epoch and key from [`aad`] and then applying [`HPKE decryption`] to the provided ciphertext.
 ///
 /// ## Errors
@@ -52,16 +52,17 @@ impl fmt::Display for BottomError {
 /// [`HPKE decryption`]: https://datatracker.ietf.org/doc/html/rfc9180#name-encryption-and-decryption
 pub fn open_in_place(
     key_registry: &KeyRegistry,
-    encap_key: &[u8],
+    enc: &[u8],
     ciphertext: &mut [u8],
     tag: &[u8],
-    aad: &AssociatedData,
-) -> Result<(), BottomError> {
+    aad: Info,
+) -> Result<(), DecryptionError> {
     //TODO: log errors, but don't return them
+    let (epoch, key_id) = (aad.epoch(), aad.key_id());
     let info = aad.to_bytes();
-    let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(encap_key)?;
+    let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
-    let sk = key_registry.private_key(aad.epoch(), aad.key_id());
+    let sk = key_registry.private_key(epoch, key_id);
 
     Ok(single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
         &OpModeR::Base,
@@ -83,8 +84,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
 
-    use crate::crypto::hpke::aad::{HelperOrigin, SiteOrigin};
-
+    /// TODO: move outside of the tests
     #[derive(Clone)]
     struct MatchKeyEncryption {
         encap_key: [u8; 32],
@@ -99,8 +99,8 @@ mod tests {
     }
 
     impl<R: RngCore + CryptoRng> EncryptionSuite<R> {
-        const HELPER_ORIGIN: HelperOrigin<'static> = HelperOrigin("foo");
-        const SITE_ORIGIN: SiteOrigin<'static> = SiteOrigin("bar");
+        const HELPER_ORIGIN: &'static str = "foo";
+        const SITE_ORIGIN: &'static str = "bar";
 
         pub fn new(keys_per_epoch: usize, mut rng: R) -> Self {
             Self {
@@ -117,8 +117,7 @@ mod tests {
             match_key: XorReplicated,
         ) -> MatchKeyEncryption {
             let aad =
-                AssociatedData::new(key_id, self.epoch, &Self::HELPER_ORIGIN, &Self::SITE_ORIGIN)
-                    .unwrap();
+                Info::new(key_id, self.epoch, &Self::HELPER_ORIGIN, &Self::SITE_ORIGIN).unwrap();
             let info = aad.to_bytes();
             let mut plaintext = [0_u8; 16];
             match_key.serialize(&mut plaintext).unwrap();
@@ -146,16 +145,15 @@ mod tests {
             &self,
             key_id: KeyIdentifier,
             mut enc: MatchKeyEncryption,
-        ) -> Result<XorReplicated, BottomError> {
+        ) -> Result<XorReplicated, DecryptionError> {
             let aad =
-                AssociatedData::new(key_id, self.epoch, &Self::HELPER_ORIGIN, &Self::SITE_ORIGIN)
-                    .unwrap();
+                Info::new(key_id, self.epoch, &Self::HELPER_ORIGIN, &Self::SITE_ORIGIN).unwrap();
             open_in_place(
                 &self.registry,
                 &enc.encap_key,
                 enc.ct.as_mut(),
                 &enc.tag,
-                &aad,
+                aad,
             )?;
 
             Ok(XorReplicated::deserialize(enc.ct.as_ref())?)
@@ -169,10 +167,9 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad =
-            AssociatedData::new(255, 32767, &HelperOrigin("foo"), &SiteOrigin("bar")).unwrap();
+        let aad = Info::new(255, 32767, &"foo", &"bar").unwrap();
         assert_eq!(
-            b"private-attributionfoo\0bar\0\xff\x7f\xff",
+            b"private-attribution\0foo\0bar\0\xff\x7f\xff",
             aad.to_bytes().as_ref()
         );
     }
