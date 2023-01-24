@@ -23,7 +23,9 @@ type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 #[derive(Debug)]
-pub struct DecryptionError;
+pub enum DecryptionError {
+    NoSuchKey
+}
 
 impl From<hpke::HpkeError> for DecryptionError {
     fn from(_value: hpke::HpkeError) -> Self {
@@ -58,11 +60,11 @@ pub fn open_in_place(
     aad: Info,
 ) -> Result<(), DecryptionError> {
     //TODO: log errors, but don't return them
-    let (epoch, key_id) = (aad.epoch(), aad.key_id());
+    let key_id = aad.key_id();
     let info = aad.to_bytes();
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
-    let sk = key_registry.private_key(epoch, key_id);
+    let sk = key_registry.private_key(key_id);
 
     Ok(single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
         &OpModeR::Base,

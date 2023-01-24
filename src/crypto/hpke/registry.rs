@@ -30,47 +30,38 @@ impl KeyPair {
 }
 
 /// A registry that holds all the keys available for helper/UA to use.
-/// Keys are partitioned per epoch.
 pub struct KeyRegistry {
-    keys: HashMap<Epoch, Box<[KeyPair]>>,
+    keys: Box<[KeyPair]>,
 }
 
 impl KeyRegistry {
     #[cfg(any(test, feature = "test-fixture"))]
     pub fn random<R: rand::RngCore + rand::CryptoRng>(
-        epochs: Epoch,
-        keys_per_epoch: usize,
+        keys_count: usize,
         mut r: &mut R,
     ) -> Self {
-        let mut generate_keys = || -> Vec<KeyPair> {
-            (0..keys_per_epoch)
-                .map(|_| <super::IpaKem as hpke::Kem>::gen_keypair(&mut r).into())
-                .collect::<Vec<_>>()
-        };
 
-        let keys = (0..epochs)
-            .map(|epoch| (epoch, generate_keys().into_boxed_slice()))
-            .collect::<HashMap<_, _>>();
+        let keys = (0..keys_count)
+            .map(|_| <super::IpaKem as hpke::Kem>::gen_keypair(&mut r).into())
+            .collect::<Vec<_>>();
 
-        Self { keys }
+        Self { keys: keys.into_boxed_slice() }
     }
 
     #[must_use]
-    pub(super) fn private_key(&self, epoch: Epoch, key_id: KeyIdentifier) -> &IpaPrivateKey {
-        self.key_pair(epoch, key_id).private_key()
+    pub(super) fn private_key(&self, key_id: KeyIdentifier) -> Option<&IpaPrivateKey> {
+        self.key_pair(key_id).map(|v| &v.sk)
     }
 
     #[must_use]
-    pub fn public_key(&self, epoch: Epoch, key_id: KeyIdentifier) -> &IpaPublicKey {
-        self.key_pair(epoch, key_id).public_key()
+    pub fn public_key(&self, key_id: KeyIdentifier) -> Option<&IpaPublicKey> {
+        self.key_pair(key_id).map(|v| &v.pk)
     }
 
-    fn key_pair(&self, epoch: Epoch, key_id: KeyIdentifier) -> &KeyPair {
-        self.keys
-            .get(&epoch)
-            .and_then(|keys| keys.get(key_id as usize))
-            .unwrap_or_else(|| {
-                panic!("no key registered for epoch '{epoch}' and key id '{key_id}'")
-            })
+    fn key_pair(&self, key_id: KeyIdentifier) -> Option<&KeyPair> {
+        match key_id as usize {
+            key_id if key_id < self.keys.len() => Some(&self.keys[key_id]),
+            _ => None
+        }
     }
 }
