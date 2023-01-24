@@ -13,7 +13,7 @@ use crate::{
         network::ChannelId,
         Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
-    protocol::{context::TotalRecords, RecordId, Step},
+    protocol::{RecordId, Step},
     task::JoinHandle,
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
@@ -131,11 +131,25 @@ impl From<usize> for TotalRecords {
     }
 }
 
+#[derive(Debug)]
+pub struct TotalRecordsUnknownError;
+
+impl TryInto<NonZeroUsize> for TotalRecords {
+    type Error = TotalRecordsUnknownError;
+    fn try_into(self) -> Result<NonZeroUsize, Self::Error> {
+        match self {
+            TotalRecords::Specified(value) => Ok(value),
+            _ => Err(TotalRecordsUnknownError),
+        }
+    }
+}
+
 /// Channel end
 #[derive(Debug)]
 pub struct Mesh<'a, 'b> {
     gateway: &'a Gateway,
     step: &'b Step,
+    total_records: TotalRecords,
 }
 
 pub(super) struct ReceiveRequest {
@@ -258,14 +272,13 @@ impl Gateway {
                     }
                     Some((channel_id, messages)) = message_stream.next() => {
                         tracing::trace!("received {} bytes from {:?}", messages.len(), channel_id);
-                        let total_records = *channels.lock().unwrap().get(&channel_id.step).expect("unknown channel");
-                        receive_buf.receive_messages(&channel_id, &messages, total_records);
+                        receive_buf.receive_messages(&channel_id, &messages);
                     }
                     Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
                         let total_records = *channels.lock().unwrap().get(&channel_id.step).expect("unknown channel");
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        if let Some((buf_to_send, close)) = send_buf.push(&channel_id, &envelope, total_records) {
+                        if let Some((buf_to_send, close)) = send_buf.push(&channel_id, &envelope, total_records.try_into().unwrap()) { // TODO
                             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
                             pending_sends.push(async { network
                                 .send((channel_id, buf_to_send))
@@ -331,10 +344,11 @@ impl Gateway {
     #[must_use]
     pub fn mesh<'a, 'b>(&'a self, step: &'b Step, total_records: TotalRecords) -> Mesh<'a, 'b> {
         debug_assert!(!total_records.is_unspecified());
-        self.channels.lock().unwrap().entry(step.clone()).or_insert(total_records);
+        self.channels.lock().unwrap().entry(step.clone()).or_insert(total_records.try_into().unwrap()); // TODO
         Mesh {
             gateway: self,
             step,
+            total_records,
         }
     }
 

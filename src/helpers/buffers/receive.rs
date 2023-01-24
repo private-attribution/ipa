@@ -1,5 +1,6 @@
 use crate::{
     helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
+    helpers::messaging::TotalRecords,
     protocol::RecordId,
 };
 use std::{collections::hash_map::Entry, num::NonZeroUsize};
@@ -9,7 +10,7 @@ use tokio::sync::oneshot;
 
 #[derive(Debug)]
 struct ReceiveChannel {
-    total_records: NonZeroUsize,
+    total_records: TotalRecords,
     received_records: usize,
     items: HashMap<RecordId, ReceiveBufItem>,
 }
@@ -38,7 +39,12 @@ impl ReceiveBuffer {
     fn update_record_count(&mut self, channel_id: ChannelId) {
         let channel = self.inner.get_mut(&channel_id).expect("update_record_count called for invalid channel");
         channel.received_records += 1;
-        if NonZeroUsize::new(channel.received_records) == Some(channel.total_records) {
+        let total_records = if let TotalRecords::Specified(value) = channel.total_records {
+            value
+        } else {
+            return;
+        };
+        if NonZeroUsize::new(channel.received_records) == Some(total_records) {
             assert!(channel.items.is_empty());
             tracing::trace!("close rx {:?}", &channel_id);
             self.inner.remove(&channel_id);
@@ -58,7 +64,7 @@ impl ReceiveBuffer {
         let channel = self.inner.entry(channel_id.clone()).or_insert_with(|| {
             tracing::trace!("create rx channel for rx request {:?}", &channel_id);
             ReceiveChannel {
-                total_records,
+                total_records: TotalRecords::Specified(total_records),
                 received_records: 0,
                 items: Default::default(),
             }
@@ -85,7 +91,7 @@ impl ReceiveBuffer {
     /// chunk will belong to range of records [0..chunk.len()), second chunk [chunk.len()..2*chunk.len())
     /// etc. It does not require all chunks to be of the same size, this assumption is baked in
     /// send buffers.
-    pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: &[u8], total_records: NonZeroUsize) {
+    pub fn receive_messages(&mut self, channel_id: &ChannelId, messages: &[u8]) {
         // TODO: this is probably wrong. Need to maintain total count as
         // unknown until we see a receive request.
         //let total_records = channel_id.total_records.expect("can't receive without a known total record count");
@@ -107,7 +113,7 @@ impl ReceiveBuffer {
                 .or_insert_with(|| {
                     tracing::trace!("create rx channel for rx msg {:?}", &channel_id);
                     ReceiveChannel {
-                        total_records,
+                        total_records: TotalRecords::Unspecified,
                         received_records: 0,
                         items: Default::default(),
                     }

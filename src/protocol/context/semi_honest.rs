@@ -13,8 +13,6 @@ use crate::sync::Arc;
 
 use std::marker::PhantomData;
 
-use super::TotalRecords;
-
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone, Debug)]

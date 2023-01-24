@@ -1,7 +1,4 @@
 use crate::helpers::messaging::{Mesh, TotalRecords};
-use std::num::NonZeroUsize;
-
-use crate::helpers::messaging::Mesh;
 use crate::helpers::Role;
 use crate::protocol::basics::{Reveal, SecureMul};
 
@@ -20,8 +17,6 @@ pub use semi_honest::SemiHonestContext;
 use super::basics::sum_of_product::SecureSop;
 use super::basics::Reshare;
 use super::boolean::RandomBits;
-
-pub type TotalRecords = Option<NonZeroUsize>;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.

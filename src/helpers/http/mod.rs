@@ -21,7 +21,7 @@ use prss_exchange_protocol::{
     PrssExchangeStep, PublicKeyBytesBuilder, PublicKeyChunk, PUBLIC_KEY_CHUNK_COUNT,
 };
 use rand_core::{CryptoRng, RngCore};
-use std::{iter::zip, num::NonZeroUsize};
+use std::iter::zip;
 use std::net::SocketAddr;
 
 pub struct HttpHelper<'p> {

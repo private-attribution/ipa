@@ -1,5 +1,6 @@
 use crate::helpers::{
     buffers::fsv::FixedSizeByteVec, network::ChannelId, network::MessageEnvelope,
+    messaging::TotalRecords,
     MESSAGE_PAYLOAD_SIZE_BYTES,
 };
 use std::{collections::HashMap, num::NonZeroUsize};
@@ -11,7 +12,7 @@ type ByteBuf = FixedSizeByteVec<{ MESSAGE_PAYLOAD_SIZE_BYTES }>;
 
 #[derive(Debug)]
 pub(super) struct SendChannel {
-    total_records: NonZeroUsize,
+    total_records: TotalRecords,
     sent_records: usize,
     buf: ByteBuf,
 }
@@ -75,7 +76,7 @@ impl SendBuffer {
                 let size =
                     NonZeroUsize::new(self.batch_count.get() * self.items_in_batch.get()).unwrap();
                 SendChannel {
-                    total_records,
+                    total_records: TotalRecords::Specified(total_records),
                     sent_records: 0,
                     buf: FixedSizeByteVec::new(size),
                 }
@@ -91,8 +92,8 @@ impl SendBuffer {
             assert!(vec.len() % ByteBuf::ELEMENT_SIZE_BYTES == 0);
             channel.sent_records += vec.len() / ByteBuf::ELEMENT_SIZE_BYTES;
         }
-        let close = if NonZeroUsize::new(channel.sent_records) == Some(channel.total_records) {
-            assert!(NonZeroUsize::new(channel.buf.taken()) == Some(channel.total_records));
+        let close = if NonZeroUsize::new(channel.sent_records) == Some(channel.total_records.try_into().unwrap()) {
+            assert!(NonZeroUsize::new(channel.buf.taken()) == Some(channel.total_records.try_into().unwrap()));
             assert!(channel.buf.is_empty());
             self.inner.remove(&channel_id);
             true

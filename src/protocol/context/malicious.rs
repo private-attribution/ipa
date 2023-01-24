@@ -20,8 +20,6 @@ use crate::secret_sharing::replicated::{
 };
 use crate::sync::Arc;
 
-use super::TotalRecords;
-
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
 #[derive(Clone, Debug)]
