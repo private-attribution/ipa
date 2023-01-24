@@ -103,6 +103,8 @@ mod tests {
         assert_eq!(F::ONE, run(&world, F::ONE, F::ZERO).await);
         assert_eq!(F::ONE, run(&world, F::ZERO, F::ONE).await);
         assert_eq!(F::ZERO, run(&world, F::ONE, F::ONE).await);
+
+        world.join().await;
     }
 
     async fn run_sparse(world: &TestWorld, a: bool, b: bool, zeros: MultiplyZeroPositions) -> bool {

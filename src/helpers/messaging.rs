@@ -278,19 +278,13 @@ impl Gateway {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
                         let total_records = *channels.lock().unwrap().get(&channel_id.step).expect("unknown channel");
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        if let Some((buf_to_send, close)) = send_buf.push(&channel_id, &envelope, total_records.try_into().unwrap()) { // TODO
+                        if let Some(buf_to_send) = send_buf.push(&channel_id, &envelope, total_records.try_into().unwrap()) { // TODO
                             tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
                             pending_sends.push(async { network
                                 .send((channel_id, buf_to_send))
                                 .await
                                 .expect("Failed to send data to the network");
                             });
-                            if close {
-                                tracing::trace!("close");
-                                // TODO: need to update this post rebase
-                                //tracing::trace!("close {:?}", &channel_id);
-                                //sink.close().await.expect("Failed to close channel");
-                            }
                         }
                     }
                     Some(_) = &mut pending_sends.next() => {

@@ -62,7 +62,7 @@ impl SendBuffer {
         channel_id: &ChannelId,
         msg: &MessageEnvelope,
         total_records: NonZeroUsize,
-    ) -> Option<(Vec<u8>, bool)> {
+    ) -> Option<Vec<u8>> {
         debug_assert!(
             msg.payload.len() <= ByteBuf::ELEMENT_SIZE_BYTES,
             "Message payload exceeds the maximum allowed size"
@@ -92,15 +92,12 @@ impl SendBuffer {
             assert!(vec.len() % ByteBuf::ELEMENT_SIZE_BYTES == 0);
             channel.sent_records += vec.len() / ByteBuf::ELEMENT_SIZE_BYTES;
         }
-        let close = if NonZeroUsize::new(channel.sent_records) == Some(channel.total_records.try_into().unwrap()) {
+        if NonZeroUsize::new(channel.sent_records) == Some(channel.total_records.try_into().unwrap()) {
             assert!(NonZeroUsize::new(channel.buf.taken()) == Some(channel.total_records.try_into().unwrap()));
             assert!(channel.buf.is_empty());
             self.inner.remove(&channel_id);
-            true
-        } else {
-            false
-        };
-        res.map(|res| (res, close))
+        }
+        res
     }
 
     pub fn open_channels(&self) -> usize {
