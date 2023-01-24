@@ -422,14 +422,13 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::num::NonZeroUsize;
-
     use crate::ff::Fp31;
     use crate::helpers::messaging::TotalRecords;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
     use crate::protocol::{RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
+    use std::num::NonZeroUsize;
 
     #[tokio::test]
     pub async fn handles_reordering() {

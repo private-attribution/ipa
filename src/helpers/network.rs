@@ -29,10 +29,7 @@ pub struct ChannelId {
 impl ChannelId {
     #[must_use]
     pub fn new(role: Role, step: Step) -> Self {
-        Self {
-            role,
-            step,
-        }
+        Self { role, step }
     }
 }
 

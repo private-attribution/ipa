@@ -3,9 +3,9 @@ use crate::{
     helpers::messaging::TotalRecords,
     protocol::RecordId,
 };
-use std::{collections::hash_map::Entry, num::NonZeroUsize};
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt::Debug;
+use std::num::NonZeroUsize;
 use tokio::sync::oneshot;
 
 #[derive(Debug)]
