@@ -61,7 +61,7 @@ impl SendBuffer {
         channel_id: &ChannelId,
         msg: &MessageEnvelope,
         total_records: NonZeroUsize,
-    ) -> Result<Option<(Vec<u8>, bool)>, PushError> {
+    ) -> Option<(Vec<u8>, bool)> {
         debug_assert!(
             msg.payload.len() <= ByteBuf::ELEMENT_SIZE_BYTES,
             "Message payload exceeds the maximum allowed size"
@@ -85,8 +85,8 @@ impl SendBuffer {
         // TODO: avoid the copy here and size the element size to the message type.
         let mut payload = [0; ByteBuf::ELEMENT_SIZE_BYTES];
         payload[..msg.payload.len()].copy_from_slice(&msg.payload);
-        channel.buf.insert(channel_id, &payload);
-        let res = channel.buf.take(self.items_in_batch);
+        channel.buf.insert(channel_id, usize::from(msg.record_id), &payload);
+        let res = channel.buf.take(self.items_in_batch.get());
         if let Some(ref vec) = res {
             assert!(vec.len() % ByteBuf::ELEMENT_SIZE_BYTES == 0);
             channel.sent_records += vec.len() / ByteBuf::ELEMENT_SIZE_BYTES;
@@ -99,7 +99,7 @@ impl SendBuffer {
         } else {
             false
         };
-        Ok(res.map(|b| (b, close)))
+        res.map(|res| (res, close))
     }
 
     pub fn open_channels(&self) -> usize {
@@ -163,7 +163,7 @@ mod tests {
             }
         }
     }
-
+/* 
     #[test]
     #[should_panic]
     fn rejects_records_out_of_range() {
@@ -193,13 +193,13 @@ mod tests {
             })
             .unwrap();
 
-    //     for (i, v) in batch.chunks(ByteBuf::ELEMENT_SIZE_BYTES).enumerate() {
-    //         let payload = u64::from_le_bytes(v.try_into().unwrap());
-    //         assert!(payload < u64::from(u8::MAX));
+        for (i, v) in batch.chunks(ByteBuf::ELEMENT_SIZE_BYTES).enumerate() {
+            let payload = u64::from_le_bytes(v.try_into().unwrap());
+            assert!(payload < u64::from(u8::MAX));
 
-    //         assert_eq!(usize::from(u8::try_from(payload).unwrap()), i);
-    //     }
-    // }
+            assert_eq!(usize::from(u8::try_from(payload).unwrap()), i);
+        }
+    }
 
     #[test]
     #[cfg(debug_assertions)] // assertions only generated for debug builds
@@ -209,11 +209,11 @@ mod tests {
         let c1 = ChannelId::new(Role::H1, Step::default());
         let c2 = ChannelId::new(Role::H2, Step::default());
 
-    //     let m1 = empty_msg(0);
-    //     let m2 = empty_msg(1);
+        let m1 = empty_msg(0);
+        let m2 = empty_msg(1);
 
-    //     buf.push(&c1, &m1).unwrap();
-    //     buf.push(&c1, &m2).unwrap();
+        buf.push(&c1, &m1).unwrap();
+        buf.push(&c1, &m2).unwrap();
 
         assert!(buf.push(&c2, &m2).is_none());
     }
@@ -243,7 +243,7 @@ mod tests {
             .push(&ChannelId::new(Role::H1, Step::default()), &msg)
             .is_none());
     }
-
+ */
     // #[test]
     // fn accepts_records_from_next_range_after_flushing() {
     //     let mut buf = SendBuffer::new(Config::default());

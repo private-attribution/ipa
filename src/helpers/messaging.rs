@@ -231,6 +231,7 @@ impl Gateway {
     pub async fn new<T: Transport>(role: Role, network: Network<T>, config: GatewayConfig) -> Self {
         let (recv_tx, mut recv_rx) = mpsc::channel::<ReceiveRequest>(config.recv_outstanding);
         let (send_tx, mut send_rx) = mpsc::channel::<SendRequest>(config.send_outstanding);
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
         let mut message_stream = network.recv_stream().await;
         let channel_map = Arc::new(Mutex::new(HashMap::new()));
         let channels = Arc::clone(&channel_map);
@@ -262,25 +263,22 @@ impl Gateway {
                     }
                     Some((channel_id, envelope)) = send_rx.recv(), if pending_sends.is_empty() => {
                         tracing::trace!("new SendRequest({:?})", (&channel_id, &envelope));
-                        let total_records = *channels.lock().unwrap().get(&send_req.0.step).expect("unknown channel");
+                        let total_records = *channels.lock().unwrap().get(&channel_id.step).expect("unknown channel");
                         metrics::increment_counter!(RECORDS_SENT, STEP => channel_id.step.as_ref().to_string());
-                        match buf.push(&channel_id, &msg) {
-                            Ok(Some((buf_to_send, close))) => {
-                                tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
-                                pending_sends.push(async { network
-                                    .send((channel_id, buf_to_send))
-                                    .await
-                                    .expect("Failed to send data to the network");
-                                });
-                                if close {
-                                    tracing::trace!("close {:?}", &channel_id);
-                                    // TODO: need to update this post rebase
-                                    sink.close().await.expect("Failed to close channel");
-                                }
+                        if let Some((buf_to_send, close)) = send_buf.push(&channel_id, &envelope, total_records) {
+                            tracing::trace!("sending {} bytes to {:?}", buf_to_send.len(), &channel_id);
+                            pending_sends.push(async { network
+                                .send((channel_id, buf_to_send))
+                                .await
+                                .expect("Failed to send data to the network");
+                            });
+                            if close {
+                                tracing::trace!("close");
+                                // TODO: need to update this post rebase
+                                //tracing::trace!("close {:?}", &channel_id);
+                                //sink.close().await.expect("Failed to close channel");
                             }
-                            Ok(None) => {}
-                            Err(err) => panic!("failed to send to the {channel_id:?}: {err}"),
-                        };
+                        }
                     }
                     Some(_) = &mut pending_sends.next() => {
                         pending_sends.clear();
@@ -424,7 +422,6 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::protocol::{RecordId, Step};
     use crate::test_fixture::{TestWorld, TestWorldConfig};
-    use std::num::NonZeroUsize;
 
     #[tokio::test]
     pub async fn handles_reordering() {

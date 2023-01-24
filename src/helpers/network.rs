@@ -2,13 +2,12 @@
 
 use crate::helpers::transport::CommandOrigin;
 use crate::helpers::{MessagePayload, RoleAssignment};
-use crate::protocol::RecordId;
 use crate::{
     helpers::{
         transport::{SubscriptionType, Transport, TransportCommand},
         Error, Role,
     },
-    protocol::{context::TotalRecords, QueryId, RecordId, Step},
+    protocol::{QueryId, RecordId, Step},
 };
 use futures::{Stream, StreamExt};
 use std::fmt::{Debug, Formatter};

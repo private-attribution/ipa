@@ -107,7 +107,7 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::{BitDecomposition, Step};
+    use super::BitDecomposition;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime, Int},
         protocol::{

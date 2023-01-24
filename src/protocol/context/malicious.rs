@@ -1,7 +1,5 @@
 use async_trait::async_trait;
-use futures::future::{try_join_all};
-use std::iter::{repeat, zip};
-use std::num::NonZeroUsize;
+use futures::future::{try_join, try_join_all};
 
 use crate::error::Error;
 use crate::ff::Field;

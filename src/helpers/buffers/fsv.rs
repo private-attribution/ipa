@@ -113,6 +113,11 @@ impl<const N: usize> FixedSizeByteVec<N> {
         }
     }
 
+    /// Returns total number of elements evicted from this buffer since the creation.
+    pub fn taken(&self) -> usize {
+        self.end - self.capacity.get()
+    }
+
     /// Returns `true` if the buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.added.not_any()
