@@ -90,30 +90,13 @@ pub fn convert_all_bits_local<F: Field>(
     input: &[XorReplicated],
     num_bits: u32,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
-    let mut total_list = Vec::new();
-    for bit_index in 0..num_bits {
-        let one_list = input
-            .iter()
-            .map(|v| convert_bit_local::<F>(helper_role, bit_index, v))
-            .collect::<Vec<_>>();
-        total_list.push(one_list);
-    }
-    total_list
-}
-
-#[must_use]
-pub fn convert_all_bits_local_new<F: Field>(
-    helper_role: Role,
-    input: &[XorReplicated],
-    num_bits: u32,
-) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
     input
         .iter()
-        .map(|v| {
+        .map(|record| {
             (0..num_bits)
                 .map(|bit_index: u32| {
-                    let left = u128::from(v.left() >> bit_index) & 1;
-                    let right = u128::from(v.right() >> bit_index) & 1;
+                    let left = u128::from(record.left() >> bit_index) & 1;
+                    let right = u128::from(record.right() >> bit_index) & 1;
                     BitConversionTriple(match helper_role {
                         Role::H1 => [
                             Replicated::new(F::from(left), F::ZERO),
@@ -171,33 +154,6 @@ where
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],
-) -> Result<Vec<Vec<S>>, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    let futures = locally_converted_bits
-        .iter()
-        .enumerate()
-        .map(|(bit_num, one_column)| {
-            convert_bit_list(
-                ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap())),
-                one_column,
-            )
-        });
-    let converted_shares = try_join_all(futures).await?;
-    Ok(converted_shares)
-}
-
-/// # Errors
-/// Propagates errors from convert shares
-/// # Panics
-/// Propagates panics from convert shares
-#[allow(dead_code)]
-pub async fn convert_all_bits_new<F, C, S>(
-    ctx: &C,
-    locally_converted_bits: &[Vec<BitConversionTriple<S>>],
     num_bits: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<Vec<Vec<S>>>, Error>
@@ -206,51 +162,23 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let futures = (0..num_bits)
-        .step_by(num_multi_bits.try_into().unwrap())
-        .map(|bit_num| {
-            let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
-            let this_bit_futures =
-                locally_converted_bits
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, one_record)| {
-                        convert_bit_list_new(
-                            ctx.narrow(&ModulusConversion(bit_num)),
-                            &one_record[bit_num as usize..last_bit],
-                            RecordId::from(idx),
-                        )
-                    });
-            try_join_all(this_bit_futures)
-        });
-    let converted_shares = try_join_all(futures).await?;
-    Ok(converted_shares)
-}
-
-/// # Errors
-/// Propagates errors from convert shares
-/// # Panics
-/// Propagates panics from convert shares
-pub async fn convert_bit_list_new<F, C, S>(
-    ctx: C,
-    locally_converted_bits: &[BitConversionTriple<S>],
-    record_id: RecordId,
-) -> Result<Vec<S>, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
     try_join_all(
-        zip(repeat(ctx), locally_converted_bits.iter())
-            .enumerate()
-            .map(|(i, (ctx, row))| async move {
-                convert_bit(
-                    ctx.narrow(&ModulusConversion(i.try_into().unwrap())),
-                    record_id,
-                    row,
+        (0..num_bits)
+            .step_by(num_multi_bits.try_into().unwrap())
+            .map(|bit_num| {
+                let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
+                try_join_all(
+                    locally_converted_bits
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, record)| {
+                            convert_bit_list(
+                                ctx.narrow(&ModulusConversion(bit_num)),
+                                &record[bit_num as usize..last_bit],
+                                RecordId::from(idx),
+                            )
+                        }),
                 )
-                .await
             }),
     )
     .await
@@ -263,6 +191,7 @@ where
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
     locally_converted_bits: &[BitConversionTriple<S>],
+    record_id: RecordId,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -272,7 +201,14 @@ where
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
             .enumerate()
-            .map(|(i, (ctx, row))| async move { convert_bit(ctx, RecordId::from(i), row).await }),
+            .map(|(i, (ctx, bit))| async move {
+                convert_bit(
+                    ctx.narrow(&ModulusConversion(i.try_into().unwrap())),
+                    record_id,
+                    bit,
+                )
+                .await
+            }),
     )
     .await
 }

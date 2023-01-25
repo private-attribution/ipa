@@ -84,15 +84,17 @@ mod tests {
                 |ctx, (mk_shares, secret)| async move {
                     let local_lists =
                         convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
-                    let converted_shares =
-                        convert_all_bits(&ctx.narrow("convert_all_bits"), &local_lists)
-                            .await
-                            .unwrap();
+                    let converted_shares = convert_all_bits(
+                        &ctx.narrow("convert_all_bits"),
+                        &local_lists,
+                        MaskedMatchKey::BITS,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
                         &converted_shares,
-                        MaskedMatchKey::BITS,
-                        NUM_MULTI_BITS,
                     )
                     .await
                     .unwrap();

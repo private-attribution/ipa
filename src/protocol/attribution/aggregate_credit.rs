@@ -11,7 +11,7 @@ use crate::protocol::attribution::AttributionResharableStep::{
 use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::{random_bits_generator::RandomBitsGenerator, BitDecomposition};
 use crate::protocol::context::{Context, SemiHonestContext};
-use crate::protocol::modulus_conversion::transpose;
+use crate::protocol::modulus_conversion::split_into_multi_bit_slices;
 use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
@@ -167,12 +167,9 @@ pub async fn aggregate_credit<F: Field>(
     //
     // 4. Sort by `aggregation_bit`
     //
-    let sorted_output = sort_by_aggregation_bit(
-        ctx.narrow(&Step::SortByAttributionBit),
-        &aggregated_credits,
-        num_multi_bits,
-    )
-    .await?;
+    let sorted_output =
+        sort_by_aggregation_bit(ctx.narrow(&Step::SortByAttributionBit), &aggregated_credits)
+            .await?;
 
     // Take the first k elements, where k is the amount of breakdown keys.
     let result = sorted_output
@@ -251,19 +248,19 @@ async fn sort_by_breakdown_key<F: Field>(
     num_multi_bits: u32,
 ) -> Result<Vec<CappedCreditsWithAggregationBit<F>>, Error> {
     // TODO: Change breakdown_keys to use XorReplicated to avoid bit-decomposition calls
-    let breakdown_keys = transpose(
-        &bit_decompose_breakdown_key(ctx.narrow(&Step::BitDecomposeBreakdownKey), input).await?,
-    );
-
     // We only need to run a radix sort on the bits used by all possible
     // breakdown key values.
     let valid_bits_count = u128::BITS - (max_breakdown_key - 1).leading_zeros();
 
-    let sort_permutation = generate_permutation_and_reveal_shuffled(
-        ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        &breakdown_keys[..valid_bits_count as usize],
+    let breakdown_keys = split_into_multi_bit_slices(
+        &bit_decompose_breakdown_key(ctx.narrow(&Step::BitDecomposeBreakdownKey), input).await?,
         valid_bits_count,
         num_multi_bits,
+    );
+
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
+        ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
+        breakdown_keys.as_slice(),
     )
     .await?;
 
@@ -278,20 +275,17 @@ async fn sort_by_breakdown_key<F: Field>(
 async fn sort_by_aggregation_bit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
-    num_multi_bits: u32,
 ) -> Result<Vec<CappedCreditsWithAggregationBit<F>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
-    let aggregation_bits = &[input
+    let aggregation_bits = vec![input
         .iter()
-        .map(|x| x.aggregation_bit.clone())
+        .map(|x| vec![x.aggregation_bit.clone()])
         .collect::<Vec<_>>()];
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits,
-        1,
-        num_multi_bits,
+        aggregation_bits.as_slice(),
     )
     .await?;
 
@@ -511,8 +505,8 @@ pub(crate) mod tests {
 
     #[tokio::test]
     pub async fn sort() {
-        // Result from CreditCapping, plus AggregateCredit pre-processing
         const NUM_MULTI_BITS: u32 = 3;
+        // Result from CreditCapping, plus AggregateCredit pre-processing
         const RAW_INPUT: &[[u128; 4]; 27] = &[
             // helper_bit, breakdown_key, credit, aggregation_bit
 

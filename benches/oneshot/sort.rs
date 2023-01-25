@@ -3,7 +3,7 @@ use raw_ipa::error::Error;
 use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
 use raw_ipa::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-use raw_ipa::protocol::sort::generate_permutation::generate_permutation;
+use raw_ipa::protocol::sort::generate_permutation_opt::generate_permutation_opt;
 use raw_ipa::secret_sharing::XorReplicated;
 use raw_ipa::test_fixture::{join3, Reconstruct, TestWorld, TestWorldConfig};
 use std::num::NonZeroUsize;
@@ -47,23 +47,29 @@ async fn main() -> Result<(), Error> {
         convert_all_bits(
             &ctx0,
             &convert_all_bits_local(ctx0.role(), &shares[0], num_bits),
+            num_bits,
+            NUM_MULTI_BITS,
         ),
         convert_all_bits(
             &ctx1,
             &convert_all_bits_local(ctx1.role(), &shares[1], num_bits),
+            num_bits,
+            NUM_MULTI_BITS,
         ),
         convert_all_bits(
             &ctx2,
             &convert_all_bits_local(ctx2.role(), &shares[2], num_bits),
+            num_bits,
+            NUM_MULTI_BITS,
         ),
     )
     .await;
 
     let start = Instant::now();
     let result = join3(
-        generate_permutation(ctx0, &converted_shares[0], num_bits),
-        generate_permutation(ctx1, &converted_shares[1], num_bits),
-        generate_permutation(ctx2, &converted_shares[2], num_bits),
+        generate_permutation_opt(ctx0, &converted_shares[0]),
+        generate_permutation_opt(ctx1, &converted_shares[1]),
+        generate_permutation_opt(ctx2, &converted_shares[2]),
     )
     .await;
     let duration = start.elapsed().as_secs_f32();

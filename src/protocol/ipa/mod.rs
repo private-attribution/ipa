@@ -23,7 +23,7 @@ use futures::future::{try_join, try_join_all};
 
 use super::{attribution::AggregateCreditOutputRow, context::SemiHonestContext};
 use super::{
-    modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
+    modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
     sort::apply_sort::shuffle::Resharable,
     Substep,
 };
@@ -150,18 +150,18 @@ where
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &local_lists,
+        num_bits,
+        num_multi_bits,
     )
     .await
     .unwrap();
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,
-        num_bits,
-        num_multi_bits,
     )
     .await
     .unwrap();
-    let converted_shares = transpose(&converted_shares);
+    let converted_shares = combine_slices(&converted_shares, num_bits);
 
     let combined_match_keys_and_sidecar_data = input_rows
         .iter()

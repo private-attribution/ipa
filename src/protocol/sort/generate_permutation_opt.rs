@@ -49,6 +49,7 @@ pub async fn generate_permutation_opt<F>(
 where
     F: Field,
 {
+    assert_ne!(sort_keys.len(), 0);
     let ctx_0 = ctx.narrow(&Sort(0));
 
     let lsb_permutation =
@@ -116,7 +117,7 @@ where
 mod tests {
     use std::iter::zip;
 
-    use crate::protocol::modulus_conversion::{convert_all_bits_local_new, convert_all_bits_new};
+    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::rand::{thread_rng, Rng};
 
     use crate::protocol::context::{Context, SemiHonestContext};
@@ -149,15 +150,11 @@ mod tests {
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
                     let local_lists =
-                        convert_all_bits_local_new(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
-                    let converted_shares = convert_all_bits_new(
-                        &ctx,
-                        &local_lists,
-                        MaskedMatchKey::BITS,
-                        NUM_MULTI_BITS,
-                    )
-                    .await
-                    .unwrap();
+                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let converted_shares =
+                        convert_all_bits(&ctx, &local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
+                            .await
+                            .unwrap();
 
                     generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
                         .await

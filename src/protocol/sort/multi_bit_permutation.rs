@@ -32,9 +32,12 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
-    let num_multi_bits = input[0].len();
-    assert!(num_multi_bits > 0);
     let num_records = input.len();
+    assert!(num_records > 0);
+
+    let num_multi_bits = (input[0]).len();
+    assert!(num_multi_bits > 0);
+
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
     let share_of_one = ctx.share_of_one();
@@ -234,10 +237,7 @@ mod tests {
         [1, 0, 1],
         [0, 0, 0],
     ];
-    //     &[0, 0, 1, 0, 1, 0],
-    //     &[0, 1, 1, 0, 0, 0],
-    //     &[1, 0, 1, 0, 1, 0],
-    // ];
+
     const EXPECTED: &[u128] = &[3, 2, 5, 0, 4, 1]; //100 010 111 000 101 000
     const EXPECTED_NUMS: &[usize] = &[4, 2, 7, 0, 5, 0];
 
