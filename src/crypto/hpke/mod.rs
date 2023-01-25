@@ -15,12 +15,19 @@ pub use registry::KeyRegistry;
 use crate::bits::BitArray40;
 use crate::secret_sharing::replicated::semi_honest::XorShare;
 
+
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
 type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
 pub type KeyIdentifier = u8;
+
+/// Right now we assume the match keys to be 40 bits long. If it is not the case, the decryption
+/// will fail. This assumption allows to keep the bitstrings on the stack, for dynamically sized
+/// match keys we would have to heap allocate.
+type XorReplicated = XorShare<BitArray40>;
+
 /// Event epoch as described [`ipa-spec`]
 /// For the purposes of this module, epochs are used to authenticate match key encryption. As
 /// report collectors may submit queries with events spread across multiple epochs, decryption context
@@ -32,7 +39,7 @@ type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize = <XorShare<BitArray40> as crate::bits::Serializable>::SIZE_IN_BYTES
+pub const MATCHKEY_CT_LEN: usize = <XorReplicated as crate::bits::Serializable>::SIZE_IN_BYTES
     + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
 
 #[derive(Debug, thiserror::Error)]
@@ -123,7 +130,6 @@ struct MatchKeyEncryption<'a> {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::secret_sharing::XorReplicated;
 
     use crate::bits::Serializable;
     use hpke::{single_shot_seal_in_place_detached, OpModeS};
@@ -156,7 +162,7 @@ mod tests {
         ) -> MatchKeyEncryption<'static> {
             let info =
                 Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
-            let mut plaintext = [0_u8; 16];
+            let mut plaintext = [0_u8; XorReplicated::SIZE_IN_BYTES];
 
             match_key.serialize(&mut plaintext).unwrap();
             let pk_r = self.registry.public_key(key_id).unwrap();
@@ -173,8 +179,8 @@ mod tests {
                 .unwrap();
 
             let mut ct = [0u8; MATCHKEY_CT_LEN];
-            ct[..16].copy_from_slice(&plaintext);
-            ct[16..].copy_from_slice(&hpke::Serializable::to_bytes(&tag));
+            ct[..plaintext.len()].copy_from_slice(&plaintext);
+            ct[plaintext.len()..].copy_from_slice(&hpke::Serializable::to_bytes(&tag));
             MatchKeyEncryption {
                 enc: <[u8; 32]>::from(hpke::Serializable::to_bytes(&encap_key)),
                 ct,
@@ -199,6 +205,13 @@ mod tests {
         }
     }
 
+    fn new_share(a: u64, b: u64) -> XorReplicated {
+        let left = BitArray40::try_from(a as u128).unwrap();
+        let right = BitArray40::try_from(b as u128).unwrap();
+
+        XorReplicated::new(left, right)
+    }
+
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
@@ -213,9 +226,9 @@ mod tests {
     fn decrypt_happy_case() {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
-        let match_key = XorReplicated::new(u64::MAX, u64::MAX / 2);
+        let match_key = new_share(1u64 << 39, 1u64 << 20);
 
-        let enc = suite.seal(0, match_key);
+        let enc = suite.seal(0, match_key.clone());
         let r = suite.open(0, enc).unwrap();
 
         assert_eq!(match_key, r);
@@ -225,7 +238,7 @@ mod tests {
     fn decrypt_wrong_aad() {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
-        let match_key = XorReplicated::new(u64::MAX, u64::MAX / 2);
+        let match_key = new_share(1u64 << 39, 1u64 << 20);
         let enc = suite.seal(0, match_key);
         suite.advance_epoch();
 
@@ -236,7 +249,7 @@ mod tests {
     fn decrypt_wrong_key() {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(10, rng);
-        let match_key = XorReplicated::new(u64::MAX, u64::MAX / 2);
+        let match_key = new_share(1u64 << 39, 1u64 << 20);
         let enc = suite.seal(0, match_key);
         let _ = suite.open(1, enc).unwrap_err();
     }
@@ -245,7 +258,7 @@ mod tests {
     fn decrypt_unknown_key() {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
-        let match_key = XorReplicated::new(u64::MAX, u64::MAX / 2);
+        let match_key = new_share(1u64 << 39, 1u64 << 20);
         let enc = suite.seal(0, match_key);
 
         assert!(matches!(
@@ -265,7 +278,7 @@ mod tests {
             fn arbitrary_ct_corruption(bad_byte in 0..23_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let mut encryption = suite.seal(0, XorReplicated::new(0, 0));
+                let mut encryption = suite.seal(0, new_share(0, 0));
 
                 encryption.ct.as_mut()[bad_byte] ^= 1 << bad_bit;
                 let _ = suite.open(0, encryption).unwrap_err();
@@ -278,7 +291,7 @@ mod tests {
             fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let mut encryption = suite.seal(0, XorReplicated::new(0, 0));
+                let mut encryption = suite.seal(0, new_share(0, 0));
 
                 encryption.enc.as_mut()[bad_byte] ^= 1 << bad_bit;
                 let _ = suite.open(0, encryption).unwrap_err();
@@ -291,7 +304,7 @@ mod tests {
             fn arbitrary_info_corruption(corrupted_info_field in 1..4, seed: [u8; 32]) {
                 let mut rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(10, rng.clone());
-                let mut encryption = suite.seal(0, XorReplicated::new(0, 0));
+                let mut encryption = suite.seal(0, new_share(0, 0));
 
                 let mut site_origin = EncryptionSuite::<StdRng>::SITE_ORIGIN.to_owned();
                 let mut helper_origin = EncryptionSuite::<StdRng>::HELPER_ORIGIN.to_owned();
