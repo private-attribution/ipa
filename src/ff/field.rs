@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
 
-use crate::bits::BooleanOps;
 use crate::secret_sharing::ArithmeticShare;
 
 // Trait for primitive integer types used to represent the underlying type for field values
@@ -83,5 +82,3 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
         }
     }
 }
-
-pub trait BinaryField: Field + BooleanOps {}

@@ -2,7 +2,10 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
-use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated, Arithmetic as ArithmeticSecretSharing,
+    SecretSharing,
+};
 
 pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
@@ -51,7 +54,7 @@ async fn if_else<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
