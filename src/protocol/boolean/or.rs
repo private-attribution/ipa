@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::ArithmeticSecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - [ab]`

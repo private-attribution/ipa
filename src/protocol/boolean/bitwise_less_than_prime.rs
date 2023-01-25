@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::multiply_all_shares;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::ArithmeticSecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::try_join;
 use std::cmp::Ordering;
 

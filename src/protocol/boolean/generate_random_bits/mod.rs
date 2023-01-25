@@ -4,7 +4,7 @@ use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::ArithmeticSecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use crate::secret_sharing::{
     replicated::semi_honest::AdditiveShare as Replicated,
     replicated::semi_honest::XorShare as XorReplicated, ArithmeticShare, SecretSharing,

@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, RecordId},
-    secret_sharing::ArithmeticSecretSharing,
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
 
 use embed_doc_image::embed_doc_image;

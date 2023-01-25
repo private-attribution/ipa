@@ -1,6 +1,6 @@
 use crate::bits::BitArray;
 use crate::protocol::IpaProtocolStep::ModulusConversion;
-use crate::secret_sharing::ArithmeticSecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use crate::{
     error::Error,
     ff::Field,

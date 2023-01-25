@@ -1,4 +1,4 @@
-use crate::secret_sharing::BooleanShare;
+use crate::secret_sharing::{Boolean as BooleanSecretSharing, BooleanShare, SecretSharing};
 use std::{
     fmt::{Debug, Formatter},
     ops::{BitXor, BitXorAssign},
@@ -6,6 +6,12 @@ use std::{
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct XorShare<V: BooleanShare>(V, V);
+
+impl<V: BooleanShare> SecretSharing<V> for XorShare<V> {
+    const ZERO: Self = XorShare::ZERO;
+}
+
+impl<V: BooleanShare> BooleanSecretSharing<V> for XorShare<V> {}
 
 impl<V: BooleanShare + Debug> Debug for XorShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

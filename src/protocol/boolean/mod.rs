@@ -2,7 +2,7 @@ use futures::future::try_join_all;
 
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::secret_sharing::{ArithmeticSecretSharing, SecretSharing};
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use std::iter::repeat;
 
 use super::context::Context;

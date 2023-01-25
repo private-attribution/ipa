@@ -5,7 +5,7 @@ use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::replicated::malicious::{
     AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
 };
-use crate::secret_sharing::{ArithmeticSecretSharing, SecretSharing};
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use async_trait::async_trait;
 use std::marker::PhantomData;
 

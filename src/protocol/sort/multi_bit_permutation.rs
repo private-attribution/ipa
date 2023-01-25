@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BitOpStep, RecordId},
-    secret_sharing::{ArithmeticSecretSharing, SecretSharing},
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
 };
 use futures::future::try_join_all;
 use std::iter::repeat;

@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::or::or;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::{ArithmeticSecretSharing, SecretSharing};
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use futures::future::try_join_all;
 use std::iter::zip;
 

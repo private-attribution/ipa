@@ -6,7 +6,7 @@ use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::ArithmeticSecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///

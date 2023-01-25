@@ -3,7 +3,8 @@ use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
 use crate::secret_sharing::{
-    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticSecretSharing, SecretSharing,
+    replicated::semi_honest::AdditiveShare as Replicated, Arithmetic as ArithmeticSecretSharing,
+    SecretSharing,
 };
 
 pub(crate) mod accumulate_credit;
