@@ -72,7 +72,7 @@ pub fn open_in_place<'a>(
     ciphertext: &'a mut [u8],
     info: Info,
 ) -> Result<&'a [u8], DecryptionError> {
-    let key_id = info.key_id();
+    let key_id = info.key_id;
     let info = info.into_bytes();
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
     let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
@@ -98,8 +98,10 @@ pub fn open_in_place<'a>(
 
 /// Represents an encrypted share of single match key.
 #[derive(Clone)]
+// temporarily to appease clippy while we don't have actual consumers of this struct
+#[cfg(all(test, not(feature = "shuttle")))]
 struct MatchKeyEncryption<'a> {
-    /// Encapsulated key as defined in [`url`].
+    /// Encapsulated key as defined in [`url`] specification.
     /// Key size depends on the AEAD type used in HPKE, in current setting IPA uses [`aead`] type.
     ///
     /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-4
@@ -109,7 +111,7 @@ struct MatchKeyEncryption<'a> {
     /// Ciphertext + tag
     ct: [u8; MATCHKEY_CT_LEN],
 
-    /// Info as defined in [`url`]
+    /// Info part of the receiver context as defined in [`url`] specification.
     ///
     /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-5.1
     info: Info<'a>,
@@ -292,11 +294,11 @@ mod tests {
 
                 let info = match corrupted_info_field {
                     1 => Info {
-                        key_id: encryption.info.key_id() + 1,
+                        key_id: encryption.info.key_id + 1,
                         ..encryption.info
                     },
                     2 => Info {
-                        epoch: encryption.info.epoch() + 1,
+                        epoch: encryption.info.epoch + 1,
                         ..encryption.info
                     },
                     3 => {

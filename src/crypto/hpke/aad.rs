@@ -63,21 +63,13 @@ impl<'a> Info<'a> {
         })
     }
 
-    pub(super) fn key_id(&self) -> KeyIdentifier {
-        self.key_id
-    }
-
-    pub(super) fn epoch(&self) -> Epoch {
-        self.epoch
-    }
-
     /// Converts this instance into an owned byte slice that can further be used to create HPKE
     /// sender or receiver context.
     pub(super) fn into_bytes(self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
-            + 3 // account for 3 delimiters
             + self.helper_origin.len()
             + self.site_origin.len()
+            + 3 // account for 3 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch);
         let mut r = Vec::with_capacity(info_len);
