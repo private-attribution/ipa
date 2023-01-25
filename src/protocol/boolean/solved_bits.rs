@@ -5,7 +5,7 @@ use crate::protocol::{context::Context, RecordId};
 use crate::secret_sharing::replicated::malicious::{
     AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
 };
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use async_trait::async_trait;
 use std::marker::PhantomData;
 
@@ -73,7 +73,7 @@ pub async fn solved_bits<F, S, C>(
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
     F: Field,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
     C: Context<F, Share = S>,
 {
     //
@@ -113,7 +113,7 @@ async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Resu
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)

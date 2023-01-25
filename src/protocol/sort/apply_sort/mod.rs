@@ -43,6 +43,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
+    use crate::bits::BitArray;
     use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
@@ -51,6 +52,7 @@ mod tests {
     use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
     use crate::protocol::IpaProtocolStep::SortPreAccumulation;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{MaskedMatchKey, Reconstruct, Runner};
     use crate::{ff::Fp32BitPrime, test_fixture::TestWorld};
 
@@ -63,14 +65,10 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
 
-        let permutation = permutation::sort(
-            match_keys
-                .iter()
-                .map(|mk| u64::from(*mk))
-                .collect::<Vec<_>>(),
-        );
+        let permutation =
+            permutation::sort(match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>());
 
         let mut sidecar: Vec<AttributionTestInput<Fp32BitPrime>> = Vec::with_capacity(COUNT);
         sidecar.resize_with(COUNT, || {
@@ -82,8 +80,7 @@ mod tests {
             .semi_honest(
                 (match_keys, sidecar),
                 |ctx, (mk_shares, secret)| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares =
                         convert_all_bits(&ctx.narrow("convert_all_bits"), &local_lists)
                             .await

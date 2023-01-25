@@ -1,3 +1,4 @@
+use raw_ipa::bits::BitArray40;
 use raw_ipa::error::Error;
 use raw_ipa::ff::Fp32BitPrime;
 use raw_ipa::protocol::ipa::ipa;
@@ -7,7 +8,7 @@ use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 100;
+    const BATCHSIZE: usize = 1000;
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
     const MAX_BREAKDOWN_KEY: u128 = 4;
@@ -35,10 +36,9 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime>(
+            ipa::<Fp32BitPrime, BitArray40>(
                 ctx,
                 &input_rows,
-                20,
                 PER_USER_CAP,
                 MAX_BREAKDOWN_KEY,
                 NUM_MULTI_BITS,
