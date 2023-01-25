@@ -11,6 +11,7 @@ async fn main() -> Result<(), Error> {
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
     const MAX_BREAKDOWN_KEY: u128 = 4;
+    const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
@@ -34,9 +35,16 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                .await
-                .unwrap()
+            ipa::<Fp32BitPrime>(
+                ctx,
+                &input_rows,
+                20,
+                PER_USER_CAP,
+                MAX_BREAKDOWN_KEY,
+                NUM_MULTI_BITS,
+            )
+            .await
+            .unwrap()
         })
         .await;
 
