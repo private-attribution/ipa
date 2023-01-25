@@ -3,7 +3,7 @@ use crate::{
     ff::Field,
     protocol::{
         context::Context,
-        sort::generate_permutation::shuffle_and_reveal_permutation,
+        sort::{generate_permutation::shuffle_and_reveal_permutation, secureapplyinv::secureapplyinv_multi},
         sort::{
             multi_bit_permutation::multi_bit_permutation,
             SortStep::{BitPermutationStep, ComposeStep, MultiApplyInv, ShuffleRevealPermutation},
@@ -12,11 +12,9 @@ use crate::{
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use std::iter::repeat;
 
-use super::{compose::compose, secureapplyinv::secureapplyinv};
+use super::{compose::compose};
 use crate::protocol::context::SemiHonestContext;
-use futures::future::try_join_all;
 
 /// This is an implementation of `OptGenPerm` (Algorithm 12) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -43,9 +41,8 @@ use futures::future::try_join_all;
 
 pub async fn generate_permutation_opt<F>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Replicated<F>>],
+    sort_keys: &[Vec<Vec<Replicated<F>>>],
     num_bits: u32,
-    num_multi_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
@@ -53,19 +50,17 @@ where
     let ctx_0 = ctx.narrow(&Sort(0));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let last_bit_num = std::cmp::min(num_multi_bits, num_bits);
-
     let lsb_permutation = multi_bit_permutation(
         ctx_0.narrow(&BitPermutationStep),
-        &sort_keys[0..last_bit_num.try_into().unwrap()],
+        &sort_keys[0],
     )
     .await?;
 
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = lsb_permutation;
-    for bit_num in (num_multi_bits..num_bits).step_by(num_multi_bits.try_into().unwrap()) {
-        let ctx_bit = ctx.narrow(&Sort(bit_num));
+    for bit_num in 0..sort_keys.len() {
+        let ctx_bit = ctx.narrow(&Sort(bit_num.try_into().unwrap()));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
@@ -85,25 +80,19 @@ where
             revealed_and_random_permutations.revealed.as_slice(),
         );
 
-        let last_bit_num = std::cmp::min(bit_num + num_multi_bits, num_bits);
-
-        let futures =
-            (bit_num..last_bit_num)
-                .zip(repeat(ctx_bit.clone()))
-                .map(|(idx, ctx_bit)| async move {
-                    secureapplyinv(
-                        ctx_bit.narrow(&MultiApplyInv(idx)),
-                        sort_keys[idx as usize].clone(),
+        let next_few_bits_sorted_by_less_significant_bits =
+                    secureapplyinv_multi(
+                        ctx_bit.narrow(&MultiApplyInv(bit_num.try_into().unwrap())),
+                        sort_keys[bit_num].clone(),
                         (randoms_for_shuffle0, randoms_for_shuffle1),
                         revealed,
                     )
-                    .await
-                });
-        let next_few_bits_sorted_by_less_significant_bits = try_join_all(futures).await?;
+                    .await?
+                ;
 
         let next_few_bits_permutation = multi_bit_permutation(
             ctx_bit.narrow(&BitPermutationStep),
-            &next_few_bits_sorted_by_less_significant_bits,
+            next_few_bits_sorted_by_less_significant_bits.as_slice(),
         )
         .await?;
 
@@ -168,9 +157,8 @@ mod tests {
                     let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
                     generate_permutation_opt(
                         ctx.narrow("sort"),
-                        &converted_shares,
+                        converted_shares,
                         MaskedMatchKey::BITS,
-                        NUM_MULTI_BITS,
                     )
                     .await
                     .unwrap()
