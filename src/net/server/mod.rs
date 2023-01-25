@@ -10,7 +10,6 @@ use crate::{
     task::JoinHandle,
     telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
 };
-use ::tokio::sync::mpsc;
 use axum::Router;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use hyper::{Body, Request};
@@ -20,6 +19,7 @@ use std::net::SocketAddr;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
+use ::tokio::sync::mpsc;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 

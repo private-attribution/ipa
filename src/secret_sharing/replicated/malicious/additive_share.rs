@@ -51,7 +51,6 @@ impl<V: ArithmeticShare + Debug> Debug for AdditiveShare<V> {
     }
 }
 
-/// TODO: why did I need this change?
 impl<V: ArithmeticShare + Field> Default for AdditiveShare<V> {
     fn default() -> Self {
         AdditiveShare::new(
@@ -61,7 +60,6 @@ impl<V: ArithmeticShare + Field> Default for AdditiveShare<V> {
     }
 }
 
-/// TODO: why did I need this change?
 impl<V: ArithmeticShare + Field> AdditiveShare<V> {
     #[must_use]
     pub fn new(x: SemiHonestAdditiveShare<V>, rx: SemiHonestAdditiveShare<V>) -> Self {

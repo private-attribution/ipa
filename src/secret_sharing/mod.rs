@@ -7,7 +7,7 @@ mod xor;
 pub use into_shares::IntoShares;
 pub use xor::XorReplicated;
 
-use crate::{bits::BooleanOps, ff::ArithmeticOps};
+use crate::{bits::BooleanOps, ff::ArithmeticOps, ff::Field};
 use replicated::{
     malicious::AdditiveShare as MaliciousAdditiveShare,
     semi_honest::AdditiveShare as SemiHonestAdditiveShare,
@@ -51,12 +51,10 @@ pub trait SecretSharing<V: SharedValue>:
     const ZERO: Self;
 }
 
-/// TODO: why did I need this change?
-impl<V: ArithmeticShare + crate::ff::Field> SecretSharing<V> for SemiHonestAdditiveShare<V> {
+impl<V: ArithmeticShare + Field> SecretSharing<V> for SemiHonestAdditiveShare<V> {
     const ZERO: Self = SemiHonestAdditiveShare::ZERO;
 }
 
-/// TODO: why did I need this change?
-impl<V: ArithmeticShare + crate::ff::Field> SecretSharing<V> for MaliciousAdditiveShare<V> {
+impl<V: ArithmeticShare + Field> SecretSharing<V> for MaliciousAdditiveShare<V> {
     const ZERO: Self = MaliciousAdditiveShare::ZERO;
 }
