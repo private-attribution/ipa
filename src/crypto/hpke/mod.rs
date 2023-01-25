@@ -4,7 +4,7 @@
 
 use hpke::aead::AeadTag;
 use hpke::generic_array::typenum::Unsigned;
-use hpke::{single_shot_open_in_place_detached, Deserializable, OpModeR, Serializable};
+use hpke::{single_shot_open_in_place_detached, OpModeR};
 use std::io;
 
 mod aad;
@@ -31,8 +31,8 @@ type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize =
-    XorReplicated::SIZE_IN_BYTES + <AeadTag<IpaAead> as Serializable>::OutputSize::USIZE;
+pub const MATCHKEY_CT_LEN: usize = <XorReplicated as crate::bits::Serializable>::SIZE_IN_BYTES
+    + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecryptionError {
@@ -72,6 +72,8 @@ pub fn open_in_place<'a>(
     ciphertext: &'a mut [u8],
     info: Info,
 ) -> Result<&'a [u8], DecryptionError> {
+    use hpke::{Deserializable, Serializable};
+
     let key_id = info.key_id;
     let info = info.into_bytes();
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
@@ -122,7 +124,8 @@ mod tests {
     use super::*;
     use crate::secret_sharing::XorReplicated;
 
-    use hpke::{single_shot_seal_in_place_detached, OpModeS, Serializable};
+    use crate::bits::Serializable;
+    use hpke::{single_shot_seal_in_place_detached, OpModeS};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
 
@@ -170,9 +173,9 @@ mod tests {
 
             let mut ct = [0u8; MATCHKEY_CT_LEN];
             ct[..16].copy_from_slice(&plaintext);
-            ct[16..].copy_from_slice(&tag.to_bytes());
+            ct[16..].copy_from_slice(&hpke::Serializable::to_bytes(&tag));
             MatchKeyEncryption {
-                enc: <[u8; 32]>::from(encap_key.to_bytes()),
+                enc: <[u8; 32]>::from(hpke::Serializable::to_bytes(&encap_key)),
                 ct,
                 info,
             }

@@ -19,6 +19,7 @@ pub trait SharedValue: Clone + Copy + PartialEq + Debug + Send + Sync + Sized + 
 
     /// Size of this data type in bytes. This is the size in memory allocated
     /// for this data type to store the number of bits specified by `BITS`.
+    /// TODO(alex): replace with Serializable
     const SIZE_IN_BYTES: usize;
 
     const ZERO: Self;

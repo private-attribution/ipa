@@ -1,4 +1,4 @@
-use crate::helpers::messaging::Serializable;
+use crate::bits::Serializable;
 use crate::{
     helpers::{messaging::Message, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::{RecordId, Substep},

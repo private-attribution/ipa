@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
 
-use crate::bits::BooleanOps;
+use crate::bits::{BooleanOps, Serializable};
 use crate::secret_sharing::ArithmeticShare;
 
 // Trait for primitive integer types used to represent the underlying type for field values
@@ -32,6 +32,12 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
         let int: Self::Integer = (*self).into();
         int.into()
     }
+}
+
+pub trait BinaryField: Field + BooleanOps {}
+
+impl<F: Field> Serializable for F {
+    const SIZE_IN_BYTES: usize = F::SIZE_IN_BYTES;
 
     /// Generic implementation to serialize fields into a buffer. Callers need to make sure
     /// there is enough capacity to store the value of this field.
@@ -40,11 +46,11 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     ///
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity to store this field value
-    fn serialize(&self, buf: &mut [u8]) -> io::Result<()> {
-        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES];
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        let raw_value = &self.as_u128().to_le_bytes()[..<Self as Serializable>::SIZE_IN_BYTES];
 
         if buf.len() >= raw_value.len() {
-            buf[..Self::SIZE_IN_BYTES].copy_from_slice(raw_value);
+            buf[..<Self as Serializable>::SIZE_IN_BYTES].copy_from_slice(raw_value);
             Ok(())
         } else {
             let error_text = format!(
@@ -52,7 +58,7 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
                  it required at least {} bytes available",
                 buf.len(),
                 self,
-                Self::SIZE_IN_BYTES
+                <Self as Serializable>::SIZE_IN_BYTES
             );
 
             Err(io::Error::new(ErrorKind::WriteZero, error_text))
@@ -69,19 +75,18 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
     fn deserialize(buf_from: &[u8]) -> io::Result<Self> {
-        if Self::SIZE_IN_BYTES <= buf_from.len() {
+        let sz = <Self as Serializable>::SIZE_IN_BYTES;
+        if sz <= buf_from.len() {
             let mut buf_to = [0; 16]; // one day...
-            buf_to[..Self::SIZE_IN_BYTES].copy_from_slice(&buf_from[..Self::SIZE_IN_BYTES]);
+            buf_to[..sz].copy_from_slice(&buf_from[..sz]);
 
             Ok(Self::from(u128::from_le_bytes(buf_to)))
         } else {
             let error_text = format!(
-                "Buffer is too small to read values of the field type {}. Required at least {} bytes,\
-                 got {}", type_name::<Self>(), Self::SIZE_IN_BYTES, buf_from.len()
+                "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
+                 got {}", type_name::<Self>(), buf_from.len()
             );
             Err(io::Error::new(ErrorKind::UnexpectedEof, error_text))
         }
     }
 }
-
-pub trait BinaryField: Field + BooleanOps {}
