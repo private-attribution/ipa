@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::no_ones;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::try_join_all;
 use std::iter::zip;
 
@@ -19,7 +19,7 @@ pub async fn bitwise_equal<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     debug_assert!(a.len() == b.len());
     let xored_bits = xor_all_the_bits(ctx.narrow(&Step::XORAllTheBits), record_id, a, b).await?;
@@ -35,7 +35,7 @@ async fn xor_all_the_bits<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
         let c = ctx.narrow(&BitOpStep::from(i));

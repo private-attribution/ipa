@@ -348,9 +348,11 @@ mod tests {
 
     use rand::seq::SliceRandom;
 
+    use crate::bits::BitArray;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation_opt::generate_permutation_opt;
     use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::SharedValue;
 
     use crate::protocol::context::{Context, SemiHonestContext};
     use crate::test_fixture::{join3, MaskedMatchKey, Runner};
@@ -368,12 +370,9 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
 
-        let mut expected = match_keys
-            .iter()
-            .map(|mk| u64::from(*mk))
-            .collect::<Vec<_>>();
+        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
 
         let result = world
@@ -393,9 +392,9 @@ mod tests {
             )
             .await;
 
-        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
         for (match_key, index) in zip(match_keys, result.reconstruct()) {
-            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
+            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
         }
 
         assert_eq!(expected, mpc_sorted_list);

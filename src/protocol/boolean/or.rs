@@ -2,11 +2,11 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - [ab]`
-pub async fn or<F: Field, C: Context<F, Share = S>, S: SecretSharing<F>>(
+pub async fn or<F: Field, C: Context<F, Share = S>, S: ArithmeticSecretSharing<F>>(
     ctx: C,
     record_id: RecordId,
     a: &S,

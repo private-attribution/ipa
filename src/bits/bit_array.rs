@@ -36,6 +36,12 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
+                fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
+                    <$name>::truncate_from(rng.gen::<u128>())
+                }
+            }
+
             impl std::ops::BitAnd for $name {
                 type Output = Self;
                 fn bitand(self, rhs: Self) -> Self::Output {
