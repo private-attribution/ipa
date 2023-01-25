@@ -10,9 +10,10 @@ use std::io;
 mod aad;
 mod registry;
 
-use crate::secret_sharing::XorReplicated;
 pub use aad::Info;
 pub use registry::KeyRegistry;
+use crate::bits::BitArray40;
+use crate::secret_sharing::replicated::semi_honest::XorShare;
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -31,7 +32,7 @@ type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize = <XorReplicated as crate::bits::Serializable>::SIZE_IN_BYTES
+pub const MATCHKEY_CT_LEN: usize = <XorShare<BitArray40> as crate::bits::Serializable>::SIZE_IN_BYTES
     + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
 
 #[derive(Debug, thiserror::Error)]

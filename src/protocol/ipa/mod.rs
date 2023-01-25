@@ -1,6 +1,7 @@
 use std::iter::{repeat, zip};
 
 use crate::{
+    bits::BitArray,
     error::Error,
     ff::Field,
     helpers::Role,
@@ -16,7 +17,9 @@ use crate::{
         },
         RecordId,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, XorReplicated},
+    secret_sharing::replicated::semi_honest::{
+        AdditiveShare as Replicated, XorShare as XorReplicated,
+    },
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
@@ -75,8 +78,8 @@ impl AsRef<str> for IPAInputRowResharableStep {
     }
 }
 
-pub struct IPAInputRow<F: Field> {
-    pub mk_shares: XorReplicated,
+pub struct IPAInputRow<F: Field, B: BitArray> {
+    pub mk_shares: XorReplicated<B>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: Replicated<F>,
     pub trigger_value: Replicated<F>,
@@ -134,18 +137,21 @@ impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code)]
-pub async fn ipa<F>(
+pub async fn ipa<F, B>(
     ctx: SemiHonestContext<'_, F>,
-    input_rows: &[IPAInputRow<F>],
-    num_bits: u32,
+    input_rows: &[IPAInputRow<F, B>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
 where
     F: Field,
+    B: BitArray,
 {
-    let mk_shares = input_rows.iter().map(|x| x.mk_shares).collect::<Vec<_>>();
-    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, num_bits);
+    let mk_shares = input_rows
+        .iter()
+        .map(|x| x.mk_shares.clone())
+        .collect::<Vec<_>>();
+    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &local_lists,
@@ -155,7 +161,7 @@ where
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,
-        num_bits,
+        B::BITS,
     )
     .await
     .unwrap();
@@ -224,6 +230,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::ipa;
+    use crate::bits::BitArray40;
     use crate::test_fixture::ipa_input_row::IPAInputTestRow;
     use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
@@ -277,7 +284,7 @@ pub mod tests {
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
+                ipa::<Fp31, BitArray40>(ctx, &input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY)
                     .await
                     .unwrap()
             })
@@ -321,7 +328,7 @@ pub mod tests {
         }
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
+                ipa::<Fp32BitPrime, BitArray40>(ctx, &input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY)
                     .await
                     .unwrap()
             })

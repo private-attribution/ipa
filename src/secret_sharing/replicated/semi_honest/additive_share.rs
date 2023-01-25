@@ -1,11 +1,19 @@
 use crate::ff::Field;
 use crate::helpers::Role;
-use crate::secret_sharing::ArithmeticShare;
+use crate::secret_sharing::{
+    Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing,
+};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: ArithmeticShare>(V, V);
+
+impl<V: ArithmeticShare> SecretSharing<V> for AdditiveShare<V> {
+    const ZERO: Self = AdditiveShare::ZERO;
+}
+
+impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 
 impl<V: ArithmeticShare + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

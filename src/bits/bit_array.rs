@@ -1,6 +1,7 @@
 use super::BitArray;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
+use crate::bits::Serializable;
 
 /// Bit store type definition. Five `u8` blocks.
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
@@ -18,10 +19,9 @@ macro_rules! bit_array_impl {
             /// Bits are stored in the Little-Endian format. Accessing the first element
             /// like `b[0]` will return the LSB.
             #[derive(std::fmt::Debug, Clone, Copy, PartialEq, Eq)]
-            pub struct $name($store);
+            pub struct $name(pub(super) $store);
 
             impl SharedValue for $name {
-                const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
             }
@@ -29,10 +29,16 @@ macro_rules! bit_array_impl {
             impl BitArray for $name {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     Self(<$store>::new(
-                        v.into().to_le_bytes()[0..<Self as SharedValue>::SIZE_IN_BYTES]
+                        v.into().to_le_bytes()[0..<Self as Serializable>::SIZE_IN_BYTES]
                             .try_into()
                             .unwrap(),
                     ))
+                }
+            }
+
+            impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
+                fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
+                    <$name>::truncate_from(rng.gen::<u128>())
                 }
             }
 
@@ -246,3 +252,73 @@ macro_rules! bit_array_impl {
 
 bit_array_impl!(bit_array_64, BitArray64, U8_8, 64);
 bit_array_impl!(bit_array_40, BitArray40, U8_5, 40);
+
+impl Serializable for BitArray40 {
+    const SIZE_IN_BYTES: usize = 5;
+
+    fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
+        let req = <Self as Serializable>::SIZE_IN_BYTES;
+
+        if buf.len() >= req {
+            buf[..req].copy_from_slice(self.0.as_raw_slice());
+            Ok(())
+        } else {
+            let error_text = format!(
+                "Buffer with total capacity {} cannot hold field value {:?} because \
+                 it required at least {req} bytes available",
+                buf.len(),
+                self,
+            );
+
+            Err(std::io::Error::new(std::io::ErrorKind::WriteZero, error_text))
+        }
+    }
+
+    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+        let sz = <Self as Serializable>::SIZE_IN_BYTES;
+        if sz <= buf.len() {
+            Ok(Self(U8_5::new(buf.try_into().unwrap())))
+        } else {
+            let error_text = format!(
+                "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
+                 got {}", std::any::type_name::<Self>(), buf.len()
+            );
+            Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, error_text))
+        }
+    }
+}
+
+impl Serializable for BitArray64 {
+    const SIZE_IN_BYTES: usize = 8;
+
+    fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
+        let req = <Self as Serializable>::SIZE_IN_BYTES;
+
+        if buf.len() >= req {
+            buf[..req].copy_from_slice(self.0.as_raw_slice());
+            Ok(())
+        } else {
+            let error_text = format!(
+                "Buffer with total capacity {} cannot hold field value {:?} because \
+                 it required at least {req} bytes available",
+                buf.len(),
+                self,
+            );
+
+            Err(std::io::Error::new(std::io::ErrorKind::WriteZero, error_text))
+        }
+    }
+
+    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+        let sz = <Self as Serializable>::SIZE_IN_BYTES;
+        if sz <= buf.len() {
+            Ok(Self(U8_8::new(buf.try_into().unwrap())))
+        } else {
+            let error_text = format!(
+                "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
+                 got {}", std::any::type_name::<Self>(), buf.len()
+            );
+            Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, error_text))
+        }
+    }
+}

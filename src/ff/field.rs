@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
 
-use crate::bits::{BooleanOps, Serializable};
+use crate::bits::Serializable;
 use crate::secret_sharing::ArithmeticShare;
 
 // Trait for primitive integer types used to represent the underlying type for field values
@@ -34,10 +34,8 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     }
 }
 
-pub trait BinaryField: Field + BooleanOps {}
-
 impl<F: Field> Serializable for F {
-    const SIZE_IN_BYTES: usize = F::SIZE_IN_BYTES;
+    const SIZE_IN_BYTES: usize = F::BITS as usize / 8;
 
     /// Generic implementation to serialize fields into a buffer. Callers need to make sure
     /// there is enough capacity to store the value of this field.

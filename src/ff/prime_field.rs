@@ -16,7 +16,6 @@ macro_rules! field_impl {
 
         impl SharedValue for $field {
             const BITS: u32 = <Self as Field>::Integer::BITS;
-            const SIZE_IN_BYTES: usize = (Self::BITS / 8) as usize;
             const ZERO: Self = $field(0);
         }
 
