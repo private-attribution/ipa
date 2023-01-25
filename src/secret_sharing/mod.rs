@@ -10,7 +10,9 @@ use crate::bits::{BooleanOps, Serializable};
 use crate::ff::ArithmeticOps;
 use std::fmt::Debug;
 
-pub trait SharedValue: Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Serializable + 'static {
+pub trait SharedValue:
+    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Serializable + 'static
+{
     /// Number of bits stored in this data type.
     const BITS: u32;
 

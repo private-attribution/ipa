@@ -1,7 +1,7 @@
 use super::BitArray;
+use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
-use crate::bits::Serializable;
 
 /// Bit store type definition. Five `u8` blocks.
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
@@ -270,7 +270,10 @@ impl Serializable for BitArray40 {
                 self,
             );
 
-            Err(std::io::Error::new(std::io::ErrorKind::WriteZero, error_text))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                error_text,
+            ))
         }
     }
 
@@ -283,7 +286,10 @@ impl Serializable for BitArray40 {
                 "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
                  got {}", std::any::type_name::<Self>(), buf.len()
             );
-            Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, error_text))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                error_text,
+            ))
         }
     }
 }
@@ -305,7 +311,10 @@ impl Serializable for BitArray64 {
                 self,
             );
 
-            Err(std::io::Error::new(std::io::ErrorKind::WriteZero, error_text))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                error_text,
+            ))
         }
     }
 
@@ -318,7 +327,10 @@ impl Serializable for BitArray64 {
                 "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
                  got {}", std::any::type_name::<Self>(), buf.len()
             );
-            Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, error_text))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                error_text,
+            ))
         }
     }
 }
