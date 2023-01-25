@@ -57,6 +57,7 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;
+        const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
         let mut rng = thread_rng();
@@ -91,6 +92,7 @@ mod tests {
                         ctx.narrow(&SortPreAccumulation),
                         &converted_shares,
                         MaskedMatchKey::BITS,
+                        NUM_MULTI_BITS,
                     )
                     .await
                     .unwrap();
