@@ -11,12 +11,10 @@ use crate::{
     net::{discovery::peer, http_serde},
     protocol::{QueryId, Step},
 };
-use axum::{
-    body::StreamBody,
-    http::uri::{self, PathAndQuery},
-};
+use axum::{body::StreamBody, http::uri};
 use hyper::{body, client::HttpConnector, Body, Client, Response, Uri};
 use hyper_tls::HttpsConnector;
+use std::collections::HashMap;
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
 ///       of the helper network. That means that create query and send inputs API need to be
@@ -67,27 +65,31 @@ impl MpcHelperClient {
         Ok(Self::new(addr.parse()?))
     }
 
-    fn build_uri<T>(&self, p_and_q: T) -> Result<Uri, Error>
-    where
-        PathAndQuery: TryFrom<T>,
-        <PathAndQuery as TryFrom<T>>::Error: Into<axum::http::Error>,
-    {
-        Ok(uri::Builder::new()
-            .scheme(self.scheme.clone())
-            .authority(self.authority.clone())
-            .path_and_query(p_and_q)
-            .build()?)
-    }
-
     /// Responds with whatever input is passed to it
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
-    pub async fn echo(&self, s: &str) -> Result<Vec<u8>, Error> {
-        let uri = self.build_uri(http_serde::echo::uri(s))?;
+    pub async fn echo(&self, s: &str) -> Result<String, Error> {
+        const FOO: &str = "foo";
 
-        let response = self.client.get(uri).await?;
-        let result = hyper::body::to_bytes(response.into_body()).await?;
-        Ok(result.to_vec())
+        let req =
+            http_serde::echo::Request::new(HashMap::from([(FOO.into(), s.into())]), HashMap::new());
+        let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
+        let resp = self.client.request(req).await?;
+        let status = resp.status();
+        if status.is_success() {
+            let result = hyper::body::to_bytes(resp.into_body()).await?;
+            let http_serde::echo::Request {
+                mut query_params, ..
+            } = serde_json::from_slice(&result)?;
+            query_params
+                .remove(&String::from(FOO))
+                .ok_or(Error::FailedRequest {
+                    status,
+                    reason: "did not receive mirrored response".into(),
+                })
+        } else {
+            Err(Error::from_failed_resp(resp).await)
+        }
     }
 
     async fn resp_ok(resp: Response<Body>) -> Result<(), Error> {

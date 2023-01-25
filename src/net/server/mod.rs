@@ -165,57 +165,99 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
 }
 
 // TODO: get these tests working again
-/*
-/// [`MessageSendMap`] tests are limited right now due to the fact that they key, [`QueryId`], is
-/// an empty struct, and so there can only ever be 1 entry in the map. When we fully define a
-/// [`QueryId`], these tests can be expanded to handle more cases
-#[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
+#[cfg(test)]
+mod e2e_tests {
     use super::*;
+    use crate::net::http_serde;
+    use hyper::{client::HttpConnector, http::uri, StatusCode};
+    use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
 
-    #[test]
-    fn message_send_map_stores_sender() {
-        let message_send_map = MessageSendMap::default();
-        assert!(matches!(
-            message_send_map.get(QueryId),
-            Err(MpcHelperServerError::BadPathString(_))
-        ));
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        message_send_map
-            .insert_if_not_present(QueryId, network)
+    #[tokio::test]
+    async fn can_do_http() {
+        // server
+        let (transport_sender, _) = mpsc::channel(1);
+        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
+        let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
+        let (addr, _) = server
+            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .await;
+
+        // client
+        let client = hyper::Client::new();
+
+        // request
+        let expected = http_serde::echo::Request::new(
+            HashMap::from([
+                (String::from("foo"), String::from("1")),
+                (String::from("bar"), String::from("2")),
+            ]),
+            HashMap::from([(String::from("host"), addr.to_string())]),
+        );
+
+        let req = expected
+            .clone()
+            .try_into_http_request(
+                uri::Scheme::HTTP,
+                uri::Authority::try_from(addr.to_string()).unwrap(),
+            )
             .unwrap();
-        assert!(message_send_map.get(QueryId).is_ok());
+        let resp = client.request(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp_body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+        let resp_body: http_serde::echo::Request = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(expected, resp_body);
     }
 
-    #[test]
-    fn message_send_map_errors_on_double_add() {
-        let message_send_map = MessageSendMap::default();
-        message_send_map
-            .insert_if_not_present(QueryId, HttpNetwork::new_without_clients(QueryId, None))
-            .unwrap();
-        assert!(matches!(
-            message_send_map
-                .insert_if_not_present(QueryId, HttpNetwork::new_without_clients(QueryId, None)),
-            Err(MpcHelperServerError::SendError(_))
-        ));
-    }
+    #[tokio::test]
+    async fn can_do_https() {
+        // server
+        let (transport_sender, _) = mpsc::channel(1);
+        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
+        let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
+        let config = tls_config_from_self_signed_cert().await.unwrap();
+        let (addr, _) = server
+            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
+            .await;
 
-    #[test]
-    fn message_send_map_removes_sender() {
-        let message_send_map = MessageSendMap::default();
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        message_send_map
-            .insert_if_not_present(QueryId, network)
+        // self-signed cert CN is "localhost", therefore request authority must not use the ip address
+        let authority = format!("localhost:{}", addr.port());
+
+        // client
+        let conn = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
             .unwrap();
-        assert!(message_send_map.get(QueryId).is_ok());
-        message_send_map.remove(QueryId);
-        assert!(matches!(
-            message_send_map.get(QueryId),
-            Err(MpcHelperServerError::BadPathString(_))
-        ));
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+
+        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
+        let client = hyper::Client::builder().build(https);
+
+        // request
+        let expected = http_serde::echo::Request::new(
+            HashMap::from([
+                (String::from("foo"), String::from("1")),
+                (String::from("bar"), String::from("2")),
+            ]),
+            HashMap::from([(String::from("host"), authority.clone())]),
+        );
+
+        let req = expected
+            .clone()
+            .try_into_http_request(
+                uri::Scheme::HTTPS,
+                uri::Authority::try_from(authority).unwrap(),
+            )
+            .unwrap();
+        let _req_str = format!("{expected:?}");
+        let resp = client.request(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp_body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+        let resp_body: http_serde::echo::Request = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(expected, resp_body);
     }
 }
-
+/*
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use crate::{
@@ -237,102 +279,6 @@ mod e2e_tests {
     use std::collections::HashMap;
     use std::str::FromStr;
     use tracing::Level;
-
-    impl EchoData {
-        pub fn to_request(&self, scheme: &Scheme) -> Request<Body> {
-            let mut request = Request::builder();
-
-            let uri = self.headers.get("host").expect("host header is missing");
-            let query = self
-                .query_args
-                .iter()
-                .map(|(arg, v)| format!("{arg}={v}"))
-                .collect::<Vec<_>>()
-                .join("&");
-
-            for (name, val) in &self.headers {
-                request.headers_mut().unwrap().insert(
-                    HeaderName::from_str(name).unwrap(),
-                    HeaderValue::from_str(val).unwrap(),
-                );
-            }
-
-            let uri = format!("{scheme}://{uri}/echo?{query}");
-
-            request.uri(uri).body(Body::empty()).unwrap()
-        }
-
-        pub async fn from_response(response: &mut Response<Body>) -> Self {
-            let body_bytes = body::to_bytes(response.body_mut()).await.unwrap();
-
-            serde_json::from_slice(&body_bytes).unwrap()
-        }
-    }
-
-    #[tokio::test]
-    async fn can_do_http() {
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
-
-        let expected = EchoData {
-            query_args: HashMap::from([("foo".into(), "1".into()), ("bar".into(), "2".into())]),
-            headers: HashMap::from([
-                ("echo-header".into(), "echo".into()),
-                ("host".into(), addr.to_string()),
-            ]),
-        };
-
-        let client = hyper::Client::new();
-
-        let mut response = client
-            .request(expected.to_request(&Scheme::HTTP))
-            .await
-            .unwrap();
-
-        assert_eq!(StatusCode::OK, response.status());
-        assert_eq!(expected, EchoData::from_response(&mut response).await);
-    }
-
-    #[tokio::test]
-    async fn can_do_https() {
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
-        let config = crate::net::server::tls_config_from_self_signed_cert()
-            .await
-            .unwrap();
-        let (addr, _) = server
-            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
-            .await;
-
-        let mut expected = EchoData::default();
-        // self-signed cert CN is "localhost", therefore request uri must not use the ip address
-        expected
-            .headers
-            .insert("host".into(), format!("localhost:{}", addr.port()));
-
-        let conn = TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap();
-        let mut http = HttpConnector::new();
-        http.enforce_http(false);
-
-        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
-        let client = hyper::Client::builder().build(https);
-
-        let mut response = client
-            .request(expected.to_request(&Scheme::HTTPS))
-            .await
-            .unwrap();
-
-        assert_eq!(StatusCode::OK, response.status());
-        assert_eq!(expected, EchoData::from_response(&mut response).await);
-    }
 
     /// Ensures that server tracks number of requests it received and emits a corresponding metric.
     /// In order for this test not to be flaky, we rely on tokio::test macro to set up a
