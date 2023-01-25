@@ -3,14 +3,16 @@
 //! [`specification`]: https://github.com/patcg-individual-drafts/ipa/pull/31
 
 use hpke::aead::AeadTag;
-use hpke::{single_shot_open_in_place_detached, Deserializable, OpModeR};
-use std::{fmt, io};
+use hpke::{single_shot_open_in_place_detached, Deserializable, OpModeR, Serializable};
+use std::io;
+use hpke::generic_array::typenum::Unsigned;
 
 mod aad;
 mod registry;
 
 pub use aad::Info;
 pub use registry::KeyRegistry;
+use crate::secret_sharing::XorReplicated;
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -18,63 +20,97 @@ type IpaAead = hpke::aead::AesGcm128;
 type IpaKdf = hpke::kdf::HkdfSha256;
 
 pub type KeyIdentifier = u8;
+/// Event epoch as described [`ipa-spec`]
+/// For the purposes of this module, epochs are used to authenticate match key encryption. As
+/// report collectors may submit queries with events spread across multiple epochs, decryption context
+/// needs to know which epoch to use for each individual event.
+///
+/// [`ipa-spec`]: https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#other-key-terms
 pub type Epoch = u16;
 type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
-#[derive(Debug)]
+/// Total len in bytes for an encrypted matchkey including the authentication tag.
+pub const MATCHKEY_CT_LEN: usize = XorReplicated::SIZE_IN_BYTES + <AeadTag::<IpaAead> as Serializable>::OutputSize::USIZE;
+
+#[derive(Debug, thiserror::Error)]
 pub enum DecryptionError {
-    NoSuchKey
+    #[error("Unknown key {0}")]
+    NoSuchKey(KeyIdentifier),
+    #[error("Failed to open ciphertext")]
+    Other,
 }
 
 impl From<hpke::HpkeError> for DecryptionError {
     fn from(_value: hpke::HpkeError) -> Self {
-        Self
+        Self::Other
     }
 }
 
 impl From<io::Error> for DecryptionError {
     fn from(_value: io::Error) -> Self {
-        Self
-    }
-}
-
-impl fmt::Display for DecryptionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Failed to open ciphertext")
+        Self::Other
     }
 }
 
 /// Opens the given ciphertext in place by first obtaining the secret key from [`key_registry`]
-/// using epoch and key from [`aad`] and then applying [`HPKE decryption`] to the provided ciphertext.
+/// using epoch and key from [`info`] and then applying [`HPKE decryption`] to the provided ciphertext.
+///
+/// This function mutates the provided ciphertext slice and replaces it with the plaintext obtained
+/// after opening the ciphertext. The result will contain a pointer to the plaintext slice.
+/// of the plaintext. Note that if the ciphertext slice does not include authentication tag, decryption
+/// will fail.
 ///
 /// ## Errors
 /// If ciphertext cannot be opened for any reason.
 ///
 /// [`HPKE decryption`]: https://datatracker.ietf.org/doc/html/rfc9180#name-encryption-and-decryption
-pub fn open_in_place(
+pub fn open_in_place<'a>(
     key_registry: &KeyRegistry,
     enc: &[u8],
-    ciphertext: &mut [u8],
-    tag: &[u8],
-    aad: Info,
-) -> Result<(), DecryptionError> {
-    //TODO: log errors, but don't return them
-    let key_id = aad.key_id();
-    let info = aad.to_bytes();
+    ciphertext: &'a mut [u8],
+    info: Info,
+) -> Result<&'a [u8], DecryptionError> {
+    let key_id = info.key_id();
+    let info = info.into_bytes();
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
+    let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
-    let sk = key_registry.private_key(key_id);
+    let sk = key_registry.private_key(key_id).ok_or(DecryptionError::NoSuchKey(key_id))?;
 
-    Ok(single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
+    single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
         &OpModeR::Base,
         sk,
         &encap_key,
         &info,
-        ciphertext,
+        ct,
         &[],
         &tag,
-    )?)
+    )?;
+
+    // at this point ct is no longer a pointer to the ciphertext.
+    let pt = ct;
+    Ok(pt)
+}
+
+
+/// Represents an encrypted share of single match key.
+#[derive(Clone)]
+struct MatchKeyEncryption<'a> {
+    /// Encapsulated key as defined in [`url`].
+    /// Key size depends on the AEAD type used in HPKE, in current setting IPA uses [`aead`] type.
+    ///
+    /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-4
+    /// [`aead`]: IpaAead
+    enc: [u8; 32],
+
+    /// Ciphertext + tag
+    ct: [u8; MATCHKEY_CT_LEN],
+
+    /// Info as defined in [`url`]
+    ///
+    /// [`url`]: https://datatracker.ietf.org/doc/html/rfc9180#section-5.1
+    info: Info<'a>,
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -86,13 +122,6 @@ mod tests {
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
 
-    /// TODO: move outside of the tests
-    #[derive(Clone)]
-    struct MatchKeyEncryption {
-        encap_key: [u8; 32],
-        ct: Box<[u8]>,
-        tag: [u8; 16],
-    }
 
     struct EncryptionSuite<R: RngCore + CryptoRng> {
         registry: KeyRegistry,
@@ -104,9 +133,9 @@ mod tests {
         const HELPER_ORIGIN: &'static str = "foo";
         const SITE_ORIGIN: &'static str = "bar";
 
-        pub fn new(keys_per_epoch: usize, mut rng: R) -> Self {
+        pub fn new(keys: usize, mut rng: R) -> Self {
             Self {
-                registry: KeyRegistry::random(4, keys_per_epoch, &mut rng),
+                registry: KeyRegistry::random(keys, &mut rng),
                 rng,
                 epoch: 0,
             }
@@ -117,45 +146,47 @@ mod tests {
             &mut self,
             key_id: KeyIdentifier,
             match_key: XorReplicated,
-        ) -> MatchKeyEncryption {
-            let aad =
-                Info::new(key_id, self.epoch, &Self::HELPER_ORIGIN, &Self::SITE_ORIGIN).unwrap();
-            let info = aad.to_bytes();
+        ) -> MatchKeyEncryption<'static> {
+            let info =
+                Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
             let mut plaintext = [0_u8; 16];
+
             match_key.serialize(&mut plaintext).unwrap();
-            let pk_r = self.registry.public_key(self.epoch, key_id);
+            let pk_r = self.registry.public_key(key_id).unwrap();
 
             let (encap_key, tag) =
                 single_shot_seal_in_place_detached::<IpaAead, super::IpaKdf, super::IpaKem, _>(
                     &OpModeS::Base,
                     pk_r,
-                    &info,
+                    &info.clone().into_bytes(),
                     &mut plaintext,
                     &[],
                     &mut self.rng,
                 )
-                .unwrap();
+                    .unwrap();
 
+            let mut ct = [0u8; MATCHKEY_CT_LEN];
+            ct[..16].copy_from_slice(&plaintext);
+            ct[16..].copy_from_slice(&tag.to_bytes());
             MatchKeyEncryption {
-                encap_key: <[u8; 32]>::from(encap_key.to_bytes()),
-                ct: Box::new(plaintext),
-                tag: <[u8; 16]>::from(tag.to_bytes()),
+                enc: <[u8; 32]>::from(encap_key.to_bytes()),
+                ct,
+                info
             }
         }
 
         pub fn open(
             &self,
             key_id: KeyIdentifier,
-            mut enc: MatchKeyEncryption,
+            mut enc: MatchKeyEncryption<'_>,
         ) -> Result<XorReplicated, DecryptionError> {
-            let aad =
-                Info::new(key_id, self.epoch, &Self::HELPER_ORIGIN, &Self::SITE_ORIGIN).unwrap();
+            let info =
+                Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
             open_in_place(
                 &self.registry,
-                &enc.encap_key,
+                &enc.enc,
                 enc.ct.as_mut(),
-                &enc.tag,
-                aad,
+                info,
             )?;
 
             Ok(XorReplicated::deserialize(enc.ct.as_ref())?)
@@ -169,10 +200,10 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad = Info::new(255, 32767, &"foo", &"bar").unwrap();
+        let aad = Info::new(255, 32767, "foo", "bar").unwrap();
         assert_eq!(
             b"private-attribution\0foo\0bar\0\xff\x7f\xff",
-            aad.to_bytes().as_ref()
+            aad.into_bytes().as_ref()
         );
     }
 
@@ -208,27 +239,89 @@ mod tests {
         let _ = suite.open(1, enc).unwrap_err();
     }
 
+    #[test]
+    fn decrypt_unknown_key() {
+        let rng = StdRng::from_seed([1_u8; 32]);
+        let mut suite = EncryptionSuite::new(1, rng);
+        let match_key = XorReplicated::new(u64::MAX, u64::MAX / 2);
+        let enc = suite.seal(0, match_key);
+
+        assert!(matches!(suite.open(1, enc), Err(DecryptionError::NoSuchKey(1))));
+    }
+
     mod proptests {
         use super::*;
         use proptest::prelude::ProptestConfig;
+        use rand::Rng;
 
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            fn arbitrary_corruption(bad_byte in 0..15_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
+            fn arbitrary_ct_corruption(bad_byte in 0..23_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let enc = suite.seal(0, XorReplicated::new(0, 0));
+                let mut encryption = suite.seal(0, XorReplicated::new(0, 0));
 
-                // corrupt the ciphertext
-                let mut ct_corruption = enc.clone();
-                ct_corruption.ct.as_mut()[bad_byte] ^= 1 << bad_bit;
-                let _ = suite.open(0, ct_corruption).unwrap_err();
+                encryption.ct.as_mut()[bad_byte] ^= 1 << bad_bit;
+                let _ = suite.open(0, encryption).unwrap_err();
+            }
+        }
 
-                // corrupt the tag
-                let mut tag_corruption = enc;
-                tag_corruption.tag[bad_byte] ^= 1 << bad_bit;
-                let _ = suite.open(0, tag_corruption).unwrap_err();
+        proptest::proptest! {
+            #![proptest_config(ProptestConfig::with_cases(50))]
+            #[test]
+            fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
+                let rng = StdRng::from_seed(seed);
+                let mut suite = EncryptionSuite::new(1, rng);
+                let mut encryption = suite.seal(0, XorReplicated::new(0, 0));
+
+                encryption.enc.as_mut()[bad_byte] ^= 1 << bad_bit;
+                let _ = suite.open(0, encryption).unwrap_err();
+            }
+        }
+
+        proptest::proptest! {
+            #![proptest_config(ProptestConfig::with_cases(50))]
+            #[test]
+            fn arbitrary_info_corruption(corrupted_info_field in 1..4, seed: [u8; 32]) {
+                let mut rng = StdRng::from_seed(seed);
+                let mut suite = EncryptionSuite::new(10, rng.clone());
+                let mut encryption = suite.seal(0, XorReplicated::new(0, 0));
+
+                let mut site_origin = EncryptionSuite::<StdRng>::SITE_ORIGIN.to_owned();
+                let mut helper_origin = EncryptionSuite::<StdRng>::HELPER_ORIGIN.to_owned();
+
+                let info = match corrupted_info_field {
+                    1 => Info {
+                        key_id: encryption.info.key_id() + 1,
+                        ..encryption.info
+                    },
+                    2 => Info {
+                        epoch: encryption.info.epoch() + 1,
+                        ..encryption.info
+                    },
+                    3 => {
+                        let idx = rng.gen_range(0..site_origin.len());
+                        site_origin.remove(idx);
+
+                        Info {
+                            site_origin: site_origin.as_ref(),
+                            ..encryption.info
+                        }
+                    },
+                    4 => {
+                        let idx = rng.gen_range(0..helper_origin.len());
+                        helper_origin.remove(idx);
+
+                        Info {
+                            helper_origin: helper_origin.as_ref(),
+                            ..encryption.info
+                        }
+                    }
+                    _ => panic!("bad test setup: only 4 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
+                };
+
+                let _ = open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info).unwrap_err();
             }
         }
     }

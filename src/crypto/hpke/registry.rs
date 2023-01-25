@@ -1,6 +1,4 @@
 use super::{IpaPrivateKey, IpaPublicKey, KeyIdentifier};
-use crate::crypto::hpke::Epoch;
-use std::collections::HashMap;
 
 /// A pair of secret key and public key. Public keys used by UA to encrypt the data towards helpers
 /// secret keys used by helpers to open the ciphertexts. Each helper needs access to both
@@ -16,16 +14,6 @@ impl From<(IpaPrivateKey, IpaPublicKey)> for KeyPair {
             pk: value.1,
             sk: value.0,
         }
-    }
-}
-
-impl KeyPair {
-    pub(super) fn public_key(&self) -> &IpaPublicKey {
-        &self.pk
-    }
-
-    pub(super) fn private_key(&self) -> &IpaPrivateKey {
-        &self.sk
     }
 }
 

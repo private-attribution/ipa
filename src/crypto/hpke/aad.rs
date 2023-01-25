@@ -11,11 +11,12 @@ const DOMAIN: &str = "private-attribution";
 /// encryptions. It is not guaranteed that the same receiver can be used for anything else.
 ///
 /// [`info`]: https://www.rfc-editor.org/rfc/rfc9180.html#name-creating-the-encryption-con
+#[derive(Clone)]
 pub struct Info<'a> {
-    key_id: KeyIdentifier,
-    epoch: Epoch,
-    helper_origin: &'a str,
-    site_origin: &'a str,
+    pub(super) key_id: KeyIdentifier,
+    pub(super) epoch: Epoch,
+    pub(super) helper_origin: &'a str,
+    pub(super) site_origin: &'a str,
 }
 
 #[derive(Debug)]
@@ -36,7 +37,7 @@ impl<'a> From<&'a str> for NonAsciiStringError<'a> {
 }
 
 impl<'a> Info<'a> {
-    /// Creates new instance
+    /// Creates a new instance.
     ///
     /// ## Errors
     /// if helper or site origin is not a valid ASCII string.
@@ -70,7 +71,9 @@ impl<'a> Info<'a> {
         self.epoch
     }
 
-    pub(super) fn to_bytes(self) -> Box<[u8]> {
+    /// Converts this instance into an owned byte slice that can further be used to create HPKE
+    /// sender or receiver context.
+    pub(super) fn into_bytes(self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
             + 3 // account for 3 delimiters
             + self.helper_origin.len()
