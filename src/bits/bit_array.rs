@@ -19,7 +19,7 @@ macro_rules! bit_array_impl {
             /// Bits are stored in the Little-Endian format. Accessing the first element
             /// like `b[0]` will return the LSB.
             #[derive(std::fmt::Debug, Clone, Copy, PartialEq, Eq)]
-            pub struct $name(pub(super) $store);
+            pub struct $name($store);
 
             impl SharedValue for $name {
                 const BITS: u32 = $bits;
@@ -159,6 +159,47 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            impl Serializable for $name {
+                const SIZE_IN_BYTES: usize = Self::BITS as usize / 8;
+
+                fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
+                    let req = <Self as Serializable>::SIZE_IN_BYTES;
+
+                    if buf.len() >= req {
+                        buf[..req].copy_from_slice(self.0.as_raw_slice());
+                        Ok(())
+                    } else {
+                        let error_text = format!(
+                            "Buffer with total capacity {} cannot hold the value {:?} because \
+                             it required at least {req} bytes available",
+                            buf.len(),
+                            self,
+                        );
+
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::WriteZero,
+                            error_text,
+                        ))
+                    }
+                }
+
+                fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+                    let sz = <Self as Serializable>::SIZE_IN_BYTES;
+                    if sz <= buf.len() {
+                        Ok(Self(<$store>::new(buf.try_into().unwrap())))
+                    } else {
+                        let error_text = format!(
+                            "Buffer is too small to read values of the type {}. Required at least {sz} bytes,\
+                             got {}", std::any::type_name::<Self>(), buf.len()
+                        );
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            error_text,
+                        ))
+                    }
+                }
+            }
+
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
@@ -243,6 +284,18 @@ macro_rules! bit_array_impl {
 
                     assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
                 }
+
+                #[test]
+                pub fn serde() {
+                    let mut rng = thread_rng();
+                    let a = rng.gen::<u128>() & MASK;
+                    let a = $name::truncate_from(a);
+
+                    let mut buf = vec![0_u8; $name::SIZE_IN_BYTES];
+                    a.clone().serialize(&mut buf).unwrap();
+
+                    assert_eq!(a, $name::deserialize(&buf).unwrap());
+                }
             }
         }
 
@@ -252,85 +305,3 @@ macro_rules! bit_array_impl {
 
 bit_array_impl!(bit_array_64, BitArray64, U8_8, 64);
 bit_array_impl!(bit_array_40, BitArray40, U8_5, 40);
-
-impl Serializable for BitArray40 {
-    const SIZE_IN_BYTES: usize = 5;
-
-    fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
-        let req = <Self as Serializable>::SIZE_IN_BYTES;
-
-        if buf.len() >= req {
-            buf[..req].copy_from_slice(self.0.as_raw_slice());
-            Ok(())
-        } else {
-            let error_text = format!(
-                "Buffer with total capacity {} cannot hold field value {:?} because \
-                 it required at least {req} bytes available",
-                buf.len(),
-                self,
-            );
-
-            Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                error_text,
-            ))
-        }
-    }
-
-    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
-        let sz = <Self as Serializable>::SIZE_IN_BYTES;
-        if sz <= buf.len() {
-            Ok(Self(U8_5::new(buf.try_into().unwrap())))
-        } else {
-            let error_text = format!(
-                "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
-                 got {}", std::any::type_name::<Self>(), buf.len()
-            );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                error_text,
-            ))
-        }
-    }
-}
-
-impl Serializable for BitArray64 {
-    const SIZE_IN_BYTES: usize = 8;
-
-    fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
-        let req = <Self as Serializable>::SIZE_IN_BYTES;
-
-        if buf.len() >= req {
-            buf[..req].copy_from_slice(self.0.as_raw_slice());
-            Ok(())
-        } else {
-            let error_text = format!(
-                "Buffer with total capacity {} cannot hold field value {:?} because \
-                 it required at least {req} bytes available",
-                buf.len(),
-                self,
-            );
-
-            Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                error_text,
-            ))
-        }
-    }
-
-    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
-        let sz = <Self as Serializable>::SIZE_IN_BYTES;
-        if sz <= buf.len() {
-            Ok(Self(U8_8::new(buf.try_into().unwrap())))
-        } else {
-            let error_text = format!(
-                "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
-                 got {}", std::any::type_name::<Self>(), buf.len()
-            );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                error_text,
-            ))
-        }
-    }
-}
