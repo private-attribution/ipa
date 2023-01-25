@@ -45,13 +45,11 @@ use crate::protocol::context::SemiHonestContext;
 pub async fn generate_permutation_opt<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
-    num_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
 {
     let ctx_0 = ctx.narrow(&Sort(0));
-    assert_eq!(sort_keys.len(), num_bits as usize);
 
     let lsb_permutation =
         multi_bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
@@ -59,7 +57,7 @@ where
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
 
     let mut composed_less_significant_bits_permutation = lsb_permutation;
-    for (bit_num, one_slice) in sort_keys.iter().enumerate() {
+    for (bit_num, one_slice) in sort_keys.iter().enumerate().skip(1) {
         let ctx_bit = ctx.narrow(&Sort(bit_num.try_into().unwrap()));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
@@ -161,13 +159,9 @@ mod tests {
                     .await
                     .unwrap();
 
-                    generate_permutation_opt(
-                        ctx.narrow("sort"),
-                        &converted_shares,
-                        MaskedMatchKey::BITS,
-                    )
-                    .await
-                    .unwrap()
+                    generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                        .await
+                        .unwrap()
                 },
             )
             .await;

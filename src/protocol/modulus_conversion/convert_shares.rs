@@ -209,17 +209,51 @@ where
     let futures = (0..num_bits)
         .step_by(num_multi_bits.try_into().unwrap())
         .map(|bit_num| {
-            let last_bit = std::cmp::min(num_multi_bits + bit_num, num_multi_bits) as usize;
-            let this_bit_futures = locally_converted_bits.iter().map(|one_record| {
-                convert_bit_list(
-                    ctx.narrow(&ModulusConversion(bit_num)),
-                    &one_record[bit_num as usize..last_bit],
-                )
-            });
+            let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
+            let this_bit_futures =
+                locally_converted_bits
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, one_record)| {
+                        convert_bit_list_new(
+                            ctx.narrow(&ModulusConversion(bit_num)),
+                            &one_record[bit_num as usize..last_bit],
+                            RecordId::from(idx),
+                        )
+                    });
             try_join_all(this_bit_futures)
         });
     let converted_shares = try_join_all(futures).await?;
     Ok(converted_shares)
+}
+
+/// # Errors
+/// Propagates errors from convert shares
+/// # Panics
+/// Propagates panics from convert shares
+pub async fn convert_bit_list_new<F, C, S>(
+    ctx: C,
+    locally_converted_bits: &[BitConversionTriple<S>],
+    record_id: RecordId,
+) -> Result<Vec<S>, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    try_join_all(
+        zip(repeat(ctx), locally_converted_bits.iter())
+            .enumerate()
+            .map(|(i, (ctx, row))| async move {
+                convert_bit(
+                    ctx.narrow(&ModulusConversion(i.try_into().unwrap())),
+                    record_id,
+                    row,
+                )
+                .await
+            }),
+    )
+    .await
 }
 
 /// # Errors

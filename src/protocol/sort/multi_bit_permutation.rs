@@ -43,7 +43,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     let equality_checks = try_join_all(
         (0..num_records)
             .zip(repeat(ctx.clone()))
-            .map(|(i, ctx)| check_everything(ctx, i, &input[i])),
+            .map(|(i, ctx)| check_everything(ctx, i, input[i].as_slice())),
     )
     .await?;
 
@@ -91,16 +91,15 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
 /// `2^N` possible values this could have.
 /// This function checks all of these possible values, and returns a vector of secret-shared results.
 /// Only one result will be a secret-sharing of one, all of the others will be secret-sharings of zero.
-async fn check_everything<F, C, S>(ctx: C, record_idx: usize, input: &[S]) -> Result<Vec<S>, Error>
+async fn check_everything<F, C, S>(ctx: C, record_idx: usize, record: &[S]) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    let num_bits = input.len();
-
+    let num_bits = record.len();
     let precomputed_combinations =
-        pregenerate_all_combinations(ctx, record_idx, input, num_bits).await?;
+        pregenerate_all_combinations(ctx, record_idx, record, num_bits).await?;
 
     // This loop just iterates over all the possible values this N-bit input could potentially represent
     // and checks if the bits are equal to this value. It does so my computing a linear combination of the
