@@ -3,16 +3,16 @@
 //! [`specification`]: https://github.com/patcg-individual-drafts/ipa/pull/31
 
 use hpke::aead::AeadTag;
+use hpke::generic_array::typenum::Unsigned;
 use hpke::{single_shot_open_in_place_detached, Deserializable, OpModeR, Serializable};
 use std::io;
-use hpke::generic_array::typenum::Unsigned;
 
 mod aad;
 mod registry;
 
+use crate::secret_sharing::XorReplicated;
 pub use aad::Info;
 pub use registry::KeyRegistry;
-use crate::secret_sharing::XorReplicated;
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -31,7 +31,8 @@ type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize = XorReplicated::SIZE_IN_BYTES + <AeadTag::<IpaAead> as Serializable>::OutputSize::USIZE;
+pub const MATCHKEY_CT_LEN: usize =
+    XorReplicated::SIZE_IN_BYTES + <AeadTag<IpaAead> as Serializable>::OutputSize::USIZE;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecryptionError {
@@ -76,7 +77,9 @@ pub fn open_in_place<'a>(
     let encap_key = <IpaKem as hpke::Kem>::EncappedKey::from_bytes(enc)?;
     let (ct, tag) = ciphertext.split_at_mut(ciphertext.len() - AeadTag::<IpaAead>::size());
     let tag = AeadTag::<IpaAead>::from_bytes(tag)?;
-    let sk = key_registry.private_key(key_id).ok_or(DecryptionError::NoSuchKey(key_id))?;
+    let sk = key_registry
+        .private_key(key_id)
+        .ok_or(DecryptionError::NoSuchKey(key_id))?;
 
     single_shot_open_in_place_detached::<_, IpaKdf, IpaKem>(
         &OpModeR::Base,
@@ -92,7 +95,6 @@ pub fn open_in_place<'a>(
     let pt = ct;
     Ok(pt)
 }
-
 
 /// Represents an encrypted share of single match key.
 #[derive(Clone)]
@@ -121,7 +123,6 @@ mod tests {
     use hpke::{single_shot_seal_in_place_detached, OpModeS, Serializable};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
-
 
     struct EncryptionSuite<R: RngCore + CryptoRng> {
         registry: KeyRegistry,
@@ -163,7 +164,7 @@ mod tests {
                     &[],
                     &mut self.rng,
                 )
-                    .unwrap();
+                .unwrap();
 
             let mut ct = [0u8; MATCHKEY_CT_LEN];
             ct[..16].copy_from_slice(&plaintext);
@@ -171,7 +172,7 @@ mod tests {
             MatchKeyEncryption {
                 enc: <[u8; 32]>::from(encap_key.to_bytes()),
                 ct,
-                info
+                info,
             }
         }
 
@@ -182,12 +183,7 @@ mod tests {
         ) -> Result<XorReplicated, DecryptionError> {
             let info =
                 Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
-            open_in_place(
-                &self.registry,
-                &enc.enc,
-                enc.ct.as_mut(),
-                info,
-            )?;
+            open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), info)?;
 
             Ok(XorReplicated::deserialize(enc.ct.as_ref())?)
         }
@@ -246,7 +242,10 @@ mod tests {
         let match_key = XorReplicated::new(u64::MAX, u64::MAX / 2);
         let enc = suite.seal(0, match_key);
 
-        assert!(matches!(suite.open(1, enc), Err(DecryptionError::NoSuchKey(1))));
+        assert!(matches!(
+            suite.open(1, enc),
+            Err(DecryptionError::NoSuchKey(1))
+        ));
     }
 
     mod proptests {

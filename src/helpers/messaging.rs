@@ -32,16 +32,10 @@ use futures_util::stream::FuturesUnordered;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
-/// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Sized + 'static {
+/// Trait for items that have fixed-byte length representation.
+pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
     const SIZE_IN_BYTES: usize;
-
-    /// Deserialize message from a sequence of bytes.
-    ///
-    /// ## Errors
-    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize(buf: &[u8]) -> io::Result<Self>;
 
     /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
     /// capacity to store this message.
@@ -50,20 +44,31 @@ pub trait Message: Debug + Send + Sized + 'static {
     /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
     /// data.
     fn serialize(self, buf: &mut [u8]) -> io::Result<()>;
+
+    /// Deserialize message from a sequence of bytes.
+    ///
+    /// ## Errors
+    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
+    fn deserialize(buf: &[u8]) -> io::Result<Self>;
 }
 
-/// Any field value can be send as a message
-impl<F: Field> Message for F {
-    const SIZE_IN_BYTES: usize = (F::Integer::BITS / 8) as usize;
+/// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
+pub trait Message: Debug + Send + Serializable + 'static {}
 
-    fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        <F as Field>::deserialize(buf)
-    }
+impl<F: Field> Serializable for F {
+    const SIZE_IN_BYTES: usize = (F::Integer::BITS / 8) as usize;
 
     fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
         <F as Field>::serialize(&self, buf)
     }
+
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        <F as Field>::deserialize(buf)
+    }
 }
+
+/// Any field value can be send as a message
+impl<F: Field> Message for F {}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication

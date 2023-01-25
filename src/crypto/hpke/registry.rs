@@ -24,16 +24,14 @@ pub struct KeyRegistry {
 
 impl KeyRegistry {
     #[cfg(any(test, feature = "test-fixture"))]
-    pub fn random<R: rand::RngCore + rand::CryptoRng>(
-        keys_count: usize,
-        mut r: &mut R,
-    ) -> Self {
-
+    pub fn random<R: rand::RngCore + rand::CryptoRng>(keys_count: usize, mut r: &mut R) -> Self {
         let keys = (0..keys_count)
             .map(|_| <super::IpaKem as hpke::Kem>::gen_keypair(&mut r).into())
             .collect::<Vec<_>>();
 
-        Self { keys: keys.into_boxed_slice() }
+        Self {
+            keys: keys.into_boxed_slice(),
+        }
     }
 
     #[must_use]
@@ -49,7 +47,7 @@ impl KeyRegistry {
     fn key_pair(&self, key_id: KeyIdentifier) -> Option<&KeyPair> {
         match key_id as usize {
             key_id if key_id < self.keys.len() => Some(&self.keys[key_id]),
-            _ => None
+            _ => None,
         }
     }
 }
