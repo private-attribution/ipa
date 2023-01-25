@@ -12,7 +12,6 @@ use crate::{
 };
 use axum::Router;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
-use hyper::{Body, Request};
 use metrics::increment_counter;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -60,7 +59,7 @@ impl MpcHelperServer {
         let svc = self
             .router()
             .layer(TraceLayer::new_for_http().on_request(
-                |request: &Request<Body>, _span: &Span| {
+                |request: &hyper::Request<hyper::Body>, _span: &Span| {
                     increment_counter!(RequestProtocolVersion::from(request.version()));
                     increment_counter!(REQUESTS_RECEIVED);
                 },
@@ -164,43 +163,58 @@ ShF2TD9MWOlghJSEC6+W3nModkc=
     RustlsConfig::from_pem(cert.as_bytes().to_vec(), key.as_bytes().to_vec()).await
 }
 
-// TODO: get these tests working again
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use super::*;
-    use crate::net::http_serde;
-    use hyper::{client::HttpConnector, http::uri, StatusCode};
+    use crate::{net::http_serde, test_fixture::metrics::MetricsHandle};
+    use hyper::{client::HttpConnector, http::uri, StatusCode, Version};
     use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
+    use metrics_util::debugging::Snapshotter;
+    use tracing::Level;
 
-    #[tokio::test]
-    async fn can_do_http() {
-        // server
+    async fn init_server() -> SocketAddr {
         let (transport_sender, _) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
         let (addr, _) = server
             .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
             .await;
+        addr
+    }
+
+    fn expected_req(host: String) -> http_serde::echo::Request {
+        http_serde::echo::Request::new(
+            HashMap::from([
+                (String::from("foo"), String::from("1")),
+                (String::from("bar"), String::from("2")),
+            ]),
+            HashMap::from([(String::from("host"), host)]),
+        )
+    }
+
+    fn http_req(
+        expected: &http_serde::echo::Request,
+        scheme: uri::Scheme,
+        authority: String,
+    ) -> hyper::Request<hyper::Body> {
+        expected
+            .clone()
+            .try_into_http_request(scheme, uri::Authority::try_from(authority).unwrap())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn can_do_http() {
+        // server
+        let addr = init_server().await;
 
         // client
         let client = hyper::Client::new();
 
         // request
-        let expected = http_serde::echo::Request::new(
-            HashMap::from([
-                (String::from("foo"), String::from("1")),
-                (String::from("bar"), String::from("2")),
-            ]),
-            HashMap::from([(String::from("host"), addr.to_string())]),
-        );
+        let expected = expected_req(addr.to_string());
 
-        let req = expected
-            .clone()
-            .try_into_http_request(
-                uri::Scheme::HTTP,
-                uri::Authority::try_from(addr.to_string()).unwrap(),
-            )
-            .unwrap();
+        let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
         let resp = client.request(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let resp_body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
@@ -210,7 +224,7 @@ mod e2e_tests {
 
     #[tokio::test]
     async fn can_do_https() {
-        // server
+        // https server
         let (transport_sender, _) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
@@ -222,7 +236,7 @@ mod e2e_tests {
         // self-signed cert CN is "localhost", therefore request authority must not use the ip address
         let authority = format!("localhost:{}", addr.port());
 
-        // client
+        // https client
         let conn = TlsConnector::builder()
             .danger_accept_invalid_certs(true)
             .build()
@@ -234,51 +248,14 @@ mod e2e_tests {
         let client = hyper::Client::builder().build(https);
 
         // request
-        let expected = http_serde::echo::Request::new(
-            HashMap::from([
-                (String::from("foo"), String::from("1")),
-                (String::from("bar"), String::from("2")),
-            ]),
-            HashMap::from([(String::from("host"), authority.clone())]),
-        );
-
-        let req = expected
-            .clone()
-            .try_into_http_request(
-                uri::Scheme::HTTPS,
-                uri::Authority::try_from(authority).unwrap(),
-            )
-            .unwrap();
-        let _req_str = format!("{expected:?}");
+        let expected = expected_req(authority.clone());
+        let req = http_req(&expected, uri::Scheme::HTTPS, authority);
         let resp = client.request(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let resp_body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
         let resp_body: http_serde::echo::Request = serde_json::from_slice(&resp_body).unwrap();
         assert_eq!(expected, resp_body);
     }
-}
-/*
-#[cfg(all(test, not(feature = "shuttle")))]
-mod e2e_tests {
-    use crate::{
-        helpers::http::HttpNetwork,
-        net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
-        protocol::QueryId,
-        telemetry::metrics::{web::RequestProtocolVersion, REQUESTS_RECEIVED},
-        test_fixture::metrics::MetricsHandle,
-    };
-    use hyper::{
-        body,
-        client::HttpConnector,
-        header::{HeaderName, HeaderValue},
-        http::uri::Scheme,
-        Body, Request, Response, StatusCode, Version,
-    };
-    use hyper_tls::{native_tls::TlsConnector, HttpsConnector};
-    use metrics_util::debugging::Snapshotter;
-    use std::collections::HashMap;
-    use std::str::FromStr;
-    use tracing::Level;
 
     /// Ensures that server tracks number of requests it received and emits a corresponding metric.
     /// In order for this test not to be flaky, we rely on tokio::test macro to set up a
@@ -289,26 +266,22 @@ mod e2e_tests {
     async fn requests_received_metric() {
         let handle = MetricsHandle::new(Level::INFO);
 
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
+        // server
+        let addr = init_server().await;
 
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
+        // client
         let client = hyper::Client::new();
-        let mut echo_data = EchoData::default();
-        echo_data.headers.insert("host".into(), addr.to_string());
+
+        // request
+        let expected = expected_req(addr.to_string());
 
         let snapshot = Snapshotter::current_thread_snapshot();
         assert!(snapshot.is_none());
 
         let request_count = 10;
         for _ in 0..request_count {
-            let response = client
-                .request(echo_data.to_request(&Scheme::HTTP))
-                .await
-                .unwrap();
+            let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
+            let response = client.request(req).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -321,30 +294,23 @@ mod e2e_tests {
     #[tokio::test]
     async fn request_version_metric() {
         let handle = MetricsHandle::new(Level::INFO);
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
 
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
-        let mut echo_data = EchoData::default();
-        let client = hyper::Client::new();
-        echo_data.headers.insert("host".into(), addr.to_string());
+        // server
+        let addr = init_server().await;
+
+        // request
+        let expected = expected_req(addr.to_string());
 
         // make HTTP/1.1 request
-        let response = client
-            .request(echo_data.to_request(&Scheme::HTTP))
-            .await
-            .unwrap();
+        let client = hyper::Client::new();
+        let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
+        let response = client.request(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         // make HTTP/2 request
         let client = hyper::Client::builder().http2_only(true).build_http();
-        let response = client
-            .request(echo_data.to_request(&Scheme::HTTP))
-            .await
-            .unwrap();
+        let req = http_req(&expected, uri::Scheme::HTTP, addr.to_string());
+        let response = client.request(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         assert_eq!(
@@ -361,4 +327,3 @@ mod e2e_tests {
         );
     }
 }
-*/

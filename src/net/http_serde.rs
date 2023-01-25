@@ -495,6 +495,7 @@ pub mod query {
             }
         }
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
@@ -541,9 +542,12 @@ pub mod query {
                 let origin_header = OriginHeader {
                     origin: self.origin,
                 };
+                let content_length = self.payload.len();
                 let body = hyper::Body::from(self.payload);
                 let req = hyper::Request::post(uri);
-                let req = headers.add_to(origin_header.add_to(req));
+                let req = headers
+                    .add_to(origin_header.add_to(req))
+                    .header(CONTENT_LENGTH_HEADER_NAME.clone(), content_length);
                 Ok(req.body(body)?)
             }
         }

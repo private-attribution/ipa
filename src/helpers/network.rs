@@ -310,7 +310,7 @@ mod tests {
     async fn successfully_sends() {
         let this_role = Role::H2;
         let message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("offset-increments")),
+            ChannelId::new(Role::H1, Step::default().narrow("successfully-sends")),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
         let roles = RoleAssignment::new(HelperIdentity::make_three());
@@ -319,6 +319,23 @@ mod tests {
         let network = Network::new(Arc::clone(&noop_transport), QueryId, roles.clone());
         for i in 0..10 {
             assert_successful_send(&network, &roles, QueryId, &message_chunks, i).await;
+        }
+    }
+
+    fn step_data_envelope(
+        origin: HelperIdentity,
+        query_id: QueryId,
+        message_chunks: &MessageChunks,
+        offset: u32,
+    ) -> CommandEnvelope {
+        CommandEnvelope {
+            origin: CommandOrigin::Helper(origin),
+            payload: TransportCommand::StepData {
+                query_id,
+                step: message_chunks.0.step.clone(),
+                payload: message_chunks.1.clone(),
+                offset,
+            },
         }
     }
 
@@ -333,15 +350,12 @@ mod tests {
         let noop_transport = NoopTransport::new(roles.identity(this_role));
         let network = Network::new(noop_transport, QueryId, roles.clone());
         let mut message_chunks_stream = network.recv_stream().await;
-        let command = CommandEnvelope {
-            origin: CommandOrigin::Helper(roles.identity(expected_message_chunks.0.role)),
-            payload: TransportCommand::StepData {
-                query_id: QueryId,
-                step: expected_message_chunks.0.step.clone(),
-                payload: expected_message_chunks.1.clone(),
-                offset: 0,
-            },
-        };
+        let command = step_data_envelope(
+            roles.identity(expected_message_chunks.0.role),
+            QueryId,
+            &expected_message_chunks,
+            0,
+        );
         network.transport.send_to_self(command).await.unwrap();
         let message_chunks = message_chunks_stream.next().await;
         assert_eq!(message_chunks, Some(expected_message_chunks));
@@ -350,15 +364,16 @@ mod tests {
     #[tokio::test]
     async fn fails_if_not_subscribed() {
         let roles = RoleAssignment::new(HelperIdentity::make_three());
-        let command = CommandEnvelope {
-            origin: CommandOrigin::Helper(roles.identity(Role::H1)),
-            payload: TransportCommand::StepData {
-                query_id: QueryId,
-                step: Step::default().narrow("no-subscribe"),
-                payload: vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
-                offset: 0,
-            },
-        };
+        let message_chunks = (
+            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
+            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+        );
+        let command = step_data_envelope(
+            roles.identity(message_chunks.0.role),
+            QueryId,
+            &message_chunks,
+            0,
+        );
         let noop_transport = NoopTransport::new(roles.identity(Role::H2));
         let network = Network::new(noop_transport, QueryId, roles);
 
@@ -367,5 +382,39 @@ mod tests {
 
         let sent = network.transport.send_to_self(command).await;
         assert!(matches!(sent, Err(TransportError::SendFailed { .. })));
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "out-of-order delivery of data for")] // just the prefix
+    async fn rejects_bad_offset() {
+        let this_role = Role::H2;
+        let message_chunks = (
+            ChannelId::new(Role::H1, Step::default().narrow("rejects-bad-offset")),
+            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+        );
+        let roles = RoleAssignment::new(HelperIdentity::make_three());
+
+        let noop_transport = NoopTransport::new(roles.identity(this_role));
+        let network = Network::new(Arc::clone(&noop_transport), QueryId, roles.clone());
+        let mut message_chunks_stream = network.recv_stream().await;
+
+        let command = step_data_envelope(
+            roles.identity(message_chunks.0.role),
+            QueryId,
+            &message_chunks,
+            0,
+        );
+        network.transport.send_to_self(command).await.unwrap();
+        message_chunks_stream.next().await.unwrap();
+
+        // send with offset == 0 again; this time should panic
+        let command = step_data_envelope(
+            roles.identity(message_chunks.0.role),
+            QueryId,
+            &message_chunks,
+            0,
+        );
+        network.transport.send_to_self(command).await.unwrap();
+        message_chunks_stream.next().await.unwrap();
     }
 }
