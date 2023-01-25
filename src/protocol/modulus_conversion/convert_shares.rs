@@ -101,6 +101,41 @@ pub fn convert_all_bits_local<F: Field>(
     total_list
 }
 
+#[must_use]
+pub fn convert_all_bits_local_new<F: Field>(
+    helper_role: Role,
+    input: &[XorReplicated],
+    num_bits: u32,
+) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
+    input
+        .iter()
+        .map(|v| {
+            (0..num_bits)
+                .map(|bit_index: u32| {
+                    let left = u128::from(v.left() >> bit_index) & 1;
+                    let right = u128::from(v.right() >> bit_index) & 1;
+                    BitConversionTriple(match helper_role {
+                        Role::H1 => [
+                            Replicated::new(F::from(left), F::ZERO),
+                            Replicated::new(F::ZERO, F::from(right)),
+                            Replicated::new(F::ZERO, F::ZERO),
+                        ],
+                        Role::H2 => [
+                            Replicated::new(F::ZERO, F::ZERO),
+                            Replicated::new(F::from(left), F::ZERO),
+                            Replicated::new(F::ZERO, F::from(right)),
+                        ],
+                        Role::H3 => [
+                            Replicated::new(F::ZERO, F::from(right)),
+                            Replicated::new(F::ZERO, F::ZERO),
+                            Replicated::new(F::from(left), F::ZERO),
+                        ],
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+}
 /// Convert a locally-decomposed single bit into field elements.
 /// # Errors
 /// Fails only if multiplication fails.
@@ -150,8 +185,39 @@ where
                 ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap())),
                 one_column,
             )
-        })
-        .collect::<Vec<_>>();
+        });
+    let converted_shares = try_join_all(futures).await?;
+    Ok(converted_shares)
+}
+
+/// # Errors
+/// Propagates errors from convert shares
+/// # Panics
+/// Propagates panics from convert shares
+#[allow(dead_code)]
+pub async fn convert_all_bits_new<F, C, S>(
+    ctx: &C,
+    locally_converted_bits: &[Vec<BitConversionTriple<S>>],
+    num_bits: u32,
+    num_multi_bits: u32,
+) -> Result<Vec<Vec<Vec<S>>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: SecretSharing<F>,
+{
+    let futures = (0..num_bits)
+        .step_by(num_multi_bits.try_into().unwrap())
+        .map(|bit_num| {
+            let last_bit = std::cmp::min(num_multi_bits + bit_num, num_multi_bits) as usize;
+            let this_bit_futures = locally_converted_bits.iter().map(|one_record| {
+                convert_bit_list(
+                    ctx.narrow(&ModulusConversion(bit_num)),
+                    &one_record[bit_num as usize..last_bit],
+                )
+            });
+            try_join_all(this_bit_futures)
+        });
     let converted_shares = try_join_all(futures).await?;
     Ok(converted_shares)
 }
