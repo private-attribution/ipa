@@ -70,8 +70,8 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
             .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
                 ctx.sum_of_products(
                     RecordId::from(i),
-                    eq_checks.iter().collect::<Vec<_>>().as_slice(),
-                    prefix_sums.iter().collect::<Vec<_>>().as_slice(),
+                    eq_checks.as_slice(),
+                    prefix_sums.as_slice(),
                 )
                 .await
             }),
