@@ -16,7 +16,6 @@ macro_rules! field_impl {
 
         impl SharedValue for $field {
             const BITS: u32 = <Self as Field>::Integer::BITS;
-            const SIZE_IN_BYTES: usize = (Self::BITS / 8) as usize;
             const ZERO: Self = $field(0);
         }
 
@@ -134,6 +133,7 @@ macro_rules! field_impl {
         mod common_tests {
             use super::*;
             use proptest::proptest;
+            use crate::bits::Serializable;
 
             #[test]
             fn zero() {
@@ -147,7 +147,7 @@ macro_rules! field_impl {
 
             #[test]
             fn can_write_into_buf_larger_than_required() {
-                let mut buf = vec![0_u8; $field::SIZE_IN_BYTES + 1];
+                let mut buf = vec![0_u8; <$field as Serializable>::SIZE_IN_BYTES + 1];
 
                 // panic will show the error while assert will just tell us that something went wrong
                 $field::ONE.serialize(&mut buf).unwrap();
@@ -155,7 +155,7 @@ macro_rules! field_impl {
 
             proptest! {
                 #[test]
-                fn ser_not_enough_capacity(buf_capacity in 0..$field::SIZE_IN_BYTES) {
+                fn ser_not_enough_capacity(buf_capacity in 0..<$field as Serializable>::SIZE_IN_BYTES) {
                     let mut buf = vec![0u8; buf_capacity];
                     assert!(matches!(
                         $field::ONE.serialize(&mut buf),
@@ -164,7 +164,7 @@ macro_rules! field_impl {
                 }
 
                 #[test]
-                fn de_buf_too_small(buf_capacity in 0..$field::SIZE_IN_BYTES) {
+                fn de_buf_too_small(buf_capacity in 0..<$field as Serializable>::SIZE_IN_BYTES) {
                     let buf = vec![0u8; buf_capacity];
                     assert!(matches!(
                                     $field::deserialize(&buf),
@@ -175,7 +175,7 @@ macro_rules! field_impl {
                 #[test]
                 fn serde(v in 0..$field::PRIME) {
                     let field_v = $field(v);
-                    let mut buf = vec![0; $field::SIZE_IN_BYTES];
+                    let mut buf = vec![0; <$field as Serializable>::SIZE_IN_BYTES];
                     field_v.serialize(&mut buf).unwrap();
 
                     assert_eq!(field_v, $field::deserialize(&buf).unwrap());
