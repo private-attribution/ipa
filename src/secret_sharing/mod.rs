@@ -23,6 +23,6 @@ pub trait ArithmeticShare: SharedValue + ArithmeticOps {}
 
 pub trait BooleanShare: SharedValue + BooleanOps {}
 
-impl<T> ArithmeticShare for T where T: SharedValue + ArithmeticOps {}
+impl<T> ArithmeticShare for T where T: SharedValue + ArithmeticOps + Serializable {}
 
 impl<T> BooleanShare for T where T: SharedValue + BooleanOps + Serializable {}
