@@ -127,7 +127,7 @@ where
 mod test {
     use crate::{
         ff::Fp31,
-        protocol::{basics::sum_of_product::SecureSop, RecordId},
+        protocol::{basics::sum_of_product::SecureSop, context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -152,7 +152,8 @@ mod test {
 
         let res = world
             .malicious((av, bv), |ctx, (a, b)| async move {
-                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
+                ctx.set_total_records(1)
+                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })

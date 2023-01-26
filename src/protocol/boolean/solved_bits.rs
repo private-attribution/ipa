@@ -146,110 +146,87 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::protocol::boolean::solved_bits::solved_bits;
-    use crate::protocol::context::SemiHonestContext;
     use crate::secret_sharing::SharedValue;
     use crate::test_fixture::Runner;
     use crate::{
-        error::Error,
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::RecordId,
-        test_fixture::{bits_to_value, join3, Reconstruct, TestWorld},
+        protocol::{context::Context, RecordId},
+        test_fixture::{bits_to_value, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
     use std::iter::zip;
 
-    async fn random_bits<F: Field>(
-        ctx: [SemiHonestContext<'_, F>; 3],
-        record_id: RecordId,
-    ) -> Result<Option<(Vec<F>, F)>, Error>
+    /// Execute `solved_bits` `COUNT` times for `F`. The count should be chosen
+    /// such that the probability of that many consecutive failures in `F` is
+    /// negligible (less than 2^-100).
+    async fn random_bits<F: Field, const COUNT: usize>()
     where
         Standard: Distribution<F>,
     {
-        let [c0, c1, c2] = ctx;
-
-        // Execute
-        let [result0, result1, result2] = join3(
-            solved_bits(c0, record_id),
-            solved_bits(c1, record_id),
-            solved_bits(c2, record_id),
-        )
-        .await;
-
-        // if one of `SolvedBits` calls aborts, then all must have aborted, too
-        if result0.is_none() || result1.is_none() || result2.is_none() {
-            assert!(result0.is_none());
-            assert!(result1.is_none());
-            assert!(result2.is_none());
-            return Ok(None);
-        }
-
-        let (s0, s1, s2) = (result0.unwrap(), result1.unwrap(), result2.unwrap());
-
-        // [b]_B must be the same bit lengths
-        assert_eq!(s0.b_b.len(), s1.b_b.len());
-        assert_eq!(s1.b_b.len(), s2.b_b.len());
-
-        // Reconstruct b_B from ([b_1]_p,...,[b_l]_p) bitwise sharings in F_p
-        let b_b = (0..s0.b_b.len())
-            .map(|i| {
-                let bit = (&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]).reconstruct();
-                assert!(bit == F::ZERO || bit == F::ONE);
-                bit
+        let world = TestWorld::new().await;
+        let [rv0, rv1, rv2] = world
+            .semi_honest((), |ctx, ()| async move {
+                let mut outputs = Vec::with_capacity(COUNT);
+                let ctx = ctx.set_total_records(COUNT);
+                for i in 0..COUNT {
+                    outputs.push(solved_bits(ctx.clone(), RecordId::from(i)).await.unwrap());
+                }
+                outputs
             })
+            .await;
+
+        let results = zip(rv0.into_iter(), zip(rv1.into_iter(), rv2.into_iter()))
+            .map(|(r0, (r1, r2))| [r0, r1, r2])
             .collect::<Vec<_>>();
 
-        // Reconstruct b_P
-        let b_p = (&s0.b_p, &s1.b_p, &s2.b_p).reconstruct();
+        let mut successes = 0;
 
-        Ok(Some((b_b, b_p)))
+        for result in results {
+            // if one of `SolvedBits` calls aborts, then all must have aborted, too
+            if result.iter().any(Option::is_none) {
+                assert!(result.iter().all(Option::is_none));
+                continue; // without incrementing successes
+            }
+
+            let [s0, s1, s2] = result.map(Option::unwrap);
+
+            // [b]_B must be the same bit lengths
+            assert_eq!(s0.b_b.len(), s1.b_b.len());
+            assert_eq!(s1.b_b.len(), s2.b_b.len());
+
+            // Reconstruct b_B from ([b_1]_p,...,[b_l]_p) bitwise sharings in F_p
+            let b_b = (0..s0.b_b.len())
+                .map(|i| {
+                    let bit = (&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]).reconstruct();
+                    assert!(bit == F::ZERO || bit == F::ONE);
+                    bit
+                })
+                .collect::<Vec<_>>();
+
+            // Reconstruct b_P
+            let b_p = (&s0.b_p, &s1.b_p, &s2.b_p).reconstruct();
+
+            // Base10 of `b_B ⊆ Z` must equal `b_P`
+            assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
+
+            successes += 1;
+        }
+
+        assert!(successes > 0);
     }
 
     #[tokio::test]
-    pub async fn fp31() -> Result<(), Error> {
-        let world = TestWorld::new().await;
-        let ctx = world.contexts::<Fp31>();
-        let [c0, c1, c2] = ctx;
-
-        let mut success = 0;
-        for i in 0..21 {
-            let record_id = RecordId::from(i);
-            if let Some((b_b, b_p)) =
-                random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?
-            {
-                // Base10 of `b_B ⊆ Z` must equal `b_P`
-                assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
-                success += 1;
-            }
-        }
-        // The chance of this protocol aborting 21 out of 21 tries in Fp31
-        // is about 2^-100. Assert that at least one run has succeeded.
-        assert!(success > 0);
-
-        Ok(())
+    pub async fn fp31() {
+        // Probability of failure for one iteration is 2^-5.
+        // Need 21 runs to reduce failure to < 2^-100.
+        random_bits::<Fp31, 21>().await;
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime() -> Result<(), Error> {
-        let world = TestWorld::new().await;
-        let ctx = world.contexts::<Fp32BitPrime>();
-        let [c0, c1, c2] = ctx;
-
-        let mut success = 0;
-        for i in 0..4 {
-            let record_id = RecordId::from(i);
-            if let Some((b_b, b_p)) =
-                random_bits([c0.clone(), c1.clone(), c2.clone()], record_id).await?
-            {
-                // Base10 of `b_B ⊆ Z` must equal `b_P`
-                assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
-                success += 1;
-            }
-        }
-        // The chance of this protocol aborting 4 out of 4 tries in Fp32BitPrime
-        // is about 2^-100. Assert that at least one run has succeeded.
-        assert!(success > 0);
-
-        Ok(())
+    pub async fn fp_32bit_prime() {
+        // Probability of failure for one iteration is 5/2^32 =~ 2^-30.
+        // Need 4 runs to reduce failure to < 2^-100.
+        random_bits::<Fp32BitPrime, 4>().await;
     }
 
     #[tokio::test]
@@ -260,7 +237,9 @@ mod tests {
         for _ in 0..4 {
             let results = world
                 .malicious(Fp32BitPrime::ZERO, |ctx, share_of_zero| async move {
-                    let share_option = solved_bits(ctx, RecordId::from(0)).await.unwrap();
+                    let share_option = solved_bits(ctx.set_total_records(1), RecordId::from(0))
+                        .await
+                        .unwrap();
                     match share_option {
                         None => {
                             // This is a 5 in 4B case where `solved_bits()`

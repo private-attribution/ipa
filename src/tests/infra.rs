@@ -21,6 +21,7 @@ fn send_receive_sequential() {
                     .semi_honest(
                         input.clone(),
                         |ctx: SemiHonestContext<'_, Fp32BitPrime>, mut shares| async move {
+                            let ctx = ctx.set_total_records(shares.len());
                             let (left_ctx, right_ctx) = (ctx.narrow("left"), ctx.narrow("right"));
                             let left_channel = left_ctx.mesh();
                             let right_channel = right_ctx.mesh();
@@ -78,6 +79,7 @@ fn send_receive_parallel() {
                     .semi_honest(
                         input.clone(),
                         |ctx: SemiHonestContext<'_, Fp32BitPrime>, shares| async move {
+                            let ctx = ctx.set_total_records(shares.len());
                             let (left_ctx, right_ctx) = (ctx.narrow("left"), ctx.narrow("right"));
                             let left_channel = left_ctx.mesh();
                             let right_channel = right_ctx.mesh();
