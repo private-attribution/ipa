@@ -1,6 +1,10 @@
-use crate::ff::Field;
-use crate::rand::{thread_rng, Rng};
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+use crate::{
+    rand::{thread_rng, Rng},
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare, XorShare},
+        ArithmeticShare, BooleanShare,
+    },
+};
 use rand::distributions::{Distribution, Standard};
 
 pub trait IntoShares<T>: Sized {
@@ -10,20 +14,37 @@ pub trait IntoShares<T>: Sized {
     fn share_with<R: Rng>(self, rng: &mut R) -> [T; 3];
 }
 
-impl<F> IntoShares<Replicated<F>> for F
+impl<V> IntoShares<AdditiveShare<V>> for V
 where
-    F: Field,
-    Standard: Distribution<F>,
+    V: ArithmeticShare,
+    Standard: Distribution<V>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [Replicated<F>; 3] {
-        let x1 = rng.gen::<F>();
-        let x2 = rng.gen::<F>();
+    fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V>; 3] {
+        let x1 = rng.gen::<V>();
+        let x2 = rng.gen::<V>();
         let x3 = self - (x1 + x2);
 
         [
-            Replicated::new(x1, x2),
-            Replicated::new(x2, x3),
-            Replicated::new(x3, x1),
+            AdditiveShare::new(x1, x2),
+            AdditiveShare::new(x2, x3),
+            AdditiveShare::new(x3, x1),
+        ]
+    }
+}
+
+impl<V> IntoShares<XorShare<V>> for V
+where
+    V: BooleanShare,
+    Standard: Distribution<V>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [XorShare<V>; 3] {
+        let s0 = rng.gen::<V>();
+        let s1 = rng.gen::<V>();
+        let s2 = self ^ s0 ^ s1;
+        [
+            XorShare::new(s0, s1),
+            XorShare::new(s1, s2),
+            XorShare::new(s2, s0),
         ]
     }
 }
@@ -52,6 +73,12 @@ where
 }
 
 // TODO: make a macro so we can use arbitrary-sized tuples
+impl IntoShares<()> for () {
+    fn share_with<R: Rng>(self, _rng: &mut R) -> [(); 3] {
+        [(), (), ()]
+    }
+}
+
 impl<T, U, V, W> IntoShares<(T, U)> for (V, W)
 where
     T: Sized,

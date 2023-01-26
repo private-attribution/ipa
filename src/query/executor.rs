@@ -1,7 +1,8 @@
 use crate::{
+    bits::{BitArray, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
-        messaging::Gateway,
+        messaging::{Gateway, TotalRecords},
         negotiate_prss,
         query::{IPAQueryConfig, QueryConfig, QueryType},
         transport::{AlignedByteArrStream, ByteArrStream},
@@ -10,7 +11,7 @@ use crate::{
         attribution::AggregateCreditOutputRow,
         context::SemiHonestContext,
         ipa::{ipa, IPAInputRow},
-        Step,
+        MatchKey, Step,
     },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     task::JoinHandle,
@@ -32,9 +33,9 @@ impl<F: Field> Result for Vec<Replicated<F>> {
         for (i, share) in self.into_iter().enumerate() {
             share
                 .serialize(&mut r[i * Replicated::<F>::SIZE_IN_BYTES..])
-                .unwrap_or_else(|_| {
+                .unwrap_or_else(|err| {
                     panic!(
-                        "{share:?} cannot fit into {} byte slice",
+                        "cannot fit into {} byte slice: {err}",
                         Replicated::<F>::SIZE_IN_BYTES
                     )
                 });
@@ -50,9 +51,9 @@ impl<F: Field> Result for Vec<AggregateCreditOutputRow<F>> {
 
         for (i, row) in self.into_iter().enumerate() {
             row.serialize(&mut r[i * AggregateCreditOutputRow::<F>::SIZE_IN_BYTES..])
-                .unwrap_or_else(|_| {
+                .unwrap_or_else(|err| {
                     panic!(
-                        "{row:?} cannot fit into {} byte slice",
+                        "cannot fit into {} byte slice: {err}",
                         AggregateCreditOutputRow::<F>::SIZE_IN_BYTES
                     )
                 });
@@ -97,22 +98,22 @@ async fn execute_test_multiply<F: Field>(
     results
 }
 
-async fn execute_ipa<F: Field>(
+async fn execute_ipa<F: Field, B: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
     mut input: AlignedByteArrStream,
 ) -> Vec<AggregateCreditOutputRow<F>> {
-    let mut inputs = Vec::new();
+    let mut input_vec = Vec::new();
     while let Some(data) = input.next().await {
-        inputs.extend(IPAInputRow::<F>::from_byte_slice(&data.unwrap()));
+        input_vec.extend(IPAInputRow::<F, B>::from_byte_slice(&data.unwrap()));
     }
 
     ipa(
         ctx,
-        &inputs,
-        query_config.num_bits,
+        &input_vec,
         query_config.per_user_credit_cap,
         query_config.max_breakdown_key,
+        query_config.num_multi_bits,
     )
     .await
     .unwrap()
@@ -131,20 +132,29 @@ pub fn start_query(
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {
-            FieldType::Fp31 => {
-                let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
-                match config.query_type {
-                    #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-                    QueryType::TestMultiply => {
-                        let input = input.align(Replicated::<Fp31>::SIZE_IN_BYTES);
-                        Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
-                    }
-                    QueryType::IPA(config) => {
-                        let input = input.align(IPAInputRow::<Fp31>::SIZE_IN_BYTES);
-                        Box::new(execute_ipa(ctx, config, input).await) as Box<dyn Result>
-                    }
+            FieldType::Fp31 => match config.query_type {
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TestMultiply => {
+                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
+                        &prss,
+                        &gateway,
+                        TotalRecords::Indeterminate,
+                    );
+                    let input = input.align(Replicated::<Fp31>::SIZE_IN_BYTES);
+                    Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                 }
-            }
+                QueryType::IPA(config) => {
+                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
+                        &prss,
+                        &gateway,
+                        // will be specified in downstream steps
+                        TotalRecords::Unspecified,
+                    );
+                    let input = input.align(IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES);
+                    Box::new(execute_ipa::<Fp31, MatchKey>(ctx, config, input).await)
+                        as Box<dyn Result>
+                }
+            },
             FieldType::Fp32BitPrime => {
                 todo!()
             }
@@ -155,6 +165,7 @@ pub fn start_query(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    use crate::protocol::context::Context;
     use crate::{
         protocol::ipa::test_cases,
         secret_sharing::IntoShares,
@@ -165,7 +176,9 @@ mod tests {
     #[tokio::test]
     async fn multiply() {
         let world = TestWorld::new().await;
-        let contexts = world.contexts::<Fp31>();
+        let contexts = world
+            .contexts::<Fp31>()
+            .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
         let a = [Fp31::from(4u128), Fp31::from(5u128)];
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
 
@@ -203,14 +216,14 @@ mod tests {
 
     #[tokio::test]
     async fn ipa() {
-        let records = test_cases::Simple::<Fp31>::default()
+        let records = test_cases::Simple::<Fp31, MatchKey>::default()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
                 shares
-                    .iter()
+                    .into_iter()
                     .flat_map(|share| {
-                        let mut buf = [0u8; IPAInputRow::<Fp31>::SIZE_IN_BYTES];
+                        let mut buf = [0u8; IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES];
                         share.serialize(&mut buf).unwrap();
 
                         buf
@@ -222,19 +235,19 @@ mod tests {
         let contexts = world.contexts::<Fp31>();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IPAQueryConfig {
-                num_bits: 20,
+                num_multi_bits: 3,
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,
             };
-            let input =
-                ByteArrStream::from(shares.as_slice()).align(IPAInputRow::<Fp31>::SIZE_IN_BYTES);
-            execute_ipa(ctx, query_config, input)
+            let input = ByteArrStream::from(shares.as_slice())
+                .align(IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES);
+            execute_ipa::<Fp31, MatchKey>(ctx, query_config, input)
         }))
         .await
         .try_into()
         .unwrap();
 
-        test_cases::Simple::<Fp31>::validate(&results);
+        test_cases::Simple::<Fp31, MatchKey>::validate(&results);
     }
 
     #[test]

@@ -6,8 +6,7 @@ use crate::{
         context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, MaliciousUpgradeContext,
-            ShuffleRevealPermutation, SortKeys,
+            ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
         },
         sort::{
             bit_permutation::bit_permutation,
@@ -23,6 +22,7 @@ use crate::{
 
 use super::{
     compose::compose,
+    generate_permutation_opt::generate_permutation_opt,
     secureapplyinv::secureapplyinv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
@@ -154,14 +154,15 @@ where
 
     let bit_0_permutation =
         bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
+    let input_len = sort_keys[0].len();
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
+
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
-            input_len,
+            input_len.try_into().unwrap(), // safe, we don't sort more than 1B rows
             composed_less_significant_bits_permutation,
         )
         .await?;
@@ -221,11 +222,17 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
+    num_multi_bits: u32,
 ) -> Result<RevealedAndRandomPermutations, Error> {
-    let sort_permutation = generate_permutation(ctx.narrow(&SortKeys), sort_keys, num_bits).await?;
+    // The input is transposed, so this really is the number of sort keys,
+    // not the length of each sort key.
+    let key_count = sort_keys[0].len();
+    let sort_permutation =
+        generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys, num_bits, num_multi_bits)
+            .await?;
     shuffle_and_reveal_permutation(
         ctx.narrow(&ShuffleRevealPermutation),
-        u32::try_from(sort_keys[0].len()).unwrap(),
+        u32::try_from(key_count).unwrap(),
         sort_permutation,
     )
     .await
@@ -268,19 +275,17 @@ pub async fn malicious_generate_permutation<'a, F>(
 where
     F: Field,
 {
-    let mut malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&MaliciousUpgradeContext));
-    let mut m_ctx = malicious_validator.context();
-    let m_ctx_0 = m_ctx.narrow(&Sort(0));
+    let mut malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(0)));
+    let mut m_ctx_bit = malicious_validator.context();
     assert_eq!(sort_keys.len(), num_bits as usize);
 
-    let upgraded_sort_keys = m_ctx.upgrade(sort_keys[0].clone()).await?;
+    let upgraded_sort_keys = m_ctx_bit.upgrade(sort_keys[0].clone()).await?;
     let bit_0_permutation =
-        bit_permutation(m_ctx_0.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
+        bit_permutation(m_ctx_bit.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
+    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more than 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
-        let mut m_ctx_bit = m_ctx.narrow(&Sort(bit_num));
         let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
             m_ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
@@ -334,7 +339,6 @@ where
         )
         .await?;
         composed_less_significant_bits_permutation = composed_i_permutation;
-        m_ctx = m_ctx_bit;
     }
     Ok((
         malicious_validator,
@@ -346,10 +350,12 @@ where
 mod tests {
     use std::iter::zip;
 
+    use crate::bits::BitArray;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+    use crate::secret_sharing::SharedValue;
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};
@@ -370,20 +376,16 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
 
-        let mut expected = match_keys
-            .iter()
-            .map(|mk| u64::from(*mk))
-            .collect::<Vec<_>>();
+        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
 
         let result = world
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
                     generate_permutation(
                         ctx.narrow("sort"),
@@ -396,9 +398,9 @@ mod tests {
             )
             .await;
 
-        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
         for (match_key, index) in zip(match_keys, result.reconstruct()) {
-            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
+            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
         }
 
         assert_eq!(expected, mpc_sorted_list);
@@ -453,18 +455,14 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
 
-        let mut expected = match_keys
-            .iter()
-            .map(|mk| u64::from(*mk))
-            .collect::<Vec<_>>();
+        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists =
-                    convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                 let converted_shares: Vec<Vec<Replicated<Fp31>>> =
                     convert_all_bits(&ctx, &local_lists).await.unwrap();
                 malicious_generate_permutation(
@@ -483,9 +481,9 @@ mod tests {
             v2.validate(result2),
         )
         .await;
-        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
         for (match_key, index) in zip(match_keys, result.reconstruct()) {
-            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
+            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
         }
 
         assert_eq!(expected, mpc_sorted_list);

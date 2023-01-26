@@ -1,17 +1,18 @@
-use crate::protocol::basics::Reveal;
-use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::RecordId;
-use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
+    protocol::{
+        basics::{check_zero, Reveal},
+        context::{Context, MaliciousContext, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId, RECORD_0, RECORD_1, RECORD_2,
+    },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
         semi_honest::AdditiveShare as Replicated,
     },
+    sync::{Arc, Mutex, Weak},
 };
 use futures::future::try_join;
 
@@ -203,11 +204,17 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 
         // This should probably be done in parallel with the futures above
-        let narrow_ctx = self.validate_ctx.narrow(&ValidateStep::RevealR);
+        let narrow_ctx = self
+            .validate_ctx
+            .narrow(&ValidateStep::RevealR)
+            .set_total_records(1);
         let r = narrow_ctx.reveal(RECORD_0, &self.r_share).await?;
         let t = u_share - &(w_share * r);
 
-        let check_zero_ctx = self.validate_ctx.narrow(&ValidateStep::CheckZero);
+        let check_zero_ctx = self
+            .validate_ctx
+            .narrow(&ValidateStep::CheckZero)
+            .set_total_records(1);
         let is_valid = check_zero(check_zero_ctx, RECORD_0, &t).await?;
 
         if is_valid {
@@ -221,7 +228,10 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
     async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
-        let propagate_ctx = self.validate_ctx.narrow(&ValidateStep::PropagateUW);
+        let propagate_ctx = self
+            .validate_ctx
+            .narrow(&ValidateStep::PropagateUW)
+            .set_total_records(2);
         let channel = propagate_ctx.mesh();
         let helper_right = propagate_ctx.role().peer(Direction::Right);
         let helper_left = propagate_ctx.role().peer(Direction::Left);
@@ -293,12 +303,13 @@ mod tests {
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
                 let v = MaliciousValidator::new(ctx);
+                let m_ctx = v.context();
 
                 let (a_malicious, b_malicious) =
                     v.context().upgrade((a_share, b_share)).await.unwrap();
 
-                let m_result = v
-                    .context()
+                let m_result = m_ctx
+                    .set_total_records(1)
                     .multiply(RecordId::from(0), &a_malicious, &b_malicious)
                     .await?;
 
@@ -392,12 +403,13 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
+        const COUNT: usize = 100;
         let world = TestWorld::new().await;
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
-        let mut original_inputs = Vec::with_capacity(100);
-        for _ in 0..100 {
+        let mut original_inputs = Vec::with_capacity(COUNT);
+        for _ in 0..COUNT {
             let x = rng.gen::<Fp31>();
             original_inputs.push(x);
         }
@@ -420,7 +432,7 @@ mod tests {
 
                 let m_results = try_join_all(
                     zip(
-                        repeat(m_ctx).enumerate(),
+                        repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
                         zip(m_input.iter(), m_input.iter().skip(1)),
                     )
                     .map(|((i, ctx), (a_malicious, b_malicious))| async move {

@@ -9,6 +9,7 @@ use raw_ipa::{
     ff::{FieldType, Fp31},
     helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
     net::{discovery::PeerDiscovery, MpcHelperClient},
+    protocol::MatchKey,
 };
 use std::error::Error;
 use std::fmt::Debug;
@@ -115,13 +116,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let query_config = QueryConfig {
                     field_type: FieldType::Fp31,
                     query_type: QueryType::IPA(IPAQueryConfig {
-                        num_bits: 20,
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
+                        num_multi_bits: 3,
                     }),
                 };
                 let query_id = clients[0].create_query(query_config).await.unwrap();
-                let output = semi_honest::<Fp31>(input, &clients, query_id).await;
+                let output = semi_honest::<Fp31, MatchKey>(input, &clients, query_id).await;
                 print_output(&output);
             }
             InputType::Fp32BitPrime => {

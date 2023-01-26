@@ -138,6 +138,7 @@ impl Transport for Arc<HttpTransport> {
 mod e2e_tests {
     use super::*;
     use crate::{
+        bits::Serializable,
         ff::{FieldType, Fp31},
         helpers::{
             query::{QueryConfig, QueryInput, QueryType},

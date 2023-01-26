@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::multiply_all_shares;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::try_join;
 use std::cmp::Ordering;
 
@@ -26,7 +26,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let one = ctx.share_of_one();
         let gtoe = Self::greater_than_or_equal_to_prime(ctx, record_id, x).await?;
@@ -41,7 +41,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -91,7 +91,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -149,7 +149,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let prime = F::PRIME.into();
         debug_assert!(prime & 0b111 == 0b011);
@@ -209,7 +209,7 @@ mod tests {
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::RecordId,
+        protocol::{context::Context, RecordId},
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
@@ -296,18 +296,26 @@ mod tests {
         let bits = get_bits::<F>(a, num_bits);
         let result = world
             .semi_honest(bits.clone(), |ctx, x_share| async move {
-                BitwiseLessThanPrime::less_than_prime(ctx, RecordId::from(0), &x_share)
-                    .await
-                    .unwrap()
+                BitwiseLessThanPrime::less_than_prime(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &x_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
 
         let m_result = world
             .malicious(bits, |ctx, x_share| async move {
-                BitwiseLessThanPrime::less_than_prime(ctx, RecordId::from(0), &x_share)
-                    .await
-                    .unwrap()
+                BitwiseLessThanPrime::less_than_prime(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &x_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();

@@ -192,10 +192,7 @@ mod e2e_tests {
         net::{server::handlers::query::test_helpers::poll_immediate, MpcHelperServer},
         protocol::Step,
     };
-    use futures_util::FutureExt;
     use hyper::{http::uri, service::Service, StatusCode};
-    use std::future::Future;
-    use std::task::{Context, Poll};
     use tower::ServiceExt;
 
     #[tokio::test]

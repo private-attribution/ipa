@@ -1,4 +1,5 @@
 use crate::{
+    bits::Serializable,
     helpers::{
         messaging::{Gateway, Message},
         Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,
@@ -12,7 +13,7 @@ use std::iter::zip;
 use tinyvec::ArrayVec;
 use x25519_dalek::PublicKey;
 
-struct PrssExchangeStep;
+pub struct PrssExchangeStep;
 
 impl AsRef<str> for PrssExchangeStep {
     fn as_ref(&self) -> &str {
@@ -21,6 +22,8 @@ impl AsRef<str> for PrssExchangeStep {
 }
 
 impl Substep for PrssExchangeStep {}
+
+pub const PUBLIC_KEY_CHUNK_COUNT: usize = 4;
 
 /// establish the prss endpoint by exchanging public keys with the other helpers
 /// # Errors
@@ -32,7 +35,7 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
 ) -> Result<prss::Endpoint, Error> {
     // setup protocol to exchange prss public keys
     let step = step.narrow(&PrssExchangeStep);
-    let channel = gateway.mesh(&step);
+    let channel = gateway.mesh(&step, PUBLIC_KEY_CHUNK_COUNT.into());
 
     let left_peer = gateway.role().peer(Direction::Left);
     let right_peer = gateway.role().peer(Direction::Right);
@@ -91,7 +94,7 @@ impl IncompletePublicKey {
 pub struct PublicKeyChunk([u8; 8]);
 
 impl PublicKeyChunk {
-    pub fn chunks(pk: PublicKey) -> [PublicKeyChunk; 4] {
+    pub fn chunks(pk: PublicKey) -> [PublicKeyChunk; PUBLIC_KEY_CHUNK_COUNT] {
         let pk_bytes = pk.to_bytes();
 
         // These assumptions are necessary for ser/de to work
@@ -105,7 +108,7 @@ impl PublicKeyChunk {
                 chunk_bytes.copy_from_slice(chunk);
                 PublicKeyChunk(chunk_bytes)
             })
-            .collect::<ArrayVec<[PublicKeyChunk; 4]>>()
+            .collect::<ArrayVec<[PublicKeyChunk; PUBLIC_KEY_CHUNK_COUNT]>>()
             .into_inner()
     }
 
@@ -114,26 +117,8 @@ impl PublicKeyChunk {
     }
 }
 
-impl Message for PublicKeyChunk {
-    #[allow(clippy::cast_possible_truncation)]
+impl Serializable for PublicKeyChunk {
     const SIZE_IN_BYTES: usize = MESSAGE_PAYLOAD_SIZE_BYTES;
-
-    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
-        if Self::SIZE_IN_BYTES <= buf.len() {
-            let mut chunk = [0; Self::SIZE_IN_BYTES];
-            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
-            Ok(PublicKeyChunk(chunk))
-        } else {
-            Err(std::io::Error::new(
-                ErrorKind::UnexpectedEof,
-                format!(
-                    "expected buffer of size {}, but it was of size {}",
-                    Self::SIZE_IN_BYTES,
-                    buf.len()
-                ),
-            ))
-        }
-    }
 
     fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
         if buf.len() >= self.0.len() {
@@ -150,7 +135,25 @@ impl Message for PublicKeyChunk {
             ))
         }
     }
+    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+        if Self::SIZE_IN_BYTES <= buf.len() {
+            let mut chunk = [0; Self::SIZE_IN_BYTES];
+            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
+            Ok(PublicKeyChunk(chunk))
+        } else {
+            Err(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                format!(
+                    "expected buffer of size {}, but it was of size {}",
+                    Self::SIZE_IN_BYTES,
+                    buf.len()
+                ),
+            ))
+        }
+    }
 }
+
+impl Message for PublicKeyChunk {}
 
 #[derive(Debug, Default)]
 pub struct PublicKeyBytesBuilder {
@@ -159,7 +162,8 @@ pub struct PublicKeyBytesBuilder {
 }
 
 impl PublicKeyBytesBuilder {
-    const FULL_COUNT: u8 = 4;
+    #[allow(clippy::cast_possible_truncation)]
+    const FULL_COUNT: u8 = PUBLIC_KEY_CHUNK_COUNT as u8;
 
     pub fn empty() -> Self {
         PublicKeyBytesBuilder {

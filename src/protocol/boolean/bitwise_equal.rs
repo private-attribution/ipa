@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::no_ones;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::try_join_all;
 use std::iter::zip;
 
@@ -19,7 +19,7 @@ pub async fn bitwise_equal<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     debug_assert!(a.len() == b.len());
     let xored_bits = xor_all_the_bits(ctx.narrow(&Step::XORAllTheBits), record_id, a, b).await?;
@@ -35,7 +35,7 @@ async fn xor_all_the_bits<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
         let c = ctx.narrow(&BitOpStep::from(i));
@@ -64,7 +64,7 @@ mod tests {
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::RecordId,
+        protocol::{context::Context, RecordId},
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
 
@@ -102,9 +102,14 @@ mod tests {
 
         let answer_fp31 = world
             .semi_honest((a_fp31, b_fp31), |ctx, (a_bits, b_bits)| async move {
-                bitwise_equal(ctx, RecordId::from(0), &a_bits, &b_bits)
-                    .await
-                    .unwrap()
+                bitwise_equal(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_bits,
+                    &b_bits,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -116,9 +121,14 @@ mod tests {
             .semi_honest(
                 (a_fp32_bit_prime, b_fp32_bit_prime),
                 |ctx, (a_bits, b_bits)| async move {
-                    bitwise_equal(ctx, RecordId::from(0), &a_bits, &b_bits)
-                        .await
-                        .unwrap()
+                    bitwise_equal(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_bits,
+                        &b_bits,
+                    )
+                    .await
+                    .unwrap()
                 },
             )
             .await

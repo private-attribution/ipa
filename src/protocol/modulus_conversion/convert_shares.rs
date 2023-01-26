@@ -1,11 +1,14 @@
-use crate::protocol::IpaProtocolStep::ModulusConversion;
 use crate::{
+    bits::BitArray,
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{basics::ZeroPositions, boolean::xor_sparse, context::Context, RecordId},
+    protocol::{
+        basics::ZeroPositions, boolean::xor_sparse, context::Context, IpaProtocolStep, RecordId,
+    },
     secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, XorReplicated,
+        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        Arithmetic as ArithmeticSecretSharing,
     },
 };
 use futures::future::try_join_all;
@@ -58,13 +61,13 @@ pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
 ///
 #[must_use]
-pub fn convert_bit_local<F: Field>(
+pub fn convert_bit_local<F: Field, B: BitArray>(
     helper_role: Role,
     bit_index: u32,
-    input: &XorReplicated,
+    input: &XorReplicated<B>,
 ) -> BitConversionTriple<Replicated<F>> {
-    let left = u128::from(input.left() >> bit_index) & 1;
-    let right = u128::from(input.right() >> bit_index) & 1;
+    let left = u128::from(input.left()[bit_index]);
+    let right = u128::from(input.right()[bit_index]);
     BitConversionTriple(match helper_role {
         Role::H1 => [
             Replicated::new(F::from(left), F::ZERO),
@@ -85,16 +88,15 @@ pub fn convert_bit_local<F: Field>(
 }
 
 #[must_use]
-pub fn convert_all_bits_local<F: Field>(
+pub fn convert_all_bits_local<F: Field, B: BitArray>(
     helper_role: Role,
-    input: &[XorReplicated],
-    num_bits: u32,
+    input: &[XorReplicated<B>],
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
     let mut total_list = Vec::new();
-    for bit_index in 0..num_bits {
+    for bit_index in 0..B::BITS {
         let one_list = input
             .iter()
-            .map(|v| convert_bit_local::<F>(helper_role, bit_index, v))
+            .map(|v| convert_bit_local::<F, B>(helper_role, bit_index, v))
             .collect::<Vec<_>>();
         total_list.push(one_list);
     }
@@ -112,7 +114,7 @@ pub async fn convert_bit<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let (sh0, sh1, sh2) = (
         &locally_converted_bits.0[0],
@@ -140,14 +142,17 @@ pub async fn convert_all_bits<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let futures = locally_converted_bits
         .iter()
         .enumerate()
         .map(|(bit_num, one_column)| {
             convert_bit_list(
-                ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap())),
+                ctx.narrow(&IpaProtocolStep::ModulusConversion(
+                    bit_num.try_into().unwrap(),
+                ))
+                .set_total_records(one_column.len()),
                 one_column,
             )
         })
@@ -167,7 +172,7 @@ pub async fn convert_bit_list<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
@@ -203,14 +208,17 @@ mod tests {
         let mut rng = thread_rng();
 
         let world = TestWorld::new().await;
-        let match_key = MaskedMatchKey::mask(rng.gen());
+        let match_key = rng.gen::<MaskedMatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
-                convert_bit(ctx, RecordId::from(0), &triple).await.unwrap()
+                let triple =
+                    convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
+                convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
+                    .await
+                    .unwrap()
             })
             .await;
-        assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
+        assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
     }
 
     #[tokio::test]
@@ -219,13 +227,14 @@ mod tests {
         let mut rng = thread_rng();
 
         let world = TestWorld::new().await;
-        let match_key = MaskedMatchKey::mask(rng.gen());
+        let match_key = rng.gen::<MaskedMatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple = convert_bit_local::<Fp31>(ctx.role(), BITNUM, &mk_share);
+                let triple =
+                    convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
-                let m_ctx = v.context();
+                let m_ctx = v.context().set_total_records(1);
                 let m_triple = m_ctx.upgrade(triple).await.unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
@@ -233,7 +242,7 @@ mod tests {
                 v.validate(m_bit).await.unwrap()
             })
             .await;
-        assert_eq!(Fp31::from(match_key.bit(BITNUM)), result.reconstruct());
+        assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
     }
 
     #[tokio::test]
@@ -277,14 +286,18 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::new().await;
         for tweak in TWEAKS {
-            let match_key = MaskedMatchKey::mask(rng.gen());
+            let match_key = rng.gen::<MaskedMatchKey>();
             world
                 .semi_honest(match_key, |ctx, mk_share| async move {
-                    let triple = convert_bit_local::<Fp32BitPrime>(ctx.role(), BITNUM, &mk_share);
+                    let triple = convert_bit_local::<Fp32BitPrime, MaskedMatchKey>(
+                        ctx.role(),
+                        BITNUM,
+                        &mk_share,
+                    );
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = MaliciousValidator::new(ctx);
-                    let m_ctx = v.context();
+                    let m_ctx = v.context().set_total_records(1);
                     let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await

@@ -1,5 +1,7 @@
-use super::BitArray;
-use crate::secret_sharing::SharedValue;
+use crate::{
+    bits::{BitArray, Serializable},
+    secret_sharing::SharedValue,
+};
 use bitvec::prelude::{BitArr, Lsb0};
 
 /// Bit store type definition. Five `u8` blocks.
@@ -21,7 +23,6 @@ macro_rules! bit_array_impl {
             pub struct $name($store);
 
             impl SharedValue for $name {
-                const SIZE_IN_BYTES: usize = std::mem::size_of::<Self>();
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
             }
@@ -29,10 +30,16 @@ macro_rules! bit_array_impl {
             impl BitArray for $name {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     Self(<$store>::new(
-                        v.into().to_le_bytes()[0..<Self as SharedValue>::SIZE_IN_BYTES]
+                        v.into().to_le_bytes()[0..Self::SIZE_IN_BYTES]
                             .try_into()
                             .unwrap(),
                     ))
+                }
+            }
+
+            impl rand::distributions::Distribution<$name> for rand::distributions::Standard {
+                fn sample<R: crate::rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
+                    <$name>::truncate_from(rng.gen::<u128>())
                 }
             }
 
@@ -153,6 +160,47 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            impl Serializable for $name {
+                const SIZE_IN_BYTES: usize = Self::BITS as usize / 8;
+
+                fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
+                    let req = Self::SIZE_IN_BYTES;
+
+                    if buf.len() >= req {
+                        buf[..req].copy_from_slice(self.0.as_raw_slice());
+                        Ok(())
+                    } else {
+                        let error_text = format!(
+                            "Buffer with total capacity {} cannot hold the value {:?} because \
+                             it required at least {req} bytes available",
+                            buf.len(),
+                            self,
+                        );
+
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::WriteZero,
+                            error_text,
+                        ))
+                    }
+                }
+
+                fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+                    let sz = Self::SIZE_IN_BYTES;
+                    if sz <= buf.len() {
+                        Ok(Self(<$store>::new(buf.try_into().unwrap())))
+                    } else {
+                        let error_text = format!(
+                            "Buffer is too small to read values of the type {}. Required at least {sz} bytes,\
+                             got {}", std::any::type_name::<Self>(), buf.len()
+                        );
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            error_text,
+                        ))
+                    }
+                }
+            }
+
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
@@ -236,6 +284,18 @@ macro_rules! bit_array_impl {
                     println!("b: {b}");
 
                     assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
+                }
+
+                #[test]
+                pub fn serde() {
+                    let mut rng = thread_rng();
+                    let a = rng.gen::<u128>() & MASK;
+                    let a = $name::truncate_from(a);
+
+                    let mut buf = vec![0_u8; $name::SIZE_IN_BYTES];
+                    a.clone().serialize(&mut buf).unwrap();
+
+                    assert_eq!(a, $name::deserialize(&buf).unwrap());
                 }
             }
         }

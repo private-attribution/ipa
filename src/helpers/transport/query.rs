@@ -115,9 +115,9 @@ impl Substep for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct IPAQueryConfig {
-    pub num_bits: u32,
     pub per_user_credit_cap: u32,
     pub max_breakdown_key: u128,
+    pub num_multi_bits: u32,
 }
 
 impl From<IPAQueryConfig> for QueryType {

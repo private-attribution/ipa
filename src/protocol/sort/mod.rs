@@ -20,8 +20,6 @@ pub enum SortStep {
     ShuffleRevealPermutation,
     SortKeys,
     MultiApplyInv(u32),
-    //malicious features
-    MaliciousUpgradeContext,
 }
 
 impl Substep for SortStep {}
@@ -36,8 +34,6 @@ impl AsRef<str> for SortStep {
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
             Self::SortKeys => "sort_keys",
             Self::MultiApplyInv(i) => MULTI_APPLY_INV[usize::try_from(*i).unwrap()],
-            //malicious features
-            Self::MaliciousUpgradeContext => "malicious_upgrade_context",
         }
     }
 }

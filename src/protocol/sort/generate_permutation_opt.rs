@@ -127,18 +127,19 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::iter::zip;
-
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::rand::{thread_rng, Rng};
-
-    use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::test_fixture::{MaskedMatchKey, Runner};
     use crate::{
+        bits::BitArray,
         ff::{Field, Fp31},
-        protocol::sort::generate_permutation_opt::generate_permutation_opt,
-        test_fixture::{Reconstruct, TestWorld},
+        protocol::{
+            context::{Context, SemiHonestContext},
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            sort::generate_permutation_opt::generate_permutation_opt,
+        },
+        rand::{thread_rng, Rng},
+        secret_sharing::SharedValue,
+        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
     };
+    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -149,20 +150,16 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || MaskedMatchKey::mask(rng.gen()));
+        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
 
-        let mut expected = match_keys
-            .iter()
-            .map(|mk| u64::from(*mk))
-            .collect::<Vec<_>>();
+        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
 
         let result = world
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
                     generate_permutation_opt(
                         ctx.narrow("sort"),
@@ -176,9 +173,9 @@ mod tests {
             )
             .await;
 
-        let mut mpc_sorted_list = (0..u64::try_from(COUNT).unwrap()).collect::<Vec<_>>();
+        let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
         for (match_key, index) in zip(match_keys, result.reconstruct()) {
-            mpc_sorted_list[index.as_u128() as usize] = u64::from(match_key);
+            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
         }
 
         assert_eq!(expected, mpc_sorted_list);

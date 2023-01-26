@@ -2,11 +2,11 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - [ab]`
-pub async fn or<F: Field, C: Context<F, Share = S>, S: SecretSharing<F>>(
+pub async fn or<F: Field, C: Context<F, Share = S>, S: ArithmeticSecretSharing<F>>(
     ctx: C,
     record_id: RecordId,
     a: &S,
@@ -21,7 +21,7 @@ mod tests {
     use super::or;
     use crate::{
         ff::{Field, Fp31},
-        protocol::RecordId,
+        protocol::{context::Context, RecordId},
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -34,17 +34,27 @@ mod tests {
     {
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                or(
+                    ctx.set_total_records(1),
+                    RecordId::from(0_u32),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
         let m_result = world
             .malicious((a, b), |ctx, (a_share, b_share)| async move {
-                or(ctx, RecordId::from(0_u32), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                or(
+                    ctx.set_total_records(1),
+                    RecordId::from(0_u32),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();

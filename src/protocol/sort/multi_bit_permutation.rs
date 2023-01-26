@@ -1,13 +1,11 @@
-use std::iter::repeat;
-
 use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BitOpStep, RecordId},
-    secret_sharing::SecretSharing,
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
 };
-
 use futures::future::try_join_all;
+use std::iter::repeat;
 
 /// This is an implementation of `GenMultiBitSort` (Algorithm 11) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
@@ -28,7 +26,12 @@ use futures::future::try_join_all;
 ///       a. Calculate accumulated `prefix_sum` = s + `mult_output`
 /// 4. Compute the final output using sum of products executed in parallel for each record.
 #[allow(dead_code)]
-pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+pub async fn multi_bit_permutation<
+    'a,
+    F: Field,
+    S: ArithmeticSecretSharing<F>,
+    C: Context<F, Share = S>,
+>(
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
@@ -42,7 +45,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
         (0..num_records)
-            .zip(repeat(ctx.clone()))
+            .zip(repeat(ctx.set_total_records(num_records)))
             .map(|(i, ctx)| check_everything(ctx, i, input)),
     )
     .await?;
@@ -65,7 +68,7 @@ pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context
         equality_checks
             .into_iter()
             .zip(prefix_sum.into_iter())
-            .zip(repeat(ctx))
+            .zip(repeat(ctx.set_total_records(num_records)))
             .enumerate()
             .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
                 ctx.sum_of_products(
@@ -99,7 +102,7 @@ async fn check_everything<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let num_bits = input.len();
 
@@ -226,6 +229,7 @@ mod tests {
     use super::multi_bit_permutation;
     use crate::{
         ff::{Field, Fp31},
+        protocol::context::Context,
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -274,7 +278,7 @@ mod tests {
             .semi_honest(input, |ctx, m_shares| async move {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for i in 0..num_records {
-                    let ctx = ctx.clone();
+                    let ctx = ctx.set_total_records(num_records);
                     equality_check_futures.push(check_everything(ctx, i, m_shares.as_slice()));
                 }
                 try_join_all(equality_check_futures).await.unwrap()

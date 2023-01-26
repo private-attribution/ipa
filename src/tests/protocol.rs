@@ -1,9 +1,11 @@
 #![cfg(all(feature = "shuttle", test))]
 
-use crate::ff::Fp32BitPrime;
-use crate::protocol::ipa::ipa;
-use crate::rand::thread_rng;
-use crate::test_fixture::{IPAInputTestRow, Reconstruct, Runner, TestWorld};
+use crate::{
+    ff::Fp32BitPrime,
+    protocol::{ipa::ipa, MatchKey},
+    rand::thread_rng,
+    test_fixture::{IPAInputTestRow, Reconstruct, Runner, TestWorld},
+};
 
 #[test]
 fn semi_honest_ipa() {
@@ -14,6 +16,8 @@ fn semi_honest_ipa() {
                 const PER_USER_CAP: u32 = 10;
                 const MAX_BREAKDOWN_KEY: u128 = 8;
                 const MAX_TRIGGER_VALUE: u128 = 5;
+                const NUM_MULTI_BITS: u32 = 3;
+
                 let max_match_key: u64 = 3;
 
                 let world = TestWorld::new().await;
@@ -32,9 +36,15 @@ fn semi_honest_ipa() {
 
                 let result = world
                     .semi_honest(records, |ctx, input_rows| async move {
-                        ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                            .await
-                            .unwrap()
+                        ipa::<Fp32BitPrime, MatchKey>(
+                            ctx,
+                            &input_rows,
+                            PER_USER_CAP,
+                            MAX_BREAKDOWN_KEY,
+                            NUM_MULTI_BITS,
+                        )
+                        .await
+                        .unwrap()
                     })
                     .await
                     .reconstruct();

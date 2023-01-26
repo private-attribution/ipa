@@ -77,9 +77,9 @@ mod tests {
         create_test(QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::IPA(IPAQueryConfig {
-                num_bits: 20,
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
+                num_multi_bits: 3,
             }),
         })
         .await;

@@ -3,7 +3,7 @@ use crate::ff::Field;
 use crate::protocol::basics::{MultiplyZeroPositions, ZeroPositions};
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - 2[ab]`
@@ -13,7 +13,7 @@ pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     xor_sparse(ctx, record_id, a, b, ZeroPositions::NONE).await
 }
@@ -31,7 +31,7 @@ pub async fn xor_sparse<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let ab = ctx.multiply_sparse(record_id, a, b, zeros_at).await?;
     Ok(-(ab * F::from(2)) + a + b)
@@ -45,6 +45,7 @@ mod tests {
         protocol::{
             basics::{mul::sparse::test::SparseField, MultiplyZeroPositions, ZeroPositions},
             boolean::xor_sparse,
+            context::Context,
             RecordId,
         },
         secret_sharing::SharedValue,
@@ -59,18 +60,28 @@ mod tests {
     {
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                xor(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                xor(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
 
         let m_result = world
             .malicious((a, b), |ctx, (a_share, b_share)| async move {
-                xor(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                xor(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -101,18 +112,30 @@ mod tests {
         let b = SparseField::<F>::new(F::from(u128::from(b)), zeros.1);
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                xor_sparse(ctx, RecordId::from(0), &a_share, &b_share, zeros)
-                    .await
-                    .unwrap()
+                xor_sparse(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                    zeros,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
 
         let m_result = world
             .malicious((a, b), |ctx, (a_share, b_share)| async move {
-                xor_sparse(ctx, RecordId::from(0), &a_share, &b_share, zeros)
-                    .await
-                    .unwrap()
+                xor_sparse(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                    zeros,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();

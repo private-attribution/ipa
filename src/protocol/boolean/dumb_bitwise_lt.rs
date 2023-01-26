@@ -3,7 +3,7 @@ use super::xor;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::{try_join, try_join_all};
 use std::iter::zip;
 
@@ -41,7 +41,7 @@ impl BitwiseLessThan {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let xor = zip(a, b)
             .enumerate()
@@ -73,7 +73,7 @@ impl BitwiseLessThan {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let less_than = zip(a, b).enumerate().rev().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::from(i));
@@ -100,7 +100,7 @@ impl BitwiseLessThan {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let (a, b) = align_bit_lengths(a, b);
 
@@ -170,6 +170,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThan;
+    use crate::protocol::context::Context;
     use crate::rand::thread_rng;
     use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{get_bits, Runner};
@@ -189,18 +190,28 @@ mod tests {
         let input = (into_bits(a), into_bits(b));
         let result = world
             .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
-                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                BitwiseLessThan::execute(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
 
         let m_result = world
             .malicious(input, |ctx, (a_share, b_share)| async move {
-                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                BitwiseLessThan::execute(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -266,18 +277,28 @@ mod tests {
         );
         let result = world
             .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
-                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                BitwiseLessThan::execute(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
 
         let m_result = world
             .malicious(input, |ctx, (a_share, b_share)| async move {
-                BitwiseLessThan::execute(ctx, RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                BitwiseLessThan::execute(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
