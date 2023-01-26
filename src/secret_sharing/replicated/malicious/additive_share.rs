@@ -1,6 +1,8 @@
 use crate::helpers::Role;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare;
-use crate::secret_sharing::ArithmeticShare;
+use crate::secret_sharing::{
+    Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing,
+};
 use crate::{
     ff::Field,
     protocol::{
@@ -23,6 +25,12 @@ pub struct AdditiveShare<V: ArithmeticShare> {
     x: SemiHonestAdditiveShare<V>,
     rx: SemiHonestAdditiveShare<V>,
 }
+
+impl<V: ArithmeticShare> SecretSharing<V> for AdditiveShare<V> {
+    const ZERO: Self = AdditiveShare::ZERO;
+}
+
+impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
@@ -60,7 +68,7 @@ impl<V: ArithmeticShare + Field> Default for AdditiveShare<V> {
     }
 }
 
-impl<V: ArithmeticShare + Field> AdditiveShare<V> {
+impl<V: ArithmeticShare> AdditiveShare<V> {
     #[must_use]
     pub fn new(x: SemiHonestAdditiveShare<V>, rx: SemiHonestAdditiveShare<V>) -> Self {
         Self { x, rx }

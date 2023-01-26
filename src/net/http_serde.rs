@@ -57,20 +57,20 @@ pub mod query {
                 QueryType::IPA_STR => {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
-                        num_bits: u32,
                         per_user_credit_cap: u32,
                         max_breakdown_key: u128,
+                        num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {
-                        num_bits,
                         per_user_credit_cap,
                         max_breakdown_key,
+                        num_multi_bits,
                     }) = req.extract().await?;
 
                     Ok(QueryType::IPA(IPAQueryConfig {
-                        num_bits,
                         per_user_credit_cap,
                         max_breakdown_key,
+                        num_multi_bits,
                     }))
                 }
                 other => Err(server::Error::bad_query_value("query_type", other)),
@@ -90,11 +90,11 @@ pub mod query {
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
                 QueryType::IPA(config) => write!(
                     f,
-                    "query_type={}&num_bits={}&per_user_credit_cap={}&max_breakdown_key={}",
+                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
                     QueryType::IPA_STR,
-                    config.num_bits,
                     config.per_user_credit_cap,
-                    config.max_breakdown_key
+                    config.max_breakdown_key,
+                    config.num_multi_bits,
                 ),
             }
         }

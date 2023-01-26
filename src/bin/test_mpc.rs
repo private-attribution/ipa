@@ -115,9 +115,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let query_config = QueryConfig {
                     field_type: FieldType::Fp31,
                     query_type: QueryType::IPA(IPAQueryConfig {
-                        num_bits: 20,
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
+                        num_multi_bits: 3,
                     }),
                 };
                 let query_id = clients[0].create_query(query_config).await.unwrap();

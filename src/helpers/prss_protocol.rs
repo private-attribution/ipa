@@ -1,4 +1,5 @@
 use crate::{
+    bits::Serializable,
     helpers::{
         messaging::{Gateway, Message},
         Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,
@@ -114,26 +115,8 @@ impl PublicKeyChunk {
     }
 }
 
-impl Message for PublicKeyChunk {
-    #[allow(clippy::cast_possible_truncation)]
+impl Serializable for PublicKeyChunk {
     const SIZE_IN_BYTES: usize = MESSAGE_PAYLOAD_SIZE_BYTES;
-
-    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
-        if Self::SIZE_IN_BYTES <= buf.len() {
-            let mut chunk = [0; Self::SIZE_IN_BYTES];
-            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
-            Ok(PublicKeyChunk(chunk))
-        } else {
-            Err(std::io::Error::new(
-                ErrorKind::UnexpectedEof,
-                format!(
-                    "expected buffer of size {}, but it was of size {}",
-                    Self::SIZE_IN_BYTES,
-                    buf.len()
-                ),
-            ))
-        }
-    }
 
     fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
         if buf.len() >= self.0.len() {
@@ -150,7 +133,25 @@ impl Message for PublicKeyChunk {
             ))
         }
     }
+    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
+        if Self::SIZE_IN_BYTES <= buf.len() {
+            let mut chunk = [0; Self::SIZE_IN_BYTES];
+            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
+            Ok(PublicKeyChunk(chunk))
+        } else {
+            Err(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                format!(
+                    "expected buffer of size {}, but it was of size {}",
+                    Self::SIZE_IN_BYTES,
+                    buf.len()
+                ),
+            ))
+        }
+    }
 }
+
+impl Message for PublicKeyChunk {}
 
 #[derive(Debug, Default)]
 pub struct PublicKeyBytesBuilder {

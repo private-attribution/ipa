@@ -134,7 +134,7 @@ macro_rules! repeat64str {
 /// updated with a new step scheme.
 pub struct BitOpStep(usize);
 
-impl crate::protocol::Substep for BitOpStep {}
+impl Substep for BitOpStep {}
 
 impl AsRef<str> for BitOpStep {
     fn as_ref(&self) -> &str {

@@ -7,10 +7,13 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
-    ff::{Field, Int},
+    bits::Serializable,
+    ff::Field,
     helpers::{
         buffers::{ReceiveBuffer, SendBuffer, SendBufferConfig},
-        network::ChannelId,
+        network::{ChannelId, MessageEnvelope, Network},
+        time::Timer,
+        transport::Transport,
         Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::{RecordId, Step},
@@ -18,52 +21,21 @@ use crate::{
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
 use futures::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::time::Duration;
 use tinyvec::array_vec;
 use tracing::Instrument;
 
-use crate::helpers::network::{MessageEnvelope, Network};
-use crate::helpers::time::Timer;
-use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
-use futures_util::stream::FuturesUnordered;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
-/// Trait for messages sent between helpers
-pub trait Message: Debug + Send + Sized + 'static {
-    /// Required number of bytes to store this message on disk/network
-    const SIZE_IN_BYTES: usize;
-
-    /// Deserialize message from a sequence of bytes.
-    ///
-    /// ## Errors
-    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize(buf: &[u8]) -> io::Result<Self>;
-
-    /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
-    /// capacity to store this message.
-    ///
-    /// ## Errors
-    /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
-    /// data.
-    fn serialize(self, buf: &mut [u8]) -> io::Result<()>;
-}
+/// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
+pub trait Message: Debug + Send + Serializable + 'static {}
 
 /// Any field value can be send as a message
-impl<F: Field> Message for F {
-    const SIZE_IN_BYTES: usize = (F::Integer::BITS / 8) as usize;
-
-    fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        <F as Field>::deserialize(buf)
-    }
-
-    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
-        <F as Field>::serialize(&self, buf)
-    }
-}
+impl<F: Field> Message for F {}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication

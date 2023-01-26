@@ -17,7 +17,6 @@ macro_rules! field_impl {
 
         impl SharedValue for $field {
             const BITS: u32 = <Self as Field>::Integer::BITS;
-            const SIZE_IN_BYTES: usize = (Self::BITS / 8) as usize;
             const ZERO: Self = $field(0);
         }
 
@@ -135,6 +134,7 @@ macro_rules! field_impl {
         mod common_tests {
             use super::*;
             use proptest::proptest;
+            use crate::bits::Serializable;
 
             #[test]
             fn zero() {

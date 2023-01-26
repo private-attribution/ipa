@@ -1,13 +1,20 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, RecordId, Substep};
-use crate::repeat64str;
-use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SecretSharing};
-use std::io;
-
-pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
 pub mod credit_capping;
+
+pub(crate) mod accumulate_credit;
+
+use crate::{
+    bits::Serializable,
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, RecordId, Substep},
+    repeat64str,
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated,
+        Arithmetic as ArithmeticSecretSharing, SecretSharing,
+    },
+};
+use std::io;
 
 #[derive(Debug, Clone)]
 pub struct AttributionInputRow<F: Field> {
@@ -42,37 +49,6 @@ pub struct AggregateCreditOutputRow<F: Field> {
 }
 
 impl<F: Field> AggregateCreditOutputRow<F> {
-    // TODO: this gets repetitive. For the most of our structures we need to be able to serialize
-    // and deserialize them from a slice of bytes. Perhaps bincode crate or a homemade macro
-    // can make it easier to deal with?
-    pub const SIZE_IN_BYTES: usize = Replicated::<F>::SIZE_IN_BYTES * 2;
-
-    /// Serializes this instance into a mutable slice of bytes, writing from index 0.
-    ///
-    /// ## Errors
-    /// if buffer capacity is not sufficient to hold all the bytes.
-    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.breakdown_key.serialize(buf)?;
-        self.credit
-            .serialize(&mut buf[Replicated::<F>::SIZE_IN_BYTES..])?;
-
-        Ok(Self::SIZE_IN_BYTES)
-    }
-
-    /// Deserializes this instance from a slice of bytes
-    ///
-    /// ## Errors
-    /// if buffer does not have enough capacity to hold a valid value of this instance.
-    pub fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        let breakdown_key = Replicated::<F>::deserialize(buf)?;
-        let credit = Replicated::<F>::deserialize(&buf[Replicated::<F>::SIZE_IN_BYTES..])?;
-
-        Ok(Self {
-            breakdown_key,
-            credit,
-        })
-    }
-
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.
     ///
@@ -87,6 +63,28 @@ impl<F: Field> AggregateCreditOutputRow<F> {
     }
 }
 
+impl<F: Field> Serializable for AggregateCreditOutputRow<F> {
+    const SIZE_IN_BYTES: usize = Replicated::<F>::SIZE_IN_BYTES * 2;
+
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        self.breakdown_key.serialize(buf)?;
+        self.credit
+            .serialize(&mut buf[Replicated::<F>::SIZE_IN_BYTES..])?;
+
+        Ok(())
+    }
+
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        let breakdown_key = Replicated::<F>::deserialize(buf)?;
+        let credit = Replicated::<F>::deserialize(&buf[Replicated::<F>::SIZE_IN_BYTES..])?;
+
+        Ok(Self {
+            breakdown_key,
+            credit,
+        })
+    }
+}
+
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(
     ctx: C,
@@ -98,7 +96,7 @@ async fn if_else<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)

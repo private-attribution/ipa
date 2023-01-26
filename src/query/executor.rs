@@ -1,4 +1,5 @@
 use crate::{
+    bits::{BitArray, BitArray40, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
         messaging::Gateway,
@@ -32,9 +33,9 @@ impl<F: Field> Result for Vec<Replicated<F>> {
         for (i, share) in self.into_iter().enumerate() {
             share
                 .serialize(&mut r[i * Replicated::<F>::SIZE_IN_BYTES..])
-                .unwrap_or_else(|_| {
+                .unwrap_or_else(|err| {
                     panic!(
-                        "{share:?} cannot fit into {} byte slice",
+                        "cannot fit into {} byte slice: {err}",
                         Replicated::<F>::SIZE_IN_BYTES
                     )
                 });
@@ -50,9 +51,9 @@ impl<F: Field> Result for Vec<AggregateCreditOutputRow<F>> {
 
         for (i, row) in self.into_iter().enumerate() {
             row.serialize(&mut r[i * AggregateCreditOutputRow::<F>::SIZE_IN_BYTES..])
-                .unwrap_or_else(|_| {
+                .unwrap_or_else(|err| {
                     panic!(
-                        "{row:?} cannot fit into {} byte slice",
+                        "cannot fit into {} byte slice: {err}",
                         AggregateCreditOutputRow::<F>::SIZE_IN_BYTES
                     )
                 });
@@ -97,22 +98,22 @@ async fn execute_test_multiply<F: Field>(
     results
 }
 
-async fn execute_ipa<F: Field>(
+async fn execute_ipa<F: Field, B: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
     mut input: AlignedByteArrStream,
 ) -> Vec<AggregateCreditOutputRow<F>> {
     let mut inputs = Vec::new();
     while let Some(data) = input.next().await {
-        inputs.extend(IPAInputRow::<F>::from_byte_slice(&data.unwrap()));
+        inputs.extend(IPAInputRow::<F, B>::from_byte_slice(&data.unwrap()));
     }
 
     ipa(
         ctx,
         &inputs,
-        query_config.num_bits,
         query_config.per_user_credit_cap,
         query_config.max_breakdown_key,
+        query_config.num_multi_bits,
     )
     .await
     .unwrap()
@@ -140,8 +141,10 @@ pub fn start_query(
                         Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                     }
                     QueryType::IPA(config) => {
-                        let input = input.align(IPAInputRow::<Fp31>::SIZE_IN_BYTES);
-                        Box::new(execute_ipa(ctx, config, input).await) as Box<dyn Result>
+                        let input = input.align(IPAInputRow::<Fp31, BitArray40>::SIZE_IN_BYTES);
+                        // TODO: how to know `BitArray` type?
+                        Box::new(execute_ipa::<Fp31, BitArray40>(ctx, config, input).await)
+                            as Box<dyn Result>
                     }
                 }
             }
@@ -203,14 +206,14 @@ mod tests {
 
     #[tokio::test]
     async fn ipa() {
-        let records = test_cases::Simple::<Fp31>::default()
+        let records = test_cases::Simple::<Fp31, BitArray40>::default()
             .share()
             // TODO: a trait would be useful here to convert IntoShares<T> to IntoShares<Vec<u8>>
             .map(|shares| {
                 shares
-                    .iter()
+                    .into_iter()
                     .flat_map(|share| {
-                        let mut buf = [0u8; IPAInputRow::<Fp31>::SIZE_IN_BYTES];
+                        let mut buf = [0u8; IPAInputRow::<Fp31, BitArray40>::SIZE_IN_BYTES];
                         share.serialize(&mut buf).unwrap();
 
                         buf
@@ -222,19 +225,19 @@ mod tests {
         let contexts = world.contexts::<Fp31>();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IPAQueryConfig {
-                num_bits: 20,
+                num_multi_bits: 3,
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,
             };
-            let input =
-                ByteArrStream::from(shares.as_slice()).align(IPAInputRow::<Fp31>::SIZE_IN_BYTES);
-            execute_ipa(ctx, query_config, input)
+            let input = ByteArrStream::from(shares.as_slice())
+                .align(IPAInputRow::<Fp31, BitArray40>::SIZE_IN_BYTES);
+            execute_ipa::<Fp31, BitArray40>(ctx, query_config, input)
         }))
         .await
         .try_into()
         .unwrap();
 
-        test_cases::Simple::<Fp31>::validate(&results);
+        test_cases::Simple::<Fp31, BitArray40>::validate(&results);
     }
 
     #[test]

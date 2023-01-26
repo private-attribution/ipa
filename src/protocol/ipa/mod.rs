@@ -1,34 +1,30 @@
-use std::io;
-use std::iter::{repeat, zip};
-
 use crate::{
+    bits::{BitArray, Serializable},
     error::Error,
     ff::Field,
     helpers::Role,
     protocol::{
         attribution::{
             accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
-            credit_capping::credit_capping, AttributionInputRow,
+            credit_capping::credit_capping, AggregateCreditOutputRow, AttributionInputRow,
         },
-        context::Context,
+        boolean::bitwise_equal::bitwise_equal,
+        context::{Context, SemiHonestContext},
+        modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
         sort::{
-            apply_sort::apply_sort_permutation,
+            apply_sort::{apply_sort_permutation, shuffle::Resharable},
             generate_permutation::generate_permutation_and_reveal_shuffled,
         },
-        RecordId,
+        RecordId, Substep,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, XorReplicated},
+    secret_sharing::replicated::semi_honest::{
+        AdditiveShare as Replicated, XorShare as XorReplicated,
+    },
 };
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
-
-use super::{attribution::AggregateCreditOutputRow, context::SemiHonestContext};
-use super::{
-    modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
-    sort::apply_sort::shuffle::Resharable,
-    Substep,
-};
-use crate::protocol::boolean::bitwise_equal::bitwise_equal;
+use std::io;
+use std::iter::{repeat, zip};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -56,6 +52,7 @@ impl AsRef<str> for Step {
         }
     }
 }
+
 pub enum IPAInputRowResharableStep {
     MatchKeyShares,
     TriggerBit,
@@ -77,17 +74,15 @@ impl AsRef<str> for IPAInputRowResharableStep {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct IPAInputRow<F: Field> {
-    pub mk_shares: XorReplicated,
+#[cfg_attr(test, derive(Clone))]
+pub struct IPAInputRow<F: Field, B: BitArray> {
+    pub mk_shares: XorReplicated<B>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: Replicated<F>,
     pub trigger_value: Replicated<F>,
 }
 
-impl<F: Field> IPAInputRow<F> {
-    pub const SIZE_IN_BYTES: usize =
-        3 * Replicated::<F>::SIZE_IN_BYTES + XorReplicated::SIZE_IN_BYTES;
-
+impl<F: Field, B: BitArray> IPAInputRow<F, B> {
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.
     ///
@@ -97,15 +92,15 @@ impl<F: Field> IPAInputRow<F> {
         assert_eq!(0, input.len() % Self::SIZE_IN_BYTES, "input is not aligned");
 
         input.chunks(Self::SIZE_IN_BYTES).map(|chunk| {
-            let mk_shares = XorReplicated::deserialize(chunk).unwrap();
+            let mk_shares = XorReplicated::<B>::deserialize(chunk).unwrap();
             let is_trigger_bit =
-                Replicated::<F>::deserialize(&chunk[XorReplicated::SIZE_IN_BYTES..]).unwrap();
+                Replicated::<F>::deserialize(&chunk[XorReplicated::<B>::SIZE_IN_BYTES..]).unwrap();
             let breakdown_key = Replicated::<F>::deserialize(
-                &chunk[XorReplicated::SIZE_IN_BYTES + Replicated::<F>::SIZE_IN_BYTES..],
+                &chunk[XorReplicated::<B>::SIZE_IN_BYTES + Replicated::<F>::SIZE_IN_BYTES..],
             )
             .unwrap();
             let trigger_value = Replicated::<F>::deserialize(
-                &chunk[XorReplicated::SIZE_IN_BYTES + 2 * Replicated::<F>::SIZE_IN_BYTES..],
+                &chunk[XorReplicated::<B>::SIZE_IN_BYTES + 2 * Replicated::<F>::SIZE_IN_BYTES..],
             )
             .unwrap();
 
@@ -117,22 +112,28 @@ impl<F: Field> IPAInputRow<F> {
             }
         })
     }
+}
 
-    /// Serializes this instance into a mutable slice of bytes, writing from index 0.
-    ///
-    /// ## Errors
-    /// if buffer capacity is not sufficient to hold all the bytes.
-    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
+impl<F: Field, B: BitArray> Serializable for IPAInputRow<F, B> {
+    const SIZE_IN_BYTES: usize =
+        3 * Replicated::<F>::SIZE_IN_BYTES + XorReplicated::<B>::SIZE_IN_BYTES;
+
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
         self.mk_shares.serialize(buf)?;
         self.is_trigger_bit
-            .serialize(&mut buf[XorReplicated::SIZE_IN_BYTES..])?;
-        self.breakdown_key
-            .serialize(&mut buf[XorReplicated::SIZE_IN_BYTES + Replicated::<F>::SIZE_IN_BYTES..])?;
+            .serialize(&mut buf[XorReplicated::<B>::SIZE_IN_BYTES..])?;
+        self.breakdown_key.serialize(
+            &mut buf[XorReplicated::<B>::SIZE_IN_BYTES + Replicated::<F>::SIZE_IN_BYTES..],
+        )?;
         self.trigger_value.serialize(
-            &mut buf[XorReplicated::SIZE_IN_BYTES + 2 * Replicated::<F>::SIZE_IN_BYTES..],
+            &mut buf[XorReplicated::<B>::SIZE_IN_BYTES + 2 * Replicated::<F>::SIZE_IN_BYTES..],
         )?;
 
-        Ok(Self::SIZE_IN_BYTES)
+        Ok(())
+    }
+
+    fn deserialize(_buf: &[u8]) -> io::Result<Self> {
+        todo!()
     }
 }
 
@@ -187,19 +188,18 @@ impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code)]
-pub async fn ipa<F>(
+pub async fn ipa<F: Field, B: BitArray>(
     ctx: SemiHonestContext<'_, F>,
-    input_rows: &[IPAInputRow<F>],
-    num_bits: u32,
+    input_rows: &[IPAInputRow<F, B>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
-) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
-where
-    F: Field,
-{
-    let mk_shares = input_rows.iter().map(|x| x.mk_shares).collect::<Vec<_>>();
-    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, num_bits);
+    num_multi_bits: u32,
+) -> Result<Vec<AggregateCreditOutputRow<F>>, Error> {
+    let mk_shares = input_rows
+        .iter()
+        .map(|x| x.mk_shares.clone())
+        .collect::<Vec<_>>();
+    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &local_lists,
@@ -209,7 +209,8 @@ where
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,
-        num_bits,
+        B::BITS,
+        num_multi_bits,
     )
     .await
     .unwrap();
@@ -271,6 +272,7 @@ where
         ctx.narrow(&Step::AggregateCredit),
         &user_capped_credits,
         max_breakdown_key,
+        num_multi_bits,
     )
     .await
 }
@@ -285,21 +287,21 @@ pub mod test_cases {
     use std::marker::PhantomData;
 
     /// The simplest input for IPA circuit that can validate the correctness of the protocol.
-    pub struct Simple<F: Field> {
+    pub struct Simple<F, B> {
         records: Vec<crate::test_fixture::ipa_input_row::IPAInputTestRow>,
-        phantom: PhantomData<F>,
+        phantom: PhantomData<(F, B)>,
     }
 
-    impl<F: Field> IntoShares<Vec<IPAInputRow<F>>> for Simple<F>
+    impl<F: Field, B: BitArray> IntoShares<Vec<IPAInputRow<F, B>>> for Simple<F, B>
     where
-        Standard: Distribution<F>,
+        Standard: Distribution<F> + Distribution<B>,
     {
-        fn share_with<R: Rng>(self, _rng: &mut R) -> [Vec<IPAInputRow<F>>; 3] {
+        fn share_with<R: Rng>(self, _rng: &mut R) -> [Vec<IPAInputRow<F, B>>; 3] {
             self.records.share()
         }
     }
 
-    impl<F: Field> Simple<F> {
+    impl<F: Field, B> Simple<F, B> {
         pub const PER_USER_CAP: u32 = 3;
         pub const EXPECTED: &'static [[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         pub const MAX_BREAKDOWN_KEY: u128 = 3;
@@ -320,7 +322,7 @@ pub mod test_cases {
         }
     }
 
-    impl<F: Field> Default for Simple<F> {
+    impl<F, B> Default for Simple<F, B> {
         fn default() -> Self {
             use crate::test_fixture::ipa_input_row::IPAInputTestRow;
 
@@ -368,34 +370,41 @@ pub mod test_cases {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use super::ipa;
-    use crate::protocol::ipa::test_cases::Simple;
-    use crate::protocol::ipa::IPAInputRow;
-    use crate::secret_sharing::IntoShares;
-    use crate::test_fixture::ipa_input_row::IPAInputTestRow;
     use crate::{
-        ff::Fp31,
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        bits::{BitArray40, Serializable},
+        ff::{Fp31, Fp32BitPrime},
+        protocol::ipa::{ipa, test_cases::Simple, IPAInputRow},
+        rand::thread_rng,
+        secret_sharing::IntoShares,
+        test_fixture::{ipa_input_row::IPAInputTestRow, Reconstruct, Runner, TestWorld},
     };
-    use crate::{ff::Fp32BitPrime, rand::thread_rng};
-    use proptest::proptest;
-    use proptest::test_runner::{RngAlgorithm, TestRng};
+    use proptest::{
+        proptest,
+        test_runner::{RngAlgorithm, TestRng},
+    };
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        type SimpleTestCase = Simple<Fp31>;
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        type SimpleTestCase = Simple<Fp31, BitArray40>;
+
         let world = TestWorld::new().await;
         let records = SimpleTestCase::default();
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa(
+                ipa::<Fp31, BitArray40>(
                     ctx,
                     &input_rows,
-                    20,
-                    SimpleTestCase::PER_USER_CAP,
-                    SimpleTestCase::MAX_BREAKDOWN_KEY,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
                 )
                 .await
                 .unwrap()
@@ -413,6 +422,8 @@ pub mod tests {
         const PER_USER_CAP: u32 = 10;
         const MAX_BREAKDOWN_KEY: u128 = 8;
         const MAX_TRIGGER_VALUE: u128 = 5;
+        const NUM_MULTI_BITS: u32 = 3;
+
         let max_match_key: u64 = BATCHSIZE / 10;
 
         let world = TestWorld::new().await;
@@ -430,9 +441,15 @@ pub mod tests {
         }
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime>(ctx, &input_rows, 20, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                    .await
-                    .unwrap()
+                ipa::<Fp32BitPrime, BitArray40>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -447,7 +464,7 @@ pub mod tests {
         trigger_value: u128,
         seed: u128,
     ) {
-        type RowType = IPAInputRow<Fp31>;
+        type RowType = IPAInputRow<Fp31, BitArray40>;
         // xorshift requires 16 byte seed and that's why it is picked here
         let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
         let [a, b, ..]: [RowType; 3] = IPAInputTestRow {
@@ -459,11 +476,10 @@ pub mod tests {
         .share_with(&mut rng);
 
         let mut buf = vec![0u8; 2 * RowType::SIZE_IN_BYTES];
-        assert_eq!(a.serialize(&mut buf).unwrap(), RowType::SIZE_IN_BYTES);
-        assert_eq!(
-            b.serialize(&mut buf[RowType::SIZE_IN_BYTES..]).unwrap(),
-            RowType::SIZE_IN_BYTES
-        );
+        a.clone().serialize(&mut buf).unwrap();
+        b.clone()
+            .serialize(&mut buf[RowType::SIZE_IN_BYTES..])
+            .unwrap();
 
         assert_eq!(
             vec![a, b],

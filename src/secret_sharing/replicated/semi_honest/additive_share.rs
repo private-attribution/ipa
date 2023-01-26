@@ -1,7 +1,8 @@
 use crate::{
+    bits::Serializable,
     ff::Field,
     helpers::Role,
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare},
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing},
 };
 use std::fmt::{Debug, Formatter};
 use std::io;
@@ -9,6 +10,12 @@ use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: ArithmeticShare>(V, V);
+
+impl<V: ArithmeticShare> SecretSharing<V> for AdditiveShare<V> {
+    const ZERO: Self = AdditiveShare::ZERO;
+}
+
+impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 
 impl<V: ArithmeticShare + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -23,6 +30,9 @@ impl<V: ArithmeticShare> Default for AdditiveShare<V> {
 }
 
 impl<V: ArithmeticShare> AdditiveShare<V> {
+    /// Replicated secret share where both left and right values are `F::ZERO`
+    pub const ZERO: Self = Self(V::ZERO, V::ZERO);
+
     #[must_use]
     pub fn new(a: V, b: V) -> Self {
         Self(a, b)
@@ -39,6 +49,26 @@ impl<V: ArithmeticShare> AdditiveShare<V> {
     pub fn right(&self) -> V {
         self.1
     }
+
+    /// Returns share of a scalar value.
+    pub fn from_scalar(helper_role: Role, a: V) -> Self {
+        match helper_role {
+            Role::H1 => Self::new(a, V::ZERO),
+            Role::H2 => Self::new(V::ZERO, V::ZERO),
+            Role::H3 => Self::new(V::ZERO, a),
+        }
+    }
+
+    /// Deserialize a slice of bytes into an iterator of replicated shares
+    ///
+    /// ## Panics
+    /// if [`buf`] len is not aligned with the size of this instance
+    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        debug_assert!(from.len() % (Self::SIZE_IN_BYTES) == 0);
+
+        from.chunks(Self::SIZE_IN_BYTES)
+            .map(|chunk| Self::deserialize(chunk).unwrap())
+    }
 }
 
 impl<F: Field> AdditiveShare<F> {
@@ -47,52 +77,23 @@ impl<F: Field> AdditiveShare<F> {
     pub fn one(helper_role: Role) -> Self {
         Self::from_scalar(helper_role, F::ONE)
     }
+}
 
-    /// Returns share of a scalar value.
-    pub fn from_scalar(helper_role: Role, a: F) -> Self {
-        match helper_role {
-            Role::H1 => Self::new(a, F::ZERO),
-            Role::H2 => Self::new(F::ZERO, F::ZERO),
-            Role::H3 => Self::new(F::ZERO, a),
-        }
+impl<V: ArithmeticShare> Serializable for AdditiveShare<V> {
+    const SIZE_IN_BYTES: usize = 2 * V::SIZE_IN_BYTES;
+
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        V::serialize(self.left(), buf)?;
+        V::serialize(self.right(), &mut buf[V::SIZE_IN_BYTES..])?;
+
+        Ok(())
     }
 
-    /// Replicated secret share where both left and right values are `F::ZERO`
-    pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
-
-    pub const SIZE_IN_BYTES: usize = 2 * F::SIZE_IN_BYTES;
-
-    /// Serialize replicated share into a slice of bytes
-    ///
-    /// ## Errors
-    /// if [`buf`] does not have enough capacity to hold this value
-    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
-        F::serialize(&self.left(), buf)?;
-        F::serialize(&self.right(), &mut buf[F::SIZE_IN_BYTES..])?;
-
-        Ok(2 * F::SIZE_IN_BYTES)
-    }
-
-    /// Deserializes this instance from a slice of bytes
-    ///
-    /// ## Errors
-    /// if buffer does not have enough capacity to hold a valid value of this instance.
-    pub fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        let left = F::deserialize(buf)?;
-        let right = F::deserialize(&buf[F::SIZE_IN_BYTES..])?;
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        let left = V::deserialize(buf)?;
+        let right = V::deserialize(&buf[V::SIZE_IN_BYTES..])?;
 
         Ok(Self(left, right))
-    }
-
-    /// Deserialize a slice of bytes into an iterator of replicated shares
-    ///
-    /// ## Panics
-    /// if [`buf`] len is not aligned with the size of this instance
-    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
-        debug_assert!(from.len() % (2 * F::SIZE_IN_BYTES) == 0);
-
-        from.chunks(2 * F::SIZE_IN_BYTES)
-            .map(|chunk| Self::deserialize(chunk).unwrap())
     }
 }
 

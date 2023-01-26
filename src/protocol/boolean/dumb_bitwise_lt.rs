@@ -3,7 +3,7 @@ use super::xor;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::{try_join, try_join_all};
 use std::iter::zip;
 
@@ -41,7 +41,7 @@ impl BitwiseLessThan {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let xor = zip(a, b)
             .enumerate()
@@ -73,7 +73,7 @@ impl BitwiseLessThan {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let less_than = zip(a, b).enumerate().rev().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::from(i));
@@ -100,7 +100,7 @@ impl BitwiseLessThan {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
     {
         let (a, b) = align_bit_lengths(a, b);
 

@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -26,7 +26,7 @@ pub struct RandomBitsGenerator<F, S, C> {
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
     F: Field,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
     C: Context<F, Share = S>,
 {
     #[must_use]

@@ -219,10 +219,10 @@ impl OrderingMpscEnd {
 #[cfg(test)]
 mod fixture {
     use crate::{
+        bits::Serializable,
         ff::Fp32BitPrime,
-        helpers::{
-            buffers::ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender},
-            messaging::Message,
+        helpers::buffers::ordering_mpsc::{
+            ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender,
         },
         rand::thread_rng,
     };
@@ -231,7 +231,7 @@ mod fixture {
     use std::num::NonZeroUsize;
     use tokio::sync::mpsc::{channel, Receiver};
 
-    pub const FP32BIT_SIZE: usize = <Fp32BitPrime as Message>::SIZE_IN_BYTES;
+    pub const FP32BIT_SIZE: usize = Fp32BitPrime::SIZE_IN_BYTES;
 
     #[async_trait]
     pub trait TestSender {
@@ -302,13 +302,11 @@ mod fixture {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod unit {
     use crate::{
+        bits::Serializable,
         ff::Fp31,
-        helpers::{
-            buffers::ordering_mpsc::{
-                fixture::{TestSender, FP32BIT_SIZE},
-                ordering_mpsc,
-            },
-            messaging::Message,
+        helpers::buffers::ordering_mpsc::{
+            fixture::{TestSender, FP32BIT_SIZE},
+            ordering_mpsc,
         },
     };
     use futures::{future::join, FutureExt};
@@ -324,10 +322,7 @@ mod unit {
             tx_a.send(0, input).await.unwrap();
         };
         let (_, output) = join(send, rx.next(1)).await;
-        assert_eq!(
-            input,
-            <Fp31 as Message>::deserialize(output.as_ref().unwrap()).unwrap()
-        );
+        assert_eq!(input, Fp31::deserialize(output.as_ref().unwrap()).unwrap());
     }
 
     /// If the sender is dropped, then the receiver will report that it is done.
