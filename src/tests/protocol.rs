@@ -15,6 +15,8 @@ fn semi_honest_ipa() {
                 const PER_USER_CAP: u32 = 10;
                 const MAX_BREAKDOWN_KEY: u128 = 8;
                 const MAX_TRIGGER_VALUE: u128 = 5;
+                const NUM_MULTI_BITS: u32 = 3;
+
                 let max_match_key: u64 = 3;
 
                 let world = TestWorld::new().await;
@@ -38,6 +40,7 @@ fn semi_honest_ipa() {
                             &input_rows,
                             PER_USER_CAP,
                             MAX_BREAKDOWN_KEY,
+                            NUM_MULTI_BITS,
                         )
                         .await
                         .unwrap()
