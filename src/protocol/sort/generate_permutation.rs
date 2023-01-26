@@ -382,10 +382,10 @@ mod tests {
                     let local_lists =
                         convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
                     let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
+                        convert_all_bits(&ctx, local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
                             .await
                             .unwrap();
-                    generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.as_slice())
                         .await
                         .unwrap()
                 },

@@ -84,7 +84,7 @@ mod tests {
                         convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
                     let converted_shares = convert_all_bits(
                         &ctx.narrow("convert_all_bits"),
-                        &local_lists,
+                        local_lists,
                         MaskedMatchKey::BITS,
                         NUM_MULTI_BITS,
                     )
@@ -92,7 +92,7 @@ mod tests {
                     .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
-                        &converted_shares,
+                        converted_shares.as_slice(),
                     )
                     .await
                     .unwrap();

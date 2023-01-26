@@ -155,7 +155,7 @@ where
     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, B::BITS);
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &local_lists,
+        local_lists,
         B::BITS,
         num_multi_bits,
     )

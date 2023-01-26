@@ -51,6 +51,7 @@ impl AsRef<str> for Step {
     }
 }
 
+#[derive(Clone)]
 pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 
 /// Convert one bit of an XOR sharing into a triple of replicated sharings of that bit.
@@ -91,35 +92,32 @@ pub fn convert_all_bits_local<F: Field, B: BitArray>(
     helper_role: Role,
     input: &[XorReplicated<B>],
     num_bits: u32,
-) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
-    input
-        .iter()
-        .map(|record| {
-            (0..num_bits)
-                .map(|bit_index: u32| {
-                    let left = u128::from(record.left()[bit_index]);
-                    let right = u128::from(record.right()[bit_index]);
-                    BitConversionTriple(match helper_role {
-                        Role::H1 => [
-                            Replicated::new(F::from(left), F::ZERO),
-                            Replicated::new(F::ZERO, F::from(right)),
-                            Replicated::new(F::ZERO, F::ZERO),
-                        ],
-                        Role::H2 => [
-                            Replicated::new(F::ZERO, F::ZERO),
-                            Replicated::new(F::from(left), F::ZERO),
-                            Replicated::new(F::ZERO, F::from(right)),
-                        ],
-                        Role::H3 => [
-                            Replicated::new(F::ZERO, F::from(right)),
-                            Replicated::new(F::ZERO, F::ZERO),
-                            Replicated::new(F::from(left), F::ZERO),
-                        ],
-                    })
+) -> impl Iterator<Item = Vec<BitConversionTriple<Replicated<F>>>> + '_ {
+    input.iter().map(move |record| {
+        (0..num_bits)
+            .map(|bit_index: u32| {
+                let left = u128::from(record.left()[bit_index]);
+                let right = u128::from(record.right()[bit_index]);
+                BitConversionTriple(match helper_role {
+                    Role::H1 => [
+                        Replicated::new(F::from(left), F::ZERO),
+                        Replicated::new(F::ZERO, F::from(right)),
+                        Replicated::new(F::ZERO, F::ZERO),
+                    ],
+                    Role::H2 => [
+                        Replicated::new(F::ZERO, F::ZERO),
+                        Replicated::new(F::from(left), F::ZERO),
+                        Replicated::new(F::ZERO, F::from(right)),
+                    ],
+                    Role::H3 => [
+                        Replicated::new(F::ZERO, F::from(right)),
+                        Replicated::new(F::ZERO, F::ZERO),
+                        Replicated::new(F::from(left), F::ZERO),
+                    ],
                 })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    })
 }
 /// Convert a locally-decomposed single bit into field elements.
 /// # Errors
@@ -153,9 +151,9 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
-pub async fn convert_all_bits<F, C, S>(
+pub async fn convert_all_bits<F, C, S, I>(
     ctx: &C,
-    locally_converted_bits: &[Vec<BitConversionTriple<S>>],
+    locally_converted_bits: I,
     num_bits: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<Vec<Vec<S>>>, Error>
@@ -163,24 +161,20 @@ where
     F: Field,
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
+    I: Iterator<Item = Vec<BitConversionTriple<S>>>,
 {
     try_join_all(
         (0..num_bits)
             .step_by(num_multi_bits.try_into().unwrap())
             .map(|bit_num| {
                 let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
-                try_join_all(
-                    locally_converted_bits
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, record)| {
-                            convert_bit_list(
-                                ctx.narrow(&ModulusConversion(bit_num)),
-                                &record[bit_num as usize..last_bit],
-                                RecordId::from(idx),
-                            )
-                        }),
-                )
+                try_join_all(locally_converted_bits.enumerate().map(|(idx, record)| {
+                    convert_bit_list(
+                        ctx.narrow(&ModulusConversion(bit_num)),
+                        record[bit_num as usize..last_bit].to_vec(),
+                        RecordId::from(idx),
+                    )
+                }))
             }),
     )
     .await
@@ -192,7 +186,7 @@ where
 /// Propagates panics from convert shares
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
-    locally_converted_bits: &[BitConversionTriple<S>],
+    locally_converted_bits: Vec<BitConversionTriple<S>>,
     record_id: RecordId,
 ) -> Result<Vec<S>, Error>
 where

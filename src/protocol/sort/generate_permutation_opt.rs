@@ -79,17 +79,26 @@ where
             revealed_and_random_permutations.revealed.as_slice(),
         );
 
+        let input = one_slice
+            .into_iter()
+            .map(|v| (*v).to_vec())
+            .collect::<Vec<_>>()
+            .to_vec();
         let next_few_bits_sorted_by_less_significant_bits = secureapplyinv_multi(
             ctx_bit.narrow(&MultiApplyInv(bit_num.try_into().unwrap())),
-            one_slice.clone(),
+            input,
             (randoms_for_shuffle0, randoms_for_shuffle1),
             revealed,
         )
         .await?;
 
+        // let next_input = next_few_bits_sorted_by_less_significant_bits
+        // .into_iter()
+        // .map(|v| v.as_slice())
+        // .collect::<Vec<_>>();
         let next_few_bits_permutation = multi_bit_permutation(
             ctx_bit.narrow(&BitPermutationStep),
-            next_few_bits_sorted_by_less_significant_bits.as_slice(),
+            &next_few_bits_sorted_by_less_significant_bits,
         )
         .await?;
 
@@ -151,11 +160,11 @@ mod tests {
                     let local_lists =
                         convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
                     let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
+                        convert_all_bits(&ctx, local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
                             .await
                             .unwrap();
 
-                    generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.as_slice())
                         .await
                         .unwrap()
                 },
