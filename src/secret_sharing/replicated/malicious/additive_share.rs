@@ -230,11 +230,11 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::ff::{Field, Fp31};
+    use crate::ff::Fp31;
     use crate::helpers::Role;
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
-        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares, SharedValue,
     };
     use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;

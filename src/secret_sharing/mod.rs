@@ -16,7 +16,11 @@ pub trait SharedValue:
     /// Number of bits stored in this data type.
     const BITS: u32;
 
+    /// Additive identity element.
     const ZERO: Self;
+
+    /// Multiplicative identity element
+    const ONE: Self;
 }
 
 pub trait ArithmeticShare: SharedValue + ArithmeticOps {}

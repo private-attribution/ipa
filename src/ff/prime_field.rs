@@ -11,12 +11,12 @@ macro_rules! field_impl {
         impl Field for $field {
             type Integer = $int;
             const PRIME: Self::Integer = $prime;
-            const ONE: Self = $field(1);
         }
 
         impl SharedValue for $field {
             const BITS: u32 = <Self as Field>::Integer::BITS;
             const ZERO: Self = $field(0);
+            const ONE: Self = $field(1);
         }
 
         impl std::ops::Add for $field {

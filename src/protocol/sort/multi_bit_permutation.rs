@@ -228,7 +228,7 @@ mod tests {
 
     use super::multi_bit_permutation;
     use crate::{
-        ff::{Field, Fp31},
+        ff::Fp31,
         protocol::context::Context,
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},

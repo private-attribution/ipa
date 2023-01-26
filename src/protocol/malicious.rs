@@ -259,7 +259,7 @@ mod tests {
     use std::iter::{repeat, zip};
 
     use crate::error::Error;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
+    use crate::ff::{Fp31, Fp32BitPrime};
     use crate::helpers::Role;
     use crate::protocol::basics::SecureMul;
     use crate::protocol::context::Context;
@@ -267,7 +267,7 @@ mod tests {
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
         replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares,
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
     };
     use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;

@@ -3,10 +3,13 @@ use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
 
+type Container = u8;
+type Order = Lsb0;
+
 /// Bit store type definition. Five `u8` blocks.
-type U8_5 = BitArr!(for 40, in u8, Lsb0);
+type U8_5 = BitArr!(for 40, in Container, Order);
 /// Bit store type definition. Eight `u8` blocks.
-type U8_8 = BitArr!(for 64, in u8, Lsb0);
+type U8_8 = BitArr!(for 64, in Container, Order);
 
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr ) => {
@@ -24,6 +27,7 @@ macro_rules! bit_array_impl {
             impl SharedValue for $name {
                 const BITS: u32 = $bits;
                 const ZERO: Self = Self(<$store>::ZERO);
+                const ONE: Self = Self(bitvec::bitarr!(const Container, Order; 1; $bits));
             }
 
             impl BitArray for $name {
@@ -206,6 +210,7 @@ macro_rules! bit_array_impl {
                 use crate::{bits::BitArray, secret_sharing::SharedValue};
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
+                use proptest::proptest;
 
                 const MASK: u128 = u128::MAX >> (128 - $name::BITS);
 
@@ -279,10 +284,12 @@ macro_rules! bit_array_impl {
                     let a = rng.gen::<u128>() & MASK;
                     let b = rng.gen::<u128>() & MASK;
 
-                    println!("a: {a}");
-                    println!("b: {b}");
-
                     assert_eq!(a < b, $name::truncate_from(a) < $name::truncate_from(b));
+                }
+
+                #[test]
+                pub fn unique_identities() {
+                    assert_ne!($name::ONE, $name::ZERO);
                 }
 
                 #[test]
@@ -296,6 +303,24 @@ macro_rules! bit_array_impl {
 
                     assert_eq!(a, $name::deserialize(&buf).unwrap());
                 }
+
+                proptest! {
+                   #[test]
+                   fn identities(a in 2_u128..1 << $name::BITS - 1) {
+                       let a = $name::truncate_from(a);
+
+                       // identities are unique
+                       assert_ne!(a, $name::ONE);
+                       assert_ne!(a, $name::ZERO);
+
+                       assert_eq!(a, a ^ $name::ZERO);
+                       assert_eq!(a, a & $name::ONE);
+
+                       // additive identity absorbs elements from the set
+                       assert_eq!($name::ZERO, a & $name::ZERO);
+                   }
+                }
+
             }
         }
 

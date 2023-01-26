@@ -126,7 +126,7 @@ mod tests {
     use proptest::prelude::Rng;
     use std::iter::zip;
 
-    use crate::secret_sharing::IntoShares;
+    use crate::secret_sharing::{IntoShares, SharedValue};
     use crate::{
         error::Error,
         ff::{Field, Fp31},

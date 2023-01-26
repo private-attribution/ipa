@@ -213,7 +213,7 @@ mod tests {
         use crate::rand::{thread_rng, Rng};
         use crate::secret_sharing::{
             replicated::malicious::AdditiveShare as MaliciousReplicated,
-            replicated::semi_honest::AdditiveShare as Replicated,
+            replicated::semi_honest::AdditiveShare as Replicated, SharedValue,
         };
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
