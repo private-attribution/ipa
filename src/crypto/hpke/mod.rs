@@ -10,11 +10,10 @@ use std::io;
 mod aad;
 mod registry;
 
-pub use aad::Info;
-pub use registry::KeyRegistry;
 use crate::bits::BitArray40;
 use crate::secret_sharing::replicated::semi_honest::XorShare;
-
+pub use aad::Info;
+pub use registry::KeyRegistry;
 
 /// IPA ciphersuite
 type IpaKem = hpke::kem::X25519HkdfSha256;
@@ -206,8 +205,8 @@ mod tests {
     }
 
     fn new_share(a: u64, b: u64) -> XorReplicated {
-        let left = BitArray40::try_from(a as u128).unwrap();
-        let right = BitArray40::try_from(b as u128).unwrap();
+        let left = BitArray40::try_from(u128::from(a)).unwrap();
+        let right = BitArray40::try_from(u128::from(b)).unwrap();
 
         XorReplicated::new(left, right)
     }
