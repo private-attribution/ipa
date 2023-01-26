@@ -427,18 +427,18 @@ pub(crate) mod tests {
             let s1 = &self[1];
             let s2 = &self[2];
 
-            let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
+            let helper_bit = [&s0.helper_bit, &s1.helper_bit, &s2.helper_bit].reconstruct();
 
             let breakdown_key =
-                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+                [&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key].reconstruct();
+            let credit = [&s0.credit, &s1.credit, &s2.credit].reconstruct();
 
-            let aggregation_bit = (
+            let aggregation_bit = [
                 &s0.aggregation_bit,
                 &s1.aggregation_bit,
                 &s2.aggregation_bit,
-            )
-                .reconstruct();
+            ]
+            .reconstruct();
 
             AttributionTestInput([helper_bit, breakdown_key, credit, aggregation_bit])
         }

@@ -1,3 +1,4 @@
+mod input;
 mod sharing;
 mod world;
 
@@ -18,11 +19,12 @@ use crate::secret_sharing::{
 };
 use futures::future::try_join_all;
 use futures::TryFuture;
+pub use input::GenericReportTestInput;
 pub use ipa_input_row::IPAInputTestRow;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;
-pub use sharing::{get_bits, into_bits, MaskedMatchKey, Reconstruct};
+pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;
 pub use world::{Runner, TestWorld, TestWorldConfig};
 

@@ -132,12 +132,13 @@ mod tests {
     use std::iter::zip;
 
     use crate::bits::BitArray;
+    use crate::protocol::input::MatchKey;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::rand::{thread_rng, Rng};
 
     use crate::protocol::context::{Context, SemiHonestContext};
     use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{MaskedMatchKey, Runner};
+    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31},
         protocol::sort::generate_permutation_opt::generate_permutation_opt,
@@ -153,7 +154,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -167,7 +168,7 @@ mod tests {
                     generate_permutation_opt(
                         ctx.narrow("sort"),
                         &converted_shares,
-                        MaskedMatchKey::BITS,
+                        MatchKey::BITS,
                         NUM_MULTI_BITS,
                     )
                     .await

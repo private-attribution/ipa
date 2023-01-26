@@ -47,13 +47,14 @@ mod tests {
     use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::AttributionInputRow;
     use crate::protocol::context::Context;
+    use crate::protocol::input::MatchKey;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::apply_sort::apply_sort_permutation;
     use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
     use crate::protocol::IpaProtocolStep::SortPreAccumulation;
     use crate::rand::{thread_rng, Rng};
     use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{MaskedMatchKey, Reconstruct, Runner};
+    use crate::test_fixture::{Reconstruct, Runner};
     use crate::{ff::Fp32BitPrime, test_fixture::TestWorld};
 
     #[tokio::test]
@@ -65,7 +66,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let permutation =
             permutation::sort(match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>());
@@ -88,7 +89,7 @@ mod tests {
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
                         &converted_shares,
-                        MaskedMatchKey::BITS,
+                        MatchKey::BITS,
                         NUM_MULTI_BITS,
                     )
                     .await

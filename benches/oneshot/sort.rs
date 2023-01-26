@@ -53,7 +53,7 @@ async fn main() -> Result<(), Error> {
 
     let mut mpc_sorted_list: Vec<u128> = (0..BATCHSIZE).map(|i| i as u128).collect();
     for (i, match_key) in match_keys.iter().enumerate() {
-        let index = (&result[0][i], &result[1][i], &result[2][i]).reconstruct();
+        let index = [&result[0][i], &result[1][i], &result[2][i]].reconstruct();
         mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
     }
 

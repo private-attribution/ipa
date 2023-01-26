@@ -185,6 +185,7 @@ mod tests {
     use crate::ff::{Field, Fp32BitPrime};
     use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;
+    use crate::protocol::input::MatchKey;
     use crate::protocol::malicious::MaliciousValidator;
     use crate::rand::thread_rng;
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
@@ -195,7 +196,7 @@ mod tests {
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             RecordId,
         },
-        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use proptest::prelude::Rng;
 
@@ -205,11 +206,10 @@ mod tests {
         let mut rng = thread_rng();
 
         let world = TestWorld::new().await;
-        let match_key = rng.gen::<MaskedMatchKey>();
+        let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple =
-                    convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
+                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
                 convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
                     .await
                     .unwrap()
@@ -224,11 +224,10 @@ mod tests {
         let mut rng = thread_rng();
 
         let world = TestWorld::new().await;
-        let match_key = rng.gen::<MaskedMatchKey>();
+        let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple =
-                    convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
+                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context().set_total_records(1);
@@ -283,14 +282,11 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::new().await;
         for tweak in TWEAKS {
-            let match_key = rng.gen::<MaskedMatchKey>();
+            let match_key = rng.gen::<MatchKey>();
             world
                 .semi_honest(match_key, |ctx, mk_share| async move {
-                    let triple = convert_bit_local::<Fp32BitPrime, MaskedMatchKey>(
-                        ctx.role(),
-                        BITNUM,
-                        &mk_share,
-                    );
+                    let triple =
+                        convert_bit_local::<Fp32BitPrime, MatchKey>(ctx.role(), BITNUM, &mk_share);
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = MaliciousValidator::new(ctx);

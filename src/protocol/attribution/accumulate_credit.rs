@@ -264,13 +264,13 @@ pub mod input {
             let s2 = &self[2];
 
             let is_trigger_bit =
-                (&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit).reconstruct();
+                [&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit].reconstruct();
 
-            let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
+            let helper_bit = [&s0.helper_bit, &s1.helper_bit, &s2.helper_bit].reconstruct();
 
             let breakdown_key =
-                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+                [&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key].reconstruct();
+            let credit = [&s0.credit, &s1.credit, &s2.credit].reconstruct();
 
             AttributionTestInput([is_trigger_bit, helper_bit, breakdown_key, credit])
         }
@@ -289,8 +289,8 @@ pub mod input {
             let s2 = &self[2];
 
             let breakdown_key =
-                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
+                [&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key].reconstruct();
+            let credit = [&s0.credit, &s1.credit, &s2.credit].reconstruct();
 
             AttributionTestInput([breakdown_key, credit, F::ZERO, F::ZERO])
         }
@@ -396,12 +396,12 @@ pub(crate) mod tests {
         assert_eq!(result[2].len(), TEST_CASE.len());
 
         for (i, expected) in expected.iter().enumerate() {
-            let v = (
+            let v = [
                 &result[0][i].credit,
                 &result[1][i].credit,
                 &result[2][i].credit,
-            )
-                .reconstruct();
+            ]
+            .reconstruct();
             assert_eq!(v.as_u128(), *expected);
         }
     }

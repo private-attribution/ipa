@@ -1,14 +1,13 @@
-use crate::bits::BitArray40;
+use crate::bits::BitArray;
 use crate::ff::Field;
 use crate::protocol::boolean::RandomBitsShare;
 use crate::secret_sharing::{
     replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
+    replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+    SecretSharing,
 };
 use std::borrow::Borrow;
 use std::iter::zip;
-
-pub type MaskedMatchKey = BitArray40;
 
 /// Deconstructs a value into N values, one for each bit.
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {
@@ -61,15 +60,28 @@ impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     }
 }
 
-impl<F, T, U, V> Reconstruct<F> for (T, U, V)
-where
-    F: Field,
-    T: Borrow<Replicated<F>>,
-    U: Borrow<Replicated<F>>,
-    V: Borrow<Replicated<F>>,
-{
-    fn reconstruct(&self) -> F {
-        [self.0.borrow(), self.1.borrow(), self.2.borrow()].reconstruct()
+impl<B: BitArray> Reconstruct<B> for [&XorReplicated<B>; 3] {
+    fn reconstruct(&self) -> B {
+        let s0 = &self[0];
+        let s1 = &self[1];
+        let s2 = &self[2];
+
+        assert_eq!(
+            s0.left() ^ s1.left() ^ s2.left(),
+            s0.right() ^ s1.right() ^ s2.right(),
+        );
+
+        assert_eq!(s0.right(), s1.left());
+        assert_eq!(s1.right(), s2.left());
+        assert_eq!(s2.right(), s0.left());
+
+        s0.left() ^ s1.left() ^ s2.left()
+    }
+}
+
+impl<B: BitArray> Reconstruct<B> for [XorReplicated<B>; 3] {
+    fn reconstruct(&self) -> B {
+        [&self[0], &self[1], &self[2]].reconstruct()
     }
 }
 
@@ -142,16 +154,16 @@ where
     fn validate(&self, r: F) {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-        let x = (
+        let x = [
             self[0].borrow().x().access_without_downgrade(),
             self[1].borrow().x().access_without_downgrade(),
             self[2].borrow().x().access_without_downgrade(),
-        );
-        let rx = (
+        ];
+        let rx = [
             self[0].borrow().rx(),
             self[1].borrow().rx(),
             self[2].borrow().rx(),
-        );
+        ];
         assert_eq!(x.reconstruct() * r, rx.reconstruct());
     }
 }

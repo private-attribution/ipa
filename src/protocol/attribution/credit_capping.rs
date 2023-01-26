@@ -379,12 +379,12 @@ mod tests {
         assert_eq!(result.0.len(), expected.len());
 
         for (i, expected) in expected.iter().enumerate() {
-            let v = (
+            let v = [
                 &result.0[i].credit,
                 &result.1[i].credit,
                 &result.2[i].credit,
-            )
-                .reconstruct();
+            ]
+            .reconstruct();
             assert_eq!(v.as_u128(), *expected);
         }
     }

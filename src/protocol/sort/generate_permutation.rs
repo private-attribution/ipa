@@ -351,6 +351,7 @@ mod tests {
     use std::iter::zip;
 
     use crate::bits::BitArray;
+    use crate::protocol::input::MatchKey;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
     use crate::rand::{thread_rng, Rng};
@@ -359,7 +360,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::test_fixture::{join3, MaskedMatchKey, Runner};
+    use crate::test_fixture::{join3, Runner};
     use crate::{
         ff::{Field, Fp31},
         protocol::sort::generate_permutation::{
@@ -376,7 +377,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -387,13 +388,9 @@ mod tests {
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
                     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
-                    generate_permutation(
-                        ctx.narrow("sort"),
-                        &converted_shares,
-                        MaskedMatchKey::BITS,
-                    )
-                    .await
-                    .unwrap()
+                    generate_permutation(ctx.narrow("sort"), &converted_shares, MatchKey::BITS)
+                        .await
+                        .unwrap()
                 },
             )
             .await;
@@ -455,7 +452,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -468,7 +465,7 @@ mod tests {
                 malicious_generate_permutation(
                     ctx.narrow("sort"),
                     &converted_shares,
-                    MaskedMatchKey::BITS,
+                    MatchKey::BITS,
                 )
                 .await
                 .unwrap()
