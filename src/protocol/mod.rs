@@ -8,11 +8,13 @@ pub mod modulus_conversion;
 pub mod prss;
 pub mod sort;
 
-use crate::error::Error;
+use crate::{bits::BitArray40, error::Error};
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
+
+pub type MatchKey = BitArray40;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///

@@ -1,8 +1,9 @@
-use raw_ipa::bits::BitArray40;
-use raw_ipa::error::Error;
-use raw_ipa::ff::Fp32BitPrime;
-use raw_ipa::protocol::ipa::ipa;
-use raw_ipa::test_fixture::{IPAInputTestRow, Runner, TestWorld, TestWorldConfig};
+use raw_ipa::{
+    error::Error,
+    ff::Fp32BitPrime,
+    protocol::{ipa::ipa, MatchKey},
+    test_fixture::{IPAInputTestRow, Runner, TestWorld, TestWorldConfig},
+};
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
@@ -36,7 +37,7 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime, BitArray40>(
+            ipa::<Fp32BitPrime, MatchKey>(
                 ctx,
                 &input_rows,
                 PER_USER_CAP,

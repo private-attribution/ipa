@@ -1,17 +1,18 @@
-use crate::protocol::basics::Reveal;
-use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::RecordId;
-use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
+    protocol::{
+        basics::{check_zero, Reveal},
+        context::{Context, MaliciousContext, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId, RECORD_0, RECORD_1, RECORD_2,
+    },
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
         semi_honest::AdditiveShare as Replicated,
     },
+    sync::{Arc, Mutex, Weak},
 };
 use futures::future::try_join;
 

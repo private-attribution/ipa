@@ -37,7 +37,7 @@ enum Step {
     AggregateCredit,
 }
 
-impl crate::protocol::Substep for Step {}
+impl Substep for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -371,9 +371,12 @@ pub mod test_cases {
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use crate::{
-        bits::{BitArray40, Serializable},
+        bits::Serializable,
         ff::{Fp31, Fp32BitPrime},
-        protocol::ipa::{ipa, test_cases::Simple, IPAInputRow},
+        protocol::{
+            ipa::{ipa, test_cases::Simple, IPAInputRow},
+            MatchKey,
+        },
         rand::thread_rng,
         secret_sharing::IntoShares,
         test_fixture::{ipa_input_row::IPAInputTestRow, Reconstruct, Runner, TestWorld},
@@ -392,14 +395,14 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        type SimpleTestCase = Simple<Fp31, BitArray40>;
+        type SimpleTestCase = Simple<Fp31, MatchKey>;
 
         let world = TestWorld::new().await;
         let records = SimpleTestCase::default();
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31, BitArray40>(
+                ipa::<Fp31, MatchKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -441,7 +444,7 @@ pub mod tests {
         }
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, BitArray40>(
+                ipa::<Fp32BitPrime, MatchKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -464,7 +467,7 @@ pub mod tests {
         trigger_value: u128,
         seed: u128,
     ) {
-        type RowType = IPAInputRow<Fp31, BitArray40>;
+        type RowType = IPAInputRow<Fp31, MatchKey>;
         // xorshift requires 16 byte seed and that's why it is picked here
         let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
         let [a, b, ..]: [RowType; 3] = IPAInputTestRow {
