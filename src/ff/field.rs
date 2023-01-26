@@ -93,7 +93,7 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldType {
     Fp31,
     Fp32BitPrime,

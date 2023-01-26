@@ -50,10 +50,11 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::{server::BindTarget, MpcHelperServer},
+        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
         protocol::Step,
     };
-    use hyper::StatusCode;
+    use axum::http::Request;
+    use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
 
@@ -109,17 +110,6 @@ mod tests {
         }
     }
 
-    async fn init_server(query_id: QueryId) -> u16 {
-        let (management_tx, _) = mpsc::channel(1);
-        let (query_tx, _query_rx) = mpsc::channel(1);
-        let ongoing_queries = HashMap::from([(query_id, query_tx)]);
-        let server = MpcHelperServer::new(management_tx, Arc::new(Mutex::new(ongoing_queries)));
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
-        addr.port()
-    }
-
     struct OverrideReq {
         origin: u8,
         query_id: String,
@@ -128,8 +118,8 @@ mod tests {
         offset: u32,
     }
 
-    impl OverrideReq {
-        fn into_req(self, port: u16) -> hyper::Request<hyper::Body> {
+    impl IntoReq for OverrideReq {
+        fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
                 "http://localhost:{}{}/{}/step/{}",
                 port,
@@ -155,15 +145,6 @@ mod tests {
                 offset: 0,
             }
         }
-    }
-
-    async fn resp_eq(req: OverrideReq, expected_status: StatusCode) {
-        let port = init_server(QueryId).await;
-        let resp = hyper::Client::default()
-            .request(req.into_req(port))
-            .await
-            .expect("request should complete successfully");
-        assert_eq!(resp.status(), expected_status);
     }
 
     #[tokio::test]
@@ -208,7 +189,7 @@ mod e2e_tests {
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::MpcHelperServer,
+        net::{server::handlers::query::test_helpers::poll_immediate, MpcHelperServer},
         protocol::Step,
     };
     use futures_util::FutureExt;
@@ -216,13 +197,6 @@ mod e2e_tests {
     use std::future::Future;
     use std::task::{Context, Poll};
     use tower::ServiceExt;
-
-    fn poll<F, T>(f: &mut F) -> Poll<T>
-    where
-        F: Future<Output = T> + Unpin,
-    {
-        f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref()))
-    }
 
     #[tokio::test]
     async fn backpressure_applied() {
@@ -265,7 +239,7 @@ mod e2e_tests {
         // channel should now be full
         let mut resp_when_full = r.ready().await.unwrap().call(new_req());
         assert!(
-            poll(&mut resp_when_full).is_pending(),
+            poll_immediate(&mut resp_when_full).is_pending(),
             "expected future to be pending"
         );
 
@@ -273,7 +247,7 @@ mod e2e_tests {
         query_rx.recv().await;
 
         // channel should now have capacity
-        assert!(poll(&mut resp_when_full).is_ready());
+        assert!(poll_immediate(&mut resp_when_full).is_ready());
 
         // take 3 messages from channel
         for _ in 0..3 {
@@ -283,11 +257,11 @@ mod e2e_tests {
         // channel should now have capacity for 3 more reqs
         for _ in 0..3 {
             let mut next_req = r.ready().await.unwrap().call(new_req());
-            assert!(poll(&mut next_req).is_ready());
+            assert!(poll_immediate(&mut next_req).is_ready());
         }
 
         // channel should have no more capacity
         let mut resp_when_full = r.ready().await.unwrap().call(new_req());
-        assert!(poll(&mut resp_when_full).is_pending());
+        assert!(poll_immediate(&mut resp_when_full).is_pending());
     }
 }

@@ -7,7 +7,7 @@ use crate::{
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct QueryConfig {
     pub field_type: FieldType,
@@ -88,7 +88,7 @@ impl From<QueryCommand> for TransportCommand {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,

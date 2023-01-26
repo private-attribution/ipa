@@ -224,6 +224,7 @@ pub mod query {
         use axum::extract::{FromRequest, RequestParts};
         use hyper::http::uri;
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub query_config: QueryConfig,
         }
