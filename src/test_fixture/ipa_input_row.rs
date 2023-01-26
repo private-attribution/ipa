@@ -1,13 +1,13 @@
 use rand::{distributions::Standard, prelude::Distribution};
 
+use crate::bits::BitArray;
+use crate::secret_sharing::IntoShares;
 use crate::{
-    bits::BitArray,
     ff::Field,
     protocol::ipa::IPAInputRow,
     rand::Rng,
-    secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-        IntoShares,
+    secret_sharing::replicated::semi_honest::{
+        AdditiveShare as Replicated, XorShare as XorReplicated,
     },
 };
 

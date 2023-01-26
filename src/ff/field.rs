@@ -57,7 +57,7 @@ impl<F: Field> Serializable for F {
         let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES];
 
         if buf.len() >= raw_value.len() {
-            buf[..Self::SIZE_IN_BYTES].copy_from_slice(raw_value);
+            buf[..<Self as Serializable>::SIZE_IN_BYTES].copy_from_slice(raw_value);
             Ok(())
         } else {
             let error_text = format!(
@@ -65,7 +65,7 @@ impl<F: Field> Serializable for F {
                  it required at least {} bytes available",
                 buf.len(),
                 self,
-                Self::SIZE_IN_BYTES
+                <Self as Serializable>::SIZE_IN_BYTES
             );
 
             Err(io::Error::new(ErrorKind::WriteZero, error_text))

@@ -1,5 +1,7 @@
-use crate::bits::{BitArray, Serializable};
-use crate::secret_sharing::SharedValue;
+use crate::{
+    bits::{BitArray, Serializable},
+    secret_sharing::SharedValue,
+};
 use bitvec::prelude::{BitArr, Lsb0};
 
 /// Bit store type definition. Five `u8` blocks.

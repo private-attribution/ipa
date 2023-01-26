@@ -73,8 +73,8 @@ impl AsRef<str> for IPAInputRowResharableStep {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct IPAInputRow<F: Field, B: BitArray> {
     pub mk_shares: XorReplicated<B>,
     pub is_trigger_bit: Replicated<F>,
@@ -236,7 +236,10 @@ pub async fn ipa<F: Field, B: BitArray>(
     .unwrap();
 
     let futures = zip(
-        repeat(ctx.narrow(&Step::ComputeHelperBits)),
+        repeat(
+            ctx.narrow(&Step::ComputeHelperBits)
+                .set_total_records(sorted_rows.len() - 1),
+        ),
         sorted_rows.iter(),
     )
     .zip(sorted_rows.iter().skip(1))

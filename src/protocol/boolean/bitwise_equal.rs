@@ -64,7 +64,7 @@ mod tests {
     use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::RecordId,
+        protocol::{context::Context, RecordId},
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
 
@@ -102,9 +102,14 @@ mod tests {
 
         let answer_fp31 = world
             .semi_honest((a_fp31, b_fp31), |ctx, (a_bits, b_bits)| async move {
-                bitwise_equal(ctx, RecordId::from(0), &a_bits, &b_bits)
-                    .await
-                    .unwrap()
+                bitwise_equal(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_bits,
+                    &b_bits,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -116,9 +121,14 @@ mod tests {
             .semi_honest(
                 (a_fp32_bit_prime, b_fp32_bit_prime),
                 |ctx, (a_bits, b_bits)| async move {
-                    bitwise_equal(ctx, RecordId::from(0), &a_bits, &b_bits)
-                        .await
-                        .unwrap()
+                    bitwise_equal(
+                        ctx.set_total_records(1),
+                        RecordId::from(0),
+                        &a_bits,
+                        &b_bits,
+                    )
+                    .await
+                    .unwrap()
                 },
             )
             .await

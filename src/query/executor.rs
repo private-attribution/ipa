@@ -2,7 +2,7 @@ use crate::{
     bits::{BitArray, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
-        messaging::Gateway,
+        messaging::{Gateway, TotalRecords},
         negotiate_prss,
         query::{IPAQueryConfig, QueryConfig, QueryType},
         transport::{AlignedByteArrStream, ByteArrStream},
@@ -103,14 +103,14 @@ async fn execute_ipa<F: Field, B: BitArray>(
     query_config: IPAQueryConfig,
     mut input: AlignedByteArrStream,
 ) -> Vec<AggregateCreditOutputRow<F>> {
-    let mut inputs = Vec::new();
+    let mut input_vec = Vec::new();
     while let Some(data) = input.next().await {
-        inputs.extend(IPAInputRow::<F, B>::from_byte_slice(&data.unwrap()));
+        input_vec.extend(IPAInputRow::<F, B>::from_byte_slice(&data.unwrap()));
     }
 
     ipa(
         ctx,
-        &inputs,
+        &input_vec,
         query_config.per_user_credit_cap,
         query_config.max_breakdown_key,
         query_config.num_multi_bits,
@@ -132,21 +132,29 @@ pub fn start_query(
         let prss = negotiate_prss(&gateway, &step, &mut rng).await.unwrap();
 
         match config.field_type {
-            FieldType::Fp31 => {
-                let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
-                match config.query_type {
-                    #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
-                    QueryType::TestMultiply => {
-                        let input = input.align(Replicated::<Fp31>::SIZE_IN_BYTES);
-                        Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
-                    }
-                    QueryType::IPA(config) => {
-                        let input = input.align(IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES);
-                        Box::new(execute_ipa::<Fp31, MatchKey>(ctx, config, input).await)
-                            as Box<dyn Result>
-                    }
+            FieldType::Fp31 => match config.query_type {
+                #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
+                QueryType::TestMultiply => {
+                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
+                        &prss,
+                        &gateway,
+                        TotalRecords::Indeterminate,
+                    );
+                    let input = input.align(Replicated::<Fp31>::SIZE_IN_BYTES);
+                    Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                 }
-            }
+                QueryType::IPA(config) => {
+                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
+                        &prss,
+                        &gateway,
+                        // will be specified in downstream steps
+                        TotalRecords::Unspecified,
+                    );
+                    let input = input.align(IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES);
+                    Box::new(execute_ipa::<Fp31, MatchKey>(ctx, config, input).await)
+                        as Box<dyn Result>
+                }
+            },
             FieldType::Fp32BitPrime => {
                 todo!()
             }
@@ -157,6 +165,7 @@ pub fn start_query(
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    use crate::protocol::context::Context;
     use crate::{
         protocol::ipa::test_cases,
         secret_sharing::IntoShares,
@@ -167,7 +176,9 @@ mod tests {
     #[tokio::test]
     async fn multiply() {
         let world = TestWorld::new().await;
-        let contexts = world.contexts::<Fp31>();
+        let contexts = world
+            .contexts::<Fp31>()
+            .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
         let a = [Fp31::from(4u128), Fp31::from(5u128)];
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
 

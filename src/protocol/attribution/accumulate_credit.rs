@@ -83,6 +83,7 @@ pub async fn accumulate_credit<F: Field>(
     input: &[AttributionInputRow<F>],
 ) -> Result<Vec<AccumulateCreditOutputRow<F>>, Error> {
     let num_rows = input.len();
+    let ctx = ctx.set_total_records(num_rows);
 
     // 1. Create stop_bit vector.
     // These vector is updated in each iteration to help accumulate values
@@ -321,12 +322,15 @@ pub(crate) mod tests {
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
-        protocol::attribution::{
-            accumulate_credit::accumulate_credit,
-            tests::{BD, H, S, T},
-            AttributionInputRow,
+        protocol::{
+            attribution::{
+                accumulate_credit::accumulate_credit,
+                tests::{BD, H, S, T},
+                AttributionInputRow,
+            },
+            context::Context,
+            RecordId,
         },
-        protocol::RecordId,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -414,7 +418,10 @@ pub(crate) mod tests {
                 .semi_honest(
                     AttributionTestInput(secret),
                     |ctx, share: AttributionInputRow<Fp31>| async move {
-                        share.reshare(ctx, RecordId::from(0), role).await.unwrap()
+                        share
+                            .reshare(ctx.set_total_records(1), RecordId::from(0), role)
+                            .await
+                            .unwrap()
                     },
                 )
                 .await;
