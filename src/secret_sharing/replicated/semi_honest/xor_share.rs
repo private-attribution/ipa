@@ -1,6 +1,8 @@
+use crate::bits::Serializable;
 use crate::secret_sharing::{Boolean as BooleanSecretSharing, BooleanShare, SecretSharing};
 use std::{
     fmt::{Debug, Formatter},
+    io,
     ops::{BitXor, BitXorAssign},
 };
 
@@ -71,10 +73,47 @@ impl<V: BooleanShare> BitXorAssign<&Self> for XorShare<V> {
     }
 }
 
+impl<V: BooleanShare> Serializable for XorShare<V> {
+    const SIZE_IN_BYTES: usize = 2 * V::SIZE_IN_BYTES;
+
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        if buf.len() < Self::SIZE_IN_BYTES {
+            Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "not enough buffer capacity",
+            ))
+        } else {
+            let (left, right) = (self.left(), self.right());
+            left.serialize(&mut buf[..V::SIZE_IN_BYTES])?;
+            right.serialize(&mut buf[V::SIZE_IN_BYTES..2 * V::SIZE_IN_BYTES])?;
+
+            Ok(())
+        }
+    }
+
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        if buf.len() < Self::SIZE_IN_BYTES {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "not enough buffer capacity",
+            ))
+        } else {
+            let left = V::deserialize(&buf[..V::SIZE_IN_BYTES])?;
+            let right = V::deserialize(&buf[V::SIZE_IN_BYTES..2 * V::SIZE_IN_BYTES])?;
+
+            Ok(Self::new(left, right))
+        }
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::XorShare;
-    use crate::bits::BitArray40;
+    use crate::bits::{BitArray40, Serializable};
+    use proptest::proptest;
+    use rand::rngs::StdRng;
+    use rand::Rng;
+    use rand_core::SeedableRng;
 
     fn secret_share(
         a: u128,
@@ -157,5 +196,36 @@ mod tests {
         xor_test_case((0, 0, 10), (0, 0, 12), 6);
 
         xor_test_case((163, 202, 92), (172, 21, 199), 75);
+    }
+
+    type XorReplicated = XorShare<BitArray40>;
+
+    proptest! {
+        #[test]
+        fn serde_success(buf_len in XorReplicated::SIZE_IN_BYTES..100 * XorReplicated::SIZE_IN_BYTES, a in 0..1u64 << 39, b in 0..1u64 << 39) {
+            let mut buf = vec![0u8; buf_len];
+            let share = XorShare::new(BitArray40::try_from(u128::from(a)).unwrap(), BitArray40::try_from(u128::from(b)).unwrap());
+            share.clone().serialize(&mut buf).unwrap();
+
+            assert_eq!(share, XorShare::deserialize(&buf).unwrap());
+        }
+
+        #[test]
+        fn serde_ser_small_buf(buf_len in 0..XorReplicated::SIZE_IN_BYTES, a in 0..1u64 << 39, b in 0..1u64 << 39) {
+            let mut buf = vec![0u8; buf_len];
+            let share = XorShare::new(BitArray40::try_from(u128::from(a)).unwrap(), BitArray40::try_from(u128::from(b)).unwrap());
+            assert!(matches!(share.serialize(&mut buf), Err(std::io::Error { .. })));
+        }
+
+        #[test]
+        fn serde_de_small_buf(seed: [u8; 32], buf_len in XorReplicated::SIZE_IN_BYTES..100 * XorReplicated::SIZE_IN_BYTES, a in 0..1u64 << 39, b in 0..1u64 << 39) {
+            let mut rng = StdRng::from_seed(seed);
+            let max = rng.gen_range(0..BitArray40::SIZE_IN_BYTES);
+            let mut buf = vec![0u8; buf_len];
+            let share = XorShare::new(BitArray40::try_from(u128::from(a)).unwrap(), BitArray40::try_from(u128::from(b)).unwrap());
+            share.serialize(&mut buf).unwrap();
+
+            assert!(matches!(XorShare::<BitArray40>::deserialize(&buf[..max]), Err(std::io::Error { .. })));
+        }
     }
 }
