@@ -142,6 +142,7 @@ pub async fn ipa<F, B>(
     input_rows: &[IPAInputRow<F, B>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
+    num_multi_bits: u32,
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error>
 where
     F: Field,
@@ -162,6 +163,7 @@ where
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,
         B::BITS,
+        num_multi_bits,
     )
     .await
     .unwrap();
@@ -226,6 +228,7 @@ where
         ctx.narrow(&Step::AggregateCredit),
         &user_capped_credits,
         max_breakdown_key,
+        num_multi_bits,
     )
     .await
 }
@@ -248,6 +251,7 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
 
@@ -287,9 +291,15 @@ pub mod tests {
 
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31, BitArray40>(ctx, &input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                    .await
-                    .unwrap()
+                ipa::<Fp31, BitArray40>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
@@ -314,6 +324,8 @@ pub mod tests {
         const PER_USER_CAP: u32 = 10;
         const MAX_BREAKDOWN_KEY: u128 = 8;
         const MAX_TRIGGER_VALUE: u128 = 5;
+        const NUM_MULTI_BITS: u32 = 3;
+
         let max_match_key: u64 = BATCHSIZE / 10;
 
         let world = TestWorld::new().await;
@@ -331,9 +343,15 @@ pub mod tests {
         }
         let result = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, BitArray40>(ctx, &input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY)
-                    .await
-                    .unwrap()
+                ipa::<Fp32BitPrime, BitArray40>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
             })
             .await
             .reconstruct();
