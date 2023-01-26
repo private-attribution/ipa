@@ -1,4 +1,5 @@
 use crate::{
+    bits::Serializable,
     cli::playbook::InputSource,
     ff::Field,
     helpers::{query::QueryInput, transport::ByteArrStream},
