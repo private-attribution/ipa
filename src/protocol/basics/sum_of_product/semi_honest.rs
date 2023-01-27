@@ -74,6 +74,7 @@ mod test {
 
     use crate::ff::{Field, Fp31};
     use crate::protocol::basics::sum_of_product::SecureSop;
+    use crate::protocol::context::Context;
     use crate::protocol::RecordId;
     use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
@@ -117,7 +118,8 @@ mod test {
 
         let res = world
             .semi_honest((av, bv), |ctx, (a, b)| async move {
-                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
+                ctx.set_total_records(1)
+                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })
@@ -136,7 +138,8 @@ mod test {
 
         let result = world
             .semi_honest((a, b), |ctx, (a, b)| async move {
-                ctx.sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
+                ctx.set_total_records(1)
+                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
             })

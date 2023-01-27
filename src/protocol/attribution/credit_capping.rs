@@ -22,18 +22,24 @@ pub async fn credit_capping<F: Field>(
     input: &[CreditCappingInputRow<F>],
     cap: u32,
 ) -> Result<Vec<CreditCappingOutputRow<F>>, Error> {
+    let input_len = input.len();
+
     //
     // Step 1. Initialize a local vector for the capping computation.
     //
     // * `original_credits` will have credit values of only source events
     //
-    let original_credits = mask_source_credits(input, ctx.clone()).await?;
+    let original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
-    let prefix_summed_credits =
-        credit_prefix_sum(ctx.clone(), input, original_credits.clone()).await?;
+    let prefix_summed_credits = credit_prefix_sum(
+        ctx.set_total_records(input_len),
+        input,
+        original_credits.clone(),
+    )
+    .await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -49,7 +55,7 @@ pub async fn credit_capping<F: Field>(
     // We compute capped credits in the method, and writes to `original_credits`.
     //
     let final_credits = compute_final_credits(
-        ctx.clone(),
+        ctx.set_total_records(input_len),
         input,
         &prefix_summed_credits,
         &exceeds_cap_bits,
@@ -176,7 +182,10 @@ async fn is_credit_larger_than_cap<F: Field>(
     try_join_all(
         prefix_summed_credits
             .iter()
-            .zip(zip(repeat(ctx.clone()), repeat(cap)))
+            .zip(zip(
+                repeat(ctx.set_total_records(prefix_summed_credits.len())),
+                repeat(cap),
+            ))
             .enumerate()
             .map(|(i, (credit, (ctx, cap)))| {
                 // The buffer inside the generator is `Arc`, so these clones

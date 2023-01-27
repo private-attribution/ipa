@@ -48,7 +48,7 @@ pub async fn multi_bit_permutation<
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
         (0..num_records)
-            .zip(repeat(ctx.clone()))
+            .zip(repeat(ctx.set_total_records(num_records)))
             .map(|(i, ctx)| check_everything(ctx, i, input[i].as_slice())),
     )
     .await?;
@@ -71,7 +71,7 @@ pub async fn multi_bit_permutation<
         equality_checks
             .into_iter()
             .zip(prefix_sum.into_iter())
-            .zip(repeat(ctx))
+            .zip(repeat(ctx.set_total_records(num_records)))
             .enumerate()
             .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
                 ctx.sum_of_products(
@@ -226,6 +226,7 @@ mod tests {
     use super::multi_bit_permutation;
     use crate::{
         ff::{Field, Fp31},
+        protocol::context::Context,
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -278,7 +279,7 @@ mod tests {
             .semi_honest(input, |ctx, m_shares| async move {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for (i, record) in m_shares.iter().enumerate() {
-                    let ctx = ctx.clone();
+                    let ctx = ctx.set_total_records(num_records);
                     equality_check_futures.push(check_everything(ctx, i, record));
                 }
                 try_join_all(equality_check_futures).await.unwrap()
