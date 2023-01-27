@@ -254,12 +254,7 @@ mod tests {
             .collect();
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
-                multi_bit_permutation(
-                    ctx,
-                    &m_shares,
-                )
-                .await
-                .unwrap()
+                multi_bit_permutation(ctx, &m_shares).await.unwrap()
             })
             .await;
 

@@ -79,23 +79,14 @@ where
             revealed_and_random_permutations.revealed.as_slice(),
         );
 
-        let input = one_slice
-            .into_iter()
-            .map(|v| (*v).to_vec())
-            .collect::<Vec<_>>()
-            .to_vec();
         let next_few_bits_sorted_by_less_significant_bits = secureapplyinv_multi(
             ctx_bit.narrow(&MultiApplyInv(bit_num.try_into().unwrap())),
-            input,
+            one_slice.clone(),
             (randoms_for_shuffle0, randoms_for_shuffle1),
             revealed,
         )
         .await?;
 
-        // let next_input = next_few_bits_sorted_by_less_significant_bits
-        // .into_iter()
-        // .map(|v| v.as_slice())
-        // .collect::<Vec<_>>();
         let next_few_bits_permutation = multi_bit_permutation(
             ctx_bit.narrow(&BitPermutationStep),
             &next_few_bits_sorted_by_less_significant_bits,

@@ -87,7 +87,6 @@ pub fn convert_bit_local<F: Field, B: BitArray>(
     })
 }
 
-#[must_use]
 pub fn convert_all_bits_local<F: Field, B: BitArray>(
     helper_role: Role,
     input: &[XorReplicated<B>],
@@ -153,7 +152,7 @@ where
 /// Propagates panics from convert shares
 pub async fn convert_all_bits<F, C, S, I>(
     ctx: &C,
-    locally_converted_bits: I,
+    mut locally_converted_bits: I,
     num_bits: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<Vec<Vec<S>>>, Error>
@@ -168,13 +167,16 @@ where
             .step_by(num_multi_bits.try_into().unwrap())
             .map(|bit_num| {
                 let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
-                try_join_all(locally_converted_bits.enumerate().map(|(idx, record)| {
-                    convert_bit_list(
-                        ctx.narrow(&ModulusConversion(bit_num)),
-                        record[bit_num as usize..last_bit].to_vec(),
-                        RecordId::from(idx),
-                    )
-                }))
+                let future = try_join_all(locally_converted_bits.by_ref().enumerate().map(
+                    |(idx, record)| {
+                        convert_bit_list(
+                            ctx.narrow(&ModulusConversion(bit_num)),
+                            record[bit_num as usize..last_bit].to_vec(),
+                            RecordId::from(idx),
+                        )
+                    },
+                ));
+                future
             }),
     )
     .await
