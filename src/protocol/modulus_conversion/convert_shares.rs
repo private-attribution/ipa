@@ -162,23 +162,22 @@ where
     S: ArithmeticSecretSharing<F>,
     I: Iterator<Item = Vec<BitConversionTriple<S>>>,
 {
+    let num_records = locally_converted_bits.size_hint().0;
     try_join_all(
         (0..num_bits)
             .step_by(num_multi_bits.try_into().unwrap())
             .map(|bit_num| {
                 let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
-                let future = try_join_all(
-                    locally_converted_bits
-                        .by_ref()
-                        .enumerate()
-                        .map(|(idx, record)| {
-                            convert_bit_list(
-                                ctx.narrow(&ModulusConversion(bit_num)),
-                                record[bit_num as usize..last_bit].to_vec(),
-                                RecordId::from(idx),
-                            )
-                        }),
-                );
+                let future = try_join_all(locally_converted_bits.by_ref().enumerate().map(
+                    |(idx, record)| {
+                        convert_bit_list(
+                            ctx.narrow(&ModulusConversion(bit_num))
+                                .set_total_records(num_records),
+                            record[bit_num as usize..last_bit].to_vec(),
+                            RecordId::from(idx),
+                        )
+                    },
+                ));
                 future
             }),
     )
@@ -245,7 +244,9 @@ mod tests {
             .semi_honest(match_key, |ctx, mk_share| async move {
                 let triple =
                     convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
-                convert_bit(ctx, RecordId::from(0), &triple).await.unwrap()
+                convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
+                    .await
+                    .unwrap()
             })
             .await;
         assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
@@ -264,7 +265,7 @@ mod tests {
                     convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
-                let m_ctx = v.context();
+                let m_ctx = v.context().set_total_records(1);
                 let m_triple = m_ctx.upgrade(triple).await.unwrap();
                 let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                     .await
@@ -327,7 +328,7 @@ mod tests {
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = MaliciousValidator::new(ctx);
-                    let m_ctx = v.context();
+                    let m_ctx = v.context().set_total_records(1);
                     let m_triple = m_ctx.upgrade(tweaked).await.unwrap();
                     let m_bit = convert_bit(m_ctx, RecordId::from(0), &m_triple)
                         .await

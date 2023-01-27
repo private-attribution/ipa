@@ -1,6 +1,7 @@
 use super::solved_bits::{solved_bits, RandomBitsShare};
 use crate::error::Error;
 use crate::ff::Field;
+use crate::helpers::messaging::TotalRecords;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
@@ -30,9 +31,11 @@ where
     C: Context<F, Share = S>,
 {
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // TODO: pending resolution of TotalRecords::Indeterminate
     pub fn new(ctx: C) -> Self {
+        debug_assert!(ctx.is_total_records_unspecified());
         Self {
-            ctx,
+            ctx: ctx.set_total_records(TotalRecords::Indeterminate),
             record_id: AtomicU32::new(0),
             abort_count: AtomicUsize::new(0),
             _marker: PhantomData::default(),

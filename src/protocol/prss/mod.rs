@@ -493,7 +493,7 @@ pub mod test {
         drop(p1.indexed(&step));
         // TODO(alex): remove after clippy stops aggroing with no reason
         // https://github.com/private-attribution/ipa/actions/runs/3340348412/jobs/5530341996
-        #[allow(clippy::let_underscore_drop)]
+        #[allow(let_underscore_drop)]
         let _ = p1.sequential(&step);
     }
 
@@ -504,7 +504,7 @@ pub mod test {
 
         let step = Step::default().narrow("test");
         // TODO(alex): remove after clippy is fixed
-        #[allow(clippy::let_underscore_drop)]
+        #[allow(let_underscore_drop)]
         let _ = p1.sequential(&step);
         drop(p1.indexed(&step));
     }
