@@ -6,7 +6,7 @@ use crate::ff::{Field, Int};
 use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -32,7 +32,7 @@ impl BitDecomposition {
     ) -> Result<Vec<S>, Error>
     where
         F: Field,
-        S: SecretSharing<F>,
+        S: ArithmeticSecretSharing<F>,
         C: Context<F, Share = S>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
@@ -136,7 +136,7 @@ mod tests {
             .semi_honest(a, |ctx, a_p| async move {
                 let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
 
-                BitDecomposition::execute(ctx, RecordId::from(0), &rbg, &a_p)
+                BitDecomposition::execute(ctx.set_total_records(1), RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()
             })

@@ -9,7 +9,7 @@ use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
@@ -22,18 +22,24 @@ pub async fn credit_capping<F: Field>(
     input: &[CreditCappingInputRow<F>],
     cap: u32,
 ) -> Result<Vec<CreditCappingOutputRow<F>>, Error> {
+    let input_len = input.len();
+
     //
     // Step 1. Initialize a local vector for the capping computation.
     //
     // * `original_credits` will have credit values of only source events
     //
-    let original_credits = mask_source_credits(input, ctx.clone()).await?;
+    let original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
-    let prefix_summed_credits =
-        credit_prefix_sum(ctx.clone(), input, original_credits.clone()).await?;
+    let prefix_summed_credits = credit_prefix_sum(
+        ctx.set_total_records(input_len),
+        input,
+        original_credits.clone(),
+    )
+    .await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -49,7 +55,7 @@ pub async fn credit_capping<F: Field>(
     // We compute capped credits in the method, and writes to `original_credits`.
     //
     let final_credits = compute_final_credits(
-        ctx.clone(),
+        ctx.set_total_records(input_len),
         input,
         &prefix_summed_credits,
         &exceeds_cap_bits,
@@ -176,7 +182,10 @@ async fn is_credit_larger_than_cap<F: Field>(
     try_join_all(
         prefix_summed_credits
             .iter()
-            .zip(zip(repeat(ctx.clone()), repeat(cap)))
+            .zip(zip(
+                repeat(ctx.set_total_records(prefix_summed_credits.len())),
+                repeat(cap),
+            ))
             .enumerate()
             .map(|(i, (credit, (ctx, cap)))| {
                 // The buffer inside the generator is `Arc`, so these clones
@@ -308,19 +317,18 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::super::tests::generate_shared_input;
     use crate::{
         ff::{Field, Fp32BitPrime},
         protocol::attribution::{
             credit_capping::credit_capping,
-            tests::{BD, H, S, T},
+            tests::{generate_shared_input, BD, H, S, T},
         },
         test_fixture::{Reconstruct, TestWorld},
     };
+    use futures_util::future::try_join3;
     use rand::rngs::mock::StepRng;
-    use tokio::try_join;
 
     #[tokio::test]
     pub async fn cap() {
@@ -363,7 +371,7 @@ mod tests {
         let h1_future = credit_capping(c1, &s1, CAP);
         let h2_future = credit_capping(c2, &s2, CAP);
 
-        let result = try_join!(h0_future, h1_future, h2_future).unwrap();
+        let result = try_join3(h0_future, h1_future, h2_future).await.unwrap();
 
         assert_eq!(result.0.len(), TEST_CASE.len());
         assert_eq!(result.1.len(), TEST_CASE.len());

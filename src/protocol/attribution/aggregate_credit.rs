@@ -16,7 +16,7 @@ use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::Replicated;
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
@@ -64,6 +64,7 @@ pub async fn aggregate_credit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     capped_credits: &[CreditCappingOutputRow<F>],
     max_breakdown_key: u128,
+    num_multi_bits: u32,
 ) -> Result<Vec<AggregateCreditOutputRow<F>>, Error> {
     let one = ctx.share_of_one();
 
@@ -81,6 +82,7 @@ pub async fn aggregate_credit<F: Field>(
         ctx.narrow(&Step::SortByBreakdownKey),
         &capped_credits_with_aggregation_bits,
         max_breakdown_key,
+        num_multi_bits,
     )
     .await?;
 
@@ -104,7 +106,9 @@ pub async fn aggregate_credit<F: Field>(
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::from(depth));
+        let c = ctx
+            .narrow(&InteractionPatternStep::from(depth))
+            .set_total_records(end);
         let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
@@ -165,9 +169,12 @@ pub async fn aggregate_credit<F: Field>(
     //
     // 4. Sort by `aggregation_bit`
     //
-    let sorted_output =
-        sort_by_aggregation_bit(ctx.narrow(&Step::SortByAttributionBit), &aggregated_credits)
-            .await?;
+    let sorted_output = sort_by_aggregation_bit(
+        ctx.narrow(&Step::SortByAttributionBit),
+        &aggregated_credits,
+        num_multi_bits,
+    )
+    .await?;
 
     // Take the first k elements, where k is the amount of breakdown keys.
     let result = sorted_output
@@ -229,7 +236,7 @@ async fn bit_decompose_breakdown_key<F: Field>(
     try_join_all(
         input
             .iter()
-            .zip(repeat(ctx))
+            .zip(repeat(ctx.set_total_records(input.len())))
             .enumerate()
             .map(|(i, (x, c))| async move {
                 BitDecomposition::execute(c, RecordId::from(i), rbg, &x.breakdown_key).await
@@ -243,6 +250,7 @@ async fn sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
     max_breakdown_key: u128,
+    num_multi_bits: u32,
 ) -> Result<Vec<CappedCreditsWithAggregationBit<F>>, Error> {
     // TODO: Change breakdown_keys to use XorReplicated to avoid bit-decomposition calls
     let breakdown_keys = transpose(
@@ -257,6 +265,7 @@ async fn sort_by_breakdown_key<F: Field>(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
         &breakdown_keys[..valid_bits_count as usize],
         valid_bits_count,
+        num_multi_bits,
     )
     .await?;
 
@@ -271,6 +280,7 @@ async fn sort_by_breakdown_key<F: Field>(
 async fn sort_by_aggregation_bit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[CappedCreditsWithAggregationBit<F>],
+    num_multi_bits: u32,
 ) -> Result<Vec<CappedCreditsWithAggregationBit<F>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
@@ -283,6 +293,7 @@ async fn sort_by_aggregation_bit<F: Field>(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
         aggregation_bits,
         1,
+        num_multi_bits,
     )
     .await?;
 
@@ -331,53 +342,17 @@ impl AsRef<str> for Step {
     }
 }
 
-#[cfg(feature = "test-fixture")]
-impl<F: Field>
-    crate::test_fixture::Reconstruct<
-        crate::protocol::attribution::accumulate_credit::AttributionTestInput<F>,
-    > for [AggregateCreditOutputRow<F>; 3]
-{
-    fn reconstruct(
-        &self,
-    ) -> crate::protocol::attribution::accumulate_credit::AttributionTestInput<F> {
-        [&self[0], &self[1], &self[2]].reconstruct()
-    }
-}
-
-#[cfg(feature = "test-fixture")]
-impl<F: Field>
-    crate::test_fixture::Reconstruct<
-        crate::protocol::attribution::accumulate_credit::AttributionTestInput<F>,
-    > for [&AggregateCreditOutputRow<F>; 3]
-{
-    fn reconstruct(
-        &self,
-    ) -> crate::protocol::attribution::accumulate_credit::AttributionTestInput<F> {
-        let s0 = &self[0];
-        let s1 = &self[1];
-        let s2 = &self[2];
-
-        let breakdown_key = (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-        let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
-
-        crate::protocol::attribution::accumulate_credit::AttributionTestInput([
-            breakdown_key,
-            credit,
-            F::ZERO,
-            F::ZERO,
-        ])
-    }
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(crate) mod tests {
     use super::super::tests::{BD, H};
     use super::{aggregate_credit, sort_by_breakdown_key};
     use crate::ff::{Field, Fp31};
-    use crate::protocol::attribution::accumulate_credit::AttributionTestInput;
+    use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
     use crate::protocol::attribution::{CappedCreditsWithAggregationBit, CreditCappingOutputRow};
     use crate::rand::Rng;
-    use crate::secret_sharing::{IntoShares, Replicated};
+    use crate::secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SharedValue,
+    };
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::{distributions::Standard, prelude::Distribution};
 
@@ -471,6 +446,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     pub async fn aggregate() {
+        const NUM_MULTI_BITS: u32 = 3;
         const RAW_INPUT: &[[u128; 3]; 19] = &[
             // helper_bit, breakdown_key, credit
             [H[0], BD[3], 0],
@@ -516,7 +492,9 @@ pub(crate) mod tests {
         let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
-                aggregate_credit(ctx, &share, 8).await.unwrap()
+                aggregate_credit(ctx, &share, 8, NUM_MULTI_BITS)
+                    .await
+                    .unwrap()
             })
             .await
             .reconstruct();
@@ -536,6 +514,7 @@ pub(crate) mod tests {
     #[tokio::test]
     pub async fn sort() {
         // Result from CreditCapping, plus AggregateCredit pre-processing
+        const NUM_MULTI_BITS: u32 = 3;
         const RAW_INPUT: &[[u128; 4]; 27] = &[
             // helper_bit, breakdown_key, credit, aggregation_bit
 
@@ -622,7 +601,9 @@ pub(crate) mod tests {
         let world = TestWorld::new().await;
         let result = world
             .semi_honest(input, |ctx, share| async move {
-                sort_by_breakdown_key(ctx, &share, 8).await.unwrap()
+                sort_by_breakdown_key(ctx, &share, 8, NUM_MULTI_BITS)
+                    .await
+                    .unwrap()
             })
             .await
             .reconstruct();

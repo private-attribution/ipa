@@ -57,20 +57,20 @@ pub mod query {
                 QueryType::IPA_STR => {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
-                        num_bits: u32,
                         per_user_credit_cap: u32,
                         max_breakdown_key: u128,
+                        num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {
-                        num_bits,
                         per_user_credit_cap,
                         max_breakdown_key,
+                        num_multi_bits,
                     }) = req.extract().await?;
 
                     Ok(QueryType::IPA(IPAQueryConfig {
-                        num_bits,
                         per_user_credit_cap,
                         max_breakdown_key,
+                        num_multi_bits,
                     }))
                 }
                 other => Err(server::Error::bad_query_value("query_type", other)),
@@ -86,14 +86,15 @@ pub mod query {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             write!(f, "field_type={}&", self.field_type.as_ref())?;
             match self.query_type {
+                #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
                 QueryType::TestMultiply => write!(f, "query_type={}", QueryType::TEST_MULTIPLY_STR),
                 QueryType::IPA(config) => write!(
                     f,
-                    "query_type={}&num_bits={}&per_user_credit_cap={}&max_breakdown_key={}",
+                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
                     QueryType::IPA_STR,
-                    config.num_bits,
                     config.per_user_credit_cap,
-                    config.max_breakdown_key
+                    config.max_breakdown_key,
+                    config.num_multi_bits,
                 ),
             }
         }
@@ -505,36 +506,32 @@ pub mod query {
     }
 
     pub mod results {
-        use crate::{
-            net::{client, http_serde::query::BASE_AXUM_PATH, server},
-            protocol::QueryId,
-        };
+        use crate::{net::server, protocol::QueryId};
         use async_trait::async_trait;
-        use axum::{
-            extract::{FromRequest, Path, RequestParts},
-            http::uri,
-        };
+        use axum::extract::{FromRequest, Path, RequestParts};
 
         pub struct Request {
             pub query_id: QueryId,
         }
 
         impl Request {
+            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
             pub fn new(query_id: QueryId) -> Self {
                 Self { query_id }
             }
 
+            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
             pub fn try_into_http_request(
                 self,
-                scheme: uri::Scheme,
-                authority: uri::Authority,
-            ) -> Result<hyper::Request<hyper::Body>, client::Error> {
-                let uri = uri::Uri::builder()
+                scheme: axum::http::uri::Scheme,
+                authority: axum::http::uri::Authority,
+            ) -> Result<hyper::Request<hyper::Body>, crate::net::client::Error> {
+                let uri = axum::http::uri::Uri::builder()
                     .scheme(scheme)
                     .authority(authority)
                     .path_and_query(format!(
                         "{}/{}/complete",
-                        BASE_AXUM_PATH,
+                        crate::net::http_serde::query::BASE_AXUM_PATH,
                         self.query_id.as_ref()
                     ))
                     .build()?;

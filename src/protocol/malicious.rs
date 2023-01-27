@@ -1,14 +1,18 @@
-use crate::protocol::basics::Reveal;
-use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::RecordId;
-use crate::sync::{Arc, Mutex, Weak};
 use crate::{
     error::Error,
     ff::Field,
     helpers::Direction,
-    protocol::{basics::check_zero, context::Context, RECORD_0, RECORD_1, RECORD_2},
-    secret_sharing::{DowngradeMalicious, MaliciousReplicated, Replicated},
+    protocol::{
+        basics::{check_zero, Reveal},
+        context::{Context, MaliciousContext, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId, RECORD_0, RECORD_1, RECORD_2,
+    },
+    secret_sharing::replicated::{
+        malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
+        semi_honest::AdditiveShare as Replicated,
+    },
+    sync::{Arc, Mutex, Weak},
 };
 use futures::future::try_join;
 
@@ -120,7 +124,7 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
     ) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let random_constant = prss.generate_replicated(record_id);
         let u_contribution = Self::compute_dot_product_contribution(&random_constant, input.rx());
@@ -200,16 +204,22 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
         let (u_share, w_share) = self.propagate_u_and_w().await?;
 
         // This should probably be done in parallel with the futures above
-        let narrow_ctx = self.validate_ctx.narrow(&ValidateStep::RevealR);
+        let narrow_ctx = self
+            .validate_ctx
+            .narrow(&ValidateStep::RevealR)
+            .set_total_records(1);
         let r = narrow_ctx.reveal(RECORD_0, &self.r_share).await?;
         let t = u_share - &(w_share * r);
 
-        let check_zero_ctx = self.validate_ctx.narrow(&ValidateStep::CheckZero);
+        let check_zero_ctx = self
+            .validate_ctx
+            .narrow(&ValidateStep::CheckZero)
+            .set_total_records(1);
         let is_valid = check_zero(check_zero_ctx, RECORD_0, &t).await?;
 
         if is_valid {
             // Yes, we're allowed to downgrade here.
-            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
             Ok(values.downgrade().await.access_without_downgrade())
         } else {
             Err(Error::MaliciousSecurityCheckFailed)
@@ -218,7 +228,10 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
 
     /// Turns out local values for `u` and `w` into proper replicated shares.
     async fn propagate_u_and_w(&self) -> Result<(Replicated<F>, Replicated<F>), Error> {
-        let propagate_ctx = self.validate_ctx.narrow(&ValidateStep::PropagateUW);
+        let propagate_ctx = self
+            .validate_ctx
+            .narrow(&ValidateStep::PropagateUW)
+            .set_total_records(2);
         let channel = propagate_ctx.mesh();
         let helper_right = propagate_ctx.role().peer(Direction::Right);
         let helper_left = propagate_ctx.role().peer(Direction::Left);
@@ -254,7 +267,8 @@ mod tests {
     use crate::protocol::{malicious::MaliciousValidator, RecordId};
     use crate::rand::thread_rng;
     use crate::secret_sharing::{
-        IntoShares, Replicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        replicated::semi_honest::AdditiveShare as Replicated, IntoShares,
     };
     use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
@@ -291,10 +305,11 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
 
-                let a_malicious = m_ctx.upgrade(RecordId::from(0), a_share).await?;
-                let b_malicious = m_ctx.upgrade(RecordId::from(1), b_share).await?;
+                let (a_malicious, b_malicious) =
+                    v.context().upgrade((a_share, b_share)).await.unwrap();
 
                 let m_result = m_ctx
+                    .set_total_records(1)
                     .multiply(RecordId::from(0), &a_malicious, &b_malicious)
                     .await?;
 
@@ -332,7 +347,7 @@ mod tests {
         let result = world
             .semi_honest(a, |ctx, a| async move {
                 let v = MaliciousValidator::new(ctx);
-                let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                let m = v.context().upgrade(a).await.unwrap();
                 v.validate(m).await.unwrap()
             })
             .await;
@@ -356,7 +371,7 @@ mod tests {
                         a
                     };
                     let v = MaliciousValidator::new(ctx);
-                    let m = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                    let m = v.context().upgrade(a).await.unwrap();
                     match v.validate(m).await {
                         Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
@@ -388,12 +403,13 @@ mod tests {
     /// There is a small chance of failure which is `2 / |F|`, where `|F|` is the cardinality of the prime field.
     #[tokio::test]
     async fn complex_circuit() -> Result<(), Error> {
+        const COUNT: usize = 100;
         let world = TestWorld::new().await;
         let context = world.contexts::<Fp31>();
         let mut rng = thread_rng();
 
-        let mut original_inputs = Vec::with_capacity(100);
-        for _ in 0..100 {
+        let mut original_inputs = Vec::with_capacity(COUNT);
+        for _ in 0..COUNT {
             let x = rng.gen::<Fp31>();
             original_inputs.push(x);
         }
@@ -412,18 +428,11 @@ mod tests {
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context();
 
-                let m_input = try_join_all(
-                    input_shares
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, share)| m_ctx.upgrade(RecordId::from(i), share)),
-                )
-                .await
-                .unwrap();
+                let m_input = m_ctx.upgrade(input_shares).await.unwrap();
 
                 let m_results = try_join_all(
                     zip(
-                        repeat(m_ctx).enumerate(),
+                        repeat(m_ctx.set_total_records(COUNT - 1)).enumerate(),
                         zip(m_input.iter(), m_input.iter().skip(1)),
                     )
                     .map(|((i, ctx), (a_malicious, b_malicious))| async move {

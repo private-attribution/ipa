@@ -1,53 +1,14 @@
+use crate::bits::BitArray40;
 use crate::ff::Field;
 use crate::protocol::boolean::RandomBitsShare;
-use crate::protocol::context::MaliciousContext;
-use crate::protocol::{BitOpStep, RecordId, Substep};
-use crate::rand::Rng;
 use crate::secret_sharing::{
-    IntoShares, MaliciousReplicated, Replicated, SecretSharing, XorReplicated,
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
 };
-use async_trait::async_trait;
-use futures::future::{join, try_join_all};
 use std::borrow::Borrow;
-use std::iter::{repeat, zip};
+use std::iter::zip;
 
-#[derive(Clone, Copy)]
-pub struct MaskedMatchKey(u64);
-
-impl MaskedMatchKey {
-    pub const BITS: u32 = 23;
-    const MASK: u64 = u64::MAX >> (64 - Self::BITS);
-
-    #[must_use]
-    pub fn mask(v: u64) -> Self {
-        Self(v & Self::MASK)
-    }
-
-    #[must_use]
-    pub fn bit(self, bit_num: u32) -> u64 {
-        (self.0 >> bit_num) & 1
-    }
-}
-
-impl From<MaskedMatchKey> for u64 {
-    fn from(v: MaskedMatchKey) -> Self {
-        v.0
-    }
-}
-
-impl IntoShares<XorReplicated> for MaskedMatchKey {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [XorReplicated; 3] {
-        debug_assert_eq!(self.0, self.0 & Self::MASK);
-        let s0 = rng.gen::<u64>() & Self::MASK;
-        let s1 = rng.gen::<u64>() & Self::MASK;
-        let s2 = self.0 ^ s0 ^ s1;
-        [
-            XorReplicated::new(s0, s1),
-            XorReplicated::new(s1, s2),
-            XorReplicated::new(s2, s0),
-        ]
-    }
-}
+pub type MaskedMatchKey = BitArray40;
 
 /// Deconstructs a value into N values, one for each bit.
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {
@@ -64,83 +25,6 @@ pub fn get_bits<F: Field>(x: u32, num_bits: u32) -> Vec<F> {
     (0..num_bits.try_into().unwrap())
         .map(|i| F::from(((x >> i) & 1).into()))
         .collect::<Vec<_>>()
-}
-
-/// Default step type for upgrades.
-struct IntoMaliciousStep;
-
-impl Substep for IntoMaliciousStep {}
-
-impl AsRef<str> for IntoMaliciousStep {
-    fn as_ref(&self) -> &str {
-        "malicious_upgrade"
-    }
-}
-
-/// For upgrading various shapes of replicated share to malicious.
-#[async_trait]
-pub trait IntoMalicious<F: Field, M>: Sized {
-    async fn upgrade(self, ctx: MaliciousContext<'_, F>) -> M {
-        self.upgrade_with(ctx, &IntoMaliciousStep).await
-    }
-    async fn upgrade_with<SS: Substep>(self, ctx: MaliciousContext<'_, F>, step: &SS) -> M;
-}
-
-#[async_trait]
-impl<F: Field> IntoMalicious<F, MaliciousReplicated<F>> for Replicated<F> {
-    async fn upgrade_with<SS: Substep>(
-        self,
-        ctx: MaliciousContext<'_, F>,
-        step: &SS,
-    ) -> MaliciousReplicated<F> {
-        ctx.upgrade_with(step, RecordId::from(0_u32), self)
-            .await
-            .unwrap()
-    }
-}
-
-#[async_trait]
-impl<F, T, TM, U, UM> IntoMalicious<F, (TM, UM)> for (T, U)
-where
-    F: Field,
-    T: IntoMalicious<F, TM> + Send,
-    U: IntoMalicious<F, UM> + Send,
-    TM: Sized + Send,
-    UM: Sized + Send,
-{
-    // Note that this implementation doesn't work with arbitrary nesting.
-    // For that, we'd need a `.narrow_for_upgrade()` function on the context.
-    async fn upgrade_with<SS: Substep>(self, ctx: MaliciousContext<'_, F>, _step: &SS) -> (TM, UM) {
-        join(
-            self.0.upgrade_with(ctx.clone(), &BitOpStep::from(0)),
-            self.1.upgrade_with(ctx, &BitOpStep::from(1)),
-        )
-        .await
-    }
-}
-
-#[async_trait]
-impl<F, I> IntoMalicious<F, Vec<MaliciousReplicated<F>>> for I
-where
-    F: Field,
-    I: IntoIterator<Item = Replicated<F>> + Send,
-    <I as IntoIterator>::IntoIter: Send,
-{
-    // Note that this implementation doesn't work with arbitrary nesting.
-    // For that, we'd need a `.narrow_for_upgrade()` function on the context.
-    async fn upgrade_with<SS: Substep>(
-        self,
-        ctx: MaliciousContext<'_, F>,
-        step: &SS,
-    ) -> Vec<MaliciousReplicated<F>> {
-        try_join_all(
-            zip(repeat(ctx), self.into_iter().enumerate()).map(|(ctx, (i, share))| async move {
-                ctx.upgrade_with(step, RecordId::from(i), share).await
-            }),
-        )
-        .await
-        .unwrap()
-    }
 }
 
 /// A trait that is helpful for reconstruction of values in tests.
@@ -256,7 +140,7 @@ where
     T: Borrow<MaliciousReplicated<F>>,
 {
     fn validate(&self, r: F) {
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
         let x = (
             self[0].borrow().x().access_without_downgrade(),

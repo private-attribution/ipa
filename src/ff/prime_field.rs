@@ -1,5 +1,5 @@
-use super::{field::BinaryField, Field};
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
+use super::Field;
+use crate::secret_sharing::SharedValue;
 
 macro_rules! field_impl {
     ( $field:ident, $int:ty, $prime:expr ) => {
@@ -11,9 +11,13 @@ macro_rules! field_impl {
         impl Field for $field {
             type Integer = $int;
             const PRIME: Self::Integer = $prime;
-            const ZERO: Self = $field(0);
             const ONE: Self = $field(1);
             const TYPE_STR: &'static str = stringify!($field);
+        }
+
+        impl SharedValue for $field {
+            const BITS: u32 = <Self as Field>::Integer::BITS;
+            const ZERO: Self = $field(0);
         }
 
         impl std::ops::Add for $field {
@@ -130,6 +134,7 @@ macro_rules! field_impl {
         mod common_tests {
             use super::*;
             use proptest::proptest;
+            use crate::bits::Serializable;
 
             #[test]
             fn zero() {
@@ -143,7 +148,7 @@ macro_rules! field_impl {
 
             #[test]
             fn can_write_into_buf_larger_than_required() {
-                let mut buf = vec![0_u8; $field::SIZE_IN_BYTES as usize + 1];
+                let mut buf = vec![0_u8; <$field as Serializable>::SIZE_IN_BYTES + 1];
 
                 // panic will show the error while assert will just tell us that something went wrong
                 $field::ONE.serialize(&mut buf).unwrap();
@@ -161,10 +166,9 @@ macro_rules! field_impl {
             }
 
             proptest! {
-
                 #[test]
-                fn ser_not_enough_capacity(buf_capacity in 0..$field::SIZE_IN_BYTES) {
-                    let mut buf = vec![0u8; buf_capacity as usize];
+                fn ser_not_enough_capacity(buf_capacity in 0..<$field as Serializable>::SIZE_IN_BYTES) {
+                    let mut buf = vec![0u8; buf_capacity];
                     assert!(matches!(
                         $field::ONE.serialize(&mut buf),
                         Err(e) if e.kind() == std::io::ErrorKind::WriteZero
@@ -172,8 +176,8 @@ macro_rules! field_impl {
                 }
 
                 #[test]
-                fn de_buf_too_small(buf_capacity in 0..$field::SIZE_IN_BYTES) {
-                    let buf = vec![0u8; buf_capacity as usize];
+                fn de_buf_too_small(buf_capacity in 0..<$field as Serializable>::SIZE_IN_BYTES) {
+                    let buf = vec![0u8; buf_capacity];
                     assert!(matches!(
                                     $field::deserialize(&buf),
                                     Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
@@ -183,7 +187,7 @@ macro_rules! field_impl {
                 #[test]
                 fn serde(v in 0..$field::PRIME) {
                     let field_v = $field(v);
-                    let mut buf = vec![0; $field::SIZE_IN_BYTES as usize];
+                    let mut buf = vec![0; <$field as Serializable>::SIZE_IN_BYTES];
                     field_v.serialize(&mut buf).unwrap();
 
                     assert_eq!(field_v, $field::deserialize(&buf).unwrap());
@@ -191,116 +195,6 @@ macro_rules! field_impl {
             }
         }
     };
-}
-
-mod fp2 {
-    field_impl! { Fp2, u8, 2 }
-
-    impl BinaryField for Fp2 {}
-
-    impl BitAnd for Fp2 {
-        type Output = Self;
-
-        fn bitand(self, rhs: Self) -> Self::Output {
-            Self(self.0 & rhs.0)
-        }
-    }
-
-    impl BitAndAssign for Fp2 {
-        fn bitand_assign(&mut self, rhs: Self) {
-            *self = *self & rhs;
-        }
-    }
-
-    impl BitOr for Fp2 {
-        type Output = Self;
-
-        fn bitor(self, rhs: Self) -> Self::Output {
-            Self(self.0 | rhs.0)
-        }
-    }
-
-    impl BitOrAssign for Fp2 {
-        fn bitor_assign(&mut self, rhs: Self) {
-            *self = *self | rhs;
-        }
-    }
-
-    impl BitXor for Fp2 {
-        type Output = Self;
-
-        fn bitxor(self, rhs: Self) -> Self::Output {
-            Self(self.0 ^ rhs.0)
-        }
-    }
-
-    impl BitXorAssign for Fp2 {
-        fn bitxor_assign(&mut self, rhs: Self) {
-            *self = *self ^ rhs;
-        }
-    }
-
-    impl Not for Fp2 {
-        type Output = Self;
-
-        fn not(self) -> Self::Output {
-            // Using `::from()` makes sure that the internal value is always 0 or 1, but since
-            // we use `u8` to represent a binary value, `!0` and `!1` will result in 255 and
-            // 254 respectively. Add `& 1` at the end to mask the LSB.
-            Self(!self.0 & 1)
-        }
-    }
-
-    #[cfg(all(test, not(feature = "shuttle")))]
-    mod specialized_tests {
-        use super::*;
-
-        #[test]
-        fn fp2() {
-            let x = Fp2::from(false);
-            let y = Fp2::from(true);
-
-            assert_eq!(Fp2(1), x + y);
-            assert_eq!(Fp2(0), x * y);
-            assert_eq!(Fp2(1), x - y);
-
-            let mut x = Fp2(1);
-            x += Fp2(1);
-            assert_eq!(Fp2(0), x);
-        }
-
-        #[test]
-        fn fp2_binary_op() {
-            let zero = Fp2::ZERO;
-            let one = Fp2::ONE;
-
-            assert_eq!(one, one & one);
-            assert_eq!(zero, zero & one);
-            assert_eq!(zero, one & zero);
-            assert_eq!(zero, zero & zero);
-            assert_eq!(zero, Fp2::from(31_u128) & Fp2::from(32_u128));
-            assert_eq!(one, Fp2::from(31_u128) & Fp2::from(63_u128));
-
-            assert_eq!(zero, zero | zero);
-            assert_eq!(one, one | one);
-            assert_eq!(one, zero | one);
-            assert_eq!(one, one | zero);
-            assert_eq!(one, Fp2::from(31_u128) | Fp2::from(32_u128));
-            assert_eq!(zero, Fp2::from(32_u128) | Fp2::from(64_u128));
-
-            assert_eq!(zero, zero ^ zero);
-            assert_eq!(one, zero ^ one);
-            assert_eq!(one, one ^ zero);
-            assert_eq!(zero, one ^ one);
-            assert_eq!(one, Fp2::from(31_u128) ^ Fp2::from(32_u128));
-            assert_eq!(zero, Fp2::from(32_u128) ^ Fp2::from(64_u128));
-
-            assert_eq!(one, !zero);
-            assert_eq!(zero, !one);
-            assert_eq!(one, !Fp2::from(32_u128));
-            assert_eq!(zero, !Fp2::from(31_u128));
-        }
-    }
 }
 
 mod fp31 {
@@ -375,6 +269,5 @@ mod fp32bit {
     }
 }
 
-pub use fp2::Fp2;
 pub use fp31::Fp31;
 pub use fp32bit::Fp32BitPrime;

@@ -115,6 +115,8 @@ pub async fn shuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share =
     random_permutations: (&[u32], &[u32]),
     ctx: C,
 ) -> Result<Vec<S>, Error> {
+    let ctx = ctx.set_total_records(input.len());
+
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,
@@ -150,6 +152,8 @@ pub async fn unshuffle_shares<F: Field, S: SecretSharing<F>, C: Context<F, Share
     random_permutations: (&[u32], &[u32]),
     ctx: C,
 ) -> Result<Vec<S>, Error> {
+    let ctx = ctx.set_total_records(input.len());
+
     let input = shuffle_or_unshuffle_once(
         input,
         random_permutations,

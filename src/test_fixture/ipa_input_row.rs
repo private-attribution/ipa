@@ -1,9 +1,15 @@
 use rand::{distributions::Standard, prelude::Distribution};
 
+use crate::bits::BitArray;
 use crate::secret_sharing::IntoShares;
-use crate::{ff::Field, protocol::ipa::IPAInputRow, rand::Rng, secret_sharing::Replicated};
-
-use super::MaskedMatchKey;
+use crate::{
+    ff::Field,
+    protocol::ipa::IPAInputRow,
+    rand::Rng,
+    secret_sharing::replicated::semi_honest::{
+        AdditiveShare as Replicated, XorShare as XorReplicated,
+    },
+};
 
 #[derive(Debug)]
 pub struct IPAInputTestRow {
@@ -33,31 +39,32 @@ impl IPAInputTestRow {
     }
 }
 
-impl<F> IntoShares<IPAInputRow<F>> for IPAInputTestRow
+impl<F, B> IntoShares<IPAInputRow<F, B>> for IPAInputTestRow
 where
     F: Field + IntoShares<Replicated<F>>,
-    Standard: Distribution<F>,
+    B: BitArray + IntoShares<XorReplicated<B>>,
+    Standard: Distribution<F> + Distribution<B>,
 {
-    fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F>; 3] {
-        let match_key_shares = MaskedMatchKey::mask(self.match_key).share_with(rng);
+    fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F, B>; 3] {
+        let [mk0, mk1, mk2] = B::truncate_from(self.match_key).share_with(rng);
         let [itb0, itb1, itb2] = F::from(self.is_trigger_bit).share_with(rng);
         let [bdk0, bdk1, bdk2] = F::from(self.breakdown_key).share_with(rng);
         let [tv0, tv1, tv2] = F::from(self.trigger_value).share_with(rng);
         [
             IPAInputRow {
-                mk_shares: match_key_shares[0],
+                mk_shares: mk0,
                 is_trigger_bit: itb0,
                 breakdown_key: bdk0,
                 trigger_value: tv0,
             },
             IPAInputRow {
-                mk_shares: match_key_shares[1],
+                mk_shares: mk1,
                 is_trigger_bit: itb1,
                 breakdown_key: bdk1,
                 trigger_value: tv1,
             },
             IPAInputRow {
-                mk_shares: match_key_shares[2],
+                mk_shares: mk2,
                 is_trigger_bit: itb2,
                 breakdown_key: bdk2,
                 trigger_value: tv2,

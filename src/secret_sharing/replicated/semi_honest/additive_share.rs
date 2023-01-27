@@ -1,82 +1,62 @@
-use crate::ff::Field;
-use crate::helpers::Role;
+use crate::{
+    bits::Serializable,
+    ff::Field,
+    helpers::Role,
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing},
+};
 use std::fmt::{Debug, Formatter};
 use std::io;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct Replicated<F: Field>(F, F);
+pub struct AdditiveShare<V: ArithmeticShare>(V, V);
 
-impl<F: Field + Debug> Debug for Replicated<F> {
+impl<V: ArithmeticShare> SecretSharing<V> for AdditiveShare<V> {
+    const ZERO: Self = AdditiveShare::ZERO;
+}
+
+impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
+
+impl<V: ArithmeticShare + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<F: Field> Default for Replicated<F> {
+impl<V: ArithmeticShare> Default for AdditiveShare<V> {
     fn default() -> Self {
-        Replicated::new(F::ZERO, F::ZERO)
+        AdditiveShare::new(V::ZERO, V::ZERO)
     }
 }
 
-impl<F: Field> Replicated<F> {
+impl<V: ArithmeticShare> AdditiveShare<V> {
+    /// Replicated secret share where both left and right values are `F::ZERO`
+    pub const ZERO: Self = Self(V::ZERO, V::ZERO);
+
     #[must_use]
-    pub fn new(a: F, b: F) -> Self {
+    pub fn new(a: V, b: V) -> Self {
         Self(a, b)
     }
 
-    pub fn as_tuple(&self) -> (F, F) {
+    pub fn as_tuple(&self) -> (V, V) {
         (self.0, self.1)
     }
 
-    pub fn left(&self) -> F {
+    pub fn left(&self) -> V {
         self.0
     }
 
-    pub fn right(&self) -> F {
+    pub fn right(&self) -> V {
         self.1
     }
 
-    /// Returns share of value one.
-    #[must_use]
-    pub fn one(helper_role: Role) -> Self {
-        Self::from_scalar(helper_role, F::ONE)
-    }
-
     /// Returns share of a scalar value.
-    pub fn from_scalar(helper_role: Role, a: F) -> Self {
+    pub fn from_scalar(helper_role: Role, a: V) -> Self {
         match helper_role {
-            Role::H1 => Self::new(a, F::ZERO),
-            Role::H2 => Self::new(F::ZERO, F::ZERO),
-            Role::H3 => Self::new(F::ZERO, a),
+            Role::H1 => Self::new(a, V::ZERO),
+            Role::H2 => Self::new(V::ZERO, V::ZERO),
+            Role::H3 => Self::new(V::ZERO, a),
         }
-    }
-
-    /// Replicated secret share where both left and right values are `F::ZERO`
-    pub const ZERO: Replicated<F> = Self(F::ZERO, F::ZERO);
-
-    pub const SIZE_IN_BYTES: usize = 2 * F::SIZE_IN_BYTES as usize;
-
-    /// Serialize replicated share into a slice of bytes
-    ///
-    /// ## Errors
-    /// if [`buf`] does not have enough capacity to hold this value
-    pub fn serialize(&self, buf: &mut [u8]) -> io::Result<usize> {
-        F::serialize(&self.left(), buf)?;
-        F::serialize(&self.right(), &mut buf[F::SIZE_IN_BYTES as usize..])?;
-
-        Ok(2 * F::SIZE_IN_BYTES as usize)
-    }
-
-    /// Deserializes this instance from a slice of bytes
-    ///
-    /// ## Errors
-    /// if buffer does not have enough capacity to hold a valid value of this instance.
-    pub fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        let left = F::deserialize(buf)?;
-        let right = F::deserialize(&buf[F::SIZE_IN_BYTES as usize..])?;
-
-        Ok(Self(left, right))
     }
 
     /// Deserialize a slice of bytes into an iterator of replicated shares
@@ -84,22 +64,48 @@ impl<F: Field> Replicated<F> {
     /// ## Panics
     /// if [`buf`] len is not aligned with the size of this instance
     pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
-        debug_assert!(from.len() % (2 * F::SIZE_IN_BYTES as usize) == 0);
+        debug_assert!(from.len() % (Self::SIZE_IN_BYTES) == 0);
 
-        from.chunks(2 * F::SIZE_IN_BYTES as usize)
+        from.chunks(Self::SIZE_IN_BYTES)
             .map(|chunk| Self::deserialize(chunk).unwrap())
     }
 }
 
-impl<F: Field> Add<Self> for &Replicated<F> {
-    type Output = Replicated<F>;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Replicated(self.0 + rhs.0, self.1 + rhs.1)
+impl<F: Field> AdditiveShare<F> {
+    /// Returns share of value one.
+    #[must_use]
+    pub fn one(helper_role: Role) -> Self {
+        Self::from_scalar(helper_role, F::ONE)
     }
 }
 
-impl<F: Field> Add<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> Serializable for AdditiveShare<V> {
+    const SIZE_IN_BYTES: usize = 2 * V::SIZE_IN_BYTES;
+
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        V::serialize(self.left(), buf)?;
+        V::serialize(self.right(), &mut buf[V::SIZE_IN_BYTES..])?;
+
+        Ok(())
+    }
+
+    fn deserialize(buf: &[u8]) -> io::Result<Self> {
+        let left = V::deserialize(buf)?;
+        let right = V::deserialize(&buf[V::SIZE_IN_BYTES..])?;
+
+        Ok(Self(left, right))
+    }
+}
+
+impl<V: ArithmeticShare> Add<Self> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        AdditiveShare(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl<V: ArithmeticShare> Add<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn add(mut self, rhs: &Self) -> Self::Output {
@@ -108,14 +114,14 @@ impl<F: Field> Add<&Self> for Replicated<F> {
     }
 }
 
-impl<F: Field> AddAssign<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> AddAssign<&Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.0 += rhs.0;
         self.1 += rhs.1;
     }
 }
 
-impl<F: Field> Neg for Replicated<F> {
+impl<V: ArithmeticShare> Neg for AdditiveShare<V> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
@@ -123,15 +129,15 @@ impl<F: Field> Neg for Replicated<F> {
     }
 }
 
-impl<F: Field> Sub<Self> for &Replicated<F> {
-    type Output = Replicated<F>;
+impl<V: ArithmeticShare> Sub<Self> for &AdditiveShare<V> {
+    type Output = AdditiveShare<V>;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Replicated(self.0 - rhs.0, self.1 - rhs.1)
+        AdditiveShare(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
 
-impl<F: Field> Sub<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> Sub<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn sub(mut self, rhs: &Self) -> Self::Output {
@@ -140,44 +146,52 @@ impl<F: Field> Sub<&Self> for Replicated<F> {
     }
 }
 
-impl<F: Field> SubAssign<&Self> for Replicated<F> {
+impl<V: ArithmeticShare> SubAssign<&Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.0 -= rhs.0;
         self.1 -= rhs.1;
     }
 }
 
-impl<F: Field> Mul<F> for Replicated<F> {
+impl<V: ArithmeticShare> Mul<V> for AdditiveShare<V> {
     type Output = Self;
 
-    fn mul(self, rhs: F) -> Self::Output {
+    fn mul(self, rhs: V) -> Self::Output {
         Self(self.0 * rhs, self.1 * rhs)
     }
 }
 
-impl<F: Field> From<(F, F)> for Replicated<F> {
-    fn from(s: (F, F)) -> Self {
-        Replicated::new(s.0, s.1)
+impl<V: ArithmeticShare> From<(V, V)> for AdditiveShare<V> {
+    fn from(s: (V, V)) -> Self {
+        AdditiveShare::new(s.0, s.1)
     }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::Replicated;
+    use super::AdditiveShare;
     use crate::ff::Fp31;
 
-    fn secret_share(a: u8, b: u8, c: u8) -> (Replicated<Fp31>, Replicated<Fp31>, Replicated<Fp31>) {
+    fn secret_share(
+        a: u8,
+        b: u8,
+        c: u8,
+    ) -> (
+        AdditiveShare<Fp31>,
+        AdditiveShare<Fp31>,
+        AdditiveShare<Fp31>,
+    ) {
         (
-            Replicated::new(Fp31::from(a), Fp31::from(b)),
-            Replicated::new(Fp31::from(b), Fp31::from(c)),
-            Replicated::new(Fp31::from(c), Fp31::from(a)),
+            AdditiveShare::new(Fp31::from(a), Fp31::from(b)),
+            AdditiveShare::new(Fp31::from(b), Fp31::from(c)),
+            AdditiveShare::new(Fp31::from(c), Fp31::from(a)),
         )
     }
 
     fn assert_valid_secret_sharing(
-        res1: &Replicated<Fp31>,
-        res2: &Replicated<Fp31>,
-        res3: &Replicated<Fp31>,
+        res1: &AdditiveShare<Fp31>,
+        res2: &AdditiveShare<Fp31>,
+        res3: &AdditiveShare<Fp31>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -185,9 +199,9 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: &Replicated<Fp31>,
-        a2: &Replicated<Fp31>,
-        a3: &Replicated<Fp31>,
+        a1: &AdditiveShare<Fp31>,
+        a2: &AdditiveShare<Fp31>,
+        a3: &AdditiveShare<Fp31>,
         expected_value: u128,
     ) {
         assert_eq!(a1.0 + a2.0 + a3.0, Fp31::from(expected_value));

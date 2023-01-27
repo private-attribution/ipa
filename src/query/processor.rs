@@ -449,13 +449,15 @@ mod tests {
     mod e2e {
         use super::*;
         use crate::{
+            bits::Serializable,
             ff::Fp31,
             helpers::{query::IPAQueryConfig, transport::ByteArrStream},
             protocol::{
                 attribution::AggregateCreditOutputRow,
                 ipa::{test_cases::Simple, IPAInputRow},
+                MatchKey,
             },
-            secret_sharing::{IntoShares, Replicated},
+            secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
             sync::Weak,
             test_fixture::{transport::InMemoryTransport, Reconstruct},
         };
@@ -549,14 +551,14 @@ mod tests {
         #[tokio::test]
         async fn ipa() {
             const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
-            type SimpleTestCase = Simple<Fp31>;
+            type SimpleTestCase = Simple<Fp31, MatchKey>;
             let network = InMemoryNetwork::default();
             let (query_id, mut processors) = start_query(
                 &network,
                 QueryConfig {
                     field_type: FieldType::Fp31,
                     query_type: IPAQueryConfig {
-                        num_bits: 20,
+                        num_multi_bits: 3,
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
                     }
@@ -571,8 +573,8 @@ mod tests {
                 .map(|shares| {
                     let data = shares
                         .into_iter()
-                        .flat_map(|share: IPAInputRow<Fp31>| {
-                            let mut buf = [0u8; IPAInputRow::<Fp31>::SIZE_IN_BYTES];
+                        .flat_map(|share: IPAInputRow<Fp31, MatchKey>| {
+                            let mut buf = [0u8; IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES];
                             share.serialize(&mut buf).unwrap();
 
                             buf

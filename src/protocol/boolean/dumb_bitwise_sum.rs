@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::or::or;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use futures::future::try_join_all;
 use std::iter::zip;
 
@@ -57,7 +57,7 @@ pub async fn bitwise_sum<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let (a, b) = align_bit_lengths(a, b); // TODO: remove
     let both_bits_one =

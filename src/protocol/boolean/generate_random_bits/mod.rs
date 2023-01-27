@@ -1,9 +1,14 @@
+use crate::bits::{BitArray, BitArray40};
 use crate::error::Error;
 use crate::ff::{Field, Int};
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::{Replicated, SecretSharing, XorReplicated};
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated,
+    replicated::semi_honest::XorShare as XorReplicated, ArithmeticShare, SecretSharing,
+};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use std::iter::repeat;
@@ -12,8 +17,8 @@ mod malicious;
 mod semi_honest;
 
 #[async_trait]
-pub trait RandomBits<F: Field> {
-    type Share: SecretSharing<F>;
+pub trait RandomBits<V: ArithmeticShare> {
+    type Share: SecretSharing<V>;
 
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error>;
 }
@@ -37,13 +42,13 @@ where
 
     // Same here. For now, 256-bit is enough for our F_p
     let xor_share = XorReplicated::new(
-        u64::try_from(b_bits_left & u128::from(u64::MAX)).unwrap(),
-        u64::try_from(b_bits_right & u128::from(u64::MAX)).unwrap(),
+        BitArray40::truncate_from(b_bits_left),
+        BitArray40::truncate_from(b_bits_right),
     );
 
     // Convert each bit to secret sharings of that bit in the target field
     (0..l)
-        .map(|i| convert_bit_local::<F>(ctx.role(), i, &xor_share))
+        .map(|i| convert_bit_local::<F, BitArray40>(ctx.role(), i, &xor_share))
         .collect::<Vec<_>>()
 }
 
@@ -55,7 +60,7 @@ async fn convert_triples_to_shares<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     // Calculate the number of bits we need to form a random number that
     // has the same number of bits as the prime.

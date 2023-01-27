@@ -2,7 +2,7 @@ use futures::future::try_join_all;
 
 use crate::error::Error;
 use crate::ff::{Field, Int};
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use std::iter::repeat;
 
 use super::context::Context;
@@ -68,10 +68,9 @@ where
     (a, b)
 }
 
-/// To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
 /// We can minimize circuit depth by doing this in a binary-tree like fashion, where pairs of shares are multiplied together
 /// and those results are recursively multiplied.
-pub(crate) async fn check_if_all_ones<F, C, S>(
+pub(crate) async fn multiply_all_shares<F, C, S>(
     ctx: C,
     record_id: RecordId,
     x: &[S],
@@ -107,7 +106,7 @@ where
 fn flip_bits<F, S>(one: S, x: &[S]) -> Vec<S>
 where
     F: Field,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     x.iter()
         .zip(repeat(one))
@@ -121,7 +120,7 @@ pub(crate) async fn any_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> R
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let one = ctx.share_of_one();
     let res = no_ones(ctx, record_id, x).await?;
@@ -132,9 +131,10 @@ pub(crate) async fn no_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Re
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
 {
     let one = ctx.share_of_one();
     let inverted_elements = flip_bits(one.clone(), x);
-    check_if_all_ones(ctx, record_id, &inverted_elements).await
+    // To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
+    multiply_all_shares(ctx, record_id, &inverted_elements).await
 }

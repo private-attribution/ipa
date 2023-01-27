@@ -1,13 +1,16 @@
-use super::Substep;
-use std::fmt::Debug;
-
-mod apply;
 pub mod apply_sort;
 pub mod bit_permutation;
-mod compose;
 pub mod generate_permutation;
+pub mod generate_permutation_opt;
+
+mod apply;
+mod compose;
+mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
+
+use crate::{protocol::Substep, repeat64str};
+use std::fmt::Debug;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
@@ -16,24 +19,21 @@ pub enum SortStep {
     ComposeStep,
     ShuffleRevealPermutation,
     SortKeys,
-    //malicious features
-    MaliciousUpgradeContext,
-    MaliciousUpgradeInput,
+    MultiApplyInv(u32),
 }
 
 impl Substep for SortStep {}
 
 impl AsRef<str> for SortStep {
     fn as_ref(&self) -> &str {
+        const MULTI_APPLY_INV: [&str; 64] = repeat64str!["multi_apply_inv"];
         match self {
             Self::BitPermutationStep => "bit_permute",
             Self::ApplyInv => "apply_inv",
             Self::ComposeStep => "compose",
             Self::ShuffleRevealPermutation => "shuffle_reveal_permutation",
             Self::SortKeys => "sort_keys",
-            //malicious features
-            Self::MaliciousUpgradeContext => "malicious_upgrade_context",
-            Self::MaliciousUpgradeInput => "malicious_upgrade_input",
+            Self::MultiApplyInv(i) => MULTI_APPLY_INV[usize::try_from(*i).unwrap()],
         }
     }
 }
@@ -111,6 +111,7 @@ pub enum ReshareStep {
     RandomnessForValidation,
     ReshareRx,
 }
+
 impl Substep for ReshareStep {}
 
 impl AsRef<str> for ReshareStep {
@@ -118,6 +119,21 @@ impl AsRef<str> for ReshareStep {
         match self {
             Self::RandomnessForValidation => "randomness_for_validation",
             Self::ReshareRx => "reshare_rx",
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum MultiBitPermutationStep {
+    MultiplyAcrossBits,
+}
+
+impl Substep for MultiBitPermutationStep {}
+
+impl AsRef<str> for MultiBitPermutationStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::MultiplyAcrossBits => "multiply_across_bits",
         }
     }
 }

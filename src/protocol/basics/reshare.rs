@@ -2,12 +2,14 @@ use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::sort::ReshareStep::RandomnessForValidation;
-use crate::secret_sharing::{MaliciousReplicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+};
 use crate::{
     error::Error,
     helpers::{Direction, Role},
     protocol::{context::SemiHonestContext, sort::ReshareStep::ReshareRx, RecordId},
-    secret_sharing::Replicated,
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -28,8 +30,8 @@ use futures::future::try_join;
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
-pub trait Reshare<F: Field> {
-    type Share: SecretSharing<F>;
+pub trait Reshare<V: ArithmeticShare> {
+    type Share: SecretSharing<V>;
 
     async fn reshare(
         self,
@@ -102,7 +104,7 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
         use crate::protocol::context::SpecialAccessToMaliciousContext;
-        use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
         let random_constant_ctx = self.narrow(&RandomnessForValidation);
 
         let (rx, x) = try_join(
@@ -148,6 +150,7 @@ mod tests {
                 let shares = world
                     .semi_honest(secret, |ctx, share| async move {
                         let record_id = RecordId::from(0);
+                        let ctx = ctx.set_total_records(1);
 
                         // run reshare protocol for all helpers except the one that does not know the input
                         if ctx.role() == target {
@@ -180,7 +183,10 @@ mod tests {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
                     .semi_honest(secret, |ctx, share| async move {
-                        ctx.reshare(&share, RecordId::from(0), role).await.unwrap()
+                        ctx.set_total_records(1)
+                            .reshare(&share, RecordId::from(0), role)
+                            .await
+                            .unwrap()
                     })
                     .await;
 
@@ -202,7 +208,10 @@ mod tests {
         use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
         use crate::protocol::RecordId;
         use crate::rand::{thread_rng, Rng};
-        use crate::secret_sharing::{MaliciousReplicated, Replicated};
+        use crate::secret_sharing::{
+            replicated::malicious::AdditiveShare as MaliciousReplicated,
+            replicated::semi_honest::AdditiveShare as Replicated,
+        };
         use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
@@ -219,7 +228,10 @@ mod tests {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
                     .malicious(secret, |ctx, share| async move {
-                        ctx.reshare(&share, RecordId::from(0), role).await.unwrap()
+                        ctx.set_total_records(1)
+                            .reshare(&share, RecordId::from(0), role)
+                            .await
+                            .unwrap()
                     })
                     .await;
 
@@ -278,7 +290,7 @@ mod tests {
             additive_error: F,
         ) -> Result<MaliciousReplicated<F>, Error> {
             use crate::protocol::context::SpecialAccessToMaliciousContext;
-            use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
             let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
 
             let (rx, x) = try_join(
@@ -316,13 +328,14 @@ mod tests {
                 world
                     .semi_honest(a, |ctx, a| async move {
                         let v = MaliciousValidator::new(ctx);
+                        let m_ctx = v.context().set_total_records(1);
                         let record_id = RecordId::from(0);
-                        let m_a = v.context().upgrade(RecordId::from(0), a).await.unwrap();
+                        let m_a = v.context().upgrade(a).await.unwrap();
 
-                        let m_reshared_a = if v.context().role() == *malicious_actor {
+                        let m_reshared_a = if m_ctx.role() == *malicious_actor {
                             // This role is spoiling the value.
                             reshare_malicious_with_additive_attack(
-                                v.context(),
+                                m_ctx,
                                 &m_a,
                                 record_id,
                                 to_helper,
@@ -331,10 +344,7 @@ mod tests {
                             .await
                             .unwrap()
                         } else {
-                            v.context()
-                                .reshare(&m_a, record_id, to_helper)
-                                .await
-                                .unwrap()
+                            m_ctx.reshare(&m_a, record_id, to_helper).await.unwrap()
                         };
                         match v.validate(m_reshared_a).await {
                             Ok(result) => panic!("Got a result {result:?}"),

@@ -134,10 +134,11 @@ impl Transport for Arc<HttpTransport> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use super::*;
     use crate::{
+        bits::Serializable,
         ff::{FieldType, Fp31},
         helpers::{
             query::{QueryConfig, QueryInput, QueryType},
@@ -145,7 +146,7 @@ mod e2e_tests {
         },
         net::discovery::PeerDiscovery,
         query::Processor,
-        secret_sharing::{IntoShares, Replicated},
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{net::localhost_config, Reconstruct},
     };
     use futures_util::{

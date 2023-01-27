@@ -1,7 +1,9 @@
 use std::iter::{repeat, zip};
 
 use crate::repeat64str;
-use crate::secret_sharing::{Replicated, SecretSharing};
+use crate::secret_sharing::{
+    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+};
 use crate::{
     error::Error,
     ff::Field,
@@ -19,12 +21,12 @@ use crate::protocol::sort::{
 };
 
 #[async_trait]
-pub trait Resharable<F: Field>: Sized {
-    type Share: SecretSharing<F>;
+pub trait Resharable<V: ArithmeticShare>: Sized {
+    type Share: SecretSharing<V>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send;
+        C: Context<V, Share = <Self as Resharable<V>>::Share> + Send;
 }
 
 pub struct InnerVectorElementStep(usize);
@@ -70,6 +72,7 @@ where
     S: SecretSharing<F>,
     T: Resharable<F, Share = S>,
 {
+    let ctx = ctx.set_total_records(input.len());
     let reshares = zip(repeat(ctx), input)
         .enumerate()
         .map(|(index, (ctx, input))| async move {
@@ -167,11 +170,11 @@ mod tests {
         use crate::rand::{thread_rng, Rng};
 
         use crate::ff::{Fp31, Fp32BitPrime};
-        use crate::protocol::attribution::accumulate_credit::AttributionTestInput;
+        use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
-        use crate::secret_sharing::Replicated;
+        use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 

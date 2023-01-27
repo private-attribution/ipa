@@ -1,11 +1,11 @@
-use crate::ff::{self, Error};
+use crate::{
+    bits::{BooleanOps, Serializable},
+    ff::{self, Error},
+    secret_sharing::ArithmeticShare,
+};
 use std::any::type_name;
 use std::fmt::Debug;
-use std::io;
-use std::io::ErrorKind;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
-
-use super::ArithmeticOps;
+use std::io::{self, ErrorKind};
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int: Sized + Copy + Debug + Into<u128> {
@@ -20,29 +20,12 @@ impl Int for u32 {
     const BITS: u32 = u32::BITS;
 }
 
-pub trait Field:
-    ArithmeticOps
-    + From<u128>
-    + Into<Self::Integer>
-    + Clone
-    + Copy
-    + PartialEq
-    + Debug
-    + Send
-    + Sync
-    + Sized
-    + 'static
-{
+pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
     type Integer: Int;
 
     const PRIME: Self::Integer;
-    /// Additive identity element
-    const ZERO: Self;
     /// Multiplicative identity element
     const ONE: Self;
-    /// Derived from the size of the backing field, this constant indicates how much
-    /// space is required to store this field value
-    const SIZE_IN_BYTES: u32 = Self::Integer::BITS / 8;
 
     /// str repr of the type of the [`Field`]; to be used with `FieldType` to get the size of a
     /// given [`Field`] from this value.
@@ -58,6 +41,10 @@ pub trait Field:
         let int: Self::Integer = (*self).into();
         int.into()
     }
+}
+
+impl<F: Field> Serializable for F {
+    const SIZE_IN_BYTES: usize = F::BITS as usize / 8;
 
     /// Generic implementation to serialize fields into a buffer. Callers need to make sure
     /// there is enough capacity to store the value of this field.
@@ -66,11 +53,11 @@ pub trait Field:
     ///
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity to store this field value
-    fn serialize(&self, buf: &mut [u8]) -> io::Result<()> {
-        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES as usize];
+    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
+        let raw_value = &self.as_u128().to_le_bytes()[..Self::SIZE_IN_BYTES];
 
         if buf.len() >= raw_value.len() {
-            buf[..Self::SIZE_IN_BYTES as usize].copy_from_slice(raw_value);
+            buf[..<Self as Serializable>::SIZE_IN_BYTES].copy_from_slice(raw_value);
             Ok(())
         } else {
             let error_text = format!(
@@ -78,7 +65,7 @@ pub trait Field:
                  it required at least {} bytes available",
                 buf.len(),
                 self,
-                Self::SIZE_IN_BYTES
+                <Self as Serializable>::SIZE_IN_BYTES
             );
 
             Err(io::Error::new(ErrorKind::WriteZero, error_text))
@@ -95,25 +82,26 @@ pub trait Field:
     /// ## Errors
     /// Returns an error if buffer did not have enough capacity left to read the field value.
     fn deserialize(buf_from: &[u8]) -> io::Result<Self> {
-        if Self::SIZE_IN_BYTES as usize <= buf_from.len() {
+        let sz = Self::SIZE_IN_BYTES;
+        if sz <= buf_from.len() {
             let mut buf_to = [0; 16]; // one day...
-            buf_to[..Self::SIZE_IN_BYTES as usize]
-                .copy_from_slice(&buf_from[..Self::SIZE_IN_BYTES as usize]);
+            buf_to[..sz].copy_from_slice(&buf_from[..sz]);
 
             Ok(Self::from(u128::from_le_bytes(buf_to)))
         } else {
             let error_text = format!(
-                "Buffer is too small to read values of the field type {}. Required at least {} bytes,\
-                 got {}", type_name::<Self>(), Self::SIZE_IN_BYTES, buf_from.len()
+                "Buffer is too small to read values of the field type {}. Required at least {sz} bytes,\
+                 got {}", type_name::<Self>(), buf_from.len()
             );
             Err(io::Error::new(ErrorKind::UnexpectedEof, error_text))
         }
     }
 }
 
+pub trait BinaryField: Field + BooleanOps {}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FieldType {
-    Fp2,
     Fp31,
     Fp32BitPrime,
 }
@@ -121,7 +109,6 @@ pub enum FieldType {
 impl AsRef<str> for FieldType {
     fn as_ref(&self) -> &str {
         match self {
-            FieldType::Fp2 => ff::Fp2::TYPE_STR,
             FieldType::Fp31 => ff::Fp31::TYPE_STR,
             FieldType::Fp32BitPrime => ff::Fp32BitPrime::TYPE_STR,
         }
@@ -152,9 +139,7 @@ impl<'de> serde::Deserialize<'de> for FieldType {
                 self,
                 field_type_str: &str,
             ) -> Result<Self::Value, E> {
-                if field_type_str.eq_ignore_ascii_case(ff::Fp2::TYPE_STR) {
-                    Ok(FieldType::Fp2)
-                } else if field_type_str.eq_ignore_ascii_case(ff::Fp31::TYPE_STR) {
+                if field_type_str.eq_ignore_ascii_case(ff::Fp31::TYPE_STR) {
                     Ok(FieldType::Fp31)
                 } else if field_type_str.eq_ignore_ascii_case(ff::Fp32BitPrime::TYPE_STR) {
                     Ok(FieldType::Fp32BitPrime)
@@ -174,18 +159,6 @@ impl<'de> serde::Deserialize<'de> for FieldType {
         }
         deserializer.deserialize_str(FieldTypeVisitor)
     }
-}
-
-pub trait BinaryField:
-    Field
-    + BitAnd<Output = Self>
-    + BitAndAssign
-    + BitOr<Output = Self>
-    + BitOrAssign
-    + BitXor<Output = Self>
-    + BitXorAssign
-    + Not<Output = Self>
-{
 }
 
 #[cfg(test)]

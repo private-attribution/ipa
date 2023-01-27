@@ -108,7 +108,7 @@ impl BufRead for InputSource {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::cli::playbook::input::InputItem;
     use crate::ff::{Fp31, Fp32BitPrime};

@@ -5,7 +5,7 @@ use crate::protocol::{
     context::{Context, MaliciousContext},
     RecordId,
 };
-use crate::secret_sharing::MaliciousReplicated;
+use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -68,7 +68,7 @@ where
     F: Field,
 {
     use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
@@ -100,7 +100,7 @@ where
 mod test {
     use crate::{
         ff::Fp31,
-        protocol::{basics::SecureMul, RecordId},
+        protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -115,7 +115,10 @@ mod test {
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                ctx.multiply(RecordId::from(0), &a, &b).await.unwrap()
+                ctx.set_total_records(1)
+                    .multiply(RecordId::from(0), &a, &b)
+                    .await
+                    .unwrap()
             })
             .await;
 

@@ -1,9 +1,10 @@
 use super::solved_bits::{solved_bits, RandomBitsShare};
 use crate::error::Error;
 use crate::ff::Field;
+use crate::helpers::messaging::TotalRecords;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::SecretSharing;
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -26,13 +27,15 @@ pub struct RandomBitsGenerator<F, S, C> {
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
     F: Field,
-    S: SecretSharing<F>,
+    S: ArithmeticSecretSharing<F>,
     C: Context<F, Share = S>,
 {
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // TODO: pending resolution of TotalRecords::Indeterminate
     pub fn new(ctx: C) -> Self {
+        debug_assert!(ctx.is_total_records_unspecified());
         Self {
-            ctx,
+            ctx: ctx.set_total_records(TotalRecords::Indeterminate),
             record_id: AtomicU32::new(0),
             abort_count: AtomicUsize::new(0),
             _marker: PhantomData::default(),
