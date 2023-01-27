@@ -25,20 +25,15 @@ use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as
 ///     ...
 ///     `[ row[0].bitmL,  ..., row[0].bit31 ], [ row[1].bitmL, ..., row[n].bit31 ], .. [ row[n].bitmL, ..., row[n].bit31 ]`,
 /// `]`
-/// # Errors
-/// If any underlying protocol fails
-/// # Panics
-/// Panics if input doesn't have same number of bits as `num_bits`
 #[must_use]
 pub fn split_into_multi_bit_slices<F: Field>(
     input: &[Vec<Replicated<F>>],
     num_bits: u32,
     num_multi_bits: u32,
 ) -> Vec<Vec<Vec<Replicated<F>>>> {
-    let num_multi_bits = num_multi_bits;
     let total_records = input.len();
     (0..num_bits)
-        .step_by(num_multi_bits.try_into().unwrap())
+        .step_by(num_multi_bits as usize)
         .map(|bit_num| {
             (0..total_records)
                 .map(|record_idx| {
@@ -69,11 +64,6 @@ pub fn split_into_multi_bit_slices<F: Field>(
 ///     ...
 ///     `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
 ///  `]`
-
-/// # Errors
-/// If any underlying protocol fails
-/// # Panics
-/// Panics if input doesn't have same number of bits as `num_bits`
 #[must_use]
 pub fn combine_slices<F: Field>(
     input: &[Vec<Vec<Replicated<F>>>],
@@ -81,11 +71,9 @@ pub fn combine_slices<F: Field>(
 ) -> Vec<Vec<Replicated<F>>> {
     let record_count = input[0].len();
     let mut output = Vec::with_capacity(record_count);
-    output.resize_with(record_count, || {
-        Vec::with_capacity(num_bits.try_into().unwrap())
-    });
+    output.resize_with(record_count, || Vec::with_capacity(num_bits as usize));
     for slice in input {
-        output.push(Vec::new());
+        output.push(Vec::with_capacity(num_bits as usize));
         for (idx, record) in slice.iter().enumerate() {
             let mut one = record.clone();
             output[idx].append(&mut one);
