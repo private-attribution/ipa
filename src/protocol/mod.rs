@@ -2,18 +2,21 @@ pub mod attribution;
 pub mod basics;
 pub mod boolean;
 pub mod context;
-pub mod input;
 pub mod ipa;
 pub mod malicious;
 pub mod modulus_conversion;
 pub mod prss;
 pub mod sort;
 
+use crate::bits::{BitArray40, BitArray8};
 use crate::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::ops::AddAssign;
+
+pub type MatchKey = BitArray40;
+pub type BreakdownKey = BitArray8;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///

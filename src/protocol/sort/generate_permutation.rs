@@ -351,9 +351,9 @@ mod tests {
     use std::iter::zip;
 
     use crate::bits::BitArray;
-    use crate::protocol::input::MatchKey;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
+    use crate::protocol::MatchKey;
     use crate::rand::{thread_rng, Rng};
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::secret_sharing::SharedValue;

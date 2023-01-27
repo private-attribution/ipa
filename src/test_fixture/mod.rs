@@ -1,9 +1,8 @@
-mod input;
+pub mod input;
 mod sharing;
 mod world;
 
 pub mod circuit;
-pub mod ipa_input_row;
 pub mod logging;
 pub mod metrics;
 pub mod net;
@@ -19,8 +18,6 @@ use crate::secret_sharing::{
 };
 use futures::future::try_join_all;
 use futures::TryFuture;
-pub use input::GenericReportTestInput;
-pub use ipa_input_row::IPAInputTestRow;
 use rand::distributions::Standard;
 use rand::prelude::Distribution;
 use rand::rngs::mock::StepRng;

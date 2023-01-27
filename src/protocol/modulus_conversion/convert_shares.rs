@@ -185,8 +185,8 @@ mod tests {
     use crate::ff::{Field, Fp32BitPrime};
     use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;
-    use crate::protocol::input::MatchKey;
     use crate::protocol::malicious::MaliciousValidator;
+    use crate::protocol::MatchKey;
     use crate::rand::thread_rng;
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{

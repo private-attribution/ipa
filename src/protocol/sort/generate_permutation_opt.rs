@@ -132,8 +132,8 @@ mod tests {
     use std::iter::zip;
 
     use crate::bits::BitArray;
-    use crate::protocol::input::MatchKey;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
+    use crate::protocol::MatchKey;
     use crate::rand::{thread_rng, Rng};
 
     use crate::protocol::context::{Context, SemiHonestContext};
