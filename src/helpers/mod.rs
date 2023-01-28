@@ -21,10 +21,13 @@ use crate::helpers::{
     Direction::{Left, Right},
     Role::{H1, H2, H3},
 };
+use sha2::digest::typenum::{Unsigned, U8};
 use std::ops::{Index, IndexMut};
 use tinyvec::ArrayVec;
 
-pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
+// TODO work with ArrayLength only
+pub type MessagePayloadArrayLen = U8;
+pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
 /// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which

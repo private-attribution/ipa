@@ -1,5 +1,7 @@
 use crate::secret_sharing::BooleanShare;
-use std::io;
+
+use sha2::digest::generic_array::{ArrayLength, GenericArray};
+
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
 mod bit_array;
@@ -58,7 +60,7 @@ impl<T> BooleanRefOps for T where
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
-    const SIZE_IN_BYTES: usize;
+    type Size: ArrayLength<u8>;
 
     /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
     /// capacity to store this message.
@@ -66,11 +68,11 @@ pub trait Serializable: Sized {
     /// ## Errors
     /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
     /// data.
-    fn serialize(self, buf: &mut [u8]) -> io::Result<()>;
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>);
 
     /// Deserialize message from a sequence of bytes.
     ///
     /// ## Errors
     /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize(buf: &[u8]) -> io::Result<Self>;
+    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self;
 }
