@@ -65,14 +65,8 @@ pub trait Serializable: Sized {
     /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
     /// capacity to store this message.
     ///
-    /// ## Errors
-    /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
-    /// data.
     fn serialize(self, buf: &mut GenericArray<u8, Self::Size>);
 
     /// Deserialize message from a sequence of bytes.
-    ///
-    /// ## Errors
-    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
     fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self;
 }
