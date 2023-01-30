@@ -83,6 +83,7 @@ where
     V::Size: Add<V::Size>,
     <V::Size as Add<V::Size>>::Output: ArrayLength<u8>,
 {
+    /// This constraint means that the serialized size must be `V::SIZE` + `V::SIZE`, i.e. `2 * V::SIZE`
     type Size = <V::Size as Add<V::Size>>::Output;
 
     fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
