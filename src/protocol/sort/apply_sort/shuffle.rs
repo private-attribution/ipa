@@ -1,5 +1,6 @@
 use std::iter::{repeat, zip};
 
+use crate::protocol::{StepIndex64, StepIndexFromIntError};
 use crate::repeat64str;
 use crate::secret_sharing::Arithmetic;
 use crate::secret_sharing::{ArithmeticShare, SecretSharing};
@@ -28,20 +29,22 @@ pub trait Resharable<V: ArithmeticShare>: Sized {
         C: Context<V, Share = <Self as Resharable<V>>::Share> + Send;
 }
 
-pub struct InnerVectorElementStep(usize);
+pub struct InnerVectorElementStep(StepIndex64);
 
 impl crate::protocol::Substep for InnerVectorElementStep {}
 
 impl AsRef<str> for InnerVectorElementStep {
     fn as_ref(&self) -> &str {
-        const VEC_ELEM: [&str; 64] = repeat64str!["elem"];
+        const VEC_ELEM: [&str; StepIndex64::BOUND] = repeat64str!["elem"];
         VEC_ELEM[self.0]
     }
 }
 
-impl From<usize> for InnerVectorElementStep {
-    fn from(v: usize) -> Self {
-        Self(v)
+impl TryFrom<usize> for InnerVectorElementStep {
+    type Error = StepIndexFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        value.try_into().map(Self)
     }
 }
 
@@ -57,7 +60,7 @@ impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
         C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
     {
         try_join_all(self.iter().enumerate().map(|(i, x)| {
-            let c = ctx.narrow(&InnerVectorElementStep::from(i));
+            let c = ctx.narrow(&InnerVectorElementStep::try_from(i).unwrap());
             async move { c.reshare(x, record_id, to_helper).await }
         }))
         .await

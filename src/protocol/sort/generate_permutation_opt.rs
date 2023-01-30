@@ -59,7 +59,7 @@ where
 
     let mut composed_less_significant_bits_permutation = lsb_permutation;
     for (bit_num, one_slice) in sort_keys.iter().enumerate().skip(1) {
-        let ctx_bit = ctx.narrow(&Sort(bit_num));
+        let ctx_bit = ctx.narrow(&Sort(bit_num.try_into().unwrap()));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
             composed_less_significant_bits_permutation,
@@ -166,7 +166,8 @@ where
         )
         .await?;
 
-        malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(chunk_num)));
+        malicious_validator =
+            MaliciousValidator::new(sh_ctx.narrow(&Sort(chunk_num.try_into().unwrap())));
         m_ctx_bit = malicious_validator.context();
 
         // TODO (richaj) it might even be more efficient to apply sort permutation to XorReplicated sharings,

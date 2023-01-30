@@ -410,8 +410,8 @@ pub(in crate::protocol) mod test {
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context().set_total_records(1);
                         let (m_a, m_b) = try_join(
-                            m_ctx.upgrade_with_sparse(&BitOpStep::from(0), v_a, a),
-                            m_ctx.upgrade_with_sparse(&BitOpStep::from(1), v_b, b),
+                            m_ctx.upgrade_with_sparse(&BitOpStep::from(0u32), v_a, a),
+                            m_ctx.upgrade_with_sparse(&BitOpStep::from(1u32), v_b, b),
                         )
                         .await
                         .unwrap();

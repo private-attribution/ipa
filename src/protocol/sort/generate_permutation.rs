@@ -148,7 +148,7 @@ pub async fn generate_permutation<F>(
 where
     F: Field,
 {
-    let ctx_0 = ctx.narrow(&Sort(0));
+    let ctx_0 = ctx.narrow(&Sort(0u32.try_into().unwrap()));
     assert_eq!(sort_keys.len(), num_bits as usize);
 
     let bit_0_permutation =

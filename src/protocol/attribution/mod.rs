@@ -7,7 +7,7 @@ pub(crate) mod accumulate_credit;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId, Substep},
+    protocol::{context::Context, RecordId, StepIndex64, StepIndexFromIntError, Substep},
     repeat64str,
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
@@ -65,7 +65,7 @@ where
 {
     let num_rows = helper_bits.len() + 1;
     let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
+        .narrow(&InteractionPatternStep(0u32.try_into().unwrap()))
         .set_total_records(num_rows - 1);
 
     let mut last = None;
@@ -100,7 +100,7 @@ where
     {
         let end = num_rows - step_size;
         let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth + 1))
+            .narrow(&InteractionPatternStep::try_from(depth + 1).unwrap())
             .set_total_records(end);
         let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
         let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
@@ -158,19 +158,21 @@ impl AsRef<str> for Step {
     }
 }
 
-struct InteractionPatternStep(usize);
+struct InteractionPatternStep(StepIndex64);
 
 impl Substep for InteractionPatternStep {}
 
 impl AsRef<str> for InteractionPatternStep {
     fn as_ref(&self) -> &str {
-        const DEPTH: [&str; 64] = repeat64str!["depth"];
+        const DEPTH: [&str; StepIndex64::BOUND] = repeat64str!["depth"];
         DEPTH[self.0]
     }
 }
 
-impl From<usize> for InteractionPatternStep {
-    fn from(v: usize) -> Self {
-        Self(v)
+impl TryFrom<usize> for InteractionPatternStep {
+    type Error = StepIndexFromIntError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        value.try_into().map(Self)
     }
 }

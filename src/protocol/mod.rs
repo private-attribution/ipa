@@ -15,6 +15,7 @@ use crate::{
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::ops::AddAssign;
+use std::ops::Index;
 
 pub type MatchKey = BitArray40;
 pub type BreakdownKey = BitArray8;
@@ -128,6 +129,44 @@ macro_rules! repeat64str {
     }
 }
 
+/// Bounds-checked index type for protocol steps indexed 0..64.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct StepIndex64(u8);
+
+impl StepIndex64 {
+    pub const BOUND: usize = 64;
+    const BOUND_U8: u8 = 64;
+}
+
+impl<'a> Index<StepIndex64> for [&'a str; 64] {
+    type Output = &'a str;
+
+    fn index(&self, index: StepIndex64) -> &Self::Output {
+        &self[usize::from(index.0)]
+    }
+}
+
+#[derive(Debug)]
+pub struct StepIndexFromIntError;
+
+macro_rules! step_index_try_from {
+    ($ty:ty) => {
+        impl TryFrom<$ty> for StepIndex64 {
+            type Error = StepIndexFromIntError;
+
+            fn try_from(value: $ty) -> Result<Self, Self::Error> {
+                match u8::try_from(value) {
+                    Ok(v) if v < Self::BOUND_U8 => Ok(Self(v)),
+                    _ => Err(StepIndexFromIntError),
+                }
+            }
+        }
+    };
+}
+
+step_index_try_from!(usize);
+step_index_try_from!(u32);
+
 /// A step generator for bitwise secure operations.
 ///
 /// For each record, we decompose a value into bits (i.e. credits in the
@@ -137,32 +176,25 @@ macro_rules! repeat64str {
 ///
 /// This is a temporary solution for narrowing contexts until the infra is
 /// updated with a new step scheme.
-pub struct BitOpStep(usize);
+pub struct BitOpStep(StepIndex64);
 
 impl Substep for BitOpStep {}
 
 impl AsRef<str> for BitOpStep {
     fn as_ref(&self) -> &str {
-        const BIT_OP: [&str; 64] = repeat64str!["bit"];
+        const BIT_OP: [&str; StepIndex64::BOUND] = repeat64str!["bit"];
         BIT_OP[self.0]
     }
 }
 
-impl From<i32> for BitOpStep {
-    fn from(v: i32) -> Self {
-        Self(usize::try_from(v).unwrap())
-    }
-}
-
-impl From<u32> for BitOpStep {
-    fn from(v: u32) -> Self {
-        Self(usize::try_from(v).unwrap())
-    }
-}
-
-impl From<usize> for BitOpStep {
-    fn from(v: usize) -> Self {
-        Self(v)
+// TODO: since this can fail it should be `TryFrom`.
+impl<T> From<T> for BitOpStep
+where
+    T: TryInto<StepIndex64>,
+    <T as TryInto<StepIndex64>>::Error: Debug,
+{
+    fn from(v: T) -> Self {
+        Self(v.try_into().unwrap())
     }
 }
 
@@ -171,9 +203,9 @@ impl From<usize> for BitOpStep {
 pub enum IpaProtocolStep {
     /// Convert from XOR shares to Replicated shares
     ConvertShares,
-    ModulusConversion(u32),
+    ModulusConversion(StepIndex64),
     /// Sort shares by the match key
-    Sort(usize),
+    Sort(StepIndex64),
     /// Perform attribution.
     Attribution,
     SortPreAccumulation,
@@ -183,13 +215,13 @@ impl Substep for IpaProtocolStep {}
 
 impl AsRef<str> for IpaProtocolStep {
     fn as_ref(&self) -> &str {
-        const MODULUS_CONVERSION: [&str; 64] = repeat64str!["mc"];
-        const SORT: [&str; 64] = repeat64str!["sort"];
+        const MODULUS_CONVERSION: [&str; StepIndex64::BOUND] = repeat64str!["mc"];
+        const SORT: [&str; StepIndex64::BOUND] = repeat64str!["sort"];
 
         match self {
             Self::ConvertShares => "convert",
             Self::Sort(i) => SORT[*i],
-            Self::ModulusConversion(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
+            Self::ModulusConversion(i) => MODULUS_CONVERSION[*i],
             Self::Attribution => "attribution",
             Self::SortPreAccumulation => "sort_pre_accumulation",
         }

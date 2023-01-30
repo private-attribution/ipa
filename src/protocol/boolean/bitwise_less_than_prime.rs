@@ -157,11 +157,11 @@ impl BitwiseLessThanPrime {
 
         let one = ctx.share_known_value(F::ONE);
         let least_significant_two_bits_both_one = ctx
-            .narrow(&BitOpStep::from(0))
+            .narrow(&BitOpStep::from(0u32))
             .multiply(record_id, &x[0], &x[1])
             .await?;
         let least_significant_bits_are_one_one_zero = ctx
-            .narrow(&BitOpStep::from(1))
+            .narrow(&BitOpStep::from(1u32))
             .multiply(
                 record_id,
                 &(one - &x[2]),

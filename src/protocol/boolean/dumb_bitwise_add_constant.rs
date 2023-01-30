@@ -136,7 +136,7 @@ where
     let mut output = Vec::with_capacity(a.len() + 1);
 
     let mut last_carry = ctx
-        .narrow(&BitOpStep::from(0))
+        .narrow(&BitOpStep::from(0u32))
         .multiply(record_id, &a[0], maybe)
         .await?;
     output.push(-last_carry.clone() * F::from(2) + &a[0] + maybe);

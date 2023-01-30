@@ -18,7 +18,7 @@ use crate::protocol::context::{
 use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
+use crate::protocol::{BitOpStep, RecordId, Step, StepIndex64, Substep, RECORD_0};
 use crate::repeat64str;
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
@@ -215,7 +215,7 @@ impl AsRef<str> for UpgradeTripleStep {
 }
 
 enum UpgradeModConvStep {
-    V0(usize),
+    V0(StepIndex64),
     V1,
     V2,
 }
@@ -224,7 +224,7 @@ impl crate::protocol::Substep for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
-        const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
+        const UPGRADE_MOD_CONV0: [&str; StepIndex64::BOUND] = repeat64str!["upgrade_mod_conv0"];
 
         match self {
             Self::V0(i) => UPGRADE_MOD_CONV0[*i],
@@ -235,7 +235,7 @@ impl AsRef<str> for UpgradeModConvStep {
 }
 
 enum UpgradeMCCappedCreditsWithAggregationBit {
-    V0(usize),
+    V0(StepIndex64),
     V1,
     V2,
     V3,
@@ -245,7 +245,8 @@ impl crate::protocol::Substep for UpgradeMCCappedCreditsWithAggregationBit {}
 
 impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
     fn as_ref(&self) -> &str {
-        const UPGRADE_AGGREGATION_BIT0: [&str; 64] = repeat64str!["upgrade_aggregation_bit0"];
+        const UPGRADE_AGGREGATION_BIT0: [&str; StepIndex64::BOUND] =
+            repeat64str!["upgrade_aggregation_bit0"];
 
         match self {
             Self::V0(i) => UPGRADE_AGGREGATION_BIT0[*i],
@@ -272,7 +273,7 @@ impl<'a, F: Field>
             |(idx, mk_share)| async move {
                 self.inner
                     .upgrade_one(
-                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx)),
+                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx.try_into().unwrap())),
                         self.record_binding,
                         mk_share,
                         ZeroPositions::Pvvv,
@@ -333,7 +334,9 @@ impl<'a, F: Field>
             |(idx, bit)| async move {
                 self.inner
                     .upgrade_one(
-                        ctx_ref.narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx)),
+                        ctx_ref.narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(
+                            idx.try_into().unwrap(),
+                        )),
                         self.record_binding,
                         bit,
                         ZeroPositions::Pvvv,
@@ -611,21 +614,21 @@ where
 {
     async fn upgrade(self, input: (T, U)) -> Result<(TM, UM), Error> {
         try_join(
-            self.narrow(&BitOpStep::from(0)).upgrade(input.0),
-            self.narrow(&BitOpStep::from(1)).upgrade(input.1),
+            self.narrow(&BitOpStep::from(0u32)).upgrade(input.0),
+            self.narrow(&BitOpStep::from(1u32)).upgrade(input.1),
         )
         .await
     }
 }
 
 enum Upgrade2DVectors {
-    V(usize),
+    V(StepIndex64),
 }
 impl crate::protocol::Substep for Upgrade2DVectors {}
 
 impl AsRef<str> for Upgrade2DVectors {
     fn as_ref(&self) -> &str {
-        const COLUMN: [&str; 64] = repeat64str!["upgrade_2d"];
+        const COLUMN: [&str; StepIndex64::BOUND] = repeat64str!["upgrade_2d"];
 
         match self {
             Self::V(i) => COLUMN[*i],
@@ -676,7 +679,8 @@ where
         assert_ne!(num_records, 0);
         let num_columns = input[0].len();
         let ctx = self.upgrade_ctx.set_total_records(num_records);
-        let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
+        let all_ctx =
+            (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx.try_into().unwrap())));
 
         try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
             |(record_idx, (all_ctx, one_input))| async move {
