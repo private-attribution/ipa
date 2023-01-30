@@ -33,23 +33,28 @@ pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
         .layer(Extension(transport_sender))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::ff::FieldType;
-    use crate::helpers::query::{IPAQueryConfig, QueryConfig, QueryType};
-    use crate::net::server::handlers::query::test_helpers::{poll_immediate, resp_eq, IntoReq};
-    use crate::protocol::QueryId;
-    use hyper::StatusCode;
+    use crate::{
+        ff::FieldType,
+        helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
+        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
+        protocol::QueryId,
+    };
+    use axum::http::Request;
+    use futures::{future::poll_immediate, pin_mut};
+    use hyper::{Body, StatusCode};
 
     async fn create_test(expected_query_config: QueryConfig) {
         let (tx, mut rx) = mpsc::channel(1);
         let req = http_serde::query::create::Request::new(expected_query_config.clone());
-        let mut handle = Box::pin(handler(Extension(tx), req));
+        let handle = handler(Extension(tx), req);
+        pin_mut!(handle);
         // should return pending upon awaiting response
-        assert!(poll_immediate(&mut handle).is_pending());
+        assert!(matches!(poll_immediate(&mut handle).await, None));
 
-        let res = rx.recv().await.unwrap();
+        let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
         assert_eq!(res.origin, CommandOrigin::Other);
         match res.payload {
             TransportCommand::Query(QueryCommand::Create(query_config, responder)) => {
@@ -59,7 +64,7 @@ mod tests {
             other => panic!("expected create command, but got {other:?}"),
         }
 
-        let Json(resp) = handle.await.unwrap();
+        let Json(resp) = poll_immediate(handle).await.unwrap().unwrap();
         assert_eq!(resp.query_id, QueryId);
     }
 
@@ -105,18 +110,33 @@ mod tests {
         }
     }
 
-    impl Default for OverrideReq {
+    struct OverrideMulReq {
+        field_type: String,
+        query_type: String,
+    }
+
+    impl IntoReq for OverrideMulReq {
+        fn into_req(self, port: u16) -> Request<Body> {
+            OverrideReq {
+                field_type: self.field_type,
+                query_type_params: format!("query_type={}", self.query_type),
+            }
+            .into_req(port)
+        }
+    }
+
+    impl Default for OverrideMulReq {
         fn default() -> Self {
             Self {
                 field_type: FieldType::Fp31.as_ref().to_string(),
-                query_type_params: format!("query_type={}", QueryType::TEST_MULTIPLY_STR),
+                query_type: QueryType::TEST_MULTIPLY_STR.to_string(),
             }
         }
     }
 
     #[tokio::test]
     async fn malformed_field_type() {
-        let req = OverrideReq {
+        let req = OverrideMulReq {
             field_type: "not-a-field-type".into(),
             ..Default::default()
         };
@@ -125,26 +145,89 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_query_type_mul() {
-        let req = OverrideReq {
-            query_type_params: "query_type=malformed_mul".into(),
+        let req = OverrideMulReq {
+            query_type: "malformed_mul".into(),
             ..Default::default()
         };
         resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
-    // fn ipa_query_type_params(
-    //     query_type: String,
-    //     num_bits: String,
-    //     per_user_credit_cap: String,
-    //     max_breakdown_key: String,
-    // ) -> String {
-    //     format!("query_type={query_type}&num_bits={num_bits}&per_user_credit_cap={per_user_credit_cap}&max_breakdown_key={max_breakdown_key}")
-    // }
+    struct OverrideIPAReq {
+        field_type: String,
+        query_type: String,
+        per_user_credit_cap: String,
+        max_breakdown_key: String,
+        num_multi_bits: String,
+    }
+
+    impl IntoReq for OverrideIPAReq {
+        fn into_req(self, port: u16) -> Request<Body> {
+            OverrideReq {
+                field_type: self.field_type,
+                query_type_params: format!(
+                    "query_type={}&per_user_credit_cap={}&max_breakdown_key={}&num_multi_bits={}",
+                    self.query_type,
+                    self.per_user_credit_cap,
+                    self.max_breakdown_key,
+                    self.num_multi_bits
+                ),
+            }
+            .into_req(port)
+        }
+    }
+
+    impl Default for OverrideIPAReq {
+        fn default() -> Self {
+            Self {
+                field_type: FieldType::Fp32BitPrime.as_ref().to_string(),
+                query_type: QueryType::IPA_STR.to_string(),
+                per_user_credit_cap: "1".into(),
+                max_breakdown_key: "1".into(),
+                num_multi_bits: "3".into(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_field_type_ipa() {
+        let req = OverrideIPAReq {
+            field_type: "invalid_field".into(),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
 
     #[tokio::test]
     async fn malformed_query_type_ipa() {
-        let req = OverrideReq {
-            query_type_params: format!("query_type={}", QueryType::IPA_STR),
+        let req = OverrideIPAReq {
+            query_type: "not_ipa".into(),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_per_user_credit_cap_ipa() {
+        let req = OverrideIPAReq {
+            per_user_credit_cap: "-1".into(),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_max_breakdown_key_ipa() {
+        let req = OverrideIPAReq {
+            max_breakdown_key: "-1".into(),
+            ..Default::default()
+        };
+        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+
+    #[tokio::test]
+    async fn malformed_num_multi_bits_ipa() {
+        let req = OverrideIPAReq {
+            num_multi_bits: "-1".into(),
             ..Default::default()
         };
         resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;

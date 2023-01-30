@@ -287,6 +287,7 @@ pub mod query {
         };
         use hyper::header::CONTENT_TYPE;
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub origin: HelperIdentity,
             pub data: PrepareQuery,
@@ -372,6 +373,7 @@ pub mod query {
             Body,
         };
 
+        #[derive(Debug)]
         pub struct Request {
             pub query_input: QueryInput,
         }
@@ -583,12 +585,13 @@ pub mod query {
         use async_trait::async_trait;
         use axum::extract::{FromRequest, Path, RequestParts};
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub query_id: QueryId,
         }
 
         impl Request {
-            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
+            #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))] // needed because client is blocking; remove when non-blocking
             pub fn new(query_id: QueryId) -> Self {
                 Self { query_id }
             }

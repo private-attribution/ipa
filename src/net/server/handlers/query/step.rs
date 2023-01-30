@@ -54,6 +54,7 @@ mod tests {
         protocol::Step,
     };
     use axum::http::Request;
+    use futures_util::future::poll_immediate;
     use hyper::{Body, StatusCode};
 
     const DATA_LEN: usize = 3;
@@ -80,15 +81,11 @@ mod tests {
 
             let (ongoing_queries, mut rx) = filled_ongoing_queries();
 
-            handler(req.clone(), Extension(ongoing_queries))
+            poll_immediate(handler(req.clone(), Extension(ongoing_queries)))
                 .await
+                .unwrap()
                 .expect("request should succeed");
-            let res = rx.recv().await;
-            assert!(
-                res.is_some(),
-                "channel should have received result without closing"
-            );
-            let res = res.unwrap();
+            let res = poll_immediate(rx.recv()).await.unwrap().unwrap();
 
             assert_eq!(res.origin, CommandOrigin::Helper(req.origin));
             match res.payload {
@@ -184,14 +181,15 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "shuttle"))]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::{server::handlers::query::test_helpers::poll_immediate, MpcHelperServer},
+        net::MpcHelperServer,
         protocol::Step,
     };
+    use futures::future::poll_immediate;
     use hyper::{http::uri, service::Service, StatusCode};
     use tower::ServiceExt;
 
@@ -236,7 +234,7 @@ mod e2e_tests {
         // channel should now be full
         let mut resp_when_full = r.ready().await.unwrap().call(new_req());
         assert!(
-            poll_immediate(&mut resp_when_full).is_pending(),
+            matches!(poll_immediate(&mut resp_when_full).await, None),
             "expected future to be pending"
         );
 
@@ -244,7 +242,7 @@ mod e2e_tests {
         query_rx.recv().await;
 
         // channel should now have capacity
-        assert!(poll_immediate(&mut resp_when_full).is_ready());
+        assert!(poll_immediate(&mut resp_when_full).await.is_some());
 
         // take 3 messages from channel
         for _ in 0..3 {
@@ -254,11 +252,11 @@ mod e2e_tests {
         // channel should now have capacity for 3 more reqs
         for _ in 0..3 {
             let mut next_req = r.ready().await.unwrap().call(new_req());
-            assert!(poll_immediate(&mut next_req).is_ready());
+            assert!(poll_immediate(&mut next_req).await.is_some());
         }
 
         // channel should have no more capacity
         let mut resp_when_full = r.ready().await.unwrap().call(new_req());
-        assert!(poll_immediate(&mut resp_when_full).is_pending());
+        assert!(matches!(poll_immediate(&mut resp_when_full).await, None));
     }
 }

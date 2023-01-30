@@ -26,20 +26,18 @@ pub fn router(
         .merge(step::router(ongoing_queries))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 pub mod test_helpers {
-    use crate::net::server::BindTarget;
-    use crate::net::MpcHelperServer;
-    use crate::protocol::QueryId;
-    use crate::sync::{Arc, Mutex};
-    use futures_util::FutureExt;
+    use crate::{
+        net::{server::BindTarget, MpcHelperServer},
+        protocol::QueryId,
+        sync::{Arc, Mutex},
+    };
     use hyper::StatusCode;
     use std::collections::HashMap;
-    use std::future::Future;
-    use std::task::{Context, Poll};
     use tokio::sync::mpsc;
 
-    pub trait IntoReq: Default {
+    pub trait IntoReq {
         fn into_req(self, port: u16) -> hyper::Request<hyper::Body>;
     }
 
@@ -61,12 +59,5 @@ pub mod test_helpers {
             .await
             .expect("request should complete successfully");
         assert_eq!(resp.status(), expected_status);
-    }
-
-    pub fn poll_immediate<F, T>(f: &mut F) -> Poll<T>
-    where
-        F: Future<Output = T> + Unpin,
-    {
-        f.poll_unpin(&mut Context::from_waker(futures::task::noop_waker_ref()))
     }
 }
