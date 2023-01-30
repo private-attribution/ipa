@@ -161,6 +161,7 @@ where
     )
     .await
     .unwrap();
+    let converted_shares = converted_shares.collect::<Vec<_>>();
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,

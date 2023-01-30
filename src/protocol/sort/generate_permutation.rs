@@ -383,9 +383,12 @@ mod tests {
                         convert_all_bits(&ctx, local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
                             .await
                             .unwrap();
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.as_slice())
-                        .await
-                        .unwrap()
+                    generate_permutation_opt(
+                        ctx.narrow("sort"),
+                        &converted_shares.collect::<Vec<_>>(),
+                    )
+                    .await
+                    .unwrap()
                 },
             )
             .await;

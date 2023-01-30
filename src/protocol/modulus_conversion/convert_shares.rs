@@ -150,16 +150,16 @@ where
 /// Propagates errors from convert shares
 /// # Panics
 /// Propagates panics from convert shares
-pub async fn convert_all_bits<F, C, S, I>(
+pub async fn convert_all_bits<'a, F, C, S, I>(
     ctx: &C,
     mut locally_converted_bits: I,
     num_bits: u32,
     num_multi_bits: u32,
-) -> Result<Vec<Vec<Vec<S>>>, Error>
+) -> Result<impl Iterator<Item = Vec<Vec<S>>> + 'a, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: ArithmeticSecretSharing<F> + 'a,
     I: Iterator<Item = Vec<BitConversionTriple<S>>>,
 {
     let num_records = locally_converted_bits.size_hint().0;
@@ -184,12 +184,13 @@ where
                 ));
             });
         });
-    try_join_all(
+    Ok(try_join_all(
         futures
             .into_iter()
             .map(|one_future| async move { try_join_all(one_future).await }),
     )
-    .await
+    .await?
+    .into_iter())
 }
 
 /// # Errors

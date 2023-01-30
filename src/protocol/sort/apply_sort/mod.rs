@@ -92,7 +92,7 @@ mod tests {
                     .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
-                        converted_shares.as_slice(),
+                        &converted_shares.collect::<Vec<_>>(),
                     )
                     .await
                     .unwrap();
