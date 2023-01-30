@@ -90,16 +90,36 @@ pub fn convert_bit_local<F: Field, B: BitArray>(
 pub fn convert_all_bits_local<F: Field, B: BitArray>(
     helper_role: Role,
     input: &[XorReplicated<B>],
+    num_bits: u32,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
-    let mut total_list = Vec::new();
-    for bit_index in 0..B::BITS {
-        let one_list = input
-            .iter()
-            .map(|v| convert_bit_local::<F, B>(helper_role, bit_index, v))
-            .collect::<Vec<_>>();
-        total_list.push(one_list);
-    }
-    total_list
+    input
+        .iter()
+        .map(move |record| {
+            (0..num_bits)
+                .map(|bit_index: u32| {
+                    let left = u128::from(record.left()[bit_index]);
+                    let right = u128::from(record.right()[bit_index]);
+                    BitConversionTriple(match helper_role {
+                        Role::H1 => [
+                            Replicated::new(F::from(left), F::ZERO),
+                            Replicated::new(F::ZERO, F::from(right)),
+                            Replicated::new(F::ZERO, F::ZERO),
+                        ],
+                        Role::H2 => [
+                            Replicated::new(F::ZERO, F::ZERO),
+                            Replicated::new(F::from(left), F::ZERO),
+                            Replicated::new(F::ZERO, F::from(right)),
+                        ],
+                        Role::H3 => [
+                            Replicated::new(F::ZERO, F::from(right)),
+                            Replicated::new(F::ZERO, F::ZERO),
+                            Replicated::new(F::from(left), F::ZERO),
+                        ],
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
 }
 
 /// Convert a locally-decomposed single bit into field elements.
@@ -137,25 +157,36 @@ where
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],
-) -> Result<Vec<Vec<S>>, Error>
+    num_bits: u32,
+    num_multi_bits: u32,
+) -> Result<Vec<Vec<Vec<S>>>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let futures = locally_converted_bits
-        .iter()
-        .enumerate()
-        .map(|(bit_num, one_column)| {
-            convert_bit_list(
-                ctx.narrow(&ModulusConversion(bit_num.try_into().unwrap()))
-                    .set_total_records(one_column.len()),
-                one_column,
-            )
-        })
-        .collect::<Vec<_>>();
-    let converted_shares = try_join_all(futures).await?;
-    Ok(converted_shares)
+    let num_records = locally_converted_bits.len();
+    try_join_all(
+        (0..num_bits)
+            .step_by(num_multi_bits.try_into().unwrap())
+            .map(|bit_num| {
+                let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
+                try_join_all(
+                    locally_converted_bits
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, record)| {
+                            convert_bit_list(
+                                ctx.narrow(&ModulusConversion(bit_num))
+                                    .set_total_records(num_records),
+                                &record[bit_num as usize..last_bit],
+                                RecordId::from(idx),
+                            )
+                        }),
+                )
+            }),
+    )
+    .await
 }
 
 /// # Errors
@@ -165,6 +196,7 @@ where
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
     locally_converted_bits: &[BitConversionTriple<S>],
+    record_id: RecordId,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -174,7 +206,14 @@ where
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
             .enumerate()
-            .map(|(i, (ctx, row))| async move { convert_bit(ctx, RecordId::from(i), row).await }),
+            .map(|(i, (ctx, bit))| async move {
+                convert_bit(
+                    ctx.narrow(&ModulusConversion(i.try_into().unwrap())),
+                    record_id,
+                    bit,
+                )
+                .await
+            }),
     )
     .await
 }
