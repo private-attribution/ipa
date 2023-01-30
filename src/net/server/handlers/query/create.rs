@@ -39,7 +39,7 @@ mod tests {
     use crate::{
         ff::FieldType,
         helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
-        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
+        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
     };
     use axum::http::Request;
@@ -48,7 +48,7 @@ mod tests {
 
     async fn create_test(expected_query_config: QueryConfig) {
         let (tx, mut rx) = mpsc::channel(1);
-        let req = http_serde::query::create::Request::new(expected_query_config.clone());
+        let req = http_serde::query::create::Request::new(expected_query_config);
         let handle = handler(Extension(tx), req);
         pin_mut!(handle);
         // should return pending upon awaiting response
@@ -95,7 +95,7 @@ mod tests {
         query_type_params: String,
     }
 
-    impl IntoReq for OverrideReq {
+    impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> hyper::Request<hyper::Body> {
             let uri = format!(
                 "http://127.0.0.1:{}{}?field_type={}&{}",
@@ -115,7 +115,7 @@ mod tests {
         query_type: String,
     }
 
-    impl IntoReq for OverrideMulReq {
+    impl IntoFailingReq for OverrideMulReq {
         fn into_req(self, port: u16) -> Request<Body> {
             OverrideReq {
                 field_type: self.field_type,
@@ -140,7 +140,7 @@ mod tests {
             field_type: "not-a-field-type".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -149,7 +149,7 @@ mod tests {
             query_type: "malformed_mul".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     struct OverrideIPAReq {
@@ -160,7 +160,7 @@ mod tests {
         num_multi_bits: String,
     }
 
-    impl IntoReq for OverrideIPAReq {
+    impl IntoFailingReq for OverrideIPAReq {
         fn into_req(self, port: u16) -> Request<Body> {
             OverrideReq {
                 field_type: self.field_type,
@@ -194,7 +194,7 @@ mod tests {
             field_type: "invalid_field".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -203,7 +203,7 @@ mod tests {
             query_type: "not_ipa".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -212,7 +212,7 @@ mod tests {
             per_user_credit_cap: "-1".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -221,7 +221,7 @@ mod tests {
             max_breakdown_key: "-1".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -230,6 +230,6 @@ mod tests {
             num_multi_bits: "-1".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }

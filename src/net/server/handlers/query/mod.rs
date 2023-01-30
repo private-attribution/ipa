@@ -29,35 +29,37 @@ pub fn router(
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test_helpers {
     use crate::{
-        net::{server::BindTarget, MpcHelperServer},
+        net::MpcHelperServer,
         protocol::QueryId,
         sync::{Arc, Mutex},
     };
-    use hyper::StatusCode;
+    use futures_util::future::poll_immediate;
+    use hyper::{service::Service, StatusCode};
     use std::collections::HashMap;
     use tokio::sync::mpsc;
+    use tower::ServiceExt;
 
-    pub trait IntoReq {
+    /// types that implement `IntoFailingReq` are intended to induce some failure in the process of
+    /// axum routing. Pair with `assert_req_fails_with` to detect specific [`StatusCode`] failures.
+    pub trait IntoFailingReq {
         fn into_req(self, port: u16) -> hyper::Request<hyper::Body>;
     }
 
-    pub async fn init_server(query_id: QueryId) -> u16 {
-        let (management_tx, _) = mpsc::channel(1);
+    /// Intended to be used for a request that will fail during axum routing. When passed a known
+    /// bad request via `IntoFailingReq`, get a response from the server, and compare its
+    /// [`StatusCode`] with what is expected.
+    pub async fn assert_req_fails_with<I: IntoFailingReq>(req: I, expected_status: StatusCode) {
+        let (management_tx, _management_rx) = mpsc::channel(1);
         let (query_tx, _query_rx) = mpsc::channel(1);
-        let ongoing_queries = HashMap::from([(query_id, query_tx)]);
+        let ongoing_queries = HashMap::from([(QueryId, query_tx)]);
         let server = MpcHelperServer::new(management_tx, Arc::new(Mutex::new(ongoing_queries)));
-        let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
-            .await;
-        addr.port()
-    }
 
-    pub async fn resp_eq<I: IntoReq>(req: I, expected_status: StatusCode) {
-        let port = init_server(QueryId).await;
-        let resp = hyper::Client::default()
-            .request(req.into_req(port))
+        let mut router = server.router();
+        let ready = poll_immediate(router.ready()).await.unwrap().unwrap();
+        let resp = poll_immediate(ready.call(req.into_req(0)))
             .await
-            .expect("request should complete successfully");
+            .unwrap()
+            .unwrap();
         assert_eq!(resp.status(), expected_status);
     }
 }

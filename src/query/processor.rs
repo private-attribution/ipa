@@ -110,7 +110,7 @@ impl<T: Transport + Clone> Processor<T> {
     pub async fn new_query(&self, req: QueryConfig) -> Result<PrepareQuery, NewQueryError> {
         let query_id = QueryId;
         let handle = self.queries.handle(query_id);
-        handle.set_state(QueryState::Preparing(req.clone()))?;
+        handle.set_state(QueryState::Preparing(req))?;
 
         // invariant: this helper's identity must be the first element in the array.
         let this = self.identities[0];
@@ -125,7 +125,7 @@ impl<T: Transport + Clone> Processor<T> {
 
         let prepare_request = PrepareQuery {
             query_id,
-            config: req.clone(),
+            config: req,
             roles,
         };
 
@@ -327,7 +327,7 @@ mod tests {
             query_type: QueryType::TestMultiply,
         };
 
-        let qc_future = processor.new_query(request.clone());
+        let qc_future = processor.new_query(request);
         pin_mut!(qc_future);
 
         // poll future once to trigger query status change
@@ -359,7 +359,7 @@ mod tests {
             query_type: QueryType::TestMultiply,
         };
 
-        let _qc = processor.new_query(request.clone()).await.unwrap();
+        let _qc = processor.new_query(request).await.unwrap();
         assert!(matches!(
             processor.new_query(request).await,
             Err(NewQueryError::State(StateError::AlreadyRunning)),

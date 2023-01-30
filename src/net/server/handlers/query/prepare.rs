@@ -36,7 +36,7 @@ mod tests {
             query::{PrepareQuery, QueryConfig, QueryType},
             HelperIdentity, RoleAssignment,
         },
-        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
+        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
     };
     use axum::http::Request;
@@ -84,7 +84,7 @@ mod tests {
         roles: Vec<String>,
     }
 
-    impl IntoReq for OverrideReq {
+    impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
                 "http://127.0.0.1:{}{}/{}?field_type={}&query_type=test-multiply",
@@ -119,7 +119,7 @@ mod tests {
             query_id: "not-a-query-id".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -128,7 +128,7 @@ mod tests {
             field_type: "not-a-field-type".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -137,7 +137,7 @@ mod tests {
             roles: vec!["1".into(), "2".into()],
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -146,6 +146,6 @@ mod tests {
             roles: vec!["1".into(), "2".into(), "not-a-role".into()],
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }

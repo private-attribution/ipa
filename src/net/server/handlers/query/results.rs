@@ -37,7 +37,7 @@ mod tests {
     use super::*;
     use crate::{
         ff::Fp31,
-        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
+        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
@@ -78,7 +78,7 @@ mod tests {
         query_id: String,
     }
 
-    impl IntoReq for OverrideReq {
+    impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<hyper::Body> {
             let uri = format!(
                 "http://127.0.0.1:{}{}/{}/complete",
@@ -96,6 +96,6 @@ mod tests {
             query_id: "not-a-query-id".into(),
         };
 
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }

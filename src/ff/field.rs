@@ -100,7 +100,7 @@ impl<F: Field> Serializable for F {
 
 pub trait BinaryField: Field + BooleanOps {}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FieldType {
     Fp31,
     Fp32BitPrime,

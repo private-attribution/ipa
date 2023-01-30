@@ -32,7 +32,7 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{query::QueryInput, transport::ByteArrStream},
-        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
+        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
     };
     use axum::http::Request;
@@ -89,7 +89,7 @@ mod tests {
         input_stream: Vec<u8>,
     }
 
-    impl IntoReq for OverrideReq {
+    impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
                 "http://127.0.0.1:{}{}/input?query_id={}",
@@ -118,6 +118,6 @@ mod tests {
             query_id: "not_a_query_id".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }

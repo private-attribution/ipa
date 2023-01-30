@@ -50,7 +50,7 @@ mod tests {
     use super::*;
     use crate::{
         helpers::{HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
-        net::server::handlers::query::test_helpers::{resp_eq, IntoReq},
+        net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::Step,
     };
     use axum::http::Request;
@@ -115,7 +115,7 @@ mod tests {
         offset: u32,
     }
 
-    impl IntoReq for OverrideReq {
+    impl IntoFailingReq for OverrideReq {
         fn into_req(self, port: u16) -> Request<Body> {
             let uri = format!(
                 "http://localhost:{}{}/{}/step/{}",
@@ -150,7 +150,7 @@ mod tests {
             origin: 4,
             ..Default::default()
         };
-        resp_eq(req, StatusCode::BAD_REQUEST).await;
+        assert_req_fails_with(req, StatusCode::BAD_REQUEST).await;
     }
 
     #[tokio::test]
@@ -159,7 +159,7 @@ mod tests {
             query_id: "not-a-query-id".into(),
             ..Default::default()
         };
-        resp_eq(req, StatusCode::UNPROCESSABLE_ENTITY).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -168,7 +168,7 @@ mod tests {
             payload: vec![0; MESSAGE_PAYLOAD_SIZE_BYTES + 1],
             ..Default::default()
         };
-        resp_eq(req, StatusCode::BAD_REQUEST).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 
     #[tokio::test]
@@ -177,7 +177,7 @@ mod tests {
             payload: vec![0, 7],
             ..Default::default()
         };
-        resp_eq(req, StatusCode::BAD_REQUEST).await;
+        assert_req_fails_with(req, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
 }
 
