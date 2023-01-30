@@ -1,3 +1,5 @@
+use std::iter::{repeat, zip};
+
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 
@@ -15,6 +17,7 @@ use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
+use crate::repeat64str;
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
@@ -466,6 +469,59 @@ where
                 )
                 .await
         }))
+        .await
+    }
+}
+
+enum Upgrade2DVectors {
+    V(usize),
+}
+impl crate::protocol::Substep for Upgrade2DVectors {}
+
+impl AsRef<str> for Upgrade2DVectors {
+    fn as_ref(&self) -> &str {
+        const COLUMN: [&str; 64] = repeat64str!["upgrade_2d"];
+
+        match self {
+            Self::V(i) => COLUMN[*i],
+        }
+    }
+}
+
+/// This upgrades a 2D vector where each 1D vector represents 1 record. So each column is expected to share one context across records
+#[async_trait]
+impl<'a, F> UpgradeToMalicious<Vec<Vec<Replicated<F>>>, Vec<Vec<MaliciousReplicated<F>>>>
+    for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+{
+    async fn upgrade(
+        self,
+        input: Vec<Vec<Replicated<F>>>,
+    ) -> Result<Vec<Vec<MaliciousReplicated<F>>>, Error> {
+        let num_columns = input[0].len();
+        let all_ctx = (0..num_columns).map(|idx| {
+            self.upgrade_ctx
+                .narrow(&Upgrade2DVectors::V(idx))
+                .set_total_records(input.len())
+        });
+
+        try_join_all(zip(repeat(all_ctx), input.iter()).enumerate().map(
+            |(record_idx, (all_ctx, one_input))| async move {
+                try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
+                    let ctx_ref = &ctx;
+                    self.inner
+                        .upgrade_one(
+                            ctx_ref.clone(),
+                            RecordId::from(record_idx),
+                            share.clone(),
+                            ZeroPositions::Pvvv,
+                        )
+                        .await
+                }))
+                .await
+            },
+        ))
         .await
     }
 }
