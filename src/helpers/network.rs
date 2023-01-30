@@ -155,147 +155,37 @@ impl<T: Transport> Network<T> {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::helpers::{
-        CommandEnvelope, HelperIdentity, TransportError, MESSAGE_PAYLOAD_SIZE_BYTES,
+    use crate::{
+        helpers::{CommandEnvelope, HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
+        test_fixture::transport::InMemoryNetwork,
     };
-    use async_trait::async_trait;
     use futures::stream::StreamExt;
-    use tokio::sync::mpsc;
-    use tokio_stream::wrappers::ReceiverStream;
-
-    pub struct NoopTransport {
-        identity: HelperIdentity,
-        queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-        queries_outbox: Arc<Mutex<[Option<TransportCommand>; 3]>>,
-    }
-
-    impl NoopTransport {
-        pub fn new(identity: HelperIdentity) -> Arc<Self> {
-            Arc::new(Self {
-                identity,
-                queries: Arc::new(Mutex::new(HashMap::new())),
-                queries_outbox: Arc::new(Mutex::new([None, None, None])),
-            })
-        }
-
-        pub async fn send_to_self(&self, command: CommandEnvelope) -> Result<(), TransportError> {
-            match command {
-                CommandEnvelope {
-                    origin: CommandOrigin::Helper(identity),
-                    payload:
-                        TransportCommand::StepData {
-                            query_id,
-                            step,
-                            payload,
-                            offset,
-                        },
-                } => {
-                    let sender = {
-                        let queries = self.queries.lock().unwrap();
-                        queries
-                            .get(&query_id)
-                            .ok_or(TransportError::SendFailed {
-                                command_name: Some("StepData"),
-                                query_id: Some(query_id),
-                                inner: "no sender for query_id found".into(),
-                            })?
-                            .clone()
-                    };
-
-                    Ok(sender
-                        .send(CommandEnvelope {
-                            origin: CommandOrigin::Helper(identity),
-                            payload: TransportCommand::StepData {
-                                query_id,
-                                step,
-                                payload,
-                                offset,
-                            },
-                        })
-                        .await
-                        .map_err(|err| mpsc::error::SendError(err.0.payload))?)
-                }
-                other => panic!("unexpected command {other:?}"),
-            }
-        }
-
-        pub fn retrieve_from_outbox(
-            &self,
-            destination: HelperIdentity,
-        ) -> Option<TransportCommand> {
-            let mut outbox = self.queries_outbox.lock().unwrap();
-            (*outbox)[destination].take()
-        }
-    }
-
-    #[async_trait]
-    impl Transport for Arc<NoopTransport> {
-        type CommandStream = ReceiverStream<CommandEnvelope>;
-
-        fn identity(&self) -> HelperIdentity {
-            self.identity
-        }
-
-        async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
-            match subscription {
-                SubscriptionType::QueryManagement => unimplemented!(),
-                SubscriptionType::Query(query_id) => {
-                    let (tx, rx) = mpsc::channel(1);
-                    assert!(
-                        self.queries.lock().unwrap().insert(query_id, tx).is_none(),
-                        "entry existed for query_id {}",
-                        query_id.as_ref()
-                    );
-                    ReceiverStream::new(rx)
-                }
-            }
-        }
-
-        async fn send<C: Send + Into<TransportCommand>>(
-            &self,
-            destination: HelperIdentity,
-            command: C,
-        ) -> Result<(), TransportError> {
-            let mut outbox = self.queries_outbox.lock().unwrap();
-            let target = &mut (*outbox)[destination];
-            target.replace(command.into()).map_or(Ok(()), |c| {
-                Err(TransportError::SendFailed {
-                    command_name: Some(c.name()),
-                    query_id: c.query_id(),
-                    inner: format!("entry already existed in outbox for target {destination:?}")
-                        .into(),
-                })
-            })
-        }
-    }
 
     async fn assert_successful_send(
-        network: &Network<Arc<NoopTransport>>,
-        roles: &RoleAssignment,
+        this_network: &Network<impl Transport>,
+        dest_stream: &mut (impl Stream<Item = CommandEnvelope> + Unpin),
         expected_query_id: QueryId,
         message_chunks: &MessageChunks,
         expected_offset: u32,
     ) {
-        let res = network.send(message_chunks.clone()).await;
+        let res = this_network.send(message_chunks.clone()).await;
         assert!(res.is_ok(), "{res:?}");
         {
-            let send_offset_tracker = network.send_offset_tracker.lock().unwrap();
-            let next_offset = send_offset_tracker.get(&message_chunks.0).copied();
-            assert_eq!(next_offset, Some(expected_offset + 1));
+            let send_offset_tracker = this_network.send_offset_tracker.lock().unwrap();
+            let next_offset = *send_offset_tracker.get(&message_chunks.0).unwrap();
+            assert_eq!(next_offset, expected_offset + 1);
         }
-        let destination = roles.identity(message_chunks.0.role);
-        let command = network
-            .transport
-            .retrieve_from_outbox(destination)
-            .unwrap_or_else(|| {
-                panic!("command should have been sent to destination {destination:?}")
-            });
+        let command = dest_stream.next().await.unwrap();
+        assert_eq!(
+            command.origin,
+            CommandOrigin::Helper(this_network.transport.identity())
+        );
         if let TransportCommand::StepData {
             query_id,
             step,
             payload,
             offset,
-        } = command
+        } = command.payload
         {
             assert_eq!(query_id, expected_query_id);
             assert_eq!(step, message_chunks.0.step.clone());
@@ -308,113 +198,147 @@ mod tests {
 
     #[tokio::test]
     async fn successfully_sends() {
-        let this_role = Role::H2;
         let message_chunks = (
             ChannelId::new(Role::H1, Step::default().narrow("successfully-sends")),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
         let roles = RoleAssignment::new(HelperIdentity::make_three());
+        let this_identity = roles.identity(Role::H2);
+        let dest_identity = roles.identity(message_chunks.0.role);
+        let expected_query_id = QueryId;
 
-        let noop_transport = NoopTransport::new(roles.identity(this_role));
-        let network = Network::new(Arc::clone(&noop_transport), QueryId, roles.clone());
+        let transports = InMemoryNetwork::default();
+        let this_transport = transports.transport(this_identity).unwrap();
+        let this_network = Network::new(this_transport, expected_query_id, roles.clone());
+        let dest_transport = transports.transport(dest_identity).unwrap();
+        let mut dest_stream = dest_transport
+            .subscribe(SubscriptionType::Query(expected_query_id))
+            .await;
+
         for i in 0..10 {
-            assert_successful_send(&network, &roles, QueryId, &message_chunks, i).await;
-        }
-    }
-
-    fn step_data_envelope(
-        origin: HelperIdentity,
-        query_id: QueryId,
-        message_chunks: &MessageChunks,
-        offset: u32,
-    ) -> CommandEnvelope {
-        CommandEnvelope {
-            origin: CommandOrigin::Helper(origin),
-            payload: TransportCommand::StepData {
-                query_id,
-                step: message_chunks.0.step.clone(),
-                payload: message_chunks.1.clone(),
-                offset,
-            },
+            assert_successful_send(
+                &this_network,
+                &mut dest_stream,
+                expected_query_id,
+                &message_chunks,
+                i,
+            )
+            .await;
         }
     }
 
     #[tokio::test]
     async fn successfully_receives() {
-        let this_role = Role::H2;
         let expected_message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("successfully-receives")),
+            ChannelId::new(Role::H2, Step::default().narrow("successfully-receives")),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
-        let roles = RoleAssignment::new(HelperIdentity::make_three());
-        let noop_transport = NoopTransport::new(roles.identity(this_role));
-        let network = Network::new(noop_transport, QueryId, roles.clone());
-        let mut message_chunks_stream = network.recv_stream().await;
-        let command = step_data_envelope(
-            roles.identity(expected_message_chunks.0.role),
-            QueryId,
-            &expected_message_chunks,
-            0,
+        let expected_query_id = QueryId;
+
+        let transports = InMemoryNetwork::default();
+        let identities = transports.helper_identities();
+        let this_identity = identities[Role::H1];
+        let that_identity = identities[Role::H2];
+        let this_transport = transports.transport(this_identity).unwrap();
+        let this_network = Network::new(
+            this_transport.clone(),
+            expected_query_id,
+            RoleAssignment::new(identities),
         );
-        network.transport.send_to_self(command).await.unwrap();
+        let mut message_chunks_stream = this_network.recv_stream().await;
+
+        let that_transport = transports.transport(that_identity).unwrap();
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: expected_message_chunks.0.step.clone(),
+            payload: expected_message_chunks.1.clone(),
+            offset: 0,
+        };
+        that_transport.send(this_identity, command).await.unwrap();
+
         let message_chunks = message_chunks_stream.next().await;
         assert_eq!(message_chunks, Some(expected_message_chunks));
     }
 
     #[tokio::test]
+    #[should_panic(expected = "NoSubscribers")]
     async fn fails_if_not_subscribed() {
-        let roles = RoleAssignment::new(HelperIdentity::make_three());
+        let expected_query_id = QueryId;
         let message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
+            ChannelId::new(Role::H2, Step::default().narrow("no-subscribe")),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
-        let command = step_data_envelope(
-            roles.identity(message_chunks.0.role),
-            QueryId,
-            &message_chunks,
-            0,
+
+        let transports = InMemoryNetwork::default();
+        let identities = transports.helper_identities();
+        let this_identity = identities[Role::H1];
+        let that_identity = identities[Role::H2];
+        let this_transport = transports.transport(this_identity).unwrap();
+        let this_network = Network::new(
+            this_transport.clone(),
+            expected_query_id,
+            RoleAssignment::new(identities),
         );
-        let noop_transport = NoopTransport::new(roles.identity(Role::H2));
-        let network = Network::new(noop_transport, QueryId, roles);
+
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: message_chunks.0.step.clone(),
+            payload: message_chunks.1.clone(),
+            offset: 0,
+        };
 
         // missing:
-        // let mut message_chunks_stream = network.recv_stream().await;
+        // let mut message_chunks_stream = this_network.recv_stream().await;
 
-        let sent = network.transport.send_to_self(command).await;
-        assert!(matches!(sent, Err(TransportError::SendFailed { .. })));
+        let that_transport = transports.transport(that_identity).unwrap();
+        let _sent = that_transport.send(this_identity, command).await;
+
+        // TODO: there seems to be a race condition here?
+        // must await to drive the in-memory transport to the error?
+        let mut message_chunks_stream = this_network.recv_stream().await;
+        message_chunks_stream.next().await.unwrap();
     }
 
     #[tokio::test]
     #[should_panic(expected = "out-of-order delivery of data for")] // just the prefix
     async fn rejects_bad_offset() {
-        let this_role = Role::H2;
+        let expected_query_id = QueryId;
         let message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("rejects-bad-offset")),
+            ChannelId::new(Role::H2, Step::default().narrow("rejects-bad-offset")),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
-        let roles = RoleAssignment::new(HelperIdentity::make_three());
 
-        let noop_transport = NoopTransport::new(roles.identity(this_role));
-        let network = Network::new(Arc::clone(&noop_transport), QueryId, roles.clone());
-        let mut message_chunks_stream = network.recv_stream().await;
+        let transports = InMemoryNetwork::default();
+        let identities = transports.helper_identities();
+        let this_identity = identities[Role::H1];
+        let that_identity = identities[Role::H2];
 
-        let command = step_data_envelope(
-            roles.identity(message_chunks.0.role),
-            QueryId,
-            &message_chunks,
-            0,
+        let this_transport = transports.transport(this_identity).unwrap();
+        let this_network = Network::new(
+            this_transport,
+            expected_query_id,
+            RoleAssignment::new(identities),
         );
-        network.transport.send_to_self(command).await.unwrap();
-        message_chunks_stream.next().await.unwrap();
+        let mut message_chunks_stream = this_network.recv_stream().await;
+
+        let that_transport = transports.transport(that_identity).unwrap();
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: message_chunks.0.step.clone(),
+            payload: message_chunks.1.clone(),
+            offset: 0,
+        };
+        that_transport.send(this_identity, command).await.unwrap();
+        assert_eq!(message_chunks, message_chunks_stream.next().await.unwrap());
 
         // send with offset == 0 again; this time should panic
-        let command = step_data_envelope(
-            roles.identity(message_chunks.0.role),
-            QueryId,
-            &message_chunks,
-            0,
-        );
-        network.transport.send_to_self(command).await.unwrap();
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: message_chunks.0.step.clone(),
+            payload: message_chunks.1.clone(),
+            offset: 0,
+        };
+        that_transport.send(this_identity, command).await.unwrap();
         message_chunks_stream.next().await.unwrap();
     }
 }

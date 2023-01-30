@@ -111,7 +111,9 @@ impl Switch {
                         }
                     }
                     Some((origin, command)) = peer_links.next() => {
-                        command.dispatch(CommandOrigin::Helper(origin), &routes).await.expect("Failed to dispatch a command");
+                        command.dispatch(CommandOrigin::Helper(origin), &routes)
+                        .await
+                        .unwrap_or_else(|err| panic!("Failed to dispatch a command: {err}"));
                     }
                     else => {
                         tracing::debug!("All channels are closed and switch is terminated");
