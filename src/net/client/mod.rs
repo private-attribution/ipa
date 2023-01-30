@@ -188,3 +188,189 @@ impl MpcHelperClient {
         }
     }
 }
+
+// #[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ff::FieldType;
+    use crate::helpers::query::QueryType;
+    use crate::helpers::CommandEnvelope;
+    use crate::{
+        net::{server::BindTarget, MpcHelperServer},
+        sync::{Arc, Mutex},
+    };
+    use hyper_tls::native_tls::TlsConnector;
+    use std::future::Future;
+    use tokio::sync::mpsc;
+
+    async fn setup_server(bind_target: BindTarget) -> (u16, mpsc::Receiver<CommandEnvelope>) {
+        let (tx, rx) = mpsc::channel(1);
+        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
+        let server = MpcHelperServer::new(tx, ongoing_queries);
+        let (addr, _) = server.bind(bind_target).await;
+        (addr.port(), rx)
+    }
+
+    async fn setup_server_http() -> (mpsc::Receiver<CommandEnvelope>, MpcHelperClient) {
+        let (port, rx) = setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let client = MpcHelperClient::with_str_addr(&format!("http://localhost:{}", port)).unwrap();
+        (rx, client)
+    }
+
+    async fn setup_server_https() -> (mpsc::Receiver<CommandEnvelope>, MpcHelperClient) {
+        let config = crate::net::server::tls_config_from_self_signed_cert()
+            .await
+            .unwrap();
+        let (port, rx) =
+            setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
+
+        // requires custom client to use self signed certs
+        let conn = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
+        let hyper_client = hyper::Client::builder().build(https.clone());
+        let streaming_hyper_client = hyper::Client::builder().build(https);
+        let client = MpcHelperClient {
+            client: hyper_client,
+            streaming_client: streaming_hyper_client,
+            scheme: uri::Scheme::HTTPS,
+            authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
+        };
+
+        (rx, client)
+    }
+
+    async fn test_http_https<Fut: Future<Output = ()>, F: Fn(MpcHelperClient) -> Fut>(f: F) {
+        let (_, http_client) = setup_server_http().await;
+        f(http_client).await;
+
+        let (_, https_client) = setup_server_https().await;
+        f(https_client).await;
+    }
+
+    #[tokio::test]
+    async fn echo() {
+        test_http_https(|client| async move {
+            let expected_res = "echo-test";
+            let res = client.echo(expected_res).await.unwrap();
+            assert_eq!(res, expected_res);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn create() {
+        test_http_https(|client| async move {
+            let res = client
+                .create_query(QueryConfig {
+                    field_type: FieldType::Fp31,
+                    query_type: QueryType::TestMultiply,
+                })
+                .await;
+        })
+        .await;
+    }
+}
+
+/*
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
+    use super::*;
+    #[allow(deprecated)]
+    use crate::{
+        helpers::{
+            http::HttpNetwork,
+            network::{ChannelId, MessageChunks},
+            old_network::Network,
+            Role, MESSAGE_PAYLOAD_SIZE_BYTES,
+        },
+        net::{server::MessageSendMap, BindTarget, MpcHelperServer},
+    };
+    use futures::{Stream, StreamExt};
+    use hyper_tls::native_tls::TlsConnector;
+
+    #[allow(deprecated)]
+    async fn setup_server(bind_target: BindTarget) -> (u16, impl Stream<Item = MessageChunks>) {
+        let network = HttpNetwork::new_without_clients(QueryId, None);
+        let rx_stream = network.recv_stream();
+        let message_send_map = MessageSendMap::filled(network);
+        let server = MpcHelperServer::new(message_send_map);
+        // setup server
+        let (addr, _) = server.bind(bind_target).await;
+        (addr.port(), rx_stream)
+    }
+
+    async fn send_messages_req<St: Stream<Item = MessageChunks> + Unpin>(
+        client: MpcHelperClient,
+        mut rx_stream: St,
+    ) {
+        const DATA_LEN: u32 = 3;
+        let query_id = QueryId;
+        let step = Step::default().narrow("mul_test");
+        let role = Role::H1;
+        let offset = 0;
+        let body = &[123; MESSAGE_PAYLOAD_SIZE_BYTES * (DATA_LEN as usize)];
+
+        client
+            .send_messages(HttpSendMessagesArgs {
+                query_id,
+                step: &step,
+                offset,
+                messages: Bytes::from_static(body),
+            })
+            .await
+            .expect("send should succeed");
+
+        let channel_id = ChannelId { role, step };
+        let server_recvd = rx_stream.next().await.unwrap(); // should already have been received
+        assert_eq!(server_recvd, (channel_id, body.to_vec()));
+    }
+
+    #[tokio::test]
+    async fn send_messages_req_http() {
+        let (port, rx_stream) =
+            setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+
+        // setup client
+        let client =
+            MpcHelperClient::with_str_addr(&format!("http://localhost:{port}"), Role::H1).unwrap();
+
+        // test
+        send_messages_req(client, rx_stream).await;
+    }
+
+    #[tokio::test]
+    async fn send_messages_req_https() {
+        let config = crate::net::server::tls_config_from_self_signed_cert()
+            .await
+            .unwrap();
+        let (port, rx_stream) =
+            setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
+
+        // setup client
+        // requires custom client to use self signed certs
+        let conn = TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
+        let hyper_client = hyper::Client::builder().build(https);
+        let client = MpcHelperClient {
+            role: Role::H1,
+            client: hyper_client,
+            scheme: uri::Scheme::HTTPS,
+            authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
+        };
+
+        // test
+        send_messages_req(client, rx_stream).await;
+    }
+}
+ */
