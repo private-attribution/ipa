@@ -21,9 +21,9 @@ use crate::helpers::{
     Direction::{Left, Right},
     Role::{H1, H2, H3},
 };
-use sha2::digest::typenum::{Unsigned, U8};
 use std::ops::{Index, IndexMut};
 use tinyvec::ArrayVec;
+use typenum::{Unsigned, U8};
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;

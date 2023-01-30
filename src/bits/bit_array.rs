@@ -2,8 +2,8 @@ use super::BitArray;
 use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
-use sha2::digest::generic_array::GenericArray;
-use sha2::digest::typenum::Unsigned;
+use generic_array::GenericArray;
+use typenum::Unsigned;
 
 /// Bit store type definition. Five `u8` blocks.
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
@@ -273,6 +273,6 @@ macro_rules! bit_array_impl {
     };
 }
 
-use sha2::digest::typenum::{U5, U8};
+use typenum::{U5, U8};
 bit_array_impl!(bit_array_64, BitArray64, U8_8, 64, U8);
 bit_array_impl!(bit_array_40, BitArray40, U8_5, 40, U5);

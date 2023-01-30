@@ -1,6 +1,6 @@
 use crate::secret_sharing::BooleanShare;
 
-use sha2::digest::generic_array::{ArrayLength, GenericArray};
+use generic_array::{ArrayLength, GenericArray};
 
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 

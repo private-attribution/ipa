@@ -1,5 +1,5 @@
-use sha2::digest::generic_array::ArrayLength;
-use sha2::digest::generic_array::GenericArray;
+use generic_array::ArrayLength;
+use generic_array::GenericArray;
 
 use std::fmt::Debug;
 

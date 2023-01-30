@@ -2,8 +2,8 @@ use crate::bits::Serializable;
 use crate::secret_sharing::{Boolean as BooleanSecretSharing, BooleanShare, SecretSharing};
 use aes::cipher::generic_array::GenericArray;
 
-use sha2::digest::generic_array::ArrayLength;
-use sha2::digest::typenum::Unsigned;
+use generic_array::ArrayLength;
+use typenum::Unsigned;
 
 use std::ops::Add;
 use std::{
@@ -104,7 +104,7 @@ mod tests {
     use super::XorShare;
     use crate::bits::{BitArray40, Serializable};
 
-    use sha2::digest::generic_array::GenericArray;
+    use generic_array::GenericArray;
 
     fn secret_share(
         a: u128,

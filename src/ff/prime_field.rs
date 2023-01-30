@@ -134,8 +134,8 @@ macro_rules! field_impl {
         mod common_tests {
             use super::*;
             use crate::bits::Serializable;
+            use generic_array::GenericArray;
             use proptest::proptest;
-            use sha2::digest::generic_array::GenericArray;
 
             #[test]
             fn zero() {
@@ -163,7 +163,7 @@ macro_rules! field_impl {
 }
 
 mod fp31 {
-    use sha2::digest::typenum::U1;
+    use typenum::U1;
     field_impl! { Fp31, u8, 31, U1 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
@@ -187,7 +187,7 @@ mod fp31 {
 }
 
 mod fp32bit {
-    use sha2::digest::typenum::U5;
+    use typenum::U5;
     field_impl! { Fp32BitPrime, u32, 4_294_967_291, U5 }
 
     #[cfg(all(test, not(feature = "shuttle")))]

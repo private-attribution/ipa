@@ -3,8 +3,7 @@ use crate::bits::Serializable;
 use crate::helpers::{messaging::Message, Error};
 use bitvec::{bitvec, vec::BitVec};
 use futures::FutureExt;
-use sha2::digest::generic_array::GenericArray;
-use sha2::digest::typenum::Unsigned;
+use generic_array::GenericArray;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -19,6 +18,7 @@ use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
 };
+use typenum::Unsigned;
 
 pub struct OrderingMpscReceiver<M: Message> {
     rx: Receiver<(usize, M)>,
@@ -231,9 +231,9 @@ mod fixture {
     };
     use async_trait::async_trait;
     use futures::future::join_all;
-    use sha2::digest::typenum::Unsigned;
     use std::num::NonZeroUsize;
     use tokio::sync::mpsc::{channel, Receiver};
+    use typenum::Unsigned;
 
     pub const FP32BIT_SIZE: usize = <Fp32BitPrime as Serializable>::Size::USIZE;
 
@@ -314,7 +314,7 @@ mod unit {
         },
     };
     use futures::{future::join, FutureExt};
-    use sha2::digest::generic_array::GenericArray;
+    use generic_array::GenericArray;
     use std::{mem, num::NonZeroUsize};
 
     /// Test that a single value can be sent and received successfully.

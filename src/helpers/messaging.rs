@@ -30,8 +30,8 @@ use crate::helpers::time::Timer;
 use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
 use futures_util::stream::FuturesUnordered;
-use sha2::digest::generic_array::GenericArray;
-use sha2::digest::typenum::Unsigned;
+use generic_array::GenericArray;
+use typenum::Unsigned;
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;

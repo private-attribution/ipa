@@ -4,7 +4,7 @@ use crate::{
     protocol::{RecordId, Substep},
 };
 
-use sha2::digest::generic_array::GenericArray;
+use generic_array::GenericArray;
 
 use tinyvec::ArrayVec;
 use x25519_dalek::PublicKey;
@@ -110,8 +110,8 @@ impl PublicKeyBytesBuilder {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    use generic_array::GenericArray;
     use rand::thread_rng;
-    use sha2::digest::generic_array::GenericArray;
     use x25519_dalek::EphemeralSecret;
 
     #[test]
