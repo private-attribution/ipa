@@ -163,23 +163,31 @@ where
     I: Iterator<Item = Vec<BitConversionTriple<S>>>,
 {
     let num_records = locally_converted_bits.size_hint().0;
-    try_join_all(
-        (0..num_bits)
-            .step_by(num_multi_bits.try_into().unwrap())
-            .map(|bit_num| {
-                let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
-                let future = try_join_all(locally_converted_bits.by_ref().enumerate().map(
-                    |(idx, record)| {
-                        convert_bit_list(
-                            ctx.narrow(&ModulusConversion(bit_num))
-                                .set_total_records(num_records),
-                            record[bit_num as usize..last_bit].to_vec(),
-                            RecordId::from(idx),
-                        )
-                    },
+
+    let count = ((num_bits + num_multi_bits - 1) / num_multi_bits) as usize;
+    let mut futures = Vec::with_capacity(count);
+    futures.resize_with(count, || Vec::with_capacity(num_records));
+
+    locally_converted_bits
+        .by_ref()
+        .enumerate()
+        .for_each(|(idx, record)| {
+            (0..count).for_each(|slice_num| {
+                let first_bit =
+                    num_multi_bits * <usize as TryInto<u32>>::try_into(slice_num).unwrap();
+                let last_bit = std::cmp::min(first_bit + num_multi_bits, num_bits) as usize;
+                futures[slice_num].push(convert_bit_list(
+                    ctx.narrow(&ModulusConversion(first_bit))
+                        .set_total_records(num_records),
+                    record[first_bit as usize..last_bit].to_vec(),
+                    RecordId::from(idx),
                 ));
-                future
-            }),
+            });
+        });
+    try_join_all(
+        futures
+            .into_iter()
+            .map(|one_future| async move { try_join_all(one_future).await }),
     )
     .await
 }

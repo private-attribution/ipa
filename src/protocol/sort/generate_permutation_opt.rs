@@ -117,11 +117,12 @@ where
 mod tests {
     use std::iter::zip;
 
-    use crate::bits::BitArray;
+    use crate::bits::{BitArray, BitArray40};
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::rand::{thread_rng, Rng};
 
     use crate::protocol::context::{Context, SemiHonestContext};
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::{MaskedMatchKey, Runner};
     use crate::{
         ff::{Field, Fp31},
@@ -147,10 +148,12 @@ mod tests {
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, 5);
-                    let converted_shares = convert_all_bits(&ctx, local_lists, 5, NUM_MULTI_BITS)
-                        .await
-                        .unwrap();
+                    let local_lists =
+                        convert_all_bits_local(ctx.role(), &mk_shares, BitArray40::BITS);
+                    let converted_shares =
+                        convert_all_bits(&ctx, local_lists, BitArray40::BITS, NUM_MULTI_BITS)
+                            .await
+                            .unwrap();
 
                     generate_permutation_opt(ctx.narrow("sort"), converted_shares.as_slice())
                         .await

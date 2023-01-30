@@ -25,16 +25,15 @@ use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as
 ///     ...
 ///     `[ row[0].bitmL,  ..., row[0].bit31 ], [ row[1].bitmL, ..., row[n].bit31 ], .. [ row[n].bitmL, ..., row[n].bit31 ]`,
 /// `]`
-#[must_use]
 pub fn split_into_multi_bit_slices<F: Field>(
     input: &[Vec<Replicated<F>>],
     num_bits: u32,
     num_multi_bits: u32,
-) -> Vec<Vec<Vec<Replicated<F>>>> {
+) -> impl Iterator<Item = Vec<Vec<Replicated<F>>>> + '_ {
     let total_records = input.len();
     (0..num_bits)
         .step_by(num_multi_bits as usize)
-        .map(|bit_num| {
+        .map(move |bit_num| {
             (0..total_records)
                 .map(|record_idx| {
                     let last_bit_num = std::cmp::min(bit_num + num_multi_bits, num_bits) as usize;
@@ -43,7 +42,6 @@ pub fn split_into_multi_bit_slices<F: Field>(
                 })
                 .collect::<Vec<_>>()
         })
-        .collect::<Vec<_>>()
 }
 
 /// Combine 3D vectors to get 2D vectors
@@ -64,20 +62,17 @@ pub fn split_into_multi_bit_slices<F: Field>(
 ///     ...
 ///     `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
 ///  `]`
-#[must_use]
 pub fn combine_slices<F: Field>(
     input: &[Vec<Vec<Replicated<F>>>],
     num_bits: u32,
-) -> Vec<Vec<Replicated<F>>> {
+) -> impl Iterator<Item = Vec<Replicated<F>>> + '_ {
     let record_count = input[0].len();
     let mut output = Vec::with_capacity(record_count);
     output.resize_with(record_count, || Vec::with_capacity(num_bits as usize));
-    for slice in input {
-        output.push(Vec::with_capacity(num_bits as usize));
-        for (idx, record) in slice.iter().enumerate() {
-            let mut one = record.clone();
-            output[idx].append(&mut one);
-        }
+    for slice in input.iter() {
+        slice.iter().enumerate().for_each(|(idx, record)| {
+            output[idx].append(&mut record.clone());
+        });
     }
-    output
+    output.into_iter()
 }

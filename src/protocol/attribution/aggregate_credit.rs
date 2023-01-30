@@ -254,15 +254,17 @@ async fn sort_by_breakdown_key<F: Field>(
     // breakdown key values.
     let valid_bits_count = u128::BITS - (max_breakdown_key - 1).leading_zeros();
 
+    let bit_decompose_breakdown_key =
+        bit_decompose_breakdown_key(ctx.narrow(&Step::BitDecomposeBreakdownKey), input).await?;
     let breakdown_keys = split_into_multi_bit_slices(
-        &bit_decompose_breakdown_key(ctx.narrow(&Step::BitDecomposeBreakdownKey), input).await?,
+        &bit_decompose_breakdown_key,
         valid_bits_count,
         num_multi_bits,
     );
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        breakdown_keys.as_slice(),
+        &breakdown_keys.collect::<Vec<_>>(),
     )
     .await?;
 

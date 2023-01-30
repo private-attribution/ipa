@@ -171,7 +171,7 @@ where
 
     let combined_match_keys_and_sidecar_data = input_rows
         .iter()
-        .zip(converted_shares.into_iter())
+        .zip(converted_shares)
         .map(|(input_row, mk_shares)| IPAModulusConvertedInputRow {
             mk_shares,
             is_trigger_bit: input_row.is_trigger_bit.clone(),
