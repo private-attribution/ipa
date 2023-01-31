@@ -7,12 +7,12 @@ use hpke::generic_array::typenum::Unsigned;
 use hpke::{single_shot_open_in_place_detached, OpModeR};
 use std::io;
 
-mod aad;
+mod info;
 mod registry;
 
 use crate::bits::{BitArray40, Serializable};
 use crate::secret_sharing::replicated::semi_honest::XorShare;
-pub use aad::Info;
+pub use info::Info;
 pub use registry::KeyRegistry;
 
 /// IPA ciphersuite
@@ -69,7 +69,7 @@ impl From<io::Error> for DecryptionError {
 ///
 /// This function mutates the provided ciphertext slice and replaces it with the plaintext obtained
 /// after opening the ciphertext. The result will contain a pointer to the plaintext slice.
-/// of the plaintext. Note that if the ciphertext slice does not include authentication tag, decryption
+/// Note that if the ciphertext slice does not include authentication tag, decryption
 /// will fail.
 ///
 /// ## Errors
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn decrypt_wrong_aad() {
+    fn decrypt_wrong_epoch() {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
@@ -274,6 +274,7 @@ mod tests {
     mod proptests {
         use super::*;
         use proptest::prelude::ProptestConfig;
+        use rand::distributions::Alphanumeric;
         use rand::Rng;
 
         proptest::proptest! {
@@ -302,16 +303,44 @@ mod tests {
             }
         }
 
+        fn corrupt_str<R: RngCore>(s: &mut String, rng: &mut R) {
+            assert!(s.is_ascii());
+
+            // 0 - add
+            // 1 - remove
+            // 2 - modify
+            let idx = rng.gen_range(0..s.len());
+            match rng.gen_range(0..3) {
+                0 => {
+                    let c = rng.sample(Alphanumeric);
+                    s.insert(idx, char::from(c));
+                },
+                1 => { s.remove(idx); },
+                2 => {
+                    let char_at_idx = s.chars().nth(idx).unwrap();
+                    let c = rng.sample_iter(Alphanumeric)
+                        .map(char::from)
+                        .skip_while(|new_char| new_char == &char_at_idx)
+                        .take(1)
+                        .next()
+                        .unwrap();
+
+                    s.replace_range(idx..idx+1, &c.to_string());
+                },
+                _ => unreachable!()
+            }
+        }
+
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            fn arbitrary_info_corruption(corrupted_info_field in 1..4, seed: [u8; 32]) {
+            fn arbitrary_info_corruption(corrupted_info_field in 1..4,
+                                         mut site_origin in "[a-z]{10}",
+                                         mut helper_origin in "[a-z]{10}",
+                                         seed: [u8; 32]) {
                 let mut rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(10, rng.clone());
                 let mut encryption = suite.seal(0, new_share(0, 0));
-
-                let mut site_origin = EncryptionSuite::<StdRng>::SITE_ORIGIN.to_owned();
-                let mut helper_origin = EncryptionSuite::<StdRng>::HELPER_ORIGIN.to_owned();
 
                 let info = match corrupted_info_field {
                     1 => Info {
@@ -323,8 +352,7 @@ mod tests {
                         ..encryption.info
                     },
                     3 => {
-                        let idx = rng.gen_range(0..site_origin.len());
-                        site_origin.remove(idx);
+                        corrupt_str(&mut site_origin, &mut rng);
 
                         Info {
                             site_origin: site_origin.as_ref(),
@@ -332,8 +360,7 @@ mod tests {
                         }
                     },
                     4 => {
-                        let idx = rng.gen_range(0..helper_origin.len());
-                        helper_origin.remove(idx);
+                        corrupt_str(&mut helper_origin, &mut rng);
 
                         Info {
                             helper_origin: helper_origin.as_ref(),
