@@ -11,10 +11,7 @@ use crate::{
             credit_capping::credit_capping,
         },
         context::Context,
-        sort::{
-            apply_sort::apply_sort_permutation,
-            generate_permutation::generate_permutation_and_reveal_shuffled,
-        },
+        sort::apply_sort::apply_sort_permutation,
         RecordId,
     },
     secret_sharing::replicated::semi_honest::{
@@ -27,9 +24,10 @@ use futures::future::{try_join3, try_join_all};
 use super::{
     attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
     context::SemiHonestContext,
+    sort::generate_permutation::generate_permutation_and_reveal_shuffled,
 };
 use super::{
-    modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
+    modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
     sort::apply_sort::shuffle::Resharable,
     Substep,
 };
@@ -162,43 +160,48 @@ where
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
 
-    let converted_mk_shares = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &convert_all_bits_local(ctx.role(), &mk_shares),
+    // Breakdown key modulus conversion
+    let converted_bk_shares = convert_all_bits(
+        &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        &convert_all_bits_local(ctx.role(), &bk_shares),
+        BK::BITS,
+        num_multi_bits,
     )
     .await
     .unwrap();
+    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
 
-    let converted_bk_shares = transpose(
-        &convert_all_bits(
-            &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-            &convert_all_bits_local(ctx.role(), &bk_shares),
-        )
-        .await
-        .unwrap(),
-    );
-
-    let sort_permutation = generate_permutation_and_reveal_shuffled(
-        ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        &converted_mk_shares,
+    // Match key modulus conversion, and then sort
+    let converted_mk_shares = convert_all_bits(
+        &ctx.narrow(&Step::ModulusConversionForMatchKeys),
+        &convert_all_bits_local(ctx.role(), &mk_shares),
         MK::BITS,
         num_multi_bits,
     )
     .await
     .unwrap();
 
-    let converted_mk_shares = transpose(&converted_mk_shares);
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
+        ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
+        &converted_mk_shares,
+    )
+    .await
+    .unwrap();
+
+    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
     let combined_match_keys_and_sidecar_data =
         std::iter::zip(converted_mk_shares, converted_bk_shares)
             .into_iter()
             .zip(input_rows)
-            .map(|((mk, bk), input_row)| IPAModulusConvertedInputRow {
-                mk_shares: mk,
-                is_trigger_bit: input_row.is_trigger_bit.clone(),
-                breakdown_key: bk,
-                trigger_value: input_row.trigger_value.clone(),
-            })
+            .map(
+                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
+                    mk_shares,
+                    is_trigger_bit: input_row.is_trigger_bit.clone(),
+                    breakdown_key: bk_shares,
+                    trigger_value: input_row.trigger_value.clone(),
+                },
+            )
             .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(

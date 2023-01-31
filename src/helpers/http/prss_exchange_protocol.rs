@@ -3,7 +3,9 @@ use crate::{
     helpers::{messaging::Message, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::{RecordId, Substep},
 };
-use std::io::ErrorKind;
+
+use generic_array::GenericArray;
+
 use tinyvec::ArrayVec;
 use x25519_dalek::PublicKey;
 
@@ -58,39 +60,17 @@ impl PublicKeyChunk {
     }
 }
 
-impl Serializable for PublicKeyChunk {
-    const SIZE_IN_BYTES: usize = MESSAGE_PAYLOAD_SIZE_BYTES;
+use crate::helpers::MessagePayloadArrayLen;
 
-    fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
-        if buf.len() >= self.0.len() {
-            buf[..Self::SIZE_IN_BYTES].copy_from_slice(&self.0);
-            Ok(())
-        } else {
-            Err(std::io::Error::new(
-                ErrorKind::WriteZero,
-                format!(
-                    "expected buffer to be at least {} bytes, but was only {} bytes",
-                    Self::SIZE_IN_BYTES,
-                    buf.len()
-                ),
-            ))
-        }
+impl Serializable for PublicKeyChunk {
+    type Size = MessagePayloadArrayLen;
+
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+        buf.copy_from_slice(&self.0);
     }
-    fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
-        if Self::SIZE_IN_BYTES <= buf.len() {
-            let mut chunk = [0; Self::SIZE_IN_BYTES];
-            chunk.copy_from_slice(&buf[..Self::SIZE_IN_BYTES]);
-            Ok(PublicKeyChunk(chunk))
-        } else {
-            Err(std::io::Error::new(
-                ErrorKind::UnexpectedEof,
-                format!(
-                    "expected buffer of size {}, but it was of size {}",
-                    Self::SIZE_IN_BYTES,
-                    buf.len()
-                ),
-            ))
-        }
+
+    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
+        Self(buf.into())
     }
 }
 
@@ -130,19 +110,20 @@ impl PublicKeyBytesBuilder {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+    use generic_array::GenericArray;
     use rand::thread_rng;
     use x25519_dalek::EphemeralSecret;
 
     #[test]
     fn chunk_ser_de() {
-        let chunk_bytes = [1, 2, 3, 4, 5, 6, 7, 8];
-        let chunk = PublicKeyChunk(chunk_bytes);
+        let chunk_bytes = GenericArray::from_slice(&[1u8, 2, 3, 4, 5, 6, 7, 8]);
+        let chunk = PublicKeyChunk(chunk_bytes.as_slice().try_into().unwrap());
 
-        let mut serialized = [0u8; 8];
-        chunk.serialize(&mut serialized).unwrap();
-        assert_eq!(chunk_bytes, serialized);
+        let mut serialized = GenericArray::default();
+        chunk.serialize(&mut serialized);
+        assert_eq!(chunk_bytes, &serialized);
 
-        let deserialized = PublicKeyChunk::deserialize(&serialized).unwrap();
+        let deserialized = PublicKeyChunk::deserialize(serialized);
         assert_eq!(chunk, deserialized);
     }
 

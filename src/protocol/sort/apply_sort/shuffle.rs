@@ -172,7 +172,7 @@ mod tests {
             AccumulateCreditInputRow, MCAccumulateCreditInputRow,
         };
         use crate::protocol::modulus_conversion::{
-            convert_all_bits, convert_all_bits_local, transpose,
+            combine_slices, convert_all_bits, convert_all_bits_local,
         };
         use crate::protocol::{BreakdownKey, MatchKey};
         use crate::rand::{thread_rng, Rng};
@@ -182,12 +182,14 @@ mod tests {
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
         use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+        use crate::secret_sharing::SharedValue;
         use crate::test_fixture::input::GenericReportTestInput;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
+            const NUM_MULTI_BITS: u32 = 3;
             const BATCHSIZE: u8 = 25;
             let world = TestWorld::new().await;
             let mut rng = thread_rng();
@@ -229,14 +231,16 @@ mod tests {
                             .iter()
                             .map(|x| x.breakdown_key.clone())
                             .collect::<Vec<_>>();
-                        let converted_bk_shares = transpose(
-                            &convert_all_bits(
-                                &ctx,
-                                &convert_all_bits_local(ctx.role(), &bk_shares),
-                            )
-                            .await
-                            .unwrap(),
-                        );
+                        let converted_bk_shares = convert_all_bits(
+                            &ctx,
+                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            BreakdownKey::BITS,
+                            NUM_MULTI_BITS,
+                        )
+                        .await
+                        .unwrap();
+                        let converted_bk_shares =
+                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
 
                         let converted_shares = shares
                             .into_iter()

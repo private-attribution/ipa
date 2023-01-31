@@ -2,6 +2,8 @@ use super::BitArray;
 use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
+use generic_array::GenericArray;
+use typenum::{Unsigned, U1, U5, U8};
 
 // Bit store type definitions
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
@@ -9,7 +11,7 @@ type U8_5 = BitArr!(for 40, in u8, Lsb0);
 type U8_8 = BitArr!(for 64, in u8, Lsb0);
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty ) => {
         mod $modname {
             use super::*;
 
@@ -28,11 +30,8 @@ macro_rules! bit_array_impl {
 
             impl BitArray for $name {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
-                    Self(<$store>::new(
-                        v.into().to_le_bytes()[0..<Self as Serializable>::SIZE_IN_BYTES]
-                            .try_into()
-                            .unwrap(),
-                    ))
+                    let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
+                    Self(<$store>::new(v.try_into().unwrap()))
                 }
             }
 
@@ -160,43 +159,14 @@ macro_rules! bit_array_impl {
             }
 
             impl Serializable for $name {
-                const SIZE_IN_BYTES: usize = Self::BITS as usize / 8;
+                type Size = $arraylen;
 
-                fn serialize(self, buf: &mut [u8]) -> std::io::Result<()> {
-                    let req = <Self as Serializable>::SIZE_IN_BYTES;
-
-                    if buf.len() >= req {
-                        buf[..req].copy_from_slice(self.0.as_raw_slice());
-                        Ok(())
-                    } else {
-                        let error_text = format!(
-                            "Buffer with total capacity {} cannot hold the value {:?} because \
-                             it required at least {req} bytes available",
-                            buf.len(),
-                            self,
-                        );
-
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::WriteZero,
-                            error_text,
-                        ))
-                    }
+                fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+                    buf.copy_from_slice(self.0.as_raw_slice());
                 }
 
-                fn deserialize(buf: &[u8]) -> std::io::Result<Self> {
-                    let sz = <Self as Serializable>::SIZE_IN_BYTES;
-                    if sz <= buf.len() {
-                        Ok(Self(<$store>::new(buf.try_into().unwrap())))
-                    } else {
-                        let error_text = format!(
-                            "Buffer is too small to read values of the type {}. Required at least {sz} bytes,\
-                             got {}", std::any::type_name::<Self>(), buf.len()
-                        );
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::UnexpectedEof,
-                            error_text,
-                        ))
-                    }
+                fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
+                    Self(<$store>::new(buf.into()))
                 }
             }
 
@@ -291,10 +261,10 @@ macro_rules! bit_array_impl {
                     let a = rng.gen::<u128>() & MASK;
                     let a = $name::truncate_from(a);
 
-                    let mut buf = vec![0_u8; $name::SIZE_IN_BYTES];
-                    a.clone().serialize(&mut buf).unwrap();
+                    let mut buf = GenericArray::default();
+                    a.clone().serialize(&mut buf);
 
-                    assert_eq!(a, $name::deserialize(&buf).unwrap());
+                    assert_eq!(a, $name::deserialize(buf));
                 }
             }
         }
@@ -303,6 +273,6 @@ macro_rules! bit_array_impl {
     };
 }
 
-bit_array_impl!(bit_array_64, BitArray64, U8_8, 64);
-bit_array_impl!(bit_array_40, BitArray40, U8_5, 40);
-bit_array_impl!(bit_array_8, BitArray8, U8_1, 8);
+bit_array_impl!(bit_array_64, BitArray64, U8_8, 64, U8);
+bit_array_impl!(bit_array_40, BitArray40, U8_5, 40, U5);
+bit_array_impl!(bit_array_8, BitArray8, U8_1, 8, U1);

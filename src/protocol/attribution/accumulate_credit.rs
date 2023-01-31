@@ -180,15 +180,18 @@ mod tests {
         input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
     };
     use crate::protocol::modulus_conversion::{
-        convert_all_bits, convert_all_bits_local, transpose,
+        combine_slices, convert_all_bits, convert_all_bits_local,
     };
     use crate::protocol::sort::apply_sort::shuffle::Resharable;
     use crate::protocol::{context::Context, RecordId};
     use crate::protocol::{BreakdownKey, MatchKey};
     use crate::rand::thread_rng;
+    use crate::secret_sharing::SharedValue;
     use crate::test_fixture::input::GenericReportTestInput;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::Rng;
+
+    const NUM_MULTI_BITS: u32 = 3;
 
     #[tokio::test]
     pub async fn accumulate() {
@@ -231,11 +234,16 @@ mod tests {
                         .iter()
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
-                    let converted_bk_shares = transpose(
-                        &convert_all_bits(&ctx, &convert_all_bits_local(ctx.role(), &bk_shares))
-                            .await
-                            .unwrap(),
-                    );
+                    let converted_bk_shares = convert_all_bits(
+                        &ctx,
+                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        BreakdownKey::BITS,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let converted_bk_shares =
+                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
                     let modulus_converted_shares = input
                         .into_iter()
                         .zip(converted_bk_shares)
@@ -292,17 +300,19 @@ mod tests {
                     secret,
                     |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
                         let bk_shares = vec![share.breakdown_key];
-                        let mut converted_bk_shares = transpose(
-                            &convert_all_bits(
-                                &ctx,
-                                &convert_all_bits_local(ctx.role(), &bk_shares),
-                            )
-                            .await
-                            .unwrap(),
-                        );
+                        let converted_bk_shares = convert_all_bits(
+                            &ctx,
+                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            BreakdownKey::BITS,
+                            NUM_MULTI_BITS,
+                        )
+                        .await
+                        .unwrap();
+                        let mut converted_bk_shares =
+                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
                         let modulus_converted_share = MCAccumulateCreditInputRow {
                             is_trigger_report: share.is_trigger_report,
-                            breakdown_key: converted_bk_shares.remove(0),
+                            breakdown_key: converted_bk_shares.next().unwrap(),
                             trigger_value: share.trigger_value,
                             helper_bit: share.helper_bit,
                         };

@@ -332,17 +332,19 @@ mod tests {
             credit_capping::credit_capping,
             input::{CreditCappingInputRow, MCCreditCappingInputRow},
         },
-        protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
+        protocol::modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
         protocol::{
             context::Context,
             {BreakdownKey, MatchKey},
         },
+        secret_sharing::SharedValue,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
 
     #[tokio::test]
     pub async fn cap() {
         const CAP: u32 = 18;
+        const NUM_MULTI_BITS: u32 = 3;
         const EXPECTED: &[u128; 19] = &[0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 10, 0, 0, 6, 0];
 
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
@@ -380,11 +382,16 @@ mod tests {
                         .iter()
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
-                    let converted_bk_shares = transpose(
-                        &convert_all_bits(&ctx, &convert_all_bits_local(ctx.role(), &bk_shares))
-                            .await
-                            .unwrap(),
-                    );
+                    let converted_bk_shares = convert_all_bits(
+                        &ctx,
+                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        BreakdownKey::BITS,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let converted_bk_shares =
+                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

@@ -30,6 +30,9 @@ use crate::helpers::time::Timer;
 use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
 use futures_util::stream::FuturesUnordered;
+use generic_array::GenericArray;
+use typenum::Unsigned;
+
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -129,7 +132,7 @@ impl Mesh<'_, '_> {
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        if T::SIZE_IN_BYTES > MESSAGE_PAYLOAD_SIZE_BYTES {
+        if T::Size::USIZE > MESSAGE_PAYLOAD_SIZE_BYTES {
             Err(Error::serialization_error::<String>(record_id,
                                                      self.step,
                                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
@@ -147,8 +150,9 @@ impl Mesh<'_, '_> {
         }
 
         let mut payload = array_vec![0; MESSAGE_PAYLOAD_SIZE_BYTES];
-        msg.serialize(&mut payload)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
+        let mut data = GenericArray::default();
+        msg.serialize(&mut data);
+        payload[..data.len()].copy_from_slice(&data);
 
         let envelope = MessageEnvelope { record_id, payload };
 
@@ -180,8 +184,8 @@ impl Mesh<'_, '_> {
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj = T::deserialize(&payload)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
+        let g = GenericArray::clone_from_slice(&payload[..T::Size::USIZE]);
+        let obj = T::deserialize(g);
 
         Ok(obj)
     }

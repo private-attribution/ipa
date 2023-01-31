@@ -50,7 +50,7 @@ mod tests {
     };
     use crate::protocol::context::Context;
     use crate::protocol::modulus_conversion::{
-        convert_all_bits, convert_all_bits_local, transpose,
+        combine_slices, convert_all_bits, convert_all_bits_local,
     };
     use crate::protocol::sort::apply_sort::apply_sort_permutation;
     use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
@@ -102,15 +102,17 @@ mod tests {
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
                     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
-                    let converted_mk_shares =
-                        convert_all_bits(&ctx.narrow("convert_all_bits"), &local_lists)
-                            .await
-                            .unwrap();
-                    let sort_permutation = generate_permutation_and_reveal_shuffled(
-                        ctx.narrow(&SortPreAccumulation),
-                        &converted_mk_shares,
+                    let converted_shares = convert_all_bits(
+                        &ctx.narrow("convert_all_bits"),
+                        &local_lists,
                         MatchKey::BITS,
                         NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let sort_permutation = generate_permutation_and_reveal_shuffled(
+                        ctx.narrow(&SortPreAccumulation),
+                        &converted_shares,
                     )
                     .await
                     .unwrap();
@@ -119,11 +121,16 @@ mod tests {
                         .iter()
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
-                    let converted_bk_shares = transpose(
-                        &convert_all_bits(&ctx, &convert_all_bits_local(ctx.role(), &bk_shares))
-                            .await
-                            .unwrap(),
-                    );
+                    let converted_bk_shares = convert_all_bits(
+                        &ctx,
+                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        BreakdownKey::BITS,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let converted_bk_shares =
+                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
 
                     let converted_secret = secret
                         .into_iter()
