@@ -38,12 +38,12 @@ pub fn split_into_multi_bit_slices<F: Field>(
     let total_records = input.len();
     (0..num_bits)
         .step_by(num_multi_bits as usize)
-        .map(move |bit_num| {
+        .map(move |chunk_number| {
             (0..total_records)
                 .map(|record_idx| {
-                    let last_bit_num = std::cmp::min(bit_num + num_multi_bits, num_bits) as usize;
-                    let one_slice = &input[record_idx][bit_num as usize..last_bit_num];
-                    one_slice.to_vec()
+                    let last_bit = std::cmp::min(chunk_number + num_multi_bits, num_bits) as usize;
+                    let next_few_bits = &input[record_idx][chunk_number as usize..last_bit];
+                    next_few_bits.to_vec()
                 })
                 .collect::<Vec<_>>()
         })

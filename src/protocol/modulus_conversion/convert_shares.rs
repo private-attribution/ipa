@@ -96,27 +96,7 @@ pub fn convert_all_bits_local<F: Field, B: BitArray>(
         .iter()
         .map(move |record| {
             (0..num_bits)
-                .map(|bit_index: u32| {
-                    let left = u128::from(record.left()[bit_index]);
-                    let right = u128::from(record.right()[bit_index]);
-                    BitConversionTriple(match helper_role {
-                        Role::H1 => [
-                            Replicated::new(F::from(left), F::ZERO),
-                            Replicated::new(F::ZERO, F::from(right)),
-                            Replicated::new(F::ZERO, F::ZERO),
-                        ],
-                        Role::H2 => [
-                            Replicated::new(F::ZERO, F::ZERO),
-                            Replicated::new(F::from(left), F::ZERO),
-                            Replicated::new(F::ZERO, F::from(right)),
-                        ],
-                        Role::H3 => [
-                            Replicated::new(F::ZERO, F::from(right)),
-                            Replicated::new(F::ZERO, F::ZERO),
-                            Replicated::new(F::from(left), F::ZERO),
-                        ],
-                    })
-                })
+                .map(|bit_index: u32| convert_bit_local::<F, B>(helper_role, bit_index, record))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>()
@@ -165,27 +145,23 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let num_records = locally_converted_bits.len();
-    try_join_all(
-        (0..num_bits)
-            .step_by(num_multi_bits.try_into().unwrap())
-            .map(|bit_num| {
-                let last_bit = std::cmp::min(num_multi_bits + bit_num, num_bits) as usize;
-                try_join_all(
-                    locally_converted_bits
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, record)| {
-                            convert_bit_list(
-                                ctx.narrow(&ModulusConversion(bit_num))
-                                    .set_total_records(num_records),
-                                &record[bit_num as usize..last_bit],
-                                RecordId::from(idx),
-                            )
-                        }),
-                )
-            }),
-    )
+    let ctx = ctx.set_total_records(locally_converted_bits.len());
+
+    let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
+    try_join_all(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
+        try_join_all(
+            zip(locally_converted_bits, repeat(ctx.clone()))
+                .enumerate()
+                .map(|(idx, (record, ctx))| async move {
+                    convert_bit_list(
+                        ctx.narrow(&ModulusConversion(chunk[0].try_into().unwrap())),
+                        &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
+                        RecordId::from(idx),
+                    )
+                    .await
+                }),
+        )
+    }))
     .await
 }
 
@@ -195,7 +171,7 @@ where
 /// Propagates panics from convert shares
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
-    locally_converted_bits: &[BitConversionTriple<S>],
+    locally_converted_bits: &[&BitConversionTriple<S>],
     record_id: RecordId,
 ) -> Result<Vec<S>, Error>
 where

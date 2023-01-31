@@ -47,9 +47,11 @@ pub async fn multi_bit_permutation<
 
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
-        (0..num_records)
+        input
+            .iter()
             .zip(repeat(ctx.set_total_records(num_records)))
-            .map(|(i, ctx)| check_everything(ctx, i, input[i].as_slice())),
+            .enumerate()
+            .map(|(idx, (record, ctx))| check_everything(ctx, idx, record)),
     )
     .await?;
 
