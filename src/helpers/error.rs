@@ -37,6 +37,11 @@ pub enum Error {
         #[source]
         inner: BoxError,
     },
+    #[error("Expected to receive {record_id:?} but hit end of stream")]
+    EndOfStream {
+        // TODO(mt): add more fields, like step and role.
+        record_id: RecordId,
+    },
     #[error("An error occurred while serializing or deserializing data for {record_id:?} and step {step}")]
     SerializationError {
         record_id: RecordId,

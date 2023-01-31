@@ -35,7 +35,7 @@ pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
 }
 
 impl<F: Field> Serializable for F {
-    const SIZE_IN_BYTES: usize = F::BITS as usize / 8;
+    const SIZE_IN_BYTES: usize = ((F::BITS + 7) / 8) as usize;
 
     /// Generic implementation to serialize fields into a buffer. Callers need to make sure
     /// there is enough capacity to store the value of this field.
