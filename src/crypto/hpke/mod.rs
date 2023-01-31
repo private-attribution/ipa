@@ -10,7 +10,7 @@ use std::io;
 mod aad;
 mod registry;
 
-use crate::bits::BitArray40;
+use crate::bits::{BitArray40, Serializable};
 use crate::secret_sharing::replicated::semi_honest::XorShare;
 pub use aad::Info;
 pub use registry::KeyRegistry;
@@ -37,8 +37,11 @@ pub type Epoch = u16;
 type IpaPublicKey = <IpaKem as hpke::kem::Kem>::PublicKey;
 type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 
+/// match key size, in bytes
+const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
+
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize = <XorReplicated as crate::bits::Serializable>::SIZE_IN_BYTES
+pub const MATCHKEY_CT_LEN: usize = MATCHKEY_LEN
     + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
 
 #[derive(Debug, thiserror::Error)]
@@ -128,6 +131,7 @@ struct MatchKeyEncryption<'a> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use generic_array::GenericArray;
     use super::*;
 
     use crate::bits::Serializable;
@@ -161,9 +165,9 @@ mod tests {
         ) -> MatchKeyEncryption<'static> {
             let info =
                 Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
-            let mut plaintext = [0_u8; XorReplicated::SIZE_IN_BYTES];
+            let mut plaintext = GenericArray::default();
 
-            match_key.serialize(&mut plaintext).unwrap();
+            match_key.serialize(&mut plaintext);
             let pk_r = self.registry.public_key(key_id).unwrap();
 
             let (encap_key, tag) =
@@ -196,7 +200,8 @@ mod tests {
                 Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), info)?;
 
-            Ok(XorReplicated::deserialize(enc.ct.as_ref())?)
+            // TODO: fix once array split is a thing.
+            Ok(XorReplicated::deserialize(GenericArray::clone_from_slice(&enc.ct[..MATCHKEY_LEN])))
         }
 
         pub fn advance_epoch(&mut self) {
