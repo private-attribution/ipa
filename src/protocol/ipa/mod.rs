@@ -26,7 +26,7 @@ use futures::future::{try_join, try_join_all};
 
 use super::{attribution::AggregateCreditOutputRow, context::SemiHonestContext};
 use super::{
-    modulus_conversion::{convert_all_bits, convert_all_bits_local, transpose},
+    modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
     sort::apply_sort::shuffle::Resharable,
     Substep,
 };
@@ -152,26 +152,26 @@ where
         .iter()
         .map(|x| x.mk_shares.clone())
         .collect::<Vec<_>>();
-    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
+    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares, B::BITS);
     let converted_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &local_lists,
+        B::BITS,
+        num_multi_bits,
     )
     .await
     .unwrap();
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_shares,
-        B::BITS,
-        num_multi_bits,
     )
     .await
     .unwrap();
-    let converted_shares = transpose(&converted_shares);
+    let converted_shares = combine_slices(&converted_shares, B::BITS);
 
     let combined_match_keys_and_sidecar_data = input_rows
         .iter()
-        .zip(converted_shares.into_iter())
+        .zip(converted_shares)
         .map(|(input_row, mk_shares)| IPAModulusConvertedInputRow {
             mk_shares,
             is_trigger_bit: input_row.is_trigger_bit.clone(),

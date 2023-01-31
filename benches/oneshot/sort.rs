@@ -30,17 +30,22 @@ async fn main() -> Result<(), Error> {
 
     let converted_shares = world
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_all_bits(&ctx, &convert_all_bits_local(ctx.role(), &match_key))
-                .await
-                .unwrap()
+            convert_all_bits(
+                &ctx,
+                &convert_all_bits_local(ctx.role(), &match_key, BitArray40::BITS),
+                BitArray40::BITS,
+                NUM_MULTI_BITS,
+            )
+            .await
+            .unwrap()
         })
         .await;
 
     let start = Instant::now();
     let result = join3(
-        generate_permutation_opt(ctx0, &converted_shares[0], BitArray40::BITS, NUM_MULTI_BITS),
-        generate_permutation_opt(ctx1, &converted_shares[1], BitArray40::BITS, NUM_MULTI_BITS),
-        generate_permutation_opt(ctx2, &converted_shares[2], BitArray40::BITS, NUM_MULTI_BITS),
+        generate_permutation_opt(ctx0, &converted_shares[0]),
+        generate_permutation_opt(ctx1, &converted_shares[1]),
+        generate_permutation_opt(ctx2, &converted_shares[2]),
     )
     .await;
 
