@@ -1,4 +1,5 @@
 use crate::bits::Serializable;
+use crate::helpers::Role;
 use crate::secret_sharing::{Boolean as BooleanSecretSharing, BooleanShare, SecretSharing};
 use aes::cipher::generic_array::GenericArray;
 
@@ -48,6 +49,15 @@ impl<V: BooleanShare> XorShare<V> {
 
     pub fn right(&self) -> V {
         self.1
+    }
+
+    /// Returns share of a scalar value.
+    pub fn from_scalar(helper_role: Role, a: V) -> Self {
+        match helper_role {
+            Role::H1 => Self::new(a, V::ZERO),
+            Role::H2 => Self::new(V::ZERO, V::ZERO),
+            Role::H3 => Self::new(V::ZERO, a),
+        }
     }
 
     /// Replicated secret share where both left and right values are `V::ZERO`

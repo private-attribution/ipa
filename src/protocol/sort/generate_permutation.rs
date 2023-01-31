@@ -349,11 +349,12 @@ mod tests {
     use crate::bits::BitArray;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation_opt::generate_permutation_opt;
+    use crate::protocol::MatchKey;
     use crate::rand::{thread_rng, Rng};
     use crate::secret_sharing::SharedValue;
 
     use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::test_fixture::{join3, MaskedMatchKey, Runner};
+    use crate::test_fixture::{join3, Runner};
     use crate::{
         ff::{Field, Fp31},
         protocol::sort::generate_permutation::shuffle_and_reveal_permutation,
@@ -368,7 +369,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -377,10 +378,9 @@ mod tests {
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
+                        convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                             .await
                             .unwrap();
                     generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
