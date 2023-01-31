@@ -488,17 +488,22 @@ impl AsRef<str> for Upgrade2DVectors {
     }
 }
 
-/// This upgrades a 2D vector where each 1D vector represents 1 record. So each column is expected to share one context across records
+/// This function is not a generic implementation of 2D vector upgrade.
+/// It assumes the inner vector is much smaller (e.g. multiple bits per record) than the outer vector (e.g. records)
+/// Each inner vector element uses a different context and outer vector shares a context for the same inner vector index
 #[async_trait]
 impl<'a, F> UpgradeToMalicious<Vec<Vec<Replicated<F>>>, Vec<Vec<MaliciousReplicated<F>>>>
     for UpgradeContext<'a, F, NoRecord>
 where
     F: Field,
 {
+    /// # Panics
+    /// Panics if input is empty
     async fn upgrade(
         self,
         input: Vec<Vec<Replicated<F>>>,
     ) -> Result<Vec<Vec<MaliciousReplicated<F>>>, Error> {
+        assert_ne!(input.len(), 0);
         let num_columns = input[0].len();
         let all_ctx = (0..num_columns).map(|idx| {
             self.upgrade_ctx
