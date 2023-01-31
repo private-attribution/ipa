@@ -19,7 +19,7 @@ async fn handler(
             .lock()
             .unwrap()
             .get(&req.query_id)
-            .ok_or_else(|| Error::query_id_not_found(req.query_id))?
+            .ok_or_else(|| Error::QueryIdNotFound(req.query_id))?
             .clone()
     };
     let permit = network_sender.reserve().await?;

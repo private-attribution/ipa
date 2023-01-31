@@ -141,14 +141,18 @@ mod e2e_tests {
         bits::Serializable,
         ff::{FieldType, Fp31},
         helpers::{
+            network::{ChannelId, Network},
             query::{QueryConfig, QueryInput, QueryType},
             transport::ByteArrStream,
+            Role, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
         net::discovery::PeerDiscovery,
+        protocol::Step,
         query::Processor,
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{net::localhost_config, Reconstruct},
     };
+    use futures::stream::StreamExt;
     use futures_util::{
         future::{join_all, try_join_all},
         join,
@@ -160,6 +164,71 @@ mod e2e_tests {
             .local_addr()
             .unwrap()
             .port()
+    }
+
+    #[tokio::test]
+    async fn succeeds_when_subscribed() {
+        let expected_query_id = QueryId;
+        let expected_message_chunks = (
+            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
+            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+        );
+
+        let identities = HelperIdentity::make_three();
+        let this_identity = identities[Role::H1];
+        let conf = localhost_config([open_port(), open_port(), open_port()]);
+        let transport = HttpTransport::new(this_identity, Arc::new(conf.peers().clone()));
+        transport.bind().await;
+        let network = Network::new(
+            Arc::clone(&transport),
+            expected_query_id,
+            RoleAssignment::new(identities),
+        );
+        let mut message_chunks_stream = network.recv_stream().await;
+
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: expected_message_chunks.0.step.clone(),
+            payload: expected_message_chunks.1.clone(),
+            offset: 0,
+        };
+        let res = transport.send(this_identity, command).await;
+        assert!(matches!(res, Ok(())));
+
+        let message_chunks = message_chunks_stream.next().await;
+        assert_eq!(message_chunks, Some(expected_message_chunks));
+    }
+
+    #[tokio::test]
+    async fn fails_if_not_subscribed() {
+        let expected_query_id = QueryId;
+        let message_chunks = (
+            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
+            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+        );
+
+        let identities = HelperIdentity::make_three();
+        let this_identity = identities[Role::H1];
+        let conf = localhost_config([open_port(), open_port(), open_port()]);
+        let transport = HttpTransport::new(this_identity, Arc::new(conf.peers().clone()));
+        transport.bind().await;
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: message_chunks.0.step.clone(),
+            payload: message_chunks.1.clone(),
+            offset: 0,
+        };
+
+        // missing:
+        // let network = Network::new(
+        //     Arc::clone(&transport),
+        //     expected_query_id,
+        //     RoleAssignment::new(identities),
+        // );
+        // let mut message_chunks_stream = network.recv_stream().await;
+
+        let res = transport.send(this_identity, command).await;
+        assert!(res.unwrap_err().to_string().contains("query id not found"));
     }
 
     async fn make_processors(
