@@ -8,10 +8,10 @@ pub mod bits;
 pub mod chunkscan;
 #[cfg(feature = "cli")]
 pub mod cli;
-pub mod crypto;
 pub mod error;
 pub mod ff;
 pub mod helpers;
+pub mod hpke;
 #[cfg(feature = "web-app")]
 pub mod net;
 pub mod protocol;

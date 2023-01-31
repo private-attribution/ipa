@@ -41,8 +41,8 @@ type IpaPrivateKey = <IpaKem as hpke::kem::Kem>::PrivateKey;
 const MATCHKEY_LEN: usize = <XorReplicated as Serializable>::Size::USIZE;
 
 /// Total len in bytes for an encrypted matchkey including the authentication tag.
-pub const MATCHKEY_CT_LEN: usize = MATCHKEY_LEN
-    + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
+pub const MATCHKEY_CT_LEN: usize =
+    MATCHKEY_LEN + <AeadTag<IpaAead> as hpke::Serializable>::OutputSize::USIZE;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecryptionError {
@@ -131,8 +131,8 @@ struct MatchKeyEncryption<'a> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use generic_array::GenericArray;
     use super::*;
+    use generic_array::GenericArray;
 
     use crate::bits::Serializable;
     use hpke::{single_shot_seal_in_place_detached, OpModeS};
@@ -201,7 +201,9 @@ mod tests {
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), info)?;
 
             // TODO: fix once array split is a thing.
-            Ok(XorReplicated::deserialize(GenericArray::clone_from_slice(&enc.ct[..MATCHKEY_LEN])))
+            Ok(XorReplicated::deserialize(GenericArray::clone_from_slice(
+                &enc.ct[..MATCHKEY_LEN],
+            )))
         }
 
         pub fn advance_epoch(&mut self) {
@@ -314,20 +316,23 @@ mod tests {
                 0 => {
                     let c = rng.sample(Alphanumeric);
                     s.insert(idx, char::from(c));
-                },
-                1 => { s.remove(idx); },
+                }
+                1 => {
+                    s.remove(idx);
+                }
                 2 => {
                     let char_at_idx = s.chars().nth(idx).unwrap();
-                    let c = rng.sample_iter(Alphanumeric)
+                    let c = rng
+                        .sample_iter(Alphanumeric)
                         .map(char::from)
                         .skip_while(|new_char| new_char == &char_at_idx)
                         .take(1)
                         .next()
                         .unwrap();
 
-                    s.replace_range(idx..idx+1, &c.to_string());
-                },
-                _ => unreachable!()
+                    s.replace_range(idx..=idx, &c.to_string());
+                }
+                _ => unreachable!(),
             }
         }
 

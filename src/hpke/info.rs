@@ -8,7 +8,7 @@ const DOMAIN: &str = "private-attribution";
 /// for each encryption.
 ///
 /// IPA uses key identifier, event epoch and both helper and site origins to authenticate match key
-/// encryptions. It is not guaranteed that the same receiver can be used for anything else.
+/// encryption. It is not guaranteed that the same receiver can be used for anything else.
 ///
 /// [`info`]: https://www.rfc-editor.org/rfc/rfc9180.html#name-creating-the-encryption-con
 #[derive(Clone)]
