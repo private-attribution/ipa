@@ -2,6 +2,7 @@ use std::iter::{repeat, zip};
 
 use crate::repeat64str;
 use crate::secret_sharing::{
+    replicated::malicious::AdditiveShare as MaliciousReplicated,
     replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
 };
 use crate::{
@@ -79,6 +80,25 @@ where
             input.reshare(ctx, RecordId::from(index), to_helper).await
         });
     try_join_all(reshares).await
+}
+
+#[async_trait]
+impl<F: Field> Resharable<F> for Vec<MaliciousReplicated<F>> {
+    type Share = MaliciousReplicated<F>;
+
+    /// This is intended to be used for resharing vectors of malicious shares.
+    /// # Errors
+    /// If the vector has more than 64 elements
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+    {
+        try_join_all(self.iter().enumerate().map(|(i, x)| {
+            let c = ctx.narrow(&InnerVectorElementStep::from(i));
+            async move { c.reshare(x, record_id, to_helper).await }
+        }))
+        .await
+    }
 }
 
 /// `shuffle_once` is called for the helpers
