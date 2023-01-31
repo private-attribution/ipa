@@ -304,7 +304,7 @@ impl AsRef<str> for Step {
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-pub(crate) mod tests {
+mod tests {
     use super::aggregate_credit;
     use crate::aggregation_test_input;
     use crate::bits::BitArray;
@@ -355,9 +355,9 @@ pub(crate) mod tests {
                 { helper_bit: 1, breakdown_key: 0, credit: 0 },
                 { helper_bit: 1, breakdown_key: 0, credit: 0 },
                 { helper_bit: 1, breakdown_key: 5, credit: 6 },
-                { helper_bit: 1, breakdown_key: 0, credit: 0 };
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            ]
+                { helper_bit: 1, breakdown_key: 0, credit: 0 }
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
         let world = TestWorld::new().await;

@@ -365,9 +365,9 @@ mod tests {
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 10},
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 4},
                 { is_trigger_report: 0, helper_bit: 1, breakdown_key: 5, credit: 6},
-                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 6};
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            ]
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 6}
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
         );
         let input_len = input.len();
 

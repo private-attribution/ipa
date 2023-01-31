@@ -86,8 +86,8 @@ mod tests {
                     helper_bit: rng.gen::<u8>(),
                     breakdown_key: rng.gen::<u8>(),
                     credit: rng.gen::<u8>()
-                };
-                (Fp32BitPrime, MathKey, BreakdownKey)]
+                }];
+                (Fp32BitPrime, MathKey, BreakdownKey)
             )
             .remove(0)
         });

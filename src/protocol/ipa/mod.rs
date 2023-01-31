@@ -285,9 +285,9 @@ pub mod tests {
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
                 { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 };
-                (Fp31, MatchKey, BreakdownKey)
-            ]
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 }
+            ];
+            (Fp31, MatchKey, BreakdownKey)
         );
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
@@ -338,15 +338,13 @@ pub mod tests {
         for _ in 0..BATCHSIZE {
             records.push(
                 ipa_test_input!(
-                    [
-                        {
+                    [{
                             match_key: rng.gen_range(0..max_match_key),
                             is_trigger_report: rng.gen::<u32>(),
                             breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
                             trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE)
-                        };
-                        (Fp32BitPrime, MatchKey, BreakdownKey)
-                    ]
+                    }];
+                    (Fp32BitPrime, MatchKey, BreakdownKey)
                 )
                 .remove(0),
             );

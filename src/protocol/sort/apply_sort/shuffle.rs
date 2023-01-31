@@ -201,8 +201,8 @@ mod tests {
                         helper_bit: rng.gen::<u8>(),
                         breakdown_key: rng.gen::<u8>(),
                         credit: rng.gen::<u8>()
-                    };
-                    (Fp31, MatchKey, BreakdownKey)]
+                    }];
+                    (Fp31, MatchKey, BreakdownKey)
                 )
                 .remove(0)
             });

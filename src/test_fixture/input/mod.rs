@@ -31,9 +31,9 @@ pub struct GenericReportTestInput<F: Field, MK: BitArray, BK: BitArray> {
 
 #[macro_export]
 macro_rules! ipa_test_input {
-    ( [ $({ match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bdk:expr, trigger_value: $tv:expr }),*; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ] ) => {
+    ( [ $({ match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bdk:expr, trigger_value: $tv:expr }),* ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         vec![
-            $((
+            $(
                 GenericReportTestInput {
                     match_key: Some(<$mk_bit_array as $crate::bits::BitArray>::truncate_from(u128::try_from($mk).unwrap())),
                     attribution_constraint_id: None,
@@ -44,16 +44,16 @@ macro_rules! ipa_test_input {
                     helper_bit: None,
                     aggregation_bit: None
                 }
-            )),*
+            ),*
         ]
     };
 }
 
 #[macro_export]
 macro_rules! accumulation_test_input {
-    ( [ $({ is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bdk:expr, credit: $cdt:expr }),*; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ] ) => {
+    ( [ $({ is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bdk:expr, credit: $cdt:expr }),* ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         vec![
-            $((
+            $(
                 GenericReportTestInput {
                     match_key: None,
                     attribution_constraint_id: None,
@@ -64,27 +64,27 @@ macro_rules! accumulation_test_input {
                     helper_bit: Some($field::from(u128::try_from($hb).unwrap())),
                     aggregation_bit: None
                 }
-            )),*
+            ),*
         ]
     };
 }
 
 #[macro_export]
 macro_rules! aggregation_test_input {
-    ( [ $({ helper_bit: $hb:literal, breakdown_key: $bdk:literal, credit: $cdt:literal }),*; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ] ) => {
+    ( [ $({ helper_bit: $hb:expr, breakdown_key: $bk:expr, credit: $cdt:expr }),* ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         vec![
-            $((
+            $(
                 GenericReportTestInput {
                     match_key: None,
                     attribution_constraint_id: None,
                     timestamp: None,
                     is_trigger_report: None,
-                    breakdown_key: <$bk_bit_array as $crate::bits::BitArray>::truncate_from(u128::try_from($bdk).unwrap()),
+                    breakdown_key: <$bk_bit_array as $crate::bits::BitArray>::truncate_from(u128::try_from($bk).unwrap()),
                     trigger_value: $field::from(u128::try_from($cdt).unwrap()),
                     helper_bit: Some($field::from(u128::try_from($hb).unwrap())),
                     aggregation_bit: None
                 }
-            )),*
+            ),*
         ]
     };
 }

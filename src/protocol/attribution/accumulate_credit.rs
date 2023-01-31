@@ -170,7 +170,7 @@ async fn compute_b_bit<F: Field>(
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
-pub(crate) mod tests {
+mod tests {
     use crate::accumulation_test_input;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::helpers::Role;
@@ -216,9 +216,9 @@ pub(crate) mod tests {
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 6 },
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 4 },
                 { is_trigger_report: 0, helper_bit: 1, breakdown_key: 5, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 6 };
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            ]
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 6 }
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
         );
         let input_len = input.len();
 
@@ -280,8 +280,8 @@ pub(crate) mod tests {
                     helper_bit: rng.gen::<u8>(),
                     breakdown_key: rng.gen::<u8>(),
                     credit: rng.gen::<u8>()
-                };
-                (Fp31, MathKey, BreakdownKey)]
+                }];
+                (Fp31, MathKey, BreakdownKey)
             )
             .remove(0);
 
