@@ -1,4 +1,4 @@
-use crate::helpers::messaging::Mesh;
+use crate::helpers::messaging::{Mesh, TotalRecords};
 use crate::helpers::Role;
 use crate::protocol::basics::{Reveal, SecureMul};
 
@@ -44,6 +44,15 @@ pub trait Context<V: ArithmeticShare>:
     /// Note that each invocation of this should use a unique value of `step`.
     #[must_use]
     fn narrow<S: Substep + ?Sized>(&self, step: &S) -> Self;
+
+    /// Returns true if the context does not have a total record count set (regardless
+    /// of whether that total is known or indeterminate).
+    fn is_total_records_unspecified(&self) -> bool;
+
+    /// Sets the context's total number of records field. Communication channels are
+    /// closed based on sending the expected total number of records.
+    #[must_use]
+    fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self;
 
     /// Get the indexed PRSS instance for this step.  It is safe to call this function
     /// multiple times.
@@ -163,6 +172,7 @@ mod tests {
     async fn semi_honest_metrics() {
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
         let input = (0..10u128).map(Fp31::from).collect::<Vec<_>>();
+        let input_len = input.len();
 
         let result = world
             .semi_honest(input.clone(), |ctx, shares| async move {
@@ -170,7 +180,7 @@ mod tests {
                     shares
                         .iter()
                         .enumerate()
-                        .zip(repeat(ctx))
+                        .zip(repeat(ctx.set_total_records(input_len)))
                         .map(|((i, share), ctx)| toy_protocol(ctx, i, share)),
                 )
                 .await
@@ -216,11 +226,12 @@ mod tests {
     async fn malicious_metrics() {
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
         let input = vec![Fp31::from(0u128), Fp31::from(1u128)];
+        let input_len = input.len();
 
         let _result = world
             .malicious(input.clone(), |ctx, a| async move {
                 for (i, share) in a.iter().enumerate() {
-                    toy_protocol(ctx.clone(), i, share).await;
+                    toy_protocol(ctx.set_total_records(input_len), i, share).await;
                 }
                 a
             })

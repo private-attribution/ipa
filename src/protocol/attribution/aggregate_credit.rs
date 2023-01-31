@@ -106,7 +106,9 @@ pub async fn aggregate_credit<F: Field>(
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::from(depth));
+        let c = ctx
+            .narrow(&InteractionPatternStep::from(depth))
+            .set_total_records(end);
         let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
@@ -234,7 +236,7 @@ async fn bit_decompose_breakdown_key<F: Field>(
     try_join_all(
         input
             .iter()
-            .zip(repeat(ctx))
+            .zip(repeat(ctx.set_total_records(input.len())))
             .enumerate()
             .map(|(i, (x, c))| async move {
                 BitDecomposition::execute(c, RecordId::from(i), rbg, &x.breakdown_key).await

@@ -1,7 +1,9 @@
 #![allow(dead_code)]
+use crate::bits::Serializable;
 use crate::helpers::{messaging::Message, Error};
 use bitvec::{bitvec, vec::BitVec};
 use futures::FutureExt;
+use generic_array::GenericArray;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -16,6 +18,7 @@ use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
 };
+use typenum::Unsigned;
 
 pub struct OrderingMpscReceiver<M: Message> {
     rx: Receiver<(usize, M)>,
@@ -55,7 +58,7 @@ pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
         },
         OrderingMpscReceiver {
             rx,
-            buf: vec![0_u8; capacity.get() * M::SIZE_IN_BYTES],
+            buf: vec![0_u8; capacity.get() * <M as Serializable>::Size::USIZE],
             added: bitvec![0; capacity.get()],
             capacity,
             end,
@@ -92,8 +95,8 @@ impl<M: Message> OrderingMpscReceiver<M> {
         }
         // Translate from an absolute index into a relative one.
         let i = index % self.capacity.get();
-        let start = i * M::SIZE_IN_BYTES;
-        let offset = start..start + M::SIZE_IN_BYTES;
+        let start = i * M::Size::USIZE;
+        let offset = start..start + M::Size::USIZE;
 
         #[cfg_attr(not(debug_assertions), allow(unused_variables))]
         let overwritten = self.added.replace(i, true);
@@ -103,7 +106,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
             "Duplicate send for index {index} on channel \"{}\"",
             self.name,
         );
-        msg.serialize(&mut self.buf[offset]).unwrap();
+        msg.serialize(GenericArray::from_mut_slice(&mut self.buf[offset]));
     }
 
     /// Takes a block of elements from the beginning of the vector, or `None` if
@@ -131,12 +134,12 @@ impl<M: Message> OrderingMpscReceiver<M> {
         self.added[i..(i + tail)].fill(false);
         if wrap > 0 {
             self.added[..wrap].fill(false);
-            let mut buf = Vec::with_capacity((tail + wrap) * M::SIZE_IN_BYTES);
-            buf.extend_from_slice(&self.buf[(i * M::SIZE_IN_BYTES)..]);
-            buf.extend_from_slice(&self.buf[..(wrap * M::SIZE_IN_BYTES)]);
+            let mut buf = Vec::with_capacity((tail + wrap) * M::Size::USIZE);
+            buf.extend_from_slice(&self.buf[(i * M::Size::USIZE)..]);
+            buf.extend_from_slice(&self.buf[..(wrap * M::Size::USIZE)]);
             Some(buf)
         } else {
-            Some(self.buf[(i * M::SIZE_IN_BYTES)..((i + tail) * M::SIZE_IN_BYTES)].to_owned())
+            Some(self.buf[(i * M::Size::USIZE)..((i + tail) * M::Size::USIZE)].to_owned())
         }
     }
 
@@ -230,8 +233,9 @@ mod fixture {
     use futures::future::join_all;
     use std::num::NonZeroUsize;
     use tokio::sync::mpsc::{channel, Receiver};
+    use typenum::Unsigned;
 
-    pub const FP32BIT_SIZE: usize = <Fp32BitPrime as Serializable>::SIZE_IN_BYTES;
+    pub const FP32BIT_SIZE: usize = <Fp32BitPrime as Serializable>::Size::USIZE;
 
     #[async_trait]
     pub trait TestSender {
@@ -310,6 +314,7 @@ mod unit {
         },
     };
     use futures::{future::join, FutureExt};
+    use generic_array::GenericArray;
     use std::{mem, num::NonZeroUsize};
 
     /// Test that a single value can be sent and received successfully.
@@ -322,7 +327,10 @@ mod unit {
             tx_a.send(0, input).await.unwrap();
         };
         let (_, output) = join(send, rx.next(1)).await;
-        assert_eq!(input, Fp31::deserialize(output.as_ref().unwrap()).unwrap());
+        assert_eq!(
+            input,
+            Fp31::deserialize(GenericArray::clone_from_slice(output.as_ref().unwrap()))
+        );
     }
 
     /// If the sender is dropped, then the receiver will report that it is done.

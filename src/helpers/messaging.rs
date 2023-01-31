@@ -19,6 +19,7 @@ use crate::{
 };
 use futures::StreamExt;
 use std::fmt::{Debug, Formatter};
+use std::num::NonZeroUsize;
 use std::time::Duration;
 use tinyvec::array_vec;
 use tracing::Instrument;
@@ -29,6 +30,9 @@ use crate::helpers::time::Timer;
 use crate::helpers::transport::Transport;
 use ::tokio::sync::{mpsc, oneshot};
 use futures_util::stream::FuturesUnordered;
+use generic_array::GenericArray;
+use typenum::Unsigned;
+
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -62,11 +66,49 @@ pub struct Gateway {
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
 
+#[derive(Clone, Copy, Debug)]
+pub enum TotalRecords {
+    Unspecified,
+    Specified(NonZeroUsize),
+
+    /// Total number of records is not well-determined. When the record ID is
+    /// counting solved_bits attempts. The total record count for solved_bits
+    /// depends on the number of failures.
+    ///
+    /// The purpose of this is to waive the warning that there is a known
+    /// number of records when creating a channel. If the warning is firing
+    /// and the total number of records is knowable, prefer to specify it
+    /// rather than use this to waive the warning.
+    Indeterminate,
+}
+
+impl TotalRecords {
+    #[must_use]
+    pub fn is_unspecified(&self) -> bool {
+        matches!(self, &TotalRecords::Unspecified)
+    }
+
+    #[must_use]
+    pub fn is_indeterminate(&self) -> bool {
+        matches!(self, &TotalRecords::Indeterminate)
+    }
+}
+
+impl From<usize> for TotalRecords {
+    fn from(value: usize) -> Self {
+        match NonZeroUsize::new(value) {
+            Some(v) => TotalRecords::Specified(v),
+            None => TotalRecords::Unspecified,
+        }
+    }
+}
+
 /// Channel end
 #[derive(Debug)]
 pub struct Mesh<'a, 'b> {
     gateway: &'a Gateway,
     step: &'b Step,
+    total_records: TotalRecords,
 }
 
 pub(super) struct ReceiveRequest {
@@ -81,22 +123,36 @@ impl Mesh<'_, '_> {
     ///
     /// # Errors
     /// Returns an error if it fails to send the message or if there is a serialization error.
+    ///
+    /// # Panics
+    /// If the context has a total record count set and the `record_id` to be sent is out of range.
     pub async fn send<T: Message>(
         &self,
         dest: Role,
         record_id: RecordId,
         msg: T,
     ) -> Result<(), Error> {
-        if T::SIZE_IN_BYTES > MESSAGE_PAYLOAD_SIZE_BYTES {
+        if T::Size::USIZE > MESSAGE_PAYLOAD_SIZE_BYTES {
             Err(Error::serialization_error::<String>(record_id,
                                                      self.step,
                                                      format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
             )?;
         }
 
+        if let TotalRecords::Specified(count) = self.total_records {
+            assert!(
+                usize::from(record_id) < usize::from(count),
+                "record ID {:?} is out of range for {:?} (expected {:?} records)",
+                record_id,
+                self.step,
+                self.total_records,
+            );
+        }
+
         let mut payload = array_vec![0; MESSAGE_PAYLOAD_SIZE_BYTES];
-        msg.serialize(&mut payload)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
+        let mut data = GenericArray::default();
+        msg.serialize(&mut data);
+        payload[..data.len()].copy_from_slice(&data);
 
         let envelope = MessageEnvelope { record_id, payload };
 
@@ -109,14 +165,27 @@ impl Mesh<'_, '_> {
     ///
     /// # Errors
     /// Returns an error if it fails to receive the message or if a deserialization error occurred
+    ///
+    /// # Panics
+    /// If the context has a total record count set and the `record_id` to be received is out of range.
     pub async fn receive<T: Message>(&self, source: Role, record_id: RecordId) -> Result<T, Error> {
+        if let TotalRecords::Specified(count) = self.total_records {
+            assert!(
+                usize::from(record_id) < usize::from(count),
+                "record ID {:?} is out of range for {:?} (expected {:?} records)",
+                record_id,
+                self.step,
+                self.total_records
+            );
+        }
+
         let payload = self
             .gateway
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let obj = T::deserialize(&payload)
-            .map_err(|e| Error::serialization_error(record_id, self.step, e))?;
+        let g = GenericArray::clone_from_slice(&payload[..T::Size::USIZE]);
+        let obj = T::deserialize(g);
 
         Ok(obj)
     }
@@ -204,11 +273,16 @@ impl Gateway {
     /// This method makes no guarantee that the communication channel will actually be established
     /// between this helper and every other one. The actual connection may be created only when
     /// `Mesh::send` or `Mesh::receive` methods are called.
+    ///
+    /// ## Panics
+    /// In `debug_assertions` config, if the `ALREADY_WARNED` mutex is poisoned.
     #[must_use]
-    pub fn mesh<'a, 'b>(&'a self, step: &'b Step) -> Mesh<'a, 'b> {
+    pub fn mesh<'a, 'b>(&'a self, step: &'b Step, total_records: TotalRecords) -> Mesh<'a, 'b> {
+        debug_assert!(!total_records.is_unspecified());
         Mesh {
             gateway: self,
             step,
+            total_records,
         }
     }
 
@@ -286,6 +360,7 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::ff::Fp31;
+    use crate::helpers::messaging::TotalRecords;
     use crate::helpers::Role;
     use crate::protocol::context::Context;
     use crate::protocol::{RecordId, Step};
@@ -300,8 +375,8 @@ mod tests {
 
         let world = Box::leak(Box::new(TestWorld::new_with(config).await));
         let contexts = world.contexts::<Fp31>();
-        let sender_ctx = contexts[0].narrow("reordering-test");
-        let recv_ctx = contexts[1].narrow("reordering-test");
+        let sender_ctx = contexts[0].narrow("reordering-test").set_total_records(2);
+        let recv_ctx = contexts[1].narrow("reordering-test").set_total_records(2);
 
         // send record 1 first and wait for confirmation before sending record 0.
         // when gateway received record 0 it triggers flush so it must make sure record 1 is also
@@ -335,7 +410,8 @@ mod tests {
         let peer = Role::H2;
         let record_id = 1.into();
         let step = Step::default();
-        let channel = &world.gateway(Role::H1).mesh(&step);
+        let total_records = TotalRecords::from(2);
+        let channel = &world.gateway(Role::H1).mesh(&step, total_records);
 
         channel.send(peer, record_id, v1).await.unwrap();
         channel.send(peer, record_id, v2).await.unwrap();
