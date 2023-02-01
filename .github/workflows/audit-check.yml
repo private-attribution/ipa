@@ -8,9 +8,6 @@ on:
     paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
-  schedule:
-    - cron: '0 0 * * *'
-
 jobs:
   audit:
     name: Security audit
@@ -22,8 +19,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions-rs/audit-check@v1
         with:
-          components: cargo-audit
-      - name: cargo audit
-        run: cargo audit
+          token: ${{ secrets.GITHUB_TOKEN }}
