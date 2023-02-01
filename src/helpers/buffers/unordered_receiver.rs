@@ -71,6 +71,13 @@ impl Spare {
         }
     }
 
+    /// Replace the stored value with the given slice.
+    fn replace(&mut self, v: &[u8]) {
+        self.offset = 0;
+        self.buf.truncate(0);
+        self.buf.extend_from_slice(v);
+    }
+
     /// Extend the buffer with new data.  
     /// This returns a message if there is enough data.
     /// This returns a value because it can be more efficient in cases where
@@ -93,13 +100,12 @@ impl Spare {
             let mut tmp = GenericArray::<u8, M::Size>::default();
             tmp[..remainder].copy_from_slice(&self.buf[self.offset..]);
             tmp[remainder..].copy_from_slice(&v[..needed]);
-            self.buf = v[needed..].to_vec();
+            self.replace(&v[needed..]);
             M::deserialize(&tmp)
         } else {
-            self.buf = v[sz..].to_vec();
+            self.replace(&v[sz..]);
             M::deserialize(GenericArray::from_slice(&v[..sz]))
         };
-        self.offset = 0;
         Some(m)
     }
 }
@@ -270,9 +276,9 @@ where
     /// This method can be called multiple times with the same value for `i`,
     /// but only one of the futures can be polled until it succeeds.
     /// Once one future is resolved, the other will crash.
-    pub fn recv<M: Message>(&self, i: usize) -> Receiver<S, C, M> {
+    pub fn recv<M: Message, I: Into<usize>>(&self, i: I) -> Receiver<S, C, M> {
         Receiver {
-            i,
+            i: i.into(),
             receiver: Arc::clone(&self.inner),
             _marker: PhantomData,
         }
@@ -373,14 +379,14 @@ mod test {
             spawn({
                 let recv = recv.clone();
                 async move {
-                    let f: Fp31 = recv.recv(0).await.unwrap();
+                    let f: Fp31 = recv.recv(0_usize).await.unwrap();
                     assert_eq!(f, Fp31::from(18_u128));
                 }
             }),
             spawn({
                 let recv = recv.clone();
                 async move {
-                    let f: Fp32BitPrime = recv.recv(1).await.unwrap();
+                    let f: Fp32BitPrime = recv.recv(1_usize).await.unwrap();
                     assert_eq!(f, Fp32BitPrime::from(0x0100_020c_u128));
                 }
             }),
@@ -463,7 +469,7 @@ mod test {
     fn synchronous() {
         const DATA: &[u8] = &[18, 12];
         let recv = receiver(&[DATA]);
-        assert!(recv.recv::<Fp31>(1).now_or_never().is_none());
+        assert!(recv.recv::<Fp31, _>(1_usize).now_or_never().is_none());
         for (i, &v) in DATA.iter().enumerate() {
             let f: Fp31 = recv.recv(i).now_or_never().unwrap().unwrap();
             assert_eq!(f, Fp31::from(u128::from(v)));
