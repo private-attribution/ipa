@@ -344,7 +344,7 @@ mod tests {
                 { helper_bit: 1, breakdown_key: 0, credit: 0 },
                 { helper_bit: 1, breakdown_key: 0, credit: 0 },
                 { helper_bit: 1, breakdown_key: 5, credit: 6 },
-                { helper_bit: 1, breakdown_key: 0, credit: 0 }
+                { helper_bit: 1, breakdown_key: 0, credit: 0 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );

@@ -219,7 +219,7 @@ mod tests {
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 6 },
                 { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 4 },
                 { is_trigger_report: 0, helper_bit: 1, breakdown_key: 5, credit: 0 },
-                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 6 }
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 6 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
@@ -281,17 +281,15 @@ mod tests {
     #[tokio::test]
     pub async fn test_reshare() {
         let mut rng = thread_rng();
-        let secret: GenericReportTestInput<Fp31, MatchKey, BreakdownKey> =
-            accumulation_test_input!(
-                [{
-                    is_trigger_report: rng.gen::<u8>(),
-                    helper_bit: rng.gen::<u8>(),
-                    breakdown_key: rng.gen::<u8>(),
-                    credit: rng.gen::<u8>()
-                }];
-                (Fp31, MathKey, BreakdownKey)
-            )
-            .remove(0);
+        let secret: GenericReportTestInput<Fp31, MatchKey, BreakdownKey> = accumulation_test_input!(
+            {
+                is_trigger_report: rng.gen::<u8>(),
+                helper_bit: rng.gen::<u8>(),
+                breakdown_key: rng.gen::<u8>(),
+                credit: rng.gen::<u8>(),
+            };
+            (Fp31, MathKey, BreakdownKey)
+        );
 
         let world = TestWorld::new().await;
         for &role in Role::all() {
