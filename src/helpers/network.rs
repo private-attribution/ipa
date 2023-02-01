@@ -151,3 +151,122 @@ impl<T: Transport> Network<T> {
         })
     }
 }
+
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
+    use super::*;
+    use crate::{
+        helpers::{CommandEnvelope, HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES},
+        test_fixture::transport::InMemoryNetwork,
+    };
+    use futures::stream::StreamExt;
+
+    async fn assert_successful_send(
+        this_network: &Network<impl Transport>,
+        dest_stream: &mut (impl Stream<Item = CommandEnvelope> + Unpin),
+        expected_query_id: QueryId,
+        message_chunks: &MessageChunks,
+        expected_offset: u32,
+    ) {
+        let res = this_network.send(message_chunks.clone()).await;
+        assert!(res.is_ok(), "{res:?}");
+        {
+            let send_offset_tracker = this_network.send_offset_tracker.lock().unwrap();
+            let next_offset = *send_offset_tracker.get(&message_chunks.0).unwrap();
+            assert_eq!(next_offset, expected_offset + 1);
+        }
+        let command = dest_stream.next().await.unwrap();
+        assert_eq!(
+            command.origin,
+            CommandOrigin::Helper(this_network.transport.identity())
+        );
+        if let TransportCommand::StepData {
+            query_id,
+            step,
+            payload,
+            offset,
+        } = command.payload
+        {
+            assert_eq!(query_id, expected_query_id);
+            assert_eq!(step, message_chunks.0.step.clone());
+            assert_eq!(payload, message_chunks.1.clone());
+            assert_eq!(offset, expected_offset);
+        } else {
+            panic!("expected command to be `StepData`, but it was {command:?}")
+        }
+    }
+
+    #[tokio::test]
+    async fn successfully_sends() {
+        let message_chunks = (
+            ChannelId::new(Role::H1, Step::default().narrow("successfully-sends")),
+            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+        );
+        let roles = RoleAssignment::new(HelperIdentity::make_three());
+        let this_identity = roles.identity(Role::H2);
+        let dest_identity = roles.identity(message_chunks.0.role);
+        let expected_query_id = QueryId;
+
+        let transports = InMemoryNetwork::default();
+        let this_transport = transports.transport(this_identity).unwrap();
+        let this_network = Network::new(this_transport, expected_query_id, roles.clone());
+        let dest_transport = transports.transport(dest_identity).unwrap();
+        let mut dest_stream = dest_transport
+            .subscribe(SubscriptionType::Query(expected_query_id))
+            .await;
+
+        for i in 0..10 {
+            assert_successful_send(
+                &this_network,
+                &mut dest_stream,
+                expected_query_id,
+                &message_chunks,
+                i,
+            )
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "out-of-order delivery of data for")] // just the prefix
+    async fn rejects_bad_offset() {
+        let expected_query_id = QueryId;
+        let message_chunks = (
+            ChannelId::new(Role::H2, Step::default().narrow("rejects-bad-offset")),
+            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
+        );
+
+        let transports = InMemoryNetwork::default();
+        let identities = transports.helper_identities();
+        let this_identity = identities[Role::H1];
+        let that_identity = identities[Role::H2];
+
+        let this_transport = transports.transport(this_identity).unwrap();
+        let this_network = Network::new(
+            this_transport,
+            expected_query_id,
+            RoleAssignment::new(identities),
+        );
+        let mut message_chunks_stream = this_network.recv_stream().await;
+
+        let that_transport = transports.transport(that_identity).unwrap();
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: message_chunks.0.step.clone(),
+            payload: message_chunks.1.clone(),
+            offset: 0,
+        };
+        that_transport.send(this_identity, command).await.unwrap();
+        assert_eq!(message_chunks, message_chunks_stream.next().await.unwrap());
+
+        // send with offset == 0 again; this time should panic
+        let command = TransportCommand::StepData {
+            query_id: expected_query_id,
+            step: message_chunks.0.step.clone(),
+            payload: message_chunks.1.clone(),
+            offset: 0,
+        };
+        that_transport.send(this_identity, command).await.unwrap();
+        message_chunks_stream.next().await.unwrap();
+    }
+}

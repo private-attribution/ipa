@@ -25,6 +25,8 @@ pub enum Error {
     BodyAlreadyExtracted(#[from] axum::extract::rejection::BodyAlreadyExtracted),
     #[error(transparent)]
     MissingExtension(#[from] axum::extract::rejection::ExtensionRejection),
+    #[error("query id not found: {}", .0.as_ref())]
+    QueryIdNotFound(QueryId),
     #[error(transparent)]
     HyperPassthrough(#[from] hyper::Error),
     #[error(transparent)]
@@ -42,12 +44,6 @@ impl Error {
     #[must_use]
     pub fn bad_query_value(key: &str, bad_value: &str) -> Self {
         Self::BadQueryString(format!("encountered unknown query param {key}: {bad_value}").into())
-    }
-
-    /// method to create an `Error::BadPathString`
-    #[must_use]
-    pub fn query_id_not_found(query_id: QueryId) -> Self {
-        Self::BadPathString(format!("encountered unknown query id: {}", query_id.as_ref()).into())
     }
 }
 
@@ -115,7 +111,8 @@ impl IntoResponse for Error {
             | Self::InvalidHeader(_)
             | Self::WrongBodyLen { .. }
             | Self::AxumPassthrough(_)
-            | Self::InvalidJsonBody(_) => StatusCode::BAD_REQUEST,
+            | Self::InvalidJsonBody(_)
+            | Self::QueryIdNotFound(_) => StatusCode::BAD_REQUEST,
 
             Self::HyperPassthrough(_)
             | Self::SendFailed(_)
