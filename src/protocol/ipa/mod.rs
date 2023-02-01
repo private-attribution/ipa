@@ -24,6 +24,7 @@ use futures::future::{try_join3, try_join_all};
 use super::{
     attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
     context::SemiHonestContext,
+    malicious::MaliciousValidator,
     sort::generate_permutation::generate_permutation_and_reveal_shuffled,
 };
 use super::{
@@ -263,7 +264,7 @@ where
 /// Propagates errors from multiplications
 #[allow(dead_code)]
 pub async fn ipa_wip_malicious<F, MK, BK>(
-    ctx: SemiHonestContext<'_, F>,
+    sh_ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -274,40 +275,49 @@ where
     MK: BitArray,
     BK: BitArray,
 {
+    let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
+    let m_ctx = malicious_validator.context();
+
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
         .iter()
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
 
-    // Breakdown key modulus conversion
-    let converted_bk_shares = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &convert_all_bits_local(ctx.role(), &bk_shares),
-        BK::BITS,
-        num_multi_bits,
-    )
-    .await
-    .unwrap();
-    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
-
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &convert_all_bits_local(ctx.role(), &mk_shares),
+        &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
+        &m_ctx
+            .upgrade(convert_all_bits_local(m_ctx.role(), &mk_shares))
+            .await?,
         MK::BITS,
         num_multi_bits,
     )
     .await
     .unwrap();
 
+    //Validate before calling sort with downgraded context
+    let converted_mk_shares = malicious_validator.validate(converted_mk_shares).await?;
+
     let sort_permutation = generate_permutation_and_reveal_shuffled(
-        ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
+        sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_mk_shares,
     )
     .await
     .unwrap();
 
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+
+    // Breakdown key modulus conversion
+    let converted_bk_shares = convert_all_bits(
+        &sh_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        &convert_all_bits_local(sh_ctx.role(), &bk_shares),
+        BK::BITS,
+        num_multi_bits,
+    )
+    .await
+    .unwrap();
+
+    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
 
     let combined_match_keys_and_sidecar_data =
         std::iter::zip(converted_mk_shares, converted_bk_shares)
@@ -324,7 +334,7 @@ where
             .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
-        ctx.narrow(&Step::ApplySortPermutation),
+        sh_ctx.narrow(&Step::ApplySortPermutation),
         combined_match_keys_and_sidecar_data,
         &sort_permutation,
     )
@@ -333,16 +343,17 @@ where
 
     let futures = zip(
         repeat(
-            ctx.narrow(&Step::ComputeHelperBits)
+            sh_ctx
+                .narrow(&Step::ComputeHelperBits)
                 .set_total_records(sorted_rows.len() - 1),
         ),
         sorted_rows.iter(),
     )
     .zip(sorted_rows.iter().skip(1))
     .enumerate()
-    .map(|(i, ((ctx, row), next_row))| {
+    .map(|(i, ((sh_ctx, row), next_row))| {
         let record_id = RecordId::from(i);
-        async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
+        async move { bitwise_equal(sh_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
     });
     let helper_bits = Some(Replicated::ZERO)
         .into_iter()
@@ -357,18 +368,21 @@ where
         })
         .collect::<Vec<_>>();
 
-    let accumulated_credits =
-        accumulate_credit(ctx.narrow(&Step::AccumulateCredit), &attribution_input_rows).await?;
+    let accumulated_credits = accumulate_credit(
+        sh_ctx.narrow(&Step::AccumulateCredit),
+        &attribution_input_rows,
+    )
+    .await?;
 
     let user_capped_credits = credit_capping(
-        ctx.narrow(&Step::PerformUserCapping),
+        sh_ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
         per_user_credit_cap,
     )
     .await?;
 
     aggregate_credit::<F, BK>(
-        ctx.narrow(&Step::AggregateCredit),
+        sh_ctx.narrow(&Step::AggregateCredit),
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
