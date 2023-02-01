@@ -454,8 +454,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    pub async fn malicious_wip() {
+    async fn malicious_wip() {
         const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
