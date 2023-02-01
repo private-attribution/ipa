@@ -60,7 +60,6 @@ struct Spare {
 impl Spare {
     /// Read a message from the buffer.  Returns `None` if there isn't enough data.
     fn read<M: Message>(&mut self) -> Option<M> {
-        println!("Read {} bytes", M::Size::USIZE);
         let end = self.offset + M::Size::USIZE;
         if end <= self.buf.len() {
             let m = M::deserialize(GenericArray::from_slice(&self.buf[self.offset..end]));
@@ -257,8 +256,7 @@ where
     ///
     /// [`ordering_mpsc`]: crate::helpers::buffers::ordering_mpsc::ordering_mpsc
     pub fn new(stream: Pin<Box<S>>, capacity: NonZeroUsize) -> Self {
-        let mut wakers = Vec::with_capacity(capacity.get());
-        wakers.resize(capacity.get(), None);
+        let wakers = vec![None; capacity.get()];
         Self {
             inner: Arc::new(Mutex::new(OperatingState {
                 stream,
