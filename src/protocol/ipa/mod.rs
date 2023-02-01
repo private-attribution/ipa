@@ -391,7 +391,7 @@ where
 }
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use super::ipa;
+    use super::{ipa, ipa_wip_malicious};
     use crate::bits::BitArray;
     use crate::ipa_test_input;
     use crate::protocol::{BreakdownKey, MatchKey};
@@ -428,6 +428,56 @@ pub mod tests {
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn malicious_wip() {
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::new().await;
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
