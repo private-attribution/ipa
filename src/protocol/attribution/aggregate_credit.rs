@@ -5,20 +5,16 @@ use super::{
     },
     InteractionPatternStep,
 };
+use crate::bits::BitArray;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::basics::SecureMul;
 use crate::protocol::context::{Context, SemiHonestContext};
-use crate::protocol::modulus_conversion::{
-    convert_all_bits, convert_all_bits_local, split_into_multi_bit_slices,
-};
+use crate::protocol::modulus_conversion::split_into_multi_bit_slices;
 use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::semi_honest::{
-    AdditiveShare as Replicated, XorShare as XorReplicated,
-};
-use crate::{bits::BitArray, protocol::modulus_conversion::combine_slices};
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
 
@@ -39,14 +35,8 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
-    let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<F, BK>(
-        &ctx,
-        capped_credits,
-        max_breakdown_key,
-        num_multi_bits,
-    )
-    .await
-    .unwrap();
+    let capped_credits_with_aggregation_bits =
+        add_aggregation_bits_and_breakdown_keys::<F, BK>(&ctx, capped_credits, max_breakdown_key);
 
     //
     // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
@@ -160,41 +150,38 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
     Ok(result)
 }
 
-async fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
+fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
     ctx: &SemiHonestContext<'_, F>,
     capped_credits: &[MCAggregateCreditInputRow<F>],
     max_breakdown_key: u128,
-    num_multi_bits: u32,
-) -> Result<Vec<MCCappedCreditsWithAggregationBit<F>>, Error> {
+) -> Vec<MCCappedCreditsWithAggregationBit<F>> {
     let zero = Replicated::ZERO;
     let one = ctx.share_of_one();
-
-    // Create secret shares of all possible breakdown key values
-    let unique_breakdown_keys = (0..max_breakdown_key)
-        .map(|i| XorReplicated::from_scalar(ctx.role(), BK::truncate_from(i)))
-        .collect::<Vec<_>>();
-
-    let converted_breakdown_keys = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForBreakdownKey),
-        &convert_all_bits_local(ctx.role(), &unique_breakdown_keys),
-        BK::BITS,
-        num_multi_bits,
-    )
-    .await
-    .unwrap();
-
-    let converted_breakdown_keys = combine_slices(&converted_breakdown_keys, BK::BITS);
 
     // Unique breakdown_key values with all other fields initialized with 0's.
     // Since we cannot see the actual breakdown key values, we'll need to
     // append all possible values. For now, we assume breakdown_key is in the
     // range of (0..max_breakdown_key).
-    let mut unique_breakdown_keys = converted_breakdown_keys
-        .map(|bk| MCCappedCreditsWithAggregationBit {
-            breakdown_key: bk,
-            helper_bit: zero.clone(),
-            aggregation_bit: zero.clone(),
-            credit: zero.clone(),
+    let mut unique_breakdown_keys = (0..max_breakdown_key)
+        .map(|i| {
+            // Since these breakdown keys are publicly known, we can directly convert them to Vec<Replicated<F>>
+            let bk_bits = BK::truncate_from(i);
+            let converted_bk = (0..BK::BITS)
+                .map(|i| {
+                    if bk_bits[i] {
+                        one.clone()
+                    } else {
+                        zero.clone()
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            MCCappedCreditsWithAggregationBit {
+                breakdown_key: converted_bk,
+                helper_bit: zero.clone(),
+                aggregation_bit: zero.clone(),
+                credit: zero.clone(),
+            }
         })
         .collect::<Vec<_>>();
 
@@ -211,7 +198,7 @@ async fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
             .collect::<Vec<_>>(),
     );
 
-    Ok(unique_breakdown_keys)
+    unique_breakdown_keys
 }
 
 async fn sort_by_breakdown_key<F: Field>(
@@ -278,7 +265,6 @@ enum Step {
     SortByBreakdownKey,
     SortByAttributionBit,
     AggregateCreditBTimesSuccessorCredit,
-    ModulusConversionForBreakdownKey,
     GeneratePermutationByBreakdownKey,
     ApplyPermutationOnBreakdownKey,
     GeneratePermutationByAttributionBit,
@@ -297,7 +283,6 @@ impl AsRef<str> for Step {
             Self::AggregateCreditBTimesSuccessorCredit => {
                 "aggregate_credit_b_times_successor_credit"
             }
-            Self::ModulusConversionForBreakdownKey => "modulus_conversion_for_breakdown_key",
             Self::GeneratePermutationByBreakdownKey => "generate_permutation_by_breakdown_key",
             Self::ApplyPermutationOnBreakdownKey => "apply_permutation_by_breakdown_key",
             Self::GeneratePermutationByAttributionBit => "generate_permutation_by_attribution_bit",
