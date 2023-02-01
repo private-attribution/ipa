@@ -1,8 +1,11 @@
-use raw_ipa::bits::BitArray40;
+use rand::Rng;
 use raw_ipa::error::Error;
 use raw_ipa::ff::Fp32BitPrime;
+use raw_ipa::ipa_test_input;
 use raw_ipa::protocol::ipa::ipa;
-use raw_ipa::test_fixture::{IPAInputTestRow, Runner, TestWorld, TestWorldConfig};
+use raw_ipa::protocol::{BreakdownKey, MatchKey};
+use raw_ipa::test_fixture::input::GenericReportTestInput;
+use raw_ipa::test_fixture::{Runner, TestWorld, TestWorldConfig};
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
@@ -20,23 +23,30 @@ async fn main() -> Result<(), Error> {
     let world = TestWorld::new_with(config).await;
     let mut rng = rand::thread_rng();
 
-    let max_match_key = u64::try_from(BATCHSIZE / 4).unwrap();
+    let max_match_key = u128::try_from(BATCHSIZE / 4).unwrap();
 
-    let mut records: Vec<IPAInputTestRow> = Vec::with_capacity(BATCHSIZE);
+    let mut records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
+        Vec::with_capacity(BATCHSIZE);
 
     for _ in 0..BATCHSIZE {
-        records.push(IPAInputTestRow::random(
-            &mut rng,
-            max_match_key,
-            MAX_BREAKDOWN_KEY,
-            MAX_TRIGGER_VALUE,
-        ));
+        records.push(
+            ipa_test_input!(
+                [{
+                        match_key: rng.gen_range(0..max_match_key),
+                        is_trigger_report: rng.gen::<u32>(),
+                        breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                        trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE)
+                }];
+                (Fp32BitPrime, MatchKey, BreakdownKey)
+            )
+            .remove(0),
+        );
     }
 
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime, BitArray40>(
+            ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                 ctx,
                 &input_rows,
                 PER_USER_CAP,

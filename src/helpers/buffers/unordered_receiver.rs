@@ -3,6 +3,7 @@ use crate::{
     protocol::RecordId,
 };
 use futures::{task::Waker, Future, Stream};
+use generic_array::GenericArray;
 use pin_project::pin_project;
 use std::{
     marker::PhantomData,
@@ -11,6 +12,7 @@ use std::{
     sync::{Arc, Mutex},
     task::{Context, Poll},
 };
+use typenum::Unsigned;
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 #[pin_project]
@@ -58,9 +60,10 @@ struct Spare {
 impl Spare {
     /// Read a message from the buffer.  Returns `None` if there isn't enough data.
     fn read<M: Message>(&mut self) -> Option<M> {
-        let end = self.offset + M::SIZE_IN_BYTES;
+        println!("Read {} bytes", M::Size::USIZE);
+        let end = self.offset + M::Size::USIZE;
         if end <= self.buf.len() {
-            let m = M::deserialize(&self.buf[self.offset..end]).unwrap();
+            let m = M::deserialize(GenericArray::from_slice(&self.buf[self.offset..end]));
             self.offset = end;
             Some(m)
         } else {
@@ -73,8 +76,9 @@ impl Spare {
     /// This returns a value because it can be more efficient in cases where
     /// received chunks don't align with messages.
     fn extend<M: Message>(&mut self, v: &[u8]) -> Option<M> {
+        let sz = <M::Size as Unsigned>::USIZE;
         let remainder = self.buf.len() - self.offset;
-        if remainder + v.len() < M::SIZE_IN_BYTES {
+        if remainder + v.len() < sz {
             // Not enough data: save it.
             // If we're working from the tail of a longer buffer, only retain the tail.
             self.buf = self.buf.split_off(self.offset);
@@ -85,16 +89,15 @@ impl Spare {
 
         let m = if remainder > 0 {
             // Copy to the stack to join old and new data.
-            let needed = M::SIZE_IN_BYTES - remainder;
-            let mut tmp = [0; 32]; // Want `[0; M::SIZE_IN_BYTES]`, can't have it yet.
-            assert!(M::SIZE_IN_BYTES < tmp.len());
+            let needed = sz - remainder;
+            let mut tmp = GenericArray::<u8, M::Size>::default();
             tmp[..remainder].copy_from_slice(&self.buf[self.offset..]);
-            tmp[remainder..M::SIZE_IN_BYTES].copy_from_slice(&v[..needed]);
+            tmp[remainder..].copy_from_slice(&v[..needed]);
             self.buf = v[needed..].to_vec();
-            M::deserialize(&tmp[..M::SIZE_IN_BYTES]).unwrap()
+            M::deserialize(&tmp)
         } else {
-            self.buf = v[M::SIZE_IN_BYTES..].to_vec();
-            M::deserialize(&v[..M::SIZE_IN_BYTES]).unwrap()
+            self.buf = v[sz..].to_vec();
+            M::deserialize(GenericArray::from_slice(&v[..sz]))
         };
         self.offset = 0;
         Some(m)
@@ -300,12 +303,14 @@ mod test {
         stream::iter,
         Future, FutureExt, Stream,
     };
+    use generic_array::GenericArray;
     use rand::Rng;
     #[cfg(feature = "shuttle")]
     use shuttle::future::spawn;
     use std::num::NonZeroUsize;
     #[cfg(not(feature = "shuttle"))]
     use tokio::spawn;
+    use typenum::Unsigned;
 
     fn receiver<I, T>(it: I) -> UnorderedReceiver<impl Stream<Item = T>, T>
     where
@@ -409,7 +414,7 @@ mod test {
     #[test]
     fn random_fp32bit() {
         const COUNT: usize = 16;
-        const SZ: usize = <Fp32BitPrime as Serializable>::SIZE_IN_BYTES;
+        const SZ: usize = <<Fp32BitPrime as Serializable>::Size as Unsigned>::USIZE;
         const ENCODED_LEN: usize = COUNT * SZ;
 
         run(|| {
@@ -419,7 +424,8 @@ mod test {
 
             let mut encoded = vec![0; ENCODED_LEN];
             for (i, v) in values.iter().enumerate() {
-                v.serialize(&mut encoded[(i * SZ)..((i + 1) * SZ)]).unwrap();
+                let buf = GenericArray::from_mut_slice(&mut encoded[(i * SZ)..((i + 1) * SZ)]);
+                v.serialize(buf);
             }
 
             let mut encoded = encoded.clone();

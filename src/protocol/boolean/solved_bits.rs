@@ -197,14 +197,14 @@ mod tests {
             // Reconstruct b_B from ([b_1]_p,...,[b_l]_p) bitwise sharings in F_p
             let b_b = (0..s0.b_b.len())
                 .map(|i| {
-                    let bit = (&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]).reconstruct();
+                    let bit = [&s0.b_b[i], &s1.b_b[i], &s2.b_b[i]].reconstruct();
                     assert!(bit == F::ZERO || bit == F::ONE);
                     bit
                 })
                 .collect::<Vec<_>>();
 
             // Reconstruct b_P
-            let b_p = (&s0.b_p, &s1.b_p, &s2.b_p).reconstruct();
+            let b_p = [&s0.b_p, &s1.b_p, &s2.b_p].reconstruct();
 
             // Base10 of `b_B ⊆ Z` must equal `b_P`
             assert_eq!(b_p.as_u128(), bits_to_value(&b_b));
@@ -264,10 +264,10 @@ mod tests {
             assert_eq!(v0.len(), v1.len());
             assert_eq!(v0.len(), v2.len());
 
-            let s = (s0, s1, s2).reconstruct();
+            let s = [s0, s1, s2].reconstruct();
             let v = zip(v0, zip(v1, v2))
                 .map(|(b0, (b1, b2))| {
-                    let bit = (b0, b1, b2).reconstruct();
+                    let bit = [b0, b1, b2].reconstruct();
                     assert!(bit == Fp32BitPrime::ZERO || bit == Fp32BitPrime::ONE);
                     bit
                 })

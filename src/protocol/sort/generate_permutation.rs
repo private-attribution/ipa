@@ -220,16 +220,10 @@ where
 /// If unable to convert sort keys length to u32
 pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Replicated<F>>],
-    num_bits: u32,
-    num_multi_bits: u32,
+    sort_keys: &[Vec<Vec<Replicated<F>>>],
 ) -> Result<RevealedAndRandomPermutations, Error> {
-    // The input is transposed, so this really is the number of sort keys,
-    // not the length of each sort key.
     let key_count = sort_keys[0].len();
-    let sort_permutation =
-        generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys, num_bits, num_multi_bits)
-            .await?;
+    let sort_permutation = generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys).await?;
     shuffle_and_reveal_permutation(
         ctx.narrow(&ShuffleRevealPermutation),
         u32::try_from(key_count).unwrap(),
@@ -350,33 +344,32 @@ where
 mod tests {
     use std::iter::zip;
 
-    use crate::bits::BitArray;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::generate_permutation::malicious_generate_permutation;
-    use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-    use crate::secret_sharing::SharedValue;
     use rand::seq::SliceRandom;
 
+    use crate::bits::BitArray;
+    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
+    use crate::protocol::sort::generate_permutation_opt::generate_permutation_opt;
+    use crate::protocol::MatchKey;
+    use crate::rand::{thread_rng, Rng};
+    use crate::secret_sharing::SharedValue;
+
     use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::test_fixture::{join3, MaskedMatchKey, Runner};
+    use crate::test_fixture::{join3, Runner};
     use crate::{
         ff::{Field, Fp31},
-        protocol::sort::generate_permutation::{
-            generate_permutation, shuffle_and_reveal_permutation,
-        },
+        protocol::sort::generate_permutation::shuffle_and_reveal_permutation,
         test_fixture::{generate_shares, Reconstruct, TestWorld},
     };
 
     #[tokio::test]
     pub async fn semi_honest() {
         const COUNT: usize = 5;
-
+        const NUM_MULTI_BITS: u32 = 3;
         let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -386,14 +379,13 @@ mod tests {
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
                     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
-                    let converted_shares = convert_all_bits(&ctx, &local_lists).await.unwrap();
-                    generate_permutation(
-                        ctx.narrow("sort"),
-                        &converted_shares,
-                        MaskedMatchKey::BITS,
-                    )
-                    .await
-                    .unwrap()
+                    let converted_shares =
+                        convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
+                            .await
+                            .unwrap();
+                    generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                        .await
+                        .unwrap()
                 },
             )
             .await;
@@ -445,47 +437,5 @@ mod tests {
             perms_and_randoms[2].randoms_for_shuffle.0,
             perms_and_randoms[1].randoms_for_shuffle.1
         );
-    }
-
-    #[tokio::test]
-    pub async fn malicious_sort_in_semi_honest() {
-        const COUNT: usize = 5;
-
-        let world = TestWorld::new().await;
-        let mut rng = thread_rng();
-
-        let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
-
-        let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
-        expected.sort_unstable();
-
-        let [(v0, result0), (v1, result1), (v2, result2)] = world
-            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
-                let converted_shares: Vec<Vec<Replicated<Fp31>>> =
-                    convert_all_bits(&ctx, &local_lists).await.unwrap();
-                malicious_generate_permutation(
-                    ctx.narrow("sort"),
-                    &converted_shares,
-                    MaskedMatchKey::BITS,
-                )
-                .await
-                .unwrap()
-            })
-            .await;
-
-        let result = join3(
-            v0.validate(result0),
-            v1.validate(result1),
-            v2.validate(result2),
-        )
-        .await;
-        let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
-        for (match_key, index) in zip(match_keys, result.reconstruct()) {
-            mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
-        }
-
-        assert_eq!(expected, mpc_sorted_list);
     }
 }

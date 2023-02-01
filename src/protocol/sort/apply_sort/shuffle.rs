@@ -166,45 +166,115 @@ where
 mod tests {
 
     mod semi_honest {
-        use crate::protocol::attribution::AttributionInputRow;
+        use crate::accumulation_test_input;
+        use crate::bits::BitArray;
+        use crate::protocol::attribution::input::{
+            AccumulateCreditInputRow, MCAccumulateCreditInputRow,
+        };
+        use crate::protocol::modulus_conversion::{
+            combine_slices, convert_all_bits, convert_all_bits_local,
+        };
+        use crate::protocol::{BreakdownKey, MatchKey};
         use crate::rand::{thread_rng, Rng};
 
         use crate::ff::{Fp31, Fp32BitPrime};
-        use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
         use crate::protocol::context::Context;
         use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
         use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
         use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+        use crate::secret_sharing::SharedValue;
+        use crate::test_fixture::input::GenericReportTestInput;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
+            const NUM_MULTI_BITS: u32 = 3;
             const BATCHSIZE: u8 = 25;
             let world = TestWorld::new().await;
             let mut rng = thread_rng();
 
-            let mut input: Vec<AttributionTestInput<Fp31>> = Vec::with_capacity(BATCHSIZE.into());
+            let mut input: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+                Vec::with_capacity(BATCHSIZE.into());
             input.resize_with(BATCHSIZE.into(), || {
-                AttributionTestInput([(); 4].map(|_| rng.gen::<Fp31>()))
+                accumulation_test_input!(
+                    [{
+                        is_trigger_report: rng.gen::<u8>(),
+                        helper_bit: rng.gen::<u8>(),
+                        breakdown_key: rng.gen::<u8>(),
+                        credit: rng.gen::<u8>()
+                    }];
+                    (Fp31, MatchKey, BreakdownKey)
+                )
+                .remove(0)
             });
-            let hashed_input: HashSet<[u8; 4]> = input.iter().map(Into::into).collect();
+            let hashed_input: HashSet<[u8; 4]> = input
+                .iter()
+                .map(|x| {
+                    [
+                        u8::from(x.is_trigger_report.unwrap()),
+                        u8::from(x.helper_bit.unwrap()),
+                        u8::try_from(x.breakdown_key.as_u128()).unwrap(),
+                        u8::from(x.trigger_value),
+                    ]
+                })
+                .collect();
 
-            let result: [Vec<AttributionInputRow<Fp31>>; 3] = world
-                .semi_honest(input.clone(), |ctx, shares| async move {
-                    let perms =
-                        get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
-                    shuffle_shares(shares, (perms.0.as_slice(), perms.1.as_slice()), ctx)
+            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+                .semi_honest(
+                    input.clone(),
+                    |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, BreakdownKey>>| async move {
+                        let perms =
+                            get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
+
+                        let bk_shares = shares
+                            .iter()
+                            .map(|x| x.breakdown_key.clone())
+                            .collect::<Vec<_>>();
+                        let converted_bk_shares = convert_all_bits(
+                            &ctx,
+                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            BreakdownKey::BITS,
+                            NUM_MULTI_BITS,
+                        )
+                        .await
+                        .unwrap();
+                        let converted_bk_shares =
+                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+
+                        let converted_shares = shares
+                            .into_iter()
+                            .zip(converted_bk_shares)
+                            .map(|(row, bk)| MCAccumulateCreditInputRow {
+                                is_trigger_report: row.is_trigger_report,
+                                helper_bit: row.helper_bit,
+                                breakdown_key: bk,
+                                trigger_value: row.trigger_value,
+                            })
+                            .collect::<Vec<_>>();
+
+                        shuffle_shares(
+                            converted_shares,
+                            (perms.0.as_slice(), perms.1.as_slice()),
+                            ctx,
+                        )
                         .await
                         .unwrap()
-                })
-                .await;
+                    },
+                )
+                .await
+                .reconstruct();
 
             let mut hashed_output_secret = HashSet::new();
             let mut output_secret = Vec::new();
-            for val in result.reconstruct() {
-                output_secret.push(val.clone());
-                hashed_output_secret.insert(val.into());
+            for val in result {
+                output_secret.push(val);
+                hashed_output_secret.insert([
+                    u8::from(val.is_trigger_report.unwrap()),
+                    u8::from(val.helper_bit.unwrap()),
+                    u8::try_from(val.breakdown_key.as_u128()).unwrap(),
+                    u8::from(val.trigger_value),
+                ]);
             }
 
             // Secrets should be shuffled
