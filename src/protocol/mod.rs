@@ -172,7 +172,7 @@ pub enum IpaProtocolStep {
     ConvertShares,
     ModulusConversion(u32),
     /// Sort shares by the match key
-    Sort(u32),
+    Sort(usize),
     /// Perform attribution.
     Attribution,
     SortPreAccumulation,
@@ -187,7 +187,7 @@ impl AsRef<str> for IpaProtocolStep {
 
         match self {
             Self::ConvertShares => "convert",
-            Self::Sort(i) => SORT[usize::try_from(*i).unwrap()],
+            Self::Sort(i) => SORT[*i],
             Self::ModulusConversion(i) => MODULUS_CONVERSION[usize::try_from(*i).unwrap()],
             Self::Attribution => "attribution",
             Self::SortPreAccumulation => "sort_pre_accumulation",
