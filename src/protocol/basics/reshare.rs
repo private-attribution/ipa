@@ -46,7 +46,7 @@ pub trait Reshare<V: ArithmeticShare> {
 /// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 /// Input: Pi-1 and Pi+1 know their secret shares
 /// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
-impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
+impl<F: Field> Reshare<F> for SemiHonestContext<'_, '_, F> {
     type Share = Replicated<F>;
     async fn reshare(
         self,
@@ -95,7 +95,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
+impl<F: Field> Reshare<F> for MaliciousContext<'_, '_, F> {
     type Share = MaliciousReplicated<F>;
     async fn reshare(
         self,
@@ -148,7 +148,7 @@ mod tests {
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let shares = world
-                    .semi_honest(secret, |ctx, share| async move {
+                    .semi_honest(secret, |ctx, share| Box::pin(async move {
                         let record_id = RecordId::from(0);
                         let ctx = ctx.set_total_records(1);
 
@@ -159,7 +159,7 @@ mod tests {
                         } else {
                             ctx.reshare(&share, record_id, target).await.unwrap()
                         }
-                    })
+                    }))
                     .await;
 
                 let reshared_secret = shares.reconstruct();
@@ -182,12 +182,12 @@ mod tests {
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
-                    .semi_honest(secret, |ctx, share| async move {
+                    .semi_honest(secret, |ctx, share| Box::pin(async move {
                         ctx.set_total_records(1)
                             .reshare(&share, RecordId::from(0), role)
                             .await
                             .unwrap()
-                    })
+                    }))
                     .await;
 
                 assert_eq!(secret, new_shares.reconstruct());
@@ -227,12 +227,12 @@ mod tests {
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
-                    .malicious(secret, |ctx, share| async move {
+                    .malicious(secret, |ctx, share| Box::pin(async move {
                         ctx.set_total_records(1)
                             .reshare(&share, RecordId::from(0), role)
                             .await
                             .unwrap()
-                    })
+                    }))
                     .await;
 
                 assert_eq!(secret, new_shares.reconstruct());
@@ -240,7 +240,7 @@ mod tests {
         }
 
         async fn reshare_with_additive_attack<F: Field>(
-            ctx: SemiHonestContext<'_, F>,
+            ctx: SemiHonestContext<'_, '_, F>,
             input: &Replicated<F>,
             record_id: RecordId,
             to_helper: Role,
@@ -283,7 +283,7 @@ mod tests {
         }
 
         async fn reshare_malicious_with_additive_attack<F: Field>(
-            ctx: MaliciousContext<'_, F>,
+            ctx: MaliciousContext<'_, '_, F>,
             input: &MaliciousReplicated<F>,
             record_id: RecordId,
             to_helper: Role,
@@ -326,7 +326,7 @@ mod tests {
             let to_helper = Role::H1;
             for malicious_actor in &[Role::H2, Role::H3] {
                 world
-                    .semi_honest(a, |ctx, a| async move {
+                    .semi_honest(a, |ctx, a| Box::pin(async move {
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context().set_total_records(1);
                         let record_id = RecordId::from(0);
@@ -350,7 +350,7 @@ mod tests {
                             Ok(result) => panic!("Got a result {result:?}"),
                             Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                         }
-                    })
+                    }))
                     .await;
             }
         }

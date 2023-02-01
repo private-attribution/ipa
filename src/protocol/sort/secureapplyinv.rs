@@ -114,7 +114,7 @@ mod tests {
             let result = world
                 .semi_honest(
                     (input, permutation_iter),
-                    |ctx, (m_shares, m_perms)| async move {
+                    |ctx, (m_shares, m_perms)| Box::pin(async move {
                         let perm_and_randoms =
                             shuffle_and_reveal_permutation(ctx.narrow("shuffle_reveal"), m_perms)
                                 .await
@@ -130,7 +130,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    })
                 )
                 .await;
 
@@ -164,7 +164,7 @@ mod tests {
             let result = world
                 .semi_honest(
                     (input, permutation_iter),
-                    |ctx, (m_shares, m_perms)| async move {
+                    |ctx, (m_shares, m_perms)| Box::pin(async move {
                         let perm_and_randoms =
                             shuffle_and_reveal_permutation(ctx.narrow("shuffle_reveal"), m_perms)
                                 .await
@@ -180,7 +180,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    })
                 )
                 .await;
 

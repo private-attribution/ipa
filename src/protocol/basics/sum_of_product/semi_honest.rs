@@ -20,7 +20,7 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn sum_of_products<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     record_id: RecordId,
     a: &[Replicated<F>],
     b: &[Replicated<F>],
@@ -117,12 +117,12 @@ mod test {
         }
 
         let res = world
-            .semi_honest((av, bv), |ctx, (a, b)| async move {
+            .semi_honest((av, bv), |ctx, (a, b)| Box::pin(async move {
                 ctx.set_total_records(1)
                     .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(expected, res.reconstruct());
@@ -137,12 +137,12 @@ mod test {
         let b: Vec<_> = b.iter().map(|x| Fp31::from(*x)).collect();
 
         let result = world
-            .semi_honest((a, b), |ctx, (a, b)| async move {
+            .semi_honest((a, b), |ctx, (a, b)| Box::pin(async move {
                 ctx.set_total_records(1)
                     .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         result.reconstruct().as_u128()

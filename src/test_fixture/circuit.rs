@@ -4,6 +4,7 @@ use crate::protocol::basics::SecureMul;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::rand::thread_rng;
+use crate::secret_sharing::replicated::malicious::AdditiveShare;
 use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares};
 use crate::test_fixture::{narrow_contexts, Fp31, Reconstruct, TestWorld};
 use futures_util::future::join_all;
@@ -36,7 +37,7 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
 
     for bit in 0..depth {
         let b = Fp31::ONE.share_with(&mut thread_rng());
-        let bit_ctx = narrow_contexts(&top_ctx, &format!("b{bit}"));
+        let bit_ctx = narrow_contexts::<Fp31, AdditiveShare<Fp31>>(&top_ctx, &format!("b{bit}"));
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {

@@ -23,7 +23,7 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn multiply<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -108,12 +108,12 @@ mod test {
         let b = rng.gen::<Fp31>();
 
         let res = world
-            .semi_honest((a, b), |ctx, (a, b)| async move {
+            .semi_honest((a, b), |ctx, (a, b)| Box::pin(async move {
                 ctx.set_total_records(1)
                     .multiply(RecordId::from(0), &a, &b)
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(a * b, res.reconstruct());
@@ -133,7 +133,7 @@ mod test {
         let b: Vec<_> = (0..COUNT).map(|_| rng.gen::<Fp31>()).collect();
         let expected: Vec<_> = zip(a.iter(), b.iter()).map(|(&a, &b)| a * b).collect();
         let results = world
-            .semi_honest((a, b), |ctx, (a_shares, b_shares)| async move {
+            .semi_honest((a, b), |ctx, (a_shares, b_shares)| Box::pin(async move {
                 try_join_all(
                     zip(
                         repeat(ctx.set_total_records(COUNT)),
@@ -146,7 +146,7 @@ mod test {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await;
         assert_eq!(expected, results.reconstruct());
     }
@@ -161,12 +161,12 @@ mod test {
         let b = F::from(b);
 
         let result = world
-            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
+            .semi_honest((a, b), |ctx, (a_share, b_share)| Box::pin(async move {
                 ctx.set_total_records(1)
                     .multiply(RecordId::from(0), &a_share, &b_share)
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         result.reconstruct().as_u128()

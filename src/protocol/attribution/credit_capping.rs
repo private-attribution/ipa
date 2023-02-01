@@ -333,7 +333,7 @@ mod tests {
         let result = world
             .semi_honest(
                 input,
-                |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| Box::pin(async move {
                     let bk_shares = input
                         .iter()
                         .map(|x| x.breakdown_key.clone())
@@ -364,7 +364,7 @@ mod tests {
                     credit_capping(ctx, &modulus_converted_shares, CAP)
                         .await
                         .unwrap()
-                },
+                }),
             )
             .await;
 

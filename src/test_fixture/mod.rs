@@ -9,7 +9,7 @@ pub mod net;
 pub mod transport;
 
 use crate::ff::{Field, Fp31};
-use crate::protocol::context::Context;
+use crate::protocol::context::{Context, SemiHonestContext, SemiHonestContextBuf};
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::Substep;
 use crate::rand::thread_rng;
@@ -31,14 +31,14 @@ pub use world::{Runner, TestWorld, TestWorldConfig};
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<C: Debug + Context<F, Share = S>, F: Field, S: SecretSharing<F>>(
-    contexts: &[C; 3],
+pub fn narrow_contexts<'c, 'a, F: Field, S: SecretSharing<F>>(
+    contexts: &'a [SemiHonestContextBuf<'a, F>; 3],
     step: &impl Substep,
-) -> [C; 3] {
+) -> [SemiHonestContext<'c, 'a, F>; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()
-        .map(|c| c.narrow(step))
+        .map(|c| c.get_ref().narrow(step))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap()

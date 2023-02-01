@@ -379,12 +379,12 @@ pub(in crate::protocol) mod test {
                 let v1 = SparseField::new(rng.gen::<Fp31>(), a);
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
-                    .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
+                    .semi_honest((v1, v2), |ctx, (v_a, v_b)| Box::pin(async move {
                         ctx.set_total_records(1)
                             .multiply_sparse(RECORD_0, &v_a, &v_b, (a, b))
                             .await
                             .unwrap()
-                    })
+                    }))
                     .await;
                 check_output_zeros(&result, (a, b));
                 assert_eq!(v1.value() * v2.value(), result.reconstruct());
@@ -406,7 +406,7 @@ pub(in crate::protocol) mod test {
                 let v1 = SparseField::new(rng.gen::<Fp31>(), a);
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
-                    .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
+                    .semi_honest((v1, v2), |ctx, (v_a, v_b)| Box::pin(async move {
                         let v = MaliciousValidator::new(ctx);
                         let m_ctx = v.context().set_total_records(1);
                         let (m_a, m_b) = try_join(
@@ -422,7 +422,7 @@ pub(in crate::protocol) mod test {
                             .unwrap();
 
                         v.validate(m_ab).await.unwrap()
-                    })
+                    }))
                     .await;
                 check_output_zeros(&result, (a, b));
                 assert_eq!(v1.value() * v2.value(), result.reconstruct());

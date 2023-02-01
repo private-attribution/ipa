@@ -233,7 +233,7 @@ mod tests {
             let result = world
                 .semi_honest(
                     input.clone().into_iter().map(u128::from).map(Fp31::from),
-                    |ctx, m_shares| async move {
+                    |ctx, m_shares| Box::pin(async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
                         shuffle_shares(
@@ -243,7 +243,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    }),
                 )
                 .await;
 
@@ -271,7 +271,7 @@ mod tests {
             let result = world
                 .semi_honest(
                     input.clone().into_iter().map(Fp31::from),
-                    |ctx, m_shares| async move {
+                    |ctx, m_shares| Box::pin(async move {
                         let perms = get_two_of_three_random_permutations(
                             BATCHSIZE.try_into().unwrap(),
                             ctx.prss_rng(),
@@ -291,7 +291,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    }),
                 )
                 .await;
 
@@ -321,7 +321,7 @@ mod tests {
             let result = world
                 .malicious(
                     input_u128.clone().into_iter().map(Fp31::from),
-                    |ctx, m_shares| async move {
+                    |ctx, m_shares| Box::pin(async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
                         shuffle_shares(
@@ -331,7 +331,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    }),
                 )
                 .await;
 
@@ -359,7 +359,7 @@ mod tests {
             let result = world
                 .malicious(
                     input.clone().into_iter().map(Fp31::from),
-                    |ctx, m_shares| async move {
+                    |ctx, m_shares| Box::pin(async move {
                         let perms = get_two_of_three_random_permutations(
                             BATCHSIZE.try_into().unwrap(),
                             ctx.prss_rng(),
@@ -379,7 +379,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    }),
                 )
                 .await;
 

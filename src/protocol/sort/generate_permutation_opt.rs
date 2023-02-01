@@ -44,7 +44,7 @@ use embed_doc_image::embed_doc_image;
 /// # Panics
 /// Panics if input doesn't have same number of bits as `num_bits`
 pub async fn generate_permutation_opt<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
     //TODO (richaj) implement MultiBitChunk which is discussed in PR #425
 ) -> Result<Vec<Replicated<F>>, Error>
@@ -141,15 +141,15 @@ where
 /// # Panics
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
-pub async fn malicious_generate_permutation_opt<'a, F>(
-    sh_ctx: SemiHonestContext<'a, F>,
+pub async fn malicious_generate_permutation_opt<'c, 'a, F>(
+    sh_ctx: SemiHonestContext<'c, 'a, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
-) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
+) -> Result<(MaliciousValidator<'c, 'a, F>, Vec<MaliciousReplicated<F>>), Error>
 where
     F: Field,
 {
-    let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
-    let mut m_ctx_bit = malicious_validator.context();
+    let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone()); // TODO: narrow needed here?
+    let m_ctx_bit = malicious_validator.context();
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more than 1B rows
 
     let upgraded_sort_keys = m_ctx_bit.upgrade(sort_keys[0].clone()).await?;
@@ -159,7 +159,6 @@ where
 
     for (chunk_num, chunk) in sort_keys.iter().enumerate().skip(1) {
         let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
-            m_ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
             malicious_validator,
@@ -167,7 +166,7 @@ where
         .await?;
 
         malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(chunk_num)));
-        m_ctx_bit = malicious_validator.context();
+        let m_ctx_bit = malicious_validator.context();
 
         // TODO (richaj) it might even be more efficient to apply sort permutation to XorReplicated sharings,
         // and convert them to a Vec<MaliciousReplicated> after this step, as the re-shares will be cheaper for XorReplicated sharings
@@ -215,6 +214,8 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use futures::future::join_all;
+
     use crate::{
         bits::{BitArray, BitArray40},
         ff::{Field, Fp31},
@@ -227,7 +228,7 @@ mod tests {
             MatchKey,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::SharedValue,
+        secret_sharing::{SharedValue, IntoShares},
         test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
     use std::iter::zip;
@@ -249,7 +250,7 @@ mod tests {
         let result = world
             .semi_honest(
                 match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
+                |ctx: SemiHonestContext<Fp31>, mk_shares| Box::pin(async move {
                     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares =
                         convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
@@ -259,7 +260,7 @@ mod tests {
                     generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
                         .await
                         .unwrap()
-                },
+                }),
             )
             .await;
 
@@ -281,26 +282,32 @@ mod tests {
 
         let mut match_keys = Vec::with_capacity(COUNT);
         match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
+        let mk_shares = match_keys.clone().share_with(&mut rng);
+        let contexts = world.contexts::<Fp31>();
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
 
-        let [(v0, result0), (v1, result1), (v2, result2)] = world
-            .semi_honest(
-                match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-
-                    malicious_generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+        let futures = zip(mk_shares, &contexts).map(
+            |(mk_shares, ctx)| async move {
+                let ctx = ctx.get_ref();
+                let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
+                let converted_shares =
+                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
-                        .unwrap()
-                },
-            )
-            .await;
+                        .unwrap();
+
+                malicious_generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                    .await
+                    .unwrap()
+            },
+        );
+
+        let [(v0, result0), (v1, result1), (v2, result2)]: [_; 3] = join_all(futures)
+            .await
+            .try_into()
+            .unwrap();
+
         let result = join3(
             v0.validate(result0),
             v1.validate(result1),

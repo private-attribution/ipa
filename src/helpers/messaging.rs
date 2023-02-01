@@ -389,15 +389,16 @@ mod tests {
         config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(3).unwrap(); // keep 3 at a time
 
         let world = Box::leak(Box::new(TestWorld::new_with(config).await));
-        let contexts = world.contexts::<Fp31>();
-        let sender_ctx = contexts[0].narrow("reordering-test").set_total_records(2);
-        let recv_ctx = contexts[1].narrow("reordering-test").set_total_records(2);
+        let [sender_ctx, recv_ctx, _] = world.contexts::<Fp31>();
+        let sender_ctx = Box::leak(Box::new(sender_ctx));
+        let recv_ctx = Box::leak(Box::new(recv_ctx));
 
         // send record 1 first and wait for confirmation before sending record 0.
         // when gateway received record 0 it triggers flush so it must make sure record 1 is also
         // sent (same batch or different does not matter here)
         tokio::spawn(async move {
-            let channel = sender_ctx.mesh();
+            let ctx = sender_ctx.get_ref().narrow("reordering-test").set_total_records(2);
+            let channel = ctx.mesh();
             channel
                 .send(Role::H2, RecordId::from(1), Fp31::from(1_u128))
                 .await
@@ -410,6 +411,9 @@ mod tests {
 
         // intentionally ignoring record 0 here
         let v: Fp31 = recv_ctx
+            .get_ref()
+            .narrow("reordering-test")
+            .set_total_records(2)
             .mesh()
             .receive(Role::H1, RecordId::from(1))
             .await

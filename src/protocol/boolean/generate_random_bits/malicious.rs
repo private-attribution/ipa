@@ -6,20 +6,19 @@ use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use std::iter::{zip, repeat};
 
 #[async_trait]
-impl<F: Field> RandomBits<F> for MaliciousContext<'_, F> {
+impl<F: Field> RandomBits<F> for MaliciousContext<'_, '_, F> {
     type Share = MaliciousReplicated<F>;
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples(&self, record_id);
+        let triples = random_bits_triples(self.narrow(&Step::ConvertShares), record_id);
 
         // upgrade the replicated shares to malicious
-        let c = self.narrow(&Step::UpgradeBitTriples);
-        let ctx = &c;
         let malicious_triples =
-            try_join_all(triples.into_iter().enumerate().map(|(i, t)| async move {
+            try_join_all(zip(repeat(self.clone()), triples).enumerate().map(|(i, (ctx, t))| async move {
                 ctx.upgrade_for_record_with(&BitOpStep::from(i), record_id, t)
                     .await
             }))

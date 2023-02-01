@@ -242,7 +242,7 @@ where
 }
 
 #[async_trait]
-impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
+impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'_, 'a, F> {
     type Target = Vec<u32>;
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {

@@ -223,12 +223,12 @@ mod tests {
         let world = TestWorld::new().await;
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
-            .semi_honest(match_key, |ctx, mk_share| async move {
+            .semi_honest(match_key, |ctx, mk_share| Box::pin(async move {
                 let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
                 convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
                     .await
                     .unwrap()
-            })
+            }))
             .await;
         assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
     }
@@ -241,7 +241,7 @@ mod tests {
         let world = TestWorld::new().await;
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
-            .semi_honest(match_key, |ctx, mk_share| async move {
+            .semi_honest(match_key, |ctx, mk_share| Box::pin(async move {
                 let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
@@ -251,7 +251,7 @@ mod tests {
                     .await
                     .unwrap();
                 v.validate(m_bit).await.unwrap()
-            })
+            }))
             .await;
         assert_eq!(Fp31::from(match_key[BITNUM]), result.reconstruct());
     }
@@ -299,7 +299,7 @@ mod tests {
         for tweak in TWEAKS {
             let match_key = rng.gen::<MatchKey>();
             world
-                .semi_honest(match_key, |ctx, mk_share| async move {
+                .semi_honest(match_key, |ctx, mk_share| Box::pin(async move {
                     let triple =
                         convert_bit_local::<Fp32BitPrime, MatchKey>(ctx.role(), BITNUM, &mk_share);
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
@@ -315,7 +315,7 @@ mod tests {
                         .await
                         .expect_err("This should fail validation");
                     assert!(matches!(err, Error::MaliciousSecurityCheckFailed));
-                })
+                }))
                 .await;
         }
     }

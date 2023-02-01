@@ -33,7 +33,7 @@ mod tests {
         Standard: Distribution<F>,
     {
         let result = world
-            .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
+            .semi_honest((a, b), |ctx, (a_share, b_share)| Box::pin(async move {
                 or(
                     ctx.set_total_records(1),
                     RecordId::from(0_u32),
@@ -42,11 +42,11 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
         let m_result = world
-            .malicious((a, b), |ctx, (a_share, b_share)| async move {
+            .malicious((a, b), |ctx, (a_share, b_share)| Box::pin(async move {
                 or(
                     ctx.set_total_records(1),
                     RecordId::from(0_u32),
@@ -55,7 +55,7 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 

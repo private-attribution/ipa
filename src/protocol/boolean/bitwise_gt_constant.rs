@@ -139,7 +139,7 @@ mod tests {
         let input = into_bits(a);
 
         let result = world
-            .semi_honest(input.clone(), |ctx, a_share| async move {
+            .semi_honest(input.clone(), |ctx, a_share| Box::pin(async move {
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -148,12 +148,12 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
         let m_result = world
-            .malicious(input.clone(), |ctx, a_share| async move {
+            .malicious(input.clone(), |ctx, a_share| Box::pin(async move {
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -162,7 +162,7 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 

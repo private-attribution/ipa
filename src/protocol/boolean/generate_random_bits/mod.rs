@@ -23,7 +23,7 @@ pub trait RandomBits<V: ArithmeticShare> {
 }
 
 fn random_bits_triples<F, C, S>(
-    ctx: &C,
+    ctx: C,
     record_id: RecordId,
 ) -> Vec<BitConversionTriple<Replicated<F>>>
 where
@@ -71,8 +71,8 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
+    GenerateRandom,
     ConvertShares,
-    UpgradeBitTriples,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -80,8 +80,8 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
+            Self::GenerateRandom => "generate_random",
             Self::ConvertShares => "convert_shares",
-            Self::UpgradeBitTriples => "upgrade_bit_triples",
         }
     }
 }

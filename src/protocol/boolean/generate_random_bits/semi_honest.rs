@@ -7,12 +7,12 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use async_trait::async_trait;
 
 #[async_trait]
-impl<F: Field> RandomBits<F> for SemiHonestContext<'_, F> {
+impl<F: Field> RandomBits<F> for SemiHonestContext<'_, '_, F> {
     type Share = Replicated<F>;
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error> {
-        let triples = random_bits_triples(&self, record_id);
+        let triples = random_bits_triples(self.narrow(&Step::GenerateRandom), record_id);
 
         convert_triples_to_shares(self.narrow(&Step::ConvertShares), record_id, &triples).await
     }

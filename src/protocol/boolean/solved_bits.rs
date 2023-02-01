@@ -165,14 +165,14 @@ mod tests {
     {
         let world = TestWorld::new().await;
         let [rv0, rv1, rv2] = world
-            .semi_honest((), |ctx, ()| async move {
+            .semi_honest((), |ctx, ()| Box::pin(async move {
                 let mut outputs = Vec::with_capacity(COUNT);
                 let ctx = ctx.set_total_records(COUNT);
                 for i in 0..COUNT {
                     outputs.push(solved_bits(ctx.clone(), RecordId::from(i)).await.unwrap());
                 }
                 outputs
-            })
+            }))
             .await;
 
         let results = zip(rv0.into_iter(), zip(rv1.into_iter(), rv2.into_iter()))
@@ -236,7 +236,7 @@ mod tests {
 
         for _ in 0..4 {
             let results = world
-                .malicious(Fp32BitPrime::ZERO, |ctx, share_of_zero| async move {
+                .malicious(Fp32BitPrime::ZERO, |ctx, share_of_zero| Box::pin(async move {
                     let share_option = solved_bits(ctx.set_total_records(1), RecordId::from(0))
                         .await
                         .unwrap();
@@ -254,7 +254,7 @@ mod tests {
                         }
                         Some(share) => (share.b_p, share.b_b),
                     }
-                })
+                }))
                 .await;
 
             let [result0, result1, result2] = results;

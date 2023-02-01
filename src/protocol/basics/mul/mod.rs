@@ -49,7 +49,7 @@ use {malicious::multiply as malicious_mul, semi_honest::multiply as semi_honest_
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
+impl<F: Field> SecureMul<F> for SemiHonestContext<'_, '_, F> {
     type Share = Replicated<F>;
 
     async fn multiply_sparse(
@@ -65,7 +65,7 @@ impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
+impl<F: Field> SecureMul<F> for MaliciousContext<'_, '_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn multiply_sparse(

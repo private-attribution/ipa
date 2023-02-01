@@ -255,9 +255,9 @@ mod tests {
             .map(|v| v.iter().map(|x| Fp31::from(*x)).collect())
             .collect();
         let result = world
-            .semi_honest(input, |ctx, m_shares| async move {
+            .semi_honest(input, |ctx, m_shares| Box::pin(async move {
                 multi_bit_permutation(ctx, &m_shares).await.unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(&result.reconstruct(), EXPECTED);
@@ -275,14 +275,14 @@ mod tests {
         let num_records = INPUT.len();
 
         let result = world
-            .semi_honest(input, |ctx, m_shares| async move {
+            .semi_honest(input, |ctx, m_shares| Box::pin(async move {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
                 for (i, record) in m_shares.iter().enumerate() {
                     let ctx = ctx.set_total_records(num_records);
                     equality_check_futures.push(check_everything(ctx, i, record));
                 }
                 try_join_all(equality_check_futures).await.unwrap()
-            })
+            }))
             .await;
         let reconstructs: Vec<Vec<Fp31>> = result.reconstruct();
         for (rec, row) in reconstructs.iter().enumerate() {

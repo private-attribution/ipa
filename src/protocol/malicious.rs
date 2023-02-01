@@ -16,6 +16,8 @@ use crate::{
 };
 use futures::future::try_join;
 
+use super::context::MaliciousContextBuf;
+
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -144,17 +146,17 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
 }
 
 #[derive(Debug)]
-pub struct MaliciousValidator<'a, F: Field> {
+pub struct MaliciousValidator<'c, 'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
-    protocol_ctx: MaliciousContext<'a, F>,
-    validate_ctx: SemiHonestContext<'a, F>,
+    protocol_ctx: MaliciousContextBuf<'c, 'a, F>,
+    validate_ctx: SemiHonestContext<'c, 'a, F>,
 }
 
-impl<'a, F: Field> MaliciousValidator<'a, F> {
+impl<'c, 'a, F: Field> MaliciousValidator<'c, 'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
+    pub fn new(ctx: SemiHonestContext<'c, 'a, F>) -> MaliciousValidator<'c, 'a, F> {
         // Use the current step in the context for initialization.
         let r_share = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
@@ -187,8 +189,8 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
     }
 
     /// Get a copy of the context that can be used for malicious protocol execution.
-    pub fn context<'b>(&'b self) -> MaliciousContext<'a, F> {
-        self.protocol_ctx.clone()
+    pub fn context(&self) -> MaliciousContext<'_, 'a, F> {
+        self.protocol_ctx.get_ref()
     }
 
     /// ## Errors
@@ -302,7 +304,7 @@ mod tests {
 
         let futures =
             zip(context, zip(a_shares, b_shares)).map(|(ctx, (a_share, b_share))| async move {
-                let v = MaliciousValidator::new(ctx);
+                let v = MaliciousValidator::new(ctx.get_ref());
                 let m_ctx = v.context();
 
                 let (a_malicious, b_malicious) =
@@ -345,11 +347,11 @@ mod tests {
         let a = rng.gen::<Fp32BitPrime>();
 
         let result = world
-            .semi_honest(a, |ctx, a| async move {
+            .semi_honest(a, |ctx, a| Box::pin(async move {
                 let v = MaliciousValidator::new(ctx);
                 let m = v.context().upgrade(a).await.unwrap();
                 v.validate(m).await.unwrap()
-            })
+            }))
             .await;
         assert_eq!(a, result.reconstruct());
     }
@@ -363,7 +365,7 @@ mod tests {
 
         for malicious_actor in Role::all() {
             world
-                .semi_honest(a, |ctx, a| async move {
+                .semi_honest(a, |ctx, a| Box::pin(async move {
                     let a = if ctx.role() == *malicious_actor {
                         // This role is spoiling the value.
                         Replicated::new(a.left(), a.right() + Fp32BitPrime::ONE)
@@ -376,7 +378,7 @@ mod tests {
                         Ok(result) => panic!("Got a result {result:?}"),
                         Err(err) => assert!(matches!(err, Error::MaliciousSecurityCheckFailed)),
                     }
-                })
+                }))
                 .await;
         }
     }
@@ -425,7 +427,7 @@ mod tests {
             .into_iter()
             .zip([h1_shares, h2_shares, h3_shares])
             .map(|(ctx, input_shares)| async move {
-                let v = MaliciousValidator::new(ctx);
+                let v = MaliciousValidator::new(ctx.get_ref());
                 let m_ctx = v.context();
 
                 let m_input = m_ctx.upgrade(input_shares).await.unwrap();

@@ -39,9 +39,9 @@ pub struct RevealedAndRandomPermutations {
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
 }
 
-pub struct ShuffledPermutationWrapper<'a, F: Field> {
+pub struct ShuffledPermutationWrapper<'c, 'a, F: Field> {
     pub perm: Vec<MaliciousReplicated<F>>,
-    pub m_ctx: MaliciousContext<'a, F>,
+    pub m_ctx: MaliciousContext<'c, 'a, F>,
 }
 
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
@@ -87,11 +87,13 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// 2. Shuffle shares three times
 /// 3. Validate the accumulated macs - this returns the revealed permutation
 pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
-    m_ctx: MaliciousContext<'_, F>,
     input_len: u32,
     input_permutation: Vec<MaliciousReplicated<F>>,
-    malicious_validator: MaliciousValidator<'_, F>,
+    malicious_validator: MaliciousValidator<'_, '_, F>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
+    todo!() /*
+    let m_ctx = malicious_validator.context().narrow(&ShuffleRevealPermutation);
+
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
         input_len,
         m_ctx.narrow(&GeneratePermutation).prss_rng(),
@@ -117,7 +119,7 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
         randoms_for_shuffle: random_permutations_for_shuffle,
-    })
+    })*/
 }
 
 #[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
@@ -141,7 +143,7 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
 ///
 /// ![Generate sort permutation steps][semi_honest_sort]
 pub async fn generate_permutation<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error>
@@ -216,7 +218,7 @@ where
 /// # Errors
 /// If unable to convert sort keys length to u32
 pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let sort_permutation = generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys).await?;
@@ -231,17 +233,14 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// # Errors
 /// If unable to convert sort keys length to u32
 pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
-    sh_ctx: SemiHonestContext<'_, F>,
+    sh_ctx: SemiHonestContext<'_, '_, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let key_count = sort_keys[0].len();
     let (malicious_validator, sort_permutation) =
         malicious_generate_permutation_opt(sh_ctx.narrow(&SortKeys), sort_keys).await?;
 
-    let m_ctx = malicious_validator.context();
-
     malicious_shuffle_and_reveal_permutation(
-        m_ctx.narrow(&ShuffleRevealPermutation),
         u32::try_from(key_count).unwrap(),
         sort_permutation,
         malicious_validator,
@@ -278,16 +277,16 @@ pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
 /// # Panics
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
-pub async fn malicious_generate_permutation<'a, F>(
-    sh_ctx: SemiHonestContext<'a, F>,
+pub async fn malicious_generate_permutation<'c, 'a, F>(
+    sh_ctx: SemiHonestContext<'c, 'a, F>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
-) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
+) -> Result<(MaliciousValidator<'c, 'a, F>, Vec<MaliciousReplicated<F>>), Error>
 where
     F: Field,
 {
     let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
-    let mut m_ctx_bit = malicious_validator.context();
+    let m_ctx_bit = malicious_validator.context();
     assert_eq!(sort_keys.len(), num_bits as usize);
 
     let upgraded_sort_keys = m_ctx_bit.upgrade(sort_keys[0].clone()).await?;
@@ -298,7 +297,6 @@ where
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
-            m_ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
             composed_less_significant_bits_permutation,
             malicious_validator,
@@ -307,7 +305,7 @@ where
 
         malicious_validator =
             MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num.try_into().unwrap())));
-        m_ctx_bit = malicious_validator.context();
+        let m_ctx_bit = malicious_validator.context();
         let upgraded_sort_keys = m_ctx_bit
             .upgrade(sort_keys[bit_num as usize].clone())
             .await?;
@@ -395,7 +393,7 @@ mod tests {
         let result = world
             .semi_honest(
                 match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
+                |ctx: SemiHonestContext<Fp31>, mk_shares| Box::pin(async move {
                     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares =
                         convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
@@ -404,7 +402,7 @@ mod tests {
                     generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
                         .await
                         .unwrap()
-                },
+                }),
             )
             .await;
 
@@ -431,9 +429,12 @@ mod tests {
 
         let [perm0, perm1, perm2] = generate_shares::<Fp31>(&permutation);
 
-        let h0_future = shuffle_and_reveal_permutation(ctx0.narrow("shuffle_reveal"), perm0);
-        let h1_future = shuffle_and_reveal_permutation(ctx1.narrow("shuffle_reveal"), perm1);
-        let h2_future = shuffle_and_reveal_permutation(ctx2.narrow("shuffle_reveal"), perm2);
+        let h0_future =
+            shuffle_and_reveal_permutation(ctx0.get_ref().narrow("shuffle_reveal"), perm0);
+        let h1_future =
+            shuffle_and_reveal_permutation(ctx1.get_ref().narrow("shuffle_reveal"), perm1);
+        let h2_future =
+            shuffle_and_reveal_permutation(ctx2.get_ref().narrow("shuffle_reveal"), perm2);
 
         let perms_and_randoms = join3(h0_future, h1_future, h2_future).await;
 

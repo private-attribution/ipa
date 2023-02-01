@@ -1,3 +1,4 @@
+use crate::protocol::context::{SemiHonestContextBuf, Context};
 use crate::rand::thread_rng;
 use async_trait::async_trait;
 use futures::{future::join_all, Future};
@@ -13,7 +14,7 @@ use crate::{
     },
     protocol::{
         context::{
-            Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
+            MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
         },
         malicious::MaliciousValidator,
         prss::Endpoint as PrssEndpoint,
@@ -26,6 +27,7 @@ use std::io::stdout;
 
 use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
+use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::{fmt::Debug, iter::zip, sync::Arc};
 
@@ -144,12 +146,12 @@ impl TestWorld {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
+    pub fn contexts<F: Field>(&self) -> [SemiHonestContextBuf<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
         zip(&self.participants, &*self.gateways)
             .map(|(participant, gateway)| {
                 SemiHonestContext::new(participant, gateway)
-                    .narrow(&Self::execution_step(execution))
+                    .update_with(|ctx| ctx.narrow(&Self::execution_step(execution)))
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -199,22 +201,20 @@ impl Drop for TestWorld {
 
 #[async_trait]
 pub trait Runner<I, A, F> {
-    async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn semi_honest<O, H>(&self, input: I, helper_fn: H) -> [O; 3]
     where
         F: Field,
         O: Send + Debug,
-        H: Fn(SemiHonestContext<'a, F>, A) -> R + Send + Sync,
-        R: Future<Output = O> + Send,
+        H: for<'c> Fn(SemiHonestContext<'c, '_, F>, A) -> Pin<Box<dyn Future<Output = O> + 'c + Send>> + Send + Sync,
         Standard: Distribution<F>;
 
-    async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn malicious<O, M, H, P>(&self, input: I, helper_fn: H) -> [O; 3]
     where
-        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
+        for<'c, 'u> UpgradeContext<'c, 'u, F>: UpgradeToMalicious<A, M>,
         F: Field,
         O: Send + Debug,
         M: Send,
-        H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
-        R: Future<Output = P> + Send,
+        H: for<'c> Fn(MaliciousContext<'c, '_, F>, M) -> Pin<Box<dyn Future<Output = P> + 'c + Send>> + Send + Sync,
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>;
@@ -234,37 +234,29 @@ where
     A: Send,
     F: Field,
 {
-    async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn semi_honest<O, H>(&self, input: I, helper_fn: H) -> [O; 3]
     where
         O: Send + Debug,
-        H: Fn(SemiHonestContext<'a, F>, A) -> R + Send + Sync,
-        R: Future<Output = O> + Send,
+        H: for<'c> Fn(SemiHonestContext<'c, '_, F>, A) -> Pin<Box<dyn Future<Output = O> + 'c + Send>> + Send + Sync,
         Standard: Distribution<F>,
     {
-        let contexts = self.contexts();
-        let input_shares = {
-            let mut rng = thread_rng();
-            input.share_with(&mut rng)
-        };
-
-        let output =
-            join_all(zip(contexts, input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
-        <[_; 3]>::try_from(output).unwrap()
+        let c = self.contexts();
+        semi_honest_eval([c[0].get_ref(), c[1].get_ref(), c[2].get_ref()], input, helper_fn).await
     }
 
-    async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn malicious<O, M, H, P>(&self, input: I, helper_fn: H) -> [O; 3]
     where
-        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
+        for<'c, 'u> UpgradeContext<'c, 'u, F>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send,
-        H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
-        R: Future<Output = P> + Send,
+        H: for<'c> Fn(MaliciousContext<'c, '_, F>, M) -> Pin<Box<dyn Future<Output = P> + 'c + Send>> + Send + Sync,
         P: DowngradeMalicious<Target = O> + Clone + Send + Debug,
         [P; 3]: ValidateMalicious<F>,
         Standard: Distribution<F>,
     {
+        let c = self.contexts();
         let (m_results, r_shares, output) = split_array_of_tuples(
-            self.semi_honest(input, |ctx, share| async {
+            semi_honest_eval([c[0].get_ref(), c[1].get_ref(), c[2].get_ref()], input, |ctx, share| Box::pin(async {
                 let v = MaliciousValidator::new(ctx);
                 let m_share = v.context().upgrade(share).await.unwrap();
                 let m_result = helper_fn(v.context(), m_share).await;
@@ -272,7 +264,7 @@ where
                 let r_share = v.r_share().clone();
                 let output = v.validate(m_result_clone).await.unwrap();
                 (m_result, r_share, output)
-            })
+            }))
             .await,
         );
 
@@ -283,4 +275,24 @@ where
 
         output
     }
+}
+
+async fn semi_honest_eval<'c, 'a, I, A, F, O, H>(contexts: [SemiHonestContext<'c, 'a, F>; 3], input: I, helper_fn: H) -> [O; 3]
+where
+    I: 'static + IntoShares<A> + Send,
+    A: Send,
+    F: Field,
+    O: Send + Debug,
+    H: Fn(SemiHonestContext<'c, 'a, F>, A) -> Pin<Box<dyn Future<Output = O> + 'a + Send>> + Send + Sync,
+    Standard: Distribution<F>,
+{
+    let input_shares = {
+        let mut rng = thread_rng();
+        input.share_with(&mut rng)
+    };
+
+    let helper_fn = &helper_fn;
+    let output =
+        join_all(zip(contexts.into_iter(), input_shares).map(|(ctx, shares)| helper_fn(ctx, shares))).await;
+    <[_; 3]>::try_from(output).unwrap()
 }

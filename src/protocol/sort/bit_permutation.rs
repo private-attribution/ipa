@@ -93,9 +93,9 @@ mod tests {
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world
-            .semi_honest(input, |ctx, m_shares| async move {
+            .semi_honest(input, |ctx, m_shares| Box::pin(async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(&result.reconstruct(), EXPECTED);
@@ -107,9 +107,9 @@ mod tests {
 
         let input: Vec<_> = INPUT.iter().map(|x| Fp31::from(*x)).collect();
         let result = world
-            .malicious(input, |ctx, m_shares| async move {
+            .malicious(input, |ctx, m_shares| Box::pin(async move {
                 bit_permutation(ctx, &m_shares).await.unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(&result.reconstruct(), EXPECTED);

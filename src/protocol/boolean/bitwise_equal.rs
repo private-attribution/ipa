@@ -167,7 +167,7 @@ mod tests {
         let b_fp31 = get_bits::<Fp31>(b, num_bits);
 
         let answer_fp31 = world
-            .semi_honest((a_fp31, b_fp31), |ctx, (a_bits, b_bits)| async move {
+            .semi_honest((a_fp31, b_fp31), |ctx, (a_bits, b_bits)| Box::pin(async move {
                 bitwise_equal(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -176,7 +176,7 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
@@ -186,7 +186,7 @@ mod tests {
         let answer_fp32_bit_prime = world
             .semi_honest(
                 (a_fp32_bit_prime, b_fp32_bit_prime),
-                |ctx, (a_bits, b_bits)| async move {
+                |ctx, (a_bits, b_bits)| Box::pin(async move {
                     bitwise_equal(
                         ctx.set_total_records(1),
                         RecordId::from(0),
@@ -195,7 +195,7 @@ mod tests {
                     )
                     .await
                     .unwrap()
-                },
+                }),
             )
             .await
             .reconstruct();
@@ -211,22 +211,22 @@ mod tests {
         let a_fp31 = get_bits::<Fp31>(a, num_bits);
 
         let answer_fp31 = world
-            .semi_honest(a_fp31, |ctx, a_bits| async move {
+            .semi_honest(a_fp31, |ctx, a_bits| Box::pin(async move {
                 bitwise_equal_constant(ctx.set_total_records(1), RecordId::from(0), &a_bits, b)
                     .await
                     .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
         let a_fp32_bit_prime = get_bits::<Fp32BitPrime>(a, num_bits);
 
         let answer_fp32_bit_prime = world
-            .semi_honest(a_fp32_bit_prime, |ctx, a_bits| async move {
+            .semi_honest(a_fp32_bit_prime, |ctx, a_bits| Box::pin(async move {
                 bitwise_equal_constant(ctx.set_total_records(1), RecordId::from(0), &a_bits, b)
                     .await
                     .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 

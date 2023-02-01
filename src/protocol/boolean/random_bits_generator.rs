@@ -84,9 +84,9 @@ mod tests {
         let world = TestWorld::new().await;
         let [c0, c1, c2] = world.contexts::<Fp31>();
 
-        let rbg0 = RandomBitsGenerator::new(c0);
-        let rbg1 = RandomBitsGenerator::new(c1);
-        let rbg2 = RandomBitsGenerator::new(c2);
+        let rbg0 = RandomBitsGenerator::new(c0.get_ref());
+        let rbg1 = RandomBitsGenerator::new(c1.get_ref());
+        let rbg2 = RandomBitsGenerator::new(c2.get_ref());
 
         let result = join3(rbg0.generate(), rbg1.generate(), rbg2.generate()).await;
         assert_eq!(rbg0.aborts(), rbg1.aborts());
@@ -99,7 +99,7 @@ mod tests {
         let world = TestWorld::new().await;
         let contexts = world.contexts::<Fp31>();
 
-        let validators = contexts.map(MaliciousValidator::new);
+        let validators = contexts.iter().map(|ctx| MaliciousValidator::new(ctx.get_ref())).collect::<Vec<_>>();
         let rbg = validators
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context()))

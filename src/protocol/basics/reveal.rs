@@ -37,7 +37,7 @@ pub trait Reveal<V: ArithmeticShare> {
 /// i.e. their own shares and received share.
 #[async_trait]
 #[embed_doc_image("reveal", "images/reveal.png")]
-impl<F: Field> Reveal<F> for SemiHonestContext<'_, F> {
+impl<F: Field> Reveal<F> for SemiHonestContext<'_, '_, F> {
     type Share = Replicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
@@ -62,7 +62,7 @@ impl<F: Field> Reveal<F> for SemiHonestContext<'_, F> {
 /// to both helpers (right and left) and upon receiving 2 shares from peers it validates that they
 /// indeed match.
 #[async_trait]
-impl<F: Field> Reveal<F> for MaliciousContext<'_, F> {
+impl<F: Field> Reveal<F> for MaliciousContext<'_, '_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn reveal(self, record_id: RecordId, input: &Self::Share) -> Result<F, Error> {
@@ -149,12 +149,12 @@ mod tests {
 
         let input = rng.gen::<Fp31>();
         let results = world
-            .semi_honest(input, |ctx, share| async move {
+            .semi_honest(input, |ctx, share| Box::pin(async move {
                 ctx.set_total_records(1)
                     .reveal(RecordId::from(0), &share)
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(input, results[0]);
@@ -169,7 +169,7 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::new().await;
         let sh_ctx = world.contexts::<Fp31>();
-        let v = sh_ctx.map(MaliciousValidator::new);
+        let v = sh_ctx.iter().map(|ctx| MaliciousValidator::new(ctx.get_ref())).collect::<Vec<_>>();
         let m_ctx: [_; 3] = v
             .iter()
             .map(|v| v.context().set_total_records(1))
@@ -204,7 +204,7 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::new().await;
         let sh_ctx = world.contexts::<Fp31>();
-        let v = sh_ctx.map(MaliciousValidator::new);
+        let v = sh_ctx.iter().map(|ctx| MaliciousValidator::new(ctx.get_ref())).collect::<Vec<_>>();
         let m_ctx: [_; 3] = v
             .iter()
             .map(|v| v.context().set_total_records(1))
@@ -233,7 +233,7 @@ mod tests {
     }
 
     pub async fn reveal_with_additive_attack<F: Field>(
-        ctx: MaliciousContext<'_, F>,
+        ctx: MaliciousContext<'_, '_, F>,
         record_id: RecordId,
         input: &MaliciousReplicated<F>,
         additive_error: F,

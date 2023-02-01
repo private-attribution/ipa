@@ -60,7 +60,7 @@ impl AsRef<str> for Step {
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
 pub async fn sum_of_products<F>(
-    ctx: MaliciousContext<'_, F>,
+    ctx: MaliciousContext<'_, '_, F>,
     record_id: RecordId,
     a: &[MaliciousReplicated<F>],
     b: &[MaliciousReplicated<F>],
@@ -151,12 +151,12 @@ mod test {
         }
 
         let res = world
-            .malicious((av, bv), |ctx, (a, b)| async move {
+            .malicious((av, bv), |ctx, (a, b)| Box::pin(async move {
                 ctx.set_total_records(1)
                     .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(expected, res.reconstruct());

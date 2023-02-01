@@ -101,7 +101,7 @@ mod tests {
                  (mk_shares, secret): (
                     Vec<XorShare<MatchKey>>,
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
-                )| async move {
+                )| Box::pin(async move {
                     let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares = convert_all_bits(
                         &ctx.narrow("convert_all_bits"),
@@ -149,7 +149,7 @@ mod tests {
                     apply_sort_permutation(ctx, converted_secret, &sort_permutation)
                         .await
                         .unwrap()
-                },
+                }),
             )
             .await
             .reconstruct();

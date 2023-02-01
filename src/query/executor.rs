@@ -3,7 +3,7 @@ use crate::{
     bits::{BitArray, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
-        messaging::{Gateway, TotalRecords},
+        messaging::Gateway,
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
         transport::{AlignedByteArrStream, ByteArrStream},
@@ -66,7 +66,7 @@ where
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 async fn execute_test_multiply<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     mut input: AlignedByteArrStream,
 ) -> Vec<Replicated<F>>
 where
@@ -103,7 +103,7 @@ where
 }
 
 async fn execute_ipa<F: Field, MK: BitArray, BK: BitArray>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,
 ) -> Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>
@@ -143,25 +143,16 @@ pub fn start_query(
             FieldType::Fp31 => match config.query_type {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TestMultiply => {
-                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
-                        &prss,
-                        &gateway,
-                        TotalRecords::Indeterminate,
-                    );
+                    let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                     let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
-                    Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
+                    Box::new(execute_test_multiply(ctx.get_ref(), input).await) as Box<dyn Result>
                 }
                 QueryType::IPA(config) => {
-                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
-                        &prss,
-                        &gateway,
-                        // will be specified in downstream steps
-                        TotalRecords::Unspecified,
-                    );
+                    let ctx = SemiHonestContext::<Fp31>::new(&prss, &gateway);
                     let input = input.align(
                         <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE,
                     );
-                    Box::new(execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, config, input).await)
+                    Box::new(execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx.get_ref(), config, input).await)
                         as Box<dyn Result>
                 }
             },
@@ -174,6 +165,8 @@ pub fn start_query(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::iter::zip;
+
     use super::*;
     use crate::{
         ipa_test_input,
@@ -188,9 +181,7 @@ mod tests {
     #[tokio::test]
     async fn multiply() {
         let world = TestWorld::new().await;
-        let contexts = world
-            .contexts::<Fp31>()
-            .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
+        let contexts = world.contexts::<Fp31>();
         let a = [Fp31::from(4u128), Fp31::from(5u128)];
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
 
@@ -212,10 +203,8 @@ mod tests {
         });
 
         let results: [_; 3] = join_all(
-            helper_shares
-                .into_iter()
-                .zip(contexts)
-                .map(|(shares, context)| execute_test_multiply(context, shares)),
+            zip(helper_shares, &contexts)
+                .map(|(shares, context)| execute_test_multiply(context.get_ref().set_total_records(2), shares)),
         )
         .await
         .try_into()
@@ -261,7 +250,7 @@ mod tests {
 
         let world = TestWorld::new().await;
         let contexts = world.contexts::<Fp31>();
-        let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
+        let results: [_; 3] = join_all(zip(records, &contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
                 per_user_credit_cap: 3,
@@ -269,7 +258,7 @@ mod tests {
             };
             let input = ByteArrStream::from(shares)
                 .align(<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
-            execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, query_config, input)
+            execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx.get_ref(), query_config, input)
         }))
         .await
         .try_into()

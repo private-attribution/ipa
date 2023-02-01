@@ -80,7 +80,7 @@ mod tests {
                     sigma.into_iter().map(u128::from).map(Fp31::from),
                     rho.into_iter().map(Fp31::from),
                 ),
-                |ctx, (m_sigma_shares, m_rho_shares)| async move {
+                |ctx, (m_sigma_shares, m_rho_shares)| Box::pin(async move {
                     let sigma_and_randoms = shuffle_and_reveal_permutation(
                         ctx.narrow("shuffle_reveal"),
                         m_sigma_shares,
@@ -99,7 +99,7 @@ mod tests {
                     )
                     .await
                     .unwrap()
-                },
+                }),
             )
             .await;
 

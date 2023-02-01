@@ -58,7 +58,7 @@ impl AsRef<str> for Step {
 /// ## Panics
 /// Panics if the mutex is found to be poisoned
 pub async fn multiply<F>(
-    ctx: MaliciousContext<'_, F>,
+    ctx: MaliciousContext<'_, '_, F>,
     record_id: RecordId,
     a: &MaliciousReplicated<F>,
     b: &MaliciousReplicated<F>,
@@ -114,12 +114,12 @@ mod test {
         let b = rng.gen::<Fp31>();
 
         let res = world
-            .malicious((a, b), |ctx, (a, b)| async move {
+            .malicious((a, b), |ctx, (a, b)| Box::pin(async move {
                 ctx.set_total_records(1)
                     .multiply(RecordId::from(0), &a, &b)
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(a * b, res.reconstruct());

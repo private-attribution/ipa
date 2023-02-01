@@ -152,7 +152,7 @@ mod tests {
         let result: [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
             .semi_honest(
                 input,
-                |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| Box::pin(async move {
                     let bk_shares = input
                         .iter()
                         .map(|x| x.breakdown_key.clone())
@@ -181,7 +181,7 @@ mod tests {
                     accumulate_credit(ctx, &modulus_converted_shares)
                         .await
                         .unwrap()
-                },
+                }),
             )
             .await;
 
@@ -219,7 +219,7 @@ mod tests {
             let new_shares = world
                 .semi_honest(
                     secret,
-                    |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
+                    |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| Box::pin(async move {
                         let bk_shares = vec![share.breakdown_key];
                         let converted_bk_shares = convert_all_bits(
                             &ctx,
@@ -242,7 +242,7 @@ mod tests {
                             .reshare(ctx.set_total_records(1), RecordId::from(0), role)
                             .await
                             .unwrap()
-                    },
+                    }),
                 )
                 .await;
             assert_eq!(secret, new_shares.reconstruct());

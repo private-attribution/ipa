@@ -27,7 +27,7 @@ pub trait SecureSop<F: ArithmeticShare>: Sized {
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
+impl<F: Field> SecureSop<F> for SemiHonestContext<'_, '_, F> {
     type Share = Replicated<F>;
 
     async fn sum_of_products(
@@ -42,7 +42,7 @@ impl<F: Field> SecureSop<F> for SemiHonestContext<'_, F> {
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureSop<F> for MaliciousContext<'_, F> {
+impl<F: Field> SecureSop<F> for MaliciousContext<'_, '_, F> {
     type Share = MaliciousReplicated<F>;
 
     async fn sum_of_products(

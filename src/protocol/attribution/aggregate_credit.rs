@@ -10,7 +10,7 @@ use crate::{
                 MCCappedCreditsWithAggregationBit,
             },
         },
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
         sort::{
@@ -39,7 +39,7 @@ use std::marker::PhantomData;
 /// # Errors
 /// propagates errors from multiplications
 pub async fn aggregate_credit<F: Field, BK: BitArray>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -121,10 +121,10 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn malicious_aggregate_credit<F, BK>(
-    m_ctx: MaliciousContext<'_, F>,
-    malicious_validator: MaliciousValidator<'_, F>,
-    sh_ctx: SemiHonestContext<'_, F>,
+pub async fn malicious_aggregate_credit<F, BK, SS: Substep>(
+    malicious_validator: MaliciousValidator<'_, '_, F>,
+    malicious_step: &SS,
+    sh_ctx: SemiHonestContext<'_, '_, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, MaliciousReplicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -134,6 +134,7 @@ where
     BK: BitArray,
     MaliciousReplicated<F>: Serializable,
 {
+    let m_ctx = malicious_validator.context().narrow(malicious_step);
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
@@ -269,7 +270,7 @@ where
 }
 
 async fn sort_by_breakdown_key<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -300,14 +301,14 @@ async fn sort_by_breakdown_key<F: Field>(
     .await
 }
 
-async fn malicious_sort_by_breakdown_key<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+async fn malicious_sort_by_breakdown_key<'c, 'a, F: Field>(
+    ctx: SemiHonestContext<'c, 'a, F>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
 ) -> Result<
     (
-        MaliciousValidator<'_, F>,
+        MaliciousValidator<'c, 'a, F>,
         Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
     ),
     Error,
@@ -333,19 +334,19 @@ async fn malicious_sort_by_breakdown_key<F: Field>(
     let malicious_validator = MaliciousValidator::new(ctx);
     let m_ctx = malicious_validator.context();
     let input = m_ctx.upgrade(input).await?;
+    let output = apply_sort_permutation(
+        m_ctx.narrow(&Step::ApplyPermutationOnBreakdownKey),
+        input,
+        &sort_permutation,
+    ).await?;
     Ok((
         malicious_validator,
-        apply_sort_permutation(
-            m_ctx.narrow(&Step::ApplyPermutationOnBreakdownKey),
-            input,
-            &sort_permutation,
-        )
-        .await?,
+        output,
     ))
 }
 
 async fn sort_by_aggregation_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
@@ -370,7 +371,7 @@ async fn sort_by_aggregation_bit<F: Field>(
 }
 
 async fn malicious_sort_by_aggregation_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
@@ -487,7 +488,7 @@ mod tests {
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
                 input,
-                |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| Box::pin(async move {
                     let bk_shares = input
                         .iter()
                         .map(|x| x.breakdown_key.clone())
@@ -520,7 +521,7 @@ mod tests {
                     )
                     .await
                     .unwrap()
-                },
+                }),
             )
             .await
             .reconstruct();

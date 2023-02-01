@@ -10,9 +10,9 @@ mod prss;
 mod semi_honest;
 
 pub(super) use malicious::SpecialAccessToMaliciousContext;
-pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
+pub use malicious::{MaliciousContext, MaliciousContextBuf, NoRecord, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
-pub use semi_honest::SemiHonestContext;
+pub use semi_honest::{SemiHonestContext, SemiHonestContextBuf};
 
 use super::basics::sum_of_product::SecureSop;
 use super::basics::Reshare;
@@ -174,7 +174,7 @@ mod tests {
         let input_len = input.len();
 
         let result = world
-            .semi_honest(input.clone(), |ctx, shares| async move {
+            .semi_honest(input.clone(), |ctx, shares| Box::pin(async move {
                 join_all(
                     shares
                         .iter()
@@ -183,7 +183,7 @@ mod tests {
                         .map(|((i, share), ctx)| toy_protocol(ctx, i, share)),
                 )
                 .await
-            })
+            }))
             .await
             .reconstruct();
 
@@ -228,12 +228,12 @@ mod tests {
         let input_len = input.len();
 
         let _result = world
-            .malicious(input.clone(), |ctx, a| async move {
+            .malicious(input.clone(), |ctx, a| Box::pin(async move {
                 for (i, share) in a.iter().enumerate() {
                     toy_protocol(ctx.set_total_records(input_len), i, share).await;
                 }
                 a
-            })
+            }))
             .await;
 
         let metrics_step = Step::default()

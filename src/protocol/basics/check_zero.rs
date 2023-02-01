@@ -55,7 +55,7 @@ impl AsRef<str> for Step {
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn check_zero<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
@@ -87,7 +87,7 @@ mod tests {
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
         let world = TestWorld::new().await;
-        let context = world.contexts::<Fp31>().map(|ctx| ctx.set_total_records(1));
+        let contexts = world.contexts::<Fp31>();
         let mut rng = thread_rng();
         let mut counter = 0_u32;
 
@@ -101,9 +101,9 @@ mod tests {
                 counter += 1;
 
                 let protocol_output = try_join3(
-                    check_zero(context[0].narrow(&iteration), record_id, &v_shares[0]),
-                    check_zero(context[1].narrow(&iteration), record_id, &v_shares[1]),
-                    check_zero(context[2].narrow(&iteration), record_id, &v_shares[2]),
+                    check_zero(contexts[0].get_ref().narrow(&iteration).set_total_records(1), record_id, &v_shares[0]),
+                    check_zero(contexts[1].get_ref().narrow(&iteration).set_total_records(1), record_id, &v_shares[1]),
+                    check_zero(contexts[2].get_ref().narrow(&iteration).set_total_records(1), record_id, &v_shares[2]),
                 )
                 .await?;
 

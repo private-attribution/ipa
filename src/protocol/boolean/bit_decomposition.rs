@@ -127,13 +127,13 @@ mod tests {
         Standard: Distribution<F>,
     {
         let result = world
-            .semi_honest(a, |ctx, a_p| async move {
+            .semi_honest(a, |ctx, a_p| Box::pin(async move {
                 let rbg = RandomBitsGenerator::new(ctx.narrow(&GenerateRandomBits));
 
                 BitDecomposition::execute(ctx.set_total_records(1), RecordId::from(0), &rbg, &a_p)
                     .await
                     .unwrap()
-            })
+            }))
             .await;
 
         // bit-decomposed values generate valid number of bits to fit the target field values

@@ -291,7 +291,7 @@ mod tests {
         let world = TestWorld::new().await;
         let bits = get_bits::<F>(a, num_bits);
         let result = world
-            .semi_honest(bits.clone(), |ctx, x_share| async move {
+            .semi_honest(bits.clone(), |ctx, x_share| Box::pin(async move {
                 BitwiseLessThanPrime::less_than_prime(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -299,12 +299,12 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
         let m_result = world
-            .malicious(bits, |ctx, x_share| async move {
+            .malicious(bits, |ctx, x_share| Box::pin(async move {
                 BitwiseLessThanPrime::less_than_prime(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -312,7 +312,7 @@ mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 

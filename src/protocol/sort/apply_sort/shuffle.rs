@@ -221,7 +221,7 @@ mod tests {
             let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
                 .semi_honest(
                     input.clone(),
-                    |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, BreakdownKey>>| async move {
+                    |ctx, shares: Vec<AccumulateCreditInputRow<Fp31, BreakdownKey>>| Box::pin(async move {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
 
@@ -260,7 +260,7 @@ mod tests {
                         )
                         .await
                         .unwrap()
-                    },
+                    }),
                 )
                 .await
                 .reconstruct();
@@ -311,7 +311,7 @@ mod tests {
             let result = world
                 .semi_honest(
                     some_numbers_as_bits,
-                    |ctx, vec_of_vec_of_shares| async move {
+                    |ctx, vec_of_vec_of_shares| Box::pin(async move {
                         let copy_of_input = vec_of_vec_of_shares.clone();
 
                         let perms = get_two_of_three_random_permutations(5, ctx.prss_rng());
@@ -328,7 +328,7 @@ mod tests {
                             .any(|x| share_appears_anywhere(x, &copy_of_input))));
 
                         shuffled_shares
-                    },
+                    }),
                 )
                 .await
                 .reconstruct();

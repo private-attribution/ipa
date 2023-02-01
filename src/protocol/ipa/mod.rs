@@ -271,7 +271,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 /// # Panics
 /// Propagates errors from multiplications
 pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_, '_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -392,7 +392,7 @@ where
 /// Propagates errors from multiplications
 #[allow(dead_code, clippy::too_many_lines)]
 pub async fn ipa_wip_malicious<F, MK, BK>(
-    sh_ctx: SemiHonestContext<'_, F>,
+    sh_ctx: SemiHonestContext<'_, '_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -534,9 +534,9 @@ where
     .await?;
 
     //Validate before calling sort with downgraded context
-    malicious_aggregate_credit::<F, BK>(
-        m_ctx.narrow(&Step::AggregateCredit),
+    malicious_aggregate_credit::<_, BK, _>(
         malicious_validator,
+        &Step::AggregateCredit,
         sh_ctx,
         &user_capped_credits,
         max_breakdown_key,
@@ -593,7 +593,7 @@ pub mod tests {
         );
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records, |ctx, input_rows| Box::pin(async move {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -603,7 +603,7 @@ pub mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
@@ -642,7 +642,7 @@ pub mod tests {
         );
 
         let [result0, result1, result2] = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records, |ctx, input_rows| Box::pin(async move {
                 ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -652,7 +652,7 @@ pub mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await;
 
         assert_eq!(EXPECTED.len(), result0.len());
@@ -689,7 +689,7 @@ pub mod tests {
             ));
         }
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records, |ctx, input_rows| Box::pin(async move {
                 ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -699,7 +699,7 @@ pub mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
@@ -780,7 +780,7 @@ pub mod tests {
         );
 
         let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone(), |ctx, input_rows| async move {
+            .semi_honest(records.clone(), |ctx, input_rows| Box::pin(async move {
                 ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -790,7 +790,7 @@ pub mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await
             .reconstruct();
 
@@ -805,7 +805,7 @@ pub mod tests {
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
         let _ = world
-            .semi_honest(records, |ctx, input_rows| async move {
+            .semi_honest(records, |ctx, input_rows| Box::pin(async move {
                 ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
@@ -815,7 +815,7 @@ pub mod tests {
                 )
                 .await
                 .unwrap()
-            })
+            }))
             .await;
 
         let snapshot = world.metrics_snapshot();
