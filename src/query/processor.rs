@@ -507,10 +507,10 @@ mod tests {
             let b = Fp31::from(5u128);
 
             let helper_shares = (a, b).share().map(|(a, b)| {
-                let mut slice = [0u8; 2 * SZ];
-                a.serialize(&mut slice).unwrap();
-                b.serialize(&mut slice[SZ..]).unwrap();
-                ByteArrStream::from(slice.as_slice())
+                let mut vec = vec![0u8; 2 * SZ];
+                a.serialize(&mut vec).unwrap();
+                b.serialize(&mut vec[SZ..]).unwrap();
+                ByteArrStream::from(vec)
             });
 
             // at this point, all helpers must be awaiting inputs

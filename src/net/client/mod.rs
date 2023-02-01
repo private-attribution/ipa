@@ -175,7 +175,7 @@ impl MpcHelperClient {
     /// If the request has illegal arguments, or fails to deliver to helper
     /// # Panics
     /// if there is a problem reading the response body
-    #[cfg(feature = "cli")]
+    #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))]
     pub async fn query_results(&self, query_id: QueryId) -> Result<body::Bytes, Error> {
         let req = http_serde::query::results::Request::new(query_id);
         let req = req.try_into_http_request(self.scheme.clone(), self.authority.clone())?;
@@ -189,40 +189,61 @@ impl MpcHelperClient {
     }
 }
 
-// #[cfg(all(test, not(feature = "shuttle")))]
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
-    use crate::ff::FieldType;
-    use crate::helpers::query::QueryType;
-    use crate::helpers::CommandEnvelope;
     use crate::{
+        ff::{FieldType, Fp31},
+        helpers::{
+            query::{QueryCommand, QueryType},
+            CommandEnvelope, CommandOrigin, RoleAssignment, TransportCommand,
+            MESSAGE_PAYLOAD_SIZE_BYTES,
+        },
         net::{server::BindTarget, MpcHelperServer},
+        query::ProtocolResult,
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         sync::{Arc, Mutex},
     };
+    use futures::join;
     use hyper_tls::native_tls::TlsConnector;
+    use std::fmt::Debug;
     use std::future::Future;
     use tokio::sync::mpsc;
 
-    async fn setup_server(bind_target: BindTarget) -> (u16, mpsc::Receiver<CommandEnvelope>) {
+    async fn setup_server(
+        bind_target: BindTarget,
+    ) -> (
+        u16,
+        mpsc::Receiver<CommandEnvelope>,
+        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
+    ) {
         let (tx, rx) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
-        let server = MpcHelperServer::new(tx, ongoing_queries);
+        let server = MpcHelperServer::new(tx, Arc::clone(&ongoing_queries));
         let (addr, _) = server.bind(bind_target).await;
-        (addr.port(), rx)
+        (addr.port(), rx, ongoing_queries)
     }
 
-    async fn setup_server_http() -> (mpsc::Receiver<CommandEnvelope>, MpcHelperClient) {
-        let (port, rx) = setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
-        let client = MpcHelperClient::with_str_addr(&format!("http://localhost:{}", port)).unwrap();
-        (rx, client)
+    async fn setup_server_http() -> (
+        mpsc::Receiver<CommandEnvelope>,
+        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
+        MpcHelperClient,
+    ) {
+        let (port, rx, ongoing_queries) =
+            setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+        let client = MpcHelperClient::with_str_addr(&format!("http://localhost:{port}")).unwrap();
+        (rx, ongoing_queries, client)
     }
 
-    async fn setup_server_https() -> (mpsc::Receiver<CommandEnvelope>, MpcHelperClient) {
+    async fn setup_server_https() -> (
+        mpsc::Receiver<CommandEnvelope>,
+        Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
+        MpcHelperClient,
+    ) {
         let config = crate::net::server::tls_config_from_self_signed_cert()
             .await
             .unwrap();
-        let (port, rx) =
+        let (port, rx, ongoing_queries) =
             setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
 
         // requires custom client to use self signed certs
@@ -242,135 +263,218 @@ mod tests {
             authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
         };
 
-        (rx, client)
+        (rx, ongoing_queries, client)
     }
 
-    async fn test_http_https<Fut: Future<Output = ()>, F: Fn(MpcHelperClient) -> Fut>(f: F) {
-        let (_, http_client) = setup_server_http().await;
-        f(http_client).await;
+    /// tests that a query command runs as expected. Since query commands require the server to
+    /// actively respond to a client request, the test must handle both ends of the request
+    /// simultaneously. That means taking the client behavior (`clientf`) and the server behavior
+    /// (`serverf`), and executing them simultaneously (via a `join!`). Finally, return the results
+    /// of `clientf` for final checks.
+    ///
+    /// Also tests that the same functionality works for both `http` and `https`. In order to ensure
+    /// this, the return type of `clientf` must be `Eq + Debug` so that the results of `http` and
+    /// `https` can be compared.
+    async fn test_query_command<ClientOut, ClientFut, ClientF, ServerFut, ServerF>(
+        clientf: ClientF,
+        serverf: ServerF,
+    ) -> ClientOut
+    where
+        ClientOut: Eq + Debug,
+        ClientFut: Future<Output = ClientOut>,
+        ClientF: Fn(MpcHelperClient) -> ClientFut,
+        ServerFut: Future<Output = ()>,
+        ServerF: Fn(mpsc::Receiver<CommandEnvelope>) -> ServerFut,
+    {
+        let (rx, _, http_client) = setup_server_http().await;
+        let clientf_res = clientf(http_client);
+        let serverf_res = serverf(rx);
+        let (clientf_res_http, _) = join!(clientf_res, serverf_res);
 
-        let (_, https_client) = setup_server_https().await;
-        f(https_client).await;
+        let (rx, _, https_client) = setup_server_https().await;
+        let clientf_res = clientf(https_client);
+        let serverf_res = serverf(rx);
+        let (clientf_res_https, _) = join!(clientf_res, serverf_res);
+
+        assert_eq!(clientf_res_http, clientf_res_https);
+        clientf_res_http
     }
 
     #[tokio::test]
     async fn echo() {
-        test_http_https(|client| async move {
-            let expected_res = "echo-test";
-            let res = client.echo(expected_res).await.unwrap();
-            assert_eq!(res, expected_res);
-        })
+        let expected_output = "asdf";
+
+        let output = test_query_command(
+            |client| async move { client.echo(expected_output).await.unwrap() },
+            |_| futures::future::ready(()),
+        )
         .await;
+        assert_eq!(expected_output, &output);
     }
 
     #[tokio::test]
     async fn create() {
-        test_http_https(|client| async move {
-            let res = client
-                .create_query(QueryConfig {
-                    field_type: FieldType::Fp31,
-                    query_type: QueryType::TestMultiply,
-                })
-                .await;
-        })
+        let expected_query_id = QueryId;
+        let expected_query_config = QueryConfig {
+            field_type: FieldType::Fp31,
+            query_type: QueryType::TestMultiply,
+        };
+        let query_id = test_query_command(
+            |client| async move { client.create_query(expected_query_config).await.unwrap() },
+            |mut rx| async move {
+                let command = rx.recv().await.unwrap();
+                assert_eq!(command.origin, CommandOrigin::Other);
+                match command.payload {
+                    TransportCommand::Query(QueryCommand::Create(query_config, responder)) => {
+                        assert_eq!(query_config, expected_query_config);
+                        responder.send(expected_query_id).unwrap();
+                    }
+                    other => panic!("expected Create command, but got {other:?}"),
+                };
+            },
+        )
+        .await;
+        assert_eq!(query_id, expected_query_id);
+    }
+
+    #[tokio::test]
+    async fn prepare() {
+        let identities = HelperIdentity::make_three();
+        let origin = identities[0];
+        let expected_data = PrepareQuery {
+            query_id: QueryId,
+            config: QueryConfig {
+                field_type: FieldType::Fp31,
+                query_type: QueryType::TestMultiply,
+            },
+            roles: RoleAssignment::new(identities),
+        };
+        test_query_command(
+            |client| {
+                let client_data = expected_data.clone();
+                async move { client.prepare_query(origin, client_data).await.unwrap() }
+            },
+            |mut rx| {
+                let expected_data = expected_data.clone();
+                async move {
+                    let command = rx.recv().await.unwrap();
+                    assert_eq!(command.origin, CommandOrigin::Helper(origin));
+                    match command.payload {
+                        TransportCommand::Query(QueryCommand::Prepare(data, responder)) => {
+                            assert_eq!(expected_data, data);
+                            responder.send(()).unwrap();
+                        }
+                        other => panic!("expected Prepare command, but got {other:?}"),
+                    }
+                }
+            },
+        )
         .await;
     }
-}
 
-/*
-#[cfg(all(test, not(feature = "shuttle")))]
-mod tests {
-    use super::*;
-    #[allow(deprecated)]
-    use crate::{
-        helpers::{
-            http::HttpNetwork,
-            network::{ChannelId, MessageChunks},
-            old_network::Network,
-            Role, MESSAGE_PAYLOAD_SIZE_BYTES,
-        },
-        net::{server::MessageSendMap, BindTarget, MpcHelperServer},
-    };
-    use futures::{Stream, StreamExt};
-    use hyper_tls::native_tls::TlsConnector;
-
-    #[allow(deprecated)]
-    async fn setup_server(bind_target: BindTarget) -> (u16, impl Stream<Item = MessageChunks>) {
-        let network = HttpNetwork::new_without_clients(QueryId, None);
-        let rx_stream = network.recv_stream();
-        let message_send_map = MessageSendMap::filled(network);
-        let server = MpcHelperServer::new(message_send_map);
-        // setup server
-        let (addr, _) = server.bind(bind_target).await;
-        (addr.port(), rx_stream)
+    #[tokio::test]
+    async fn input() {
+        let expected_query_id = QueryId;
+        let expected_input = vec![8u8; 25];
+        test_query_command(
+            |client| {
+                let data = QueryInput {
+                    query_id: expected_query_id,
+                    input_stream: expected_input.clone().into(),
+                };
+                async move { client.query_input(data).await.unwrap() }
+            },
+            |mut rx| {
+                let expected_input = expected_input.clone();
+                async move {
+                    let command = rx.recv().await.unwrap();
+                    assert_eq!(command.origin, CommandOrigin::Other);
+                    match command.payload {
+                        TransportCommand::Query(QueryCommand::Input(query_input, responder)) => {
+                            assert_eq!(query_input.query_id, expected_query_id);
+                            let input_vec = query_input.input_stream.to_vec().await;
+                            assert_eq!(input_vec, expected_input);
+                            responder.send(()).unwrap();
+                        }
+                        other => panic!("expected Input command, but got {other:?}"),
+                    }
+                }
+            },
+        )
+        .await;
     }
 
-    async fn send_messages_req<St: Stream<Item = MessageChunks> + Unpin>(
-        client: MpcHelperClient,
-        mut rx_stream: St,
-    ) {
-        const DATA_LEN: u32 = 3;
-        let query_id = QueryId;
-        let step = Step::default().narrow("mul_test");
-        let role = Role::H1;
-        let offset = 0;
-        let body = &[123; MESSAGE_PAYLOAD_SIZE_BYTES * (DATA_LEN as usize)];
+    #[tokio::test]
+    async fn step() {
+        let origin = HelperIdentity::try_from(1).unwrap();
+        let expected_query_id = QueryId;
+        let expected_step = Step::default().narrow("test-step");
+        let expected_payload = vec![7u8; MESSAGE_PAYLOAD_SIZE_BYTES];
+        let expected_offset = 0;
 
-        client
-            .send_messages(HttpSendMessagesArgs {
+        let (_, ongoing_queries, http_client) = setup_server_http().await;
+        let (tx, mut rx) = mpsc::channel(1);
+        {
+            // inside parenthesis to drop the lock
+            let mut ongoing_queries = ongoing_queries.lock().unwrap();
+            ongoing_queries.insert(expected_query_id, tx);
+        }
+
+        http_client
+            .step(
+                origin,
+                expected_query_id,
+                &expected_step,
+                expected_payload.clone(),
+                expected_offset,
+            )
+            .await
+            .unwrap();
+        let command = rx.recv().await.unwrap();
+        assert_eq!(command.origin, CommandOrigin::Helper(origin));
+        match command.payload {
+            TransportCommand::StepData {
                 query_id,
-                step: &step,
+                step,
+                payload,
                 offset,
-                messages: Bytes::from_static(body),
-            })
-            .await
-            .expect("send should succeed");
-
-        let channel_id = ChannelId { role, step };
-        let server_recvd = rx_stream.next().await.unwrap(); // should already have been received
-        assert_eq!(server_recvd, (channel_id, body.to_vec()));
+            } => {
+                assert_eq!(query_id, expected_query_id);
+                assert_eq!(step, expected_step);
+                assert_eq!(payload, expected_payload);
+                assert_eq!(offset, expected_offset);
+            }
+            other @ TransportCommand::Query(_) => {
+                panic!("expected Step command, but got {other:?}")
+            }
+        }
     }
 
     #[tokio::test]
-    async fn send_messages_req_http() {
-        let (port, rx_stream) =
-            setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
-
-        // setup client
-        let client =
-            MpcHelperClient::with_str_addr(&format!("http://localhost:{port}"), Role::H1).unwrap();
-
-        // test
-        send_messages_req(client, rx_stream).await;
-    }
-
-    #[tokio::test]
-    async fn send_messages_req_https() {
-        let config = crate::net::server::tls_config_from_self_signed_cert()
-            .await
-            .unwrap();
-        let (port, rx_stream) =
-            setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
-
-        // setup client
-        // requires custom client to use self signed certs
-        let conn = TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap();
-        let mut http = HttpConnector::new();
-        http.enforce_http(false);
-        let https = HttpsConnector::<HttpConnector>::from((http, conn.into()));
-        let hyper_client = hyper::Client::builder().build(https);
-        let client = MpcHelperClient {
-            role: Role::H1,
-            client: hyper_client,
-            scheme: uri::Scheme::HTTPS,
-            authority: uri::Authority::try_from(format!("localhost:{port}")).unwrap(),
-        };
-
-        // test
-        send_messages_req(client, rx_stream).await;
+    async fn results() {
+        let expected_query_id = QueryId;
+        let expected_results = Box::new(vec![Replicated::from((
+            Fp31::from(1u128),
+            Fp31::from(2u128),
+        ))]);
+        let results = test_query_command(
+            |client| async move { client.query_results(expected_query_id).await.unwrap() },
+            |mut rx| {
+                let results = expected_results.clone();
+                async move {
+                    let command = rx.recv().await.unwrap();
+                    assert_eq!(command.origin, CommandOrigin::Other);
+                    match command.payload {
+                        TransportCommand::Query(QueryCommand::Results(query_id, responder)) => {
+                            assert_eq!(query_id, expected_query_id);
+                            responder.send(results).unwrap();
+                        }
+                        other => panic!("expected Results command, but got {other:?}"),
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(results.to_vec(), expected_results.into_bytes());
     }
 }
- */

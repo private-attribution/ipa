@@ -239,8 +239,8 @@ mod tests {
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,
             };
-            let input = ByteArrStream::from(shares.as_slice())
-                .align(IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES);
+            let input =
+                ByteArrStream::from(shares).align(IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES);
             execute_ipa::<Fp31, MatchKey>(ctx, query_config, input)
         }))
         .await
