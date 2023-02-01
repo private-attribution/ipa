@@ -7,7 +7,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
+use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
@@ -179,8 +179,6 @@ async fn is_credit_larger_than_cap<F: Field>(
     prefix_summed_credits: &[Replicated<F>],
     cap: u32,
 ) -> Result<Vec<Replicated<F>>, Error> {
-    //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
-    let cap = local_secret_shared_bits(&ctx, cap.into());
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
@@ -206,11 +204,11 @@ async fn is_credit_larger_than_cap<F: Field>(
                     .await?;
 
                     // compare_bit = current_contribution > cap
-                    let compare_bit = BitwiseLessThan::execute(
+                    let compare_bit = bitwise_greater_than_constant(
                         ctx.narrow(&Step::IsCapLessThanCurrentContribution),
                         RecordId::from(i),
-                        &cap,
                         &credit_bits,
+                        F::from(cap.into()),
                     )
                     .await?;
                     Ok::<_, Error>(compare_bit)

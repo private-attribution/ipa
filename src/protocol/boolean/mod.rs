@@ -10,6 +10,7 @@ use super::{BitOpStep, RecordId};
 
 mod bit_decomposition;
 pub mod bitwise_equal;
+mod bitwise_gt_constant;
 mod bitwise_less_than_prime;
 mod dumb_bitwise_lt;
 mod dumb_bitwise_sum;
@@ -22,7 +23,7 @@ mod xor;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
 pub use {
-    bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan,
+    bit_decomposition::BitDecomposition, bitwise_gt_constant::bitwise_greater_than_constant,
     generate_random_bits::RandomBits,
 };
 
@@ -42,6 +43,13 @@ where
                 S::ZERO
             }
         })
+        .collect::<Vec<_>>()
+}
+
+/// Deconstructs a field value into N values, one for each bit.
+pub fn into_bits<F: Field>(v: F) -> Vec<F> {
+    (0..(u128::BITS - F::PRIME.into().leading_zeros()))
+        .map(|i| F::from((v.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
 }
 

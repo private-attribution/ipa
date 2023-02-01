@@ -18,8 +18,10 @@ use std::iter::zip;
 /// the little-endian; the least-significant byte at the smallest address (0'th
 /// element).
 ///
+#[allow(dead_code)]
 pub struct BitwiseLessThan {}
 
+#[allow(dead_code)]
 impl BitwiseLessThan {
     ///
     /// For each bit index, compare the corresponding bits of `a` and `b` and return `a_i != b_a`
@@ -169,6 +171,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThan;
+    use crate::protocol::boolean::into_bits;
     use crate::protocol::context::Context;
     use crate::rand::thread_rng;
     use crate::secret_sharing::SharedValue;
@@ -176,7 +179,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::RecordId,
-        test_fixture::{into_bits, Reconstruct, TestWorld},
+        test_fixture::{Reconstruct, TestWorld},
     };
     use proptest::prelude::Rng;
     use rand::{distributions::Standard, prelude::Distribution};

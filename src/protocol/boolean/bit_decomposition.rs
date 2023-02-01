@@ -1,5 +1,6 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use super::dumb_bitwise_sum::bitwise_sum;
+use super::into_bits;
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::Field;
@@ -63,7 +64,7 @@ impl BitDecomposition {
         // Step 7. a bitwise scalar value `f_B = bits(2^l - p)`
         let l = u128::BITS - F::PRIME.into().leading_zeros();
         let x = 2_u128.pow(l) - F::PRIME.into();
-        let f_b = (0..l).map(|i| F::from(x >> i & 1));
+        let f_b = into_bits(F::from(x));
 
         // Step 8, 9. [g_i] = [q] * f_i
         let g_b = f_b
