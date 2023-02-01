@@ -503,26 +503,25 @@ where
         self,
         input: Vec<Vec<Replicated<F>>>,
     ) -> Result<Vec<Vec<MaliciousReplicated<F>>>, Error> {
-        assert_ne!(input.len(), 0);
+        let num_records = input.len();
+        assert_ne!(num_records, 0);
         let num_columns = input[0].len();
         let all_ctx = (0..num_columns).map(|idx| {
             self.upgrade_ctx
                 .narrow(&Upgrade2DVectors::V(idx))
-                .set_total_records(input.len())
+                .set_total_records(num_records)
         });
 
-        try_join_all(zip(repeat(all_ctx), input.iter()).enumerate().map(
+        try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
             |(record_idx, (all_ctx, one_input))| async move {
                 try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
-                    let ctx_ref = &ctx;
-                    self.inner
-                        .upgrade_one(
-                            ctx_ref.clone(),
-                            RecordId::from(record_idx),
-                            share.clone(),
-                            ZeroPositions::Pvvv,
-                        )
-                        .await
+                    UpgradeContext {
+                        upgrade_ctx: ctx,
+                        inner: self.inner,
+                        record_binding: RecordId::from(record_idx),
+                    }
+                    .upgrade(share)
+                    .await
                 }))
                 .await
             },
