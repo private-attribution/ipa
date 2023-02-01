@@ -29,18 +29,15 @@ async fn main() -> Result<(), Error> {
         Vec::with_capacity(BATCHSIZE);
 
     for _ in 0..BATCHSIZE {
-        records.push(
-            ipa_test_input!(
-                [{
-                        match_key: rng.gen_range(0..max_match_key),
-                        is_trigger_report: rng.gen::<u32>(),
-                        breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                        trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE)
-                }];
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            )
-            .remove(0),
-        );
+        records.push(ipa_test_input!(
+            {
+                match_key: rng.gen_range(0..max_match_key),
+                is_trigger_report: rng.gen::<u32>(),
+                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
+                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
+            };
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        ));
     }
 
     let start = Instant::now();

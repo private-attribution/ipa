@@ -198,15 +198,14 @@ mod tests {
                 Vec::with_capacity(BATCHSIZE.into());
             input.resize_with(BATCHSIZE.into(), || {
                 accumulation_test_input!(
-                    [{
+                    {
                         is_trigger_report: rng.gen::<u8>(),
                         helper_bit: rng.gen::<u8>(),
                         breakdown_key: rng.gen::<u8>(),
-                        credit: rng.gen::<u8>()
-                    }];
+                        credit: rng.gen::<u8>(),
+                    };
                     (Fp31, MatchKey, BreakdownKey)
                 )
-                .remove(0)
             });
             let hashed_input: HashSet<[u8; 4]> = input
                 .iter()
