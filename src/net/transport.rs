@@ -219,7 +219,8 @@ mod e2e_tests {
             offset: 0,
         };
 
-        // missing:
+        // with the below code missing, there will be nothing listening for data for this `QueryId`.
+        // Since there aren't any subscribers for this data, it should fail to send:
         // let network = Network::new(
         //     Arc::clone(&transport),
         //     expected_query_id,
