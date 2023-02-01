@@ -3,11 +3,11 @@ use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
 use generic_array::GenericArray;
-use typenum::{Unsigned, U5, U8};
+use typenum::{Unsigned, U1, U5, U8};
 
-/// Bit store type definition. Five `u8` blocks.
+// Bit store type definitions
+type U8_1 = BitArr!(for 8, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
-/// Bit store type definition. Eight `u8` blocks.
 type U8_8 = BitArr!(for 64, in u8, Lsb0);
 
 macro_rules! bit_array_impl {
@@ -275,3 +275,4 @@ macro_rules! bit_array_impl {
 
 bit_array_impl!(bit_array_64, BitArray64, U8_8, 64, U8);
 bit_array_impl!(bit_array_40, BitArray40, U8_5, 40, U5);
+bit_array_impl!(bit_array_8, BitArray8, U8_1, 8, U1);

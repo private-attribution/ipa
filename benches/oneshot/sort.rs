@@ -12,7 +12,7 @@ use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 10000;
+    const BATCHSIZE: usize = 1000;
     const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Error> {
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
             convert_all_bits(
                 &ctx,
-                &convert_all_bits_local(ctx.role(), &match_key, BitArray40::BITS),
+                &convert_all_bits_local(ctx.role(), &match_key),
                 BitArray40::BITS,
                 NUM_MULTI_BITS,
             )
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Error> {
 
     let mut mpc_sorted_list: Vec<u128> = (0..BATCHSIZE).map(|i| i as u128).collect();
     for (i, match_key) in match_keys.iter().enumerate() {
-        let index = (&result[0][i], &result[1][i], &result[2][i]).reconstruct();
+        let index = [&result[0][i], &result[1][i], &result[2][i]].reconstruct();
         mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
     }
 

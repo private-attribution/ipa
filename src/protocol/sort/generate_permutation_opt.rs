@@ -120,7 +120,7 @@ where
 #[allow(dead_code)]
 #[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
 /// Returns a sort permutation in a malicious context.
-/// This runs sort in a malicious context. The caller is responsible to validate the accumulater contents and downgrade context to Semi-honest before calling this function
+/// This runs sort in a malicious context. The caller is responsible to validate the accumulator contents and downgrade context to Semi-honest before calling this function
 /// The function takes care of upgrading and validating while the sort protocol runs.
 /// It then returns a semi honest context with output in Replicated format. The caller should then upgrade the output and context before moving forward
 ///
@@ -221,11 +221,13 @@ mod tests {
 
     use crate::bits::{BitArray, BitArray40};
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
+    use crate::protocol::MatchKey;
     use crate::rand::{thread_rng, Rng};
 
     use crate::protocol::context::{Context, SemiHonestContext};
     use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{join3, MaskedMatchKey, Runner};
+    use crate::test_fixture::join3;
+    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31},
         protocol::sort::generate_permutation_opt::{
@@ -243,7 +245,7 @@ mod tests {
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -252,8 +254,7 @@ mod tests {
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, BitArray40::BITS);
+                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares =
                         convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                             .await
@@ -276,14 +277,14 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious_sort_in_semi_honest() {
-        const COUNT: usize = 5;
+        const COUNT: usize = 10;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
-        match_keys.resize_with(COUNT, || rng.gen::<MaskedMatchKey>());
+        match_keys.resize_with(COUNT, || rng.gen::<MatchKey>());
 
         let mut expected = match_keys.iter().map(|mk| mk.as_u128()).collect::<Vec<_>>();
         expected.sort_unstable();
@@ -292,19 +293,18 @@ mod tests {
             .semi_honest(
                 match_keys.clone(),
                 |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists =
-                        convert_all_bits_local(ctx.role(), &mk_shares, MaskedMatchKey::BITS);
+                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                     let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, MaskedMatchKey::BITS, NUM_MULTI_BITS)
+                        convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                             .await
                             .unwrap();
+
                     malicious_generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
                         .await
                         .unwrap()
                 },
             )
             .await;
-
         let result = join3(
             v0.validate(result0),
             v1.validate(result1),

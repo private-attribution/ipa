@@ -1,19 +1,12 @@
-use super::{
-    compute_stop_bit, AccumulateCreditOutputRow, AttributionInputRow, InteractionPatternStep,
-};
+use super::input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow};
+use super::{compute_stop_bit, InteractionPatternStep};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::helpers::Role;
-use crate::protocol::attribution::AttributionResharableStep::{
-    BreakdownKey, Credit, HelperBit, IsTriggerBit,
-};
 use crate::protocol::basics::SecureMul;
 use crate::protocol::context::Context;
 use crate::protocol::context::SemiHonestContext;
-use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::RecordId;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
 
@@ -38,39 +31,6 @@ impl AsRef<str> for Step {
     }
 }
 
-#[async_trait]
-impl<F: Field> Resharable<F> for AttributionInputRow<F> {
-    type Share = Replicated<F>;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
-    where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
-    {
-        let f_trigger_bit =
-            ctx.narrow(&IsTriggerBit)
-                .reshare(&self.is_trigger_bit, record_id, to_helper);
-        let f_helper_bit = ctx
-            .narrow(&HelperBit)
-            .reshare(&self.helper_bit, record_id, to_helper);
-        let f_breakdown_key =
-            ctx.narrow(&BreakdownKey)
-                .reshare(&self.breakdown_key, record_id, to_helper);
-        let f_value = ctx
-            .narrow(&Credit)
-            .reshare(&self.credit, record_id, to_helper);
-
-        let mut outputs =
-            try_join_all([f_trigger_bit, f_helper_bit, f_breakdown_key, f_value]).await?;
-
-        Ok(AttributionInputRow {
-            is_trigger_bit: outputs.remove(0),
-            helper_bit: outputs.remove(0),
-            breakdown_key: outputs.remove(0),
-            credit: outputs.remove(0),
-        })
-    }
-}
-
 /// The accumulation step operates on a sorted list with O(log N) iterations, where N is the input length.
 /// It is the first step of the Oblivious Attribution protocol, and subsequent steps of all attribution models
 /// (i.e., last touch, equal credit) use an output produced by this step. During each iteration, it accesses each
@@ -80,8 +40,8 @@ impl<F: Field> Resharable<F> for AttributionInputRow<F> {
 /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
 pub async fn accumulate_credit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: &[AttributionInputRow<F>],
-) -> Result<Vec<AccumulateCreditOutputRow<F>>, Error> {
+    input: &[MCAccumulateCreditInputRow<F>],
+) -> Result<Vec<MCAccumulateCreditOutputRow<F>>, Error> {
     let num_rows = input.len();
     let ctx = ctx.set_total_records(num_rows);
 
@@ -92,7 +52,10 @@ pub async fn accumulate_credit<F: Field>(
     let one = ctx.share_of_one();
     let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
 
-    let mut credits = input.iter().map(|x| x.credit.clone()).collect::<Vec<_>>();
+    let mut credits = input
+        .iter()
+        .map(|x| x.trigger_value.clone())
+        .collect::<Vec<_>>();
 
     // 2. Accumulate (up to 4 multiplications)
     //
@@ -123,7 +86,7 @@ pub async fn accumulate_credit<F: Field>(
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_helper_bit = &input[i + step_size].helper_bit;
-            let sibling_is_trigger_bit = &input[i + step_size].is_trigger_bit;
+            let sibling_is_trigger_bit = &input[i + step_size].is_trigger_report;
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
                 // b = if [next event has the same match key]  AND
@@ -169,11 +132,11 @@ pub async fn accumulate_credit<F: Field>(
     let output = input
         .iter()
         .enumerate()
-        .map(|(i, x)| AccumulateCreditOutputRow {
-            is_trigger_bit: x.is_trigger_bit.clone(),
+        .map(|(i, x)| MCAccumulateCreditOutputRow {
+            is_trigger_report: x.is_trigger_report.clone(),
             helper_bit: x.helper_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
-            credit: credits[i].clone(),
+            trigger_value: credits[i].clone(),
         })
         .collect::<Vec<_>>();
 
@@ -206,202 +169,111 @@ async fn compute_b_bit<F: Field>(
     Ok(b)
 }
 
-#[cfg(test)]
-pub mod input {
-    use crate::ff::{Field, Fp31};
-    use crate::protocol::attribution::{AggregateCreditOutputRow, AttributionInputRow};
-    use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares};
-    use crate::test_fixture::Reconstruct;
-    use rand::distributions::{Distribution, Standard};
+#[cfg(all(test, not(feature = "shuttle")))]
+mod tests {
+    use crate::accumulation_test_input;
+    use crate::ff::{Field, Fp31, Fp32BitPrime};
+    use crate::helpers::Role;
+    use crate::protocol::attribution::input::MCAccumulateCreditOutputRow;
+    use crate::protocol::attribution::{
+        accumulate_credit::accumulate_credit,
+        input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
+    };
+    use crate::protocol::modulus_conversion::{
+        combine_slices, convert_all_bits, convert_all_bits_local,
+    };
+    use crate::protocol::sort::apply_sort::shuffle::Resharable;
+    use crate::protocol::{context::Context, RecordId};
+    use crate::protocol::{BreakdownKey, MatchKey};
+    use crate::rand::thread_rng;
+    use crate::secret_sharing::SharedValue;
+    use crate::test_fixture::input::GenericReportTestInput;
+    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::Rng;
 
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct AttributionTestInput<F>(pub [F; 4]);
-
-    impl<F> IntoShares<AttributionInputRow<F>> for AttributionTestInput<F>
-    where
-        F: Field + IntoShares<Replicated<F>>,
-        Standard: Distribution<F>,
-    {
-        fn share_with<R: Rng>(self, rng: &mut R) -> [AttributionInputRow<F>; 3] {
-            let [a0, a1, a2] = self.0[0].share_with(rng);
-            let [b0, b1, b2] = self.0[1].share_with(rng);
-            let [c0, c1, c2] = self.0[2].share_with(rng);
-            let [d0, d1, d2] = self.0[3].share_with(rng);
-            [
-                AttributionInputRow {
-                    is_trigger_bit: a0,
-                    helper_bit: b0,
-                    breakdown_key: c0,
-                    credit: d0,
-                },
-                AttributionInputRow {
-                    is_trigger_bit: a1,
-                    helper_bit: b1,
-                    breakdown_key: c1,
-                    credit: d1,
-                },
-                AttributionInputRow {
-                    is_trigger_bit: a2,
-                    helper_bit: b2,
-                    breakdown_key: c2,
-                    credit: d2,
-                },
-            ]
-        }
-    }
-
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AttributionInputRow<F>; 3] {
-        fn reconstruct(&self) -> AttributionTestInput<F> {
-            [&self[0], &self[1], &self[2]].reconstruct()
-        }
-    }
-
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AttributionInputRow<F>; 3] {
-        fn reconstruct(&self) -> AttributionTestInput<F> {
-            let s0 = &self[0];
-            let s1 = &self[1];
-            let s2 = &self[2];
-
-            let is_trigger_bit =
-                (&s0.is_trigger_bit, &s1.is_trigger_bit, &s2.is_trigger_bit).reconstruct();
-
-            let helper_bit = (&s0.helper_bit, &s1.helper_bit, &s2.helper_bit).reconstruct();
-
-            let breakdown_key =
-                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
-
-            AttributionTestInput([is_trigger_bit, helper_bit, breakdown_key, credit])
-        }
-    }
-
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [AggregateCreditOutputRow<F>; 3] {
-        fn reconstruct(&self) -> AttributionTestInput<F> {
-            [&self[0], &self[1], &self[2]].reconstruct()
-        }
-    }
-
-    impl<F: Field> Reconstruct<AttributionTestInput<F>> for [&AggregateCreditOutputRow<F>; 3] {
-        fn reconstruct(&self) -> AttributionTestInput<F> {
-            let s0 = &self[0];
-            let s1 = &self[1];
-            let s2 = &self[2];
-
-            let breakdown_key =
-                (&s0.breakdown_key, &s1.breakdown_key, &s2.breakdown_key).reconstruct();
-            let credit = (&s0.credit, &s1.credit, &s2.credit).reconstruct();
-
-            AttributionTestInput([breakdown_key, credit, F::ZERO, F::ZERO])
-        }
-    }
-
-    impl From<AttributionTestInput<Fp31>> for [u8; 4] {
-        fn from(v: AttributionTestInput<Fp31>) -> Self {
-            Self::from(&v)
-        }
-    }
-
-    impl From<&AttributionTestInput<Fp31>> for [u8; 4] {
-        fn from(v: &AttributionTestInput<Fp31>) -> Self {
-            [
-                u8::from(v.0[0]),
-                u8::from(v.0[1]),
-                u8::from(v.0[2]),
-                u8::from(v.0[3]),
-            ]
-        }
-    }
-}
-
-#[cfg(all(test, not(feature = "shuttle")))]
-pub(crate) mod tests {
-    use crate::protocol::attribution::accumulate_credit::input::AttributionTestInput;
-    use crate::protocol::sort::apply_sort::shuffle::Resharable;
-    use crate::rand::{thread_rng, Rng};
-    use crate::{
-        ff::{Field, Fp31},
-        helpers::Role,
-        protocol::{
-            attribution::{
-                accumulate_credit::accumulate_credit,
-                tests::{BD, H, S, T},
-                AttributionInputRow,
-            },
-            context::Context,
-            RecordId,
-        },
-        test_fixture::{Reconstruct, Runner, TestWorld},
-    };
+    const NUM_MULTI_BITS: u32 = 3;
 
     #[tokio::test]
     pub async fn accumulate() {
-        const TEST_CASE: &[[u128; 5]; 19] = &[
-            // Each row array contains five elements. The first four elements
-            // represents either a source or trigger event sent from a report
-            // collector. Those four elements are:
-            //
-            // `is_trigger_bit`, `helper_bit`, `breakdown_key`, `credit`
-            //
-            // The last element in each row array represents a value expected
-            // from running this protocol. For the `accumulation_credit`
-            // protocol, they are the accumulated values using "last touch"
-            // attribution model.
-
-            // match key 1
-            [S, H[0], BD[3], 0, 0],
-            // match key 2
-            [S, H[0], BD[4], 0, 0],
-            [S, H[1], BD[4], 0, 19],
-            [T, H[1], BD[0], 10, 19],
-            [T, H[1], BD[0], 2, 9],
-            [T, H[1], BD[0], 1, 7],
-            [T, H[1], BD[0], 5, 6],
-            [T, H[1], BD[0], 1, 1],
-            // match key 3
-            [S, H[0], BD[1], 0, 0],
-            // match key 4
-            [T, H[0], BD[0], 10, 10],
-            // match key 5
-            [S, H[0], BD[2], 0, 15],
-            [T, H[1], BD[0], 3, 15],
-            [T, H[1], BD[0], 12, 12],
-            [S, H[1], BD[2], 0, 0],
-            [S, H[1], BD[2], 0, 10],
-            [T, H[1], BD[0], 6, 10],
-            [T, H[1], BD[0], 4, 4],
-            [S, H[1], BD[5], 0, 6],
-            [T, H[1], BD[5], 6, 6],
+        const EXPECTED: &[u128; 19] = &[
+            0, 0, 19, 19, 9, 7, 6, 1, 0, 10, 15, 15, 12, 0, 10, 10, 4, 6, 6,
         ];
-        let expected = TEST_CASE.iter().map(|t| t[4]).collect::<Vec<_>>();
 
-        let input = TEST_CASE.map(|x| {
-            AttributionTestInput([
-                Fp31::from(x[0]),
-                Fp31::from(x[1]),
-                Fp31::from(x[2]),
-                Fp31::from(x[3]),
-            ])
-        });
+        let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = accumulation_test_input!(
+            [
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 },
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 4, credit: 0 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 4, credit: 0 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 10 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 1 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 5 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 1 },
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 0 },
+                { is_trigger_report: 1, helper_bit: 0, breakdown_key: 0, credit: 10 },
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 2, credit: 0 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 3 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 12 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 2, credit: 0 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 2, credit: 0 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 6 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 4 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 5, credit: 0 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 6 }
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        );
+        let input_len = input.len();
 
         let world = TestWorld::new().await;
-        let result = world
-            .semi_honest(input, |ctx, input| async move {
-                accumulate_credit(ctx, &input).await.unwrap()
-            })
+        let result: [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime>>; 3] = world
+            .semi_honest(
+                input,
+                |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                    let bk_shares = input
+                        .iter()
+                        .map(|x| x.breakdown_key.clone())
+                        .collect::<Vec<_>>();
+                    let converted_bk_shares = convert_all_bits(
+                        &ctx,
+                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        BreakdownKey::BITS,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let converted_bk_shares =
+                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                    let modulus_converted_shares = input
+                        .into_iter()
+                        .zip(converted_bk_shares)
+                        .map(|(row, bk)| MCAccumulateCreditInputRow {
+                            is_trigger_report: row.is_trigger_report,
+                            breakdown_key: bk,
+                            trigger_value: row.trigger_value,
+                            helper_bit: row.helper_bit,
+                        })
+                        .collect::<Vec<_>>();
+
+                    accumulate_credit(ctx, &modulus_converted_shares)
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
 
-        assert_eq!(result[0].len(), TEST_CASE.len());
-        assert_eq!(result[1].len(), TEST_CASE.len());
-        assert_eq!(result[2].len(), TEST_CASE.len());
+        assert_eq!(result[0].len(), input_len);
+        assert_eq!(result[1].len(), input_len);
+        assert_eq!(result[2].len(), input_len);
+        assert_eq!(result[0].len(), EXPECTED.len());
 
-        for (i, expected) in expected.iter().enumerate() {
-            let v = (
-                &result[0][i].credit,
-                &result[1][i].credit,
-                &result[2][i].credit,
-            )
-                .reconstruct();
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            let v = [
+                &result[0][i].trigger_value,
+                &result[1][i].trigger_value,
+                &result[2][i].trigger_value,
+            ]
+            .reconstruct();
             assert_eq!(v.as_u128(), *expected);
         }
     }
@@ -409,23 +281,50 @@ pub(crate) mod tests {
     #[tokio::test]
     pub async fn test_reshare() {
         let mut rng = thread_rng();
-        let secret: [Fp31; 4] = [(); 4].map(|_| rng.gen::<Fp31>());
+        let secret: GenericReportTestInput<Fp31, MatchKey, BreakdownKey> =
+            accumulation_test_input!(
+                [{
+                    is_trigger_report: rng.gen::<u8>(),
+                    helper_bit: rng.gen::<u8>(),
+                    breakdown_key: rng.gen::<u8>(),
+                    credit: rng.gen::<u8>()
+                }];
+                (Fp31, MathKey, BreakdownKey)
+            )
+            .remove(0);
 
         let world = TestWorld::new().await;
-
         for &role in Role::all() {
             let new_shares = world
                 .semi_honest(
-                    AttributionTestInput(secret),
-                    |ctx, share: AttributionInputRow<Fp31>| async move {
-                        share
+                    secret,
+                    |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
+                        let bk_shares = vec![share.breakdown_key];
+                        let converted_bk_shares = convert_all_bits(
+                            &ctx,
+                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            BreakdownKey::BITS,
+                            NUM_MULTI_BITS,
+                        )
+                        .await
+                        .unwrap();
+                        let mut converted_bk_shares =
+                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        let modulus_converted_share = MCAccumulateCreditInputRow {
+                            is_trigger_report: share.is_trigger_report,
+                            breakdown_key: converted_bk_shares.next().unwrap(),
+                            trigger_value: share.trigger_value,
+                            helper_bit: share.helper_bit,
+                        };
+
+                        modulus_converted_share
                             .reshare(ctx.set_total_records(1), RecordId::from(0), role)
                             .await
                             .unwrap()
                     },
                 )
                 .await;
-            assert_eq!(secret, new_shares.reconstruct().0);
+            assert_eq!(secret, new_shares.reconstruct());
         }
     }
 }

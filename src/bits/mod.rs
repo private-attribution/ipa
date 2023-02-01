@@ -6,7 +6,7 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, I
 
 mod bit_array;
 
-pub use bit_array::BitArray40;
+pub use bit_array::{BitArray40, BitArray8};
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
