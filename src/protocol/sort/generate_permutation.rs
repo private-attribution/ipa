@@ -158,7 +158,7 @@ where
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
-        let ctx_bit = ctx.narrow(&Sort(bit_num));
+        let ctx_bit = ctx.narrow(&Sort(bit_num.try_into().unwrap()));
 
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
@@ -269,7 +269,7 @@ pub async fn malicious_generate_permutation<'a, F>(
 where
     F: Field,
 {
-    let mut malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(0)));
+    let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let mut m_ctx_bit = malicious_validator.context();
     assert_eq!(sort_keys.len(), num_bits as usize);
 
@@ -288,7 +288,8 @@ where
         )
         .await?;
 
-        malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num)));
+        malicious_validator =
+            MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num.try_into().unwrap())));
         m_ctx_bit = malicious_validator.context();
         let upgraded_sort_keys = m_ctx_bit
             .upgrade(sort_keys[bit_num as usize].clone())

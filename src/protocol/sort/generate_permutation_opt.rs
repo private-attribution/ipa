@@ -49,12 +49,13 @@ use embed_doc_image::embed_doc_image;
 pub async fn generate_permutation_opt<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
+    //TODO (richaj) implement MultiBitChunk which is discussed in PR #425
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
 {
     assert_ne!(sort_keys.len(), 0);
-    let ctx_0 = ctx.narrow(&Sort(0));
+    let ctx_0 = ctx.clone();
 
     let lsb_permutation =
         multi_bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
@@ -63,7 +64,7 @@ where
 
     let mut composed_less_significant_bits_permutation = lsb_permutation;
     for (bit_num, one_slice) in sort_keys.iter().enumerate().skip(1) {
-        let ctx_bit = ctx.narrow(&Sort(bit_num.try_into().unwrap()));
+        let ctx_bit = ctx.narrow(&Sort(bit_num));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
             input_len,
@@ -153,7 +154,7 @@ pub async fn malicious_generate_permutation_opt<'a, F>(
 where
     F: Field,
 {
-    let mut malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(0)));
+    let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let mut m_ctx_bit = malicious_validator.context();
     let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more than 1B rows
 
@@ -171,9 +172,11 @@ where
         )
         .await?;
 
-        malicious_validator =
-            MaliciousValidator::new(sh_ctx.narrow(&Sort(chunk_num.try_into().unwrap())));
+        malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Sort(chunk_num)));
         m_ctx_bit = malicious_validator.context();
+
+        // TODO (richaj) it might even be more efficient to apply sort permutation to XorReplicated sharings,
+        // and convert them to a Vec<MaliciousReplicated> after this step, as the re-shares will be cheaper for XorReplicated sharings
         let upgraded_sort_keys = m_ctx_bit.upgrade(chunk.clone()).await?;
 
         let (randoms_for_shuffle0, randoms_for_shuffle1, revealed) = (
