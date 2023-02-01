@@ -1,13 +1,11 @@
 name: Check dependencies against Advisory DB
 on:
   push:
-    paths:
+    paths: &PATHS
       - '**/Cargo.toml'
       - '**/Cargo.lock'
   pull_request:
-    paths:
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
+    paths: *PATHS
   schedule:
     - cron: '0 0 * * *'
 
