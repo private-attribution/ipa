@@ -257,6 +257,121 @@ where
     .await
 }
 
+#[allow(dead_code)]
+pub async fn ipa_wip_malicious<F, MK, BK>(
+    sh_ctx: SemiHonestContext<'_, F>,
+    input_rows: &[IPAInputRow<F, MK, BK>],
+    per_user_credit_cap: u32,
+    max_breakdown_key: u128,
+    num_multi_bits: u32,
+) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error>
+where
+    F: Field,
+    MK: BitArray,
+    BK: BitArray,
+{
+    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
+        .iter()
+        .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
+        .unzip();
+
+    // Breakdown key modulus conversion
+    let converted_bk_shares = convert_all_bits(
+        &sh_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        &convert_all_bits_local(sh_ctx.role(), &bk_shares),
+        BK::BITS,
+        num_multi_bits,
+    )
+    .await
+    .unwrap();
+    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
+
+    // Match key modulus conversion, and then sort
+    let converted_mk_shares = convert_all_bits(
+        &sh_ctx.narrow(&Step::ModulusConversionForMatchKeys),
+        &convert_all_bits_local(sh_ctx.role(), &mk_shares),
+        MK::BITS,
+        num_multi_bits,
+    )
+    .await
+    .unwrap();
+
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
+        sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
+        &converted_mk_shares,
+    )
+    .await
+    .unwrap();
+
+    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+
+    let combined_match_keys_and_sidecar_data =
+        std::iter::zip(converted_mk_shares, converted_bk_shares)
+            .into_iter()
+            .zip(input_rows)
+            .map(
+                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
+                    mk_shares,
+                    is_trigger_bit: input_row.is_trigger_bit.clone(),
+                    breakdown_key: bk_shares,
+                    trigger_value: input_row.trigger_value.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+
+    let sorted_rows = apply_sort_permutation(
+        sh_ctx.narrow(&Step::ApplySortPermutation),
+        combined_match_keys_and_sidecar_data,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let futures = zip(
+        repeat(
+            sh_ctx.narrow(&Step::ComputeHelperBits)
+                .set_total_records(sorted_rows.len() - 1),
+        ),
+        sorted_rows.iter(),
+    )
+    .zip(sorted_rows.iter().skip(1))
+    .enumerate()
+    .map(|(i, ((sh_ctx, row), next_row))| {
+        let record_id = RecordId::from(i);
+        async move { bitwise_equal(sh_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
+    });
+    let helper_bits = Some(Replicated::ZERO)
+        .into_iter()
+        .chain(try_join_all(futures).await?);
+
+    let attribution_input_rows = zip(sorted_rows, helper_bits)
+        .map(|(row, hb)| MCAccumulateCreditInputRow {
+            is_trigger_report: row.is_trigger_bit,
+            helper_bit: hb,
+            breakdown_key: row.breakdown_key,
+            trigger_value: row.trigger_value,
+        })
+        .collect::<Vec<_>>();
+
+    let accumulated_credits =
+        accumulate_credit(sh_ctx.narrow(&Step::AccumulateCredit), &attribution_input_rows).await?;
+
+    let user_capped_credits = credit_capping(
+        sh_ctx.narrow(&Step::PerformUserCapping),
+        &accumulated_credits,
+        per_user_credit_cap,
+    )
+    .await?;
+
+    aggregate_credit::<F, BK>(
+        sh_ctx.narrow(&Step::AggregateCredit),
+        &user_capped_credits,
+        max_breakdown_key,
+        num_multi_bits,
+    )
+    .await
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::ipa;
