@@ -24,6 +24,7 @@ use futures::future::{try_join3, try_join_all};
 use super::{
     attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
     context::SemiHonestContext,
+    malicious::MaliciousValidator,
     sort::generate_permutation::generate_permutation_and_reveal_shuffled,
 };
 use super::{
@@ -257,9 +258,140 @@ where
     .await
 }
 
+/// # Errors
+/// Propagates errors from multiplications
+/// # Panics
+/// Propagates errors from multiplications
+#[allow(dead_code)]
+pub async fn ipa_wip_malicious<F, MK, BK>(
+    sh_ctx: SemiHonestContext<'_, F>,
+    input_rows: &[IPAInputRow<F, MK, BK>],
+    per_user_credit_cap: u32,
+    max_breakdown_key: u128,
+    num_multi_bits: u32,
+) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error>
+where
+    F: Field,
+    MK: BitArray,
+    BK: BitArray,
+{
+    let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
+    let m_ctx = malicious_validator.context();
+
+    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
+        .iter()
+        .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
+        .unzip();
+
+    // Match key modulus conversion, and then sort
+    let converted_mk_shares = convert_all_bits(
+        &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
+        &m_ctx
+            .upgrade(convert_all_bits_local(m_ctx.role(), &mk_shares))
+            .await?,
+        MK::BITS,
+        num_multi_bits,
+    )
+    .await
+    .unwrap();
+
+    //Validate before calling sort with downgraded context
+    let converted_mk_shares = malicious_validator.validate(converted_mk_shares).await?;
+
+    let sort_permutation = generate_permutation_and_reveal_shuffled(
+        sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
+        &converted_mk_shares,
+    )
+    .await
+    .unwrap();
+
+    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
+
+    // Breakdown key modulus conversion
+    let converted_bk_shares = convert_all_bits(
+        &sh_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        &convert_all_bits_local(sh_ctx.role(), &bk_shares),
+        BK::BITS,
+        num_multi_bits,
+    )
+    .await
+    .unwrap();
+
+    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
+
+    let combined_match_keys_and_sidecar_data =
+        std::iter::zip(converted_mk_shares, converted_bk_shares)
+            .into_iter()
+            .zip(input_rows)
+            .map(
+                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
+                    mk_shares,
+                    is_trigger_bit: input_row.is_trigger_bit.clone(),
+                    breakdown_key: bk_shares,
+                    trigger_value: input_row.trigger_value.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+
+    let sorted_rows = apply_sort_permutation(
+        sh_ctx.narrow(&Step::ApplySortPermutation),
+        combined_match_keys_and_sidecar_data,
+        &sort_permutation,
+    )
+    .await
+    .unwrap();
+
+    let futures = zip(
+        repeat(
+            sh_ctx
+                .narrow(&Step::ComputeHelperBits)
+                .set_total_records(sorted_rows.len() - 1),
+        ),
+        sorted_rows.iter(),
+    )
+    .zip(sorted_rows.iter().skip(1))
+    .enumerate()
+    .map(|(i, ((sh_ctx, row), next_row))| {
+        let record_id = RecordId::from(i);
+        async move { bitwise_equal(sh_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
+    });
+    let helper_bits = Some(Replicated::ZERO)
+        .into_iter()
+        .chain(try_join_all(futures).await?);
+
+    let attribution_input_rows = zip(sorted_rows, helper_bits)
+        .map(|(row, hb)| MCAccumulateCreditInputRow {
+            is_trigger_report: row.is_trigger_bit,
+            helper_bit: hb,
+            breakdown_key: row.breakdown_key,
+            trigger_value: row.trigger_value,
+        })
+        .collect::<Vec<_>>();
+
+    let accumulated_credits = accumulate_credit(
+        sh_ctx.narrow(&Step::AccumulateCredit),
+        &attribution_input_rows,
+    )
+    .await?;
+
+    let user_capped_credits = credit_capping(
+        sh_ctx.narrow(&Step::PerformUserCapping),
+        &accumulated_credits,
+        per_user_credit_cap,
+    )
+    .await?;
+
+    aggregate_credit::<F, BK>(
+        sh_ctx.narrow(&Step::AggregateCredit),
+        &user_capped_credits,
+        max_breakdown_key,
+        num_multi_bits,
+    )
+    .await
+}
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use super::ipa;
+    use super::{ipa, ipa_wip_malicious};
     use crate::bits::BitArray;
     use crate::ipa_test_input;
     use crate::protocol::{BreakdownKey, MatchKey};
@@ -296,6 +428,55 @@ pub mod tests {
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(EXPECTED.len(), result.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malicious_wip() {
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let world = TestWorld::new().await;
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
