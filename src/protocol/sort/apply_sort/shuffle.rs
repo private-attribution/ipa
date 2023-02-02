@@ -1,9 +1,8 @@
 use std::iter::{repeat, zip};
 
 use crate::repeat64str;
-use crate::secret_sharing::{
-    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
-};
+use crate::secret_sharing::Arithmetic;
+use crate::secret_sharing::{ArithmeticShare, SecretSharing};
 use crate::{
     error::Error,
     ff::Field,
@@ -47,8 +46,8 @@ impl From<usize> for InnerVectorElementStep {
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for Vec<Replicated<F>> {
-    type Share = Replicated<F>;
+impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
+    type Share = T;
 
     /// This is intended to be used for resharing vectors of bit-decomposed values.
     /// # Errors
@@ -198,15 +197,14 @@ mod tests {
                 Vec::with_capacity(BATCHSIZE.into());
             input.resize_with(BATCHSIZE.into(), || {
                 accumulation_test_input!(
-                    [{
+                    {
                         is_trigger_report: rng.gen::<u8>(),
                         helper_bit: rng.gen::<u8>(),
                         breakdown_key: rng.gen::<u8>(),
-                        credit: rng.gen::<u8>()
-                    }];
+                        credit: rng.gen::<u8>(),
+                    };
                     (Fp31, MatchKey, BreakdownKey)
                 )
-                .remove(0)
             });
             let hashed_input: HashSet<[u8; 4]> = input
                 .iter()

@@ -81,15 +81,14 @@ mod tests {
             Vec::with_capacity(COUNT);
         sidecar.resize_with(COUNT, || {
             accumulation_test_input!(
-                [{
+                {
                     is_trigger_report: rng.gen::<u8>(),
                     helper_bit: rng.gen::<u8>(),
                     breakdown_key: rng.gen::<u8>(),
-                    credit: rng.gen::<u8>()
-                }];
+                    credit: rng.gen::<u8>(),
+                };
                 (Fp32BitPrime, MathKey, BreakdownKey)
             )
-            .remove(0)
         });
         let expected = permutation.apply_slice(&sidecar);
 
