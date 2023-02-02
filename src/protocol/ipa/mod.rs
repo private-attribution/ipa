@@ -18,6 +18,7 @@ use crate::{
         RecordId,
     },
     secret_sharing::{
+        replicated::malicious::AdditiveShare as MaliciousReplicated,
         replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         Arithmetic,
     },
@@ -27,7 +28,7 @@ use futures::future::{try_join3, try_join_all};
 
 use super::{
     attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
-    context::SemiHonestContext,
+    context::{MaliciousContext, SemiHonestContext},
     malicious::MaliciousValidator,
     sort::generate_permutation::{
         generate_permutation_and_reveal_shuffled,
@@ -96,16 +97,17 @@ pub struct IPAInputRow<F: Field, MK: BitArray, BK: BitArray> {
     pub trigger_value: Replicated<F>,
 }
 
-struct IPAModulusConvertedInputRow<F: Field> {
-    mk_shares: Vec<Replicated<F>>,
-    is_trigger_bit: Replicated<F>,
-    breakdown_key: Vec<Replicated<F>>,
-    trigger_value: Replicated<F>,
+struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
+    mk_shares: Vec<T>,
+    is_trigger_bit: T,
+    breakdown_key: Vec<T>,
+    trigger_value: T,
+    _marker: PhantomData<F>,
 }
 
 #[async_trait]
-impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
-    type Share = Replicated<F>;
+impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedInputRow<F, T> {
+    type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -142,6 +144,29 @@ impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
             breakdown_key,
             is_trigger_bit: outputs.remove(0),
             trigger_value: outputs.remove(0),
+            _marker: PhantomData::default(),
+        })
+    }
+}
+
+impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
+    #[allow(dead_code)]
+    async fn upgrade_to_malicious(
+        m_ctx: MaliciousContext<'_, F>,
+        mk_shares: Vec<Replicated<F>>,
+        is_trigger_bit: Replicated<F>,
+        trigger_value: Replicated<F>,
+        bk_shares: Vec<MaliciousReplicated<F>>,
+    ) -> Result<IPAModulusConvertedInputRow<F, MaliciousReplicated<F>>, Error> {
+        let mk_shares = m_ctx.upgrade(mk_shares).await?;
+        let is_trigger_bit = m_ctx.upgrade(is_trigger_bit).await?;
+        let trigger_value = m_ctx.upgrade(trigger_value).await?;
+        Ok(IPAModulusConvertedInputRow {
+            mk_shares,
+            is_trigger_bit,
+            breakdown_key: bk_shares,
+            trigger_value,
+            _marker: PhantomData::default(),
         })
     }
 }
@@ -208,6 +233,7 @@ where
                     is_trigger_bit: input_row.is_trigger_bit.clone(),
                     breakdown_key: bk_shares,
                     trigger_value: input_row.trigger_value.clone(),
+                    _marker: PhantomData::default(),
                 },
             )
             .collect::<Vec<_>>();
@@ -271,7 +297,7 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_lines)]
 pub async fn ipa_wip_malicious<F, T, MK, BK>(
     sh_ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
@@ -339,6 +365,7 @@ where
                     is_trigger_bit: input_row.is_trigger_bit.clone(),
                     breakdown_key: bk_shares,
                     trigger_value: input_row.trigger_value.clone(),
+                    _marker: PhantomData::default(),
                 },
             )
             .collect::<Vec<_>>();
