@@ -1,4 +1,3 @@
-use super::align_bit_lengths;
 use super::xor;
 use crate::error::Error;
 use crate::ff::Field;
@@ -102,11 +101,11 @@ impl BitwiseLessThan {
         C: Context<F, Share = S>,
         S: ArithmeticSecretSharing<F>,
     {
-        let (a, b) = align_bit_lengths(a, b);
+        debug_assert_eq!(a.len(), b.len());
 
         let (xored_bits, less_thaned_bits) = try_join(
-            Self::xor_all_but_lsb(&a, &b, ctx.narrow(&Step::BitwiseAXorB), record_id),
-            Self::less_than_all_bits(&a, &b, ctx.narrow(&Step::BitwiseALessThanB), record_id),
+            Self::xor_all_but_lsb(a, b, ctx.narrow(&Step::BitwiseAXorB), record_id),
+            Self::less_than_all_bits(a, b, ctx.narrow(&Step::BitwiseALessThanB), record_id),
         )
         .await?;
 
@@ -173,7 +172,7 @@ mod tests {
     use crate::protocol::context::Context;
     use crate::rand::thread_rng;
     use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{get_bits, Runner};
+    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::RecordId,
@@ -265,47 +264,6 @@ mod tests {
         );
 
         assert_eq!(zero, bitwise_lt(&world, zero, c(Fp32BitPrime::PRIME)).await);
-    }
-
-    #[tokio::test]
-    pub async fn cmp_different_bit_lengths() {
-        let world = TestWorld::new().await;
-
-        let input = (
-            get_bits::<Fp31>(3, 8), // 8-bit
-            get_bits::<Fp31>(5, 5), // 5-bit
-        );
-        let result = world
-            .semi_honest(input.clone(), |ctx, (a_share, b_share)| async move {
-                BitwiseLessThan::execute(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    &b_share,
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        let m_result = world
-            .malicious(input, |ctx, (a_share, b_share)| async move {
-                BitwiseLessThan::execute(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    &b_share,
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(result, m_result);
-
-        assert_eq!(Fp31::ONE, result);
     }
 
     // this test is for manual execution only

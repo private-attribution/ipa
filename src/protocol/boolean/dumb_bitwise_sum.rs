@@ -1,4 +1,3 @@
-use super::align_bit_lengths;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::or::or;
@@ -59,9 +58,10 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let (a, b) = align_bit_lengths(a, b); // TODO: remove
+    debug_assert_eq!(a.len(), b.len());
+
     let both_bits_one =
-        multiply_all_the_bits(&a, &b, ctx.narrow(&Step::MultiplyAllTheBits), record_id).await?;
+        multiply_all_the_bits(a, b, ctx.narrow(&Step::MultiplyAllTheBits), record_id).await?;
     let mut xored_bits = Vec::with_capacity(a.len());
     for i in 0..a.len() {
         xored_bits.push(-(both_bits_one[i].clone() * F::from(2)) + &a[i] + &b[i]);

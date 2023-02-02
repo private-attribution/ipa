@@ -2,7 +2,7 @@ use super::bitwise_less_than_prime::BitwiseLessThanPrime;
 use super::dumb_bitwise_sum::bitwise_sum;
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
-use crate::ff::{Field, Int};
+use crate::ff::Field;
 use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
@@ -61,7 +61,7 @@ impl BitDecomposition {
         .await?;
 
         // Step 7. a bitwise scalar value `f_B = bits(2^l - p)`
-        let l = F::Integer::BITS;
+        let l = u128::BITS - F::PRIME.into().leading_zeros();
         let x = 2_u128.pow(l) - F::PRIME.into();
         let f_b = (0..l).map(|i| F::from(x >> i & 1));
 
@@ -69,6 +69,9 @@ impl BitDecomposition {
         let g_b = f_b
             .into_iter()
             .map(|f_bit| q_p.clone() * f_bit)
+            // Since bitwise-sum will return +1 bit from the carry, d_b.len() is 1 bit longer
+            // than g_b. Append ZERO to make them the same size.
+            .chain(std::iter::once(S::ZERO))
             .collect::<Vec<_>>();
 
         // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(l+1))
@@ -109,7 +112,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitDecomposition;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Int},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
         },
@@ -142,10 +145,11 @@ mod tests {
             })
             .await;
 
-        // bit-decomposed values must have the same bit length of the target field
-        assert_eq!(F::Integer::BITS as usize, result[0].len());
-        assert_eq!(F::Integer::BITS as usize, result[1].len());
-        assert_eq!(F::Integer::BITS as usize, result[2].len());
+        // bit-decomposed values generate valid number of bits to fit the target field values
+        let l = u128::BITS - F::PRIME.into().leading_zeros();
+        assert_eq!(usize::try_from(l).unwrap(), result[0].len());
+        assert_eq!(usize::try_from(l).unwrap(), result[1].len());
+        assert_eq!(usize::try_from(l).unwrap(), result[2].len());
 
         result.reconstruct()
     }

@@ -11,7 +11,7 @@ use std::iter::zip;
 
 /// Deconstructs a value into N values, one for each bit.
 pub fn into_bits<F: Field>(x: F) -> Vec<F> {
-    (0..(128 - F::PRIME.into().leading_zeros()))
+    (0..(u128::BITS - F::PRIME.into().leading_zeros()))
         .map(|i| F::from((x.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
 }
