@@ -43,6 +43,8 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
 
+    use std::marker::PhantomData;
+
     use crate::accumulation_test_input;
     use crate::bits::BitArray;
     use crate::protocol::attribution::input::{
@@ -139,6 +141,7 @@ mod tests {
                             breakdown_key: bk,
                             trigger_value: row.trigger_value,
                             helper_bit: row.helper_bit,
+                            _marker: PhantomData::default(),
                         })
                         .collect::<Vec<_>>();
 
