@@ -38,6 +38,9 @@ impl AsRef<str> for Step {
 /// accesses and accumulates data of its children. By increasing the distance between the interacting nodes during
 /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
 /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
+///
+/// # Errors
+/// Propagates errors from multiplications.
 pub async fn accumulate_credit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: &[MCAccumulateCreditInputRow<F>],

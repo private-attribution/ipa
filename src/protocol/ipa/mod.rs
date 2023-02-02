@@ -6,10 +6,7 @@ use crate::{
     ff::Field,
     helpers::Role,
     protocol::{
-        attribution::{
-            accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
-            credit_capping::credit_capping,
-        },
+        attribution::{accumulate_credit, aggregate_credit, credit_capping},
         context::Context,
         sort::apply_sort::apply_sort_permutation,
         RecordId,
@@ -256,7 +253,6 @@ where
         ctx.narrow(&Step::AggregateCredit),
         &user_capped_credits,
         max_breakdown_key,
-        num_multi_bits,
     )
     .await
 }
@@ -388,7 +384,6 @@ where
         sh_ctx.narrow(&Step::AggregateCredit),
         &user_capped_credits,
         max_breakdown_key,
-        num_multi_bits,
     )
     .await
 }
@@ -567,8 +562,8 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 2, 2023.
-        const RECORDS_SENT_BASELINE: u64 = 10782;
+        /// empirical value as of Feb 3, 2023.
+        const RECORDS_SENT_BASELINE: u64 = 9759;
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 

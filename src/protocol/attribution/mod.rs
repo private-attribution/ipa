@@ -4,10 +4,15 @@ use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
 use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 
-pub(crate) mod accumulate_credit;
-pub mod aggregate_credit;
-pub mod credit_capping;
+mod accumulate_credit;
+mod aggregate_credit_no_sort;
+mod credit_capping;
 pub mod input;
+
+pub use {
+    accumulate_credit::accumulate_credit, aggregate_credit_no_sort::aggregate_credit,
+    credit_capping::credit_capping,
+};
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(
