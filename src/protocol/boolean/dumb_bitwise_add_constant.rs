@@ -102,6 +102,12 @@ where
     Ok(output)
 }
 
+// The Bit Decomposition logic adds a constant value - multiplied by a single sharing of either one or zero.
+// This is a specialized protocol to support that.
+// The win is in cases (like in bit decomposition) where you're adding a constant that's mostly zeroes in binary.
+// In those cases, the carry is very simple, it's just one multiplication, the unknown-bit * the last carry.
+// In those cases where the constant has a 1 bit, you have to do more work,
+// but there are only 2 of those, and one is the very first bit, when there is no other carry! So it's a special case as well.
 pub async fn bitwise_add_constant_maybe<F, C, S>(
     ctx: C,
     record_id: RecordId,
