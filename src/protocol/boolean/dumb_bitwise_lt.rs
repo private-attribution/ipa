@@ -77,7 +77,7 @@ impl BitwiseLessThan {
     {
         let less_than = zip(a, b).enumerate().rev().map(|(i, (a_bit, b_bit))| {
             let c = ctx.narrow(&BitOpStep::from(i));
-            let one = c.share_of_one();
+            let one = ctx.share_known_value(F::ONE);
             async move { c.multiply(record_id, &(one - a_bit), b_bit).await }
         });
         try_join_all(less_than).await
@@ -110,7 +110,7 @@ impl BitwiseLessThan {
         )
         .await?;
 
-        let one = ctx.share_of_one();
+        let one = ctx.share_known_value(F::ONE);
         let mut any_condition_met = less_thaned_bits[0].clone();
         let mut all_preceeding_bits_the_same = one.clone() - &(xored_bits[0]);
         let check_each_bit_context = ctx.narrow(&Step::CheckEachBit);
