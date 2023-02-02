@@ -86,6 +86,9 @@ where
             mult_result
         };
 
+        // Each bit of the result can be computed very simply. It's just:
+        // the current bit of `a` + the current bit of `b` + the carry from the previous bit `-2*next_carry`
+        // Since the current bit of `b` has a known value (either 1 or 0), we either add a `share_of_one`, or nothing.
         let result_bit = if next_bit_a_one {
             -next_carry.clone() * F::from(2) + &ctx.share_of_one() + bit + &last_carry
         } else {
