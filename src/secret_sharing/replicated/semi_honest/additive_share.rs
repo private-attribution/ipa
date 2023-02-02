@@ -1,11 +1,9 @@
 use crate::{
-    bits::Serializable,
     ff::Field,
     helpers::Role,
     secret_sharing::{Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing},
 };
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -59,16 +57,16 @@ impl<V: ArithmeticShare> AdditiveShare<V> {
         }
     }
 
-    /// Deserialize a slice of bytes into an iterator of replicated shares
-    ///
-    /// ## Panics
-    /// if [`buf`] len is not aligned with the size of this instance
-    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
-        debug_assert!(from.len() % (Self::SIZE_IN_BYTES) == 0);
+    // Deserialize a slice of bytes into an iterator of replicated shares
+    //
+    // ## Panics
+    // if [`buf`] len is not aligned with the size of this instance
+    // pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+    //     debug_assert!(from.len() % (Self::SIZE_IN_BYTES) == 0);
 
-        from.chunks(Self::SIZE_IN_BYTES)
-            .map(|chunk| Self::deserialize(chunk).unwrap())
-    }
+    //     from.chunks(Self::SIZE_IN_BYTES)
+    //         .map(|chunk| Self::deserialize(chunk).unwrap())
+    // }
 }
 
 impl<F: Field> AdditiveShare<F> {
@@ -76,24 +74,6 @@ impl<F: Field> AdditiveShare<F> {
     #[must_use]
     pub fn one(helper_role: Role) -> Self {
         Self::from_scalar(helper_role, F::ONE)
-    }
-}
-
-impl<V: ArithmeticShare> Serializable for AdditiveShare<V> {
-    const SIZE_IN_BYTES: usize = 2 * V::SIZE_IN_BYTES;
-
-    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
-        V::serialize(self.left(), buf)?;
-        V::serialize(self.right(), &mut buf[V::SIZE_IN_BYTES..])?;
-
-        Ok(())
-    }
-
-    fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        let left = V::deserialize(buf)?;
-        let right = V::deserialize(&buf[V::SIZE_IN_BYTES..])?;
-
-        Ok(Self(left, right))
     }
 }
 

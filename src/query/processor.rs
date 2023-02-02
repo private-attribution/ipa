@@ -452,14 +452,16 @@ mod tests {
             bits::Serializable,
             ff::Fp31,
             helpers::{query::IPAQueryConfig, transport::ByteArrStream},
+            ipa_test_input,
             protocol::{
-                attribution::AggregateCreditOutputRow,
-                ipa::{test_cases::Simple, IPAInputRow},
+                attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey,
                 MatchKey,
             },
             secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
             sync::Weak,
-            test_fixture::{transport::InMemoryTransport, Reconstruct},
+            test_fixture::{
+                input::GenericReportTestInput, transport::InMemoryTransport, Reconstruct, TestWorld,
+            },
         };
         use futures_util::future::{join_all, try_join_all};
 
@@ -550,8 +552,8 @@ mod tests {
 
         #[tokio::test]
         async fn ipa() {
-            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
-            type SimpleTestCase = Simple<Fp31, MatchKey>;
+            const SZ: usize = Replicated::<Fp31>::Size::USIZE;
+            const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
             let network = InMemoryNetwork::default();
             let (query_id, mut processors) = start_query(
                 &network,
@@ -567,14 +569,27 @@ mod tests {
             )
             .await;
 
-            let helper_shares = SimpleTestCase::default()
+            let world = TestWorld::new().await;
+
+            let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+                [
+                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                    { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                    { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                    { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
+            );
+            let helper_shares = records
                 .share()
                 .into_iter()
                 .map(|shares| {
                     let data = shares
                         .into_iter()
-                        .flat_map(|share: IPAInputRow<Fp31, MatchKey>| {
-                            let mut buf = [0u8; IPAInputRow::<Fp31, MatchKey>::SIZE_IN_BYTES];
+                        .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
+                            let mut buf =
+                                [0u8; IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE];
                             share.serialize(&mut buf).unwrap();
 
                             buf
@@ -602,13 +617,23 @@ mod tests {
 
             let result: [_; 3] = join_all(processors.map(|mut processor| async move {
                 let r = processor.complete(query_id).await.unwrap().into_bytes();
-                AggregateCreditOutputRow::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+                MCAggregateCreditOutputRow::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
             }))
             .await
             .try_into()
             .unwrap();
 
-            SimpleTestCase::validate(&result);
+            let result = result.reconstruct();
+            assert_eq!(result.len(), EXPECTED.len());
+            for (i, expected) in EXPECTED.iter().enumerate() {
+                assert_eq!(
+                    *expected,
+                    [
+                        result[i].breakdown_key.as_u128(),
+                        result[i].trigger_value.as_u128()
+                    ]
+                );
+            }
         }
     }
 }

@@ -1,10 +1,12 @@
 use crate::secret_sharing::BooleanShare;
-use std::io;
+
+use generic_array::{ArrayLength, GenericArray};
+
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
 mod bit_array;
 
-pub use bit_array::BitArray40;
+pub use bit_array::{BitArray40, BitArray8};
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
@@ -58,19 +60,16 @@ impl<T> BooleanRefOps for T where
 /// Trait for items that have fixed-byte length representation.
 pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
-    const SIZE_IN_BYTES: usize;
+    type Size: ArrayLength<u8>;
 
-    /// Serialize this message to a mutable slice. Implementations need to ensure `buf` has enough
-    /// capacity to store this message.
-    ///
-    /// ## Errors
-    /// Returns an error if `buf` does not have enough capacity to store at least `SIZE_IN_BYTES` more
-    /// data.
-    fn serialize(self, buf: &mut [u8]) -> io::Result<()>;
+    /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
+    /// side that this slice is sized to fit this instance. Implementations do not need to check
+    /// the buffer size.
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>);
 
-    /// Deserialize message from a sequence of bytes.
+    /// Deserialize message from a sequence of bytes. Similar to [`serialize`], it is enforced that
+    /// buffer has enough capacity to fit instances of this trait.
     ///
-    /// ## Errors
-    /// Returns an error if the provided buffer does not have enough bytes to read (EOF).
-    fn deserialize(buf: &[u8]) -> io::Result<Self>;
+    /// [`serialize`]: Self::serialize
+    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self;
 }

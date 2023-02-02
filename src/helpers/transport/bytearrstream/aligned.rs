@@ -149,9 +149,7 @@ impl Debug for ByteArrStream {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        bits::Serializable, ff, helpers::transport::ByteArrStream as UnalignedByteArrStream,
-    };
+    use crate::{ff, helpers::transport::ByteArrStream as UnalignedByteArrStream};
     use axum::{
         extract::{rejection::BodyAlreadyExtracted, BodyStream, FromRequest, RequestParts},
         http::{HeaderMap, Request},

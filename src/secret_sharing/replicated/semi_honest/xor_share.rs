@@ -1,8 +1,14 @@
 use crate::bits::Serializable;
+use crate::helpers::Role;
 use crate::secret_sharing::{Boolean as BooleanSecretSharing, BooleanShare, SecretSharing};
+use aes::cipher::generic_array::GenericArray;
+
+use generic_array::ArrayLength;
+use typenum::Unsigned;
+
+use std::ops::Add;
 use std::{
     fmt::{Debug, Formatter},
-    io,
     ops::{BitXor, BitXorAssign},
 };
 
@@ -45,6 +51,15 @@ impl<V: BooleanShare> XorShare<V> {
         self.1
     }
 
+    /// Returns share of a scalar value.
+    pub fn from_scalar(helper_role: Role, a: V) -> Self {
+        match helper_role {
+            Role::H1 => Self::new(a, V::ZERO),
+            Role::H2 => Self::new(V::ZERO, V::ZERO),
+            Role::H3 => Self::new(V::ZERO, a),
+        }
+    }
+
     /// Replicated secret share where both left and right values are `V::ZERO`
     pub const ZERO: XorShare<V> = Self(V::ZERO, V::ZERO);
 }
@@ -73,36 +88,25 @@ impl<V: BooleanShare> BitXorAssign<&Self> for XorShare<V> {
     }
 }
 
-impl<V: BooleanShare> Serializable for XorShare<V> {
-    const SIZE_IN_BYTES: usize = 2 * V::SIZE_IN_BYTES;
+impl<V: BooleanShare> Serializable for XorShare<V>
+where
+    V::Size: Add<V::Size>,
+    <V::Size as Add<V::Size>>::Output: ArrayLength<u8>,
+{
+    /// This constraint means that the serialized size must be `V::SIZE` + `V::SIZE`, i.e. `2 * V::SIZE`
+    type Size = <V::Size as Add<V::Size>>::Output;
 
-    fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
-        if buf.len() < Self::SIZE_IN_BYTES {
-            Err(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "not enough buffer capacity",
-            ))
-        } else {
-            let (left, right) = (self.left(), self.right());
-            left.serialize(&mut buf[..V::SIZE_IN_BYTES])?;
-            right.serialize(&mut buf[V::SIZE_IN_BYTES..2 * V::SIZE_IN_BYTES])?;
-
-            Ok(())
-        }
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+        let (left, right) = buf.split_at_mut(V::Size::USIZE);
+        self.left().serialize(GenericArray::from_mut_slice(left));
+        self.right().serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: &[u8]) -> io::Result<Self> {
-        if buf.len() < Self::SIZE_IN_BYTES {
-            Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "not enough buffer capacity",
-            ))
-        } else {
-            let left = V::deserialize(&buf[..V::SIZE_IN_BYTES])?;
-            let right = V::deserialize(&buf[V::SIZE_IN_BYTES..2 * V::SIZE_IN_BYTES])?;
+    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
+        let left = V::deserialize(GenericArray::clone_from_slice(&buf[..V::Size::USIZE]));
+        let right = V::deserialize(GenericArray::clone_from_slice(&buf[V::Size::USIZE..]));
 
-            Ok(Self::new(left, right))
-        }
+        Self::new(left, right)
     }
 }
 
@@ -110,10 +114,8 @@ impl<V: BooleanShare> Serializable for XorShare<V> {
 mod tests {
     use super::XorShare;
     use crate::bits::{BitArray40, Serializable};
-    use proptest::proptest;
-    use rand::rngs::StdRng;
-    use rand::Rng;
-    use rand_core::SeedableRng;
+
+    use generic_array::GenericArray;
 
     fn secret_share(
         a: u128,
@@ -198,34 +200,16 @@ mod tests {
         xor_test_case((163, 202, 92), (172, 21, 199), 75);
     }
 
-    type XorReplicated = XorShare<BitArray40>;
+    #[test]
+    fn serde() {
+        let share = XorShare::new(
+            BitArray40::try_from(1u128 << 25).unwrap(),
+            BitArray40::try_from(1u128 << 15).unwrap(),
+        );
 
-    proptest! {
-        #[test]
-        fn serde_success(buf_len in XorReplicated::SIZE_IN_BYTES..100 * XorReplicated::SIZE_IN_BYTES, a in 0..1u64 << 39, b in 0..1u64 << 39) {
-            let mut buf = vec![0u8; buf_len];
-            let share = XorShare::new(BitArray40::try_from(u128::from(a)).unwrap(), BitArray40::try_from(u128::from(b)).unwrap());
-            share.clone().serialize(&mut buf).unwrap();
+        let mut buf = GenericArray::default();
+        share.clone().serialize(&mut buf);
 
-            assert_eq!(share, XorShare::deserialize(&buf).unwrap());
-        }
-
-        #[test]
-        fn serde_ser_small_buf(buf_len in 0..XorReplicated::SIZE_IN_BYTES, a in 0..1u64 << 39, b in 0..1u64 << 39) {
-            let mut buf = vec![0u8; buf_len];
-            let share = XorShare::new(BitArray40::try_from(u128::from(a)).unwrap(), BitArray40::try_from(u128::from(b)).unwrap());
-            assert!(matches!(share.serialize(&mut buf), Err(std::io::Error { .. })));
-        }
-
-        #[test]
-        fn serde_de_small_buf(seed: [u8; 32], buf_len in XorReplicated::SIZE_IN_BYTES..100 * XorReplicated::SIZE_IN_BYTES, a in 0..1u64 << 39, b in 0..1u64 << 39) {
-            let mut rng = StdRng::from_seed(seed);
-            let max = rng.gen_range(0..BitArray40::SIZE_IN_BYTES);
-            let mut buf = vec![0u8; buf_len];
-            let share = XorShare::new(BitArray40::try_from(u128::from(a)).unwrap(), BitArray40::try_from(u128::from(b)).unwrap());
-            share.serialize(&mut buf).unwrap();
-
-            assert!(matches!(XorShare::<BitArray40>::deserialize(&buf[..max]), Err(std::io::Error { .. })));
-        }
+        assert_eq!(share, XorShare::deserialize(buf));
     }
 }

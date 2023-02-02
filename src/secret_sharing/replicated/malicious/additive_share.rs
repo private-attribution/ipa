@@ -305,16 +305,16 @@ mod tests {
             (-(a + b) - (c - d) - (Fp31::ONE - e)) * Fp31::from(6_u128) + Fp31::from(2_u128) * f;
 
         assert_eq!(
-            (
+            [
                 results[0].x().access_without_downgrade(),
                 results[1].x().access_without_downgrade(),
                 results[2].x().access_without_downgrade(),
-            )
-                .reconstruct(),
+            ]
+            .reconstruct(),
             correct,
         );
         assert_eq!(
-            (results[0].rx(), results[1].rx(), results[2].rx()).reconstruct(),
+            [results[0].rx(), results[1].rx(), results[2].rx()].reconstruct(),
             correct * r,
         );
     }
