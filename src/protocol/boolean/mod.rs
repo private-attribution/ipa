@@ -13,7 +13,6 @@ pub mod bitwise_equal;
 mod bitwise_less_than_prime;
 mod dumb_bitwise_add_constant;
 mod dumb_bitwise_lt;
-mod dumb_bitwise_sum;
 mod generate_random_bits;
 mod or;
 pub mod random_bits_generator;
