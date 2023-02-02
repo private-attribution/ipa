@@ -19,8 +19,6 @@ fn assert_copy<C: Copy>(c: C) -> C {
 
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty ) => {
-        // $store
-
         mod $modname {
             use super::*;
 

@@ -4,9 +4,9 @@ use crate::{
 };
 use futures::{task::Waker, Future, Stream};
 use generic_array::GenericArray;
-use pin_project::pin_project;
 use std::{
     marker::PhantomData,
+    mem::take,
     num::NonZeroUsize,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -15,16 +15,13 @@ use std::{
 use typenum::Unsigned;
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
-#[pin_project]
 pub struct Receiver<S, C, M>
 where
     S: Stream<Item = C>,
     C: AsRef<[u8]>,
     M: Message,
 {
-    #[pin]
     i: usize,
-    #[pin]
     receiver: Arc<Mutex<OperatingState<S, C>>>,
     _marker: PhantomData<M>,
 }
@@ -38,13 +35,12 @@ where
     type Output = Result<M, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_ref().project_ref();
-
+        let this = self.as_ref();
         let mut recv = this.receiver.lock().unwrap();
-        if recv.is_next(*this.i) {
+        if recv.is_next(this.i) {
             recv.poll_next(cx)
         } else {
-            recv.add_waker(*this.i, cx.waker().clone());
+            recv.add_waker(this.i, cx.waker().clone());
             Poll::Pending
         }
     }
@@ -116,6 +112,11 @@ where
 {
     /// The stream we're reading from.
     stream: Pin<Box<S>>,
+    /// The absolute index of the next value that will be received.
+    next: usize,
+    /// The underlying stream can provide chunks of data larger than a single
+    /// message.  Save any spare data here.
+    spare: Spare,
     /// This tracks `Waker` instances from calls to `recv()` with indices that
     /// aren't ready at the time of the call.  If the future is invoked prior
     /// to the value being ready, the `Waker` is saved here.
@@ -129,7 +130,7 @@ where
     /// When polled again, any that were only a little past the capacity will
     /// be entered into normal `wakers` correctly.  Those that are too far
     /// ahead (i.e., `d = i - (next + c)` is large) they will be woken at most
-    /// `1 + 2d/c` times extra.
+    /// `2d/c + 1` times extra.
     ///
     /// Assuming that the awoken items are polled in a timely fashion, this
     /// ensures that any overflow will be registered in `wakers` (or read)
@@ -141,12 +142,6 @@ where
     /// that easing load on this mechanism.  There might also need to be some
     /// end-to-end back pressure for tasks that do not involve sending at all.
     overflow_wakers: Vec<Waker>,
-    /// Left over data from a previous `recv()` call.  The underlying stream
-    /// can provide chunks of data larger than a single message.  We save the
-    /// spare data here.
-    spare: Spare,
-    /// The absolute index of the next value that will be received.
-    next: usize,
     _marker: PhantomData<C>,
 }
 
@@ -162,13 +157,6 @@ where
 
     /// Track a waker from a future that was invoked before data was ready.
     ///
-    /// Note that this only tracks the last waker for each index, which appears
-    /// to violate the contract for `Future` implementations.  That shouldn't a
-    /// problem in practice because we expect [`recv`] to be called only once,
-    /// which produces just one `Future`.  Informing the last context to [`poll`]
-    /// that `Future` should at least ensure that things progress, even if we
-    /// don't guarantee that all contexts are awoken.
-    ///
     /// # Panics
     ///
     /// If `i` is for an message that has already been read.
@@ -176,15 +164,22 @@ where
     /// [`recv`]: UnorderedReceiver::recv
     /// [`poll`]: Future::poll
     fn add_waker(&mut self, i: usize, waker: Waker) {
+        assert!(
+            i > self.next,
+            "Awaiting a read that has already been fulfilled"
+        );
         // We don't save a waker at `self.next`, so `>` and not `>=`.
         if i > self.next + self.wakers.len() {
             self.overflow_wakers.push(waker);
         } else {
-            assert!(
-                i > self.next,
-                "Awaiting a read that has already been fulfilled"
-            );
             let index = i % self.wakers.len();
+            if let Some(old) = self.wakers[index].as_ref() {
+                // We are OK with having multiple polls of the same `Receiver`
+                // (or two `Receiver`s for the same item being polled).
+                // However, as we are only tracking one waker, they both need
+                // to be woken when we invoke the waker we get.
+                assert!(waker.will_wake(old));
+            }
             self.wakers[index] = Some(waker);
         }
     }
@@ -196,9 +191,9 @@ where
         if let Some(w) = self.wakers[index].take() {
             w.wake();
         }
-        // See the documentation for `overflow_wakers`.
         if self.next % (self.wakers.len() / 2) == 0 {
-            for w in self.overflow_wakers.drain(..) {
+            // Wake all the overflowed wakers.  See comments on `overflow_wakers`.
+            for w in take(&mut self.overflow_wakers) {
                 w.wake();
             }
         }
@@ -254,26 +249,34 @@ where
     /// The capacity here determines how far ahead a read can be.  In most cases,
     /// this should be the same as the value given to [`ordering_mpsc`].
     ///
+    /// # Panics
+    ///
+    /// The `capacity` needs to be at least 2.
+    ///
     /// [`ordering_mpsc`]: crate::helpers::buffers::ordering_mpsc::ordering_mpsc
     pub fn new(stream: Pin<Box<S>>, capacity: NonZeroUsize) -> Self {
+        // We use `c/2` as a divisor, so `c == 1` would be bad.
+        assert!(capacity.get() > 1, "a capacity of 1 is too small");
         let wakers = vec![None; capacity.get()];
         Self {
             inner: Arc::new(Mutex::new(OperatingState {
                 stream,
-                wakers,
-                overflow_wakers: Vec::new(),
                 next: 0,
                 spare: Spare::default(),
+                wakers,
+                overflow_wakers: Vec::new(),
                 _marker: PhantomData,
             })),
         }
     }
 
-    /// Ask to receive from the stream at index `i`.
+    /// Receive from the stream at index `i`.
     ///
-    /// This method can be called multiple times with the same value for `i`,
-    /// but only one of the futures can be polled until it succeeds.
-    /// Once one future is resolved, the other will crash.
+    /// # Panics
+    ///
+    /// Only if there are multiple invocations for the same `i`.
+    /// If one future is resolved, the other will panic when polled.
+    /// If both futures are polled by different contexts, the second will panic.
     pub fn recv<M: Message, I: Into<usize>>(&self, i: I) -> Receiver<S, C, M> {
         Receiver {
             i: i.into(),
@@ -468,6 +471,7 @@ mod test {
         const DATA: &[u8] = &[18, 12];
         let recv = receiver(&[DATA]);
         assert!(recv.recv::<Fp31, _>(1_usize).now_or_never().is_none());
+        assert!(recv.recv::<Fp31, _>(1_usize).now_or_never().is_none());
         for (i, &v) in DATA.iter().enumerate() {
             let f: Fp31 = recv.recv(i).now_or_never().unwrap().unwrap();
             assert_eq!(f, Fp31::from(u128::from(v)));
@@ -475,11 +479,11 @@ mod test {
     }
 
     /// Register more reads than the receiver has the capacity to track.
-    /// Start by registering those that are furthest into the future, so
-    /// that we can ensure that we exercise the overflow tracking mechanism.
+    /// Start by registering those that are furthest into the future to
+    /// exercise the overflow tracking mechanism.
     #[test]
     fn too_many_reads() {
-        const DATA: &[u8] = &[8, 9, 10, 11, 13, 17];
+        const DATA: &[u8] = &[1, 2, 3, 5, 7, 11, 13, 17, 23, 29];
         run(|| {
             let recv = receiver(vec![DATA.to_vec()]);
             async move {
