@@ -208,7 +208,7 @@ async fn is_credit_larger_than_cap<F: Field>(
                         ctx.narrow(&Step::IsCapLessThanCurrentContribution),
                         RecordId::from(i),
                         &credit_bits,
-                        F::from(cap.into()),
+                        cap,
                     )
                     .await?;
                     Ok::<_, Error>(compare_bit)
