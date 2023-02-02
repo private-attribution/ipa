@@ -23,6 +23,7 @@ use crate::{
         Arithmetic,
     },
 };
+
 use async_trait::async_trait;
 use futures::future::{try_join3, try_join_all};
 
@@ -52,6 +53,8 @@ enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
+    AfterConvertAllBits,
+    IPAModulusConvertedInputRowUpgrade
 }
 
 impl crate::protocol::Substep for Step {}
@@ -67,6 +70,8 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
+            Self::AfterConvertAllBits => "after_convert_all_bits",
+            Self::IPAModulusConvertedInputRowUpgrade => "modulus_converted_input_row_upgrade"
         }
     }
 }
@@ -298,7 +303,7 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code, clippy::too_many_lines)]
-pub async fn ipa_wip_malicious<F, T, MK, BK>(
+pub async fn ipa_wip_malicious<F, MK, BK>(
     sh_ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
@@ -307,7 +312,6 @@ pub async fn ipa_wip_malicious<F, T, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
 where
     F: Field,
-    T: Arithmetic<F>,
     MK: BitArray,
     BK: BitArray,
 {
@@ -341,12 +345,17 @@ where
     .await
     .unwrap();
 
+    let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
+    let m_ctx = malicious_validator.context();
+
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
     // Breakdown key modulus conversion
     let converted_bk_shares = convert_all_bits(
-        &sh_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &convert_all_bits_local(sh_ctx.role(), &bk_shares),
+        &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        &m_ctx
+            .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
+            .await?,
         BK::BITS,
         num_multi_bits,
     )
@@ -355,23 +364,28 @@ where
 
     let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
 
-    let combined_match_keys_and_sidecar_data =
-        std::iter::zip(converted_mk_shares, converted_bk_shares)
-            .into_iter()
-            .zip(input_rows)
-            .map(
-                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
-                    mk_shares,
-                    is_trigger_bit: input_row.is_trigger_bit.clone(),
-                    breakdown_key: bk_shares,
-                    trigger_value: input_row.trigger_value.clone(),
-                    _marker: PhantomData::default(),
-                },
+    let combined_match_keys_and_sidecar_data = try_join_all(
+        zip(
+            repeat(m_ctx.clone()),
+            zip(converted_mk_shares, converted_bk_shares),
+        )
+        .into_iter()
+        .zip(input_rows)
+        .map(|((m_ctx, (mk_shares, bk_shares)), input_row)| async move {
+            IPAModulusConvertedInputRow::<F, Replicated<F>>::upgrade_to_malicious(
+                m_ctx.narrow(&Step::IPAModulusConvertedInputRowUpgrade),
+                mk_shares,
+                input_row.is_trigger_bit.clone(),
+                input_row.trigger_value.clone(),
+                bk_shares,
             )
-            .collect::<Vec<_>>();
+            .await
+        }),
+    )
+    .await?;
 
     let sorted_rows = apply_sort_permutation(
-        sh_ctx.narrow(&Step::ApplySortPermutation),
+        m_ctx.narrow(&Step::ApplySortPermutation),
         combined_match_keys_and_sidecar_data,
         &sort_permutation,
     )
@@ -380,7 +394,7 @@ where
 
     let futures = zip(
         repeat(
-            sh_ctx
+            m_ctx
                 .narrow(&Step::ComputeHelperBits)
                 .set_total_records(sorted_rows.len() - 1),
         ),
@@ -388,11 +402,11 @@ where
     )
     .zip(sorted_rows.iter().skip(1))
     .enumerate()
-    .map(|(i, ((sh_ctx, row), next_row))| {
+    .map(|(i, ((m_ctx, row), next_row))| {
         let record_id = RecordId::from(i);
-        async move { bitwise_equal(sh_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
+        async move { bitwise_equal(m_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
     });
-    let helper_bits = Some(Replicated::ZERO)
+    let helper_bits = Some(MaliciousReplicated::ZERO)
         .into_iter()
         .chain(try_join_all(futures).await?);
 
@@ -407,17 +421,20 @@ where
         .collect::<Vec<_>>();
 
     let accumulated_credits = accumulate_credit(
-        sh_ctx.narrow(&Step::AccumulateCredit),
+        m_ctx.narrow(&Step::AccumulateCredit),
         &attribution_input_rows,
     )
     .await?;
 
     let user_capped_credits = credit_capping(
-        sh_ctx.narrow(&Step::PerformUserCapping),
+        m_ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
         per_user_credit_cap,
     )
     .await?;
+
+    //Validate before calling sort with downgraded context
+    let user_capped_credits = malicious_validator.validate(user_capped_credits).await?;
 
     aggregate_credit::<F, BK>(
         sh_ctx.narrow(&Step::AggregateCredit),
@@ -442,9 +459,7 @@ pub mod tests {
     };
     use rand::Rng;
 
-    use crate::secret_sharing::replicated::{
-        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
-    };
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -519,7 +534,7 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_wip_malicious::<Fp31, MaliciousReplicated<Fp31>, MatchKey, BreakdownKey>(
+                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
