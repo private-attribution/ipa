@@ -4,7 +4,6 @@ use super::dumb_bitwise_sum::bitwise_sum;
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::boolean::local_secret_shared_bits;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
@@ -50,7 +49,8 @@ impl BitDecomposition {
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //
         // `BitwiseSum` outputs `l + 1` bits, so [d]_B is (l + 1)-bit long.
-        let d_b = bitwise_add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128()).await?;
+        let d_b = bitwise_add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128())
+            .await?;
 
         // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
         let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
