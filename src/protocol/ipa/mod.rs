@@ -25,7 +25,10 @@ use super::{
     attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
     context::SemiHonestContext,
     malicious::MaliciousValidator,
-    sort::generate_permutation::generate_permutation_and_reveal_shuffled,
+    sort::generate_permutation::{
+        generate_permutation_and_reveal_shuffled,
+        malicious_generate_permutation_and_reveal_shuffled,
+    },
 };
 use super::{
     modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
@@ -298,7 +301,7 @@ where
     //Validate before calling sort with downgraded context
     let converted_mk_shares = malicious_validator.validate(converted_mk_shares).await?;
 
-    let sort_permutation = generate_permutation_and_reveal_shuffled(
+    let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_mk_shares,
     )
