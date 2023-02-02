@@ -91,15 +91,12 @@ impl<V: ArithmeticShare> AdditiveShare<V> {
     pub fn share_known_value(
         helper_role: Role,
         value: V,
-        r_share: &SemiHonestAdditiveShare<V>,
+        r_share: SemiHonestAdditiveShare<V>,
     ) -> Self {
-        let x = SemiHonestAdditiveShare::share_known_value(helper_role, value);
-        let rx = match helper_role {
-            Role::H1 => SemiHonestAdditiveShare::new(r_share.left() * value, V::ZERO),
-            Role::H2 => SemiHonestAdditiveShare::share_known_value(helper_role, value),
-            Role::H3 => SemiHonestAdditiveShare::new(V::ZERO, r_share.right() * value),
-        };
-        Self::new(x, rx)
+        Self::new(
+            SemiHonestAdditiveShare::share_known_value(helper_role, value),
+            r_share * value,
+        )
     }
 }
 
