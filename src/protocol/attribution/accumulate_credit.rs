@@ -53,7 +53,7 @@ where
     // These vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
 
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
 
     let mut credits = input

@@ -81,9 +81,6 @@ pub trait Context<V: ArithmeticShare>:
     #[must_use]
     fn mesh(&self) -> Mesh<'_, '_>;
 
-    /// Generates a new share of one
-    fn share_of_one(&self) -> <Self as Context<V>>::Share;
-
     fn share_known_value(&self, scalar: V) -> <Self as Context<V>>::Share;
 }
 

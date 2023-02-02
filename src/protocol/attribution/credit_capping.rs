@@ -99,7 +99,7 @@ where
             .iter()
             .zip(zip(
                 repeat(ctx.narrow(&Step::MaskSourceCredits)),
-                repeat(ctx.share_of_one()),
+                repeat(ctx.share_known_value(F::ONE)),
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
@@ -124,7 +124,7 @@ where
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
 {
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
 
     let num_rows = input.len();

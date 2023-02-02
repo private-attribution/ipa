@@ -37,7 +37,7 @@ where
     (0..F::Integer::BITS)
         .map(|i| {
             if ((x >> i) & 1) == 1 {
-                ctx.share_of_one()
+                ctx.share_known_value(F::ONE)
             } else {
                 S::ZERO
             }
@@ -122,7 +122,7 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     let res = no_ones(ctx, record_id, x).await?;
     Ok(one - &res)
 }
@@ -133,7 +133,7 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     let inverted_elements = flip_bits(one.clone(), x);
     // To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
     multiply_all_shares(ctx, record_id, &inverted_elements).await

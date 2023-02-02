@@ -43,8 +43,7 @@ pub async fn multi_bit_permutation<
 
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
-    let share_of_one = ctx.share_of_one();
-
+    let share_of_one = ctx.share_known_value(F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
         input
@@ -200,7 +199,7 @@ where
 {
     let record_id = RecordId::from(record_idx);
     let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
-    precomputed_combinations.push(ctx.share_of_one());
+    precomputed_combinations.push(ctx.share_known_value(F::ONE));
     for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
         let mut multiplication_results =

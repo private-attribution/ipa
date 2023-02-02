@@ -34,7 +34,7 @@ where
     F: Field,
     BK: BitArray,
 {
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
 
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -172,7 +172,7 @@ where
     BK: BitArray,
 {
     let zero = T::ZERO;
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
 
     // Unique breakdown_key values with all other fields initialized with 0's.
     // Since we cannot see the actual breakdown key values, we'll need to
