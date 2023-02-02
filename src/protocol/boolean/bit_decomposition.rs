@@ -66,14 +66,13 @@ impl BitDecomposition {
         let f_b = (0..l).map(|i| F::from(x >> i & 1));
 
         // Step 8, 9. [g_i] = [q] * f_i
-        let mut g_b = f_b
+        let g_b = f_b
             .into_iter()
             .map(|f_bit| q_p.clone() * f_bit)
+            // Since bitwise-sum will return +1 bit from the carry, d_b.len() is 1 bit longer
+            // than g_b. Append ZERO to make them the same size.
+            .chain(std::iter::once(S::ZERO))
             .collect::<Vec<_>>();
-
-        // Since bitwise-sum will return +1 bit from the carry, d_b.len() is 1 bit longer
-        // than g_b. Append ZERO to make them the same size.
-        g_b.push(S::ZERO);
 
         // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(l+1))
         //
