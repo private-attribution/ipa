@@ -83,6 +83,8 @@ pub trait Context<V: ArithmeticShare>:
 
     /// Generates a new share of one
     fn share_of_one(&self) -> <Self as Context<V>>::Share;
+
+    fn scalar_share(&self, scalar: V) -> <Self as Context<V>>::Share;
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

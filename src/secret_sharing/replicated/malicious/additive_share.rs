@@ -86,6 +86,17 @@ impl<V: ArithmeticShare> AdditiveShare<V> {
         x: SemiHonestAdditiveShare::ZERO,
         rx: SemiHonestAdditiveShare::ZERO,
     };
+
+    /// Returns share of a scalar value.
+    pub fn scalar_share(helper_role: Role, a: V, r_share: &SemiHonestAdditiveShare<V>) -> Self {
+        let x = SemiHonestAdditiveShare::scalar_share(helper_role, a);
+        let rx = match helper_role {
+            Role::H1 => SemiHonestAdditiveShare::new(r_share.left() * a, V::ZERO),
+            Role::H2 => SemiHonestAdditiveShare::scalar_share(helper_role, a),
+            Role::H3 => SemiHonestAdditiveShare::new(V::ZERO, r_share.right() * a),
+        };
+        Self::new(x, rx)
+    }
 }
 
 impl<F: Field> AdditiveShare<F> {

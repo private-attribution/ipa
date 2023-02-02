@@ -46,7 +46,7 @@ impl<V: ArithmeticShare> AdditiveShare<V> {
     }
 
     /// Returns share of a scalar value.
-    pub fn from_scalar(helper_role: Role, a: V) -> Self {
+    pub fn scalar_share(helper_role: Role, a: V) -> Self {
         match helper_role {
             Role::H1 => Self::new(a, V::ZERO),
             Role::H2 => Self::new(V::ZERO, V::ZERO),
@@ -62,7 +62,7 @@ impl<F: Field> AdditiveShare<F> {
     /// Returns share of value one.
     #[must_use]
     pub fn one(helper_role: Role) -> Self {
-        Self::from_scalar(helper_role, F::ONE)
+        Self::scalar_share(helper_role, F::ONE)
     }
 }
 

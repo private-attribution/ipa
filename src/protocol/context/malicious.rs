@@ -158,6 +158,10 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     fn share_of_one(&self) -> <Self as Context<F>>::Share {
         MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
     }
+
+    fn scalar_share(&self, scalar: F) -> <Self as Context<F>>::Share {
+        MaliciousReplicated::scalar_share(self.role(), scalar, &self.inner.r_share)
+    }
 }
 
 /// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
