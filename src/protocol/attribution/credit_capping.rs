@@ -229,7 +229,7 @@ async fn compute_final_credits<F: Field>(
     cap: u32,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let num_rows = input.len();
-    let cap = Replicated::scalar_share(ctx.role(), F::from(cap.into()));
+    let cap = Replicated::share_known_value(ctx.role(), F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:

@@ -159,8 +159,8 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
     }
 
-    fn scalar_share(&self, scalar: F) -> <Self as Context<F>>::Share {
-        MaliciousReplicated::scalar_share(self.role(), scalar, &self.inner.r_share)
+    fn share_known_value(&self, value: F) -> <Self as Context<F>>::Share {
+        MaliciousReplicated::share_known_value(self.role(), value, &self.inner.r_share)
     }
 }
 

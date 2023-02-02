@@ -126,8 +126,8 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         Replicated::one(self.role())
     }
 
-    fn scalar_share(&self, scalar: F) -> <Self as Context<F>>::Share {
-        Replicated::scalar_share(self.role(), scalar)
+    fn share_known_value(&self, scalar: F) -> <Self as Context<F>>::Share {
+        Replicated::share_known_value(self.role(), scalar)
     }
 }
 

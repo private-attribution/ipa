@@ -52,7 +52,7 @@ impl<V: BooleanShare> XorShare<V> {
     }
 
     /// Returns share of a scalar value.
-    pub fn scalar_share(helper_role: Role, a: V) -> Self {
+    pub fn share_known_value(helper_role: Role, a: V) -> Self {
         match helper_role {
             Role::H1 => Self::new(a, V::ZERO),
             Role::H2 => Self::new(V::ZERO, V::ZERO),
