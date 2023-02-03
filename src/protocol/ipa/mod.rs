@@ -29,7 +29,7 @@ use futures::future::{try_join3, try_join_all};
 
 use super::{
     attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
-    context::{MaliciousContext, SemiHonestContext},
+    context::{malicious::IPAModulusConvertedInputRowWrapper, MaliciousContext, SemiHonestContext},
     malicious::MaliciousValidator,
     sort::generate_permutation::{
         generate_permutation_and_reveal_shuffled,
@@ -54,7 +54,6 @@ enum Step {
     PerformUserCapping,
     AggregateCredit,
     AfterConvertAllBits,
-    IPAModulusConvertedInputRowUpgrade
 }
 
 impl crate::protocol::Substep for Step {}
@@ -71,7 +70,6 @@ impl AsRef<str> for Step {
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
             Self::AfterConvertAllBits => "after_convert_all_bits",
-            Self::IPAModulusConvertedInputRowUpgrade => "modulus_converted_input_row_upgrade"
         }
     }
 }
@@ -102,12 +100,12 @@ pub struct IPAInputRow<F: Field, MK: BitArray, BK: BitArray> {
     pub trigger_value: Replicated<F>,
 }
 
-struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
-    mk_shares: Vec<T>,
-    is_trigger_bit: T,
-    breakdown_key: Vec<T>,
-    trigger_value: T,
-    _marker: PhantomData<F>,
+pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
+    pub mk_shares: Vec<T>,
+    pub is_trigger_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub trigger_value: T,
+    pub _marker: PhantomData<F>,
 }
 
 #[async_trait]
@@ -163,9 +161,15 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
         trigger_value: Replicated<F>,
         bk_shares: Vec<MaliciousReplicated<F>>,
     ) -> Result<IPAModulusConvertedInputRow<F, MaliciousReplicated<F>>, Error> {
-        let mk_shares = m_ctx.upgrade(mk_shares).await?;
-        let is_trigger_bit = m_ctx.upgrade(is_trigger_bit).await?;
-        let trigger_value = m_ctx.upgrade(trigger_value).await?;
+        let mk_shares = m_ctx.narrow("1").upgrade(mk_shares).await?;
+
+        // UpgradeContext {
+        //     upgrade_ctx: self.upgrade_ctx.narrow("1"),
+        //     inner: self,
+        //     record_binding: NoRecord,
+        // }.upgrade(mk_shares).await?;
+        let is_trigger_bit = m_ctx.narrow("2").upgrade(is_trigger_bit).await?;
+        let trigger_value = m_ctx.narrow("3").upgrade(trigger_value).await?;
         Ok(IPAModulusConvertedInputRow {
             mk_shares,
             is_trigger_bit,
@@ -354,6 +358,7 @@ where
     let converted_bk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
+            .narrow("0")
             .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
             .await?,
         BK::BITS,
@@ -364,25 +369,34 @@ where
 
     let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
 
-    let combined_match_keys_and_sidecar_data = try_join_all(
-        zip(
-            repeat(m_ctx.clone()),
-            zip(converted_mk_shares, converted_bk_shares),
-        )
+    let intermediate = converted_mk_shares
         .into_iter()
         .zip(input_rows)
-        .map(|((m_ctx, (mk_shares, bk_shares)), input_row)| async move {
-            IPAModulusConvertedInputRow::<F, Replicated<F>>::upgrade_to_malicious(
-                m_ctx.narrow(&Step::IPAModulusConvertedInputRowUpgrade),
+        .map(
+            |(mk_shares, input_row)| IPAModulusConvertedInputRowWrapper {
                 mk_shares,
-                input_row.is_trigger_bit.clone(),
-                input_row.trigger_value.clone(),
-                bk_shares,
-            )
-            .await
-        }),
-    )
-    .await?;
+                is_trigger_bit: input_row.is_trigger_bit.clone(),
+                trigger_value: input_row.trigger_value.clone(),
+                _marker: PhantomData::default(),
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let intermediate = m_ctx.upgrade(intermediate).await?;
+    
+    let combined_match_keys_and_sidecar_data = intermediate
+        .into_iter()
+        .zip(converted_bk_shares)
+        .map(
+            |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
+                mk_shares: one_row.mk_shares,
+                is_trigger_bit: one_row.is_trigger_bit,
+                trigger_value: one_row.trigger_value,
+                breakdown_key: bk_shares,
+                _marker: PhantomData::default(),
+            },
+        )
+        .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
         m_ctx.narrow(&Step::ApplySortPermutation),
@@ -445,6 +459,7 @@ where
     )
     .await
 }
+
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::{ipa, ipa_wip_malicious};

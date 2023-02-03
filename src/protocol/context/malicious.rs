@@ -1,4 +1,5 @@
 use std::iter::{repeat, zip};
+use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
@@ -21,6 +22,7 @@ use crate::repeat64str;
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
+use crate::secret_sharing::Arithmetic;
 use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
@@ -121,6 +123,9 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
+        if !self.is_total_records_unspecified() {
+            println!("assert is coming");
+        }
         debug_assert!(
             self.is_total_records_unspecified(),
             "attempt to set total_records more than once"
@@ -212,6 +217,105 @@ impl AsRef<str> for UpgradeTripleStep {
     }
 }
 
+enum UpgradeModConvStep {
+    V0,
+    V1,
+    V2,
+}
+
+impl crate::protocol::Substep for UpgradeModConvStep {}
+
+impl AsRef<str> for UpgradeModConvStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::V0 => "upgrade_mod_conv0",
+            Self::V1 => "upgrade_mod_conv1",
+            Self::V2 => "upgrade_mod_conv2",
+        }
+    }
+}
+
+#[async_trait]
+impl<'a, F: Field>
+    UpgradeToMalicious<
+        IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
+        IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>,
+    > for UpgradeContext<'a, F, RecordId>
+{
+    async fn upgrade(
+        self,
+        input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
+    ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
+        let mk_shares = UpgradeContext {
+            upgrade_ctx: self.upgrade_ctx.narrow(&UpgradeModConvStep::V0),
+            inner: self.inner,
+            record_binding: NoRecord,
+        }
+        .upgrade(input.mk_shares)
+        .await?;
+
+        let is_trigger_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx.narrow(&UpgradeModConvStep::V1),
+                self.record_binding,
+                input.is_trigger_bit,
+                ZeroPositions::Pzvz,
+            )
+            .await?;
+
+        let trigger_value = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx.narrow(&UpgradeModConvStep::V2),
+                self.record_binding,
+                input.trigger_value,
+                ZeroPositions::Pzzv,
+            )
+            .await?;
+        Ok(IPAModulusConvertedInputRowWrapper {
+            mk_shares,
+            is_trigger_bit,
+            trigger_value,
+            _marker: PhantomData::default(),
+        })
+    }
+}
+
+pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
+    pub mk_shares: Vec<T>,
+    pub is_trigger_bit: T,
+    pub trigger_value: T,
+    pub _marker: PhantomData<F>,
+}
+
+#[async_trait]
+impl<'a, F>
+    UpgradeToMalicious<
+        Vec<IPAModulusConvertedInputRowWrapper<F, Replicated<F>>>,
+        Vec<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>>,
+    > for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+{
+    async fn upgrade(
+        self,
+        input: Vec<IPAModulusConvertedInputRowWrapper<F, Replicated<F>>>,
+    ) -> Result<Vec<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>>, Error> {
+        let ctx = self.upgrade_ctx.set_total_records(input.len());
+        let ctx_ref = &ctx;
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+            UpgradeContext {
+                upgrade_ctx: ctx_ref.clone(),
+                inner: self.inner,
+                record_binding: RecordId::from(i),
+            }
+            .upgrade(share)
+            .await
+        }))
+        .await
+    }
+}
 #[derive(Debug)]
 struct ContextInner<'a, F: Field> {
     role: Role,

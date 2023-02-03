@@ -5,7 +5,7 @@ use crate::protocol::basics::{Reveal, SecureMul};
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::{ArithmeticShare, SecretSharing};
 
-mod malicious;
+pub mod malicious;
 mod prss;
 mod semi_honest;
 
