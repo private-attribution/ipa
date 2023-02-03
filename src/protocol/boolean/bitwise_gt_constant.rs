@@ -122,12 +122,11 @@ impl AsRef<str> for Step {
 mod tests {
     use super::bitwise_greater_than_constant;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::protocol::boolean::into_bits;
     use crate::protocol::context::Context;
     use crate::protocol::RecordId;
     use crate::rand::thread_rng;
     use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::test_fixture::{into_bits, Reconstruct, Runner, TestWorld};
     use proptest::prelude::Rng;
     use rand::{distributions::Standard, prelude::Distribution};
 

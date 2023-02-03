@@ -12,7 +12,7 @@ mod bit_decomposition;
 pub mod bitwise_equal;
 mod bitwise_gt_constant;
 mod bitwise_less_than_prime;
-mod dumb_bitwise_sum;
+mod dumb_bitwise_add_constant;
 mod generate_random_bits;
 mod or;
 pub mod random_bits_generator;
@@ -42,13 +42,6 @@ where
                 S::ZERO
             }
         })
-        .collect::<Vec<_>>()
-}
-
-/// Deconstructs a field value into N values, one for each bit.
-pub fn into_bits<F: Field>(v: F) -> Vec<F> {
-    (0..(u128::BITS - F::PRIME.into().leading_zeros()))
-        .map(|i| F::from((v.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
 }
 
