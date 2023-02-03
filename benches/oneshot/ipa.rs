@@ -3,8 +3,9 @@ use raw_ipa::error::Error;
 use raw_ipa::ff::Fp32BitPrime;
 use raw_ipa::ipa_test_input;
 use raw_ipa::protocol::ipa::ipa;
+// use raw_ipa::protocol::ipa::{ipa_wip_malicious};
+
 use raw_ipa::protocol::{BreakdownKey, MatchKey};
-use raw_ipa::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use raw_ipa::test_fixture::input::GenericReportTestInput;
 use raw_ipa::test_fixture::{Runner, TestWorld, TestWorldConfig};
 use std::num::NonZeroUsize;
@@ -12,7 +13,7 @@ use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 100;
+    const BATCHSIZE: usize = 1000;
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
     const MAX_BREAKDOWN_KEY: u128 = 4;
@@ -44,7 +45,8 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime, Replicated<Fp32BitPrime>, MatchKey, BreakdownKey>(
+            // ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+            ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                 ctx,
                 &input_rows,
                 PER_USER_CAP,

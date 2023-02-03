@@ -7,6 +7,11 @@ use crate::helpers::Role;
 use crate::protocol::context::Context;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::{RecordId, Substep};
+use crate::secret_sharing::replicated::malicious::{
+    AdditiveShare as MaliciousReplicated, DowngradeMalicious,
+    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+};
+use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
 use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
@@ -47,6 +52,26 @@ pub struct MCCreditCappingOutputRow<F: Field, T: Arithmetic<F>> {
     pub _marker: PhantomData<F>,
 }
 
+#[async_trait]
+impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>> {
+    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
+    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        // Note that this clones the values rather than moving them.
+        // This code is only used in test code, so that's probably OK.
+        UnauthorizedDowngradeWrapper::new(Self::Target {
+            helper_bit: self.helper_bit.x().access_without_downgrade().clone(),
+            aggregation_bit: self.aggregation_bit.x().access_without_downgrade().clone(),
+            breakdown_key: self
+                .breakdown_key
+                .into_iter()
+                .map(|bk| bk.x().access_without_downgrade().clone())
+                .collect::<Vec<_>>(),
+            credit: self.credit.x().access_without_downgrade().clone(),
+            _marker: PhantomData::default(),
+        })
+    }
+}
 //
 // `aggregate_credit` protocol
 //
