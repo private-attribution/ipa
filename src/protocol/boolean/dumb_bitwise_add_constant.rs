@@ -108,6 +108,13 @@ where
 // In those cases, the carry is very simple, it's just one multiplication, the unknown-bit * the last carry.
 // In those cases where the constant has a 1 bit, you have to do more work,
 // but there are only 2 of those, and one is the very first bit, when there is no other carry! So it's a special case as well.
+//
+// `a` must have length < 128
+// the output will be one longer than `a`.
+// `maybe` must be a secret sharing of either `1` or `0`. It should be thought of as a secret-shared boolean.
+//
+// The least significant bit of `b` must be a `1`.
+// I'm just specializing this function in this way because I only expect it to be used that way in practice.
 pub async fn bitwise_add_constant_maybe<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -120,25 +127,19 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
+    assert!(a.len() < 128);
+    assert_eq!(
+        b & 1,
+        1,
+        "This function only accepts values of `b` where the least significant bit is `1`."
+    );
     let mut output = Vec::with_capacity(a.len() + 1);
 
-    let mut last_carry = S::ZERO;
-    if (b & 1) == 1 {
-        let next_carry = ctx
-            .narrow(&BitOpStep::from(0))
-            .multiply(record_id, &a[0], maybe)
-            .await?;
-        output.push(-next_carry.clone() * F::from(2) + &a[0] + maybe);
-        last_carry = next_carry;
-    } else {
-        output.push(a[0].clone());
-        // In practice, I don't expect to exercize this path, because bit-decomposition
-        // involves (maybe) adding `2^l - PRIME`, which in our case is:
-        // `2^32 - 4_294_967_291 = 5`
-        // ...so the least significant bit will be a `1`.
-        // In fact, for ANY prime number, the least significant bit will ALWAYS be `1`
-        // Since all primes are odd (apart from 2).
-    }
+    let mut last_carry = ctx
+        .narrow(&BitOpStep::from(0))
+        .multiply(record_id, &a[0], maybe)
+        .await?;
+    output.push(-last_carry.clone() * F::from(2) + &a[0] + maybe);
 
     let ctx_other = ctx.narrow(&Step::CarryXorBitTimesMaybe);
     for (bit_index, bit) in a.iter().enumerate().skip(1) {
@@ -287,23 +288,7 @@ mod tests {
             add_constant_maybe(&world, zero, 1, zero).await
         );
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add_constant(&world, one, 0).await);
-        assert_eq!(
-            vec![1, 0, 0, 0, 0, 0],
-            add_constant_maybe(&world, one, 0, one).await
-        );
-        assert_eq!(
-            vec![1, 0, 0, 0, 0, 0],
-            add_constant_maybe(&world, one, 0, zero).await
-        );
         assert_eq!(vec![0, 0, 0, 0, 0, 0], add_constant(&world, zero, 0).await);
-        assert_eq!(
-            vec![0, 0, 0, 0, 0, 0],
-            add_constant_maybe(&world, zero, 0, one).await
-        );
-        assert_eq!(
-            vec![0, 0, 0, 0, 0, 0],
-            add_constant_maybe(&world, zero, 0, zero).await
-        );
         assert_eq!(vec![0, 1, 0, 0, 0, 0], add_constant(&world, one, 1).await);
         assert_eq!(
             vec![0, 1, 0, 0, 0, 0],
@@ -341,7 +326,6 @@ mod tests {
         );
     }
 
-    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     pub async fn fp32_bit_prime() {
         let zero = Fp32BitPrime::ZERO;
@@ -356,61 +340,47 @@ mod tests {
             ],
             add_constant(&world, zero, 0).await
         );
-        assert_eq!(
-            vec![
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0
-            ],
-            add_constant_maybe(&world, zero, 0, one).await
-        );
-        assert_eq!(
-            vec![
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0
-            ],
-            add_constant_maybe(&world, zero, 0, zero).await
-        );
 
         // Prime - 1 + 6
         assert_eq!(
             vec![
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 1
             ],
-            add_constant(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 6).await
+            add_constant(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7).await
         );
         assert_eq!(
             vec![
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 1
             ],
-            add_constant_maybe(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 6, one).await
+            add_constant_maybe(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7, one).await
         );
         assert_eq!(
             vec![
                 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                 1, 1, 1, 1, 0
             ],
-            add_constant_maybe(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 6, zero).await
+            add_constant_maybe(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7, zero).await
         );
 
         // 123456789 + 234567890
         assert_eq!(
             vec![
-                1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0, 0
             ],
-            add_constant(&world, Fp32BitPrime::from(123_456_789_u128), 234_567_890).await
+            add_constant(&world, Fp32BitPrime::from(123_456_789_u128), 234_567_891).await
         );
         assert_eq!(
             vec![
-                1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0, 0
             ],
             add_constant_maybe(
                 &world,
                 Fp32BitPrime::from(123_456_789_u128),
-                234_567_890,
+                234_567_891,
                 one
             )
             .await
@@ -423,7 +393,7 @@ mod tests {
             add_constant_maybe(
                 &world,
                 Fp32BitPrime::from(123_456_789_u128),
-                234_567_890,
+                234_567_891,
                 zero
             )
             .await
