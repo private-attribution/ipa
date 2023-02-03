@@ -72,7 +72,6 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
         })
     }
 }
-// }
 //
 // `aggregate_credit` protocol
 //

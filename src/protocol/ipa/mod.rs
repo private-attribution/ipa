@@ -276,6 +276,8 @@ where
     .await
 }
 
+/// Malicious IPA
+/// We return Replicated<F> as output since there is compute after this and in aggregate_credit, last communication operation was sort
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
@@ -422,8 +424,6 @@ where
     .await?;
 
     //Validate before calling sort with downgraded context
-    // let user_capped_credits = malicious_validator.validate(user_capped_credits).await?;
-
     malicious_aggregate_credit::<F, BK>(
         m_ctx.narrow(&Step::AggregateCredit),
         malicious_validator,
