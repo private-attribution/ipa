@@ -283,13 +283,19 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code, clippy::too_many_lines)]
-pub async fn ipa_wip_malicious<F, MK, BK>(
-    sh_ctx: SemiHonestContext<'_, F>,
+pub async fn ipa_wip_malicious<'a, F, MK, BK>(
+    sh_ctx: SemiHonestContext<'a, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
+) -> Result<
+    (
+        MaliciousValidator<'a, F>,
+        Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>,
+    ),
+    Error,
+>
 where
     F: Field,
     MK: BitArray,
@@ -449,7 +455,12 @@ pub mod tests {
         ff::{Field, Fp31},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
+    use futures::future::join3;
     use rand::Rng;
+
+    // pub breakdown_key: Vec<T>,
+    // pub credit: T,
+    // pub _marker: PhantomData<F>,
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -462,7 +473,7 @@ pub mod tests {
 
         let world = TestWorld::new().await;
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+        let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -473,7 +484,7 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
@@ -522,9 +533,9 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let [result0, result1, result2] = world
+        let [(v0, result0), (v1, result1), (v2, result2)] = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
+                ipa_wip_malicious::<_, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -535,10 +546,25 @@ pub mod tests {
                 .unwrap()
             })
             .await;
+        let (result0, result1, result2) = join3(
+            v0.validate(result0),
+            v1.validate(result1),
+            v2.validate(result2),
+        )
+        .await;
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> =
+            [result0.unwrap(), result1.unwrap(), result2.unwrap()].reconstruct();
+        assert_eq!(EXPECTED.len(), result.len());
 
-        assert_eq!(EXPECTED.len(), result0.len());
-        assert_eq!(EXPECTED.len(), result1.len());
-        assert_eq!(EXPECTED.len(), result2.len());
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
     }
 
     #[tokio::test]

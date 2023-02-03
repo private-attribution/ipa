@@ -58,7 +58,6 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         // Note that this clones the values rather than moving them.
-        // This code is only used in test code, so that's probably OK.
         UnauthorizedDowngradeWrapper::new(Self::Target {
             helper_bit: self.helper_bit.x().access_without_downgrade().clone(),
             aggregation_bit: self.aggregation_bit.x().access_without_downgrade().clone(),
@@ -72,6 +71,27 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
         })
     }
 }
+
+#[async_trait]
+impl<F: Field> DowngradeMalicious for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>> {
+    type Target = MCAggregateCreditOutputRow<F, Replicated<F>>;
+    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        // Note that this clones the values rather than moving them.
+        // This code is only used in test code, so that's probably OK.
+        assert!(cfg!(test), "This code isn't ideal outside of tests");
+        UnauthorizedDowngradeWrapper::new(Self::Target {
+            breakdown_key: self
+                .breakdown_key
+                .into_iter()
+                .map(|bk| bk.x().access_without_downgrade().clone())
+                .collect::<Vec<_>>(),
+            credit: self.credit.x().access_without_downgrade().clone(),
+            _marker: PhantomData::default(),
+        })
+    }
+}
+
 //
 // `aggregate_credit` protocol
 //
