@@ -5,7 +5,7 @@ use super::{
 };
 use crate::ff::Field;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
+use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
 use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
 use crate::{error::Error, secret_sharing::Arithmetic};
@@ -202,7 +202,6 @@ where
     T: Arithmetic<F>,
 {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
-    let cap = local_secret_shared_bits(&ctx, cap.into());
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
@@ -228,11 +227,11 @@ where
                     .await?;
 
                     // compare_bit = current_contribution > cap
-                    let compare_bit = BitwiseLessThan::execute(
+                    let compare_bit = bitwise_greater_than_constant(
                         ctx.narrow(&Step::IsCapLessThanCurrentContribution),
                         RecordId::from(i),
-                        &cap,
                         &credit_bits,
+                        cap.into(),
                     )
                     .await?;
                     Ok::<_, Error>(compare_bit)

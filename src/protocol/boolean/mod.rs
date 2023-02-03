@@ -1,7 +1,7 @@
 use futures::future::try_join_all;
 
 use crate::error::Error;
-use crate::ff::{Field, Int};
+use crate::ff::Field;
 use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use std::iter::repeat;
 
@@ -10,9 +10,9 @@ use super::{BitOpStep, RecordId};
 
 mod bit_decomposition;
 pub mod bitwise_equal;
+mod bitwise_gt_constant;
 mod bitwise_less_than_prime;
-mod dumb_bitwise_lt;
-mod dumb_bitwise_sum;
+mod dumb_bitwise_add_constant;
 mod generate_random_bits;
 mod or;
 pub mod random_bits_generator;
@@ -22,7 +22,7 @@ mod xor;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
 pub use {
-    bit_decomposition::BitDecomposition, dumb_bitwise_lt::BitwiseLessThan,
+    bit_decomposition::BitDecomposition, bitwise_gt_constant::bitwise_greater_than_constant,
     generate_random_bits::RandomBits,
 };
 
@@ -34,7 +34,7 @@ where
     C: Context<F, Share = S>,
     S: SecretSharing<F>,
 {
-    (0..F::Integer::BITS)
+    (0..(u128::BITS - F::PRIME.into().leading_zeros()))
         .map(|i| {
             if ((x >> i) & 1) == 1 {
                 ctx.share_known_value(F::ONE)
@@ -43,29 +43,6 @@ where
             }
         })
         .collect::<Vec<_>>()
-}
-
-/// Aligns the bits by padding extra zeros at the end (assuming the bits are in
-/// little-endian format).
-/// TODO: this needs to be removed; where it is used there are better optimizations.
-fn align_bit_lengths<F, S>(a: &[S], b: &[S]) -> (Vec<S>, Vec<S>)
-where
-    F: Field,
-    S: SecretSharing<F>,
-{
-    let mut a = a.to_vec();
-    let mut b = b.to_vec();
-
-    if a.len() == b.len() {
-        return (a, b);
-    }
-
-    let pad_a = b.len().saturating_sub(a.len());
-    let pad_b = a.len().saturating_sub(b.len());
-    a.append(&mut repeat(S::ZERO).take(pad_a).collect::<Vec<_>>());
-    b.append(&mut repeat(S::ZERO).take(pad_b).collect::<Vec<_>>());
-
-    (a, b)
 }
 
 /// We can minimize circuit depth by doing this in a binary-tree like fashion, where pairs of shares are multiplied together
