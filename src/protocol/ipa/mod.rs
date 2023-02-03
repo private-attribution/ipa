@@ -156,7 +156,8 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
     }
 }
 
-/// Describes a request to execute IPA protocol. Consists of computation inputs and query parameters
+/// Describes a request to execute IPA protocol. Consists of inputs for the computation
+/// and query parameters
 pub struct Query<'a, F: Field, MK: BitArray = MatchKey, BK: BitArray = BreakdownKey> {
     input: &'a [IPAInputRow<F, MK, BK>],
     /// Maximum contribution allowed per match key/user.
@@ -164,8 +165,7 @@ pub struct Query<'a, F: Field, MK: BitArray = MatchKey, BK: BitArray = Breakdown
     /// ?
     max_breakdown_key: u128,
     /// That many bits will be sorted at the same time. Setting it to 1 would mean IPA sorts
-    /// 1 bit at a time. Our experiments confirmed by research papers show that 3 is the optimal
-    /// value.
+    /// 1 bit at a time.
     num_multi_bits: u32,
     /// Indicates how many least significant bits of match keys are used inside the query. By default
     /// this value is set to `MK::BITS`, meaning all bits will be used.
@@ -173,6 +173,7 @@ pub struct Query<'a, F: Field, MK: BitArray = MatchKey, BK: BitArray = Breakdown
 }
 
 impl<'a, F: Field, MK: BitArray, BK: BitArray> Query<'a, F, MK, BK> {
+    /// Our experiments confirmed by research papers show that 3 is the optimal value.
     const DEFAULT_MULTI_BITS: u8 = 3;
 
     pub fn new(
@@ -190,6 +191,12 @@ impl<'a, F: Field, MK: BitArray, BK: BitArray> Query<'a, F, MK, BK> {
             num_multi_bits: u32::from(Self::DEFAULT_MULTI_BITS),
             match_key_bits,
         }
+    }
+
+    #[must_use]
+    pub fn with_match_key_bits(mut self, match_key_bits: u8) -> Self {
+        self.match_key_bits = match_key_bits;
+        self
     }
 }
 
