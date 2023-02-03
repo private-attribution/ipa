@@ -395,7 +395,9 @@ pub mod tests {
     use crate::bits::BitArray;
     use crate::ipa_test_input;
     use crate::protocol::{BreakdownKey, MatchKey};
+    use crate::telemetry::metrics::RECORDS_SENT;
     use crate::test_fixture::input::GenericReportTestInput;
+    use crate::test_fixture::TestWorldConfig;
     use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
         ff::{Field, Fp31},
@@ -546,5 +548,59 @@ pub mod tests {
             .reconstruct();
 
         assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
+    }
+
+    /// Ensures that our communication numbers don't go above the baseline.
+    /// Prints a warning if they are currently below, so someone needs to adjust the baseline
+    /// inside this test.
+    ///
+    /// It is possible to increase the number too if there is a good reason for it. This is a
+    /// "catch all" type of test to make sure we don't miss an accidental regression.
+    #[tokio::test]
+    pub async fn semi_honest_communication_baseline() {
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        /// empirical value as of Feb 2, 2023.
+        const RECORDS_SENT_BASELINE: u64 = 9397;
+
+        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+
+        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+
+        let _: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let snapshot = world.metrics_snapshot();
+        let records_sent = snapshot.get_counter(RECORDS_SENT);
+        assert!(records_sent <= RECORDS_SENT_BASELINE);
+        if records_sent < RECORDS_SENT_BASELINE {
+            tracing::warn!("Baseline for semi-honest IPA has improved! Expected {RECORDS_SENT_BASELINE}, got {records_sent}.\
+                            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+        }
     }
 }
