@@ -568,11 +568,11 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 2, 2023.
-        const RECORDS_SENT_BASELINE: u64 = 9397;
+        const RECORDS_SENT_BASELINE: u64 = 10782;
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+        let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -580,12 +580,12 @@ pub mod tests {
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
             ];
-            (Fp31, MatchKey, BreakdownKey)
+            (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
-        let _: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+        let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31, MatchKey, BreakdownKey>(
+                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
