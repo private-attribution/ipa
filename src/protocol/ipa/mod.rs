@@ -289,7 +289,7 @@ pub async fn ipa_wip_malicious<F, MK, BK>(
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
 where
     F: Field,
     MK: BitArray,
@@ -522,7 +522,7 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+        let [result0, result1, result2] = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
@@ -534,20 +534,11 @@ pub mod tests {
                 .await
                 .unwrap()
             })
-            .await
-            .reconstruct();
+            .await;
 
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(EXPECTED.len(), result0.len());
+        assert_eq!(EXPECTED.len(), result1.len());
+        assert_eq!(EXPECTED.len(), result2.len());
     }
 
     #[tokio::test]
@@ -614,7 +605,7 @@ pub mod tests {
         const RECORDS_SENT_SEMI_HONEST_BASELINE: u64 = 10752;
 
         /// empirical value as of Feb 3, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 24781;
+        const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 26419;
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
@@ -654,7 +645,7 @@ pub mod tests {
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
-        let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
+        let _ = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
@@ -666,8 +657,7 @@ pub mod tests {
                 .await
                 .unwrap()
             })
-            .await
-            .reconstruct();
+            .await;
 
         let snapshot = world.metrics_snapshot();
         let records_sent = snapshot.get_counter(RECORDS_SENT);

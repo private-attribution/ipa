@@ -318,6 +318,8 @@ pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
     pub _marker: PhantomData<F>,
 }
 
+// TODO (richaj): We have 3 implementations of Vec<T> which do exactly the same thing. The reason we are unable to
+// merge them is because it conflicts with Vec<Vec<T>> whose handling is different.
 #[async_trait]
 impl<'a, F>
     UpgradeToMalicious<
