@@ -54,7 +54,7 @@ where
     let one = ctx.share_of_one();
 
     // Compute `[a] ^ b`. This step gives us the bits of values where they differ.
-    let mut xored_bits = a
+    let xored_bits = a
         .iter()
         .enumerate()
         .map(|(i, a_bit)| {
@@ -67,36 +67,37 @@ where
         })
         .collect::<Vec<_>>();
 
-    // In the next step, we'll compute prefix-or from MSB to LSB. Reverse the bits order.
-    xored_bits.reverse();
-
     // Compute prefix-or of the xor'ed bits. This yields 0's followed by 1's with the transition
     // from 0 to 1 occurring at the index of the first different bit.
     let prefix_or_context = ctx.narrow(&Step::PrefixOr);
-    let mut prefix_or = Vec::with_capacity(xored_bits.len());
-    prefix_or.push(xored_bits[0].clone());
-    for i in 1..xored_bits.len() {
+    let mut first_diff_bit = Vec::with_capacity(xored_bits.len());
+    let mut previous_bit = xored_bits.last().cloned().unwrap();
+    first_diff_bit.push(previous_bit.clone());
+    // Process from MSB to LSB
+    for (i, bit) in xored_bits
+        .iter()
+        .take(xored_bits.len() - 1)
+        .rev()
+        .enumerate()
+    {
         let result = or(
             prefix_or_context.narrow(&BitOpStep::from(i)),
             record_id,
-            &prefix_or[i - 1],
-            &xored_bits[i],
+            &previous_bit,
+            bit,
         )
         .await?;
-        prefix_or.push(result);
+
+        // Subtract the previous or'ed bit to yield a single 1 at the index of the first
+        // differing bit. Note that at the index where the transition from 0 to 1 happens,
+        // `prefix_or[i + 1] > prefix_or[i]`. Do not change the order of the subtraction
+        // unless we use Fp2, or the result will be `[p-1]`.
+        first_diff_bit.push(result.clone() - &previous_bit);
+
+        previous_bit = result;
     }
     // Change the order back to the little-endian format.
-    prefix_or.reverse();
-
-    // Subtract neighboring bits to yield all 0's and a single 1 at the index of the first
-    // differing bit. Note that at the index where the transition from 0 to 1 happens,
-    // `prefix_or[i + 1] > prefix_or[i]`. Do not change the order of the subtraction unless
-    // we use Fp2, or the result will be `[p-1]`.
-    let mut first_diff_bit = Vec::with_capacity(prefix_or.len());
-    for i in 0..(prefix_or.len() - 1) {
-        first_diff_bit.push(prefix_or[i].clone() - &prefix_or[i + 1]);
-    }
-    first_diff_bit.push(prefix_or[prefix_or.len() - 1].clone());
+    first_diff_bit.reverse();
 
     Ok(first_diff_bit)
 }
