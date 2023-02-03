@@ -11,20 +11,25 @@ use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 /// Eleftheria Makri, et al.
 /// <https://eprint.iacr.org/2021/119.pdf>
 ///
-/// ## Errors
+/// # Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
+///
+/// # Panics
+/// if bitwise share `a` is longer than 128 bits.
 pub async fn bitwise_greater_than_constant<F, C, S>(
     ctx: C,
     record_id: RecordId,
     a: &[S],
-    c: u32,
+    c: u128,
 ) -> Result<S, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
+    assert!(a.len() <= 128);
+
     let first_diff_bit = first_differing_bit(&ctx, record_id, a, c).await?;
 
     // Compute the dot-product [a] x `first_diff_bit`. 1 iff a > c.
@@ -39,7 +44,7 @@ async fn first_differing_bit<F, C, S>(
     ctx: &C,
     record_id: RecordId,
     a: &[S],
-    b: u32,
+    b: u128,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -126,7 +131,7 @@ mod tests {
     use proptest::prelude::Rng;
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn bitwise_gt<F: Field>(world: &TestWorld, a: F, b: u32) -> F
+    async fn bitwise_gt<F: Field>(world: &TestWorld, a: F, b: u128) -> F
     where
         (F, F): Sized,
         Standard: Distribution<F>,
@@ -182,7 +187,7 @@ mod tests {
         assert_eq!(one, bitwise_gt(&world, c(21), 20).await);
         assert_eq!(zero, bitwise_gt(&world, c(9), 9).await);
 
-        assert_eq!(zero, bitwise_gt(&world, zero, u32::from(Fp31::PRIME)).await);
+        assert_eq!(zero, bitwise_gt(&world, zero, Fp31::PRIME.into()).await);
     }
 
     #[tokio::test]
@@ -202,18 +207,27 @@ mod tests {
         assert_eq!(one, bitwise_gt(&world, c(21), 20).await);
         assert_eq!(zero, bitwise_gt(&world, c(9), 9).await);
 
-        assert_eq!(zero, bitwise_gt(&world, c(u16_max), u16_max + 1).await);
-        assert_eq!(one, bitwise_gt(&world, c(u16_max + 1), u16_max).await);
         assert_eq!(
             zero,
-            bitwise_gt(&world, c(u16_max), Fp32BitPrime::PRIME - 1).await
+            bitwise_gt(&world, c(u16_max), (u16_max + 1).into()).await
         );
         assert_eq!(
             one,
-            bitwise_gt(&world, c(Fp32BitPrime::PRIME - 1), u16_max).await
+            bitwise_gt(&world, c(u16_max + 1), u16_max.into()).await
+        );
+        assert_eq!(
+            zero,
+            bitwise_gt(&world, c(u16_max), (Fp32BitPrime::PRIME - 1).into()).await
+        );
+        assert_eq!(
+            one,
+            bitwise_gt(&world, c(Fp32BitPrime::PRIME - 1), u16_max.into()).await
         );
 
-        assert_eq!(zero, bitwise_gt(&world, zero, Fp32BitPrime::PRIME).await);
+        assert_eq!(
+            zero,
+            bitwise_gt(&world, zero, Fp32BitPrime::PRIME.into()).await
+        );
     }
 
     // this test is for manual execution only
@@ -227,7 +241,7 @@ mod tests {
             let b = rand.gen::<Fp32BitPrime>();
             assert_eq!(
                 Fp32BitPrime::from(a.as_u128() > b.as_u128()),
-                bitwise_gt(&world, a, u32::try_from(b.as_u128()).unwrap()).await
+                bitwise_gt(&world, a, b.as_u128()).await
             );
         }
     }
@@ -241,7 +255,7 @@ mod tests {
             for b in 0..Fp31::PRIME {
                 assert_eq!(
                     Fp31::from(a > b),
-                    bitwise_gt(&world, Fp31::from(a), u32::from(b)).await
+                    bitwise_gt(&world, Fp31::from(a), b.into()).await
                 );
             }
         }
