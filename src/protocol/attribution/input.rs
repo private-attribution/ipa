@@ -53,14 +53,15 @@ pub struct MCCreditCappingOutputRow<F: Field, T: Arithmetic<F>> {
 }
 
 #[async_trait]
-impl<F: Field> DowngradeMalicious for MCCreditCappingOutputRow<F, MaliciousReplicated<F>> {
-    type Target = MCCreditCappingOutputRow<F, Replicated<F>>;
+impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>> {
+    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         // Note that this clones the values rather than moving them.
         // This code is only used in test code, so that's probably OK.
-        assert!(cfg!(test), "This code isn't ideal outside of tests");
         UnauthorizedDowngradeWrapper::new(Self::Target {
+            helper_bit: self.helper_bit.x().access_without_downgrade().clone(),
+            aggregation_bit: self.aggregation_bit.x().access_without_downgrade().clone(),
             breakdown_key: self
                 .breakdown_key
                 .into_iter()
@@ -71,6 +72,7 @@ impl<F: Field> DowngradeMalicious for MCCreditCappingOutputRow<F, MaliciousRepli
         })
     }
 }
+// }
 //
 // `aggregate_credit` protocol
 //

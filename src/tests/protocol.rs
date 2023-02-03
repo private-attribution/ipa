@@ -5,7 +5,6 @@ use crate::ipa_test_input;
 use crate::protocol::ipa::ipa;
 use crate::protocol::{BreakdownKey, MatchKey};
 use crate::rand::{thread_rng, Rng};
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::test_fixture::input::GenericReportTestInput;
 use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 #[test]
@@ -40,7 +39,7 @@ fn semi_honest_ipa() {
                 let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
                     world
                         .semi_honest(records, |ctx, input_rows| async move {
-                            ipa::<Fp32BitPrime, Replicated<Fp32BitPrime>, MatchKey, BreakdownKey>(
+                            ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                                 ctx,
                                 &input_rows,
                                 PER_USER_CAP,

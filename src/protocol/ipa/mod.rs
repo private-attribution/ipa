@@ -28,8 +28,11 @@ use async_trait::async_trait;
 use futures::future::{try_join3, try_join_all};
 
 use super::{
-    attribution::input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
-    context::{malicious::IPAModulusConvertedInputRowWrapper, MaliciousContext, SemiHonestContext},
+    attribution::{
+        aggregate_credit::malicious_aggregate_credit,
+        input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
+    },
+    context::{malicious::IPAModulusConvertedInputRowWrapper, SemiHonestContext},
     malicious::MaliciousValidator,
     sort::generate_permutation::{
         generate_permutation_and_reveal_shuffled,
@@ -152,40 +155,12 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
     }
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
-    #[allow(dead_code)]
-    async fn upgrade_to_malicious(
-        m_ctx: MaliciousContext<'_, F>,
-        mk_shares: Vec<Replicated<F>>,
-        is_trigger_bit: Replicated<F>,
-        trigger_value: Replicated<F>,
-        bk_shares: Vec<MaliciousReplicated<F>>,
-    ) -> Result<IPAModulusConvertedInputRow<F, MaliciousReplicated<F>>, Error> {
-        let mk_shares = m_ctx.narrow("1").upgrade(mk_shares).await?;
-
-        // UpgradeContext {
-        //     upgrade_ctx: self.upgrade_ctx.narrow("1"),
-        //     inner: self,
-        //     record_binding: NoRecord,
-        // }.upgrade(mk_shares).await?;
-        let is_trigger_bit = m_ctx.narrow("2").upgrade(is_trigger_bit).await?;
-        let trigger_value = m_ctx.narrow("3").upgrade(trigger_value).await?;
-        Ok(IPAModulusConvertedInputRow {
-            mk_shares,
-            is_trigger_bit,
-            breakdown_key: bk_shares,
-            trigger_value,
-            _marker: PhantomData::default(),
-        })
-    }
-}
-
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code)]
-pub async fn ipa<F, T: Arithmetic<F>, MK, BK>(
+pub async fn ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
@@ -297,7 +272,6 @@ where
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
-        false,
     )
     .await
 }
@@ -358,7 +332,7 @@ where
     let converted_bk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
-            .narrow("0")
+            .narrow(&Step::ModulusConversionForBreakdownKeys)
             .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
             .await?,
         BK::BITS,
@@ -448,14 +422,15 @@ where
     .await?;
 
     //Validate before calling sort with downgraded context
-    let user_capped_credits = malicious_validator.validate(user_capped_credits).await?;
+    // let user_capped_credits = malicious_validator.validate(user_capped_credits).await?;
 
-    aggregate_credit::<F, BK>(
-        sh_ctx.narrow(&Step::AggregateCredit),
+    malicious_aggregate_credit::<F, BK>(
+        m_ctx.narrow(&Step::AggregateCredit),
+        malicious_validator,
+        sh_ctx,
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
-        true,
     )
     .await
 }
@@ -475,8 +450,6 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::Rng;
-
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -502,7 +475,7 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31, Replicated<Fp31>, MatchKey, BreakdownKey>(
+                ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -607,7 +580,7 @@ pub mod tests {
         }
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, Replicated<Fp32BitPrime>, MatchKey, BreakdownKey>(
+                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -655,7 +628,7 @@ pub mod tests {
 
         let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, Replicated<_>, MatchKey, BreakdownKey>(
+                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,

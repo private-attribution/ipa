@@ -8,6 +8,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh, TotalRecords};
 use crate::helpers::Role;
+use crate::protocol::attribution::input::MCCappedCreditsWithAggregationBit;
 use crate::protocol::basics::mul::malicious::Step::RandomnessForValidation;
 use crate::protocol::basics::{SecureMul, ZeroPositions};
 use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
@@ -234,6 +235,28 @@ impl AsRef<str> for UpgradeModConvStep {
     }
 }
 
+enum UpgradeMCCappedCreditsWithAggregationBit {
+    V0(usize),
+    V1,
+    V2,
+    V3,
+}
+
+impl crate::protocol::Substep for UpgradeMCCappedCreditsWithAggregationBit {}
+
+impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
+    fn as_ref(&self) -> &str {
+        const UPGRADE_AGGREGATION_BIT0: [&str; 64] = repeat64str!["upgrade_aggregation_bit0"];
+
+        match self {
+            Self::V0(i) => UPGRADE_AGGREGATION_BIT0[*i],
+            Self::V1 => "upgrade_aggregation_bit1",
+            Self::V2 => "upgrade_aggregation_bit2",
+            Self::V3 => "upgrade_aggregation_bit3",
+        }
+    }
+}
+
 #[async_trait]
 impl<'a, F: Field>
     UpgradeToMalicious<
@@ -322,6 +345,103 @@ where
         .await
     }
 }
+
+#[async_trait]
+impl<'a, F>
+    UpgradeToMalicious<
+        Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
+    > for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+{
+    async fn upgrade(
+        self,
+        input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>, Error> {
+        let ctx = self.upgrade_ctx.set_total_records(input.len());
+        let ctx_ref = &ctx;
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+            UpgradeContext {
+                upgrade_ctx: ctx_ref.clone(),
+                inner: self.inner,
+                record_binding: RecordId::from(i),
+            }
+            .upgrade(share)
+            .await
+        }))
+        .await
+    }
+}
+
+#[async_trait]
+impl<'a, F: Field>
+    UpgradeToMalicious<
+        MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
+        MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>,
+    > for UpgradeContext<'a, F, RecordId>
+{
+    async fn upgrade(
+        self,
+        input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
+    ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
+        let ctx_ref = &self.upgrade_ctx;
+        let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
+            |(idx, bit)| async move {
+                self.inner
+                    .upgrade_one(
+                        ctx_ref.narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx)),
+                        self.record_binding,
+                        bit,
+                        ZeroPositions::Pvvv,
+                    )
+                    .await
+            },
+        ))
+        .await?;
+
+        let helper_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1),
+                self.record_binding,
+                input.helper_bit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+
+        let aggregation_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2),
+                self.record_binding,
+                input.aggregation_bit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+
+        let credit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3),
+                self.record_binding,
+                input.credit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+        Ok(MCCappedCreditsWithAggregationBit {
+            helper_bit,
+            aggregation_bit,
+            breakdown_key,
+            credit,
+            _marker: PhantomData::default(),
+        })
+    }
+}
+
 #[derive(Debug)]
 struct ContextInner<'a, F: Field> {
     role: Role,
