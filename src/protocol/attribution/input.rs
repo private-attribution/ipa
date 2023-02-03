@@ -78,6 +78,7 @@ impl<F: Field, BK: BitArray> MCAggregateCreditOutputRow<F, BK>
 where
     AdditiveShare<F>: Serializable,
 {
+    /// We know there will be exactly `BK::BITS` number of `breakdown_key` parts
     pub const SIZE: usize =
         (BK::BITS as usize + 1) * <AdditiveShare<F> as Serializable>::Size::USIZE;
 
@@ -85,10 +86,14 @@ where
         Self {
             breakdown_key,
             credit,
-            _phantom: Default::default(),
+            _phantom: PhantomData::default(),
         }
     }
 
+    /// writes the bytes of `MCAggregateCreditOutputRow` into the `buf`.
+    /// # Panics
+    /// if `breakdown_key` has unexpected length.
+    /// if `buf` is not the right length
     pub fn serialize(self, buf: &mut [u8]) {
         assert_eq!(self.breakdown_key.len(), BK::BITS as usize);
         assert_eq!(buf.len(), Self::SIZE);
@@ -108,6 +113,10 @@ where
         ));
     }
 
+    /// reads the bytes from `buf` into a `MCAggregateCreditOutputRow`
+    /// # Panics
+    /// if the `buf` is not exactly the right size
+    #[must_use]
     pub fn deserialize(buf: &[u8]) -> Self {
         assert_eq!(buf.len(), Self::SIZE);
         let mut breakdown_key = Vec::with_capacity(BK::BITS as usize);

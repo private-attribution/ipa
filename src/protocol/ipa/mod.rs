@@ -145,7 +145,7 @@ where
             &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
                 + <Replicated<F> as Serializable>::Size::USIZE
                 + <XorReplicated<BK> as Serializable>::Size::USIZE..],
-        ))
+        ));
     }
 
     fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
