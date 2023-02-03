@@ -102,9 +102,97 @@ where
     Ok(output)
 }
 
+// The Bit Decomposition logic adds a constant value - multiplied by a single sharing of either one or zero.
+// This is a specialized protocol to support that.
+// The win is in cases (like in bit decomposition) where you're adding a constant that's mostly zeroes in binary.
+// In those cases, the carry is very simple, it's just one multiplication, the unknown-bit * the last carry.
+// In those cases where the constant has a 1 bit, you have to do more work,
+// but there are only 2 of those, and one is the very first bit, when there is no other carry! So it's a special case as well.
+//
+// `a` must have length < 128
+// the output will be one longer than `a`.
+// `maybe` must be a secret sharing of either `1` or `0`. It should be thought of as a secret-shared boolean.
+//
+// The least significant bit of `b` must be a `1`.
+// I'm just specializing this function in this way because I only expect it to be used that way in practice.
+pub async fn bitwise_add_constant_maybe<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    a: &[S],
+    b: u128,
+    maybe: &S,
+) -> Result<Vec<S>, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F>,
+{
+    assert!(a.len() < 128);
+    assert_eq!(
+        b & 1,
+        1,
+        "This function only accepts values of `b` where the least significant bit is `1`."
+    );
+    let mut output = Vec::with_capacity(a.len() + 1);
+
+    let mut last_carry = ctx
+        .narrow(&BitOpStep::from(0))
+        .multiply(record_id, &a[0], maybe)
+        .await?;
+    output.push(-last_carry.clone() * F::from(2) + &a[0] + maybe);
+
+    let ctx_other = ctx.narrow(&Step::CarryXorBitTimesMaybe);
+    for (bit_index, bit) in a.iter().enumerate().skip(1) {
+        let next_bit = (b >> bit_index) & 1;
+        let carry_times_bit = ctx
+            .narrow(&BitOpStep::from(bit_index))
+            .multiply(record_id, bit, &last_carry)
+            .await?;
+
+        if next_bit == 0 {
+            let next_carry = carry_times_bit;
+
+            output.push(-next_carry.clone() * F::from(2) + bit + &last_carry);
+
+            last_carry = next_carry;
+        } else {
+            let carry_xor_bit = -carry_times_bit.clone() * F::from(2) + &last_carry + bit;
+
+            let carry_xor_bit_times_maybe = ctx_other
+                .narrow(&BitOpStep::from(bit_index))
+                .multiply(record_id, &carry_xor_bit, maybe)
+                .await?;
+
+            let next_carry = carry_xor_bit_times_maybe + &carry_times_bit;
+
+            output.push(-next_carry.clone() * F::from(2) + bit + maybe + &last_carry);
+
+            last_carry = next_carry;
+        }
+    }
+    output.push(last_carry);
+    Ok(output)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Step {
+    CarryXorBitTimesMaybe,
+}
+
+impl crate::protocol::Substep for Step {}
+
+impl AsRef<str> for Step {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::CarryXorBitTimesMaybe => "carry_xor_bit_times_maybe",
+        }
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::bitwise_add_constant;
+    use crate::protocol::boolean::dumb_bitwise_add_constant::bitwise_add_constant_maybe;
     use crate::secret_sharing::SharedValue;
     use crate::test_fixture::Runner;
     use crate::{
@@ -112,6 +200,7 @@ mod tests {
         protocol::{context::Context, RecordId},
         test_fixture::{into_bits, Reconstruct, TestWorld},
     };
+    use bitvec::macros::internal::funty::Fundamental;
     use rand::{distributions::Standard, prelude::Distribution};
 
     async fn add_constant<F: Field>(world: &TestWorld, a: F, b: u128) -> Vec<F>
@@ -142,6 +231,46 @@ mod tests {
         result
     }
 
+    async fn add_constant_maybe<F: Field>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
+    where
+        Standard: Distribution<F>,
+    {
+        let input = (into_bits(a), maybe);
+        let result = world
+            .semi_honest(input.clone(), |ctx, (a_share, maybe_share)| async move {
+                bitwise_add_constant_maybe(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    b,
+                    &maybe_share,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let m_result = world
+            .malicious(input, |ctx, (a_share, maybe_share)| async move {
+                bitwise_add_constant_maybe(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    b,
+                    &maybe_share,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
+    }
+
     #[tokio::test]
     pub async fn fp31() {
         let c = Fp31::from;
@@ -150,26 +279,60 @@ mod tests {
         let world = TestWorld::new().await;
 
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add_constant(&world, zero, 1).await);
+        assert_eq!(
+            vec![1, 0, 0, 0, 0, 0],
+            add_constant_maybe(&world, zero, 1, one).await
+        );
+        assert_eq!(
+            vec![0, 0, 0, 0, 0, 0],
+            add_constant_maybe(&world, zero, 1, zero).await
+        );
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add_constant(&world, one, 0).await);
         assert_eq!(vec![0, 0, 0, 0, 0, 0], add_constant(&world, zero, 0).await);
         assert_eq!(vec![0, 1, 0, 0, 0, 0], add_constant(&world, one, 1).await);
+        assert_eq!(
+            vec![0, 1, 0, 0, 0, 0],
+            add_constant_maybe(&world, one, 1, one).await
+        );
+        assert_eq!(
+            vec![1, 0, 0, 0, 0, 0],
+            add_constant_maybe(&world, one, 1, zero).await
+        );
 
         assert_eq!(
             vec![0, 1, 0, 1, 0, 0],
             add_constant(&world, c(3_u8), 7).await
         );
         assert_eq!(
+            vec![0, 1, 0, 1, 0, 0],
+            add_constant_maybe(&world, c(3_u8), 7, one).await
+        );
+        assert_eq!(
+            vec![1, 1, 0, 0, 0, 0],
+            add_constant_maybe(&world, c(3_u8), 7, zero).await
+        );
+        assert_eq!(
             vec![1, 0, 0, 1, 0, 1],
             add_constant(&world, c(21), 20).await
         );
         assert_eq!(vec![0, 1, 0, 0, 1, 0], add_constant(&world, c(9), 9).await);
+        assert_eq!(
+            vec![0, 1, 0, 0, 1, 0],
+            add_constant_maybe(&world, c(9), 9, one).await
+        );
+        assert_eq!(
+            vec![1, 0, 0, 1, 0, 0],
+            add_constant_maybe(&world, c(9), 9, zero).await
+        );
     }
 
     #[tokio::test]
     pub async fn fp32_bit_prime() {
         let zero = Fp32BitPrime::ZERO;
+        let one = Fp32BitPrime::ONE;
         let world = TestWorld::new().await;
 
+        // 0 + 0
         assert_eq!(
             vec![
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -177,19 +340,88 @@ mod tests {
             ],
             add_constant(&world, zero, 0).await
         );
+
+        // Prime - 1 + 6
         assert_eq!(
             vec![
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 1
             ],
-            add_constant(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 6).await
+            add_constant(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7).await
         );
         assert_eq!(
             vec![
-                1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 1
+            ],
+            add_constant_maybe(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7, one).await
+        );
+        assert_eq!(
+            vec![
+                0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 0
+            ],
+            add_constant_maybe(&world, Fp32BitPrime::from(Fp32BitPrime::PRIME - 1), 7, zero).await
+        );
+
+        // 123456789 + 234567890
+        assert_eq!(
+            vec![
+                0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
                 1, 0, 0, 0, 0
             ],
-            add_constant(&world, Fp32BitPrime::from(123_456_789_u128), 234_567_890).await
+            add_constant(&world, Fp32BitPrime::from(123_456_789_u128), 234_567_891).await
+        );
+        assert_eq!(
+            vec![
+                0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                1, 0, 0, 0, 0
+            ],
+            add_constant_maybe(
+                &world,
+                Fp32BitPrime::from(123_456_789_u128),
+                234_567_891,
+                one
+            )
+            .await
+        );
+        assert_eq!(
+            vec![
+                1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0,
+                0, 0, 0, 0, 0
+            ],
+            add_constant_maybe(
+                &world,
+                Fp32BitPrime::from(123_456_789_u128),
+                234_567_891,
+                zero
+            )
+            .await
+        );
+
+        // some random number (236461931) + (2^l - PRIME)
+        let some_random_number = Fp32BitPrime::from(236_461_931_u128);
+        let x: u128 = (1 << 32) - Fp32BitPrime::PRIME.as_u128();
+        assert_eq!(
+            vec![
+                0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
+                0, 0, 0, 0, 0
+            ],
+            add_constant(&world, some_random_number, x).await
+        );
+        assert_eq!(
+            vec![
+                0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
+                0, 0, 0, 0, 0
+            ],
+            add_constant_maybe(&world, some_random_number, x, one).await
+        );
+        assert_eq!(
+            vec![
+                1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1,
+                0, 0, 0, 0, 0
+            ],
+            add_constant_maybe(&world, some_random_number, x, zero).await
         );
     }
 }
