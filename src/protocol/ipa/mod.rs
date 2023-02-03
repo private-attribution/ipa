@@ -580,8 +580,8 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 2, 2023.
-        const RECORDS_SENT_BASELINE: u64 = 10782;
+        /// empirical value as of Feb 3, 2023.
+        const RECORDS_SENT_BASELINE: u64 = 10752;
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
