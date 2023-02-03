@@ -123,9 +123,6 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
-        if !self.is_total_records_unspecified() {
-            println!("assert is coming");
-        }
         debug_assert!(
             self.is_total_records_unspecified(),
             "attempt to set total_records more than once"
@@ -218,7 +215,7 @@ impl AsRef<str> for UpgradeTripleStep {
 }
 
 enum UpgradeModConvStep {
-    V0,
+    V0(usize),
     V1,
     V2,
 }
@@ -227,8 +224,10 @@ impl crate::protocol::Substep for UpgradeModConvStep {}
 
 impl AsRef<str> for UpgradeModConvStep {
     fn as_ref(&self) -> &str {
+        const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
+
         match self {
-            Self::V0 => "upgrade_mod_conv0",
+            Self::V0(i) => UPGRADE_MOD_CONV0[*i],
             Self::V1 => "upgrade_mod_conv1",
             Self::V2 => "upgrade_mod_conv2",
         }
@@ -246,12 +245,19 @@ impl<'a, F: Field>
         self,
         input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
     ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
-        let mk_shares = UpgradeContext {
-            upgrade_ctx: self.upgrade_ctx.narrow(&UpgradeModConvStep::V0),
-            inner: self.inner,
-            record_binding: NoRecord,
-        }
-        .upgrade(input.mk_shares)
+        let ctx_ref = &self.upgrade_ctx;
+        let mk_shares = try_join_all(input.mk_shares.into_iter().enumerate().map(
+            |(idx, mk_share)| async move {
+                self.inner
+                    .upgrade_one(
+                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx)),
+                        self.record_binding,
+                        mk_share,
+                        ZeroPositions::Pvvv,
+                    )
+                    .await
+            },
+        ))
         .await?;
 
         let is_trigger_bit = self
@@ -260,7 +266,7 @@ impl<'a, F: Field>
                 self.upgrade_ctx.narrow(&UpgradeModConvStep::V1),
                 self.record_binding,
                 input.is_trigger_bit,
-                ZeroPositions::Pzvz,
+                ZeroPositions::Pvvv,
             )
             .await?;
 
@@ -270,7 +276,7 @@ impl<'a, F: Field>
                 self.upgrade_ctx.narrow(&UpgradeModConvStep::V2),
                 self.record_binding,
                 input.trigger_value,
-                ZeroPositions::Pzzv,
+                ZeroPositions::Pvvv,
             )
             .await?;
         Ok(IPAModulusConvertedInputRowWrapper {

@@ -87,9 +87,6 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     }
 
     fn set_total_records<T: Into<TotalRecords>>(&self, total_records: T) -> Self {
-        if !self.is_total_records_unspecified() {
-            println!("assert is coming");
-        }
         debug_assert!(
             self.is_total_records_unspecified(),
             "attempt to set total_records more than once"

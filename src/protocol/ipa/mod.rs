@@ -383,7 +383,7 @@ where
         .collect::<Vec<_>>();
 
     let intermediate = m_ctx.upgrade(intermediate).await?;
-    
+
     let combined_match_keys_and_sidecar_data = intermediate
         .into_iter()
         .zip(converted_bk_shares)
