@@ -5,7 +5,7 @@ use super::{
     },
     InteractionPatternStep,
 };
-use crate::bits::BitArray;
+use crate::bits::{BitArray, Serializable};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::basics::SecureMul;
@@ -16,7 +16,9 @@ use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::{try_join, try_join_all};
+use generic_array::ArrayLength;
 use std::iter::repeat;
+use std::ops::Add;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -29,7 +31,11 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
     capped_credits: &[MCAggregateCreditInputRow<F>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error> {
+) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error>
+where
+    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
+{
     let one = ctx.share_of_one();
 
     //

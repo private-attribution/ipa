@@ -30,7 +30,7 @@ use futures::future::{try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
 use std::iter::{repeat, zip};
 use std::ops::Add;
-use typenum::{Sum, Unsigned};
+use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -89,15 +89,6 @@ pub struct IPAInputRow<F: Field, MK: BitArray, BK: BitArray> {
     pub breakdown_key: XorReplicated<BK>,
     pub trigger_value: Replicated<F>,
 }
-
-// TODO(ts): is it possible to use this somehow?
-type X<F: Field, MK: BitArray, BK: BitArray> = Sum<
-    <XorReplicated<MK> as Serializable>::Size,
-    Sum<
-        <Replicated<F> as Serializable>::Size,
-        Sum<<Replicated<F> as Serializable>::Size, <XorReplicated<BK> as Serializable>::Size>,
-    >,
->;
 
 impl<F: Field, MK: BitArray, BK: BitArray> Serializable for IPAInputRow<F, MK, BK>
 where
@@ -275,6 +266,8 @@ where
     F: Field,
     MK: BitArray,
     BK: BitArray,
+    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
         .iter()
@@ -394,6 +387,8 @@ where
     F: Field,
     MK: BitArray,
     BK: BitArray,
+    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();

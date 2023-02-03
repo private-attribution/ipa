@@ -89,13 +89,13 @@ where
         }
     }
 
-    pub fn serialize(self) -> Vec<u8> {
+    pub fn serialize(self, buf: &mut [u8]) {
         assert_eq!(self.breakdown_key.len(), BK::BITS as usize);
+        assert_eq!(buf.len(), Self::SIZE);
 
-        let breakdown_key_len =
+        let breakdown_key_size =
             self.breakdown_key.len() * <AdditiveShare<F> as Serializable>::Size::USIZE;
-        let mut buf =
-            vec![0u8; breakdown_key_len + <AdditiveShare<F> as Serializable>::Size::USIZE];
+
         for (i, key_part) in self.breakdown_key.into_iter().enumerate() {
             key_part.serialize(GenericArray::from_mut_slice(
                 &mut buf[<AdditiveShare<F> as Serializable>::Size::USIZE * i
@@ -103,10 +103,9 @@ where
             ));
         }
         self.credit.serialize(GenericArray::from_mut_slice(
-            &mut buf[breakdown_key_len
-                ..breakdown_key_len + <AdditiveShare<F> as Serializable>::Size::USIZE],
+            &mut buf[breakdown_key_size
+                ..breakdown_key_size + <AdditiveShare<F> as Serializable>::Size::USIZE],
         ));
-        buf
     }
 
     pub fn deserialize(buf: &[u8]) -> Self {

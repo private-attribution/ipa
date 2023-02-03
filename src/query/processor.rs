@@ -449,8 +449,8 @@ mod tests {
     mod e2e {
         use super::*;
         use crate::{
-            bits::Serializable,
-            ff::Fp31,
+            bits::{BitArray, Serializable},
+            ff::{Field, Fp31},
             helpers::{query::IPAQueryConfig, transport::ByteArrStream},
             ipa_test_input,
             protocol::{
@@ -460,7 +460,7 @@ mod tests {
             secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
             sync::Weak,
             test_fixture::{
-                input::GenericReportTestInput, transport::InMemoryTransport, Reconstruct, TestWorld,
+                input::GenericReportTestInput, transport::InMemoryTransport, Reconstruct,
             },
         };
         use futures_util::future::{join_all, try_join_all};
@@ -571,8 +571,6 @@ mod tests {
             )
             .await;
 
-            let world = TestWorld::new().await;
-
             let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
                 [
                     { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
@@ -626,7 +624,8 @@ mod tests {
             .try_into()
             .unwrap();
 
-            let result = result.reconstruct();
+            let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+                result.reconstruct();
             assert_eq!(result.len(), EXPECTED.len());
             for (i, expected) in EXPECTED.iter().enumerate() {
                 assert_eq!(

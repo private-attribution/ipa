@@ -13,16 +13,19 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey, Step,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::replicated::semi_honest::{
+        AdditiveShare as Replicated, XorShare as XorReplicated,
+    },
     task::JoinHandle,
 };
 use futures_util::StreamExt;
-use generic_array::GenericArray;
+use generic_array::{ArrayLength, GenericArray};
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use std::fmt::Debug;
+use std::ops::Add;
 use typenum::Unsigned;
 
 pub trait Result: Send + Debug {
@@ -46,7 +49,10 @@ where
     }
 }
 
-impl<F: Field, BK: BitArray> Result for Vec<MCAggregateCreditOutputRow<F, BK>> {
+impl<F: Field, BK: BitArray> Result for Vec<MCAggregateCreditOutputRow<F, BK>>
+where
+    Replicated<F>: Serializable,
+{
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
         let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F, BK>::SIZE];
         for (i, row) in self.into_iter().enumerate() {
@@ -105,6 +111,32 @@ async fn execute_ipa<F: Field, MK: BitArray, BK: BitArray>(
 ) -> Vec<MCAggregateCreditOutputRow<F, BK>>
 where
     IPAInputRow<F, MK, BK>: Serializable,
+    XorReplicated<BK>: Serializable,
+    XorReplicated<MK>: Serializable,
+    Replicated<F>: Serializable,
+    <XorReplicated<BK> as Serializable>::Size: Add<<Replicated<F> as Serializable>::Size>,
+    <Replicated<F> as Serializable>::Size:
+        Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >,
+    <XorReplicated<MK> as Serializable>::Size: Add<
+        <<Replicated<F> as Serializable>::Size as Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >>::Output,
+    >,
+    <<XorReplicated<MK> as Serializable>::Size as Add<
+        <<Replicated<F> as Serializable>::Size as Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >>::Output,
+    >>::Output: ArrayLength<u8>,
+    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     let mut input_vec = Vec::new();
     while let Some(data) = input.next().await {
