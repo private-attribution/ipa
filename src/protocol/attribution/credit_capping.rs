@@ -87,7 +87,7 @@ async fn mask_source_credits<F: Field>(
             .iter()
             .zip(zip(
                 repeat(ctx.narrow(&Step::MaskSourceCredits)),
-                repeat(ctx.share_of_one()),
+                repeat(ctx.share_known_value(F::ONE)),
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
@@ -107,7 +107,7 @@ async fn credit_prefix_sum<F: Field>(
     input: &[MCCreditCappingInputRow<F>],
     mut original_credits: Vec<Replicated<F>>,
 ) -> Result<Vec<Replicated<F>>, Error> {
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
 
     let num_rows = input.len();
@@ -227,7 +227,7 @@ async fn compute_final_credits<F: Field>(
     cap: u32,
 ) -> Result<Vec<Replicated<F>>, Error> {
     let num_rows = input.len();
-    let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
+    let cap = Replicated::share_known_value(ctx.role(), F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:

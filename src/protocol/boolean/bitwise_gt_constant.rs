@@ -51,7 +51,7 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
 
     // Compute `[a] ^ b`. This step gives us the bits of values where they differ.
     let mut xored_bits = a

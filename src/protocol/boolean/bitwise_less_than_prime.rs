@@ -28,7 +28,7 @@ impl BitwiseLessThanPrime {
         C: Context<F, Share = S>,
         S: ArithmeticSecretSharing<F>,
     {
-        let one = ctx.share_of_one();
+        let one = ctx.share_known_value(F::ONE);
         let gtoe = Self::greater_than_or_equal_to_prime(ctx, record_id, x).await?;
         Ok(one - &gtoe)
     }
@@ -164,7 +164,7 @@ impl BitwiseLessThanPrime {
             .multiply(
                 record_id,
                 &least_significant_two_bits_both_one,
-                &(ctx.share_of_one() - pivot_bit),
+                &(ctx.share_known_value(F::ONE) - pivot_bit),
             )
             .await?;
         or(

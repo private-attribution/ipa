@@ -59,7 +59,7 @@ where
     let result_bit = if last_carry_known_to_be_zero {
         a[0].clone()
     } else {
-        ctx.share_of_one() - &a[0]
+        ctx.share_known_value(F::ONE) - &a[0]
     };
     output.push(result_bit);
 
@@ -90,7 +90,7 @@ where
         // the current bit of `a` + the current bit of `b` + the carry from the previous bit `-2*next_carry`
         // Since the current bit of `b` has a known value (either 1 or 0), we either add a `share_of_one`, or nothing.
         let result_bit = if next_bit_a_one {
-            -next_carry.clone() * F::from(2) + &ctx.share_of_one() + bit + &last_carry
+            -next_carry.clone() * F::from(2) + &ctx.share_known_value(F::ONE) + bit + &last_carry
         } else {
             -next_carry.clone() * F::from(2) + bit + &last_carry
         };

@@ -155,8 +155,8 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         self.inner.gateway.mesh(self.step(), self.total_records)
     }
 
-    fn share_of_one(&self) -> <Self as Context<F>>::Share {
-        MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
+    fn share_known_value(&self, value: F) -> <Self as Context<F>>::Share {
+        MaliciousReplicated::share_known_value(self.role(), value, self.inner.r_share.clone())
     }
 }
 
