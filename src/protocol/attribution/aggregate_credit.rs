@@ -5,18 +5,17 @@ use super::{
     },
     InteractionPatternStep,
 };
-use crate::bits::BitArray;
 use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::basics::SecureMul;
 use crate::protocol::context::{Context, SemiHonestContext};
 use crate::protocol::modulus_conversion::split_into_multi_bit_slices;
 use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+use crate::{bits::BitArray, secret_sharing::Arithmetic};
+use crate::{ff::Field, protocol::basics::SecureMul};
 use futures::future::{try_join, try_join_all};
-use std::iter::repeat;
+use std::{iter::repeat, marker::PhantomData};
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -24,19 +23,28 @@ use std::iter::repeat;
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn aggregate_credit<F: Field, BK: BitArray>(
+pub async fn aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_, F>,
-    capped_credits: &[MCAggregateCreditInputRow<F>],
+    capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error> {
+    _is_malicious: bool,
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
+where
+    F: Field,
+    BK: BitArray,
+{
     let one = ctx.share_known_value(F::ONE);
 
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
-    let capped_credits_with_aggregation_bits =
-        add_aggregation_bits_and_breakdown_keys::<F, BK>(&ctx, capped_credits, max_breakdown_key);
+    let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<
+        F,
+        SemiHonestContext<'_, F>,
+        Replicated<F>,
+        BK,
+    >(&ctx, capped_credits, max_breakdown_key);
 
     //
     // 2. Sort by `breakdown_key`. Rows with `aggregation_bit` = 0 must
@@ -127,6 +135,7 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
             aggregation_bit: x.aggregation_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: credits[i].clone(),
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
@@ -144,18 +153,25 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
         .map(|x| MCAggregateCreditOutputRow {
             breakdown_key: x.breakdown_key.clone(),
             credit: x.credit.clone(),
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
     Ok(result)
 }
 
-fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
-    ctx: &SemiHonestContext<'_, F>,
-    capped_credits: &[MCAggregateCreditInputRow<F>],
+fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
+    ctx: &C,
+    capped_credits: &[MCAggregateCreditInputRow<F, T>],
     max_breakdown_key: u128,
-) -> Vec<MCCappedCreditsWithAggregationBit<F>> {
-    let zero = Replicated::ZERO;
+) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+    BK: BitArray,
+{
+    let zero = T::ZERO;
     let one = ctx.share_known_value(F::ONE);
 
     // Unique breakdown_key values with all other fields initialized with 0's.
@@ -181,6 +197,7 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
                 helper_bit: zero.clone(),
                 aggregation_bit: zero.clone(),
                 credit: zero.clone(),
+                _marker: PhantomData::default(),
             }
         })
         .collect::<Vec<_>>();
@@ -194,6 +211,7 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
                 credit: x.credit.clone(),
                 helper_bit: one.clone(),
                 aggregation_bit: one.clone(),
+                _marker: PhantomData::default(),
             })
             .collect::<Vec<_>>(),
     );
@@ -203,10 +221,10 @@ fn add_aggregation_bits_and_breakdown_keys<F: Field, BK: BitArray>(
 
 async fn sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: Vec<MCCappedCreditsWithAggregationBit<F>>,
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCCappedCreditsWithAggregationBit<F>>, Error> {
+) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     let breakdown_keys = input
         .iter()
         .map(|x| x.breakdown_key.clone())
@@ -235,8 +253,8 @@ async fn sort_by_breakdown_key<F: Field>(
 
 async fn sort_by_aggregation_bit<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    input: Vec<MCCappedCreditsWithAggregationBit<F>>,
-) -> Result<Vec<MCCappedCreditsWithAggregationBit<F>>, Error> {
+    input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
     let aggregation_bits = &[input
@@ -293,6 +311,8 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::marker::PhantomData;
+
     use super::aggregate_credit;
     use crate::aggregation_test_input;
     use crate::bits::BitArray;
@@ -374,6 +394,7 @@ mod tests {
                         .map(|(row, bk)| MCAggregateCreditInputRow {
                             breakdown_key: bk,
                             credit: row.credit.clone(),
+                            _marker: PhantomData::default(),
                         })
                         .collect();
 
@@ -382,6 +403,7 @@ mod tests {
                         &modulus_converted_shares,
                         MAX_BREAKDOWN_KEY,
                         NUM_MULTI_BITS,
+                        false,
                     )
                     .await
                     .unwrap()

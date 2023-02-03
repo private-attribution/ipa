@@ -1,4 +1,7 @@
-use std::iter::{repeat, zip};
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 
 use crate::{
     bits::BitArray,
@@ -14,8 +17,9 @@ use crate::{
         sort::apply_sort::apply_sort_permutation,
         RecordId,
     },
-    secret_sharing::replicated::semi_honest::{
-        AdditiveShare as Replicated, XorShare as XorReplicated,
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        Arithmetic,
     },
 };
 use async_trait::async_trait;
@@ -147,13 +151,13 @@ impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code)]
-pub async fn ipa<F, MK, BK>(
+pub async fn ipa<F, T: Arithmetic<F>, MK, BK>(
     ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
 where
     F: Field,
     MK: BitArray,
@@ -239,6 +243,7 @@ where
             helper_bit: hb,
             breakdown_key: row.breakdown_key,
             trigger_value: row.trigger_value,
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
@@ -257,6 +262,7 @@ where
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
+        false,
     )
     .await
 }
@@ -266,15 +272,16 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code)]
-pub async fn ipa_wip_malicious<F, MK, BK>(
+pub async fn ipa_wip_malicious<F, T, MK, BK>(
     sh_ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
 where
     F: Field,
+    T: Arithmetic<F>,
     MK: BitArray,
     BK: BitArray,
 {
@@ -368,6 +375,7 @@ where
             helper_bit: hb,
             breakdown_key: row.breakdown_key,
             trigger_value: row.trigger_value,
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
@@ -389,6 +397,7 @@ where
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
+        true,
     )
     .await
 }
@@ -407,6 +416,10 @@ pub mod tests {
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::Rng;
+
+    use crate::secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    };
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -432,7 +445,7 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31, MatchKey, BreakdownKey>(
+                ipa::<Fp31, Replicated<Fp31>, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -481,7 +494,7 @@ pub mod tests {
 
         let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
+                ipa_wip_malicious::<Fp31, MaliciousReplicated<Fp31>, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -537,7 +550,7 @@ pub mod tests {
         }
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                ipa::<Fp32BitPrime, Replicated<Fp32BitPrime>, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -585,7 +598,7 @@ pub mod tests {
 
         let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                ipa::<Fp32BitPrime, Replicated<_>, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,

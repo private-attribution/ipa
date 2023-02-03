@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::bits::BitArray;
 use crate::error::Error;
 use crate::ff::Field;
@@ -6,6 +8,7 @@ use crate::protocol::context::Context;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
+use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 
@@ -21,25 +24,27 @@ pub struct AccumulateCreditInputRow<F: Field, BK: BitArray> {
 }
 
 #[derive(Debug)]
-pub struct MCAccumulateCreditInputRow<F: Field> {
-    pub is_trigger_report: AdditiveShare<F>,
-    pub helper_bit: AdditiveShare<F>,
-    pub breakdown_key: Vec<AdditiveShare<F>>,
-    pub trigger_value: AdditiveShare<F>,
+pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
+    pub is_trigger_report: T,
+    pub helper_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub trigger_value: T,
+    pub _marker: PhantomData<F>,
 }
 
-pub type MCAccumulateCreditOutputRow<F> = MCAccumulateCreditInputRow<F>;
+pub type MCAccumulateCreditOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 
 //
 // `credit_capping` protocol
 //
 pub type CreditCappingInputRow<F, BK> = AccumulateCreditInputRow<F, BK>;
-pub type MCCreditCappingInputRow<F> = MCAccumulateCreditInputRow<F>;
+pub type MCCreditCappingInputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCreditCappingOutputRow<F: Field> {
-    pub breakdown_key: Vec<AdditiveShare<F>>,
-    pub credit: AdditiveShare<F>,
+pub struct MCCreditCappingOutputRow<F: Field, T: Arithmetic<F>> {
+    pub breakdown_key: Vec<T>,
+    pub credit: T,
+    pub _marker: PhantomData<F>,
 }
 
 //
@@ -52,25 +57,27 @@ pub struct AggregateCreditInputRow<F: Field, BK: BitArray> {
     pub credit: AdditiveShare<F>,
 }
 
-pub type MCAggregateCreditInputRow<F> = MCCreditCappingOutputRow<F>;
+pub type MCAggregateCreditInputRow<F, T> = MCCreditCappingOutputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCappedCreditsWithAggregationBit<F: Field> {
-    pub helper_bit: AdditiveShare<F>,
-    pub aggregation_bit: AdditiveShare<F>,
-    pub breakdown_key: Vec<AdditiveShare<F>>,
-    pub credit: AdditiveShare<F>,
+pub struct MCCappedCreditsWithAggregationBit<F: Field, T: Arithmetic<F>> {
+    pub helper_bit: T,
+    pub aggregation_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub credit: T,
+    pub _marker: PhantomData<F>,
 }
 
 #[derive(Debug)]
-pub struct MCAggregateCreditOutputRow<F: Field> {
-    pub breakdown_key: Vec<AdditiveShare<F>>,
-    pub credit: AdditiveShare<F>,
+pub struct MCAggregateCreditOutputRow<F: Field, T: Arithmetic<F>> {
+    pub breakdown_key: Vec<T>,
+    pub credit: T,
+    pub _marker: PhantomData<F>,
 }
 
 #[async_trait]
-impl<F: Field> Resharable<F> for MCAccumulateCreditInputRow<F> {
-    type Share = AdditiveShare<F>;
+impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F, T> {
+    type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -104,13 +111,14 @@ impl<F: Field> Resharable<F> for MCAccumulateCreditInputRow<F> {
             is_trigger_report: fields.remove(0),
             helper_bit: fields.remove(0),
             trigger_value: fields.remove(0),
+            _marker: PhantomData::default(),
         })
     }
 }
 
 #[async_trait]
-impl<F: Field + Sized> Resharable<F> for MCCappedCreditsWithAggregationBit<F> {
-    type Share = AdditiveShare<F>;
+impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAggregationBit<F, T> {
+    type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -144,6 +152,7 @@ impl<F: Field + Sized> Resharable<F> for MCCappedCreditsWithAggregationBit<F> {
             helper_bit: fields.remove(0),
             aggregation_bit: fields.remove(0),
             credit: fields.remove(0),
+            _marker: PhantomData::default(),
         })
     }
 }

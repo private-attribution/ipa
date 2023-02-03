@@ -4,6 +4,7 @@ use raw_ipa::ff::Fp32BitPrime;
 use raw_ipa::ipa_test_input;
 use raw_ipa::protocol::ipa::ipa;
 use raw_ipa::protocol::{BreakdownKey, MatchKey};
+use raw_ipa::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use raw_ipa::test_fixture::input::GenericReportTestInput;
 use raw_ipa::test_fixture::{Runner, TestWorld, TestWorldConfig};
 use std::num::NonZeroUsize;
@@ -43,7 +44,7 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+            ipa::<Fp32BitPrime, Replicated<Fp32BitPrime>, MatchKey, BreakdownKey>(
                 ctx,
                 &input_rows,
                 PER_USER_CAP,

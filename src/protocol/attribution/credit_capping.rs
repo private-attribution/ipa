@@ -3,27 +3,33 @@ use super::{
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     InteractionPatternStep,
 };
-use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+use crate::{error::Error, secret_sharing::Arithmetic};
 use futures::future::{try_join, try_join_all};
-use std::iter::{repeat, zip};
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 
 /// User-level credit capping protocol.
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
-pub async fn credit_capping<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCCreditCappingInputRow<F>],
+pub async fn credit_capping<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
     cap: u32,
-) -> Result<Vec<MCCreditCappingOutputRow<F>>, Error> {
+) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     let input_len = input.len();
 
     //
@@ -72,16 +78,22 @@ pub async fn credit_capping<F: Field>(
         .map(|(i, x)| MCCreditCappingOutputRow {
             breakdown_key: x.breakdown_key.clone(),
             credit: final_credits[i].clone(),
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
     Ok(output)
 }
 
-async fn mask_source_credits<F: Field>(
-    input: &[MCCreditCappingInputRow<F>],
-    ctx: SemiHonestContext<'_, F>,
-) -> Result<Vec<Replicated<F>>, Error> {
+async fn mask_source_credits<F, C, T>(
+    input: &[MCCreditCappingInputRow<F, T>],
+    ctx: C,
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     try_join_all(
         input
             .iter()
@@ -102,11 +114,16 @@ async fn mask_source_credits<F: Field>(
     .await
 }
 
-async fn credit_prefix_sum<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCCreditCappingInputRow<F>],
-    mut original_credits: Vec<Replicated<F>>,
-) -> Result<Vec<Replicated<F>>, Error> {
+async fn credit_prefix_sum<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
+    mut original_credits: Vec<T>,
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     let one = ctx.share_known_value(F::ONE);
     let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
 
@@ -174,11 +191,17 @@ async fn credit_prefix_sum<F: Field>(
     Ok(original_credits.clone())
 }
 
-async fn is_credit_larger_than_cap<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    prefix_summed_credits: &[Replicated<F>],
+async fn is_credit_larger_than_cap<F, C, T>(
+    ctx: C,
+    prefix_summed_credits: &[T],
     cap: u32,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
+    //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
@@ -218,16 +241,21 @@ async fn is_credit_larger_than_cap<F: Field>(
     .await
 }
 
-async fn compute_final_credits<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCCreditCappingInputRow<F>],
-    prefix_summed_credits: &[Replicated<F>],
-    exceeds_cap_bits: &[Replicated<F>],
-    original_credits: &[Replicated<F>],
+async fn compute_final_credits<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
+    prefix_summed_credits: &[T],
+    exceeds_cap_bits: &[T],
+    original_credits: &[T],
     cap: u32,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     let num_rows = input.len();
-    let cap = Replicated::share_known_value(ctx.role(), F::from(cap.into()));
+    let cap = ctx.share_known_value(F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:
@@ -263,7 +291,7 @@ async fn compute_final_credits<F: Field>(
                 ctx.narrow(&Step::IfNextExceedsCapOrElse),
                 record_id,
                 next_credit_exceeds_cap,
-                &Replicated::ZERO,
+                &T::ZERO,
                 &(cap.clone() - next_prefix_summed_credit),
             )
             .await?,
@@ -323,6 +351,8 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::marker::PhantomData;
+
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp32BitPrime},
@@ -398,6 +428,7 @@ mod tests {
                             breakdown_key: bk,
                             trigger_value: row.trigger_value.clone(),
                             helper_bit: row.helper_bit.clone(),
+                            _marker: PhantomData::default(),
                         })
                         .collect::<Vec<_>>();
 
