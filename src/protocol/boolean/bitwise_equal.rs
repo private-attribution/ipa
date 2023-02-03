@@ -27,7 +27,7 @@ where
 {
     assert!(a.len() <= 128);
 
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     // Local XOR
     let xored_bits = a
         .iter()
