@@ -1,4 +1,4 @@
-use crate::bits::BitArray;
+use crate::bits::{BitArray, Serializable};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Role;
@@ -8,6 +8,9 @@ use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
+use generic_array::GenericArray;
+use std::marker::PhantomData;
+use typenum::Unsigned;
 
 //
 // `accumulate_credit` protocol
@@ -63,9 +66,73 @@ pub struct MCCappedCreditsWithAggregationBit<F: Field> {
 }
 
 #[derive(Debug)]
-pub struct MCAggregateCreditOutputRow<F: Field> {
+// TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
+//       instead of having a `Vec`, we can probably use an array since the length is known at compile time
+pub struct MCAggregateCreditOutputRow<F: Field, BK: BitArray> {
     pub breakdown_key: Vec<AdditiveShare<F>>,
     pub credit: AdditiveShare<F>,
+    _phantom: PhantomData<BK>,
+}
+
+impl<F: Field, BK: BitArray> MCAggregateCreditOutputRow<F, BK>
+where
+    AdditiveShare<F>: Serializable,
+{
+    pub const SIZE: usize =
+        (BK::BITS as usize + 1) * <AdditiveShare<F> as Serializable>::Size::USIZE;
+
+    pub fn new(breakdown_key: Vec<AdditiveShare<F>>, credit: AdditiveShare<F>) -> Self {
+        Self {
+            breakdown_key,
+            credit,
+            _phantom: Default::default(),
+        }
+    }
+
+    pub fn serialize(self) -> Vec<u8> {
+        assert_eq!(self.breakdown_key.len(), BK::BITS as usize);
+
+        let breakdown_key_len =
+            self.breakdown_key.len() * <AdditiveShare<F> as Serializable>::Size::USIZE;
+        let mut buf =
+            vec![0u8; breakdown_key_len + <AdditiveShare<F> as Serializable>::Size::USIZE];
+        for (i, key_part) in self.breakdown_key.into_iter().enumerate() {
+            key_part.serialize(GenericArray::from_mut_slice(
+                &mut buf[<AdditiveShare<F> as Serializable>::Size::USIZE * i
+                    ..<AdditiveShare<F> as Serializable>::Size::USIZE * (i + 1)],
+            ));
+        }
+        self.credit.serialize(GenericArray::from_mut_slice(
+            &mut buf[breakdown_key_len
+                ..breakdown_key_len + <AdditiveShare<F> as Serializable>::Size::USIZE],
+        ));
+        buf
+    }
+
+    pub fn deserialize(buf: &[u8]) -> Self {
+        assert_eq!(buf.len(), Self::SIZE);
+        let mut breakdown_key = Vec::with_capacity(BK::BITS as usize);
+        for i in 0..BK::BITS as usize {
+            breakdown_key.push(<AdditiveShare<F> as Serializable>::deserialize(
+                GenericArray::clone_from_slice(
+                    &buf[<AdditiveShare<F> as Serializable>::Size::USIZE * i
+                        ..<AdditiveShare<F> as Serializable>::Size::USIZE * (i + 1)],
+                ),
+            ));
+        }
+        let credit =
+            <AdditiveShare<F> as Serializable>::deserialize(GenericArray::clone_from_slice(
+                &buf[<AdditiveShare<F> as Serializable>::Size::USIZE * BK::BITS as usize..],
+            ));
+        Self::new(breakdown_key, credit)
+    }
+
+    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        debug_assert!(from.len() % Self::SIZE == 0);
+
+        from.chunks((BK::BITS as usize + 1) * <AdditiveShare<F> as Serializable>::Size::USIZE)
+            .map(|chunk| Self::deserialize(chunk))
+    }
 }
 
 #[async_trait]

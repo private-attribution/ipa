@@ -17,33 +17,43 @@ use crate::{
     task::JoinHandle,
 };
 use futures_util::StreamExt;
+use generic_array::GenericArray;
 use rand::rngs::StdRng;
 use rand_core::SeedableRng;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 use std::fmt::Debug;
+use typenum::Unsigned;
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;
 }
 
-impl<F: Field> Result for Vec<Replicated<F>> {
+impl<F: Field> Result for Vec<Replicated<F>>
+where
+    Replicated<F>: Serializable,
+{
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * Replicated::<F>::SIZE_IN_BYTES];
+        let mut r = vec![0u8; self.len() * <Replicated<F> as Serializable>::Size::USIZE];
         for (i, share) in self.into_iter().enumerate() {
-            share.serialize(&mut r[i * Replicated::<F>::Size::USIZE..]);
+            share.serialize(GenericArray::from_mut_slice(
+                &mut r[i * <Replicated<F> as Serializable>::Size::USIZE
+                    ..(i + 1) * <Replicated<F> as Serializable>::Size::USIZE],
+            ));
         }
 
         r
     }
 }
 
-impl<F: Field> Result for Vec<MCAggregateCreditOutputRow<F>> {
+impl<F: Field, BK: BitArray> Result for Vec<MCAggregateCreditOutputRow<F, BK>> {
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F>::SIZE_IN_BYTES];
-
+        let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F, BK>::SIZE];
         for (i, row) in self.into_iter().enumerate() {
-            row.serialize(&mut r[i * MCAggregateCreditOutputRow::<F>::SIZE_IN_BYTES..]);
+            row.serialize(
+                &mut r[MCAggregateCreditOutputRow::<F, BK>::SIZE * i
+                    ..MCAggregateCreditOutputRow::<F, BK>::SIZE * (i + 1)],
+            );
         }
 
         r
@@ -54,7 +64,10 @@ impl<F: Field> Result for Vec<MCAggregateCreditOutputRow<F>> {
 async fn execute_test_multiply<F: Field>(
     ctx: SemiHonestContext<'_, F>,
     mut input: AlignedByteArrStream,
-) -> Vec<Replicated<F>> {
+) -> Vec<Replicated<F>>
+where
+    Replicated<F>: Serializable,
+{
     use crate::protocol::basics::SecureMul;
     use crate::protocol::RecordId;
 
@@ -89,7 +102,10 @@ async fn execute_ipa<F: Field, MK: BitArray, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
     mut input: AlignedByteArrStream,
-) -> Vec<MCAggregateCreditOutputRow<F>> {
+) -> Vec<MCAggregateCreditOutputRow<F, BK>>
+where
+    IPAInputRow<F, MK, BK>: Serializable,
+{
     let mut input_vec = Vec::new();
     while let Some(data) = input.next().await {
         input_vec.extend(IPAInputRow::<F, MK, BK>::from_byte_slice(&data.unwrap()));
@@ -127,7 +143,7 @@ pub fn start_query(
                         &gateway,
                         TotalRecords::Indeterminate,
                     );
-                    let input = input.align(Replicated::<Fp31>::SIZE_IN_BYTES);
+                    let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
                     Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
                 }
                 QueryType::IPA(config) => {
@@ -137,8 +153,9 @@ pub fn start_query(
                         // will be specified in downstream steps
                         TotalRecords::Unspecified,
                     );
-                    let input =
-                        input.align(IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE);
+                    let input = input.align(
+                        <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE,
+                    );
                     Box::new(execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, config, input).await)
                         as Box<dyn Result>
                 }
@@ -160,6 +177,8 @@ mod tests {
         test_fixture::{input::GenericReportTestInput, Reconstruct, TestWorld},
     };
     use futures_util::future::join_all;
+    use generic_array::GenericArray;
+    use typenum::Unsigned;
 
     #[tokio::test]
     async fn multiply() {
@@ -171,14 +190,14 @@ mod tests {
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
 
         let helper_shares = (a, b).share().map(|(a, b)| {
-            const SIZE: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+            const SIZE: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
             let r = a
                 .into_iter()
                 .zip(b)
                 .flat_map(|(a, b)| {
                     let mut slice = [0_u8; 2 * SIZE];
-                    a.serialize(&mut slice).unwrap();
-                    b.serialize(&mut slice[SIZE..]).unwrap();
+                    a.serialize(GenericArray::from_mut_slice(&mut slice[..SIZE]));
+                    b.serialize(GenericArray::from_mut_slice(&mut slice[SIZE..]));
 
                     slice
                 })
@@ -222,10 +241,10 @@ mod tests {
             .map(|shares| {
                 shares
                     .into_iter()
-                    .flat_map(|share| {
+                    .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
                         let mut buf =
-                            [0u8; IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE];
-                        share.serialize(&mut buf).unwrap();
+                            [0u8; <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
+                        share.serialize(GenericArray::from_mut_slice(&mut buf));
 
                         buf
                     })
@@ -241,14 +260,15 @@ mod tests {
                 max_breakdown_key: 3,
             };
             let input = ByteArrStream::from(shares.as_slice())
-                .align(IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE);
+                .align(<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
             execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, query_config, input)
         }))
         .await
         .try_into()
         .unwrap();
 
-        let results = results.reconstruct();
+        let results: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
+            results.reconstruct();
         for (i, expected) in EXPECTED.iter().enumerate() {
             assert_eq!(
                 *expected,

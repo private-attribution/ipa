@@ -212,12 +212,16 @@ mod test {
 
     mod unit_test {
         use super::*;
+        use crate::bits::Serializable;
         use futures_util::{StreamExt, TryStreamExt};
+        use typenum::Unsigned;
 
         #[tokio::test]
         async fn byte_arr_stream_produces_bytes_fp31() {
             let vec = vec![3; 10];
-            let stream = from_slice(&vec, ff::Fp31::SIZE_IN_BYTES).await.unwrap();
+            let stream = from_slice(&vec, <ff::Fp31 as Serializable>::Size::USIZE)
+                .await
+                .unwrap();
             let collected = stream.try_collect::<Vec<_>>().await.unwrap();
 
             // since `from_slice` chunks by the entire slice, expect the entire slice in `collected`
@@ -229,7 +233,7 @@ mod test {
         async fn byte_arr_stream_produces_bytes_fp32_bit_prime() {
             const ARR_SIZE: usize = 20;
             let vec = vec![7; ARR_SIZE * 10];
-            let stream = from_slice(&vec, ff::Fp32BitPrime::SIZE_IN_BYTES)
+            let stream = from_slice(&vec, <ff::Fp32BitPrime as Serializable>::Size::USIZE)
                 .await
                 .unwrap();
             let collected = stream.try_collect::<Vec<_>>().await.unwrap();
@@ -243,8 +247,8 @@ mod test {
         async fn byte_arr_stream_fails_on_invalid_size() {
             const ARR_SIZE: usize = 5;
             // 1 extra byte
-            let vec = vec![4u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES) + 1];
-            let mut stream = from_slice(&vec, ff::Fp32BitPrime::SIZE_IN_BYTES)
+            let vec = vec![4u8; ARR_SIZE * <ff::Fp32BitPrime as Serializable>::Size::USIZE + 1];
+            let mut stream = from_slice(&vec, <ff::Fp32BitPrime as Serializable>::Size::USIZE)
                 .await
                 .unwrap();
 
@@ -256,7 +260,7 @@ mod test {
             let n = n.unwrap();
             assert_eq!(
                 n.as_ref(),
-                &vec[..ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES)]
+                &vec[..ARR_SIZE * <ff::Fp32BitPrime as Serializable>::Size::USIZE]
             );
 
             // invalid remainder
@@ -275,11 +279,14 @@ mod test {
         async fn byte_arr_stream_buffers_optimally() {
             const ARR_SIZE: usize = 20;
             const CHUNK_SIZE: usize = 3;
-            let vec = vec![7u8; ARR_SIZE * (ff::Fp32BitPrime::SIZE_IN_BYTES)];
-            let mut byte_arr_stream =
-                from_chunked(vec.chunks(CHUNK_SIZE), ff::Fp32BitPrime::SIZE_IN_BYTES).await;
+            let vec = vec![7u8; ARR_SIZE * <ff::Fp32BitPrime as Serializable>::Size::USIZE];
+            let mut byte_arr_stream = from_chunked(
+                vec.chunks(CHUNK_SIZE),
+                <ff::Fp32BitPrime as Serializable>::Size::USIZE,
+            )
+            .await;
             assert_eq!(byte_arr_stream.buffered.len(), 0);
-            for expected_chunk in vec.chunks(ff::Fp32BitPrime::SIZE_IN_BYTES) {
+            for expected_chunk in vec.chunks(<ff::Fp32BitPrime as Serializable>::Size::USIZE) {
                 let n = byte_arr_stream.next().await.unwrap().unwrap();
                 // `ByteArrStream` outputs correct value
                 assert_eq!(expected_chunk, &n);
@@ -294,7 +301,7 @@ mod test {
         #[tokio::test]
         async fn returns_multiples() {
             const ARR_SIZE: usize = 201;
-            const SIZE_IN_BYTES: usize = ff::Fp32BitPrime::SIZE_IN_BYTES;
+            const SIZE_IN_BYTES: usize = <ff::Fp32BitPrime as Serializable>::Size::USIZE;
             const CHUNK_SIZE: usize = SIZE_IN_BYTES * 4;
             let vec = vec![8u8; ARR_SIZE * SIZE_IN_BYTES];
             let mut byte_arr_stream = from_chunked(vec.chunks(CHUNK_SIZE), SIZE_IN_BYTES).await;
@@ -315,7 +322,7 @@ mod test {
         #[tokio::test]
         async fn returns_multiples_unaligned() {
             const ARR_SIZE: usize = 200;
-            const SIZE_IN_BYTES: usize = ff::Fp32BitPrime::SIZE_IN_BYTES * 2;
+            const SIZE_IN_BYTES: usize = <ff::Fp32BitPrime as Serializable>::Size::USIZE * 2;
             const CHUNK_SIZE: usize = SIZE_IN_BYTES * 5 + 7;
             let vec = vec![9u8; ARR_SIZE * SIZE_IN_BYTES];
             let mut byte_arr_stream = from_chunked(vec.chunks(CHUNK_SIZE), SIZE_IN_BYTES).await;
@@ -400,7 +407,7 @@ mod test {
         proptest::proptest! {
             #[test]
             fn test_byte_arr_stream_works_with_any_chunks(
-                (size_in_bytes, expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(ff::Fp32BitPrime::SIZE_IN_BYTES, 30, 100)
+                (size_in_bytes, expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(<<ff::Fp32BitPrime as crate::bits::Serializable>::Size as typenum::Unsigned>::USIZE, 30, 100)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     // flatten the chunks to compare with expected

@@ -29,7 +29,7 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
     capped_credits: &[MCAggregateCreditInputRow<F>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error> {
+) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error> {
     let one = ctx.share_of_one();
 
     //
@@ -141,10 +141,7 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
     let result = sorted_output
         .iter()
         .take(max_breakdown_key.try_into().unwrap())
-        .map(|x| MCAggregateCreditOutputRow {
-            breakdown_key: x.breakdown_key.clone(),
-            credit: x.credit.clone(),
-        })
+        .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
         .collect::<Vec<_>>();
 
     Ok(result)

@@ -21,9 +21,8 @@ use crate::{
         },
         RecordId, Substep,
     },
-    secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-        BooleanShare,
+    secret_sharing::replicated::semi_honest::{
+        AdditiveShare as Replicated, XorShare as XorReplicated,
     },
 };
 use async_trait::async_trait;
@@ -31,7 +30,7 @@ use futures::future::{try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
 use std::iter::{repeat, zip};
 use std::ops::Add;
-use typenum::Sum;
+use typenum::{Sum, Unsigned};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -100,9 +99,7 @@ type X<F: Field, MK: BitArray, BK: BitArray> = Sum<
     >,
 >;
 
-// TODO(ts): still does not compile
-impl<F: Field, MK: BitArray + BooleanShare, BK: BitArray + BooleanShare> Serializable
-    for IPAInputRow<F, MK, BK>
+impl<F: Field, MK: BitArray, BK: BitArray> Serializable for IPAInputRow<F, MK, BK>
 where
     XorReplicated<BK>: Serializable,
     XorReplicated<MK>: Serializable,
@@ -131,50 +128,55 @@ where
 {
     type Size = <<XorReplicated<MK> as Serializable>::Size as Add<
         <<Replicated<F> as Serializable>::Size as Add<
-            <<Replicated<F> as Serializable>::Size as Add<
-                <XorReplicated<BK> as Serializable>::Size,
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
             >>::Output,
         >>::Output,
     >>::Output;
 
     fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
-        self.mk_shares
-            .serialize(&mut buf[..XorReplicated::<MK>::Size::USIZE]);
-        self.is_trigger_bit.serialize(
-            &mut buf[XorReplicated::<MK>::Size::USIZE
-                ..XorReplicated::<MK>::Size::USIZE + Replicated::<F>::Size::USIZE],
-        );
-        self.breakdown_key.serialize(
-            &mut buf[XorReplicated::<MK>::Size::USIZE + Replicated::<F>::Size::USIZE
-                ..XorReplicated::<MK>::Size::USIZE
-                    + Replicated::<F>::Size::USIZE
-                    + XorReplicated::<BK>::Size::USIZE],
-        );
-        self.trigger_value.serialize(
-            &mut buf[XorReplicated::<MK>::Size::USIZE
-                + Replicated::<F>::Size::USIZE
-                + XorReplicated::<BK>::Size::USIZE..],
-        )
+        self.mk_shares.serialize(GenericArray::from_mut_slice(
+            &mut buf[..<XorReplicated<MK> as Serializable>::Size::USIZE],
+        ));
+        self.is_trigger_bit.serialize(GenericArray::from_mut_slice(
+            &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
+                ..<XorReplicated<MK> as Serializable>::Size::USIZE
+                    + <Replicated<F> as Serializable>::Size::USIZE],
+        ));
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(
+            &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
+                + <Replicated<F> as Serializable>::Size::USIZE
+                ..<XorReplicated<MK> as Serializable>::Size::USIZE
+                    + <Replicated<F> as Serializable>::Size::USIZE
+                    + <XorReplicated<BK> as Serializable>::Size::USIZE],
+        ));
+        self.trigger_value.serialize(GenericArray::from_mut_slice(
+            &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
+                + <Replicated<F> as Serializable>::Size::USIZE
+                + <XorReplicated<BK> as Serializable>::Size::USIZE..],
+        ))
     }
 
     fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
         let mk_shares = XorReplicated::<MK>::deserialize(GenericArray::clone_from_slice(
-            &buf[..XorReplicated::<MK>::Size::USIZE],
+            &buf[..<XorReplicated<MK> as Serializable>::Size::USIZE],
         ));
         let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::clone_from_slice(
-            &buf[XorReplicated::<MK>::Size::USIZE
-                ..XorReplicated::<MK>::Size::USIZE + Replicated::<F>::Size::USIZE],
+            &buf[<XorReplicated<MK> as Serializable>::Size::USIZE
+                ..<XorReplicated<MK> as Serializable>::Size::USIZE
+                    + <Replicated<F> as Serializable>::Size::USIZE],
         ));
         let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::clone_from_slice(
-            &buf[XorReplicated::<MK>::Size::USIZE + Replicated::<F>::Size::USIZE
-                ..XorReplicated::<MK>::Size::USIZE
-                    + Replicated::<F>::Size::USIZE
-                    + XorReplicated::<BK>::Size::USIZE],
+            &buf[<XorReplicated<MK> as Serializable>::Size::USIZE
+                + <Replicated<F> as Serializable>::Size::USIZE
+                ..<XorReplicated<MK> as Serializable>::Size::USIZE
+                    + <Replicated<F> as Serializable>::Size::USIZE
+                    + <XorReplicated<BK> as Serializable>::Size::USIZE],
         ));
         let trigger_value = Replicated::<F>::deserialize(GenericArray::clone_from_slice(
-            &buf[XorReplicated::<MK>::Size::USIZE
-                + Replicated::<F>::Size::USIZE
-                + XorReplicated::<BK>::Size::USIZE],
+            &buf[<XorReplicated<MK> as Serializable>::Size::USIZE
+                + <Replicated<F> as Serializable>::Size::USIZE
+                + <XorReplicated<BK> as Serializable>::Size::USIZE..],
         ));
         Self {
             mk_shares,
@@ -185,7 +187,10 @@ where
     }
 }
 
-impl<F: Field, MK: BitArray, BK: BitArray> IPAInputRow<F, MK, BK> {
+impl<F: Field, MK: BitArray, BK: BitArray> IPAInputRow<F, MK, BK>
+where
+    IPAInputRow<F, MK, BK>: Serializable,
+{
     /// Splits the given slice into chunks aligned with the size of this struct and returns an
     /// iterator that produces deserialized instances.
     ///
@@ -194,12 +199,14 @@ impl<F: Field, MK: BitArray, BK: BitArray> IPAInputRow<F, MK, BK> {
     pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
         assert_eq!(
             0,
-            input.len() % Self::<F, MK, BK>::Size::USIZE,
+            input.len() % <IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE,
             "input is not aligned"
         );
         input
-            .chunks(Self::<F, MK, BK>::Size::USIZE)
-            .map(|chunk| Self::<F, MK, BK>::deserialize(GenericArray::from_slice(chunk)))
+            .chunks(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE)
+            .map(|chunk| {
+                IPAInputRow::<F, MK, BK>::deserialize(GenericArray::clone_from_slice(chunk))
+            })
     }
 }
 
@@ -263,7 +270,7 @@ pub async fn ipa<F, MK, BK>(
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error>
 where
     F: Field,
     MK: BitArray,
@@ -382,7 +389,7 @@ pub async fn ipa_wip_malicious<F, MK, BK>(
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error>
 where
     F: Field,
     MK: BitArray,
@@ -507,7 +514,7 @@ where
 pub mod tests {
     use crate::{
         bits::{BitArray, Serializable},
-        ff::{Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime},
         ipa_test_input,
         protocol::{
             ipa::{ipa, ipa_wip_malicious, IPAInputRow},
@@ -517,11 +524,13 @@ pub mod tests {
         secret_sharing::IntoShares,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use generic_array::GenericArray;
     use proptest::{
         proptest,
         test_runner::{RngAlgorithm, TestRng},
     };
     use rand::Rng;
+    use typenum::Unsigned;
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -677,18 +686,23 @@ pub mod tests {
     ) {
         // xorshift requires 16 byte seed and that's why it is picked here
         let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
-        let [a, b, ..] = ipa_test_input!(
+        let reports: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
             ];
             (Fp31, MatchKey, BreakdownKey)
-        )[0].share_with(&mut rng);
+        );
+        let [a, b, ..]: [IPAInputRow<Fp31, MatchKey, BreakdownKey>; 3] =
+            reports[0].share_with(&mut rng);
 
-        let mut buf = vec![0u8; 2 * IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE];
-        a.clone().serialize(&mut buf).unwrap();
-        b.clone()
-            .serialize(&mut buf[IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE..])
-            .unwrap();
+        let mut buf =
+            vec![0u8; 2 * <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
+        a.clone().serialize(GenericArray::from_mut_slice(
+            &mut buf[..<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE],
+        ));
+        b.clone().serialize(GenericArray::from_mut_slice(
+            &mut buf[<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE..],
+        ));
 
         assert_eq!(
             vec![a, b],

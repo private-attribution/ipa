@@ -5,54 +5,12 @@ pub mod input;
 pub(crate) mod accumulate_credit;
 
 use crate::{
-    bits::Serializable,
     error::Error,
     ff::Field,
-    protocol::{
-        attribution::input::MCAggregateCreditOutputRow, context::Context, RecordId, Substep,
-    },
+    protocol::{context::Context, RecordId, Substep},
     repeat64str,
     secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
 };
-use generic_array::GenericArray;
-
-impl<F: Field> MCAggregateCreditOutputRow<F> {
-    /// Splits the given slice into chunks aligned with the size of this struct and returns an
-    /// iterator that produces deserialized instances.
-    ///
-    /// ## Panics
-    /// Panics if the slice buffer is not aligned with the size of this struct.
-    pub fn from_byte_slice(slice: &[u8]) -> impl Iterator<Item = Self> + '_ {
-        assert_eq!(0, slice.len() % Self::Size::USIZE);
-
-        slice
-            .chunks(Self::Size::USIZE)
-            .map(|chunk| Self::deserialize(GenericArray::clone_from_slice(chunk)).unwrap())
-    }
-}
-
-// TODO: fix serialization here
-// impl<F: Field> Serializable for AggregateCreditOutputRow<F> {
-//     const SIZE_IN_BYTES: usize = Replicated::<F>::SIZE_IN_BYTES * 2;
-//
-//     fn serialize(self, buf: &mut [u8]) -> io::Result<()> {
-//         self.breakdown_key.serialize(buf)?;
-//         self.credit
-//             .serialize(&mut buf[Replicated::<F>::SIZE_IN_BYTES..])?;
-//
-//         Ok(())
-//     }
-//
-//     fn deserialize(buf: &[u8]) -> io::Result<Self> {
-//         let breakdown_key = Replicated::<F>::deserialize(buf)?;
-//         let credit = Replicated::<F>::deserialize(&buf[Replicated::<F>::SIZE_IN_BYTES..])?;
-//
-//         Ok(Self {
-//             breakdown_key,
-//             credit,
-//         })
-//     }
-// }
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(

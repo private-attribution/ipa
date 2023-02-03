@@ -464,6 +464,8 @@ mod tests {
             },
         };
         use futures_util::future::{join_all, try_join_all};
+        use generic_array::GenericArray;
+        use typenum::Unsigned;
 
         async fn make_three(network: &InMemoryNetwork) -> [Processor<Weak<InMemoryTransport>>; 3] {
             let identities = HelperIdentity::make_three();
@@ -495,7 +497,7 @@ mod tests {
 
         #[tokio::test]
         async fn test_multiply() {
-            const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+            const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
             let network = InMemoryNetwork::default();
             let (query_id, mut processors) = start_query(
                 &network,
@@ -510,8 +512,8 @@ mod tests {
 
             let helper_shares = (a, b).share().map(|(a, b)| {
                 let mut slice = [0u8; 2 * SZ];
-                a.serialize(&mut slice).unwrap();
-                b.serialize(&mut slice[SZ..]).unwrap();
+                a.serialize(GenericArray::from_mut_slice(&mut slice[..SZ]));
+                b.serialize(GenericArray::from_mut_slice(&mut slice[SZ..]));
                 ByteArrStream::from(slice.as_slice())
             });
 
@@ -552,7 +554,7 @@ mod tests {
 
         #[tokio::test]
         async fn ipa() {
-            const SZ: usize = Replicated::<Fp31>::Size::USIZE;
+            const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
             const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
             let network = InMemoryNetwork::default();
             let (query_id, mut processors) = start_query(
@@ -589,8 +591,8 @@ mod tests {
                         .into_iter()
                         .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
                             let mut buf =
-                                [0u8; IPAInputRow::<Fp31, MatchKey, BreakdownKey>::Size::USIZE];
-                            share.serialize(&mut buf).unwrap();
+                                [0u8; <IPAInputRow::<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
+                            share.serialize(GenericArray::from_mut_slice(&mut buf));
 
                             buf
                         })
@@ -617,7 +619,8 @@ mod tests {
 
             let result: [_; 3] = join_all(processors.map(|mut processor| async move {
                 let r = processor.complete(query_id).await.unwrap().into_bytes();
-                MCAggregateCreditOutputRow::<Fp31>::from_byte_slice(&r).collect::<Vec<_>>()
+                MCAggregateCreditOutputRow::<Fp31, BreakdownKey>::from_byte_slice(&r)
+                    .collect::<Vec<_>>()
             }))
             .await
             .try_into()
