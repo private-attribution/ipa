@@ -45,6 +45,7 @@ use super::{
     Substep,
 };
 use crate::protocol::boolean::bitwise_equal::bitwise_equal;
+use crate::protocol::{BreakdownKey, MatchKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -155,24 +156,53 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
     }
 }
 
+/// Describes a request to execute IPA protocol. Consists of computation inputs and query parameters
+pub struct Query<'a, F: Field, MK: BitArray = MatchKey, BK: BitArray = BreakdownKey> {
+    input: &'a [IPAInputRow<F, MK, BK>],
+    /// Maximum contribution allowed per match key/user.
+    per_user_credit_cap: u32,
+    /// ?
+    max_breakdown_key: u128,
+    /// That many bits will be sorted at the same time. Setting it to 1 would mean IPA sorts
+    /// 1 bit at a time. Our experiments confirmed by research papers show that 3 is the optimal
+    /// value.
+    num_multi_bits: u32,
+    /// Indicates how many least significant bits of match keys are used inside the query. By default
+    /// this value is set to `MK::BITS`, meaning all bits will be used.
+    match_key_bits: u8,
+}
+
+impl<'a, F: Field, MK: BitArray, BK: BitArray> Query<'a, F, MK, BK> {
+    const DEFAULT_MULTI_BITS: u8 = 3;
+
+    pub fn new(
+        input: &'a [IPAInputRow<F, MK, BK>],
+        per_user_credit_cap: u32,
+        max_breakdown_key: u128,
+    ) -> Self {
+        let match_key_bits =
+            u8::try_from(MK::BITS).expect("match keys should have less than 256 bits");
+
+        Self {
+            input,
+            per_user_credit_cap,
+            max_breakdown_key,
+            num_multi_bits: u32::from(Self::DEFAULT_MULTI_BITS),
+            match_key_bits,
+        }
+    }
+}
+
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code)]
-pub async fn ipa<F, MK, BK>(
+pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
-    input_rows: &[IPAInputRow<F, MK, BK>],
-    per_user_credit_cap: u32,
-    max_breakdown_key: u128,
-    num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
-where
-    F: Field,
-    MK: BitArray,
-    BK: BitArray,
-{
-    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
+    query: Query<'_, F, MK, BK>,
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error> {
+    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = query
+        .input
         .iter()
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
@@ -182,7 +212,7 @@ where
         &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &convert_all_bits_local(ctx.role(), &bk_shares),
         BK::BITS,
-        num_multi_bits,
+        query.num_multi_bits,
     )
     .await
     .unwrap();
@@ -192,8 +222,8 @@ where
     let converted_mk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &convert_all_bits_local(ctx.role(), &mk_shares),
-        MK::BITS,
-        num_multi_bits,
+        u32::from(query.match_key_bits),
+        query.num_multi_bits,
     )
     .await
     .unwrap();
@@ -210,7 +240,7 @@ where
     let combined_match_keys_and_sidecar_data =
         std::iter::zip(converted_mk_shares, converted_bk_shares)
             .into_iter()
-            .zip(input_rows)
+            .zip(query.input)
             .map(
                 |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
                     mk_shares,
@@ -263,15 +293,15 @@ where
     let user_capped_credits = credit_capping(
         ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
-        per_user_credit_cap,
+        query.per_user_credit_cap,
     )
     .await?;
 
     aggregate_credit::<F, BK>(
         ctx.narrow(&Step::AggregateCredit),
         &user_capped_credits,
-        max_breakdown_key,
-        num_multi_bits,
+        query.max_breakdown_key,
+        query.num_multi_bits,
     )
     .await
 }
@@ -285,10 +315,7 @@ where
 #[allow(dead_code, clippy::too_many_lines)]
 pub async fn ipa_wip_malicious<F, MK, BK>(
     sh_ctx: SemiHonestContext<'_, F>,
-    input_rows: &[IPAInputRow<F, MK, BK>],
-    per_user_credit_cap: u32,
-    max_breakdown_key: u128,
-    num_multi_bits: u32,
+    query: Query<'_, F, MK, BK>,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
 where
     F: Field,
@@ -298,7 +325,8 @@ where
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
 
-    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
+    let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = query
+        .input
         .iter()
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
@@ -309,8 +337,8 @@ where
         &m_ctx
             .upgrade(convert_all_bits_local(m_ctx.role(), &mk_shares))
             .await?,
-        MK::BITS,
-        num_multi_bits,
+        u32::from(query.match_key_bits),
+        query.num_multi_bits,
     )
     .await
     .unwrap();
@@ -338,7 +366,7 @@ where
             .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
             .await?,
         BK::BITS,
-        num_multi_bits,
+        query.num_multi_bits,
     )
     .await
     .unwrap();
@@ -347,7 +375,7 @@ where
 
     let intermediate = converted_mk_shares
         .into_iter()
-        .zip(input_rows)
+        .zip(query.input)
         .map(
             |(mk_shares, input_row)| IPAModulusConvertedInputRowWrapper {
                 mk_shares,
@@ -419,7 +447,7 @@ where
     let user_capped_credits = credit_capping(
         m_ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
-        per_user_credit_cap,
+        query.per_user_credit_cap,
     )
     .await?;
 
@@ -429,8 +457,8 @@ where
         malicious_validator,
         sh_ctx,
         &user_capped_credits,
-        max_breakdown_key,
-        num_multi_bits,
+        query.max_breakdown_key,
+        query.num_multi_bits,
     )
     .await
 }
@@ -440,6 +468,7 @@ pub mod tests {
     use super::{ipa, ipa_wip_malicious};
     use crate::bits::BitArray;
     use crate::ipa_test_input;
+    use crate::protocol::ipa::Query;
     use crate::protocol::{BreakdownKey, MatchKey};
     use crate::telemetry::metrics::RECORDS_SENT;
     use crate::test_fixture::input::GenericReportTestInput;
@@ -458,11 +487,10 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
-        const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+        let records = ipa_test_input!(
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -473,14 +501,11 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp31, MatchKey, BreakdownKey>(
+                ipa(
                     ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
+                    Query::new(&input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY),
                 )
                 .await
                 .unwrap()
@@ -507,7 +532,6 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
-        const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
 
@@ -524,12 +548,9 @@ pub mod tests {
 
         let [result0, result1, result2] = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
+                ipa_wip_malicious(
                     ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
+                    Query::new(&input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY),
                 )
                 .await
                 .unwrap()
@@ -549,7 +570,6 @@ pub mod tests {
         const PER_USER_CAP: u32 = 10;
         const MAX_BREAKDOWN_KEY: u128 = 8;
         const MAX_TRIGGER_VALUE: u128 = 5;
-        const NUM_MULTI_BITS: u32 = 3;
 
         let max_match_key: u128 = BATCHSIZE / 10;
 
@@ -569,14 +589,11 @@ pub mod tests {
                 (Fp32BitPrime, MatchKey, BreakdownKey)
             ));
         }
-        let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                ipa(
                     ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
+                    Query::new(&input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY),
                 )
                 .await
                 .unwrap()
@@ -599,7 +616,6 @@ pub mod tests {
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
-        const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 3, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE: u64 = 10752;
@@ -609,7 +625,7 @@ pub mod tests {
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
-        let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
+        let records = ipa_test_input!(
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -620,14 +636,11 @@ pub mod tests {
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
-        let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
+        let _: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records.clone(), |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                ipa(
                     ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
+                    Query::new(&input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY),
                 )
                 .await
                 .unwrap()
@@ -649,10 +662,7 @@ pub mod tests {
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
+                    Query::new(&input_rows, PER_USER_CAP, MAX_BREAKDOWN_KEY),
                 )
                 .await
                 .unwrap()

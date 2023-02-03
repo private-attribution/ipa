@@ -136,6 +136,7 @@ where
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],
+    // TODO: u8 should be enough to represent bits
     num_bits: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<Vec<Vec<S>>>, Error>
