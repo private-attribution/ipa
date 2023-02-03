@@ -458,10 +458,6 @@ pub mod tests {
     use futures::future::join3;
     use rand::Rng;
 
-    // pub breakdown_key: Vec<T>,
-    // pub credit: T,
-    // pub _marker: PhantomData<F>,
-
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {

@@ -75,11 +75,7 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
 #[async_trait]
 impl<F: Field> DowngradeMalicious for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>> {
     type Target = MCAggregateCreditOutputRow<F, Replicated<F>>;
-    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        // Note that this clones the values rather than moving them.
-        // This code is only used in test code, so that's probably OK.
-        assert!(cfg!(test), "This code isn't ideal outside of tests");
         UnauthorizedDowngradeWrapper::new(Self::Target {
             breakdown_key: self
                 .breakdown_key
