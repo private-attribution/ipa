@@ -277,7 +277,7 @@ where
 }
 
 /// Malicious IPA
-/// We return Replicated<F> as output since there is compute after this and in aggregate_credit, last communication operation was sort
+/// We return Replicated<F> as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
