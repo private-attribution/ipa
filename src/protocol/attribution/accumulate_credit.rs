@@ -61,6 +61,17 @@ where
         .map(|x| x.trigger_value.clone())
         .collect::<Vec<_>>();
 
+    // We can skip the very first row, since there is no row above that will check it as a "sibling"
+    let futures = input.iter().skip(1).enumerate().map(|(i, x)| {
+        let c = ctx.narrow(&Step::HelperBitTimesIsTriggerBit);
+        let record_id = RecordId::from(i);
+        let is_trigger_bit = &x.is_trigger_report;
+        let helper_bit = &x.helper_bit;
+        async move { c.multiply(record_id, is_trigger_bit, helper_bit).await }
+    });
+
+    let memoized_helper_bit_times_is_trigger_bit = try_join_all(futures).await?;
+
     // 2. Accumulate (up to 4 multiplications)
     //
     // For each iteration (`log2(input.len())`), we access each node in the
@@ -89,8 +100,8 @@ where
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_helper_bit = &input[i + step_size].helper_bit;
-            let sibling_is_trigger_bit = &input[i + step_size].is_trigger_report;
+            let sibling_helper_bit_times_is_trigger_bit =
+                &memoized_helper_bit_times_is_trigger_bit[i + step_size - 1];
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
                 // b = if [next event has the same match key]  AND
@@ -100,8 +111,7 @@ where
                     c.clone(),
                     record_id,
                     current_stop_bit,
-                    sibling_helper_bit,
-                    sibling_is_trigger_bit,
+                    sibling_helper_bit_times_is_trigger_bit,
                     depth == 0,
                 )
                 .await?;
@@ -152,8 +162,7 @@ async fn compute_b_bit<F, C, T>(
     ctx: C,
     record_id: RecordId,
     current_stop_bit: &T,
-    sibling_helper_bit: &T,
-    sibling_is_trigger_bit: &T,
+    sibling_helper_bit_times_is_trigger_bit: &T,
     first_iteration: bool,
 ) -> Result<T, Error>
 where
@@ -164,19 +173,18 @@ where
     // Compute `b = current_stop_bit * sibling_helper_bit * sibling_trigger_bit`.
     // Since `current_stop_bit` is initialized with 1, we only multiply it in
     // the second and later iterations.
-    let mut b = ctx
-        .narrow(&Step::HelperBitTimesIsTriggerBit)
-        .multiply(record_id, sibling_helper_bit, sibling_is_trigger_bit)
-        .await?;
-
-    if !first_iteration {
-        b = ctx
+    if first_iteration {
+        Ok(sibling_helper_bit_times_is_trigger_bit.clone())
+    } else {
+        Ok(ctx
             .narrow(&Step::BTimesCurrentStopBit)
-            .multiply(record_id, &b, current_stop_bit)
-            .await?;
+            .multiply(
+                record_id,
+                sibling_helper_bit_times_is_trigger_bit,
+                current_stop_bit,
+            )
+            .await?)
     }
-
-    Ok(b)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
