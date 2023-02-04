@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io;
 use std::io::{stdin, BufRead, BufReader, Read};
 
-use crate::test_fixture::IPAInputTestRow;
+use crate::{bits::BitArray, ipa_test_input, test_fixture::input::GenericReportTestInput};
 use std::path::PathBuf;
 
 pub trait InputItem {
@@ -24,7 +24,7 @@ impl InputItem for u64 {
     }
 }
 
-impl InputItem for IPAInputTestRow {
+impl<F: Field, MK: BitArray, BK: BitArray> InputItem for GenericReportTestInput<F, MK, BK> {
     fn from_str(s: &str) -> Self {
         // pub match_key: u64,
         // pub is_trigger_bit: u128,
@@ -33,12 +33,18 @@ impl InputItem for IPAInputTestRow {
         if let [match_key, is_trigger_bit, breakdown_key, trigger_value] =
             s.splitn(4, ',').collect::<Vec<_>>()[..]
         {
-            Self {
-                match_key: match_key.parse::<u64>().unwrap(),
-                is_trigger_bit: is_trigger_bit.parse::<u128>().unwrap(),
-                breakdown_key: breakdown_key.parse::<u128>().unwrap(),
-                trigger_value: trigger_value.parse::<u128>().unwrap(),
-            }
+            let records: Vec<GenericReportTestInput<F, MK, BK>> = ipa_test_input!(
+                [
+                    {
+                        match_key: match_key.parse::<u128>().unwrap(),
+                        is_trigger_report: is_trigger_bit.parse::<u128>().unwrap(),
+                        breakdown_key: breakdown_key.parse::<u128>().unwrap(),
+                        trigger_value: trigger_value.parse::<u128>().unwrap()
+                    },
+                ];
+                (F, MK, BK)
+            );
+            records[0]
         } else {
             panic!("{s} is not a valid IPAInputTestRow")
         }

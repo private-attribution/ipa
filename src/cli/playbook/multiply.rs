@@ -8,7 +8,10 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 use futures_util::future::try_join_all;
+use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
+use std::ops::Add;
+use typenum::Unsigned;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.
 /// `(a, b)` will produce `a` * `b`.
@@ -20,16 +23,21 @@ pub async fn secure_mul<F>(
 ) -> [Vec<impl Send + Debug>; 3]
 where
     F: Field + IntoShares<Replicated<F>>,
+    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
+    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
 {
     // prepare inputs
     let inputs = input.iter::<(F, F)>().share().map(|vec| {
         let r = vec
             .into_iter()
             .flat_map(|(a, b)| {
-                let mut slice = vec![0u8; 2 * Replicated::<F>::SIZE_IN_BYTES];
-                a.serialize(&mut slice).unwrap();
-                b.serialize(&mut slice[Replicated::<F>::SIZE_IN_BYTES..])
-                    .unwrap();
+                let mut slice = vec![0u8; 2 * <Replicated<F> as Serializable>::Size::USIZE];
+                a.serialize(GenericArray::from_mut_slice(
+                    &mut slice[..<Replicated<F> as Serializable>::Size::USIZE],
+                ));
+                b.serialize(GenericArray::from_mut_slice(
+                    &mut slice[<Replicated<F> as Serializable>::Size::USIZE..],
+                ));
 
                 slice
             })

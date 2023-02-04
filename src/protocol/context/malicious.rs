@@ -1,3 +1,5 @@
+use std::iter::{repeat, zip};
+
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 
@@ -15,6 +17,7 @@ use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
+use crate::repeat64str;
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
@@ -463,6 +466,59 @@ where
                 )
                 .await
         }))
+        .await
+    }
+}
+
+enum Upgrade2DVectors {
+    V(usize),
+}
+impl crate::protocol::Substep for Upgrade2DVectors {}
+
+impl AsRef<str> for Upgrade2DVectors {
+    fn as_ref(&self) -> &str {
+        const COLUMN: [&str; 64] = repeat64str!["upgrade_2d"];
+
+        match self {
+            Self::V(i) => COLUMN[*i],
+        }
+    }
+}
+
+/// This function is not a generic implementation of 2D vector upgrade.
+/// It assumes the inner vector is much smaller (e.g. multiple bits per record) than the outer vector (e.g. records)
+/// Each inner vector element uses a different context and outer vector shares a context for the same inner vector index
+#[async_trait]
+impl<'a, F, T, M> UpgradeToMalicious<Vec<Vec<T>>, Vec<Vec<M>>> for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+    T: Send + 'static,
+    M: Send + 'static,
+    for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
+{
+    /// # Panics
+    /// Panics if input is empty
+    async fn upgrade(self, input: Vec<Vec<T>>) -> Result<Vec<Vec<M>>, Error> {
+        let num_records = input.len();
+        assert_ne!(num_records, 0);
+        let num_columns = input[0].len();
+        let ctx = self.upgrade_ctx.set_total_records(num_records);
+        let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
+
+        try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
+            |(record_idx, (all_ctx, one_input))| async move {
+                try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
+                    UpgradeContext {
+                        upgrade_ctx: ctx,
+                        inner: self.inner,
+                        record_binding: RecordId::from(record_idx),
+                    }
+                    .upgrade(share)
+                    .await
+                }))
+                .await
+            },
+        ))
         .await
     }
 }

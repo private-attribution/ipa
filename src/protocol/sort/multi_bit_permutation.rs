@@ -35,18 +35,23 @@ pub async fn multi_bit_permutation<
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
-    let num_multi_bits = input.len();
+    let num_records = input.len();
+    assert!(num_records > 0);
+
+    let num_multi_bits = (input[0]).len();
     assert!(num_multi_bits > 0);
-    let num_records = input[0].len();
+
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
     let share_of_one = ctx.share_of_one();
 
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
-        (0..num_records)
+        input
+            .iter()
             .zip(repeat(ctx.set_total_records(num_records)))
-            .map(|(i, ctx)| check_everything(ctx, i, input)),
+            .enumerate()
+            .map(|(idx, (record, ctx))| check_everything(ctx, idx, record)),
     )
     .await?;
 
@@ -94,20 +99,15 @@ pub async fn multi_bit_permutation<
 /// `2^N` possible values this could have.
 /// This function checks all of these possible values, and returns a vector of secret-shared results.
 /// Only one result will be a secret-sharing of one, all of the others will be secret-sharings of zero.
-async fn check_everything<F, C, S>(
-    ctx: C,
-    record_idx: usize,
-    input: &[Vec<S>],
-) -> Result<Vec<S>, Error>
+async fn check_everything<F, C, S>(ctx: C, record_idx: usize, record: &[S]) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let num_bits = input.len();
-
+    let num_bits = record.len();
     let precomputed_combinations =
-        pregenerate_all_combinations(ctx, record_idx, input, num_bits).await?;
+        pregenerate_all_combinations(ctx, record_idx, record, num_bits).await?;
 
     // This loop just iterates over all the possible values this N-bit input could potentially represent
     // and checks if the bits are equal to this value. It does so my computing a linear combination of the
@@ -190,7 +190,7 @@ where
 async fn pregenerate_all_combinations<F, C, S>(
     ctx: C,
     record_idx: usize,
-    input: &[Vec<S>],
+    input: &[S],
     num_bits: usize,
 ) -> Result<Vec<S>, Error>
 where
@@ -201,8 +201,7 @@ where
     let record_id = RecordId::from(record_idx);
     let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
     precomputed_combinations.push(ctx.share_of_one());
-    for (bit_idx, column) in input.iter().enumerate() {
-        let bit = &column[record_idx];
+    for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
         let mut multiplication_results =
             try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
@@ -236,11 +235,15 @@ mod tests {
 
     use super::check_everything;
 
-    const INPUT: [&[u128]; 3] = [
-        &[0, 0, 1, 0, 1, 0],
-        &[0, 1, 1, 0, 0, 0],
-        &[1, 0, 1, 0, 1, 0],
+    const INPUT: [[u128; 3]; 6] = [
+        [0, 0, 1],
+        [0, 1, 0],
+        [1, 1, 1],
+        [0, 0, 0],
+        [1, 0, 1],
+        [0, 0, 0],
     ];
+
     const EXPECTED: &[u128] = &[3, 2, 5, 0, 4, 1]; //100 010 111 000 101 000
     const EXPECTED_NUMS: &[usize] = &[4, 2, 7, 0, 5, 0];
 
@@ -254,9 +257,7 @@ mod tests {
             .collect();
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
-                multi_bit_permutation(ctx, m_shares.as_slice())
-                    .await
-                    .unwrap()
+                multi_bit_permutation(ctx, &m_shares).await.unwrap()
             })
             .await;
 
@@ -272,14 +273,14 @@ mod tests {
             .map(|v| v.iter().map(|x| Fp31::from(*x)).collect())
             .collect();
 
-        let num_records = INPUT[0].len();
+        let num_records = INPUT.len();
 
         let result = world
             .semi_honest(input, |ctx, m_shares| async move {
                 let mut equality_check_futures = Vec::with_capacity(num_records);
-                for i in 0..num_records {
+                for (i, record) in m_shares.iter().enumerate() {
                     let ctx = ctx.set_total_records(num_records);
-                    equality_check_futures.push(check_everything(ctx, i, m_shares.as_slice()));
+                    equality_check_futures.push(check_everything(ctx, i, record));
                 }
                 try_join_all(equality_check_futures).await.unwrap()
             })

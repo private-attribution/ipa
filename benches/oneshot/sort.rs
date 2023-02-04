@@ -1,8 +1,9 @@
 use rand::Rng;
 use raw_ipa::{
-    bits::BitArray,
+    bits::{BitArray, BitArray40},
     error::Error,
     ff::{Field, Fp32BitPrime},
+    helpers::messaging::TotalRecords,
     protocol::{
         context::Context,
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
@@ -17,14 +18,16 @@ use std::time::Instant;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 10000;
+    const BATCHSIZE: usize = 1000;
     const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
     config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
     config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
     let world = TestWorld::new_with(config).await;
-    let [ctx0, ctx1, ctx2] = world.contexts::<Fp32BitPrime>();
+    let [ctx0, ctx1, ctx2] = world
+        .contexts::<Fp32BitPrime>()
+        .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
     let mut rng = rand::thread_rng();
 
     let mut match_keys: Vec<MatchKey> = Vec::with_capacity(BATCHSIZE);
@@ -35,17 +38,22 @@ async fn main() -> Result<(), Error> {
 
     let converted_shares = world
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_all_bits(&ctx, &convert_all_bits_local(ctx.role(), &match_key))
-                .await
-                .unwrap()
+            convert_all_bits(
+                &ctx,
+                &convert_all_bits_local(ctx.role(), &match_key),
+                BitArray40::BITS,
+                NUM_MULTI_BITS,
+            )
+            .await
+            .unwrap()
         })
         .await;
 
     let start = Instant::now();
     let result = join3(
-        generate_permutation_opt(ctx0, &converted_shares[0], MatchKey::BITS, NUM_MULTI_BITS),
-        generate_permutation_opt(ctx1, &converted_shares[1], MatchKey::BITS, NUM_MULTI_BITS),
-        generate_permutation_opt(ctx2, &converted_shares[2], MatchKey::BITS, NUM_MULTI_BITS),
+        generate_permutation_opt(ctx0, &converted_shares[0]),
+        generate_permutation_opt(ctx1, &converted_shares[1]),
+        generate_permutation_opt(ctx2, &converted_shares[2]),
     )
     .await;
 
@@ -58,7 +66,7 @@ async fn main() -> Result<(), Error> {
 
     let mut mpc_sorted_list: Vec<u128> = (0..BATCHSIZE).map(|i| i as u128).collect();
     for (i, match_key) in match_keys.iter().enumerate() {
-        let index = (&result[0][i], &result[1][i], &result[2][i]).reconstruct();
+        let index = [&result[0][i], &result[1][i], &result[2][i]].reconstruct();
         mpc_sorted_list[index.as_u128() as usize] = match_key.as_u128();
     }
 
