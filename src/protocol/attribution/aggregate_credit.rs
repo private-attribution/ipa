@@ -41,8 +41,6 @@ where
     F: Field,
     BK: BitArray,
 {
-    let one = ctx.share_known_value(F::ONE);
-
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
@@ -72,14 +70,31 @@ where
     //     new_stop_bit[current_index] = b * successor.stop_bit;
     //
     let num_rows = sorted_input.len();
-    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
+    let mut stop_bits = sorted_input
+        .iter()
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
+    stop_bits.push(Replicated::ZERO);
 
+    let depth_0_ctx = ctx
+        .narrow(&Step::AggregateCreditBTimesSuccessorCredit)
+        .set_total_records(num_rows - 1);
+    let futures = sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
+        let c = depth_0_ctx.clone();
+        let record_id = RecordId::from(i);
+        async move { c.multiply(record_id, &x.helper_bit, &x.credit).await }
+    });
+
+    let credit_updates = try_join_all(futures).await?;
     let mut credits = sorted_input
         .iter()
-        .map(|x| x.credit.clone())
+        .zip(credit_updates)
+        .map(|(x, update)| update + &x.credit)
         .collect::<Vec<_>>();
+    credits.push(sorted_input.last().unwrap().credit.clone());
 
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
@@ -97,25 +112,16 @@ where
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
-                let b = compute_b_bit(
-                    c.narrow(&Step::ComputeBBit),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit,
-                    depth == 0,
-                )
-                .await?;
+                let b = c
+                    .narrow(&Step::ComputeBBit)
+                    .multiply(record_id, sibling_helper_bit, current_stop_bit)
+                    .await?;
 
                 try_join(
                     c.narrow(&Step::AggregateCreditBTimesSuccessorCredit)
                         .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::ComputeStopBit),
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                        depth == 0,
-                    ),
+                    c.narrow(&Step::ComputeStopBit)
+                        .multiply(record_id, &b, sibling_stop_bit),
                 )
                 .await
             });
