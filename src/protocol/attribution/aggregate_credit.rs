@@ -77,7 +77,7 @@ where
     stop_bits.push(ctx.share_known_value(F::ONE));
 
     let depth_0_ctx = ctx
-        .narrow(&Step::AggregateCreditBTimesSuccessorCredit)
+        .narrow(&InteractionPatternStep::from(0))
         .set_total_records(num_rows - 1);
     let credit_updates = try_join_all(sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = depth_0_ctx.clone();
@@ -111,7 +111,7 @@ where
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
                 let b = c
-                    .narrow(&Step::ComputeBBit)
+                    .clone()
                     .multiply(record_id, sibling_helper_bit, current_stop_bit)
                     .await?;
 
@@ -231,7 +231,7 @@ where
     stop_bits.push(m_ctx.share_known_value(F::ONE));
 
     let depth_0_ctx = m_ctx
-        .narrow(&Step::AggregateCreditBTimesSuccessorCredit)
+        .narrow(&InteractionPatternStep::from(0))
         .set_total_records(num_rows - 1);
     let futures = sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = depth_0_ctx.clone();
@@ -253,7 +253,7 @@ where
     {
         let end = num_rows - step_size;
         let c = m_ctx
-            .narrow(&InteractionPatternStep::from(depth))
+            .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
         let mut futures = Vec::with_capacity(end);
 
@@ -266,7 +266,7 @@ where
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
                 let b = c
-                    .narrow(&Step::ComputeBBit)
+                    .clone()
                     .multiply(record_id, current_stop_bit, sibling_helper_bit)
                     .await?;
 
@@ -519,7 +519,6 @@ async fn malicious_sort_by_aggregation_bit<F: Field>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    ComputeBBit,
     ComputeStopBit,
     SortByBreakdownKey,
     SortByAttributionBit,
@@ -535,7 +534,6 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ComputeBBit => "compute_b_bit",
             Self::ComputeStopBit => "compute_stop_bit",
             Self::SortByBreakdownKey => "sort_by_breakdown_key",
             Self::SortByAttributionBit => "sort_by_attribution_bit",

@@ -11,7 +11,6 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     HelperBitTimesIsTriggerBit,
-    BTimesCurrentStopBit,
     BTimesSuccessorCredit,
     BTimesSuccessorStopBit,
 }
@@ -22,7 +21,6 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::HelperBitTimesIsTriggerBit => "helper_bit_times_is_trigger_bit",
-            Self::BTimesCurrentStopBit => "b_times_current_stop_bit",
             Self::BTimesSuccessorCredit => "b_times_successor_credit",
             Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
         }
@@ -64,7 +62,7 @@ where
 
     // For the very first iteration:
     // credit[i] = input[i].trigger_value + input[i+1].is_trigger_bit * input[i+1].helper_bit * input[i+1].trigger_value
-    let depth_0_ctx = ctx.narrow(&Step::BTimesSuccessorCredit);
+    let depth_0_ctx = ctx.narrow(&InteractionPatternStep::from(0));
     let credit_updates = try_join_all(
         input
             .iter()
@@ -113,7 +111,7 @@ where
     {
         let end = num_rows - step_size;
         let mut futures = Vec::with_capacity(end);
-        let c = ctx.narrow(&InteractionPatternStep::from(depth));
+        let c = ctx.narrow(&InteractionPatternStep::from(depth + 1));
 
         for i in 0..end {
             let c = c.clone();
@@ -128,7 +126,7 @@ where
                 //        [next event is a trigger event]      AND
                 //        [accumulation has not completed yet]
                 let b = c
-                    .narrow(&Step::BTimesCurrentStopBit)
+                    .clone()
                     .multiply(
                         record_id,
                         sibling_helper_bit_times_is_trigger_bit,
