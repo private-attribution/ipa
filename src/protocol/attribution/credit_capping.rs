@@ -1,5 +1,5 @@
 use super::{
-    compute_b_bit, compute_stop_bit, if_else,
+    if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     InteractionPatternStep,
 };
@@ -124,17 +124,37 @@ where
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
 {
-    let one = ctx.share_known_value(F::ONE);
-    let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
+    let mut stop_bits = input
+        .iter()
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
+    stop_bits.push(T::ZERO);
 
     let num_rows = input.len();
+    let depth_0_ctx = ctx.narrow(&InteractionPatternStep::from(0));
+    //.set_total_records(num_rows - 1);
+    let futures = input.iter().skip(1).enumerate().map(|(i, x)| {
+        let c = depth_0_ctx.clone();
+        let record_id = RecordId::from(i);
+        let credit = &original_credits[i + 1];
+        async move { c.multiply(record_id, &x.helper_bit, credit).await }
+    });
+    let credit_updates = try_join_all(futures).await?;
 
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
+    credit_updates
+        .into_iter()
+        .enumerate()
+        .for_each(|(i, credit)| {
+            original_credits[i] += &credit;
+        });
+
+    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::from(depth));
+        let c = ctx.narrow(&InteractionPatternStep::from(depth + 1));
         let mut futures = Vec::with_capacity(end);
 
         // for each input row, create a future to execute secure multiplications
@@ -152,24 +172,18 @@ where
                 // original_credit += b * successor.original_credit
                 // stop_bit = b * successor.stop_bit
 
-                let b = compute_b_bit(
-                    c.narrow(&Step::BTimesStopBit),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit,
-                    depth == 0,
-                )
-                .await?;
+                let b = c
+                    .clone()
+                    .multiply(record_id, sibling_helper_bit, current_stop_bit)
+                    .await?;
 
                 try_join(
                     c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
                         .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::BTimesSuccessorStopBit),
+                    c.narrow(&Step::BTimesSuccessorStopBit).multiply(
                         record_id,
                         &b,
                         sibling_stop_bit,
-                        depth == 0,
                     ),
                 )
                 .await
@@ -316,7 +330,6 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    BTimesStopBit,
     BTimesSuccessorStopBit,
     MaskSourceCredits,
     CurrentContributionBTimesSuccessorCredit,
@@ -333,7 +346,6 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BTimesStopBit => "b_times_stop_bit",
             Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
             Self::MaskSourceCredits => "mask_source_credits",
             Self::CurrentContributionBTimesSuccessorCredit => {

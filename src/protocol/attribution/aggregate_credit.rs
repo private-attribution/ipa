@@ -100,7 +100,7 @@ where
     {
         let end = num_rows - step_size;
         let c = ctx
-            .narrow(&InteractionPatternStep::from(depth))
+            .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
         let mut futures = Vec::with_capacity(end);
 
