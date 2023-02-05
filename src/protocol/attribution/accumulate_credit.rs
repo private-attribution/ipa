@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    HelperBitTimesIsTriggerBit,
+    MemoizeIsTriggerBitTimesHelperBit,
     BTimesSuccessorCredit,
     BTimesSuccessorStopBit,
 }
@@ -20,7 +20,7 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::HelperBitTimesIsTriggerBit => "helper_bit_times_is_trigger_bit",
+            Self::MemoizeIsTriggerBitTimesHelperBit => "memoize_is_trigger_bit_times_helper_bit",
             Self::BTimesSuccessorCredit => "b_times_successor_credit",
             Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
         }
@@ -44,15 +44,17 @@ where
     T: Arithmetic<F>,
 {
     let num_rows = input.len();
-    let ctx = ctx.set_total_records(num_rows);
 
     // For every row, compute:
     // input[i].is_triger_bit * input[i].helper_bit
     // Save this value as it will be used on every iteration.
     // We can skip the very first row, since there is no row above that will check it as a "sibling"
+    let memoize_context = ctx
+        .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
+        .set_total_records(num_rows - 1);
     let memoized_helper_bit_times_is_trigger_bit =
         try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
-            let c = ctx.narrow(&Step::HelperBitTimesIsTriggerBit);
+            let c = memoize_context.clone();
             let record_id = RecordId::from(i);
             let is_trigger_bit = &x.is_trigger_report;
             let helper_bit = &x.helper_bit;
@@ -62,7 +64,9 @@ where
 
     // For the very first iteration:
     // credit[i] = input[i].trigger_value + input[i+1].is_trigger_bit * input[i+1].helper_bit * input[i+1].trigger_value
-    let depth_0_ctx = ctx.narrow(&InteractionPatternStep::from(0));
+    let depth_0_ctx = ctx
+        .narrow(&Step::BTimesSuccessorCredit)
+        .set_total_records(num_rows - 1);
     let credit_updates = try_join_all(
         input
             .iter()
@@ -111,10 +115,16 @@ where
     {
         let end = num_rows - step_size;
         let mut futures = Vec::with_capacity(end);
-        let c = ctx.narrow(&InteractionPatternStep::from(depth + 1));
+        let depth_i_ctx = ctx
+            .narrow(&InteractionPatternStep::from(depth + 1))
+            .set_total_records(end);
+        let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
+        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
 
         for i in 0..end {
-            let c = c.clone();
+            let c1 = depth_i_ctx.clone();
+            let c2 = b_times_sibling_credit_ctx.clone();
+            let c3 = b_times_sibling_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
@@ -125,8 +135,7 @@ where
                 // b = if [next event has the same match key]  AND
                 //        [next event is a trigger event]      AND
                 //        [accumulation has not completed yet]
-                let b = c
-                    .clone()
+                let b = c1
                     .multiply(
                         record_id,
                         sibling_helper_bit_times_is_trigger_bit,
@@ -135,13 +144,8 @@ where
                     .await?;
 
                 try_join(
-                    c.narrow(&Step::BTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    c.narrow(&Step::BTimesSuccessorStopBit).multiply(
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                    ),
+                    c2.multiply(record_id, &b, sibling_credit),
+                    c3.multiply(record_id, &b, sibling_stop_bit),
                 )
                 .await
             });

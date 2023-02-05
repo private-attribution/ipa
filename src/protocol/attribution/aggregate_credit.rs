@@ -30,6 +30,7 @@ use std::marker::PhantomData;
 ///
 /// # Errors
 /// propagates errors from multiplications
+#[allow(clippy::too_many_lines)]
 pub async fn aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
@@ -97,29 +98,31 @@ where
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx
+        let depth_i_ctx = ctx
             .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
+        let b_times_sibling_credit_ctx =
+            depth_i_ctx.narrow(&Step::AggregateCreditBTimesSuccessorCredit);
+        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::ComputeStopBit);
         let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let c = c.clone();
+            let c1 = depth_i_ctx.clone();
+            let c2 = b_times_sibling_credit_ctx.clone();
+            let c3 = b_times_sibling_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
             let sibling_helper_bit = &sorted_input[i + step_size].helper_bit;
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
-                let b = c
-                    .clone()
+                let b = c1
                     .multiply(record_id, sibling_helper_bit, current_stop_bit)
                     .await?;
 
                 try_join(
-                    c.narrow(&Step::AggregateCreditBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    c.narrow(&Step::ComputeStopBit)
-                        .multiply(record_id, &b, sibling_stop_bit),
+                    c2.multiply(record_id, &b, sibling_credit),
+                    c3.multiply(record_id, &b, sibling_stop_bit),
                 )
                 .await
             });
@@ -252,29 +255,33 @@ where
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = m_ctx
+        let depth_i_ctx = m_ctx
             .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
+        let b_times_sibling_credit_ctx =
+            depth_i_ctx.narrow(&Step::AggregateCreditBTimesSuccessorCredit);
+        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::ComputeStopBit);
+
         let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let c = c.clone();
+            let c1 = depth_i_ctx.clone();
+            let c2 = b_times_sibling_credit_ctx.clone();
+            let c3 = b_times_sibling_stop_bit_ctx.clone();
+
             let record_id = RecordId::from(i);
             let sibling_helper_bit = &sorted_input[i + step_size].helper_bit;
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
-                let b = c
-                    .clone()
+                let b = c1
                     .multiply(record_id, current_stop_bit, sibling_helper_bit)
                     .await?;
 
                 try_join(
-                    c.narrow(&Step::AggregateCreditBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    c.narrow(&Step::ComputeStopBit)
-                        .multiply(record_id, &b, sibling_stop_bit),
+                    c2.multiply(record_id, &b, sibling_credit),
+                    c3.multiply(record_id, &b, sibling_stop_bit),
                 )
                 .await
             });

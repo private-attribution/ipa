@@ -42,12 +42,8 @@ where
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
-    let prefix_summed_credits = credit_prefix_sum(
-        ctx.set_total_records(input_len),
-        input,
-        original_credits.clone(),
-    )
-    .await?;
+    let prefix_summed_credits =
+        credit_prefix_sum(ctx.clone(), input, original_credits.clone()).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -132,7 +128,9 @@ where
     stop_bits.push(ctx.share_known_value(F::ONE));
 
     let num_rows = input.len();
-    let depth_0_ctx = ctx.narrow(&InteractionPatternStep::from(0));
+    let depth_0_ctx = ctx
+        .narrow(&InteractionPatternStep::from(0))
+        .set_total_records(num_rows - 1);
     let credit_updates = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = depth_0_ctx.clone();
         let record_id = RecordId::from(i);
@@ -152,12 +150,19 @@ where
         .enumerate()
     {
         let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::from(depth + 1));
+        let depth_i_ctx = ctx
+            .narrow(&InteractionPatternStep::from(depth + 1))
+            .set_total_records(end);
+        let b_times_sibling_credit_ctx =
+            depth_i_ctx.narrow(&Step::CurrentContributionBTimesSuccessorCredit);
+        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
         let mut futures = Vec::with_capacity(end);
 
         // for each input row, create a future to execute secure multiplications
         for i in 0..end {
-            let c = &c;
+            let c1 = depth_i_ctx.clone();
+            let c2 = b_times_sibling_credit_ctx.clone();
+            let c3 = b_times_sibling_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
@@ -170,19 +175,13 @@ where
                 // original_credit += b * successor.original_credit
                 // stop_bit = b * successor.stop_bit
 
-                let b = c
-                    .clone()
+                let b = c1
                     .multiply(record_id, sibling_helper_bit, current_stop_bit)
                     .await?;
 
                 try_join(
-                    c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    c.narrow(&Step::BTimesSuccessorStopBit).multiply(
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                    ),
+                    c2.multiply(record_id, &b, sibling_credit),
+                    c3.multiply(record_id, &b, sibling_stop_bit),
                 )
                 .await
             });
