@@ -129,19 +129,17 @@ where
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
-    stop_bits.push(T::ZERO);
+    stop_bits.push(ctx.share_known_value(F::ONE));
 
     let num_rows = input.len();
     let depth_0_ctx = ctx.narrow(&InteractionPatternStep::from(0));
-    //.set_total_records(num_rows - 1);
-    let futures = input.iter().skip(1).enumerate().map(|(i, x)| {
+    let credit_updates = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = depth_0_ctx.clone();
         let record_id = RecordId::from(i);
         let credit = &original_credits[i + 1];
         async move { c.multiply(record_id, &x.helper_bit, credit).await }
-    });
-    let credit_updates = try_join_all(futures).await?;
-
+    }))
+    .await?;
     credit_updates
         .into_iter()
         .enumerate()

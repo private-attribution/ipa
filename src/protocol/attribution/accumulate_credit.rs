@@ -1,12 +1,11 @@
 use super::input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow};
-use super::{compute_stop_bit, InteractionPatternStep};
+use super::InteractionPatternStep;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Arithmetic;
 use futures::future::{try_join, try_join_all};
-use std::iter::repeat;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,28 +48,49 @@ where
     let num_rows = input.len();
     let ctx = ctx.set_total_records(num_rows);
 
-    // 1. Create stop_bit vector.
-    // These vector is updated in each iteration to help accumulate values
-    // and determine when to stop accumulating.
+    // For every row, compute:
+    // input[i].is_triger_bit * input[i].helper_bit
+    // Save this value as it will be used on every iteration.
+    // We can skip the very first row, since there is no row above that will check it as a "sibling"
+    let memoized_helper_bit_times_is_trigger_bit =
+        try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+            let c = ctx.narrow(&Step::HelperBitTimesIsTriggerBit);
+            let record_id = RecordId::from(i);
+            let is_trigger_bit = &x.is_trigger_report;
+            let helper_bit = &x.helper_bit;
+            async move { c.multiply(record_id, is_trigger_bit, helper_bit).await }
+        }))
+        .await?;
 
-    let one = ctx.share_known_value(F::ONE);
-    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
+    // For the very first iteration:
+    // credit[i] = input[i].trigger_value + input[i+1].is_trigger_bit * input[i+1].helper_bit * input[i+1].trigger_value
+    let depth_0_ctx = ctx.narrow(&Step::BTimesSuccessorCredit);
+    let credit_updates = try_join_all(
+        input
+            .iter()
+            .skip(1)
+            .zip(memoized_helper_bit_times_is_trigger_bit.iter())
+            .enumerate()
+            .map(|(i, (x, b))| {
+                let c = depth_0_ctx.clone();
+                let record_id = RecordId::from(i);
+                async move { c.multiply(record_id, b, &x.trigger_value).await }
+            }),
+    )
+    .await?;
 
     let mut credits = input
         .iter()
-        .map(|x| x.trigger_value.clone())
+        .zip(credit_updates)
+        .map(|(x, update)| update + &x.trigger_value)
         .collect::<Vec<_>>();
+    credits.push(input.last().unwrap().trigger_value.clone());
 
-    // We can skip the very first row, since there is no row above that will check it as a "sibling"
-    let futures = input.iter().skip(1).enumerate().map(|(i, x)| {
-        let c = ctx.narrow(&Step::HelperBitTimesIsTriggerBit);
-        let record_id = RecordId::from(i);
-        let is_trigger_bit = &x.is_trigger_report;
-        let helper_bit = &x.helper_bit;
-        async move { c.multiply(record_id, is_trigger_bit, helper_bit).await }
-    });
-
-    let memoized_helper_bit_times_is_trigger_bit = try_join_all(futures).await?;
+    // Create stop_bit vector.
+    // These vector is updated in each iteration to help accumulate values
+    // and determine when to stop accumulating.
+    let mut stop_bits = memoized_helper_bit_times_is_trigger_bit.clone();
+    stop_bits.push(ctx.share_known_value(F::ONE));
 
     // 2. Accumulate (up to 4 multiplications)
     //
@@ -87,7 +107,7 @@ where
     // of other elements, allowing the algorithm to be executed in parallel.
 
     // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
@@ -107,24 +127,22 @@ where
                 // b = if [next event has the same match key]  AND
                 //        [next event is a trigger event]      AND
                 //        [accumulation has not completed yet]
-                let b = compute_b_bit(
-                    c.clone(),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit_times_is_trigger_bit,
-                    depth == 0,
-                )
-                .await?;
+                let b = c
+                    .narrow(&Step::BTimesCurrentStopBit)
+                    .multiply(
+                        record_id,
+                        sibling_helper_bit_times_is_trigger_bit,
+                        current_stop_bit,
+                    )
+                    .await?;
 
                 try_join(
                     c.narrow(&Step::BTimesSuccessorCredit)
                         .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::BTimesSuccessorStopBit),
+                    c.narrow(&Step::BTimesSuccessorStopBit).multiply(
                         record_id,
                         &b,
                         sibling_stop_bit,
-                        depth == 0,
                     ),
                 )
                 .await
@@ -156,35 +174,6 @@ where
         .collect::<Vec<_>>();
 
     Ok(output)
-}
-
-async fn compute_b_bit<F, C, T>(
-    ctx: C,
-    record_id: RecordId,
-    current_stop_bit: &T,
-    sibling_helper_bit_times_is_trigger_bit: &T,
-    first_iteration: bool,
-) -> Result<T, Error>
-where
-    F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
-{
-    // Compute `b = current_stop_bit * sibling_helper_bit * sibling_trigger_bit`.
-    // Since `current_stop_bit` is initialized with 1, we only multiply it in
-    // the second and later iterations.
-    if first_iteration {
-        Ok(sibling_helper_bit_times_is_trigger_bit.clone())
-    } else {
-        Ok(ctx
-            .narrow(&Step::BTimesCurrentStopBit)
-            .multiply(
-                record_id,
-                sibling_helper_bit_times_is_trigger_bit,
-                current_stop_bit,
-            )
-            .await?)
-    }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

@@ -2,7 +2,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, RecordId, Substep};
 use crate::repeat64str;
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
+use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 
 pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
@@ -34,27 +34,6 @@ where
         + &ctx
             .multiply(record_id, condition, &(true_value.clone() - false_value))
             .await?)
-}
-
-async fn compute_stop_bit<F, C, S>(
-    ctx: C,
-    record_id: RecordId,
-    b_bit: &S,
-    sibling_stop_bit: &S,
-    first_iteration: bool,
-) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    // This method computes `b == 1 ? sibling_stop_bit : 0`.
-    // Since `sibling_stop_bit` is initialize with 1, we return `b` if this is
-    // the first iteration.
-    if first_iteration {
-        return Ok(b_bit.clone());
-    }
-    ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
 
 struct InteractionPatternStep(usize);

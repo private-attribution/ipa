@@ -74,18 +74,17 @@ where
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
-    stop_bits.push(Replicated::ZERO);
+    stop_bits.push(ctx.share_known_value(F::ONE));
 
     let depth_0_ctx = ctx
         .narrow(&Step::AggregateCreditBTimesSuccessorCredit)
         .set_total_records(num_rows - 1);
-    let futures = sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
+    let credit_updates = try_join_all(sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = depth_0_ctx.clone();
         let record_id = RecordId::from(i);
         async move { c.multiply(record_id, &x.helper_bit, &x.credit).await }
-    });
-
-    let credit_updates = try_join_all(futures).await?;
+    }))
+    .await?;
     let mut credits = sorted_input
         .iter()
         .zip(credit_updates)
@@ -229,7 +228,7 @@ where
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
-    stop_bits.push(MaliciousReplicated::ZERO);
+    stop_bits.push(m_ctx.share_known_value(F::ONE));
 
     let depth_0_ctx = m_ctx
         .narrow(&Step::AggregateCreditBTimesSuccessorCredit)
