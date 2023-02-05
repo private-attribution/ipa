@@ -57,30 +57,6 @@ where
     ctx.multiply(record_id, b_bit, sibling_stop_bit).await
 }
 
-async fn compute_b_bit<F, C, S>(
-    ctx: C,
-    record_id: RecordId,
-    current_stop_bit: &S,
-    sibling_helper_bit: &S,
-    first_iteration: bool,
-) -> Result<S, Error>
-where
-    F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
-{
-    // Compute `b = [this.stop_bit * sibling.helper_bit]`.
-    // Since `stop_bit` is initialized with all 1's, we only multiply in
-    // the second and later iterations.
-    let mut b = sibling_helper_bit.clone();
-    if !first_iteration {
-        b = ctx
-            .multiply(record_id, sibling_helper_bit, current_stop_bit)
-            .await?;
-    }
-    Ok(b)
-}
-
 struct InteractionPatternStep(usize);
 
 impl Substep for InteractionPatternStep {}
