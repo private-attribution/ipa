@@ -286,7 +286,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn ipa<F, MK, BK>(
+pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
@@ -294,11 +294,7 @@ pub async fn ipa<F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
-    MK: BitArray,
-    BK: BitArray,
-    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
-    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
+    Replicated<F>: Serializable,
 {
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
         .iter()
