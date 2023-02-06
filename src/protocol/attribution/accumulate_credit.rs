@@ -52,7 +52,7 @@ where
     let memoize_context = ctx
         .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let memoized_helper_bit_times_is_trigger_bit =
+    let helper_bits =
         try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
             let c = memoize_context.clone();
             let record_id = RecordId::from(i);
@@ -71,7 +71,7 @@ where
         input
             .iter()
             .skip(1)
-            .zip(memoized_helper_bit_times_is_trigger_bit.iter())
+            .zip(helper_bits.iter())
             .enumerate()
             .map(|(i, (x, b))| {
                 let c = depth_0_ctx.clone();
@@ -91,7 +91,7 @@ where
     // Create stop_bit vector.
     // These vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
-    let mut stop_bits = memoized_helper_bit_times_is_trigger_bit.clone();
+    let mut stop_bits = helper_bits.clone();
     stop_bits.push(ctx.share_known_value(F::ONE));
 
     // 2. Accumulate (up to 4 multiplications)
@@ -114,33 +114,25 @@ where
         .enumerate()
     {
         let end = num_rows - step_size;
-        let mut futures = Vec::with_capacity(end);
         let depth_i_ctx = ctx
             .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
         let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
         let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
-
+        let mut futures = Vec::with_capacity(end);
+        
         for i in 0..end {
             let c1 = depth_i_ctx.clone();
             let c2 = b_times_sibling_credit_ctx.clone();
             let c3 = b_times_sibling_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
+            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_helper_bit_times_is_trigger_bit =
-                &memoized_helper_bit_times_is_trigger_bit[i + step_size - 1];
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
-                // b = if [next event has the same match key]  AND
-                //        [next event is a trigger event]      AND
-                //        [accumulation has not completed yet]
                 let b = c1
-                    .multiply(
-                        record_id,
-                        sibling_helper_bit_times_is_trigger_bit,
-                        current_stop_bit,
-                    )
+                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
                     .await?;
 
                 try_join(
@@ -153,12 +145,11 @@ where
 
         let results = try_join_all(futures).await?;
 
-        // accumulate the credit from this iteration into the accumulation vectors
         results
             .into_iter()
             .enumerate()
             .for_each(|(i, (credit, stop_bit))| {
-                credits[i] = credits[i].clone() + &credit;
+                credits[i] += &credit;
                 stop_bits[i] = stop_bit;
             });
     }

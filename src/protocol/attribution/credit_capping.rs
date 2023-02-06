@@ -120,11 +120,12 @@ where
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
 {
-    let mut stop_bits = input
+    let helper_bits = input
         .iter()
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
+    let mut stop_bits = helper_bits.clone();
     stop_bits.push(ctx.share_known_value(F::ONE));
 
     let num_rows = input.len();
@@ -158,25 +159,18 @@ where
         let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
         let mut futures = Vec::with_capacity(end);
 
-        // for each input row, create a future to execute secure multiplications
         for i in 0..end {
             let c1 = depth_i_ctx.clone();
             let c2 = b_times_sibling_credit_ctx.clone();
             let c3 = b_times_sibling_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
+            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &original_credits[i + step_size];
-            let sibling_helper_bit = &input[i + step_size].helper_bit;
             futures.push(async move {
-                // This block implements the below logic from MP-SPDZ code.
-                //
-                // b = stop_bit * successor.helper_bit
-                // original_credit += b * successor.original_credit
-                // stop_bit = b * successor.stop_bit
-
                 let b = c1
-                    .multiply(record_id, sibling_helper_bit, current_stop_bit)
+                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
                     .await?;
 
                 try_join(
@@ -189,7 +183,6 @@ where
 
         let results = try_join_all(futures).await?;
 
-        // accumulate the contribution from this iteration
         results
             .into_iter()
             .enumerate()

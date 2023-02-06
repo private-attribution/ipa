@@ -70,11 +70,12 @@ where
     //     new_stop_bit[current_index] = b * successor.stop_bit;
     //
     let num_rows = sorted_input.len();
-    let mut stop_bits = sorted_input
+    let helper_bits = sorted_input
         .iter()
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
+    let mut stop_bits = helper_bits.clone();
     stop_bits.push(ctx.share_known_value(F::ONE));
 
     let depth_0_ctx = ctx
@@ -111,13 +112,13 @@ where
             let c2 = b_times_sibling_credit_ctx.clone();
             let c3 = b_times_sibling_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
-            let sibling_helper_bit = &sorted_input[i + step_size].helper_bit;
+            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &credits[i + step_size];
             futures.push(async move {
                 let b = c1
-                    .multiply(record_id, sibling_helper_bit, current_stop_bit)
+                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
                     .await?;
 
                 try_join(
@@ -226,11 +227,12 @@ where
     //
     let num_rows = sorted_input.len();
 
-    let mut stop_bits = sorted_input
+    let helper_bits = sorted_input
         .iter()
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
+    let mut stop_bits = helper_bits.clone();
     stop_bits.push(m_ctx.share_known_value(F::ONE));
 
     let depth_0_ctx = m_ctx
@@ -261,16 +263,14 @@ where
         let b_times_sibling_credit_ctx =
             depth_i_ctx.narrow(&Step::AggregateCreditBTimesSuccessorCredit);
         let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::ComputeStopBit);
-
         let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
             let c1 = depth_i_ctx.clone();
             let c2 = b_times_sibling_credit_ctx.clone();
             let c3 = b_times_sibling_stop_bit_ctx.clone();
-
             let record_id = RecordId::from(i);
-            let sibling_helper_bit = &sorted_input[i + step_size].helper_bit;
+            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &credits[i + step_size];
