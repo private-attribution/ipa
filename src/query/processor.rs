@@ -161,7 +161,7 @@ impl<T: Transport + Clone> Processor<T> {
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
     pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
-        let my_role = req.roles.role(&self.transport.identity());
+        let my_role = req.roles.role(self.transport.identity());
 
         if my_role == Role::H1 {
             return Err(PrepareQueryError::WrongTarget);

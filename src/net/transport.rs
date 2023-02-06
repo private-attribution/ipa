@@ -177,9 +177,9 @@ mod e2e_tests {
         );
 
         let identities = HelperIdentity::make_three();
-        let this_identity = identities[Role::H1];
+        let h1_identity = identities[Role::H1];
         let conf = localhost_config([open_port(), open_port(), open_port()]);
-        let transport = HttpTransport::new(this_identity, Arc::new(conf.peers().clone()));
+        let transport = HttpTransport::new(h1_identity, Arc::new(conf.peers().clone()));
         transport.bind().await;
         let network = Network::new(
             Arc::clone(&transport),
@@ -194,7 +194,7 @@ mod e2e_tests {
             payload: expected_message_chunks.1.clone(),
             offset: 0,
         };
-        let res = transport.send(this_identity, command).await;
+        let res = transport.send(h1_identity, command).await;
         assert!(matches!(res, Ok(())));
 
         let message_chunks = message_chunks_stream.next().await;
@@ -204,20 +204,19 @@ mod e2e_tests {
     #[tokio::test]
     async fn fails_if_not_subscribed() {
         let expected_query_id = QueryId;
-        let message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("no-subscribe")),
-            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
-        );
+        let expected_role = Role::H1;
+        let expected_step = Step::default().narrow("no-subscribe");
+        let expected_payload = vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let identities = HelperIdentity::make_three();
-        let this_identity = identities[Role::H1];
+        let h1_identity = identities[expected_role];
         let conf = localhost_config([open_port(), open_port(), open_port()]);
-        let transport = HttpTransport::new(this_identity, Arc::new(conf.peers().clone()));
+        let transport = HttpTransport::new(h1_identity, Arc::new(conf.peers().clone()));
         transport.bind().await;
         let command = TransportCommand::StepData {
             query_id: expected_query_id,
-            step: message_chunks.0.step.clone(),
-            payload: message_chunks.1.clone(),
+            step: expected_step.clone(),
+            payload: expected_payload.clone(),
             offset: 0,
         };
 
@@ -230,7 +229,7 @@ mod e2e_tests {
         // );
         // let mut message_chunks_stream = network.recv_stream().await;
 
-        let res = transport.send(this_identity, command).await;
+        let res = transport.send(h1_identity, command).await;
         assert!(res.unwrap_err().to_string().contains("query id not found"));
     }
 
