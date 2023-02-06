@@ -2,11 +2,77 @@
 // everything
 
 pub mod echo {
-    pub const AXUM_PATH: &str = "/echo";
+    use crate::net::{client, server};
+    use async_trait::async_trait;
+    use axum::extract::{FromRequest, Query, RequestParts};
+    use hyper::http::uri;
+    use std::collections::HashMap;
 
-    pub fn uri(payload: &str) -> String {
-        format!("/echo?foo={payload}")
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Request {
+        pub query_params: HashMap<String, String>,
+        pub headers: HashMap<String, String>,
     }
+
+    impl Request {
+        pub fn new(
+            query_params: HashMap<String, String>,
+            headers: HashMap<String, String>,
+        ) -> Self {
+            Self {
+                query_params,
+                headers,
+            }
+        }
+        pub fn try_into_http_request(
+            self,
+            scheme: uri::Scheme,
+            authority: uri::Authority,
+        ) -> Result<hyper::Request<hyper::Body>, client::Error> {
+            let qps = self
+                .query_params
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("&");
+            let uri = uri::Uri::builder()
+                .scheme(scheme)
+                .authority(authority)
+                .path_and_query(format!("/echo?{qps}"))
+                .build()?;
+
+            let req = self
+                .headers
+                .into_iter()
+                .fold(hyper::Request::get(uri), |req, (k, v)| req.header(k, v));
+            Ok(req.body(hyper::Body::empty())?)
+        }
+    }
+
+    #[cfg(feature = "enable-serde")]
+    #[async_trait]
+    impl<B: Send> FromRequest<B> for Request {
+        type Rejection = server::Error;
+
+        async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+            let Query::<HashMap<String, String>>(query_params) = req.extract().await?;
+            let headers = req
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| match value.to_str() {
+                    Ok(header_value) => Some((name.to_string(), header_value.to_string())),
+                    Err(_) => None,
+                })
+                .collect();
+            Ok(Request {
+                query_params,
+                headers,
+            })
+        }
+    }
+
+    pub const AXUM_PATH: &str = "/echo";
 }
 
 pub mod query {
@@ -158,6 +224,7 @@ pub mod query {
         use axum::extract::{FromRequest, RequestParts};
         use hyper::http::uri;
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub query_config: QueryConfig,
         }
@@ -218,8 +285,9 @@ pub mod query {
             http::uri,
             Json,
         };
-        use hyper::{header::CONTENT_TYPE, Body};
+        use hyper::header::CONTENT_TYPE;
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub origin: HelperIdentity,
             pub data: PrepareQuery,
@@ -259,10 +327,12 @@ pub mod query {
         }
 
         #[async_trait]
-        impl FromRequest<Body> for Request {
+        impl FromRequest<hyper::Body> for Request {
             type Rejection = server::Error;
 
-            async fn from_request(req: &mut RequestParts<Body>) -> Result<Self, Self::Rejection> {
+            async fn from_request(
+                req: &mut RequestParts<hyper::Body>,
+            ) -> Result<Self, Self::Rejection> {
                 let Path(query_id) = req.extract().await?;
                 let QueryConfigQueryParams(config) = req.extract().await?;
                 let origin_header = req.extract::<OriginHeader>().await?;
@@ -303,6 +373,7 @@ pub mod query {
             Body,
         };
 
+        #[derive(Debug)]
         pub struct Request {
             pub query_input: QueryInput,
         }
@@ -427,6 +498,7 @@ pub mod query {
             }
         }
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub origin: HelperIdentity,
             pub query_id: QueryId,
@@ -473,9 +545,12 @@ pub mod query {
                 let origin_header = OriginHeader {
                     origin: self.origin,
                 };
+                let content_length = self.payload.len();
                 let body = hyper::Body::from(self.payload);
                 let req = hyper::Request::post(uri);
-                let req = headers.add_to(origin_header.add_to(req));
+                let req = headers
+                    .add_to(origin_header.add_to(req))
+                    .header(CONTENT_LENGTH_HEADER_NAME.clone(), content_length);
                 Ok(req.body(body)?)
             }
         }
@@ -510,12 +585,13 @@ pub mod query {
         use async_trait::async_trait;
         use axum::extract::{FromRequest, Path, RequestParts};
 
+        #[derive(Debug, Clone)]
         pub struct Request {
             pub query_id: QueryId,
         }
 
         impl Request {
-            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
+            #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))] // needed because client is blocking; remove when non-blocking
             pub fn new(query_id: QueryId) -> Self {
                 Self { query_id }
             }

@@ -71,7 +71,7 @@ impl From<&TransportCommand> for SubscriptionType {
 
 /// The source of the command, i.e. where it came from. Some may arrive from helper peers, others
 /// may come directly from the clients
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CommandOrigin {
     Helper(HelperIdentity),
     Other,
