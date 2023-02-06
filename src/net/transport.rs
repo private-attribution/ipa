@@ -157,6 +157,8 @@ mod e2e_tests {
         future::{join_all, try_join_all},
         join,
     };
+    use generic_array::GenericArray;
+    use typenum::Unsigned;
 
     fn open_port() -> u16 {
         std::net::UdpSocket::bind("127.0.0.1:0")
@@ -268,7 +270,7 @@ mod e2e_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
-        const SZ: usize = Replicated::<Fp31>::SIZE_IN_BYTES;
+        const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
         let conf = localhost_config([open_port(), open_port(), open_port()]);
         let peers_conf = Arc::new(conf.peers().clone());
         let ids: [HelperIdentity; 3] = [
@@ -299,8 +301,8 @@ mod e2e_tests {
 
         let helper_shares = (a, b).share().map(|(a, b)| {
             let mut vec = vec![0u8; 2 * SZ];
-            a.serialize(&mut vec).unwrap();
-            b.serialize(&mut vec[SZ..]).unwrap();
+            a.serialize(GenericArray::from_mut_slice(&mut vec[..SZ]));
+            b.serialize(GenericArray::from_mut_slice(&mut vec[SZ..]));
             ByteArrStream::from(vec)
         });
 

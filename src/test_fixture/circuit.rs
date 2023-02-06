@@ -1,4 +1,5 @@
 use crate::ff::Field;
+use crate::helpers::messaging::TotalRecords;
 use crate::protocol::basics::SecureMul;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
@@ -41,6 +42,7 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
             for (i, ctx) in bit_ctx.iter().enumerate() {
                 let mul = ctx
                     .narrow(&"mult".to_string())
+                    .set_total_records(TotalRecords::Indeterminate)
                     .multiply(record_id, &a[i], &b[i]);
                 coll.push(mul);
             }

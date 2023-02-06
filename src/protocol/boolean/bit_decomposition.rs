@@ -1,9 +1,8 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
-use super::dumb_bitwise_sum::bitwise_sum;
+use super::dumb_bitwise_add_constant::{bitwise_add_constant, bitwise_add_constant_maybe};
 use super::random_bits_generator::RandomBitsGenerator;
 use crate::error::Error;
-use crate::ff::{Field, Int};
-use crate::protocol::boolean::local_secret_shared_bits;
+use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
@@ -45,12 +44,12 @@ impl BitDecomposition {
             .narrow(&Step::RevealAMinusB)
             .reveal(record_id, &(a_p.clone() - &r.b_p))
             .await?;
-        let c_b = local_secret_shared_bits(&ctx, c.as_u128());
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //
         // `BitwiseSum` outputs `l + 1` bits, so [d]_B is (l + 1)-bit long.
-        let d_b = bitwise_sum(ctx.narrow(&Step::AddBtoC), record_id, &c_b, &r.b_b).await?;
+        let d_b = bitwise_add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128())
+            .await?;
 
         // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
         let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
@@ -61,21 +60,16 @@ impl BitDecomposition {
         .await?;
 
         // Step 7. a bitwise scalar value `f_B = bits(2^l - p)`
-        let l = F::Integer::BITS;
+        let l = u128::BITS - F::PRIME.into().leading_zeros();
         let x = 2_u128.pow(l) - F::PRIME.into();
-        let f_b = (0..l).map(|i| F::from(x >> i & 1));
 
         // Step 8, 9. [g_i] = [q] * f_i
-        let g_b = f_b
-            .into_iter()
-            .map(|f_bit| q_p.clone() * f_bit)
-            .collect::<Vec<_>>();
-
         // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(l+1))
         //
         // Again, `BitwiseSum` outputs `l + 1` bits. Since [d]_B is already
         // `l + 1` bit long, [h]_B will be `l + 2`-bit long.
-        let h_b = bitwise_sum(ctx.narrow(&Step::AddDtoG), record_id, &d_b, &g_b).await?;
+        let h_b = bitwise_add_constant_maybe(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p)
+            .await?;
 
         // Step 11. [a]_B = ([h]_0,...[h]_(l-1))
         let a_b = h_b[0..l as usize].to_vec();
@@ -109,7 +103,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitDecomposition;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime, Int},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
             boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
         },
@@ -142,10 +136,11 @@ mod tests {
             })
             .await;
 
-        // bit-decomposed values must have the same bit length of the target field
-        assert_eq!(F::Integer::BITS as usize, result[0].len());
-        assert_eq!(F::Integer::BITS as usize, result[1].len());
-        assert_eq!(F::Integer::BITS as usize, result[2].len());
+        // bit-decomposed values generate valid number of bits to fit the target field values
+        let l = u128::BITS - F::PRIME.into().leading_zeros();
+        assert_eq!(usize::try_from(l).unwrap(), result[0].len());
+        assert_eq!(usize::try_from(l).unwrap(), result[1].len());
+        assert_eq!(usize::try_from(l).unwrap(), result[2].len());
 
         result.reconstruct()
     }

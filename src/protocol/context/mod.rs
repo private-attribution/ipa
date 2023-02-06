@@ -5,7 +5,7 @@ use crate::protocol::basics::{Reveal, SecureMul};
 use crate::protocol::{Step, Substep};
 use crate::secret_sharing::{ArithmeticShare, SecretSharing};
 
-mod malicious;
+pub mod malicious;
 mod prss;
 mod semi_honest;
 
@@ -81,8 +81,7 @@ pub trait Context<V: ArithmeticShare>:
     #[must_use]
     fn mesh(&self) -> Mesh<'_, '_>;
 
-    /// Generates a new share of one
-    fn share_of_one(&self) -> <Self as Context<V>>::Share;
+    fn share_known_value(&self, scalar: V) -> <Self as Context<V>>::Share;
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]

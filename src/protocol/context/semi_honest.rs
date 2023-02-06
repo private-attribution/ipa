@@ -121,8 +121,8 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
         self.inner.gateway.mesh(self.step(), self.total_records)
     }
 
-    fn share_of_one(&self) -> <Self as Context<F>>::Share {
-        Replicated::one(self.role())
+    fn share_known_value(&self, scalar: F) -> <Self as Context<F>>::Share {
+        Replicated::share_known_value(self.role(), scalar)
     }
 }
 

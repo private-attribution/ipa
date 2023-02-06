@@ -34,7 +34,6 @@ use std::iter::{repeat, zip};
 ///! Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
 ///! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
 ///! is equivalent to fn xor(a, b) { a + b - 2*a*b }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     Xor1,
@@ -92,15 +91,14 @@ pub fn convert_all_bits_local<F: Field, B: BitArray>(
     helper_role: Role,
     input: &[XorReplicated<B>],
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
-    let mut total_list = Vec::new();
-    for bit_index in 0..B::BITS {
-        let one_list = input
-            .iter()
-            .map(|v| convert_bit_local::<F, B>(helper_role, bit_index, v))
-            .collect::<Vec<_>>();
-        total_list.push(one_list);
-    }
-    total_list
+    input
+        .iter()
+        .map(move |record| {
+            (0..B::BITS)
+                .map(|bit_index: u32| convert_bit_local::<F, B>(helper_role, bit_index, record))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
 }
 
 /// Convert a locally-decomposed single bit into field elements.
@@ -138,27 +136,34 @@ where
 pub async fn convert_all_bits<F, C, S>(
     ctx: &C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],
-) -> Result<Vec<Vec<S>>, Error>
+    num_bits: u32,
+    num_multi_bits: u32,
+) -> Result<Vec<Vec<Vec<S>>>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    let futures = locally_converted_bits
-        .iter()
-        .enumerate()
-        .map(|(bit_num, one_column)| {
-            convert_bit_list(
-                ctx.narrow(&IpaProtocolStep::ModulusConversion(
-                    bit_num.try_into().unwrap(),
-                ))
-                .set_total_records(one_column.len()),
-                one_column,
-            )
-        })
-        .collect::<Vec<_>>();
-    let converted_shares = try_join_all(futures).await?;
-    Ok(converted_shares)
+    let ctx = ctx.set_total_records(locally_converted_bits.len());
+
+    let all_bits = (0..num_bits as usize).collect::<Vec<_>>();
+    try_join_all(all_bits.chunks(num_multi_bits as usize).map(|chunk| {
+        try_join_all(
+            zip(locally_converted_bits, repeat(ctx.clone()))
+                .enumerate()
+                .map(|(idx, (record, ctx))| async move {
+                    convert_bit_list(
+                        ctx.narrow(&IpaProtocolStep::ModulusConversion(
+                            chunk[0].try_into().unwrap(),
+                        )),
+                        &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
+                        RecordId::from(idx),
+                    )
+                    .await
+                }),
+        )
+    }))
+    .await
 }
 
 /// # Errors
@@ -167,7 +172,8 @@ where
 /// Propagates panics from convert shares
 pub async fn convert_bit_list<F, C, S>(
     ctx: C,
-    locally_converted_bits: &[BitConversionTriple<S>],
+    locally_converted_bits: &[&BitConversionTriple<S>],
+    record_id: RecordId,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -177,18 +183,25 @@ where
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
             .enumerate()
-            .map(|(i, (ctx, row))| async move { convert_bit(ctx, RecordId::from(i), row).await }),
+            .map(|(i, (ctx, bit))| async move {
+                convert_bit(
+                    ctx.narrow(&IpaProtocolStep::ModulusConversion(i.try_into().unwrap())),
+                    record_id,
+                    bit,
+                )
+                .await
+            }),
     )
     .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
     use crate::ff::{Field, Fp32BitPrime};
     use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;
     use crate::protocol::malicious::MaliciousValidator;
+    use crate::protocol::MatchKey;
     use crate::rand::thread_rng;
     use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{
@@ -198,7 +211,7 @@ mod tests {
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             RecordId,
         },
-        test_fixture::{MaskedMatchKey, Reconstruct, Runner, TestWorld},
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use proptest::prelude::Rng;
 
@@ -208,11 +221,10 @@ mod tests {
         let mut rng = thread_rng();
 
         let world = TestWorld::new().await;
-        let match_key = rng.gen::<MaskedMatchKey>();
+        let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple =
-                    convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
+                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
                 convert_bit(ctx.set_total_records(1usize), RecordId::from(0), &triple)
                     .await
                     .unwrap()
@@ -227,11 +239,10 @@ mod tests {
         let mut rng = thread_rng();
 
         let world = TestWorld::new().await;
-        let match_key = rng.gen::<MaskedMatchKey>();
+        let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
-                let triple =
-                    convert_bit_local::<Fp31, MaskedMatchKey>(ctx.role(), BITNUM, &mk_share);
+                let triple = convert_bit_local::<Fp31, MatchKey>(ctx.role(), BITNUM, &mk_share);
 
                 let v = MaliciousValidator::new(ctx);
                 let m_ctx = v.context().set_total_records(1);
@@ -286,14 +297,11 @@ mod tests {
         let mut rng = thread_rng();
         let world = TestWorld::new().await;
         for tweak in TWEAKS {
-            let match_key = rng.gen::<MaskedMatchKey>();
+            let match_key = rng.gen::<MatchKey>();
             world
                 .semi_honest(match_key, |ctx, mk_share| async move {
-                    let triple = convert_bit_local::<Fp32BitPrime, MaskedMatchKey>(
-                        ctx.role(),
-                        BITNUM,
-                        &mk_share,
-                    );
+                    let triple =
+                        convert_bit_local::<Fp32BitPrime, MatchKey>(ctx.role(), BITNUM, &mk_share);
                     let tweaked = tweak.flip_bit(ctx.role(), triple);
 
                     let v = MaliciousValidator::new(ctx);

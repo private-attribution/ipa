@@ -1,3 +1,6 @@
+use std::iter::{repeat, zip};
+use std::marker::PhantomData;
+
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 
@@ -5,6 +8,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::messaging::{Gateway, Mesh, TotalRecords};
 use crate::helpers::Role;
+use crate::protocol::attribution::input::MCCappedCreditsWithAggregationBit;
 use crate::protocol::basics::mul::malicious::Step::RandomnessForValidation;
 use crate::protocol::basics::{SecureMul, ZeroPositions};
 use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
@@ -15,9 +19,11 @@ use crate::protocol::malicious::MaliciousValidatorAccumulator;
 use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
+use crate::repeat64str;
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
+use crate::secret_sharing::Arithmetic;
 use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
@@ -152,8 +158,8 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
         self.inner.gateway.mesh(self.step(), self.total_records)
     }
 
-    fn share_of_one(&self) -> <Self as Context<F>>::Share {
-        MaliciousReplicated::one(self.role(), self.inner.r_share.clone())
+    fn share_known_value(&self, value: F) -> <Self as Context<F>>::Share {
+        MaliciousReplicated::share_known_value(self.role(), value, self.inner.r_share.clone())
     }
 }
 
@@ -205,6 +211,235 @@ impl AsRef<str> for UpgradeTripleStep {
             Self::V1 => "upgrade_bit_triple1",
             Self::V2 => "upgrade_bit_triple2",
         }
+    }
+}
+
+enum UpgradeModConvStep {
+    V0(usize),
+    V1,
+    V2,
+}
+
+impl crate::protocol::Substep for UpgradeModConvStep {}
+
+impl AsRef<str> for UpgradeModConvStep {
+    fn as_ref(&self) -> &str {
+        const UPGRADE_MOD_CONV0: [&str; 64] = repeat64str!["upgrade_mod_conv0"];
+
+        match self {
+            Self::V0(i) => UPGRADE_MOD_CONV0[*i],
+            Self::V1 => "upgrade_mod_conv1",
+            Self::V2 => "upgrade_mod_conv2",
+        }
+    }
+}
+
+enum UpgradeMCCappedCreditsWithAggregationBit {
+    V0(usize),
+    V1,
+    V2,
+    V3,
+}
+
+impl crate::protocol::Substep for UpgradeMCCappedCreditsWithAggregationBit {}
+
+impl AsRef<str> for UpgradeMCCappedCreditsWithAggregationBit {
+    fn as_ref(&self) -> &str {
+        const UPGRADE_AGGREGATION_BIT0: [&str; 64] = repeat64str!["upgrade_aggregation_bit0"];
+
+        match self {
+            Self::V0(i) => UPGRADE_AGGREGATION_BIT0[*i],
+            Self::V1 => "upgrade_aggregation_bit1",
+            Self::V2 => "upgrade_aggregation_bit2",
+            Self::V3 => "upgrade_aggregation_bit3",
+        }
+    }
+}
+
+#[async_trait]
+impl<'a, F: Field>
+    UpgradeToMalicious<
+        IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
+        IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>,
+    > for UpgradeContext<'a, F, RecordId>
+{
+    async fn upgrade(
+        self,
+        input: IPAModulusConvertedInputRowWrapper<F, Replicated<F>>,
+    ) -> Result<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
+        let ctx_ref = &self.upgrade_ctx;
+        let mk_shares = try_join_all(input.mk_shares.into_iter().enumerate().map(
+            |(idx, mk_share)| async move {
+                self.inner
+                    .upgrade_one(
+                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx)),
+                        self.record_binding,
+                        mk_share,
+                        ZeroPositions::Pvvv,
+                    )
+                    .await
+            },
+        ))
+        .await?;
+
+        let is_trigger_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx.narrow(&UpgradeModConvStep::V1),
+                self.record_binding,
+                input.is_trigger_bit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+
+        let trigger_value = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx.narrow(&UpgradeModConvStep::V2),
+                self.record_binding,
+                input.trigger_value,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+        Ok(IPAModulusConvertedInputRowWrapper {
+            mk_shares,
+            is_trigger_bit,
+            trigger_value,
+            _marker: PhantomData::default(),
+        })
+    }
+}
+
+pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
+    pub mk_shares: Vec<T>,
+    pub is_trigger_bit: T,
+    pub trigger_value: T,
+    pub _marker: PhantomData<F>,
+}
+
+// TODO (richaj): We have 3 implementations of Vec<T> which do exactly the same thing. The reason we are unable to
+// merge them is because it conflicts with Vec<Vec<T>> whose handling is different.
+#[async_trait]
+impl<'a, F>
+    UpgradeToMalicious<
+        Vec<IPAModulusConvertedInputRowWrapper<F, Replicated<F>>>,
+        Vec<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>>,
+    > for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+{
+    async fn upgrade(
+        self,
+        input: Vec<IPAModulusConvertedInputRowWrapper<F, Replicated<F>>>,
+    ) -> Result<Vec<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>>, Error> {
+        let ctx = self.upgrade_ctx.set_total_records(input.len());
+        let ctx_ref = &ctx;
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+            UpgradeContext {
+                upgrade_ctx: ctx_ref.clone(),
+                inner: self.inner,
+                record_binding: RecordId::from(i),
+            }
+            .upgrade(share)
+            .await
+        }))
+        .await
+    }
+}
+
+#[async_trait]
+impl<'a, F>
+    UpgradeToMalicious<
+        Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
+    > for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+{
+    async fn upgrade(
+        self,
+        input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
+    ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>, Error> {
+        let ctx = self.upgrade_ctx.set_total_records(input.len());
+        let ctx_ref = &ctx;
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+            UpgradeContext {
+                upgrade_ctx: ctx_ref.clone(),
+                inner: self.inner,
+                record_binding: RecordId::from(i),
+            }
+            .upgrade(share)
+            .await
+        }))
+        .await
+    }
+}
+
+#[async_trait]
+impl<'a, F: Field>
+    UpgradeToMalicious<
+        MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
+        MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>,
+    > for UpgradeContext<'a, F, RecordId>
+{
+    async fn upgrade(
+        self,
+        input: MCCappedCreditsWithAggregationBit<F, Replicated<F>>,
+    ) -> Result<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>, Error> {
+        let ctx_ref = &self.upgrade_ctx;
+        let breakdown_key = try_join_all(input.breakdown_key.into_iter().enumerate().map(
+            |(idx, bit)| async move {
+                self.inner
+                    .upgrade_one(
+                        ctx_ref.narrow(&UpgradeMCCappedCreditsWithAggregationBit::V0(idx)),
+                        self.record_binding,
+                        bit,
+                        ZeroPositions::Pvvv,
+                    )
+                    .await
+            },
+        ))
+        .await?;
+
+        let helper_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V1),
+                self.record_binding,
+                input.helper_bit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+
+        let aggregation_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V2),
+                self.record_binding,
+                input.aggregation_bit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+
+        let credit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx
+                    .narrow(&UpgradeMCCappedCreditsWithAggregationBit::V3),
+                self.record_binding,
+                input.credit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+        Ok(MCCappedCreditsWithAggregationBit {
+            helper_bit,
+            aggregation_bit,
+            breakdown_key,
+            credit,
+            _marker: PhantomData::default(),
+        })
     }
 }
 
@@ -463,6 +698,59 @@ where
                 )
                 .await
         }))
+        .await
+    }
+}
+
+enum Upgrade2DVectors {
+    V(usize),
+}
+impl crate::protocol::Substep for Upgrade2DVectors {}
+
+impl AsRef<str> for Upgrade2DVectors {
+    fn as_ref(&self) -> &str {
+        const COLUMN: [&str; 64] = repeat64str!["upgrade_2d"];
+
+        match self {
+            Self::V(i) => COLUMN[*i],
+        }
+    }
+}
+
+/// This function is not a generic implementation of 2D vector upgrade.
+/// It assumes the inner vector is much smaller (e.g. multiple bits per record) than the outer vector (e.g. records)
+/// Each inner vector element uses a different context and outer vector shares a context for the same inner vector index
+#[async_trait]
+impl<'a, F, T, M> UpgradeToMalicious<Vec<Vec<T>>, Vec<Vec<M>>> for UpgradeContext<'a, F, NoRecord>
+where
+    F: Field,
+    T: Send + 'static,
+    M: Send + 'static,
+    for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
+{
+    /// # Panics
+    /// Panics if input is empty
+    async fn upgrade(self, input: Vec<Vec<T>>) -> Result<Vec<Vec<M>>, Error> {
+        let num_records = input.len();
+        assert_ne!(num_records, 0);
+        let num_columns = input[0].len();
+        let ctx = self.upgrade_ctx.set_total_records(num_records);
+        let all_ctx = (0..num_columns).map(|idx| ctx.narrow(&Upgrade2DVectors::V(idx)));
+
+        try_join_all(zip(repeat(all_ctx), input.into_iter()).enumerate().map(
+            |(record_idx, (all_ctx, one_input))| async move {
+                try_join_all(zip(all_ctx, one_input).map(|(ctx, share)| async move {
+                    UpgradeContext {
+                        upgrade_ctx: ctx,
+                        inner: self.inner,
+                        record_binding: RecordId::from(record_idx),
+                    }
+                    .upgrade(share)
+                    .await
+                }))
+                .await
+            },
+        ))
         .await
     }
 }

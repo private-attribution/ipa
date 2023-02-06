@@ -2,7 +2,7 @@ use super::Field;
 use crate::secret_sharing::SharedValue;
 
 macro_rules! field_impl {
-    ( $field:ident, $int:ty, $prime:expr ) => {
+    ( $field:ident, $int:ty, $prime:expr, $arraylen:ty ) => {
         use super::*;
 
         #[derive(Clone, Copy, PartialEq)]
@@ -10,6 +10,7 @@ macro_rules! field_impl {
 
         impl Field for $field {
             type Integer = $int;
+            type Size = $arraylen;
             const PRIME: Self::Integer = $prime;
             const ONE: Self = $field(1);
             const TYPE_STR: &'static str = stringify!($field);
@@ -133,8 +134,9 @@ macro_rules! field_impl {
         #[cfg(all(test, not(feature = "shuttle")))]
         mod common_tests {
             use super::*;
-            use proptest::proptest;
             use crate::bits::Serializable;
+            use generic_array::GenericArray;
+            use proptest::proptest;
 
             #[test]
             fn zero() {
@@ -144,14 +146,6 @@ macro_rules! field_impl {
                 assert_eq!($field::ZERO, $field::ZERO - $field::ZERO);
                 assert_eq!($field::from(prime - 1), $field::ZERO - $field::ONE);
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
-            }
-
-            #[test]
-            fn can_write_into_buf_larger_than_required() {
-                let mut buf = vec![0_u8; <$field as Serializable>::SIZE_IN_BYTES + 1];
-
-                // panic will show the error while assert will just tell us that something went wrong
-                $field::ONE.serialize(&mut buf).unwrap();
             }
 
             #[cfg(feature = "enable-serde")]
@@ -166,31 +160,14 @@ macro_rules! field_impl {
             }
 
             proptest! {
-                #[test]
-                fn ser_not_enough_capacity(buf_capacity in 0..<$field as Serializable>::SIZE_IN_BYTES) {
-                    let mut buf = vec![0u8; buf_capacity];
-                    assert!(matches!(
-                        $field::ONE.serialize(&mut buf),
-                        Err(e) if e.kind() == std::io::ErrorKind::WriteZero
-                    ));
-                }
-
-                #[test]
-                fn de_buf_too_small(buf_capacity in 0..<$field as Serializable>::SIZE_IN_BYTES) {
-                    let buf = vec![0u8; buf_capacity];
-                    assert!(matches!(
-                                    $field::deserialize(&buf),
-                                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof));
-                }
-
 
                 #[test]
                 fn serde(v in 0..$field::PRIME) {
                     let field_v = $field(v);
-                    let mut buf = vec![0; <$field as Serializable>::SIZE_IN_BYTES];
-                    field_v.serialize(&mut buf).unwrap();
+                    let mut buf = GenericArray::default();
+                    field_v.serialize(&mut buf);
 
-                    assert_eq!(field_v, $field::deserialize(&buf).unwrap());
+                    assert_eq!(field_v, $field::deserialize(buf));
                 }
             }
         }
@@ -198,7 +175,8 @@ macro_rules! field_impl {
 }
 
 mod fp31 {
-    field_impl! { Fp31, u8, 31 }
+    use typenum::U1;
+    field_impl! { Fp31, u8, 31, U1 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {
@@ -221,7 +199,8 @@ mod fp31 {
 }
 
 mod fp32bit {
-    field_impl! { Fp32BitPrime, u32, 4_294_967_291 }
+    use typenum::U5;
+    field_impl! { Fp32BitPrime, u32, 4_294_967_291, U5 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {

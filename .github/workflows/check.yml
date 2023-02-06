@@ -1,8 +1,21 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+      paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'src/**/*'
+      - 'benches/**/*'
+  pull_request:
+      paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'src/**/*'
+      - 'benches/**/*'
+
 jobs:
-  rust-check:
-    name: Rust Checks
+  basic:
+    name: Basic Checks
     env:
       CARGO_TERM_COLOR: always
       RUSTFLAGS: -D warnings
@@ -42,6 +55,35 @@ jobs:
         if: ${{ success() || failure() }}
         run: cargo build --tests
 
+      - name: Run Tests
+        run: cargo test
+
+  extra:
+    name: Additional Builds and Concurrency Tests
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -D warnings
+      RUSTDOCFLAGS: -D warnings
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
       - name: Release Build
         run: cargo build --release
 
@@ -50,9 +92,6 @@ jobs:
 
       - name: Build concurrency tests
         run: cargo build --features shuttle
-
-      - name: Run Tests
-        run: cargo test
 
       - name: Run concurrency tests
         run: cargo test --features shuttle
