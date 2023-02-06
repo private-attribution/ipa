@@ -12,10 +12,9 @@ use crate::{
     test_fixture::input::GenericReportTestInput,
 };
 use futures_util::future::try_join_all;
-use generic_array::{ArrayLength, GenericArray};
+use generic_array::GenericArray;
 use rand::{distributions::Standard, prelude::Distribution};
 use std::fmt::Debug;
-use std::ops::Add;
 use typenum::Unsigned;
 
 /// Semi-honest IPA protocol
@@ -31,30 +30,8 @@ where
     MK: BitArray + IntoShares<XorReplicated<MK>>,
     BK: BitArray + IntoShares<XorReplicated<BK>>,
     Standard: Distribution<F>,
-    XorReplicated<BK>: Serializable,
-    XorReplicated<MK>: Serializable,
+    IPAInputRow<F, MK, BK>: Serializable,
     Replicated<F>: Serializable,
-    <XorReplicated<BK> as Serializable>::Size: Add<<Replicated<F> as Serializable>::Size>,
-    <Replicated<F> as Serializable>::Size:
-        Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
-            >>::Output,
-        >,
-    <XorReplicated<MK> as Serializable>::Size: Add<
-        <<Replicated<F> as Serializable>::Size as Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
-            >>::Output,
-        >>::Output,
-    >,
-    <<XorReplicated<MK> as Serializable>::Size as Add<
-        <<Replicated<F> as Serializable>::Size as Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
-                <Replicated<F> as Serializable>::Size,
-            >>::Output,
-        >>::Output,
-    >>::Output: ArrayLength<u8>,
 {
     // prepare inputs
     let inputs = input

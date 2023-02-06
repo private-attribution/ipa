@@ -33,10 +33,8 @@ use crate::{
     },
 };
 use futures::future::{try_join, try_join_all};
-use generic_array::ArrayLength;
 use std::iter::repeat;
 use std::marker::PhantomData;
-use std::ops::Add;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -44,17 +42,14 @@ use std::ops::Add;
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn aggregate_credit<F, BK>(
+pub async fn aggregate_credit<F: Field, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
-    BK: BitArray,
-    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
-    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
+    Replicated<F>: Serializable,
 {
     let one = ctx.share_known_value(F::ONE);
 
