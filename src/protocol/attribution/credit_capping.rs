@@ -1,5 +1,5 @@
 use super::{
-    if_else,
+    do_the_binary_tree_thing, if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     InteractionPatternStep,
 };
@@ -9,7 +9,7 @@ use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
 use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
 use crate::{error::Error, secret_sharing::Arithmetic};
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join_all;
 use std::{
     iter::{repeat, zip},
     marker::PhantomData,
@@ -125,18 +125,16 @@ where
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
-    let mut stop_bits = helper_bits.clone();
-    stop_bits.push(ctx.share_known_value(F::ONE));
 
     let num_rows = input.len();
     let depth_0_ctx = ctx
         .narrow(&InteractionPatternStep::from(0))
         .set_total_records(num_rows - 1);
-    let credit_updates = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+    let credit_updates = try_join_all(helper_bits.iter().enumerate().map(|(i, helper_bit)| {
         let c = depth_0_ctx.clone();
         let record_id = RecordId::from(i);
         let credit = &original_credits[i + 1];
-        async move { c.multiply(record_id, &x.helper_bit, credit).await }
+        async move { c.multiply(record_id, helper_bit, credit).await }
     }))
     .await?;
     credit_updates
@@ -146,51 +144,7 @@ where
             original_credits[i] += &credit;
         });
 
-    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
-        .take_while(|&v| v < num_rows)
-        .enumerate()
-    {
-        let end = num_rows - step_size;
-        let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth + 1))
-            .set_total_records(end);
-        let b_times_sibling_credit_ctx =
-            depth_i_ctx.narrow(&Step::CurrentContributionBTimesSuccessorCredit);
-        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
-        let mut futures = Vec::with_capacity(end);
-
-        for i in 0..end {
-            let c1 = depth_i_ctx.clone();
-            let c2 = b_times_sibling_credit_ctx.clone();
-            let c3 = b_times_sibling_stop_bit_ctx.clone();
-            let record_id = RecordId::from(i);
-            let sibling_helper_bit = &helper_bits[i + step_size - 1];
-            let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &original_credits[i + step_size];
-            futures.push(async move {
-                let b = c1
-                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
-                    .await?;
-
-                try_join(
-                    c2.multiply(record_id, &b, sibling_credit),
-                    c3.multiply(record_id, &b, sibling_stop_bit),
-                )
-                .await
-            });
-        }
-
-        let results = try_join_all(futures).await?;
-
-        results
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                original_credits[i] += &credit;
-                stop_bits[i] = stop_bit;
-            });
-    }
+    do_the_binary_tree_thing(ctx, &helper_bits, &mut original_credits).await?;
 
     Ok(original_credits.clone())
 }
@@ -320,9 +274,7 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    BTimesSuccessorStopBit,
     MaskSourceCredits,
-    CurrentContributionBTimesSuccessorCredit,
     BitDecomposeCurrentContribution,
     RandomBitsForBitDecomposition,
     IsCapLessThanCurrentContribution,
@@ -336,11 +288,7 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
             Self::MaskSourceCredits => "mask_source_credits",
-            Self::CurrentContributionBTimesSuccessorCredit => {
-                "current_contribution_b_times_successor_credit"
-            }
             Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
