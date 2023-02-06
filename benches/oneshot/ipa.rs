@@ -43,6 +43,7 @@ async fn main() -> Result<(), Error> {
     let start = Instant::now();
     let result = world
         .semi_honest(records, |ctx, input_rows| async move {
+            // ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
             ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                 ctx,
                 &input_rows,

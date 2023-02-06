@@ -2,13 +2,12 @@ use super::input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow};
 use super::{compute_stop_bit, InteractionPatternStep};
 use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::basics::SecureMul;
 use crate::protocol::context::Context;
-use crate::protocol::context::SemiHonestContext;
 use crate::protocol::RecordId;
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
+use crate::secret_sharing::Arithmetic;
 use futures::future::{try_join, try_join_all};
 use std::iter::repeat;
+use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -38,10 +37,15 @@ impl AsRef<str> for Step {
 /// accesses and accumulates data of its children. By increasing the distance between the interacting nodes during
 /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
 /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
-pub async fn accumulate_credit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCAccumulateCreditInputRow<F>],
-) -> Result<Vec<MCAccumulateCreditOutputRow<F>>, Error> {
+pub async fn accumulate_credit<F, C, T>(
+    ctx: C,
+    input: &[MCAccumulateCreditInputRow<F, T>],
+) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     let num_rows = input.len();
     let ctx = ctx.set_total_records(num_rows);
 
@@ -49,7 +53,7 @@ pub async fn accumulate_credit<F: Field>(
     // These vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
 
-    let one = ctx.share_of_one();
+    let one = ctx.share_known_value(F::ONE);
     let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
 
     let mut credits = input
@@ -124,7 +128,7 @@ pub async fn accumulate_credit<F: Field>(
             .into_iter()
             .enumerate()
             .for_each(|(i, (credit, stop_bit))| {
-                credits[i] = &credits[i] + &credit;
+                credits[i] = credits[i].clone() + &credit;
                 stop_bits[i] = stop_bit;
             });
     }
@@ -137,20 +141,26 @@ pub async fn accumulate_credit<F: Field>(
             helper_bit: x.helper_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             trigger_value: credits[i].clone(),
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
     Ok(output)
 }
 
-async fn compute_b_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+async fn compute_b_bit<F, C, T>(
+    ctx: C,
     record_id: RecordId,
-    current_stop_bit: &Replicated<F>,
-    sibling_helper_bit: &Replicated<F>,
-    sibling_is_trigger_bit: &Replicated<F>,
+    current_stop_bit: &T,
+    sibling_helper_bit: &T,
+    sibling_is_trigger_bit: &T,
     first_iteration: bool,
-) -> Result<Replicated<F>, Error> {
+) -> Result<T, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     // Compute `b = current_stop_bit * sibling_helper_bit * sibling_trigger_bit`.
     // Since `current_stop_bit` is initialized with 1, we only multiply it in
     // the second and later iterations.
@@ -171,6 +181,8 @@ async fn compute_b_bit<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::marker::PhantomData;
+
     use crate::accumulation_test_input;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::helpers::Role;
@@ -186,11 +198,11 @@ mod tests {
     use crate::protocol::{context::Context, RecordId};
     use crate::protocol::{BreakdownKey, MatchKey};
     use crate::rand::thread_rng;
+    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::secret_sharing::SharedValue;
     use crate::test_fixture::input::GenericReportTestInput;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::Rng;
-
     const NUM_MULTI_BITS: u32 = 3;
 
     #[tokio::test]
@@ -226,7 +238,7 @@ mod tests {
         let input_len = input.len();
 
         let world = TestWorld::new().await;
-        let result: [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime>>; 3] = world
+        let result: [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
             .semi_honest(
                 input,
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
@@ -252,6 +264,7 @@ mod tests {
                             breakdown_key: bk,
                             trigger_value: row.trigger_value,
                             helper_bit: row.helper_bit,
+                            _marker: PhantomData::default(),
                         })
                         .collect::<Vec<_>>();
 
@@ -313,6 +326,7 @@ mod tests {
                             breakdown_key: converted_bk_shares.next().unwrap(),
                             trigger_value: share.trigger_value,
                             helper_bit: share.helper_bit,
+                            _marker: PhantomData::default(),
                         };
 
                         modulus_converted_share

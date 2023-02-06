@@ -64,6 +64,7 @@ mod tests {
         secret_sharing::{replicated::semi_honest::XorShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
+    use std::marker::PhantomData;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -141,6 +142,7 @@ mod tests {
                             breakdown_key: bk,
                             trigger_value: row.trigger_value,
                             helper_bit: row.helper_bit,
+                            _marker: PhantomData::default(),
                         })
                         .collect::<Vec<_>>();
 

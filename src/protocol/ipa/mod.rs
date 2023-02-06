@@ -6,30 +6,40 @@ use crate::{
     protocol::{
         attribution::{
             accumulate_credit::accumulate_credit,
-            aggregate_credit::aggregate_credit,
+            aggregate_credit::{aggregate_credit, malicious_aggregate_credit},
             credit_capping::credit_capping,
             input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
         },
         boolean::bitwise_equal::bitwise_equal,
-        context::Context,
-        context::SemiHonestContext,
+        context::{malicious::IPAModulusConvertedInputRowWrapper, Context, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
         sort::{
             apply_sort::{apply_sort_permutation, shuffle::Resharable},
-            generate_permutation::generate_permutation_and_reveal_shuffled,
+            generate_permutation::{
+                generate_permutation_and_reveal_shuffled,
+                malicious_generate_permutation_and_reveal_shuffled,
+            },
         },
         RecordId, Substep,
     },
-    secret_sharing::replicated::semi_honest::{
-        AdditiveShare as Replicated, XorShare as XorReplicated,
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        },
+        Arithmetic,
     },
 };
+
 use async_trait::async_trait;
 use futures::future::{try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
-use std::iter::{repeat, zip};
 use std::ops::Add;
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,6 +52,7 @@ enum Step {
     AccumulateCredit,
     PerformUserCapping,
     AggregateCredit,
+    AfterConvertAllBits,
 }
 
 impl Substep for Step {}
@@ -57,6 +68,7 @@ impl AsRef<str> for Step {
             Self::AccumulateCredit => "accumulate_credit",
             Self::PerformUserCapping => "user_capping",
             Self::AggregateCredit => "aggregate_credit",
+            Self::AfterConvertAllBits => "after_convert_all_bits",
         }
     }
 }
@@ -201,16 +213,34 @@ where
     }
 }
 
-struct IPAModulusConvertedInputRow<F: Field> {
-    mk_shares: Vec<Replicated<F>>,
-    is_trigger_bit: Replicated<F>,
-    breakdown_key: Vec<Replicated<F>>,
-    trigger_value: Replicated<F>,
+pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
+    pub mk_shares: Vec<T>,
+    pub is_trigger_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub trigger_value: T,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
+    pub fn new(
+        mk_shares: Vec<T>,
+        is_trigger_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
+        Self {
+            mk_shares,
+            is_trigger_bit,
+            breakdown_key,
+            trigger_value,
+            _marker: PhantomData::default(),
+        }
+    }
 }
 
 #[async_trait]
-impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
-    type Share = Replicated<F>;
+impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedInputRow<F, T> {
+    type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
@@ -247,6 +277,7 @@ impl<F: Field + Sized> Resharable<F> for IPAModulusConvertedInputRow<F> {
             breakdown_key,
             is_trigger_bit: outputs.remove(0),
             trigger_value: outputs.remove(0),
+            _marker: PhantomData::default(),
         })
     }
 }
@@ -261,7 +292,7 @@ pub async fn ipa<F, MK, BK>(
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
     MK: BitArray,
@@ -308,14 +339,14 @@ where
         std::iter::zip(converted_mk_shares, converted_bk_shares)
             .into_iter()
             .zip(input_rows)
-            .map(
-                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
+            .map(|((mk_shares, bk_shares), input_row)| {
+                IPAModulusConvertedInputRow::new(
                     mk_shares,
-                    is_trigger_bit: input_row.is_trigger_bit.clone(),
-                    breakdown_key: bk_shares,
-                    trigger_value: input_row.trigger_value.clone(),
-                },
-            )
+                    input_row.is_trigger_bit.clone(),
+                    bk_shares,
+                    input_row.trigger_value.clone(),
+                )
+            })
             .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
@@ -349,6 +380,7 @@ where
             helper_bit: hb,
             breakdown_key: row.breakdown_key,
             trigger_value: row.trigger_value,
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
@@ -371,24 +403,25 @@ where
     .await
 }
 
+/// Malicious IPA
+/// We return Replicated<F> as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code)]
+#[allow(dead_code, clippy::too_many_lines)]
 pub async fn ipa_wip_malicious<F, MK, BK>(
     sh_ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, BK>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>>, Error>
 where
     F: Field,
     MK: BitArray,
     BK: BitArray,
-    <F as Serializable>::Size: Add<<F as Serializable>::Size>,
-    <<F as Serializable>::Size as Add<<F as Serializable>::Size>>::Output: ArrayLength<u8>,
+    MaliciousReplicated<F>: Serializable,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
@@ -413,19 +446,25 @@ where
     //Validate before calling sort with downgraded context
     let converted_mk_shares = malicious_validator.validate(converted_mk_shares).await?;
 
-    let sort_permutation = generate_permutation_and_reveal_shuffled(
+    let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
         &converted_mk_shares,
     )
     .await
     .unwrap();
 
+    let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
+    let m_ctx = malicious_validator.context();
+
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
     // Breakdown key modulus conversion
     let converted_bk_shares = convert_all_bits(
-        &sh_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &convert_all_bits_local(sh_ctx.role(), &bk_shares),
+        &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        &m_ctx
+            .narrow(&Step::ModulusConversionForBreakdownKeys)
+            .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
+            .await?,
         BK::BITS,
         num_multi_bits,
     )
@@ -434,22 +473,37 @@ where
 
     let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
 
-    let combined_match_keys_and_sidecar_data =
-        std::iter::zip(converted_mk_shares, converted_bk_shares)
-            .into_iter()
-            .zip(input_rows)
-            .map(
-                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
-                    mk_shares,
-                    is_trigger_bit: input_row.is_trigger_bit.clone(),
-                    breakdown_key: bk_shares,
-                    trigger_value: input_row.trigger_value.clone(),
-                },
-            )
-            .collect::<Vec<_>>();
+    let intermediate = converted_mk_shares
+        .into_iter()
+        .zip(input_rows)
+        .map(
+            |(mk_shares, input_row)| IPAModulusConvertedInputRowWrapper {
+                mk_shares,
+                is_trigger_bit: input_row.is_trigger_bit.clone(),
+                trigger_value: input_row.trigger_value.clone(),
+                _marker: PhantomData::default(),
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let intermediate = m_ctx.upgrade(intermediate).await?;
+
+    let combined_match_keys_and_sidecar_data = intermediate
+        .into_iter()
+        .zip(converted_bk_shares)
+        .map(
+            |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
+                mk_shares: one_row.mk_shares,
+                is_trigger_bit: one_row.is_trigger_bit,
+                trigger_value: one_row.trigger_value,
+                breakdown_key: bk_shares,
+                _marker: PhantomData::default(),
+            },
+        )
+        .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
-        sh_ctx.narrow(&Step::ApplySortPermutation),
+        m_ctx.narrow(&Step::ApplySortPermutation),
         combined_match_keys_and_sidecar_data,
         &sort_permutation,
     )
@@ -458,7 +512,7 @@ where
 
     let futures = zip(
         repeat(
-            sh_ctx
+            m_ctx
                 .narrow(&Step::ComputeHelperBits)
                 .set_total_records(sorted_rows.len() - 1),
         ),
@@ -466,11 +520,11 @@ where
     )
     .zip(sorted_rows.iter().skip(1))
     .enumerate()
-    .map(|(i, ((sh_ctx, row), next_row))| {
+    .map(|(i, ((m_ctx, row), next_row))| {
         let record_id = RecordId::from(i);
-        async move { bitwise_equal(sh_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
+        async move { bitwise_equal(m_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
     });
-    let helper_bits = Some(Replicated::ZERO)
+    let helper_bits = Some(MaliciousReplicated::ZERO)
         .into_iter()
         .chain(try_join_all(futures).await?);
 
@@ -480,24 +534,28 @@ where
             helper_bit: hb,
             breakdown_key: row.breakdown_key,
             trigger_value: row.trigger_value,
+            _marker: PhantomData::default(),
         })
         .collect::<Vec<_>>();
 
     let accumulated_credits = accumulate_credit(
-        sh_ctx.narrow(&Step::AccumulateCredit),
+        m_ctx.narrow(&Step::AccumulateCredit),
         &attribution_input_rows,
     )
     .await?;
 
     let user_capped_credits = credit_capping(
-        sh_ctx.narrow(&Step::PerformUserCapping),
+        m_ctx.narrow(&Step::PerformUserCapping),
         &accumulated_credits,
         per_user_credit_cap,
     )
     .await?;
 
-    aggregate_credit::<F, BK>(
-        sh_ctx.narrow(&Step::AggregateCredit),
+    //Validate before calling sort with downgraded context
+    malicious_aggregate_credit::<F, BK>(
+        m_ctx.narrow(&Step::AggregateCredit),
+        malicious_validator,
+        sh_ctx,
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
@@ -517,7 +575,10 @@ pub mod tests {
         },
         rand::thread_rng,
         secret_sharing::IntoShares,
-        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+        telemetry::metrics::RECORDS_SENT,
+        test_fixture::{
+            input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+        },
     };
     use generic_array::GenericArray;
     use proptest::{
@@ -598,7 +659,7 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+        let [result0, result1, result2] = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
@@ -610,20 +671,11 @@ pub mod tests {
                 .await
                 .unwrap()
             })
-            .await
-            .reconstruct();
+            .await;
 
-        assert_eq!(EXPECTED.len(), result.len());
-
-        for (i, expected) in EXPECTED.iter().enumerate() {
-            assert_eq!(
-                *expected,
-                [
-                    result[i].breakdown_key.as_u128(),
-                    result[i].trigger_value.as_u128()
-                ]
-            );
-        }
+        assert_eq!(EXPECTED.len(), result0.len());
+        assert_eq!(EXPECTED.len(), result1.len());
+        assert_eq!(EXPECTED.len(), result2.len());
     }
 
     #[tokio::test]
@@ -709,6 +761,87 @@ pub mod tests {
         #[test]
         fn serde(match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
             serde_internal(match_key, trigger_bit, breakdown_key, trigger_value, seed);
+        }
+    }
+
+    /// Ensures that our communication numbers don't go above the baseline.
+    /// Prints a warning if they are currently below, so someone needs to adjust the baseline
+    /// inside this test.
+    ///
+    /// It is possible to increase the number too if there is a good reason for it. This is a
+    /// "catch all" type of test to make sure we don't miss an accidental regression.
+    #[tokio::test]
+    pub async fn communication_baseline() {
+        const COUNT: usize = 5;
+        const PER_USER_CAP: u32 = 3;
+        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
+        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        /// empirical value as of Feb 3, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE: u64 = 10752;
+
+        /// empirical value as of Feb 3, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 26419;
+
+        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+
+        let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        );
+
+        let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
+            .semi_honest(records.clone(), |ctx, input_rows| async move {
+                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let snapshot = world.metrics_snapshot();
+        let records_sent = snapshot.get_counter(RECORDS_SENT);
+        assert!(records_sent <= RECORDS_SENT_SEMI_HONEST_BASELINE);
+        if records_sent < RECORDS_SENT_SEMI_HONEST_BASELINE {
+            tracing::warn!("Baseline for semi-honest IPA has improved! Expected {RECORDS_SENT_SEMI_HONEST_BASELINE}, got {records_sent}.\
+                            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+        }
+
+        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+
+        let _ = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await;
+
+        let snapshot = world.metrics_snapshot();
+        let records_sent = snapshot.get_counter(RECORDS_SENT);
+        assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE);
+        if records_sent < RECORDS_SENT_MALICIOUS_BASELINE {
+            tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
+                            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
         }
     }
 }

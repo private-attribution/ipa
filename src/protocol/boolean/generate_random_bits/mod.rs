@@ -1,6 +1,6 @@
 use crate::bits::{BitArray, BitArray40};
 use crate::error::Error;
-use crate::ff::{Field, Int};
+use crate::ff::Field;
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
 use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
@@ -11,7 +11,6 @@ use crate::secret_sharing::{
 };
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use std::iter::repeat;
 
 mod malicious;
 mod semi_honest;
@@ -62,25 +61,12 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
-    // Calculate the number of bits we need to form a random number that
-    // has the same number of bits as the prime.
-    let l = u128::BITS - F::PRIME.into().leading_zeros();
-    let leading_zero_bits = F::Integer::BITS - l;
-
     let futures = triples.iter().enumerate().map(|(i, t)| {
         let c = ctx.narrow(&BitOpStep::from(i));
         async move { convert_bit(c, record_id, t).await }
     });
 
-    // Pad 0's at the end to return `F::Integer::BITS` long bits
-    let mut b_b = try_join_all(futures).await?;
-    b_b.append(
-        &mut repeat(S::ZERO)
-            .take(usize::try_from(leading_zero_bits).unwrap())
-            .collect::<Vec<_>>(),
-    );
-
-    Ok(b_b)
+    try_join_all(futures).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
