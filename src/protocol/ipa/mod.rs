@@ -375,12 +375,13 @@ where
         .chain(try_join_all(futures).await?);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| MCAccumulateCreditInputRow {
-            is_trigger_report: row.is_trigger_bit,
-            helper_bit: hb,
-            breakdown_key: row.breakdown_key,
-            trigger_value: row.trigger_value,
-            _marker: PhantomData::default(),
+        .map(|(row, hb)| {
+            MCAccumulateCreditInputRow::new(
+                row.is_trigger_bit,
+                hb,
+                row.breakdown_key,
+                row.trigger_value,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -529,12 +530,13 @@ where
         .chain(try_join_all(futures).await?);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| MCAccumulateCreditInputRow {
-            is_trigger_report: row.is_trigger_bit,
-            helper_bit: hb,
-            breakdown_key: row.breakdown_key,
-            trigger_value: row.trigger_value,
-            _marker: PhantomData::default(),
+        .map(|(row, hb)| {
+            MCAccumulateCreditInputRow::new(
+                row.is_trigger_bit,
+                hb,
+                row.breakdown_key,
+                row.trigger_value,
+            )
         })
         .collect::<Vec<_>>();
 

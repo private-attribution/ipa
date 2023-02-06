@@ -35,7 +35,24 @@ pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
     pub helper_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
-    pub _marker: PhantomData<F>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> MCAccumulateCreditInputRow<F, T> {
+    pub fn new(
+        is_trigger_report: T,
+        helper_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
+        Self {
+            is_trigger_report,
+            helper_bit,
+            breakdown_key,
+            trigger_value,
+            _marker: PhantomData::default(),
+        }
+    }
 }
 
 pub type MCAccumulateCreditOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;

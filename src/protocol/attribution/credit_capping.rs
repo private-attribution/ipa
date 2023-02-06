@@ -351,8 +351,6 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::marker::PhantomData;
-
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp32BitPrime},
@@ -423,12 +421,13 @@ mod tests {
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCCreditCappingInputRow {
-                            is_trigger_report: row.is_trigger_report.clone(),
-                            breakdown_key: bk,
-                            trigger_value: row.trigger_value.clone(),
-                            helper_bit: row.helper_bit.clone(),
-                            _marker: PhantomData::default(),
+                        .map(|(row, bk)| {
+                            MCCreditCappingInputRow::new(
+                                row.is_trigger_report.clone(),
+                                row.helper_bit.clone(),
+                                bk,
+                                row.trigger_value.clone(),
+                            )
                         })
                         .collect::<Vec<_>>();
 

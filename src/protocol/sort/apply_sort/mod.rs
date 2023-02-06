@@ -64,7 +64,6 @@ mod tests {
         secret_sharing::{replicated::semi_honest::XorShare, SharedValue},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use std::marker::PhantomData;
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -137,12 +136,13 @@ mod tests {
                     let converted_secret = secret
                         .into_iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAccumulateCreditInputRow {
-                            is_trigger_report: row.is_trigger_report,
-                            breakdown_key: bk,
-                            trigger_value: row.trigger_value,
-                            helper_bit: row.helper_bit,
-                            _marker: PhantomData::default(),
+                        .map(|(row, bk)| {
+                            MCAccumulateCreditInputRow::new(
+                                row.is_trigger_report,
+                                row.helper_bit,
+                                bk,
+                                row.trigger_value,
+                            )
                         })
                         .collect::<Vec<_>>();
 
