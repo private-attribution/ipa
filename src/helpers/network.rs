@@ -137,7 +137,7 @@ impl<T: Transport> Network<T> {
                 let CommandOrigin::Helper(identity) = &envelope.origin else {
                     panic!("Message origin is incorrect: expected it to be from a helper, got {:?}", &envelope.origin);
                 };
-                let origin_role = assignment.role(identity);
+                let origin_role = assignment.role(*identity);
                 let channel_id = ChannelId::new(origin_role, step);
 
                 Self::inc_and_ensure_offset(&mut recv_offset_tracker, self_query_id, &channel_id, Some(offset));
@@ -198,27 +198,31 @@ mod tests {
 
     #[tokio::test]
     async fn successfully_sends() {
+        let roles = RoleAssignment::new(HelperIdentity::make_three());
+        let h1_identity = roles.identity(Role::H1);
+        let h2_identity = roles.identity(Role::H2);
+
         let message_chunks = (
-            ChannelId::new(Role::H1, Step::default().narrow("successfully-sends")),
+            ChannelId::new(
+                roles.role(h1_identity),
+                Step::default().narrow("successfully-sends"),
+            ),
             vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
         );
-        let roles = RoleAssignment::new(HelperIdentity::make_three());
-        let this_identity = roles.identity(Role::H2);
-        let dest_identity = roles.identity(message_chunks.0.role);
         let expected_query_id = QueryId;
 
         let transports = InMemoryNetwork::default();
-        let this_transport = transports.transport(this_identity).unwrap();
-        let this_network = Network::new(this_transport, expected_query_id, roles.clone());
-        let dest_transport = transports.transport(dest_identity).unwrap();
-        let mut dest_stream = dest_transport
+        let h2_transport = transports.transport(h2_identity).unwrap();
+        let h2_network = Network::new(h2_transport, expected_query_id, roles.clone());
+        let h1_transport = transports.transport(h1_identity).unwrap();
+        let mut h1_stream = h1_transport
             .subscribe(SubscriptionType::Query(expected_query_id))
             .await;
 
         for i in 0..10 {
             assert_successful_send(
-                &this_network,
-                &mut dest_stream,
+                &h2_network,
+                &mut h1_stream,
                 expected_query_id,
                 &message_chunks,
                 i,
@@ -231,42 +235,47 @@ mod tests {
     #[should_panic(expected = "out-of-order delivery of data for")] // just the prefix
     async fn rejects_bad_offset() {
         let expected_query_id = QueryId;
-        let message_chunks = (
-            ChannelId::new(Role::H2, Step::default().narrow("rejects-bad-offset")),
-            vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES],
-        );
+        let expected_role = Role::H2;
+        let expected_step = Step::default().narrow("rejects-bad-offset");
+        let expected_payload = vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let transports = InMemoryNetwork::default();
         let identities = transports.helper_identities();
-        let this_identity = identities[Role::H1];
-        let that_identity = identities[Role::H2];
+        let h1_identity = identities[Role::H1];
+        let h2_identity = identities[Role::H2];
 
-        let this_transport = transports.transport(this_identity).unwrap();
-        let this_network = Network::new(
-            this_transport,
+        let h1_transport = transports.transport(h1_identity).unwrap();
+        let h1_network = Network::new(
+            h1_transport,
             expected_query_id,
             RoleAssignment::new(identities),
         );
-        let mut message_chunks_stream = this_network.recv_stream().await;
+        let mut message_chunks_stream = h1_network.recv_stream().await;
 
-        let that_transport = transports.transport(that_identity).unwrap();
+        let h2_transport = transports.transport(h2_identity).unwrap();
         let command = TransportCommand::StepData {
             query_id: expected_query_id,
-            step: message_chunks.0.step.clone(),
-            payload: message_chunks.1.clone(),
+            step: expected_step.clone(),
+            payload: expected_payload.clone(),
             offset: 0,
         };
-        that_transport.send(this_identity, command).await.unwrap();
-        assert_eq!(message_chunks, message_chunks_stream.next().await.unwrap());
+        h2_transport.send(h1_identity, command).await.unwrap();
+        assert_eq!(
+            (
+                ChannelId::new(expected_role, expected_step.clone()),
+                expected_payload.clone()
+            ),
+            message_chunks_stream.next().await.unwrap()
+        );
 
         // send with offset == 0 again; this time should panic
         let command = TransportCommand::StepData {
             query_id: expected_query_id,
-            step: message_chunks.0.step.clone(),
-            payload: message_chunks.1.clone(),
+            step: expected_step.clone(),
+            payload: expected_payload.clone(),
             offset: 0,
         };
-        that_transport.send(this_identity, command).await.unwrap();
+        h2_transport.send(h1_identity, command).await.unwrap();
         message_chunks_stream.next().await.unwrap();
     }
 }

@@ -596,7 +596,7 @@ pub mod query {
                 Self { query_id }
             }
 
-            #[cfg(feature = "cli")] // needed because client is blocking; remove when non-blocking
+            #[cfg(any(all(test, not(feature = "shuttle")), feature = "cli"))] // needed because client is blocking; remove when non-blocking
             pub fn try_into_http_request(
                 self,
                 scheme: axum::http::uri::Scheme,

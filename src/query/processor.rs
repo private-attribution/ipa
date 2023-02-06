@@ -161,7 +161,7 @@ impl<T: Transport + Clone> Processor<T> {
     /// ## Errors
     /// if query is already running or this helper cannot be a follower in it
     pub async fn prepare(&self, req: PrepareQuery) -> Result<(), PrepareQueryError> {
-        let my_role = req.roles.role(&self.transport.identity());
+        let my_role = req.roles.role(self.transport.identity());
 
         if my_role == Role::H1 {
             return Err(PrepareQueryError::WrongTarget);
@@ -511,10 +511,10 @@ mod tests {
             let b = Fp31::from(5u128);
 
             let helper_shares = (a, b).share().map(|(a, b)| {
-                let mut slice = [0u8; 2 * SZ];
-                a.serialize(GenericArray::from_mut_slice(&mut slice[..SZ]));
-                b.serialize(GenericArray::from_mut_slice(&mut slice[SZ..]));
-                ByteArrStream::from(slice.as_slice())
+                let mut vec = vec![0u8; 2 * SZ];
+                a.serialize(GenericArray::from_mut_slice(&mut vec[..SZ]));
+                b.serialize(GenericArray::from_mut_slice(&mut vec[SZ..]));
+                ByteArrStream::from(vec)
             });
 
             // at this point, all helpers must be awaiting inputs

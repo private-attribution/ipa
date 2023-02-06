@@ -256,9 +256,9 @@ impl RoleAssignment {
     /// ## Panics
     /// Panics if there is no role assigned to it.
     #[must_use]
-    pub fn role(&self, id: &HelperIdentity) -> Role {
+    pub fn role(&self, id: HelperIdentity) -> Role {
         for (idx, item) in self.helper_roles.iter().enumerate() {
-            if item == id {
+            if *item == id {
                 return Role::all()[idx];
             }
         }
@@ -329,15 +329,15 @@ mod tests {
 
             assert_eq!(
                 Role::H1,
-                assignment.role(&HelperIdentity::try_from(1).unwrap())
+                assignment.role(HelperIdentity::try_from(1).unwrap())
             );
             assert_eq!(
                 Role::H2,
-                assignment.role(&HelperIdentity::try_from(2).unwrap())
+                assignment.role(HelperIdentity::try_from(2).unwrap())
             );
             assert_eq!(
                 Role::H3,
-                assignment.role(&HelperIdentity::try_from(3).unwrap())
+                assignment.role(HelperIdentity::try_from(3).unwrap())
             );
 
             assert_eq!(
@@ -366,15 +366,15 @@ mod tests {
 
             assert_eq!(
                 Role::H3,
-                assignment.role(&HelperIdentity::try_from(1).unwrap())
+                assignment.role(HelperIdentity::try_from(1).unwrap())
             );
             assert_eq!(
                 Role::H2,
-                assignment.role(&HelperIdentity::try_from(2).unwrap())
+                assignment.role(HelperIdentity::try_from(2).unwrap())
             );
             assert_eq!(
                 Role::H1,
-                assignment.role(&HelperIdentity::try_from(3).unwrap())
+                assignment.role(HelperIdentity::try_from(3).unwrap())
             );
 
             assert_eq!(

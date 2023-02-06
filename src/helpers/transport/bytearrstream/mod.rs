@@ -48,9 +48,17 @@ impl From<Vec<u8>> for ByteArrStream {
 }
 
 #[cfg(test)]
-impl From<&[u8]> for ByteArrStream {
-    fn from(slice: &[u8]) -> Self {
-        Self::from(slice.to_vec())
+impl ByteArrStream {
+    /// converts the entire stream into a vec; only intended for use in tests
+    /// # Panics
+    /// if the stream has any failure
+    pub async fn to_vec(self) -> Vec<u8> {
+        self.try_collect::<Vec<_>>()
+            .await
+            .unwrap()
+            .into_iter()
+            .flat_map(|bytes| bytes.to_vec())
+            .collect()
     }
 }
 

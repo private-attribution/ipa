@@ -31,32 +31,22 @@ pub fn router(transport_sender: mpsc::Sender<CommandEnvelope>) -> Router {
 mod tests {
     use super::*;
     use crate::{
-        helpers::{query::QueryInput, transport::ByteArrStream},
+        helpers::query::QueryInput,
         net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
     };
     use axum::http::Request;
     use futures::pin_mut;
-    use futures_util::{future::poll_immediate, TryStreamExt};
+    use futures_util::future::poll_immediate;
     use hyper::{Body, StatusCode};
-
-    async fn collect_bytes(stream: ByteArrStream) -> Vec<u8> {
-        stream
-            .try_collect::<Vec<_>>()
-            .await
-            .unwrap()
-            .into_iter()
-            .flat_map(|bytes| bytes.to_vec())
-            .collect()
-    }
 
     #[tokio::test]
     async fn input_test() {
         let expected_query_id = QueryId;
-        let expected_input = [4u8; 4].as_slice();
+        let expected_input = vec![4u8; 4];
         let req = http_serde::query::input::Request::new(QueryInput {
             query_id: expected_query_id,
-            input_stream: expected_input.into(),
+            input_stream: expected_input.clone().into(),
         });
         let (tx, mut rx) = mpsc::channel(1);
         let handle = handler(req, Extension(tx));
@@ -74,8 +64,8 @@ mod tests {
                 responder,
             )) => {
                 assert_eq!(query_id, expected_query_id);
-                let input = collect_bytes(input_stream).await;
-                assert_eq!(input.as_slice(), expected_input);
+                let input = input_stream.to_vec().await;
+                assert_eq!(input, expected_input);
                 responder.send(()).unwrap();
             }
             other => panic!("expected input command, but got {other:?}"),

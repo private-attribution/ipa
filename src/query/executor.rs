@@ -267,7 +267,7 @@ mod tests {
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,
             };
-            let input = ByteArrStream::from(shares.as_slice())
+            let input = ByteArrStream::from(shares)
                 .align(<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE);
             execute_ipa::<Fp31, MatchKey, BreakdownKey>(ctx, query_config, input)
         }))
