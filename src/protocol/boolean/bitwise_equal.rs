@@ -7,6 +7,42 @@ use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use futures::future::try_join_all;
 use std::iter::zip;
 
+/// Compares `[a]` and `c`, and returns 1 iff `a == c`
+///
+/// # Errors
+/// Propagates errors from multiplications
+///
+/// # Panics
+/// if `a.len() > 128`
+pub async fn bitwise_equal_constant<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    a: &[S],
+    c: u128,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F>,
+{
+    assert!(a.len() <= 128);
+
+    let one = ctx.share_known_value(F::ONE);
+    // Local XOR
+    let xored_bits = a
+        .iter()
+        .enumerate()
+        .map(|(i, a_bit)| {
+            if ((c >> i) & 1) == 0 {
+                a_bit.clone()
+            } else {
+                one.clone() - a_bit
+            }
+        })
+        .collect::<Vec<_>>();
+    no_ones(ctx, record_id, &xored_bits).await
+}
+
 /// # Errors
 /// Propagates errors from multiplications
 ///
@@ -68,7 +104,7 @@ mod tests {
         test_fixture::{get_bits, Reconstruct, TestWorld},
     };
 
-    use super::bitwise_equal;
+    use super::{bitwise_equal, bitwise_equal_constant};
 
     #[tokio::test]
     pub async fn simple() {
@@ -92,6 +128,36 @@ mod tests {
         assert_eq!(0, run_bitwise_equal(0, 1, 2).await);
         assert_eq!(0, run_bitwise_equal(0, 1, 3).await);
         assert_eq!(0, run_bitwise_equal(15, 0, 4).await);
+    }
+
+    #[tokio::test]
+    pub async fn constant() {
+        assert_eq!(1, run_bitwise_equal_constant(45, 45, 9).await);
+        assert_eq!(1, run_bitwise_equal_constant(45, 45, 8).await);
+        assert_eq!(1, run_bitwise_equal_constant(45, 45, 7).await);
+        assert_eq!(1, run_bitwise_equal_constant(45, 45, 6).await);
+        assert_eq!(1, run_bitwise_equal_constant(63, 63, 6).await);
+        assert_eq!(1, run_bitwise_equal_constant(63, 63, 3).await);
+        assert_eq!(1, run_bitwise_equal_constant(63, 63, 2).await);
+        assert_eq!(1, run_bitwise_equal_constant(0, 0, 1).await);
+        assert_eq!(
+            1,
+            run_bitwise_equal_constant(u32::MAX, u32::MAX.into(), 32).await
+        );
+
+        assert_eq!(
+            0,
+            run_bitwise_equal_constant(u32::MAX, (u32::MAX - 1).into(), 32).await
+        );
+        assert_eq!(
+            0,
+            run_bitwise_equal_constant(u32::MAX, (u32::MAX ^ (1 << 15)).into(), 32).await
+        );
+        assert_eq!(0, run_bitwise_equal_constant(0, 1 << 15, 32).await);
+        assert_eq!(0, run_bitwise_equal_constant(0, 1, 1).await);
+        assert_eq!(0, run_bitwise_equal_constant(0, 1, 2).await);
+        assert_eq!(0, run_bitwise_equal_constant(0, 1, 3).await);
+        assert_eq!(0, run_bitwise_equal_constant(15, 0, 4).await);
     }
 
     async fn run_bitwise_equal(a: u32, b: u32, num_bits: u32) -> u128 {
@@ -131,6 +197,36 @@ mod tests {
                     .unwrap()
                 },
             )
+            .await
+            .reconstruct();
+
+        assert_eq!(answer_fp31.as_u128(), answer_fp32_bit_prime.as_u128());
+
+        answer_fp31.as_u128()
+    }
+
+    async fn run_bitwise_equal_constant(a: u32, b: u128, num_bits: u32) -> u128 {
+        let world = TestWorld::new().await;
+
+        let a_fp31 = get_bits::<Fp31>(a, num_bits);
+
+        let answer_fp31 = world
+            .semi_honest(a_fp31, |ctx, a_bits| async move {
+                bitwise_equal_constant(ctx.set_total_records(1), RecordId::from(0), &a_bits, b)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let a_fp32_bit_prime = get_bits::<Fp32BitPrime>(a, num_bits);
+
+        let answer_fp32_bit_prime = world
+            .semi_honest(a_fp32_bit_prime, |ctx, a_bits| async move {
+                bitwise_equal_constant(ctx.set_total_records(1), RecordId::from(0), &a_bits, b)
+                    .await
+                    .unwrap()
+            })
             .await
             .reconstruct();
 

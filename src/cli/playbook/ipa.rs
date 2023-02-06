@@ -98,6 +98,7 @@ where
         .unwrap();
 
     results.map(|bytes| {
-        MCAggregateCreditOutputRow::<F, BK>::from_byte_slice(&bytes).collect::<Vec<_>>()
+        MCAggregateCreditOutputRow::<F, Replicated<F>, BK>::from_byte_slice(&bytes)
+            .collect::<Vec<_>>()
     })
 }

@@ -1,17 +1,20 @@
-name: Check dependencies against Advisory DB
+name: Security audit
 on:
   push:
-    paths: &PATHS
+    paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
   pull_request:
-    paths: *PATHS
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   audit:
-    name: Security audit
+    name: Run cargo audit
     env:
       CARGO_TERM_COLOR: always
     runs-on: ubuntu-latest
@@ -20,8 +23,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: cargo-audit
+
       - name: cargo audit
-        run: cargo audit
+        run: |
+          cargo audit

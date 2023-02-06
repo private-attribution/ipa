@@ -617,8 +617,10 @@ mod tests {
 
             let result: [_; 3] = join_all(processors.map(|mut processor| async move {
                 let r = processor.complete(query_id).await.unwrap().into_bytes();
-                MCAggregateCreditOutputRow::<Fp31, BreakdownKey>::from_byte_slice(&r)
-                    .collect::<Vec<_>>()
+                MCAggregateCreditOutputRow::<Fp31, Replicated<Fp31>, BreakdownKey>::from_byte_slice(
+                    &r,
+                )
+                .collect::<Vec<_>>()
             }))
             .await
             .try_into()

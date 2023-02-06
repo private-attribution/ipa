@@ -42,7 +42,7 @@ pub async fn bit_permutation<
     input: &[S],
 ) -> Result<Vec<S>, Error> {
     let ctx = ctx.set_total_records(2 * input.len());
-    let share_of_one = ctx.share_of_one();
+    let share_of_one = ctx.share_known_value(F::ONE);
 
     let mult_input = zip(repeat(share_of_one.clone()), input)
         .map(|(one, x)| one - x)

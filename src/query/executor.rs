@@ -1,3 +1,4 @@
+use crate::secret_sharing::Arithmetic;
 use crate::{
     bits::{BitArray, Serializable},
     ff::{Field, FieldType, Fp31},
@@ -49,16 +50,16 @@ where
     }
 }
 
-impl<F: Field, BK: BitArray> Result for Vec<MCAggregateCreditOutputRow<F, BK>>
+impl<F: Field, T: Arithmetic<F>, BK: BitArray> Result for Vec<MCAggregateCreditOutputRow<F, T, BK>>
 where
-    Replicated<F>: Serializable,
+    T: Serializable,
 {
     fn into_bytes(self: Box<Self>) -> Vec<u8> {
-        let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F, BK>::SIZE];
+        let mut r = vec![0u8; self.len() * MCAggregateCreditOutputRow::<F, T, BK>::SIZE];
         for (i, row) in self.into_iter().enumerate() {
             row.serialize(
-                &mut r[MCAggregateCreditOutputRow::<F, BK>::SIZE * i
-                    ..MCAggregateCreditOutputRow::<F, BK>::SIZE * (i + 1)],
+                &mut r[MCAggregateCreditOutputRow::<F, T, BK>::SIZE * i
+                    ..MCAggregateCreditOutputRow::<F, T, BK>::SIZE * (i + 1)],
             );
         }
 
@@ -108,7 +109,7 @@ async fn execute_ipa<F: Field, MK: BitArray, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     query_config: IPAQueryConfig,
     mut input: AlignedByteArrStream,
-) -> Vec<MCAggregateCreditOutputRow<F, BK>>
+) -> Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>
 where
     IPAInputRow<F, MK, BK>: Serializable,
     XorReplicated<BK>: Serializable,
@@ -145,7 +146,7 @@ where
 
     ipa(
         ctx,
-        &input_vec,
+        input_vec.as_slice(),
         query_config.per_user_credit_cap,
         query_config.max_breakdown_key,
         query_config.num_multi_bits,
@@ -274,8 +275,11 @@ mod tests {
                 shares
                     .into_iter()
                     .flat_map(|share: IPAInputRow<Fp31, MatchKey, BreakdownKey>| {
-                        let mut buf =
-                            [0u8; <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
+                        let mut buf = [0u8; <IPAInputRow<
+                                Fp31,
+                                MatchKey,
+                                BreakdownKey,
+                            > as Serializable>::Size::USIZE];
                         share.serialize(GenericArray::from_mut_slice(&mut buf));
 
                         buf
