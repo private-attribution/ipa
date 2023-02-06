@@ -1,7 +1,6 @@
 use super::{
     do_the_binary_tree_thing, if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
-    InteractionPatternStep,
 };
 use crate::ff::Field;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
@@ -125,24 +124,6 @@ where
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
-
-    let num_rows = input.len();
-    let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
-    let credit_updates = try_join_all(helper_bits.iter().enumerate().map(|(i, helper_bit)| {
-        let c = depth_0_ctx.clone();
-        let record_id = RecordId::from(i);
-        let credit = &original_credits[i + 1];
-        async move { c.multiply(record_id, helper_bit, credit).await }
-    }))
-    .await?;
-    credit_updates
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, credit)| {
-            original_credits[i] += &credit;
-        });
 
     do_the_binary_tree_thing(ctx, &helper_bits, &mut original_credits).await?;
 

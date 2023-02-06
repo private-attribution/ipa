@@ -1,5 +1,5 @@
+use super::do_the_binary_tree_thing;
 use super::input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow};
-use super::{do_the_binary_tree_thing, InteractionPatternStep};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
@@ -57,31 +57,10 @@ where
     }))
     .await?;
 
-    // For the very first iteration:
-    // credit[i] = input[i].trigger_value + input[i+1].is_trigger_bit * input[i+1].helper_bit * input[i+1].trigger_value
-    let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
-    let credit_updates = try_join_all(
-        input
-            .iter()
-            .skip(1)
-            .zip(helper_bits.iter())
-            .enumerate()
-            .map(|(i, (x, b))| {
-                let c = depth_0_ctx.clone();
-                let record_id = RecordId::from(i);
-                async move { c.multiply(record_id, b, &x.trigger_value).await }
-            }),
-    )
-    .await?;
-
     let mut credits = input
         .iter()
-        .zip(credit_updates)
-        .map(|(x, update)| update + &x.trigger_value)
+        .map(|x| x.trigger_value.clone())
         .collect::<Vec<_>>();
-    credits.push(input.last().unwrap().trigger_value.clone());
 
     // 2. Accumulate (up to 4 multiplications)
     //

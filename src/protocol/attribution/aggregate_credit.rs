@@ -3,16 +3,16 @@ use super::{
     input::{
         MCAggregateCreditInputRow, MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit,
     },
-    InteractionPatternStep,
 };
+use crate::ff::Field;
 use crate::protocol::modulus_conversion::split_into_multi_bit_slices;
 use crate::protocol::sort::apply_sort::apply_sort_permutation;
 use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
+use crate::protocol::Substep;
 use crate::protocol::{
     context::{Context, SemiHonestContext},
     sort::generate_permutation::malicious_generate_permutation_and_reveal_shuffled,
 };
-use crate::protocol::{RecordId, Substep};
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
@@ -21,8 +21,6 @@ use crate::{
     error::Error,
     protocol::{context::MaliciousContext, malicious::MaliciousValidator},
 };
-use crate::{ff::Field, protocol::basics::SecureMul};
-use futures::future::try_join_all;
 use std::marker::PhantomData;
 
 /// Aggregation step for Oblivious Attribution protocol.
@@ -69,28 +67,16 @@ where
     //     new_credit[current_index] = current.credit + b * successor.credit;
     //     new_stop_bit[current_index] = b * successor.stop_bit;
     //
-    let num_rows = sorted_input.len();
     let helper_bits = sorted_input
         .iter()
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
-    let credit_updates = try_join_all(sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
-        let c = depth_0_ctx.clone();
-        let record_id = RecordId::from(i);
-        async move { c.multiply(record_id, &x.helper_bit, &x.credit).await }
-    }))
-    .await?;
     let mut credits = sorted_input
         .iter()
-        .zip(credit_updates)
-        .map(|(x, update)| update + &x.credit)
+        .map(|x| x.credit.clone())
         .collect::<Vec<_>>();
-    credits.push(sorted_input.last().unwrap().credit.clone());
 
     do_the_binary_tree_thing(ctx.clone(), &helper_bits, &mut credits).await?;
 
@@ -178,30 +164,16 @@ where
     //     new_credit[current_index] = current.credit + b * successor.credit;
     //     new_stop_bit[current_index] = b * successor.stop_bit;
     //
-    let num_rows = sorted_input.len();
-
     let helper_bits = sorted_input
         .iter()
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let depth_0_ctx = m_ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
-    let futures = sorted_input.iter().skip(1).enumerate().map(|(i, x)| {
-        let c = depth_0_ctx.clone();
-        let record_id = RecordId::from(i);
-        async move { c.multiply(record_id, &x.helper_bit, &x.credit).await }
-    });
-
-    let credit_updates = try_join_all(futures).await?;
     let mut credits = sorted_input
         .iter()
-        .zip(credit_updates)
-        .map(|(x, update)| update + &x.credit)
+        .map(|x| x.credit.clone())
         .collect::<Vec<_>>();
-    credits.push(sorted_input.last().unwrap().credit.clone());
 
     do_the_binary_tree_thing(m_ctx, &helper_bits, &mut credits).await?;
 

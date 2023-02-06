@@ -43,7 +43,6 @@ where
 /// This result is saved as credits[i].
 ///
 /// Helper bits should be a sharing of either `1` or `0` for each row, indicating if that row "matches" the row preceeding it.
-/// Stop Bits should be initialized to a sharing of `1`
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
@@ -58,12 +57,30 @@ where
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
+    let num_rows = helper_bits.len() + 1;
+
+    let depth_0_ctx = ctx
+        .narrow(&InteractionPatternStep::from(0))
+        .set_total_records(num_rows - 1);
+    let credit_updates = try_join_all(helper_bits.iter().enumerate().map(|(i, helper_bit)| {
+        let c = depth_0_ctx.clone();
+        let record_id = RecordId::from(i);
+        let credit = &credits[i + 1];
+        async move { c.multiply(record_id, helper_bit, credit).await }
+    }))
+    .await?;
+    credit_updates
+        .into_iter()
+        .enumerate()
+        .for_each(|(i, credit)| {
+            credits[i] += &credit;
+        });
+
     // Create stop_bit vector.
     // This vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
     let mut stop_bits = helper_bits.to_owned();
     stop_bits.push(ctx.share_known_value(F::ONE));
-    let num_rows = stop_bits.len();
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
     for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
