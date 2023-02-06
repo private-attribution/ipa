@@ -114,8 +114,8 @@ impl<T: Transport> Network<T> {
                     offset: send_offset,
                 },
             )
-            .await
-            .map_err(Error::from)
+            .await?;
+        Ok(())
     }
 
     /// returns a [`Stream`] of [`MessageChunks`]s from the underlying [`Transport`]
