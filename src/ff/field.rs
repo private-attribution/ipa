@@ -58,12 +58,3 @@ pub enum FieldType {
     Fp31,
     Fp32BitPrime,
 }
-
-impl AsRef<str> for FieldType {
-    fn as_ref(&self) -> &str {
-        match self {
-            FieldType::Fp31 => "Fp31",
-            FieldType::Fp32BitPrime => "Fp32BitPrime",
-        }
-    }
-}

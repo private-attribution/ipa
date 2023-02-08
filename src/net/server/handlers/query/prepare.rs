@@ -107,7 +107,7 @@ mod tests {
                 .to_vec();
             Self {
                 query_id: QueryId.as_ref().to_string(),
-                field_type: FieldType::Fp31.as_ref().to_string(),
+                field_type: format!("{:?}", FieldType::Fp31),
                 roles,
             }
         }

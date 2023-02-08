@@ -128,7 +128,7 @@ mod tests {
     impl Default for OverrideMulReq {
         fn default() -> Self {
             Self {
-                field_type: FieldType::Fp31.as_ref().to_string(),
+                field_type: format!("{:?}", FieldType::Fp31),
                 query_type: QueryType::TEST_MULTIPLY_STR.to_string(),
             }
         }
@@ -179,7 +179,7 @@ mod tests {
     impl Default for OverrideIPAReq {
         fn default() -> Self {
             Self {
-                field_type: FieldType::Fp32BitPrime.as_ref().to_string(),
+                field_type: format!("{:?}", FieldType::Fp32BitPrime),
                 query_type: QueryType::IPA_STR.to_string(),
                 per_user_credit_cap: "1".into(),
                 max_breakdown_key: "1".into(),
