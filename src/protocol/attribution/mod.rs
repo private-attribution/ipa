@@ -82,6 +82,7 @@ where
         },
     ))
     .await?;
+    // This is crap and will resize the vector... it was too hard to fix...
     credits.push(last.unwrap());
 
     // Create stop_bit vector.
