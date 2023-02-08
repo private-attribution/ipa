@@ -39,6 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let my_identity = HelperIdentity::try_from(args.identity).unwrap();
     let helper = HttpTransport::new(my_identity, Arc::new(config.peers().clone()));
+    // TODO: helper identities construction needs to be made more ergonomic
     let mut all_identities = HelperIdentity::make_three()
         .into_iter()
         .filter(|id| id != &my_identity);

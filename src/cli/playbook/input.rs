@@ -26,10 +26,6 @@ impl InputItem for u64 {
 
 impl<F: Field, MK: BitArray, BK: BitArray> InputItem for GenericReportTestInput<F, MK, BK> {
     fn from_str(s: &str) -> Self {
-        // pub match_key: u64,
-        // pub is_trigger_bit: u128,
-        // pub breakdown_key: u128,
-        // pub trigger_value: u128,
         if let [match_key, is_trigger_bit, breakdown_key, trigger_value] =
             s.splitn(4, ',').collect::<Vec<_>>()[..]
         {

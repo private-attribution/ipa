@@ -4,6 +4,7 @@ use crate::secret_sharing::SharedValue;
 macro_rules! field_impl {
     ( $field:ident, $int:ty, $prime:expr, $arraylen:ty ) => {
         use super::*;
+        use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq)]
         pub struct $field(<Self as Field>::Integer);
@@ -13,7 +14,6 @@ macro_rules! field_impl {
             type Size = $arraylen;
             const PRIME: Self::Integer = $prime;
             const ONE: Self = $field(1);
-            const TYPE_STR: &'static str = stringify!($field);
         }
 
         impl SharedValue for $field {
@@ -148,17 +148,6 @@ macro_rules! field_impl {
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
             }
 
-            #[cfg(feature = "enable-serde")]
-            #[test]
-            fn has_added_to_field_type_impl() {
-                let field_type: crate::ff::FieldType = serde_json::from_str(&format!("\"{}\"", $field::TYPE_STR))
-                    .expect(&format!(
-                        "Must add type {} to FieldType::from_str; See Field::TYPE_STR for instructions",
-                        stringify!($field)
-                    ));
-                assert_eq!(field_type, crate::ff::FieldType::$field)
-            }
-
             proptest! {
 
                 #[test]
@@ -171,6 +160,9 @@ macro_rules! field_impl {
                 }
             }
         }
+
+        // Make sure FieldType has a member for this field implementation.
+        const _FIELD_TYPE_VALUE: FieldType = crate::ff::FieldType::$field;
     };
 }
 
