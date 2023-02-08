@@ -4,7 +4,7 @@ use crate::protocol::context::{MaliciousContext, SemiHonestContext};
 use crate::protocol::RecordId;
 use crate::secret_sharing::{
     replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, SharedValue,
 };
 use async_trait::async_trait;
 
@@ -13,7 +13,7 @@ mod semi_honest;
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-pub trait SecureSop<F: ArithmeticShare>: Sized {
+pub trait SecureSop<F: SharedValue>: Sized {
     type Share: SecretSharing<F>;
 
     /// Multiply and return the result of `a` * `b`.

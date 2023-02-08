@@ -9,7 +9,7 @@ use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 pub use field::{Field, Int};
 pub use prime_field::{Fp31, Fp32BitPrime};
 
-use crate::secret_sharing::ArithmeticShare;
+use crate::secret_sharing::SharedValue;
 
 pub trait ArithmeticOps:
     Add<Output = Self>
@@ -35,7 +35,7 @@ impl<T> ArithmeticOps for T where
 {
 }
 
-pub trait ArithmeticRefOps<V: ArithmeticShare>:
+pub trait ArithmeticRefOps<V: SharedValue>:
     for<'a> Add<&'a Self, Output = Self>
     + for<'a> AddAssign<&'a Self>
     + Neg<Output = Self>
@@ -53,6 +53,6 @@ where
         + for<'a> Sub<&'a Self, Output = Self>
         + for<'a> SubAssign<&'a Self>
         + Mul<V, Output = Self>,
-    V: ArithmeticShare,
+    V: SharedValue,
 {
 }

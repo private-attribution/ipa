@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::bits::BitArray;
+use crate::bits::SharedValueArray;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Role;
@@ -21,7 +21,7 @@ use futures::future::{try_join, try_join_all};
 // `accumulate_credit` protocol
 //
 #[derive(Debug)]
-pub struct AccumulateCreditInputRow<F: Field, BK: BitArray> {
+pub struct AccumulateCreditInputRow<F: Field, BK: SharedValueArray> {
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
     pub breakdown_key: XorShare<BK>,
@@ -77,7 +77,7 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
 //
 
 #[derive(Debug)]
-pub struct AggregateCreditInputRow<F: Field, BK: BitArray> {
+pub struct AggregateCreditInputRow<F: Field, BK: SharedValueArray> {
     pub breakdown_key: XorShare<BK>,
     pub credit: AdditiveShare<F>,
 }

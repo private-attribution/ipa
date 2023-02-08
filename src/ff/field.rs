@@ -4,7 +4,7 @@ use generic_array::GenericArray;
 use std::fmt::Debug;
 
 use crate::bits::Serializable;
-use crate::secret_sharing::ArithmeticShare;
+use crate::secret_sharing::SharedValue;
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int: Sized + Copy + Debug + Into<u128> {
@@ -19,7 +19,7 @@ impl Int for u32 {
     const BITS: u32 = u32::BITS;
 }
 
-pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
+pub trait Field: SharedValue + From<u128> + Into<Self::Integer> {
     type Integer: Int;
     type Size: ArrayLength<u8>;
 

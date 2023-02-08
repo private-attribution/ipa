@@ -1,17 +1,14 @@
-use crate::secret_sharing::BooleanShare;
-
+use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};
-
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
-mod bit_array;
-
-pub use bit_array::{BitArray40, BitArray8};
+mod shared_value_array;
+pub use shared_value_array::{BitArray40, BitArray8};
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
-pub trait BitArray:
-    BooleanShare + TryFrom<u128> + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
+pub trait SharedValueArray:
+    SharedValue + TryFrom<u128> + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
 {
     /// Truncates the higher-order bits larger than `Self::BITS`, and converts
     /// into this data type. This conversion is lossy. Callers are encouraged

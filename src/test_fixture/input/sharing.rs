@@ -1,5 +1,5 @@
 use super::{GenericReportShare, GenericReportTestInput};
-use crate::bits::BitArray;
+use crate::bits::SharedValueArray;
 use crate::ff::Field;
 use crate::protocol::attribution::input::{
     AccumulateCreditInputRow, AggregateCreditInputRow, MCAccumulateCreditInputRow,
@@ -18,8 +18,8 @@ use rand::prelude::Distribution;
 impl<F, MK, BK> IntoShares<GenericReportShare<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: BitArray + IntoShares<XorReplicated<MK>>,
-    BK: BitArray + IntoShares<XorReplicated<BK>>,
+    MK: SharedValueArray + IntoShares<XorReplicated<MK>>,
+    BK: SharedValueArray + IntoShares<XorReplicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [GenericReportShare<F, MK, BK>; 3] {
@@ -80,8 +80,8 @@ where
 impl<F, MK, BK> IntoShares<AccumulateCreditInputRow<F, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: BitArray + IntoShares<XorReplicated<MK>>,
-    BK: BitArray + IntoShares<XorReplicated<BK>>,
+    MK: SharedValueArray + IntoShares<XorReplicated<MK>>,
+    BK: SharedValueArray + IntoShares<XorReplicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AccumulateCreditInputRow<F, BK>; 3] {
@@ -113,8 +113,8 @@ where
 impl<F, MK, BK> IntoShares<AggregateCreditInputRow<F, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: BitArray + IntoShares<XorReplicated<MK>>,
-    BK: BitArray + IntoShares<XorReplicated<BK>>,
+    MK: SharedValueArray + IntoShares<XorReplicated<MK>>,
+    BK: SharedValueArray + IntoShares<XorReplicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AggregateCreditInputRow<F, BK>; 3] {
@@ -140,8 +140,8 @@ where
 impl<F, MK, BK> IntoShares<IPAInputRow<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: BitArray + IntoShares<XorReplicated<MK>>,
-    BK: BitArray + IntoShares<XorReplicated<BK>>,
+    MK: SharedValueArray + IntoShares<XorReplicated<MK>>,
+    BK: SharedValueArray + IntoShares<XorReplicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F, MK, BK>; 3] {
@@ -170,7 +170,9 @@ where
     }
 }
 
-fn reconstruct_mod_converted_bits<F: Field, B: BitArray>(input: [&[Replicated<F>]; 3]) -> B {
+fn reconstruct_mod_converted_bits<F: Field, B: SharedValueArray>(
+    input: [&[Replicated<F>]; 3],
+) -> B {
     debug_assert!(
         B::BITS as usize == input[0].len()
             && input[0].len() == input[1].len()
@@ -193,8 +195,8 @@ impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
     for [MCAccumulateCreditInputRow<F, Replicated<F>>; 3]
 where
     F: Field,
-    MK: BitArray,
-    BK: BitArray,
+    MK: SharedValueArray,
+    BK: SharedValueArray,
 {
     fn reconstruct(&self) -> GenericReportTestInput<F, MK, BK> {
         [&self[0], &self[1], &self[2]].reconstruct()
@@ -205,8 +207,8 @@ impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
     for [&MCAccumulateCreditInputRow<F, Replicated<F>>; 3]
 where
     F: Field,
-    MK: BitArray,
-    BK: BitArray,
+    MK: SharedValueArray,
+    BK: SharedValueArray,
 {
     fn reconstruct(&self) -> GenericReportTestInput<F, MK, BK> {
         let [s0, s1, s2] = self;
@@ -242,8 +244,8 @@ impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
     for [MCAggregateCreditOutputRow<F, Replicated<F>>; 3]
 where
     F: Field,
-    MK: BitArray,
-    BK: BitArray,
+    MK: SharedValueArray,
+    BK: SharedValueArray,
 {
     fn reconstruct(&self) -> GenericReportTestInput<F, MK, BK> {
         [&self[0], &self[1], &self[2]].reconstruct()
@@ -254,8 +256,8 @@ impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
     for [&MCAggregateCreditOutputRow<F, Replicated<F>>; 3]
 where
     F: Field,
-    MK: BitArray,
-    BK: BitArray,
+    MK: SharedValueArray,
+    BK: SharedValueArray,
 {
     fn reconstruct(&self) -> GenericReportTestInput<F, MK, BK> {
         let [s0, s1, s2] = self;

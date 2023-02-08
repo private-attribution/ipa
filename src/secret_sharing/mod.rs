@@ -11,18 +11,20 @@ use crate::ff::ArithmeticOps;
 use std::fmt::Debug;
 
 pub trait SharedValue:
-    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Serializable + 'static
+    Clone
+    + Copy
+    + PartialEq
+    + Debug
+    + Send
+    + Sync
+    + Sized
+    + ArithmeticOps
+    + BooleanOps
+    + Serializable
+    + 'static
 {
     /// Number of bits stored in this data type.
     const BITS: u32;
 
     const ZERO: Self;
 }
-
-pub trait ArithmeticShare: SharedValue + ArithmeticOps {}
-
-pub trait BooleanShare: SharedValue + BooleanOps {}
-
-impl<T> ArithmeticShare for T where T: SharedValue + ArithmeticOps + Serializable {}
-
-impl<T> BooleanShare for T where T: SharedValue + BooleanOps + Serializable {}

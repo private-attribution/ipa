@@ -222,7 +222,7 @@ where
 mod tests {
     use std::iter::zip;
 
-    use crate::bits::{BitArray, BitArray40};
+    use crate::bits::{BitArray40, SharedValueArray};
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::MatchKey;
     use crate::rand::{thread_rng, Rng};

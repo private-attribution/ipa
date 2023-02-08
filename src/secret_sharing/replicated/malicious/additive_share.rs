@@ -1,8 +1,6 @@
 use crate::helpers::Role;
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare;
-use crate::secret_sharing::{
-    Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing,
-};
+use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue};
 use crate::{
     ff::Field,
     protocol::{
@@ -21,16 +19,16 @@ use std::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct AdditiveShare<V: ArithmeticShare> {
+pub struct AdditiveShare<V: SharedValue> {
     x: SemiHonestAdditiveShare<V>,
     rx: SemiHonestAdditiveShare<V>,
 }
 
-impl<V: ArithmeticShare> SecretSharing<V> for AdditiveShare<V> {
+impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 
-impl<V: ArithmeticShare> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
+impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
@@ -53,13 +51,13 @@ pub trait ThisCodeIsAuthorizedToDowngradeFromMalicious<T> {
     fn access_without_downgrade(self) -> T;
 }
 
-impl<V: ArithmeticShare + Debug> Debug for AdditiveShare<V> {
+impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "x: {:?}, rx: {:?}", self.x, self.rx)
     }
 }
 
-impl<V: ArithmeticShare> Default for AdditiveShare<V> {
+impl<V: SharedValue> Default for AdditiveShare<V> {
     fn default() -> Self {
         AdditiveShare::new(
             SemiHonestAdditiveShare::default(),
@@ -68,7 +66,7 @@ impl<V: ArithmeticShare> Default for AdditiveShare<V> {
     }
 }
 
-impl<V: ArithmeticShare> AdditiveShare<V> {
+impl<V: SharedValue> AdditiveShare<V> {
     #[must_use]
     pub fn new(x: SemiHonestAdditiveShare<V>, rx: SemiHonestAdditiveShare<V>) -> Self {
         Self { x, rx }
@@ -107,7 +105,7 @@ impl<F: Field> AdditiveShare<F> {
     }
 }
 
-impl<V: ArithmeticShare> Add<Self> for &AdditiveShare<V> {
+impl<V: SharedValue> Add<Self> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -118,7 +116,7 @@ impl<V: ArithmeticShare> Add<Self> for &AdditiveShare<V> {
     }
 }
 
-impl<V: ArithmeticShare> Add<&Self> for AdditiveShare<V> {
+impl<V: SharedValue> Add<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn add(mut self, rhs: &Self) -> Self::Output {
@@ -127,14 +125,14 @@ impl<V: ArithmeticShare> Add<&Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: ArithmeticShare> AddAssign<&Self> for AdditiveShare<V> {
+impl<V: SharedValue> AddAssign<&Self> for AdditiveShare<V> {
     fn add_assign(&mut self, rhs: &Self) {
         self.x += &rhs.x;
         self.rx += &rhs.rx;
     }
 }
 
-impl<V: ArithmeticShare> Neg for AdditiveShare<V> {
+impl<V: SharedValue> Neg for AdditiveShare<V> {
     type Output = Self;
 
     fn neg(self) -> Self {
@@ -145,7 +143,7 @@ impl<V: ArithmeticShare> Neg for AdditiveShare<V> {
     }
 }
 
-impl<V: ArithmeticShare> Sub<Self> for &AdditiveShare<V> {
+impl<V: SharedValue> Sub<Self> for &AdditiveShare<V> {
     type Output = AdditiveShare<V>;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -155,7 +153,7 @@ impl<V: ArithmeticShare> Sub<Self> for &AdditiveShare<V> {
         }
     }
 }
-impl<V: ArithmeticShare> Sub<&Self> for AdditiveShare<V> {
+impl<V: SharedValue> Sub<&Self> for AdditiveShare<V> {
     type Output = Self;
 
     fn sub(mut self, rhs: &Self) -> Self::Output {
@@ -164,14 +162,14 @@ impl<V: ArithmeticShare> Sub<&Self> for AdditiveShare<V> {
     }
 }
 
-impl<V: ArithmeticShare> SubAssign<&Self> for AdditiveShare<V> {
+impl<V: SharedValue> SubAssign<&Self> for AdditiveShare<V> {
     fn sub_assign(&mut self, rhs: &Self) {
         self.x -= &rhs.x;
         self.rx -= &rhs.rx;
     }
 }
 
-impl<V: ArithmeticShare> Mul<V> for AdditiveShare<V> {
+impl<V: SharedValue> Mul<V> for AdditiveShare<V> {
     type Output = Self;
 
     fn mul(self, rhs: V) -> Self::Output {

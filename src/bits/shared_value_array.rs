@@ -1,4 +1,4 @@
-use super::BitArray;
+use super::SharedValueArray;
 use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
@@ -12,6 +12,8 @@ type U8_8 = BitArr!(for 64, in u8, Lsb0);
 
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty ) => {
+        #[allow(clippy::suspicious_arithmetic_impl)]
+        #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
             use super::*;
 
@@ -28,7 +30,7 @@ macro_rules! bit_array_impl {
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
-            impl BitArray for $name {
+            impl SharedValueArray for $name {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
@@ -84,6 +86,52 @@ macro_rules! bit_array_impl {
                 type Output = Self;
                 fn not(self) -> Self::Output {
                     Self(!self.0)
+                }
+            }
+
+            impl std::ops::Add for $name {
+                type Output = Self;
+                fn add(self, rhs: Self) -> Self::Output {
+                    self ^ rhs
+                }
+            }
+
+            impl std::ops::AddAssign for $name {
+                fn add_assign(&mut self, rhs: Self) {
+                    *self ^= rhs;
+                }
+            }
+
+            impl std::ops::Sub for $name {
+                type Output = Self;
+                fn sub(self, rhs: Self) -> Self::Output {
+                    self ^ rhs
+                }
+            }
+
+            impl std::ops::SubAssign for $name {
+                fn sub_assign(&mut self, rhs: Self) {
+                    *self ^= rhs;
+                }
+            }
+
+            impl std::ops::Mul for $name {
+                type Output = Self;
+                fn mul(self, rhs: Self) -> Self::Output {
+                    self & rhs
+                }
+            }
+
+            impl std::ops::MulAssign for $name {
+                fn mul_assign(&mut self, rhs: Self) {
+                    *self &= rhs;
+                }
+            }
+
+            impl std::ops::Neg for $name {
+                type Output = Self;
+                fn neg(self) -> Self::Output {
+                    !self
                 }
             }
 
@@ -173,7 +221,7 @@ macro_rules! bit_array_impl {
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
-                use crate::{bits::BitArray, secret_sharing::SharedValue};
+                use crate::{bits::SharedValueArray, secret_sharing::SharedValue};
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 
@@ -231,6 +279,12 @@ macro_rules! bit_array_impl {
                     assert_eq!(a | b, or);
                     assert_eq!(a ^ b, xor);
                     assert_eq!(!a, not);
+
+                    assert_eq!(a + b, xor);
+                    assert_eq!(a - b, xor);
+                    assert_eq!(a * b, and);
+                    assert_eq!(-(-a * -b), or);
+                    assert_eq!(-a, not);
                 }
 
                 #[test]
