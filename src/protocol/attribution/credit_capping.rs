@@ -1,7 +1,6 @@
 use super::{
-    compute_b_bit, compute_stop_bit, if_else,
+    do_the_binary_tree_thing, if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
-    InteractionPatternStep,
 };
 use crate::ff::Field;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
@@ -9,7 +8,7 @@ use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
 use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
 use crate::{error::Error, secret_sharing::Arithmetic};
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join_all;
 use std::{
     iter::{repeat, zip},
     marker::PhantomData,
@@ -42,12 +41,8 @@ where
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
-    let prefix_summed_credits = credit_prefix_sum(
-        ctx.set_total_records(input_len),
-        input,
-        original_credits.clone(),
-    )
-    .await?;
+    let prefix_summed_credits =
+        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -114,81 +109,24 @@ where
     .await
 }
 
-async fn credit_prefix_sum<F, C, T>(
+async fn credit_prefix_sum<'a, F, C, T, I>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
-    mut original_credits: Vec<T>,
+    original_credits: I,
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: Arithmetic<F> + 'a,
+    I: Iterator<Item = &'a T>,
 {
-    let one = ctx.share_known_value(F::ONE);
-    let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
+    let helper_bits = input
+        .iter()
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
 
-    let num_rows = input.len();
-
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
-        .take_while(|&v| v < num_rows)
-        .enumerate()
-    {
-        let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::from(depth));
-        let mut futures = Vec::with_capacity(end);
-
-        // for each input row, create a future to execute secure multiplications
-        for i in 0..end {
-            let c = &c;
-            let record_id = RecordId::from(i);
-            let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &original_credits[i + step_size];
-            let sibling_helper_bit = &input[i + step_size].helper_bit;
-            futures.push(async move {
-                // This block implements the below logic from MP-SPDZ code.
-                //
-                // b = stop_bit * successor.helper_bit
-                // original_credit += b * successor.original_credit
-                // stop_bit = b * successor.stop_bit
-
-                let b = compute_b_bit(
-                    c.narrow(&Step::BTimesStopBit),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit,
-                    depth == 0,
-                )
-                .await?;
-
-                try_join(
-                    c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::BTimesSuccessorStopBit),
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                        depth == 0,
-                    ),
-                )
-                .await
-            });
-        }
-
-        let results = try_join_all(futures).await?;
-
-        // accumulate the contribution from this iteration
-        results
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                original_credits[i] += &credit;
-                stop_bits[i] = stop_bit;
-            });
-    }
-
-    Ok(original_credits.clone())
+    do_the_binary_tree_thing(ctx, &helper_bits, original_credits).await
 }
 
 async fn is_credit_larger_than_cap<F, C, T>(
@@ -316,10 +254,7 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    BTimesStopBit,
-    BTimesSuccessorStopBit,
     MaskSourceCredits,
-    CurrentContributionBTimesSuccessorCredit,
     BitDecomposeCurrentContribution,
     RandomBitsForBitDecomposition,
     IsCapLessThanCurrentContribution,
@@ -333,12 +268,7 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BTimesStopBit => "b_times_stop_bit",
-            Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
             Self::MaskSourceCredits => "mask_source_credits",
-            Self::CurrentContributionBTimesSuccessorCredit => {
-                "current_contribution_b_times_successor_credit"
-            }
             Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
