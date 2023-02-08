@@ -4,14 +4,12 @@ use crate::{
     ff::Field,
     protocol::{
         attribution::{
-            compute_b_bit, compute_stop_bit,
+            do_the_binary_tree_thing,
             input::{
                 MCAggregateCreditInputRow, MCAggregateCreditOutputRow,
                 MCCappedCreditsWithAggregationBit,
             },
-            InteractionPatternStep,
         },
-        basics::SecureMul,
         context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
@@ -22,7 +20,7 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        RecordId, Substep,
+        Substep,
     },
     secret_sharing::{
         replicated::{
@@ -32,8 +30,6 @@ use crate::{
         Arithmetic,
     },
 };
-use futures::future::{try_join, try_join_all};
-use std::iter::repeat;
 use std::marker::PhantomData;
 
 /// Aggregation step for Oblivious Attribution protocol.
@@ -51,8 +47,6 @@ pub async fn aggregate_credit<F: Field, BK: BitArray>(
 where
     Replicated<F>: Serializable,
 {
-    let one = ctx.share_known_value(F::ONE);
-
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
@@ -81,66 +75,15 @@ where
     //     new_credit[current_index] = current.credit + b * successor.credit;
     //     new_stop_bit[current_index] = b * successor.stop_bit;
     //
-    let num_rows = sorted_input.len();
-    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
-
-    let mut credits = sorted_input
+    let helper_bits = sorted_input
         .iter()
-        .map(|x| x.credit.clone())
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
-        .take_while(|&v| v < num_rows)
-        .enumerate()
-    {
-        let end = num_rows - step_size;
-        let c = ctx
-            .narrow(&InteractionPatternStep::from(depth))
-            .set_total_records(end);
-        let mut futures = Vec::with_capacity(end);
+    let credits = sorted_input.iter().map(|x| &x.credit);
 
-        for i in 0..end {
-            let c = c.clone();
-            let record_id = RecordId::from(i);
-            let sibling_helper_bit = &sorted_input[i + step_size].helper_bit;
-            let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &credits[i + step_size];
-            futures.push(async move {
-                let b = compute_b_bit(
-                    c.narrow(&Step::ComputeBBit),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit,
-                    depth == 0,
-                )
-                .await?;
-
-                try_join(
-                    c.narrow(&Step::AggregateCreditBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::ComputeStopBit),
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                        depth == 0,
-                    ),
-                )
-                .await
-            });
-        }
-
-        let results = try_join_all(futures).await?;
-
-        results
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                credits[i] += &credit;
-                stop_bits[i] = stop_bit;
-            });
-    }
+    let credits = do_the_binary_tree_thing(ctx.clone(), &helper_bits, credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -178,7 +121,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-#[allow(clippy::too_many_lines)]
 pub async fn malicious_aggregate_credit<F, BK>(
     m_ctx: MaliciousContext<'_, F>,
     malicious_validator: MaliciousValidator<'_, F>,
@@ -224,69 +166,15 @@ where
     //     new_credit[current_index] = current.credit + b * successor.credit;
     //     new_stop_bit[current_index] = b * successor.stop_bit;
     //
-    let num_rows = sorted_input.len();
-
-    let one = m_ctx.share_known_value(F::ONE);
-
-    let mut stop_bits = repeat(one.clone()).take(num_rows).collect::<Vec<_>>();
-
-    let mut credits = sorted_input
+    let helper_bits = sorted_input
         .iter()
-        .map(|x| x.credit.clone())
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
-        .take_while(|&v| v < num_rows)
-        .enumerate()
-    {
-        let end = num_rows - step_size;
-        let c = m_ctx
-            .narrow(&InteractionPatternStep::from(depth))
-            .set_total_records(end);
-        let mut futures = Vec::with_capacity(end);
+    let credits = sorted_input.iter().map(|x| &x.credit);
 
-        for i in 0..end {
-            let c = c.clone();
-            let record_id = RecordId::from(i);
-            let sibling_helper_bit = &sorted_input[i + step_size].helper_bit;
-            let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &credits[i + step_size];
-            futures.push(async move {
-                let b = compute_b_bit(
-                    c.narrow(&Step::ComputeBBit),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit,
-                    depth == 0,
-                )
-                .await?;
-
-                try_join(
-                    c.narrow(&Step::AggregateCreditBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::ComputeStopBit),
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                        depth == 0,
-                    ),
-                )
-                .await
-            });
-        }
-
-        let results = try_join_all(futures).await?;
-
-        results
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                credits[i] += &credit;
-                stop_bits[i] = stop_bit;
-            });
-    }
+    let credits = do_the_binary_tree_thing(m_ctx, &helper_bits, credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -512,11 +400,8 @@ async fn malicious_sort_by_aggregation_bit<F: Field>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    ComputeBBit,
-    ComputeStopBit,
     SortByBreakdownKey,
     SortByAttributionBit,
-    AggregateCreditBTimesSuccessorCredit,
     GeneratePermutationByBreakdownKey,
     ApplyPermutationOnBreakdownKey,
     GeneratePermutationByAttributionBit,
@@ -528,13 +413,8 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::ComputeBBit => "compute_b_bit",
-            Self::ComputeStopBit => "compute_stop_bit",
             Self::SortByBreakdownKey => "sort_by_breakdown_key",
             Self::SortByAttributionBit => "sort_by_attribution_bit",
-            Self::AggregateCreditBTimesSuccessorCredit => {
-                "aggregate_credit_b_times_successor_credit"
-            }
             Self::GeneratePermutationByBreakdownKey => "generate_permutation_by_breakdown_key",
             Self::ApplyPermutationOnBreakdownKey => "apply_permutation_by_breakdown_key",
             Self::GeneratePermutationByAttributionBit => "generate_permutation_by_attribution_bit",
