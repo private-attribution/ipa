@@ -60,14 +60,11 @@ where
     let lsb_permutation =
         multi_bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
 
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
-
     let mut composed_less_significant_bits_permutation = lsb_permutation;
     for (bit_num, one_slice) in sort_keys.iter().enumerate().skip(1) {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
-            input_len,
             composed_less_significant_bits_permutation,
         )
         .await?;
