@@ -17,11 +17,10 @@ use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
 use crate::{bits::BitArray, secret_sharing::Arithmetic};
-use crate::{
-    error::Error,
-    protocol::{context::MaliciousContext, malicious::MaliciousValidator},
-};
+use crate::{error::Error, protocol::malicious::MaliciousValidator};
 use std::marker::PhantomData;
+
+use crate::protocol::ipa::Step::AggregateCredit;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -98,7 +97,7 @@ where
             .await?;
 
     // Take the first k elements, where k is the amount of breakdown keys.
-    let result = sorted_output
+    Ok(sorted_output
         .iter()
         .take(max_breakdown_key.try_into().unwrap())
         .map(|x| MCAggregateCreditOutputRow {
@@ -106,9 +105,7 @@ where
             credit: x.credit.clone(),
             _marker: PhantomData::default(),
         })
-        .collect::<Vec<_>>();
-
-    Ok(result)
+        .collect::<Vec<_>>())
 }
 
 /// Aggregation step for Oblivious Attribution protocol.
@@ -119,7 +116,6 @@ where
 /// propagates errors from multiplications
 #[allow(clippy::too_many_lines)]
 pub async fn malicious_aggregate_credit<'a, F, BK>(
-    m_ctx: MaliciousContext<'_, F>,
     malicious_validator: MaliciousValidator<'_, F>,
     sh_ctx: SemiHonestContext<'a, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, MaliciousReplicated<F>>],
@@ -136,6 +132,7 @@ where
     F: Field,
     BK: BitArray,
 {
+    let m_ctx = malicious_validator.context().narrow(&AggregateCredit);
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
