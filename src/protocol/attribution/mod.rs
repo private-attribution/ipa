@@ -42,39 +42,47 @@ where
 /// Computes `SUM(credits[i] through credits[i + n])` where `n` is the number of "matching rows", as indicated by the `helper_bits`
 /// This result is saved as credits[i].
 ///
-/// Helper bits should be a sharing of either `1` or `0` for each row, indicating if that row "matches" the row preceeding it.
+/// Helper bits should be a sharing of either `1` or `0` for each row, indicating if that row "matches" the row preceding it.
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
-pub async fn do_the_binary_tree_thing<F, C, S>(
+/// ## Panics
+/// Nah, it doesn't.
+///
+pub async fn do_the_binary_tree_thing<'a, F, C, S, I>(
     ctx: C,
     helper_bits: &[S],
-    credits: &mut [S],
-) -> Result<(), Error>
+    credits: I,
+) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: ArithmeticSecretSharing<F> + 'a,
+    I: Iterator<Item = &'a S>,
 {
     let num_rows = helper_bits.len() + 1;
-
     let depth_0_ctx = ctx
         .narrow(&InteractionPatternStep::from(0))
         .set_total_records(num_rows - 1);
-    let credit_updates = try_join_all(helper_bits.iter().enumerate().map(|(i, helper_bit)| {
-        let c = depth_0_ctx.clone();
-        let record_id = RecordId::from(i);
-        let credit = &credits[i + 1];
-        async move { c.multiply(record_id, helper_bit, credit).await }
-    }))
+
+    let mut last = None;
+    let credit_and_next_credit = credits.map(|x| (last.replace(x.clone()), x)).skip(1);
+
+    let mut credits = try_join_all(credit_and_next_credit.zip(helper_bits).enumerate().map(
+        |(i, ((current_credit, next_credit), helper_bit))| {
+            let c = depth_0_ctx.clone();
+            let record_id = RecordId::from(i);
+            async move {
+                Ok::<_, Error>(
+                    current_credit.unwrap()
+                        + &c.multiply(record_id, helper_bit, next_credit).await?,
+                )
+            }
+        },
+    ))
     .await?;
-    credit_updates
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, credit)| {
-            credits[i] += &credit;
-        });
+    credits.push(last.unwrap());
 
     // Create stop_bit vector.
     // This vector is updated in each iteration to help accumulate values
@@ -127,7 +135,7 @@ where
                 stop_bits[i] = stop_bit;
             });
     }
-    Ok(())
+    Ok(credits)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
