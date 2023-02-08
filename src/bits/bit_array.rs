@@ -1,6 +1,7 @@
-use super::BitArray;
-use crate::bits::Serializable;
-use crate::secret_sharing::SharedValue;
+use crate::{
+    bits::{BitArray, Serializable},
+    secret_sharing::SharedValue,
+};
 use bitvec::prelude::{BitArr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U5, U8};

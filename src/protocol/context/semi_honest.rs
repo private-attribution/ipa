@@ -26,21 +26,20 @@ pub struct SemiHonestContext<'a, F: Field> {
 }
 
 impl<'a, F: Field> SemiHonestContext<'a, F> {
-    pub fn new(role: Role, participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
-        Self::new_with_total_records(role, participant, gateway, TotalRecords::Unspecified)
+    pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
+        Self::new_with_total_records(participant, gateway, TotalRecords::Unspecified)
     }
 
     pub fn new_with_total_records(
-        role: Role,
         participant: &'a PrssEndpoint,
         gateway: &'a Gateway,
         total_records: TotalRecords,
     ) -> Self {
         Self {
-            inner: ContextInner::new(role, participant, gateway),
+            inner: ContextInner::new(participant, gateway),
             step: Step::default(),
             total_records,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -66,7 +65,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
     type Share = Replicated<F>;
 
     fn role(&self) -> Role {
-        self.inner.role
+        self.inner.gateway.role()
     }
 
     fn step(&self) -> &Step {
@@ -78,7 +77,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
             total_records: self.total_records,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -95,7 +94,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
             total_records: total_records.into(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -129,17 +128,12 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
 
 #[derive(Debug)]
 pub(super) struct ContextInner<'a> {
-    pub role: Role,
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
 }
 
 impl<'a> ContextInner<'a> {
-    fn new(role: Role, prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
-        Arc::new(Self {
-            role,
-            prss,
-            gateway,
-        })
+    fn new(prss: &'a PrssEndpoint, gateway: &'a Gateway) -> Arc<Self> {
+        Arc::new(Self { prss, gateway })
     }
 }
