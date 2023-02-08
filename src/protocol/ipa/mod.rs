@@ -437,6 +437,8 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
+    use std::cmp::Ordering;
+
     use super::{ipa, ipa_malicious};
     use crate::bits::BitArray;
     use crate::ipa_test_input;
@@ -669,12 +671,17 @@ pub mod tests {
 
         let snapshot = world.metrics_snapshot();
         let records_sent = snapshot.get_counter(RECORDS_SENT);
-        if records_sent < RECORDS_SENT_MALICIOUS_BASELINE {
-            tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
-                            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
-        } else {
-            tracing::error!("Baseline for malicious IPA has DEGRADED! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.");
+        match records_sent.cmp(&RECORDS_SENT_MALICIOUS_BASELINE) {
+            Ordering::Less => {
+                tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
+            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+            }
+            Ordering::Greater => {
+                tracing::error!("Baseline for malicious IPA has DEGRADED! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.");
+            }
+            Ordering::Equal => {}
         }
+
         assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE);
     }
 }
