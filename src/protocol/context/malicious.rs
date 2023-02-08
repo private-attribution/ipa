@@ -318,64 +318,6 @@ pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
     pub _marker: PhantomData<F>,
 }
 
-// TODO (richaj): We have 3 implementations of Vec<T> which do exactly the same thing. The reason we are unable to
-// merge them is because it conflicts with Vec<Vec<T>> whose handling is different.
-#[async_trait]
-impl<'a, F>
-    UpgradeToMalicious<
-        Vec<IPAModulusConvertedInputRowWrapper<F, Replicated<F>>>,
-        Vec<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>>,
-    > for UpgradeContext<'a, F, NoRecord>
-where
-    F: Field,
-{
-    async fn upgrade(
-        self,
-        input: Vec<IPAModulusConvertedInputRowWrapper<F, Replicated<F>>>,
-    ) -> Result<Vec<IPAModulusConvertedInputRowWrapper<F, MaliciousReplicated<F>>>, Error> {
-        let ctx = self.upgrade_ctx.set_total_records(input.len());
-        let ctx_ref = &ctx;
-        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
-            UpgradeContext {
-                upgrade_ctx: ctx_ref.clone(),
-                inner: self.inner,
-                record_binding: RecordId::from(i),
-            }
-            .upgrade(share)
-            .await
-        }))
-        .await
-    }
-}
-
-#[async_trait]
-impl<'a, F>
-    UpgradeToMalicious<
-        Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
-    > for UpgradeContext<'a, F, NoRecord>
-where
-    F: Field,
-{
-    async fn upgrade(
-        self,
-        input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-    ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>, Error> {
-        let ctx = self.upgrade_ctx.set_total_records(input.len());
-        let ctx_ref = &ctx;
-        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
-            UpgradeContext {
-                upgrade_ctx: ctx_ref.clone(),
-                inner: self.inner,
-                record_binding: RecordId::from(i),
-            }
-            .upgrade(share)
-            .await
-        }))
-        .await
-    }
-}
-
 #[async_trait]
 impl<'a, F: Field>
     UpgradeToMalicious<
@@ -679,32 +621,6 @@ where
     }
 }
 
-#[async_trait]
-impl<'a, F> UpgradeToMalicious<Vec<Replicated<F>>, Vec<MaliciousReplicated<F>>>
-    for UpgradeContext<'a, F, NoRecord>
-where
-    F: Field,
-{
-    async fn upgrade(
-        self,
-        input: Vec<Replicated<F>>,
-    ) -> Result<Vec<MaliciousReplicated<F>>, Error> {
-        let ctx = self.upgrade_ctx.set_total_records(input.len());
-        let ctx_ref = &ctx;
-        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
-            self.inner
-                .upgrade_one(
-                    ctx_ref.clone(),
-                    RecordId::from(i),
-                    share,
-                    ZeroPositions::Pvvv,
-                )
-                .await
-        }))
-        .await
-    }
-}
-
 enum Upgrade2DVectors {
     V(usize),
 }
@@ -717,6 +633,31 @@ impl AsRef<str> for Upgrade2DVectors {
         match self {
             Self::V(i) => COLUMN[*i],
         }
+    }
+}
+
+#[async_trait]
+impl<F, T, M> UpgradeToMalicious<Vec<T>, Vec<M>> for UpgradeContext<'_, F, NoRecord>
+where
+    F: Field,
+    T: Send + 'static,
+    M: Send + 'static,
+    for<'u> UpgradeContext<'u, F, RecordId>: UpgradeToMalicious<T, M>,
+{
+    async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
+        let ctx = self.upgrade_ctx.set_total_records(input.len());
+        let ctx_ref = &ctx;
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+            // TODO: make it a bit more ergonomic to call with record id bound
+            UpgradeContext {
+                upgrade_ctx: ctx_ref.clone(),
+                inner: self.inner,
+                record_binding: RecordId::from(i),
+            }
+            .upgrade(share)
+            .await
+        }))
+        .await
     }
 }
 
