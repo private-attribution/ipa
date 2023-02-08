@@ -81,12 +81,10 @@ impl MpcHelperClient {
             let http_serde::echo::Request {
                 mut query_params, ..
             } = serde_json::from_slice(&result)?;
-            query_params
-                .remove(FOO)
-                .ok_or(Error::FailedRequest {
-                    status,
-                    reason: "did not receive mirrored response".into(),
-                })
+            query_params.remove(FOO).ok_or(Error::FailedRequest {
+                status,
+                reason: "did not receive mirrored response".into(),
+            })
         } else {
             Err(Error::from_failed_resp(resp).await)
         }

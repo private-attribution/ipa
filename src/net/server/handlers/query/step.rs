@@ -8,7 +8,6 @@ use axum::{routing::post, Extension, Router};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-
 type OngoingQueries = Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>;
 
 #[allow(clippy::type_complexity)] // it's a hashmap

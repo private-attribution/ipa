@@ -142,12 +142,10 @@ where
         let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        self.mk_shares.serialize(GenericArray::from_mut_slice(
-            &mut buf[..mk_sz],
-        ));
-        self.is_trigger_bit.serialize(GenericArray::from_mut_slice(
-            &mut buf[mk_sz..mk_sz + f_sz],
-        ));
+        self.mk_shares
+            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
+        self.is_trigger_bit
+            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + f_sz]));
         self.breakdown_key.serialize(GenericArray::from_mut_slice(
             &mut buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
         ));
@@ -161,12 +159,10 @@ where
         let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let mk_shares = XorReplicated::<MK>::deserialize(GenericArray::clone_from_slice(
-            &buf[..mk_sz],
-        ));
-        let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::clone_from_slice(
-            &buf[mk_sz..mk_sz + f_sz],
-        ));
+        let mk_shares =
+            XorReplicated::<MK>::deserialize(GenericArray::clone_from_slice(&buf[..mk_sz]));
+        let is_trigger_bit =
+            Replicated::<F>::deserialize(GenericArray::clone_from_slice(&buf[mk_sz..mk_sz + f_sz]));
         let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::clone_from_slice(
             &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
         ));
