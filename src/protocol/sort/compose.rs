@@ -83,7 +83,6 @@ mod tests {
                 |ctx, (m_sigma_shares, m_rho_shares)| async move {
                     let sigma_and_randoms = shuffle_and_reveal_permutation(
                         ctx.narrow("shuffle_reveal"),
-                        BATCHSIZE,
                         m_sigma_shares,
                     )
                     .await
