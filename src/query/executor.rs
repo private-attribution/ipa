@@ -5,7 +5,7 @@ use crate::{
     helpers::{
         messaging::{Gateway, TotalRecords},
         negotiate_prss,
-        query::{IPAQueryConfig, QueryConfig, QueryType},
+        query::{IpaQueryConfig, QueryConfig, QueryType},
         transport::{AlignedByteArrStream, ByteArrStream},
     },
     protocol::{
@@ -104,7 +104,7 @@ where
 
 async fn execute_ipa<F: Field, MK: BitArray, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
-    query_config: IPAQueryConfig,
+    query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,
 ) -> Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>
 where
@@ -262,7 +262,7 @@ mod tests {
         let world = TestWorld::new().await;
         let contexts = world.contexts::<Fp31>();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
-            let query_config = IPAQueryConfig {
+            let query_config = IpaQueryConfig {
                 num_multi_bits: 3,
                 per_user_credit_cap: 3,
                 max_breakdown_key: 3,

@@ -183,6 +183,7 @@ impl<V: ArithmeticShare> Mul<V> for AdditiveShare<V> {
     }
 }
 
+/// todo serde macro for these collections so we can hide the crazy size calculations
 impl<V: ArithmeticShare> Serializable for AdditiveShare<V>
 where
     SemiHonestAdditiveShare<V>: Serializable,

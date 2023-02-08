@@ -305,7 +305,7 @@ impl<'a, F: Field>
             mk_shares,
             is_trigger_bit,
             trigger_value,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -438,7 +438,7 @@ impl<'a, F: Field>
             aggregation_bit,
             breakdown_key,
             credit,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }

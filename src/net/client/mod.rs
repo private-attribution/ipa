@@ -82,7 +82,7 @@ impl MpcHelperClient {
                 mut query_params, ..
             } = serde_json::from_slice(&result)?;
             query_params
-                .remove(&String::from(FOO))
+                .remove(FOO)
                 .ok_or(Error::FailedRequest {
                     status,
                     reason: "did not receive mirrored response".into(),
@@ -100,7 +100,7 @@ impl MpcHelperClient {
         }
     }
 
-    /// Intended to be called externally, e.g. by the report collector. Informs the MPC ring that
+    /// Intended to be called externally, by the report collector. Informs the MPC ring that
     /// the external party wants to start a new query.
     /// # Errors
     /// If the request has illegal arguments, or fails to deliver to helper
@@ -230,7 +230,7 @@ mod tests {
         MpcHelperClient,
     ) {
         let (port, rx, ongoing_queries) =
-            setup_server(BindTarget::Http("127.0.0.1:0".parse().unwrap())).await;
+            setup_server(BindTarget::Http("0.0.0.0:0".parse().unwrap())).await;
         let client = MpcHelperClient::with_str_addr(&format!("http://localhost:{port}")).unwrap();
         (rx, ongoing_queries, client)
     }
@@ -244,7 +244,7 @@ mod tests {
             .await
             .unwrap();
         let (port, rx, ongoing_queries) =
-            setup_server(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config)).await;
+            setup_server(BindTarget::Https("0.0.0.0:0".parse().unwrap(), config)).await;
 
         // requires custom client to use self signed certs
         let conn = TlsConnector::builder()

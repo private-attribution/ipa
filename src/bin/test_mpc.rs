@@ -7,7 +7,7 @@ use raw_ipa::{
         Verbosity,
     },
     ff::{FieldType, Fp31},
-    helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
+    helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
     net::{discovery::PeerDiscovery, MpcHelperClient},
     protocol::{BreakdownKey, MatchKey},
 };
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             InputType::Fp31 => {
                 let query_config = QueryConfig {
                     field_type: FieldType::Fp31,
-                    query_type: QueryType::IPA(IPAQueryConfig {
+                    query_type: QueryType::IPA(IpaQueryConfig {
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,
                         num_multi_bits: 3,

@@ -50,7 +50,7 @@ impl<F: Field, T: Arithmetic<F>> MCAccumulateCreditInputRow<F, T> {
             helper_bit,
             breakdown_key,
             trigger_value,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 }
@@ -86,7 +86,7 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
                 .map(|bk| bk.x().access_without_downgrade().clone())
                 .collect::<Vec<_>>(),
             credit: self.credit.x().access_without_downgrade().clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -131,7 +131,7 @@ where
         Self {
             breakdown_key,
             credit,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -221,7 +221,7 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
             is_trigger_report: fields.remove(0),
             helper_bit: fields.remove(0),
             trigger_value: fields.remove(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -262,7 +262,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
             helper_bit: fields.remove(0),
             aggregation_bit: fields.remove(0),
             credit: fields.remove(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }

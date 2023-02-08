@@ -38,7 +38,7 @@ mod tests {
     use super::*;
     use crate::{
         ff::FieldType,
-        helpers::query::{IPAQueryConfig, QueryConfig, QueryType},
+        helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
         net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
     };
@@ -81,7 +81,7 @@ mod tests {
     async fn create_test_ipa() {
         create_test(QueryConfig {
             field_type: FieldType::Fp32BitPrime,
-            query_type: QueryType::IPA(IPAQueryConfig {
+            query_type: QueryType::IPA(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
                 num_multi_bits: 3,

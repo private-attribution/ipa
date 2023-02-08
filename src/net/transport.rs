@@ -51,7 +51,7 @@ impl HttpTransport {
     pub async fn bind(&self) -> (SocketAddr, JoinHandle<()>) {
         let this_conf = &self.peers_conf[self.id];
         let port = this_conf.origin.port().unwrap();
-        let target = BindTarget::Http(format!("127.0.0.1:{}", port.as_str()).parse().unwrap());
+        let target = BindTarget::Http(format!("0.0.0.0:{}", port.as_str()).parse().unwrap());
         tracing::info!("starting server; binding to port {}", port.as_str());
         self.server.bind(target).await
     }
@@ -161,7 +161,7 @@ mod e2e_tests {
     use typenum::Unsigned;
 
     fn open_port() -> u16 {
-        std::net::UdpSocket::bind("127.0.0.1:0")
+        std::net::UdpSocket::bind("0.0.0.0:0")
             .unwrap()
             .local_addr()
             .unwrap()

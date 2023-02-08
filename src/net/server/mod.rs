@@ -177,7 +177,7 @@ mod e2e_tests {
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
         let (addr, _) = server
-            .bind(BindTarget::Http("127.0.0.1:0".parse().unwrap()))
+            .bind(BindTarget::Http("0.0.0.0:0".parse().unwrap()))
             .await;
         addr
     }
@@ -230,7 +230,7 @@ mod e2e_tests {
         let server = MpcHelperServer::new(transport_sender, Arc::clone(&ongoing_queries));
         let config = tls_config_from_self_signed_cert().await.unwrap();
         let (addr, _) = server
-            .bind(BindTarget::Https("127.0.0.1:0".parse().unwrap(), config))
+            .bind(BindTarget::Https("0.0.0.0:0".parse().unwrap(), config))
             .await;
 
         // self-signed cert CN is "localhost", therefore request authority must not use the ip address

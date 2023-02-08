@@ -79,7 +79,7 @@ pub mod query {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IPAQueryConfig, QueryConfig, QueryType},
+            query::{IpaQueryConfig, QueryConfig, QueryType},
             HelperIdentity,
         },
         net::server,
@@ -133,7 +133,7 @@ pub mod query {
                         num_multi_bits,
                     }) = req.extract().await?;
 
-                    Ok(QueryType::IPA(IPAQueryConfig {
+                    Ok(QueryType::IPA(IpaQueryConfig {
                         per_user_credit_cap,
                         max_breakdown_key,
                         num_multi_bits,

@@ -94,7 +94,7 @@ where
             aggregation_bit: x.aggregation_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: credits[i].clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
         .collect::<Vec<_>>();
 
@@ -185,7 +185,7 @@ where
             aggregation_bit: x.aggregation_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: credits[i].clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
         .collect::<Vec<_>>();
 
@@ -246,7 +246,7 @@ where
                 helper_bit: zero.clone(),
                 aggregation_bit: zero.clone(),
                 credit: zero.clone(),
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             }
         })
         .collect::<Vec<_>>();
@@ -260,7 +260,7 @@ where
                 credit: x.credit.clone(),
                 helper_bit: one.clone(),
                 aggregation_bit: one.clone(),
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             })
             .collect::<Vec<_>>(),
     );
@@ -508,7 +508,7 @@ mod tests {
                         .map(|(row, bk)| MCAggregateCreditInputRow {
                             breakdown_key: bk,
                             credit: row.credit.clone(),
-                            _marker: PhantomData::default(),
+                            _marker: PhantomData,
                         })
                         .collect();
 

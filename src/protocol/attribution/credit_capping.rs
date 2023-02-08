@@ -73,7 +73,7 @@ where
         .map(|(i, x)| MCCreditCappingOutputRow {
             breakdown_key: x.breakdown_key.clone(),
             credit: final_credits[i].clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
         .collect::<Vec<_>>();
 

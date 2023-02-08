@@ -451,7 +451,7 @@ mod tests {
         use crate::{
             bits::{BitArray, Serializable},
             ff::{Field, Fp31},
-            helpers::{query::IPAQueryConfig, transport::ByteArrStream},
+            helpers::{query::IpaQueryConfig, transport::ByteArrStream},
             ipa_test_input,
             protocol::{
                 attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, BreakdownKey,
@@ -561,7 +561,7 @@ mod tests {
                 &network,
                 QueryConfig {
                     field_type: FieldType::Fp31,
-                    query_type: IPAQueryConfig {
+                    query_type: IpaQueryConfig {
                         num_multi_bits: 3,
                         per_user_credit_cap: 3,
                         max_breakdown_key: 3,

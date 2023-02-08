@@ -53,8 +53,8 @@ impl Debug for QueryCommand {
             QueryCommand::Input(input, _) => {
                 write!(f, "[{input:?}]")
             }
-            QueryCommand::Results(_, _) => {
-                write!(f, "[Results]")
+            QueryCommand::Results(query_id, _) => {
+                write!(f, "{query_id:?} [Results]")
             }
         }
     }
@@ -92,7 +92,7 @@ impl From<QueryCommand> for TransportCommand {
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
-    IPA(IPAQueryConfig),
+    IPA(IpaQueryConfig),
 }
 
 impl QueryType {
@@ -114,14 +114,14 @@ impl AsRef<str> for QueryType {
 impl Substep for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct IPAQueryConfig {
+pub struct IpaQueryConfig {
     pub per_user_credit_cap: u32,
     pub max_breakdown_key: u128,
     pub num_multi_bits: u32,
 }
 
-impl From<IPAQueryConfig> for QueryType {
-    fn from(value: IPAQueryConfig) -> Self {
+impl From<IpaQueryConfig> for QueryType {
+    fn from(value: IpaQueryConfig) -> Self {
         QueryType::IPA(value)
     }
 }

@@ -8,10 +8,13 @@ use axum::{routing::post, Extension, Router};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
+
+type OngoingQueries = Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>;
+
 #[allow(clippy::type_complexity)] // it's a hashmap
 async fn handler(
     req: http_serde::query::step::Request,
-    ongoing_queries: Extension<Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>>,
+    ongoing_queries: Extension<OngoingQueries>,
 ) -> Result<(), Error> {
     // wrap in braces to ensure lock is released
     let network_sender = {
@@ -37,9 +40,7 @@ async fn handler(
     Ok(())
 }
 
-pub fn router(
-    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
-) -> Router {
+pub fn router(ongoing_queries: OngoingQueries) -> Router {
     Router::new()
         .route(http_serde::query::step::AXUM_PATH, post(handler))
         .layer(Extension(ongoing_queries))

@@ -39,7 +39,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
             inner: ContextInner::new(participant, gateway),
             step: Step::default(),
             total_records,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -77,7 +77,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
             total_records: self.total_records,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 
@@ -94,7 +94,7 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
             total_records: total_records.into(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 

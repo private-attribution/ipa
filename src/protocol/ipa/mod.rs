@@ -138,48 +138,40 @@ where
     >>::Output;
 
     fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+        let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
+        let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
+        let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
+
         self.mk_shares.serialize(GenericArray::from_mut_slice(
-            &mut buf[..<XorReplicated<MK> as Serializable>::Size::USIZE],
+            &mut buf[..mk_sz],
         ));
         self.is_trigger_bit.serialize(GenericArray::from_mut_slice(
-            &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
-                ..<XorReplicated<MK> as Serializable>::Size::USIZE
-                    + <Replicated<F> as Serializable>::Size::USIZE],
+            &mut buf[mk_sz..mk_sz + f_sz],
         ));
         self.breakdown_key.serialize(GenericArray::from_mut_slice(
-            &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
-                + <Replicated<F> as Serializable>::Size::USIZE
-                ..<XorReplicated<MK> as Serializable>::Size::USIZE
-                    + <Replicated<F> as Serializable>::Size::USIZE
-                    + <XorReplicated<BK> as Serializable>::Size::USIZE],
+            &mut buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
         ));
         self.trigger_value.serialize(GenericArray::from_mut_slice(
-            &mut buf[<XorReplicated<MK> as Serializable>::Size::USIZE
-                + <Replicated<F> as Serializable>::Size::USIZE
-                + <XorReplicated<BK> as Serializable>::Size::USIZE..],
+            &mut buf[mk_sz + f_sz + bk_sz..],
         ));
     }
 
     fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
+        let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
+        let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
+        let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
+
         let mk_shares = XorReplicated::<MK>::deserialize(GenericArray::clone_from_slice(
-            &buf[..<XorReplicated<MK> as Serializable>::Size::USIZE],
+            &buf[..mk_sz],
         ));
         let is_trigger_bit = Replicated::<F>::deserialize(GenericArray::clone_from_slice(
-            &buf[<XorReplicated<MK> as Serializable>::Size::USIZE
-                ..<XorReplicated<MK> as Serializable>::Size::USIZE
-                    + <Replicated<F> as Serializable>::Size::USIZE],
+            &buf[mk_sz..mk_sz + f_sz],
         ));
         let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::clone_from_slice(
-            &buf[<XorReplicated<MK> as Serializable>::Size::USIZE
-                + <Replicated<F> as Serializable>::Size::USIZE
-                ..<XorReplicated<MK> as Serializable>::Size::USIZE
-                    + <Replicated<F> as Serializable>::Size::USIZE
-                    + <XorReplicated<BK> as Serializable>::Size::USIZE],
+            &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
         ));
         let trigger_value = Replicated::<F>::deserialize(GenericArray::clone_from_slice(
-            &buf[<XorReplicated<MK> as Serializable>::Size::USIZE
-                + <Replicated<F> as Serializable>::Size::USIZE
-                + <XorReplicated<BK> as Serializable>::Size::USIZE..],
+            &buf[mk_sz + f_sz + bk_sz..],
         ));
         Self {
             mk_shares,
@@ -233,7 +225,7 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
             is_trigger_bit,
             breakdown_key,
             trigger_value,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 }
@@ -277,7 +269,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
             breakdown_key,
             is_trigger_bit: outputs.remove(0),
             trigger_value: outputs.remove(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -478,7 +470,7 @@ where
                 mk_shares,
                 is_trigger_bit: input_row.is_trigger_bit.clone(),
                 trigger_value: input_row.trigger_value.clone(),
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             },
         )
         .collect::<Vec<_>>();
@@ -494,7 +486,7 @@ where
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
                 breakdown_key: bk_shares,
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             },
         )
         .collect::<Vec<_>>();
