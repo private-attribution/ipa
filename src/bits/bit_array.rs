@@ -11,6 +11,13 @@ type U8_1 = BitArr!(for 8, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
 type U8_8 = BitArr!(for 64, in u8, Lsb0);
 
+/// The implementation below cannot be constrained without breaking Rust's
+/// macro processor.  This noop ensures that the instance of `GenericArray` used
+/// is `Copy`.  It should be - it's the same size as the `BitArray` instance.
+fn assert_copy<C: Copy>(c: C) -> C {
+    c
+}
+
 macro_rules! bit_array_impl {
     ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty ) => {
         mod $modname {
@@ -166,8 +173,8 @@ macro_rules! bit_array_impl {
                     buf.copy_from_slice(self.0.as_raw_slice());
                 }
 
-                fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
-                    Self(<$store>::new(buf.into()))
+                fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+                    Self(<$store>::new(assert_copy(*buf).into()))
                 }
             }
 
@@ -265,7 +272,7 @@ macro_rules! bit_array_impl {
                     let mut buf = GenericArray::default();
                     a.clone().serialize(&mut buf);
 
-                    assert_eq!(a, $name::deserialize(buf));
+                    assert_eq!(a, $name::deserialize(&buf));
                 }
             }
         }

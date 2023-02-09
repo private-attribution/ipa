@@ -154,21 +154,19 @@ where
         ));
     }
 
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
         let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
         let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let mk_shares =
-            XorReplicated::<MK>::deserialize(GenericArray::clone_from_slice(&buf[..mk_sz]));
+        let mk_shares = XorReplicated::<MK>::deserialize(GenericArray::from_slice(&buf[..mk_sz]));
         let is_trigger_bit =
-            Replicated::<F>::deserialize(GenericArray::clone_from_slice(&buf[mk_sz..mk_sz + f_sz]));
-        let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::clone_from_slice(
+            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + f_sz]));
+        let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::from_slice(
             &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
         ));
-        let trigger_value = Replicated::<F>::deserialize(GenericArray::clone_from_slice(
-            &buf[mk_sz + f_sz + bk_sz..],
-        ));
+        let trigger_value =
+            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz + f_sz + bk_sz..]));
         Self {
             mk_shares,
             is_trigger_bit,
@@ -195,9 +193,7 @@ where
         );
         input
             .chunks(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE)
-            .map(|chunk| {
-                IPAInputRow::<F, MK, BK>::deserialize(GenericArray::clone_from_slice(chunk))
-            })
+            .map(|chunk| IPAInputRow::<F, MK, BK>::deserialize(GenericArray::from_slice(chunk)))
     }
 }
 

@@ -71,9 +71,7 @@ where
 
         from.chunks(<AdditiveShare<V> as Serializable>::Size::USIZE)
             .map(|chunk| {
-                <AdditiveShare<V> as Serializable>::deserialize(GenericArray::clone_from_slice(
-                    chunk,
-                ))
+                <AdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(chunk))
             })
     }
 }
@@ -169,9 +167,9 @@ where
         self.right().serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
-        let left = V::deserialize(GenericArray::clone_from_slice(&buf[..V::Size::USIZE]));
-        let right = V::deserialize(GenericArray::clone_from_slice(&buf[V::Size::USIZE..]));
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]));
+        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]));
 
         Self::new(left, right)
     }

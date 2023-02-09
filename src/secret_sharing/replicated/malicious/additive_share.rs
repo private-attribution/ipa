@@ -204,17 +204,15 @@ where
         self.rx.serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
-        let x = <SemiHonestAdditiveShare<V> as Serializable>::deserialize(
-            GenericArray::clone_from_slice(
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let x =
+            <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
-            ),
-        );
-        let rx = <SemiHonestAdditiveShare<V> as Serializable>::deserialize(
-            GenericArray::clone_from_slice(
+            ));
+        let rx =
+            <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
                 &buf[<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE..],
-            ),
-        );
+            ));
         Self { x, rx }
     }
 }

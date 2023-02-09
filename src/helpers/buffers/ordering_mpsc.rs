@@ -329,7 +329,7 @@ mod unit {
         let (_, output) = join(send, rx.next(1)).await;
         assert_eq!(
             input,
-            Fp31::deserialize(GenericArray::clone_from_slice(output.as_ref().unwrap()))
+            Fp31::deserialize(GenericArray::from_slice(output.as_ref().unwrap()))
         );
     }
 

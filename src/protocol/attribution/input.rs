@@ -164,14 +164,12 @@ where
         assert_eq!(buf.len(), Self::SIZE);
         let mut breakdown_key = Vec::with_capacity(BK::BITS as usize);
         for i in 0..BK::BITS as usize {
-            breakdown_key.push(<T as Serializable>::deserialize(
-                GenericArray::clone_from_slice(
-                    &buf[<T as Serializable>::Size::USIZE * i
-                        ..<T as Serializable>::Size::USIZE * (i + 1)],
-                ),
-            ));
+            breakdown_key.push(<T as Serializable>::deserialize(GenericArray::from_slice(
+                &buf[<T as Serializable>::Size::USIZE * i
+                    ..<T as Serializable>::Size::USIZE * (i + 1)],
+            )));
         }
-        let credit = <T as Serializable>::deserialize(GenericArray::clone_from_slice(
+        let credit = <T as Serializable>::deserialize(GenericArray::from_slice(
             &buf[<T as Serializable>::Size::USIZE * BK::BITS as usize..],
         ));
         Self::new(breakdown_key, credit)

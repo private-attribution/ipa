@@ -42,9 +42,9 @@ impl<F: Field> Serializable for F {
         buf.copy_from_slice(raw);
     }
 
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
         let mut buf_to = [0u8; 16];
-        buf_to[..buf.len()].copy_from_slice(&buf);
+        buf_to[..buf.len()].copy_from_slice(buf);
 
         Self::from(u128::from_le_bytes(buf_to))
     }

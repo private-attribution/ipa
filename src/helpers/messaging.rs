@@ -183,7 +183,7 @@ impl Mesh<'_, '_> {
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let g = GenericArray::clone_from_slice(&payload[..T::Size::USIZE]);
+        let g = GenericArray::from_slice(&payload[..T::Size::USIZE]);
         let obj = T::deserialize(g);
 
         Ok(obj)
