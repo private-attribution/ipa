@@ -113,7 +113,7 @@ mod tests {
                     .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
-                        &converted_shares,
+                        converted_shares.iter(),
                     )
                     .await
                     .unwrap();

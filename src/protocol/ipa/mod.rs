@@ -200,7 +200,7 @@ where
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        &converted_mk_shares,
+        converted_mk_shares.iter(),
     )
     .await
     .unwrap();
@@ -320,7 +320,7 @@ where
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        &converted_mk_shares,
+        converted_mk_shares.iter(),
     )
     .await
     .unwrap();
@@ -502,7 +502,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn malicious_wip() {
+    async fn malicious() {
         const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];

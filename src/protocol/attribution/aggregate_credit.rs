@@ -287,7 +287,7 @@ async fn sort_by_breakdown_key<F: Field>(
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        &breakdown_keys,
+        breakdown_keys.iter(),
     )
     .await?;
 
@@ -325,7 +325,7 @@ async fn malicious_sort_by_breakdown_key<F: Field>(
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        &breakdown_keys,
+        breakdown_keys.iter(),
     )
     .await?;
 
@@ -349,14 +349,14 @@ async fn sort_by_aggregation_bit<F: Field>(
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
-    let aggregation_bits = &[input
+    let aggregation_bits = [input
         .iter()
         .map(|x| vec![x.aggregation_bit.clone()])
         .collect::<Vec<_>>()];
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits,
+        aggregation_bits.iter(),
     )
     .await?;
 
@@ -374,14 +374,14 @@ async fn malicious_sort_by_aggregation_bit<F: Field>(
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
-    let aggregation_bits = &[input
+    let aggregation_bits = [input
         .iter()
         .map(|x| vec![x.aggregation_bit.clone()])
         .collect::<Vec<_>>()];
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits,
+        aggregation_bits.iter(),
     )
     .await?;
 

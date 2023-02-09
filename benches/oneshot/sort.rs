@@ -43,9 +43,9 @@ async fn main() -> Result<(), Error> {
 
     let start = Instant::now();
     let result = join3(
-        generate_permutation_opt(ctx0, &converted_shares[0]),
-        generate_permutation_opt(ctx1, &converted_shares[1]),
-        generate_permutation_opt(ctx2, &converted_shares[2]),
+        generate_permutation_opt(ctx0, converted_shares[0].iter()),
+        generate_permutation_opt(ctx1, converted_shares[1].iter()),
+        generate_permutation_opt(ctx2, converted_shares[2].iter()),
     )
     .await;
 

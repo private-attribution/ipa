@@ -48,26 +48,24 @@ use embed_doc_image::embed_doc_image;
 
 pub async fn generate_permutation_opt<F>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Vec<Replicated<F>>>],
+    mut sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
     //TODO (richaj) implement MultiBitChunk which is discussed in PR #425
 ) -> Result<Vec<Replicated<F>>, Error>
 where
     F: Field,
 {
-    assert_ne!(sort_keys.len(), 0);
     let ctx_0 = ctx.clone();
+    let first_keys = sort_keys.next().unwrap();
 
     let lsb_permutation =
-        multi_bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
-
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
+        multi_bit_permutation(ctx_0.narrow(&BitPermutationStep), first_keys.as_slice()).await?;
 
     let mut composed_less_significant_bits_permutation = lsb_permutation;
-    for (bit_num, one_slice) in sort_keys.iter().enumerate().skip(1) {
+    for (bit_num, one_slice) in sort_keys.enumerate() {
+        // let bit_num = bit_num + 1;
         let ctx_bit = ctx.narrow(&Sort(bit_num));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
-            input_len,
             composed_less_significant_bits_permutation,
         )
         .await?;
@@ -148,25 +146,24 @@ where
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
 pub async fn malicious_generate_permutation_opt<'a, F>(
-    sh_ctx: SemiHonestContext<'a, F>,
-    sort_keys: &[Vec<Vec<Replicated<F>>>],
-) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
+    sh_ctx: SemiHonestContext<'_, F>,
+    mut sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
+) -> Result<(MaliciousValidator<'_, F>, Vec<MaliciousReplicated<F>>), Error>
 where
     F: Field,
 {
     let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let mut m_ctx_bit = malicious_validator.context();
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more than 1B rows
+    let first_keys = sort_keys.next().unwrap();
 
-    let upgraded_sort_keys = m_ctx_bit.upgrade(sort_keys[0].clone()).await?;
+    let upgraded_sort_keys = m_ctx_bit.upgrade(first_keys.clone()).await?;
     let lsb_permutation =
         multi_bit_permutation(m_ctx_bit.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
     let mut composed_less_significant_bits_permutation = lsb_permutation;
 
-    for (chunk_num, chunk) in sort_keys.iter().enumerate().skip(1) {
+    for (chunk_num, chunk) in sort_keys.enumerate() {
         let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
             m_ctx_bit.narrow(&ShuffleRevealPermutation),
-            input_len,
             composed_less_significant_bits_permutation,
             malicious_validator,
         )
@@ -263,7 +260,7 @@ mod tests {
                             .await
                             .unwrap();
 
-                    generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
                         .await
                         .unwrap()
                 },
@@ -302,7 +299,7 @@ mod tests {
                             .await
                             .unwrap();
 
-                    malicious_generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                    malicious_generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
                         .await
                         .unwrap()
                 },
