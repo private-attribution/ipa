@@ -1,13 +1,21 @@
-pub mod network;
+mod network;
 mod routing;
+mod util;
 
-use crate::helpers::{
-    CommandEnvelope, HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
+pub use network::InMemoryNetwork;
+pub use util::{DelayedTransport, FailingTransport};
+
+use crate::{
+    helpers::{
+        query::QueryCommand, CommandEnvelope, HelperIdentity, SubscriptionType, Transport,
+        TransportCommand, TransportError,
+    },
+    sync::Weak,
 };
-use crate::sync::Weak;
 use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -32,12 +40,11 @@ impl From<HelperIdentity> for Setup {
 impl Setup {
     pub fn connect(&mut self, dest: &mut Self) {
         let (tx, rx) = channel(1);
-        self.peer_connections
-            .insert(dest.switch_setup.identity.clone(), tx);
-        dest.switch_setup
-            .add_peer(self.switch_setup.identity.clone(), rx);
+        self.peer_connections.insert(dest.switch_setup.identity, tx);
+        dest.switch_setup.add_peer(self.switch_setup.identity, rx);
     }
 
+    #[must_use]
     pub fn listen(self) -> InMemoryTransport {
         let switch = self.switch_setup.listen();
 
@@ -56,6 +63,7 @@ pub struct InMemoryTransport {
 }
 
 impl InMemoryTransport {
+    #[must_use]
     pub fn setup(id: HelperIdentity) -> Setup {
         Setup::from(id)
     }
@@ -66,8 +74,14 @@ impl InMemoryTransport {
         b.connect(a);
     }
 
-    pub fn identity(&self) -> &HelperIdentity {
+    #[must_use]
+    pub fn identity(&self) -> HelperIdentity {
         self.switch.identity()
+    }
+
+    /// Emulate client command delivery
+    pub async fn deliver(&self, c: QueryCommand) {
+        self.switch.direct_delivery(c).await;
     }
 }
 
@@ -75,31 +89,41 @@ impl InMemoryTransport {
 impl Transport for Weak<InMemoryTransport> {
     type CommandStream = ReceiverStream<CommandEnvelope>;
 
+    fn identity(&self) -> HelperIdentity {
+        let this = self
+            .upgrade()
+            .unwrap_or_else(|| panic!("In memory transport is destroyed"));
+
+        InMemoryTransport::identity(&this)
+    }
+
     async fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
         let this = self
             .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
-        match subscription_type {
-            SubscriptionType::QueryManagement => {
-                unimplemented!()
-            }
-            SubscriptionType::Query(query_id) => this.switch.query_stream(query_id).await,
-        }
+
+        this.switch.subscribe(subscription_type).await
     }
 
-    async fn send(
+    async fn send<C: Send + Into<TransportCommand>>(
         &self,
-        destination: &HelperIdentity,
-        command: TransportCommand,
+        destination: HelperIdentity,
+        command: C,
     ) -> Result<(), TransportError> {
         let this = self
             .upgrade()
             .unwrap_or_else(|| panic!("In memory transport is destroyed"));
         Ok(this
             .peer_connections
-            .get(destination)
+            .get(&destination)
             .unwrap()
-            .send(command)
+            .send(command.into())
             .await?)
+    }
+}
+
+impl Debug for InMemoryTransport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "transport[id={:?}]", self.identity())
     }
 }

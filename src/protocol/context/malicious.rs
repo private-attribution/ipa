@@ -104,7 +104,7 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     type Share = MaliciousReplicated<F>;
 
     fn role(&self) -> Role {
-        self.inner.role
+        self.inner.gateway.role()
     }
 
     fn step(&self) -> &Step {
@@ -186,7 +186,6 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
         // For the same reason, it is not possible to implement Context<F, Share = Replicated<F>>
         // for `MaliciousContext`. Deep clone is the only option
         let mut ctx = SemiHonestContext::new_with_total_records(
-            self.inner.role,
             self.inner.prss,
             self.inner.gateway,
             self.total_records,
@@ -306,7 +305,7 @@ impl<'a, F: Field>
             mk_shares,
             is_trigger_bit,
             trigger_value,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -381,14 +380,13 @@ impl<'a, F: Field>
             aggregation_bit,
             breakdown_key,
             credit,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
 
 #[derive(Debug)]
 struct ContextInner<'a, F: Field> {
-    role: Role,
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
     upgrade_ctx: SemiHonestContext<'a, F>,
@@ -403,7 +401,6 @@ impl<'a, F: Field> ContextInner<'a, F> {
         r_share: Replicated<F>,
     ) -> Arc<Self> {
         Arc::new(ContextInner {
-            role: upgrade_ctx.inner.role,
             prss: upgrade_ctx.inner.prss,
             gateway: upgrade_ctx.inner.gateway,
             upgrade_ctx,

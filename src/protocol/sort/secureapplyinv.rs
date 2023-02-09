@@ -115,13 +115,10 @@ mod tests {
                 .semi_honest(
                     (input, permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
-                        let perm_and_randoms = shuffle_and_reveal_permutation(
-                            ctx.narrow("shuffle_reveal"),
-                            BATCHSIZE,
-                            m_perms,
-                        )
-                        .await
-                        .unwrap();
+                        let perm_and_randoms =
+                            shuffle_and_reveal_permutation(ctx.narrow("shuffle_reveal"), m_perms)
+                                .await
+                                .unwrap();
                         secureapplyinv(
                             ctx,
                             m_shares,
@@ -168,13 +165,10 @@ mod tests {
                 .semi_honest(
                     (input, permutation_iter),
                     |ctx, (m_shares, m_perms)| async move {
-                        let perm_and_randoms = shuffle_and_reveal_permutation(
-                            ctx.narrow("shuffle_reveal"),
-                            BATCHSIZE,
-                            m_perms,
-                        )
-                        .await
-                        .unwrap();
+                        let perm_and_randoms =
+                            shuffle_and_reveal_permutation(ctx.narrow("shuffle_reveal"), m_perms)
+                                .await
+                                .unwrap();
                         secureapplyinv_multi(
                             ctx,
                             m_shares,

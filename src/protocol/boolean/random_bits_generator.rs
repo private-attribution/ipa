@@ -38,7 +38,7 @@ where
             ctx: ctx.set_total_records(TotalRecords::Indeterminate),
             record_id: AtomicU32::new(0),
             abort_count: AtomicUsize::new(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         }
     }
 

@@ -185,7 +185,6 @@ mod tests {
         use crate::test_fixture::input::GenericReportTestInput;
         use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
-        use std::marker::PhantomData;
 
         #[tokio::test]
         async fn shuffle_attribution_input_row() {
@@ -244,12 +243,13 @@ mod tests {
                         let converted_shares = shares
                             .into_iter()
                             .zip(converted_bk_shares)
-                            .map(|(row, bk)| MCAccumulateCreditInputRow {
-                                is_trigger_report: row.is_trigger_report,
-                                helper_bit: row.helper_bit,
-                                breakdown_key: bk,
-                                trigger_value: row.trigger_value,
-                                _marker: PhantomData::default(),
+                            .map(|(row, bk)| {
+                                MCAccumulateCreditInputRow::new(
+                                    row.is_trigger_report,
+                                    row.helper_bit,
+                                    bk,
+                                    row.trigger_value,
+                                )
                             })
                             .collect::<Vec<_>>();
 
