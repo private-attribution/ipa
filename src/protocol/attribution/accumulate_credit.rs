@@ -167,7 +167,7 @@ mod tests {
                     .await
                     .unwrap();
                     let converted_bk_shares =
-                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        combine_slices(converted_bk_shares.iter(), input_len, BreakdownKey::BITS);
                     let modulus_converted_shares = input
                         .into_iter()
                         .zip(converted_bk_shares)
@@ -232,7 +232,7 @@ mod tests {
                         .await
                         .unwrap();
                         let mut converted_bk_shares =
-                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                            combine_slices(converted_bk_shares.iter(), 1, BreakdownKey::BITS);
                         let modulus_converted_share = MCAccumulateCreditInputRow {
                             is_trigger_report: share.is_trigger_report,
                             breakdown_key: converted_bk_shares.next().unwrap(),

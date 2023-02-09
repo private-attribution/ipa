@@ -238,8 +238,11 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                        let converted_bk_shares =
-                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        let converted_bk_shares = combine_slices(
+                            converted_bk_shares.iter(),
+                            BATCHSIZE.into(),
+                            BreakdownKey::BITS,
+                        );
 
                         let converted_shares = shares
                             .into_iter()

@@ -482,6 +482,7 @@ mod tests {
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
+        let num_records = input.len();
         let world = TestWorld::new().await;
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
@@ -500,7 +501,7 @@ mod tests {
                     .await
                     .unwrap();
                     let converted_bk_shares =
-                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        combine_slices(converted_bk_shares.iter(), num_records, BreakdownKey::BITS);
                     let modulus_converted_shares: Vec<_> = input
                         .iter()
                         .zip(converted_bk_shares)

@@ -66,14 +66,14 @@ pub fn split_into_multi_bit_slices<T: Clone>(
 ///     ...
 ///     `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
 ///  `]`
-pub fn combine_slices<T: Clone>(
-    input: &[Vec<Vec<T>>],
+pub fn combine_slices<'a, T: Clone + 'a>(
+    input: impl Iterator<Item = &'a Vec<Vec<T>>>,
+    num_records: usize,
     num_bits: u32,
-) -> impl Iterator<Item = Vec<T>> + '_ {
-    let record_count = input[0].len();
-    let mut output = Vec::with_capacity(record_count);
-    output.resize_with(record_count, || Vec::with_capacity(num_bits as usize));
-    for slice in input.iter() {
+) -> impl Iterator<Item = Vec<T>> {
+    let mut output = Vec::with_capacity(num_records);
+    output.resize_with(num_records, || Vec::with_capacity(num_bits as usize));
+    for slice in input {
         slice.iter().enumerate().for_each(|(idx, record)| {
             output[idx].append(&mut record.clone());
         });

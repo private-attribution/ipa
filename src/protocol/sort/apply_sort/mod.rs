@@ -131,7 +131,7 @@ mod tests {
                     .await
                     .unwrap();
                     let converted_bk_shares =
-                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        combine_slices(converted_bk_shares.iter(), COUNT, BreakdownKey::BITS);
 
                     let converted_secret = secret
                         .into_iter()

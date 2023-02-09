@@ -349,7 +349,7 @@ mod tests {
                     .await
                     .unwrap();
                     let converted_bk_shares =
-                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        combine_slices(converted_bk_shares.iter(), input_len, BreakdownKey::BITS);
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
