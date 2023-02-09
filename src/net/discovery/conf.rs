@@ -1,6 +1,7 @@
 use crate::net::discovery::{peer, Error, PeerDiscovery};
 
 /// All config value necessary to discover other peer helpers of the MPC ring
+#[derive(Debug)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 pub struct Conf {
     peers: [peer::Config; 3],
@@ -32,7 +33,8 @@ impl PeerDiscovery for Conf {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::test_fixture::net::localhost_config;
+    use super::*;
+    use crate::{helpers::HelperIdentity, test_fixture::net::localhost_config};
     use hyper::Uri;
 
     const PUBLIC_KEY_1: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
@@ -54,22 +56,22 @@ mod tests {
     fn parse_config() {
         let conf = localhost_config([3000, 3001, 3002]);
 
-        assert_eq!(conf.peers[0].origin, URI_1.parse::<Uri>().unwrap());
-        assert_eq!(
-            conf.peers[0].tls.public_key,
-            hex_str_to_public_key(PUBLIC_KEY_1)
-        );
+        let uri1 = URI_1.parse::<Uri>().unwrap();
+        let id1 = HelperIdentity::try_from(1usize).unwrap();
+        let value1 = &conf.peers()[id1];
+        assert_eq!(value1.origin, uri1);
+        assert_eq!(value1.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_1));
 
-        assert_eq!(conf.peers[1].origin, URI_2.parse::<Uri>().unwrap());
-        assert_eq!(
-            conf.peers[1].tls.public_key,
-            hex_str_to_public_key(PUBLIC_KEY_2)
-        );
+        let uri2 = URI_2.parse::<Uri>().unwrap();
+        let id2 = HelperIdentity::try_from(2usize).unwrap();
+        let value2 = &conf.peers()[id2];
+        assert_eq!(value2.origin, uri2);
+        assert_eq!(value2.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_2));
 
-        assert_eq!(conf.peers[2].origin, URI_3.parse::<Uri>().unwrap());
-        assert_eq!(
-            conf.peers[2].tls.public_key,
-            hex_str_to_public_key(PUBLIC_KEY_3)
-        );
+        let uri3 = URI_3.parse::<Uri>().unwrap();
+        let id3 = HelperIdentity::try_from(3usize).unwrap();
+        let value3 = &conf.peers()[id3];
+        assert_eq!(value3.origin, uri3);
+        assert_eq!(value3.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_3));
     }
 }

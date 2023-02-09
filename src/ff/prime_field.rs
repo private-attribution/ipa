@@ -4,6 +4,7 @@ use crate::secret_sharing::SharedValue;
 macro_rules! field_impl {
     ( $field:ident, $int:ty, $prime:expr, $arraylen:ty ) => {
         use super::*;
+        use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq)]
         pub struct $field(<Self as Field>::Integer);
@@ -159,6 +160,9 @@ macro_rules! field_impl {
                 }
             }
         }
+
+        // Make sure FieldType has a member for this field implementation.
+        const _FIELD_TYPE_VALUE: FieldType = crate::ff::FieldType::$field;
     };
 }
 

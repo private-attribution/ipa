@@ -1,29 +1,34 @@
 use super::{
-    compute_b_bit, compute_stop_bit, if_else,
+    do_the_binary_tree_thing, if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
-    InteractionPatternStep,
 };
-use crate::error::Error;
 use crate::ff::Field;
-use crate::protocol::basics::SecureMul;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{local_secret_shared_bits, BitDecomposition, BitwiseLessThan};
-use crate::protocol::context::{Context, SemiHonestContext};
+use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
+use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use futures::future::{try_join, try_join_all};
-use std::iter::{repeat, zip};
+use crate::{error::Error, secret_sharing::Arithmetic};
+use futures::future::try_join_all;
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 
 /// User-level credit capping protocol.
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///
-pub async fn credit_capping<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCCreditCappingInputRow<F>],
+pub async fn credit_capping<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
     cap: u32,
-) -> Result<Vec<MCCreditCappingOutputRow<F>>, Error> {
+) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     let input_len = input.len();
 
     //
@@ -36,12 +41,8 @@ pub async fn credit_capping<F: Field>(
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
-    let prefix_summed_credits = credit_prefix_sum(
-        ctx.set_total_records(input_len),
-        input,
-        original_credits.clone(),
-    )
-    .await?;
+    let prefix_summed_credits =
+        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -72,22 +73,28 @@ pub async fn credit_capping<F: Field>(
         .map(|(i, x)| MCCreditCappingOutputRow {
             breakdown_key: x.breakdown_key.clone(),
             credit: final_credits[i].clone(),
+            _marker: PhantomData,
         })
         .collect::<Vec<_>>();
 
     Ok(output)
 }
 
-async fn mask_source_credits<F: Field>(
-    input: &[MCCreditCappingInputRow<F>],
-    ctx: SemiHonestContext<'_, F>,
-) -> Result<Vec<Replicated<F>>, Error> {
+async fn mask_source_credits<F, C, T>(
+    input: &[MCCreditCappingInputRow<F, T>],
+    ctx: C,
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     try_join_all(
         input
             .iter()
             .zip(zip(
                 repeat(ctx.narrow(&Step::MaskSourceCredits)),
-                repeat(ctx.share_of_one()),
+                repeat(ctx.share_known_value(F::ONE)),
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
@@ -102,85 +109,37 @@ async fn mask_source_credits<F: Field>(
     .await
 }
 
-async fn credit_prefix_sum<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCCreditCappingInputRow<F>],
-    mut original_credits: Vec<Replicated<F>>,
-) -> Result<Vec<Replicated<F>>, Error> {
-    let one = ctx.share_of_one();
-    let mut stop_bits = repeat(one.clone()).take(input.len()).collect::<Vec<_>>();
+async fn credit_prefix_sum<'a, F, C, T, I>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
+    original_credits: I,
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F> + 'a,
+    I: Iterator<Item = &'a T>,
+{
+    let helper_bits = input
+        .iter()
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
 
-    let num_rows = input.len();
-
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
-        .take_while(|&v| v < num_rows)
-        .enumerate()
-    {
-        let end = num_rows - step_size;
-        let c = ctx.narrow(&InteractionPatternStep::from(depth));
-        let mut futures = Vec::with_capacity(end);
-
-        // for each input row, create a future to execute secure multiplications
-        for i in 0..end {
-            let c = &c;
-            let record_id = RecordId::from(i);
-            let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &original_credits[i + step_size];
-            let sibling_helper_bit = &input[i + step_size].helper_bit;
-            futures.push(async move {
-                // This block implements the below logic from MP-SPDZ code.
-                //
-                // b = stop_bit * successor.helper_bit
-                // original_credit += b * successor.original_credit
-                // stop_bit = b * successor.stop_bit
-
-                let b = compute_b_bit(
-                    c.narrow(&Step::BTimesStopBit),
-                    record_id,
-                    current_stop_bit,
-                    sibling_helper_bit,
-                    depth == 0,
-                )
-                .await?;
-
-                try_join(
-                    c.narrow(&Step::CurrentContributionBTimesSuccessorCredit)
-                        .multiply(record_id, &b, sibling_credit),
-                    compute_stop_bit(
-                        c.narrow(&Step::BTimesSuccessorStopBit),
-                        record_id,
-                        &b,
-                        sibling_stop_bit,
-                        depth == 0,
-                    ),
-                )
-                .await
-            });
-        }
-
-        let results = try_join_all(futures).await?;
-
-        // accumulate the contribution from this iteration
-        results
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                original_credits[i] += &credit;
-                stop_bits[i] = stop_bit;
-            });
-    }
-
-    Ok(original_credits.clone())
+    do_the_binary_tree_thing(ctx, &helper_bits, original_credits).await
 }
 
-async fn is_credit_larger_than_cap<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    prefix_summed_credits: &[Replicated<F>],
+async fn is_credit_larger_than_cap<F, C, T>(
+    ctx: C,
+    prefix_summed_credits: &[T],
     cap: u32,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
-    let cap = local_secret_shared_bits(&ctx, cap.into());
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
@@ -206,11 +165,11 @@ async fn is_credit_larger_than_cap<F: Field>(
                     .await?;
 
                     // compare_bit = current_contribution > cap
-                    let compare_bit = BitwiseLessThan::execute(
+                    let compare_bit = bitwise_greater_than_constant(
                         ctx.narrow(&Step::IsCapLessThanCurrentContribution),
                         RecordId::from(i),
-                        &cap,
                         &credit_bits,
+                        cap.into(),
                     )
                     .await?;
                     Ok::<_, Error>(compare_bit)
@@ -220,16 +179,21 @@ async fn is_credit_larger_than_cap<F: Field>(
     .await
 }
 
-async fn compute_final_credits<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
-    input: &[MCCreditCappingInputRow<F>],
-    prefix_summed_credits: &[Replicated<F>],
-    exceeds_cap_bits: &[Replicated<F>],
-    original_credits: &[Replicated<F>],
+async fn compute_final_credits<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
+    prefix_summed_credits: &[T],
+    exceeds_cap_bits: &[T],
+    original_credits: &[T],
     cap: u32,
-) -> Result<Vec<Replicated<F>>, Error> {
+) -> Result<Vec<T>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
     let num_rows = input.len();
-    let cap = Replicated::from_scalar(ctx.role(), F::from(cap.into()));
+    let cap = ctx.share_known_value(F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:
@@ -265,7 +229,7 @@ async fn compute_final_credits<F: Field>(
                 ctx.narrow(&Step::IfNextExceedsCapOrElse),
                 record_id,
                 next_credit_exceeds_cap,
-                &Replicated::ZERO,
+                &T::ZERO,
                 &(cap.clone() - next_prefix_summed_credit),
             )
             .await?,
@@ -290,10 +254,7 @@ async fn compute_final_credits<F: Field>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
-    BTimesStopBit,
-    BTimesSuccessorStopBit,
     MaskSourceCredits,
-    CurrentContributionBTimesSuccessorCredit,
     BitDecomposeCurrentContribution,
     RandomBitsForBitDecomposition,
     IsCapLessThanCurrentContribution,
@@ -307,12 +268,7 @@ impl Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BTimesStopBit => "b_times_stop_bit",
-            Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
             Self::MaskSourceCredits => "mask_source_credits",
-            Self::CurrentContributionBTimesSuccessorCredit => {
-                "current_contribution_b_times_successor_credit"
-            }
             Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
@@ -395,11 +351,13 @@ mod tests {
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCCreditCappingInputRow {
-                            is_trigger_report: row.is_trigger_report.clone(),
-                            breakdown_key: bk,
-                            trigger_value: row.trigger_value.clone(),
-                            helper_bit: row.helper_bit.clone(),
+                        .map(|(row, bk)| {
+                            MCCreditCappingInputRow::new(
+                                row.is_trigger_report.clone(),
+                                row.helper_bit.clone(),
+                                bk,
+                                row.trigger_value.clone(),
+                            )
                         })
                         .collect::<Vec<_>>();
 

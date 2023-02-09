@@ -4,12 +4,18 @@
 
 mod field;
 mod prime_field;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-pub use field::{Field, Int};
+pub use field::{BinaryField, Field, FieldType, Int};
 pub use prime_field::{Fp31, Fp32BitPrime};
 
 use crate::secret_sharing::ArithmeticShare;
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum Error {
+    #[error("unknown field type {type_str}")]
+    UnknownField { type_str: String },
+}
 
 pub trait ArithmeticOps:
     Add<Output = Self>

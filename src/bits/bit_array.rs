@@ -1,6 +1,7 @@
-use super::BitArray;
-use crate::bits::Serializable;
-use crate::secret_sharing::SharedValue;
+use crate::{
+    bits::{BitArray, Serializable},
+    secret_sharing::SharedValue,
+};
 use bitvec::prelude::{BitArr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U5, U8};
@@ -101,7 +102,7 @@ macro_rules! bit_array_impl {
                 /// be at most `Self::BITS` long. That is, the integer value must be less than
                 /// or equal to `2^Self::BITS`, or it will return an error.
                 fn try_from(v: u128) -> Result<Self, Self::Error> {
-                    if 128 - v.leading_zeros() <= Self::BITS {
+                    if u128::BITS - v.leading_zeros() <= Self::BITS {
                         Ok(Self::truncate_from(v))
                     } else {
                         Err(format!(
@@ -184,7 +185,7 @@ macro_rules! bit_array_impl {
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 
-                const MASK: u128 = u128::MAX >> (128 - $name::BITS);
+                const MASK: u128 = u128::MAX >> (u128::BITS - $name::BITS);
 
                 #[test]
                 pub fn basic() {

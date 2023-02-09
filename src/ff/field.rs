@@ -1,10 +1,9 @@
-use generic_array::ArrayLength;
-use generic_array::GenericArray;
-
+use crate::{
+    bits::{BooleanOps, Serializable},
+    secret_sharing::ArithmeticShare,
+};
+use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
-
-use crate::bits::Serializable;
-use crate::secret_sharing::ArithmeticShare;
 
 // Trait for primitive integer types used to represent the underlying type for field values
 pub trait Int: Sized + Copy + Debug + Into<u128> {
@@ -49,4 +48,13 @@ impl<F: Field> Serializable for F {
 
         Self::from(u128::from_le_bytes(buf_to))
     }
+}
+
+pub trait BinaryField: Field + BooleanOps {}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum FieldType {
+    Fp31,
+    Fp32BitPrime,
 }

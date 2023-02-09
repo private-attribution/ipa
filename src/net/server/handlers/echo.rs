@@ -1,52 +1,29 @@
-use crate::net::server::MpcHelperServerError;
-use axum::{
-    extract::{FromRequest, Query, RequestParts},
-    Json,
-};
-use hyper::{Body, Request};
-use std::collections::HashMap;
+use crate::net::{http_serde, server::Error};
+use axum::{routing::get, Json, Router};
 
-#[derive(Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Payload {
-    pub query_args: HashMap<String, String>,
-    pub headers: HashMap<String, String>,
+#[allow(clippy::unused_async)] // needs to be async for axum handler
+async fn handler(req: http_serde::echo::Request) -> Result<Json<http_serde::echo::Request>, Error> {
+    Ok(Json(req))
 }
 
-pub async fn handler(req: Request<Body>) -> Result<Json<Payload>, MpcHelperServerError> {
-    let mut parts = RequestParts::new(req);
-
-    let query: Query<HashMap<String, String>> = Query::from_request(&mut parts).await?;
-    let headers = parts
-        .headers()
-        .iter()
-        .filter_map(|(name, value)| match value.to_str() {
-            Ok(header_value) => Some((name.to_string(), header_value.to_string())),
-            Err(_) => None,
-        })
-        .collect();
-
-    Ok(Json(Payload {
-        query_args: query.0,
-        headers,
-    }))
+pub fn router() -> Router {
+    Router::new().route(http_serde::echo::AXUM_PATH, get(handler))
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::net::server::handlers::echo::handler;
-    use hyper::{Body, Request};
+    use super::*;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn happy_case() {
-        let request = Request::builder()
-            .uri("/?foo=bar")
-            .header("echo", "v")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = handler(request).await.expect("Failed to handle request");
-        assert_eq!("bar", response.query_args["foo"]);
-        assert_eq!("v", response.headers["echo"]);
+        let req = http_serde::echo::Request::new(
+            HashMap::from([(String::from("foo"), String::from("bar"))]),
+            HashMap::from([(String::from("echo"), String::from("v"))]),
+        );
+        let Json(resp) = handler(req.clone())
+            .await
+            .expect("Failed to handle request");
+        assert_eq!(req, resp);
     }
 }

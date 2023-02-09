@@ -243,11 +243,13 @@ mod tests {
                         let converted_shares = shares
                             .into_iter()
                             .zip(converted_bk_shares)
-                            .map(|(row, bk)| MCAccumulateCreditInputRow {
-                                is_trigger_report: row.is_trigger_report,
-                                helper_bit: row.helper_bit,
-                                breakdown_key: bk,
-                                trigger_value: row.trigger_value,
+                            .map(|(row, bk)| {
+                                MCAccumulateCreditInputRow::new(
+                                    row.is_trigger_report,
+                                    row.helper_bit,
+                                    bk,
+                                    row.trigger_value,
+                                )
                             })
                             .collect::<Vec<_>>();
 

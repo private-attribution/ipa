@@ -5,8 +5,6 @@ pub use convert_shares::{
     BitConversionTriple,
 };
 
-use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated};
-
 /// Split rows of bits into bits of rows such that each 2D vector can be processed as a set
 ///
 /// input:
@@ -30,11 +28,11 @@ use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as
 ///     `[ row[0].bitmL,  ..., row[0].bit31 ], [ row[1].bitmL, ..., row[n].bit31 ], .. [ row[n].bitmL, ..., row[n].bit31 ]`,
 /// `]`
 #[must_use]
-pub fn split_into_multi_bit_slices<F: Field>(
-    input: &[Vec<Replicated<F>>],
+pub fn split_into_multi_bit_slices<T: Clone>(
+    input: &[Vec<T>],
     num_bits: u32,
     num_multi_bits: u32,
-) -> Vec<Vec<Vec<Replicated<F>>>> {
+) -> Vec<Vec<Vec<T>>> {
     let total_records = input.len();
     (0..num_bits)
         .step_by(num_multi_bits as usize)
@@ -68,10 +66,10 @@ pub fn split_into_multi_bit_slices<F: Field>(
 ///     ...
 ///     `[ row[n].bit0, row[n].bit1, ..., row[n].bit31 ]`,
 ///  `]`
-pub fn combine_slices<F: Field>(
-    input: &[Vec<Vec<Replicated<F>>>],
+pub fn combine_slices<T: Clone>(
+    input: &[Vec<Vec<T>>],
     num_bits: u32,
-) -> impl Iterator<Item = Vec<Replicated<F>>> + '_ {
+) -> impl Iterator<Item = Vec<T>> + '_ {
     let record_count = input[0].len();
     let mut output = Vec::with_capacity(record_count);
     output.resize_with(record_count, || Vec::with_capacity(num_bits as usize));

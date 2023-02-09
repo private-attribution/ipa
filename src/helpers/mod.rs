@@ -1,20 +1,19 @@
-#[cfg(feature = "web-app")]
-pub mod http;
 pub mod messaging;
 pub mod network;
-#[deprecated(note = "Use `Transport` instead")]
-pub mod old_network;
+pub mod transport;
 
 mod buffers;
 mod error;
+mod prss_protocol;
 mod time;
-mod transport;
 
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
+pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand, TransportError,
+    query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
+    TransportError,
 };
 
 use crate::helpers::{
@@ -34,7 +33,12 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct HelperIdentity {
     id: u8,
 }
@@ -55,6 +59,56 @@ impl TryFrom<usize> for HelperIdentity {
     }
 }
 
+impl From<HelperIdentity> for hyper::header::HeaderValue {
+    fn from(id: HelperIdentity) -> Self {
+        // does not implement `From<u8>`
+        hyper::header::HeaderValue::from(u16::from(id.id))
+    }
+}
+
+#[cfg(any(test, feature = "test-fixture"))]
+impl HelperIdentity {
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn make_three() -> [Self; 3] {
+        [
+            Self::try_from(1).unwrap(),
+            Self::try_from(2).unwrap(),
+            Self::try_from(3).unwrap(),
+        ]
+    }
+}
+
+// `HelperIdentity` is 1-indexed, so subtract 1 for `Index` values
+impl<T> Index<HelperIdentity> for [T] {
+    type Output = T;
+
+    fn index(&self, index: HelperIdentity) -> &Self::Output {
+        self.index(usize::from(index.id) - 1)
+    }
+}
+
+// `HelperIdentity` is 1-indexed, so subtract 1 for `Index` values
+impl<T> IndexMut<HelperIdentity> for [T] {
+    fn index_mut(&mut self, index: HelperIdentity) -> &mut Self::Output {
+        self.index_mut(usize::from(index.id) - 1)
+    }
+}
+
+impl<T> Index<HelperIdentity> for Vec<T> {
+    type Output = T;
+
+    fn index(&self, index: HelperIdentity) -> &Self::Output {
+        self.as_slice().index(index)
+    }
+}
+
+impl<T> IndexMut<HelperIdentity> for Vec<T> {
+    fn index_mut(&mut self, index: HelperIdentity) -> &mut Self::Output {
+        self.as_mut_slice().index_mut(index)
+    }
+}
+
 /// Represents a unique role of the helper inside the MPC circuit. Each helper may have different
 /// roles in queries it processes in parallel. For some queries it can be `H1` and for others it
 /// may be `H2` or `H3`.
@@ -64,8 +118,8 @@ impl TryFrom<usize> for HelperIdentity {
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(
     feature = "enable-serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "&'static str", try_from = "&str")
 )]
 pub enum Role {
     H1 = 0,
@@ -74,6 +128,12 @@ pub enum Role {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
 }
@@ -113,6 +173,12 @@ impl Role {
             H2 => Role::H2_STR,
             H3 => Role::H3_STR,
         }
+    }
+}
+
+impl From<Role> for &'static str {
+    fn from(role: Role) -> Self {
+        role.as_static_str()
     }
 }
 
@@ -190,9 +256,9 @@ impl RoleAssignment {
     /// ## Panics
     /// Panics if there is no role assigned to it.
     #[must_use]
-    pub fn role(&self, id: &HelperIdentity) -> Role {
+    pub fn role(&self, id: HelperIdentity) -> Role {
         for (idx, item) in self.helper_roles.iter().enumerate() {
-            if item == id {
+            if *item == id {
                 return Role::all()[idx];
             }
         }
@@ -201,14 +267,32 @@ impl RoleAssignment {
     }
 
     #[must_use]
-    pub fn identity(&self, role: Role) -> &HelperIdentity {
-        &self.helper_roles[role]
+    pub fn identity(&self, role: Role) -> HelperIdentity {
+        self.helper_roles[role]
+    }
+}
+
+impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
+    type Error = String;
+
+    fn try_from(value: [(HelperIdentity, Role); 3]) -> std::result::Result<Self, Self::Error> {
+        let mut result = [None, None, None];
+        for (helper, role) in value {
+            if result[role].is_some() {
+                return Err(format!("Role {role:?} has been assigned twice"));
+            }
+
+            result[role] = Some(helper);
+        }
+
+        Ok(RoleAssignment::new(result.map(Option::unwrap)))
     }
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
+
     mod role_tests {
         use super::*;
 
@@ -245,27 +329,27 @@ mod tests {
 
             assert_eq!(
                 Role::H1,
-                assignment.role(&HelperIdentity::try_from(1).unwrap())
+                assignment.role(HelperIdentity::try_from(1).unwrap())
             );
             assert_eq!(
                 Role::H2,
-                assignment.role(&HelperIdentity::try_from(2).unwrap())
+                assignment.role(HelperIdentity::try_from(2).unwrap())
             );
             assert_eq!(
                 Role::H3,
-                assignment.role(&HelperIdentity::try_from(3).unwrap())
+                assignment.role(HelperIdentity::try_from(3).unwrap())
             );
 
             assert_eq!(
-                &HelperIdentity::try_from(1).unwrap(),
+                HelperIdentity::try_from(1).unwrap(),
                 assignment.identity(Role::H1)
             );
             assert_eq!(
-                &HelperIdentity::try_from(2).unwrap(),
+                HelperIdentity::try_from(2).unwrap(),
                 assignment.identity(Role::H2)
             );
             assert_eq!(
-                &HelperIdentity::try_from(3).unwrap(),
+                HelperIdentity::try_from(3).unwrap(),
                 assignment.identity(Role::H3)
             );
         }
@@ -282,27 +366,27 @@ mod tests {
 
             assert_eq!(
                 Role::H3,
-                assignment.role(&HelperIdentity::try_from(1).unwrap())
+                assignment.role(HelperIdentity::try_from(1).unwrap())
             );
             assert_eq!(
                 Role::H2,
-                assignment.role(&HelperIdentity::try_from(2).unwrap())
+                assignment.role(HelperIdentity::try_from(2).unwrap())
             );
             assert_eq!(
                 Role::H1,
-                assignment.role(&HelperIdentity::try_from(3).unwrap())
+                assignment.role(HelperIdentity::try_from(3).unwrap())
             );
 
             assert_eq!(
-                &HelperIdentity::try_from(3).unwrap(),
+                HelperIdentity::try_from(3).unwrap(),
                 assignment.identity(Role::H1)
             );
             assert_eq!(
-                &HelperIdentity::try_from(2).unwrap(),
+                HelperIdentity::try_from(2).unwrap(),
                 assignment.identity(Role::H2)
             );
             assert_eq!(
-                &HelperIdentity::try_from(1).unwrap(),
+                HelperIdentity::try_from(1).unwrap(),
                 assignment.identity(Role::H3)
             );
         }
