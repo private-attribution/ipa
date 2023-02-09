@@ -1,12 +1,16 @@
 #![cfg(all(feature = "shuttle", test))]
 
-use crate::ff::Fp32BitPrime;
-use crate::ipa_test_input;
-use crate::protocol::ipa::{ipa, ipa_malicious};
-use crate::protocol::{BreakdownKey, MatchKey};
-use crate::rand::{thread_rng, Rng};
-use crate::test_fixture::input::GenericReportTestInput;
-use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+use crate::{
+    ff::Fp32BitPrime,
+    ipa_test_input,
+    protocol::{
+        ipa::{ipa, ipa_malicious},
+        BreakdownKey, MatchKey,
+    },
+    rand::{thread_rng, Rng},
+    test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+};
+
 #[test]
 fn semi_honest_ipa() {
     shuttle::check_random(

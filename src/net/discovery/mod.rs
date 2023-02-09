@@ -1,5 +1,8 @@
-pub mod conf;
-pub mod literal;
+mod conf;
+mod literal;
+
+pub use conf::Conf;
+pub use literal::Literal;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

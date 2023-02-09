@@ -1,17 +1,19 @@
 pub mod shuffle;
 
+pub use shuffle::{shuffle_shares, Resharable};
+
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, sort::apply::apply_inv},
+    protocol::{
+        context::Context,
+        sort::{
+            apply::apply_inv, generate_permutation::RevealedAndRandomPermutations,
+            ApplyInvStep::ShuffleInputs,
+        },
+    },
     secret_sharing::SecretSharing,
 };
-
-use crate::protocol::sort::ApplyInvStep::ShuffleInputs;
-
-pub use self::shuffle::{shuffle_shares, Resharable};
-
-use super::generate_permutation::RevealedAndRandomPermutations;
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
@@ -42,28 +44,26 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
-    use std::marker::PhantomData;
-
-    use crate::accumulation_test_input;
-    use crate::bits::BitArray;
-    use crate::protocol::attribution::input::{
-        AccumulateCreditInputRow, MCAccumulateCreditInputRow,
+    use crate::{
+        accumulation_test_input,
+        bits::BitArray,
+        ff::Fp32BitPrime,
+        protocol::{
+            attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
+            context::Context,
+            modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
+            sort::{
+                apply_sort::apply_sort_permutation,
+                generate_permutation::generate_permutation_and_reveal_shuffled,
+            },
+            BreakdownKey,
+            IpaProtocolStep::SortPreAccumulation,
+            MatchKey,
+        },
+        rand::{thread_rng, Rng},
+        secret_sharing::{replicated::semi_honest::XorShare, SharedValue},
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use crate::protocol::context::Context;
-    use crate::protocol::modulus_conversion::{
-        combine_slices, convert_all_bits, convert_all_bits_local,
-    };
-    use crate::protocol::sort::apply_sort::apply_sort_permutation;
-    use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
-    use crate::protocol::IpaProtocolStep::SortPreAccumulation;
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::replicated::semi_honest::XorShare;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner};
-    use crate::{ff::Fp32BitPrime, test_fixture::TestWorld};
 
     #[tokio::test]
     pub async fn semi_honest() {
@@ -136,12 +136,13 @@ mod tests {
                     let converted_secret = secret
                         .into_iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAccumulateCreditInputRow {
-                            is_trigger_report: row.is_trigger_report,
-                            breakdown_key: bk,
-                            trigger_value: row.trigger_value,
-                            helper_bit: row.helper_bit,
-                            _marker: PhantomData::default(),
+                        .map(|(row, bk)| {
+                            MCAccumulateCreditInputRow::new(
+                                row.is_trigger_report,
+                                row.helper_bit,
+                                bk,
+                                row.trigger_value,
+                            )
                         })
                         .collect::<Vec<_>>();
 

@@ -51,9 +51,6 @@ pub enum Error {
     InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
     #[error("Failed to send command on the transport: {0}")]
     TransportError(#[from] TransportError),
-    #[cfg(feature = "web-app")]
-    #[error("server encountered an error: {0}")]
-    ServerError(#[from] crate::net::MpcHelperServerError),
 }
 
 impl Error {

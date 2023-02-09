@@ -41,7 +41,7 @@ where
                 .map(|v| v.x().access_without_downgrade().clone())
                 .collect::<Vec<_>>(),
             b_p: self.b_p.x().access_without_downgrade().clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -105,7 +105,7 @@ where
     Ok(Some(RandomBitsShare {
         b_b,
         b_p,
-        _marker: PhantomData::default(),
+        _marker: PhantomData,
     }))
 }
 
