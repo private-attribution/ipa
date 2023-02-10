@@ -3,17 +3,14 @@ mod aligned;
 pub use aligned::ByteArrStream as AlignedByteArrStream;
 
 use crate::error::BoxError;
-use futures::Stream;
-use futures_util::{
-    stream::{self, BoxStream},
-};
 use bytes::Bytes;
+use futures::Stream;
+use futures_util::stream::{self, BoxStream};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 #[cfg(feature = "web-app")]
 use futures_util::TryStreamExt;
-
 
 /// represents the item of an underlying stream
 type Item = Result<Bytes, BoxError>;
