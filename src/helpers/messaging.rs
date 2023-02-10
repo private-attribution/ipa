@@ -7,10 +7,13 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
+    bits::Serializable,
     ff::Field,
     helpers::{
         buffers::{ReceiveBuffer, SendBuffer, SendBufferConfig},
-        network::ChannelId,
+        network::{ChannelId, MessageEnvelope, Network},
+        time::Timer,
+        transport::Transport,
         Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::{RecordId, Step},
@@ -18,21 +21,16 @@ use crate::{
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
 use futures::StreamExt;
+use futures_util::stream::FuturesUnordered;
+use generic_array::GenericArray;
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::time::Duration;
 use tinyvec::array_vec;
 use tracing::Instrument;
-
-use crate::bits::Serializable;
-use crate::helpers::network::{MessageEnvelope, Network};
-use crate::helpers::time::Timer;
-use crate::helpers::transport::Transport;
-use ::tokio::sync::{mpsc, oneshot};
-use futures_util::stream::FuturesUnordered;
-use generic_array::GenericArray;
 use typenum::Unsigned;
 
+use ::tokio::sync::{mpsc, oneshot};
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -62,6 +60,7 @@ pub struct Gateway {
     tx: mpsc::Sender<ReceiveRequest>,
     envelope_tx: mpsc::Sender<SendRequest>,
     control_handle: JoinHandle<()>,
+    role: Role,
 }
 
 pub(super) type SendRequest = (ChannelId, MessageEnvelope);
@@ -184,7 +183,7 @@ impl Mesh<'_, '_> {
             .receive(ChannelId::new(source, self.step.clone()), record_id)
             .await?;
 
-        let g = GenericArray::clone_from_slice(&payload[..T::Size::USIZE]);
+        let g = GenericArray::from_slice(&payload[..T::Size::USIZE]);
         let obj = T::deserialize(g);
 
         Ok(obj)
@@ -199,6 +198,16 @@ pub struct GatewayConfig {
     pub send_outstanding: usize,
     /// The maximum number of items that can be outstanding for receiving.
     pub recv_outstanding: usize,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            send_outstanding: 16,
+            recv_outstanding: 16,
+            send_buffer_config: SendBufferConfig::default(),
+        }
+    }
 }
 
 impl Gateway {
@@ -264,6 +273,7 @@ impl Gateway {
             tx: recv_tx,
             envelope_tx: send_tx,
             control_handle,
+            role,
         }
     }
 
@@ -302,6 +312,11 @@ impl Gateway {
                 }
             })
             .unwrap();
+    }
+
+    #[must_use]
+    pub fn role(&self) -> Role {
+        self.role
     }
 
     async fn receive(

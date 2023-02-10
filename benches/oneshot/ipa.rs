@@ -1,13 +1,11 @@
 use rand::Rng;
-use raw_ipa::error::Error;
-use raw_ipa::ff::Fp32BitPrime;
-use raw_ipa::ipa_test_input;
-use raw_ipa::protocol::ipa::ipa;
-// use raw_ipa::protocol::ipa::{ipa_wip_malicious};
-
-use raw_ipa::protocol::{BreakdownKey, MatchKey};
-use raw_ipa::test_fixture::input::GenericReportTestInput;
-use raw_ipa::test_fixture::{Runner, TestWorld, TestWorldConfig};
+use raw_ipa::{
+    error::Error,
+    ff::Fp32BitPrime,
+    ipa_test_input,
+    protocol::{ipa::ipa, BreakdownKey, MatchKey},
+    test_fixture::{input::GenericReportTestInput, Runner, TestWorld, TestWorldConfig},
+};
 use std::num::NonZeroUsize;
 use std::time::Instant;
 

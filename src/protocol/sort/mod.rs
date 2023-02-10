@@ -1,17 +1,16 @@
-use crate::repeat64str;
-
-use super::Substep;
-use std::fmt::Debug;
-
-mod apply;
 pub mod apply_sort;
 pub mod bit_permutation;
-mod compose;
 pub mod generate_permutation;
 pub mod generate_permutation_opt;
+
+mod apply;
+mod compose;
 mod multi_bit_permutation;
 mod secureapplyinv;
 mod shuffle;
+
+use crate::{protocol::Substep, repeat64str};
+use std::fmt::Debug;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum SortStep {
@@ -112,6 +111,7 @@ pub enum ReshareStep {
     RandomnessForValidation,
     ReshareRx,
 }
+
 impl Substep for ReshareStep {}
 
 impl AsRef<str> for ReshareStep {
@@ -127,6 +127,7 @@ impl AsRef<str> for ReshareStep {
 pub enum MultiBitPermutationStep {
     MultiplyAcrossBits,
 }
+
 impl Substep for MultiBitPermutationStep {}
 
 impl AsRef<str> for MultiBitPermutationStep {

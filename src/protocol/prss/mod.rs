@@ -491,9 +491,6 @@ pub mod test {
 
         let step = Step::default().narrow("test");
         drop(p1.indexed(&step));
-        // TODO(alex): remove after clippy stops aggroing with no reason
-        // https://github.com/private-attribution/ipa/actions/runs/3340348412/jobs/5530341996
-        #[allow(let_underscore_drop)]
         let _ = p1.sequential(&step);
     }
 
@@ -503,8 +500,6 @@ pub mod test {
         let [p1, _p2, _p3] = make_participants();
 
         let step = Step::default().narrow("test");
-        // TODO(alex): remove after clippy is fixed
-        #[allow(let_underscore_drop)]
         let _ = p1.sequential(&step);
         drop(p1.indexed(&step));
     }

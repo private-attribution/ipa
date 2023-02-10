@@ -1,15 +1,17 @@
-use futures::future::{try_join, try_join_all};
-
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, RecordId, Substep};
-use crate::repeat64str;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
-
-pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
 pub mod credit_capping;
 pub mod input;
+
+pub(crate) mod accumulate_credit;
+
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, RecordId, Substep},
+    repeat64str,
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
+use futures::future::{try_join, try_join_all};
 
 /// Returns `true_value` if `condition` is a share of 1, else `false_value`.
 async fn if_else<F, C, S>(

@@ -1,6 +1,10 @@
-use super::{ArithmeticShare, BooleanShare};
-use crate::rand::{thread_rng, Rng};
-use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
+use crate::{
+    rand::{thread_rng, Rng},
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare, XorShare},
+        ArithmeticShare, BooleanShare,
+    },
+};
 use rand::distributions::{Distribution, Standard};
 
 pub trait IntoShares<T>: Sized {

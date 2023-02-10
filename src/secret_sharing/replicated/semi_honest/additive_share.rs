@@ -1,10 +1,13 @@
-use crate::ff::Field;
-use crate::helpers::Role;
-use crate::secret_sharing::{
-    Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing,
+use crate::{
+    bits::Serializable,
+    ff::Field,
+    helpers::Role,
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, ArithmeticShare, SecretSharing},
 };
+use generic_array::{ArrayLength, GenericArray};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use typenum::Unsigned;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: ArithmeticShare>(V, V);
@@ -28,6 +31,9 @@ impl<V: ArithmeticShare> Default for AdditiveShare<V> {
 }
 
 impl<V: ArithmeticShare> AdditiveShare<V> {
+    /// Replicated secret share where both left and right values are `F::ZERO`
+    pub const ZERO: Self = Self(V::ZERO, V::ZERO);
+
     #[must_use]
     pub fn new(a: V, b: V) -> Self {
         Self(a, b)
@@ -53,9 +59,21 @@ impl<V: ArithmeticShare> AdditiveShare<V> {
             Role::H3 => Self::new(V::ZERO, value),
         }
     }
+}
 
-    /// Replicated secret share where both left and right values are `F::ZERO`
-    pub const ZERO: AdditiveShare<V> = Self(V::ZERO, V::ZERO);
+impl<V: ArithmeticShare> AdditiveShare<V>
+where
+    Self: Serializable,
+{
+    // Deserialize a slice of bytes into an iterator of replicated shares
+    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        debug_assert!(from.len() % <AdditiveShare<V> as Serializable>::Size::USIZE == 0);
+
+        from.chunks(<AdditiveShare<V> as Serializable>::Size::USIZE)
+            .map(|chunk| {
+                <AdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(chunk))
+            })
+    }
 }
 
 impl<F: Field> AdditiveShare<F> {
@@ -133,6 +151,27 @@ impl<V: ArithmeticShare> Mul<V> for AdditiveShare<V> {
 impl<V: ArithmeticShare> From<(V, V)> for AdditiveShare<V> {
     fn from(s: (V, V)) -> Self {
         AdditiveShare::new(s.0, s.1)
+    }
+}
+
+impl<V: ArithmeticShare> Serializable for AdditiveShare<V>
+where
+    V::Size: Add<V::Size>,
+    <V::Size as Add<V::Size>>::Output: ArrayLength<u8>,
+{
+    type Size = <V::Size as Add<V::Size>>::Output;
+
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+        let (left, right) = buf.split_at_mut(V::Size::USIZE);
+        self.left().serialize(GenericArray::from_mut_slice(left));
+        self.right().serialize(GenericArray::from_mut_slice(right));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]));
+        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]));
+
+        Self::new(left, right)
     }
 }
 

@@ -1,50 +1,46 @@
-use std::{
-    iter::{repeat, zip},
-    marker::PhantomData,
-};
-
 use crate::{
-    bits::BitArray,
+    bits::{BitArray, Serializable},
     error::Error,
     ff::Field,
     helpers::Role,
     protocol::{
         attribution::{
-            accumulate_credit::accumulate_credit, aggregate_credit::aggregate_credit,
+            accumulate_credit::accumulate_credit,
+            aggregate_credit::{aggregate_credit, malicious_aggregate_credit},
             credit_capping::credit_capping,
+            input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
         },
-        context::Context,
-        sort::apply_sort::apply_sort_permutation,
-        RecordId,
+        boolean::bitwise_equal::bitwise_equal,
+        context::{malicious::IPAModulusConvertedInputRowWrapper, Context, SemiHonestContext},
+        malicious::MaliciousValidator,
+        modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
+        sort::{
+            apply_sort::{apply_sort_permutation, shuffle::Resharable},
+            generate_permutation::{
+                generate_permutation_and_reveal_shuffled,
+                malicious_generate_permutation_and_reveal_shuffled,
+            },
+        },
+        RecordId, Substep,
     },
     secret_sharing::{
-        replicated::malicious::AdditiveShare as MaliciousReplicated,
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        },
         Arithmetic,
     },
 };
 
 use async_trait::async_trait;
 use futures::future::{try_join3, try_join_all};
-
-use super::{
-    attribution::{
-        aggregate_credit::malicious_aggregate_credit,
-        input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
-    },
-    context::{malicious::IPAModulusConvertedInputRowWrapper, SemiHonestContext},
-    malicious::MaliciousValidator,
-    sort::generate_permutation::{
-        generate_permutation_and_reveal_shuffled,
-        malicious_generate_permutation_and_reveal_shuffled,
-    },
+use generic_array::{ArrayLength, GenericArray};
+use std::ops::Add;
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
 };
-use super::{
-    modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
-    sort::apply_sort::shuffle::Resharable,
-    Substep,
-};
-use crate::protocol::boolean::bitwise_equal::bitwise_equal;
+use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -59,7 +55,7 @@ enum Step {
     AfterConvertAllBits,
 }
 
-impl crate::protocol::Substep for Step {}
+impl Substep for Step {}
 
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
@@ -76,6 +72,7 @@ impl AsRef<str> for Step {
         }
     }
 }
+
 pub enum IPAInputRowResharableStep {
     MatchKeyShares,
     TriggerBit,
@@ -96,6 +93,8 @@ impl AsRef<str> for IPAInputRowResharableStep {
     }
 }
 
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct IPAInputRow<F: Field, MK: BitArray, BK: BitArray> {
     pub mk_shares: XorReplicated<MK>,
     pub is_trigger_bit: Replicated<F>,
@@ -103,12 +102,124 @@ pub struct IPAInputRow<F: Field, MK: BitArray, BK: BitArray> {
     pub trigger_value: Replicated<F>,
 }
 
+impl<F: Field, MK: BitArray, BK: BitArray> Serializable for IPAInputRow<F, MK, BK>
+where
+    XorReplicated<BK>: Serializable,
+    XorReplicated<MK>: Serializable,
+    Replicated<F>: Serializable,
+    <XorReplicated<BK> as Serializable>::Size: Add<<Replicated<F> as Serializable>::Size>,
+    <Replicated<F> as Serializable>::Size:
+        Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >,
+    <XorReplicated<MK> as Serializable>::Size: Add<
+        <<Replicated<F> as Serializable>::Size as Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >>::Output,
+    >,
+    <<XorReplicated<MK> as Serializable>::Size as Add<
+        <<Replicated<F> as Serializable>::Size as Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >>::Output,
+    >>::Output: ArrayLength<u8>,
+{
+    type Size = <<XorReplicated<MK> as Serializable>::Size as Add<
+        <<Replicated<F> as Serializable>::Size as Add<
+            <<XorReplicated<BK> as Serializable>::Size as Add<
+                <Replicated<F> as Serializable>::Size,
+            >>::Output,
+        >>::Output,
+    >>::Output;
+
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+        let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
+        let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
+        let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
+
+        self.mk_shares
+            .serialize(GenericArray::from_mut_slice(&mut buf[..mk_sz]));
+        self.is_trigger_bit
+            .serialize(GenericArray::from_mut_slice(&mut buf[mk_sz..mk_sz + f_sz]));
+        self.breakdown_key.serialize(GenericArray::from_mut_slice(
+            &mut buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
+        ));
+        self.trigger_value.serialize(GenericArray::from_mut_slice(
+            &mut buf[mk_sz + f_sz + bk_sz..],
+        ));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
+        let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
+        let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
+
+        let mk_shares = XorReplicated::<MK>::deserialize(GenericArray::from_slice(&buf[..mk_sz]));
+        let is_trigger_bit =
+            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + f_sz]));
+        let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::from_slice(
+            &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
+        ));
+        let trigger_value =
+            Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz + f_sz + bk_sz..]));
+        Self {
+            mk_shares,
+            is_trigger_bit,
+            breakdown_key,
+            trigger_value,
+        }
+    }
+}
+
+impl<F: Field, MK: BitArray, BK: BitArray> IPAInputRow<F, MK, BK>
+where
+    IPAInputRow<F, MK, BK>: Serializable,
+{
+    /// Splits the given slice into chunks aligned with the size of this struct and returns an
+    /// iterator that produces deserialized instances.
+    ///
+    /// ## Panics
+    /// Panics if the slice buffer is not aligned with the size of this struct.
+    pub fn from_byte_slice(input: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        assert_eq!(
+            0,
+            input.len() % <IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE,
+            "input is not aligned"
+        );
+        input
+            .chunks(<IPAInputRow<F, MK, BK> as Serializable>::Size::USIZE)
+            .map(|chunk| IPAInputRow::<F, MK, BK>::deserialize(GenericArray::from_slice(chunk)))
+    }
+}
+
 pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
-    pub _marker: PhantomData<F>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
+    pub fn new(
+        mk_shares: Vec<T>,
+        is_trigger_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
+        Self {
+            mk_shares,
+            is_trigger_bit,
+            breakdown_key,
+            trigger_value,
+            _marker: PhantomData,
+        }
+    }
 }
 
 #[async_trait]
@@ -150,7 +261,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
             breakdown_key,
             is_trigger_bit: outputs.remove(0),
             trigger_value: outputs.remove(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -159,18 +270,15 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code)]
-pub async fn ipa<F, MK, BK>(
+pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
     ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
-    MK: BitArray,
-    BK: BitArray,
+    Replicated<F>: Serializable,
 {
     let num_records = input_rows.len();
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -212,15 +320,14 @@ where
         std::iter::zip(converted_mk_shares, converted_bk_shares)
             .into_iter()
             .zip(input_rows)
-            .map(
-                |((mk_shares, bk_shares), input_row)| IPAModulusConvertedInputRow {
+            .map(|((mk_shares, bk_shares), input_row)| {
+                IPAModulusConvertedInputRow::new(
                     mk_shares,
-                    is_trigger_bit: input_row.is_trigger_bit.clone(),
-                    breakdown_key: bk_shares,
-                    trigger_value: input_row.trigger_value.clone(),
-                    _marker: PhantomData::default(),
-                },
-            )
+                    input_row.is_trigger_bit.clone(),
+                    bk_shares,
+                    input_row.trigger_value.clone(),
+                )
+            })
             .collect::<Vec<_>>();
 
     let sorted_rows = apply_sort_permutation(
@@ -249,12 +356,13 @@ where
         .chain(try_join_all(futures).await?);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| MCAccumulateCreditInputRow {
-            is_trigger_report: row.is_trigger_bit,
-            helper_bit: hb,
-            breakdown_key: row.breakdown_key,
-            trigger_value: row.trigger_value,
-            _marker: PhantomData::default(),
+        .map(|(row, hb)| {
+            MCAccumulateCreditInputRow::new(
+                row.is_trigger_bit,
+                hb,
+                row.breakdown_key,
+                row.trigger_value,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -290,11 +398,12 @@ pub async fn ipa_wip_malicious<F, MK, BK>(
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>>, Error>
 where
     F: Field,
     MK: BitArray,
     BK: BitArray,
+    MaliciousReplicated<F>: Serializable,
 {
     let num_records = input_rows.len();
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
@@ -355,7 +464,7 @@ where
                 mk_shares,
                 is_trigger_bit: input_row.is_trigger_bit.clone(),
                 trigger_value: input_row.trigger_value.clone(),
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             },
         )
         .collect::<Vec<_>>();
@@ -371,7 +480,7 @@ where
                 is_trigger_bit: one_row.is_trigger_bit,
                 trigger_value: one_row.trigger_value,
                 breakdown_key: bk_shares,
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             },
         )
         .collect::<Vec<_>>();
@@ -403,12 +512,13 @@ where
         .chain(try_join_all(futures).await?);
 
     let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| MCAccumulateCreditInputRow {
-            is_trigger_report: row.is_trigger_bit,
-            helper_bit: hb,
-            breakdown_key: row.breakdown_key,
-            trigger_value: row.trigger_value,
-            _marker: PhantomData::default(),
+        .map(|(row, hb)| {
+            MCAccumulateCreditInputRow::new(
+                row.is_trigger_bit,
+                hb,
+                row.breakdown_key,
+                row.trigger_value,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -439,19 +549,28 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use super::{ipa, ipa_wip_malicious};
-    use crate::bits::BitArray;
-    use crate::ipa_test_input;
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::telemetry::metrics::RECORDS_SENT;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::TestWorldConfig;
-    use crate::{ff::Fp32BitPrime, rand::thread_rng};
     use crate::{
-        ff::{Field, Fp31},
-        test_fixture::{Reconstruct, Runner, TestWorld},
+        bits::{BitArray, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime},
+        ipa_test_input,
+        protocol::{
+            ipa::{ipa, ipa_wip_malicious, IPAInputRow},
+            BreakdownKey, MatchKey,
+        },
+        rand::thread_rng,
+        secret_sharing::IntoShares,
+        telemetry::metrics::RECORDS_SENT,
+        test_fixture::{
+            input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+        },
+    };
+    use generic_array::GenericArray;
+    use proptest::{
+        proptest,
+        test_runner::{RngAlgorithm, TestRng},
     };
     use rand::Rng;
+    use typenum::Unsigned;
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
@@ -587,6 +706,46 @@ pub mod tests {
             .reconstruct();
 
         assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
+    }
+
+    fn serde_internal(
+        match_key: u64,
+        trigger_bit: u128,
+        breakdown_key: u128,
+        trigger_value: u128,
+        seed: u128,
+    ) {
+        // xorshift requires 16 byte seed and that's why it is picked here
+        let mut rng = TestRng::from_seed(RngAlgorithm::XorShift, &seed.to_le_bytes());
+        let reports: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { match_key: match_key, is_trigger_report: trigger_bit, breakdown_key: breakdown_key, trigger_value: trigger_value },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+        let [a, b, ..]: [IPAInputRow<Fp31, MatchKey, BreakdownKey>; 3] =
+            reports[0].share_with(&mut rng);
+
+        let mut buf =
+            vec![0u8; 2 * <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
+        a.clone().serialize(GenericArray::from_mut_slice(
+            &mut buf[..<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE],
+        ));
+        b.clone().serialize(GenericArray::from_mut_slice(
+            &mut buf[<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE..],
+        ));
+
+        assert_eq!(
+            vec![a, b],
+            IPAInputRow::<Fp31, MatchKey, BreakdownKey>::from_byte_slice(&buf).collect::<Vec<_>>()
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn serde(match_key in 0..u64::MAX, trigger_bit in 0..u128::MAX, breakdown_key in 0..u128::MAX, trigger_value in 0..u128::MAX, seed in 0..u128::MAX) {
+            serde_internal(match_key, trigger_bit, breakdown_key, trigger_value, seed);
+        }
     }
 
     /// Ensures that our communication numbers don't go above the baseline.

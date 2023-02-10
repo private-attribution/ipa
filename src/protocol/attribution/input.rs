@@ -1,6 +1,4 @@
-use std::marker::PhantomData;
-
-use crate::bits::BitArray;
+use crate::bits::{BitArray, Serializable};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::helpers::Role;
@@ -16,6 +14,9 @@ use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
 use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
+use generic_array::GenericArray;
+use std::marker::PhantomData;
+use typenum::Unsigned;
 
 //
 // `accumulate_credit` protocol
@@ -34,7 +35,24 @@ pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
     pub helper_bit: T,
     pub breakdown_key: Vec<T>,
     pub trigger_value: T,
-    pub _marker: PhantomData<F>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> MCAccumulateCreditInputRow<F, T> {
+    pub fn new(
+        is_trigger_report: T,
+        helper_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
+        Self {
+            is_trigger_report,
+            helper_bit,
+            breakdown_key,
+            trigger_value,
+            _marker: PhantomData,
+        }
+    }
 }
 
 pub type MCAccumulateCreditOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
@@ -68,7 +86,7 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
                 .map(|bk| bk.x().access_without_downgrade().clone())
                 .collect::<Vec<_>>(),
             credit: self.credit.x().access_without_downgrade().clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -94,10 +112,75 @@ pub struct MCCappedCreditsWithAggregationBit<F: Field, T: Arithmetic<F>> {
 }
 
 #[derive(Debug)]
-pub struct MCAggregateCreditOutputRow<F: Field, T: Arithmetic<F>> {
+// TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
+//       instead of having a `Vec`, we can probably use an array since the length is known at compile time
+pub struct MCAggregateCreditOutputRow<F: Field, T: Arithmetic<F>, BK: BitArray> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
-    pub _marker: PhantomData<F>,
+    _marker: PhantomData<(F, BK)>,
+}
+
+impl<F: Field, T: Arithmetic<F>, BK: BitArray> MCAggregateCreditOutputRow<F, T, BK>
+where
+    T: Serializable,
+{
+    /// We know there will be exactly `BK::BITS` number of `breakdown_key` parts
+    pub const SIZE: usize = (BK::BITS as usize + 1) * <T as Serializable>::Size::USIZE;
+
+    pub fn new(breakdown_key: Vec<T>, credit: T) -> Self {
+        Self {
+            breakdown_key,
+            credit,
+            _marker: PhantomData,
+        }
+    }
+
+    /// writes the bytes of `MCAggregateCreditOutputRow` into the `buf`.
+    /// # Panics
+    /// if `breakdown_key` has unexpected length.
+    /// if `buf` is not the right length
+    pub fn serialize(self, buf: &mut [u8]) {
+        assert_eq!(self.breakdown_key.len(), BK::BITS as usize);
+        assert_eq!(buf.len(), Self::SIZE);
+
+        let breakdown_key_size = self.breakdown_key.len() * <T as Serializable>::Size::USIZE;
+
+        for (i, key_part) in self.breakdown_key.into_iter().enumerate() {
+            key_part.serialize(GenericArray::from_mut_slice(
+                &mut buf[<T as Serializable>::Size::USIZE * i
+                    ..<T as Serializable>::Size::USIZE * (i + 1)],
+            ));
+        }
+        self.credit.serialize(GenericArray::from_mut_slice(
+            &mut buf[breakdown_key_size..breakdown_key_size + <T as Serializable>::Size::USIZE],
+        ));
+    }
+
+    /// reads the bytes from `buf` into a `MCAggregateCreditOutputRow`
+    /// # Panics
+    /// if the `buf` is not exactly the right size
+    #[must_use]
+    pub fn deserialize(buf: &[u8]) -> Self {
+        assert_eq!(buf.len(), Self::SIZE);
+        let mut breakdown_key = Vec::with_capacity(BK::BITS as usize);
+        for i in 0..BK::BITS as usize {
+            breakdown_key.push(<T as Serializable>::deserialize(GenericArray::from_slice(
+                &buf[<T as Serializable>::Size::USIZE * i
+                    ..<T as Serializable>::Size::USIZE * (i + 1)],
+            )));
+        }
+        let credit = <T as Serializable>::deserialize(GenericArray::from_slice(
+            &buf[<T as Serializable>::Size::USIZE * BK::BITS as usize..],
+        ));
+        Self::new(breakdown_key, credit)
+    }
+
+    pub fn from_byte_slice(from: &[u8]) -> impl Iterator<Item = Self> + '_ {
+        debug_assert!(from.len() % Self::SIZE == 0);
+
+        from.chunks((BK::BITS as usize + 1) * <T as Serializable>::Size::USIZE)
+            .map(|chunk| Self::deserialize(chunk))
+    }
 }
 
 #[async_trait]
@@ -136,7 +219,7 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
             is_trigger_report: fields.remove(0),
             helper_bit: fields.remove(0),
             trigger_value: fields.remove(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }
@@ -177,7 +260,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
             helper_bit: fields.remove(0),
             aggregation_bit: fields.remove(0),
             credit: fields.remove(0),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 }

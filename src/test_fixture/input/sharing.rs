@@ -239,7 +239,7 @@ where
 }
 
 impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
-    for [MCAggregateCreditOutputRow<F, Replicated<F>>; 3]
+    for [MCAggregateCreditOutputRow<F, Replicated<F>, BK>; 3]
 where
     F: Field,
     MK: BitArray,
@@ -251,7 +251,7 @@ where
 }
 
 impl<F, MK, BK> Reconstruct<GenericReportTestInput<F, MK, BK>>
-    for [&MCAggregateCreditOutputRow<F, Replicated<F>>; 3]
+    for [&MCAggregateCreditOutputRow<F, Replicated<F>, BK>; 3]
 where
     F: Field,
     MK: BitArray,

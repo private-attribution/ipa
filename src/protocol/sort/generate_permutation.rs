@@ -57,7 +57,7 @@ pub(super) async fn shuffle_and_reveal_permutation<
     input_permutation: Vec<S>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
-        input_permutation.len().try_into().unwrap(),
+        u32::try_from(input_permutation.len()).expect("Input size fits into u32"),
         ctx.narrow(&GeneratePermutation).prss_rng(),
     );
 

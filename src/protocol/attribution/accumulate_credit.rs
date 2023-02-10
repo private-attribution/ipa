@@ -6,7 +6,6 @@ use crate::protocol::context::Context;
 use crate::protocol::RecordId;
 use crate::secret_sharing::Arithmetic;
 use futures::future::try_join_all;
-use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
@@ -79,12 +78,13 @@ where
     let output = input
         .iter()
         .enumerate()
-        .map(|(i, x)| MCAccumulateCreditOutputRow {
-            is_trigger_report: x.is_trigger_report.clone(),
-            helper_bit: x.helper_bit.clone(),
-            breakdown_key: x.breakdown_key.clone(),
-            trigger_value: credits[i].clone(),
-            _marker: PhantomData::default(),
+        .map(|(i, x)| {
+            MCAccumulateCreditOutputRow::new(
+                x.is_trigger_report.clone(),
+                x.helper_bit.clone(),
+                x.breakdown_key.clone(),
+                credits[i].clone(),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -93,8 +93,6 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::marker::PhantomData;
-
     use crate::accumulation_test_input;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::helpers::Role;
@@ -115,6 +113,7 @@ mod tests {
     use crate::test_fixture::input::GenericReportTestInput;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::Rng;
+
     const NUM_MULTI_BITS: u32 = 3;
 
     #[tokio::test]
@@ -164,20 +163,19 @@ mod tests {
                         BreakdownKey::BITS,
                         NUM_MULTI_BITS,
                     )
-                    .await
-                    .unwrap();
+                        .await
+                        .unwrap();
                     let converted_bk_shares =
                         combine_slices(converted_bk_shares.iter(), input_len, BreakdownKey::BITS);
                     let modulus_converted_shares = input
                         .into_iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAccumulateCreditInputRow {
-                            is_trigger_report: row.is_trigger_report,
-                            breakdown_key: bk,
-                            trigger_value: row.trigger_value,
-                            helper_bit: row.helper_bit,
-                            _marker: PhantomData::default(),
-                        })
+                        .map(|(row, bk)| MCAccumulateCreditInputRow::new(
+                             row.is_trigger_report,
+                             row.helper_bit,
+                             bk,
+                             row.trigger_value,
+                        ))
                         .collect::<Vec<_>>();
 
                     accumulate_credit(ctx, &modulus_converted_shares)
@@ -233,13 +231,12 @@ mod tests {
                         .unwrap();
                         let mut converted_bk_shares =
                             combine_slices(converted_bk_shares.iter(), 1, BreakdownKey::BITS);
-                        let modulus_converted_share = MCAccumulateCreditInputRow {
-                            is_trigger_report: share.is_trigger_report,
-                            breakdown_key: converted_bk_shares.next().unwrap(),
-                            trigger_value: share.trigger_value,
-                            helper_bit: share.helper_bit,
-                            _marker: PhantomData::default(),
-                        };
+                        let modulus_converted_share = MCAccumulateCreditInputRow::new(
+                            share.is_trigger_report,
+                            share.helper_bit,
+                            converted_bk_shares.next().unwrap(),
+                            share.trigger_value,
+                        );
 
                         modulus_converted_share
                             .reshare(ctx.set_total_records(1), RecordId::from(0), role)
