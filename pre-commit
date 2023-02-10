@@ -53,3 +53,5 @@ cargo clippy --tests --features shuttle -- -D warnings || error "Clippy concurre
 cargo test || error "Test failures"
 
 cargo test --features shuttle || error "Concurrency test failures"
+
+cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches" || error "Failed to run IPA benchmark"
