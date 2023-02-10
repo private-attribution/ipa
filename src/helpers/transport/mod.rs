@@ -2,9 +2,11 @@ pub mod query;
 
 mod bytearrstream;
 mod error;
+mod channelled_transport;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use error::Error as TransportError;
+pub use channelled_transport::{ChannelledTransport as ChannelledTransport, SendData};
 
 use crate::{
     helpers::HelperIdentity,

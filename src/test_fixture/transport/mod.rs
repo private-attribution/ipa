@@ -1,6 +1,7 @@
 mod network;
 mod routing;
 mod util;
+mod channeled_transport;
 
 pub use network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
@@ -16,8 +17,13 @@ use async_trait::async_trait;
 use routing::Switch;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::future::Future;
+use std::io::Error;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
+use crate::helpers::query::QueryConfig;
+use crate::helpers::transport::{ChannelledTransport, SendData};
+use crate::protocol::QueryId;
 
 /// In memory transport setup includes creating resources
 /// to create a connection to every other peer in the network.
