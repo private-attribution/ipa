@@ -3,15 +3,17 @@ mod aligned;
 pub use aligned::ByteArrStream as AlignedByteArrStream;
 
 use crate::error::BoxError;
-use axum::extract::BodyStream;
 use futures::Stream;
 use futures_util::{
     stream::{self, BoxStream},
-    TryStreamExt,
 };
-use hyper::body::Bytes;
+use bytes::Bytes;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+#[cfg(feature = "web-app")]
+use futures_util::TryStreamExt;
+
 
 /// represents the item of an underlying stream
 type Item = Result<Bytes, BoxError>;
@@ -33,8 +35,9 @@ impl ByteArrStream {
     }
 }
 
-impl From<BodyStream> for ByteArrStream {
-    fn from(stream: BodyStream) -> Self {
+#[cfg(feature = "web-app")]
+impl From<axum::extract::BodyStream> for ByteArrStream {
+    fn from(stream: axum::extract::BodyStream) -> Self {
         ByteArrStream::new(Box::pin(stream.map_err(<BoxError>::from)) as BoxStream<'static, Item>)
     }
 }

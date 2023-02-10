@@ -1,7 +1,7 @@
 use crate::{error::BoxError, helpers::transport::bytearrstream::Item};
 use futures::{ready, Stream};
 use futures_util::stream::BoxStream;
-use hyper::body::Bytes;
+use bytes::Bytes;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
