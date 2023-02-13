@@ -229,12 +229,13 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                        let mut converted_bk_shares =
+                        let converted_bk_shares =
                             combine_slices(converted_bk_shares.iter(), 1, BreakdownKey::BITS);
+
                         let modulus_converted_share = MCAccumulateCreditInputRow::new(
                             share.is_trigger_report,
                             share.helper_bit,
-                            converted_bk_shares.next().unwrap(),
+                            converted_bk_shares.into_iter().next().unwrap(),
                             share.trigger_value,
                         );
 
