@@ -1,3 +1,5 @@
+#![cfg(feature = "web-app")]
+
 use crate::{
     bits::{BitArray, Serializable},
     cli::playbook::InputSource,
