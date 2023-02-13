@@ -76,18 +76,15 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         // Note that this clones the values rather than moving them.
-        // This code is only used in test code, so that's probably OK.
-        UnauthorizedDowngradeWrapper::new(Self::Target {
-            helper_bit: self.helper_bit.x().access_without_downgrade().clone(),
-            aggregation_bit: self.aggregation_bit.x().access_without_downgrade().clone(),
-            breakdown_key: self
-                .breakdown_key
+        UnauthorizedDowngradeWrapper::new(Self::Target::new(
+            self.helper_bit.x().access_without_downgrade().clone(),
+            self.aggregation_bit.x().access_without_downgrade().clone(),
+            self.breakdown_key
                 .into_iter()
                 .map(|bk| bk.x().access_without_downgrade().clone())
                 .collect::<Vec<_>>(),
-            credit: self.credit.x().access_without_downgrade().clone(),
-            _marker: PhantomData,
-        })
+            self.credit.x().access_without_downgrade().clone(),
+        ))
     }
 }
 //
@@ -103,12 +100,24 @@ pub struct AggregateCreditInputRow<F: Field, BK: BitArray> {
 pub type MCAggregateCreditInputRow<F, T> = MCCreditCappingOutputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCappedCreditsWithAggregationBit<F: Field, T: Arithmetic<F>> {
+pub struct MCCappedCreditsWithAggregationBit<F, T> {
     pub helper_bit: T,
     pub aggregation_bit: T,
     pub breakdown_key: Vec<T>,
     pub credit: T,
-    pub _marker: PhantomData<F>,
+    marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> MCCappedCreditsWithAggregationBit<F, T> {
+    pub fn new(helper_bit: T, aggregation_bit: T, breakdown_key: Vec<T>, credit: T) -> Self {
+        Self {
+            helper_bit,
+            aggregation_bit,
+            breakdown_key,
+            credit,
+            marker: PhantomData,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -251,17 +260,20 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
 
         let (breakdown_key, mut fields) = try_join(
             f_breakdown_key,
-            try_join_all([f_aggregation_bit, f_helper_bit, f_value]),
+            try_join_all([f_helper_bit, f_aggregation_bit, f_value]),
         )
         .await?;
 
-        Ok(MCCappedCreditsWithAggregationBit {
+        let value = fields.pop().unwrap();
+        let aggregation_bit = fields.pop().unwrap();
+        let helper_bit = fields.pop().unwrap();
+
+        Ok(MCCappedCreditsWithAggregationBit::new(
+            helper_bit,
+            aggregation_bit,
             breakdown_key,
-            helper_bit: fields.remove(0),
-            aggregation_bit: fields.remove(0),
-            credit: fields.remove(0),
-            _marker: PhantomData,
-        })
+            value,
+        ))
     }
 }
 

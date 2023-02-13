@@ -30,7 +30,6 @@ use crate::{
         Arithmetic,
     },
 };
-use std::marker::PhantomData;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -89,12 +88,13 @@ where
     let aggregated_credits = sorted_input
         .iter()
         .enumerate()
-        .map(|(i, x)| MCCappedCreditsWithAggregationBit {
-            helper_bit: x.helper_bit.clone(),
-            aggregation_bit: x.aggregation_bit.clone(),
-            breakdown_key: x.breakdown_key.clone(),
-            credit: credits[i].clone(),
-            _marker: PhantomData,
+        .map(|(i, x)| {
+            MCCappedCreditsWithAggregationBit::new(
+                x.helper_bit.clone(),
+                x.aggregation_bit.clone(),
+                x.breakdown_key.clone(),
+                credits[i].clone(),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -180,12 +180,13 @@ where
     let aggregated_credits = sorted_input
         .iter()
         .enumerate()
-        .map(|(i, x)| MCCappedCreditsWithAggregationBit {
-            helper_bit: x.helper_bit.clone(),
-            aggregation_bit: x.aggregation_bit.clone(),
-            breakdown_key: x.breakdown_key.clone(),
-            credit: credits[i].clone(),
-            _marker: PhantomData,
+        .map(|(i, x)| {
+            MCCappedCreditsWithAggregationBit::new(
+                x.helper_bit.clone(),
+                x.aggregation_bit.clone(),
+                x.breakdown_key.clone(),
+                credits[i].clone(),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -241,13 +242,12 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            MCCappedCreditsWithAggregationBit {
-                breakdown_key: converted_bk,
-                helper_bit: zero.clone(),
-                aggregation_bit: zero.clone(),
-                credit: zero.clone(),
-                _marker: PhantomData,
-            }
+            MCCappedCreditsWithAggregationBit::new(
+                zero.clone(),
+                zero.clone(),
+                converted_bk,
+                zero.clone(),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -255,12 +255,13 @@ where
     unique_breakdown_keys.append(
         &mut capped_credits
             .iter()
-            .map(|x| MCCappedCreditsWithAggregationBit {
-                breakdown_key: x.breakdown_key.clone(),
-                credit: x.credit.clone(),
-                helper_bit: one.clone(),
-                aggregation_bit: one.clone(),
-                _marker: PhantomData,
+            .map(|x| {
+                MCCappedCreditsWithAggregationBit::new(
+                    one.clone(),
+                    one.clone(),
+                    x.breakdown_key.clone(),
+                    x.credit.clone(),
+                )
             })
             .collect::<Vec<_>>(),
     );

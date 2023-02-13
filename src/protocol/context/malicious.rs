@@ -375,13 +375,12 @@ impl<'a, F: Field>
                 ZeroPositions::Pvvv,
             )
             .await?;
-        Ok(MCCappedCreditsWithAggregationBit {
+        Ok(MCCappedCreditsWithAggregationBit::new(
             helper_bit,
             aggregation_bit,
             breakdown_key,
             credit,
-            _marker: PhantomData,
-        })
+        ))
     }
 }
 
