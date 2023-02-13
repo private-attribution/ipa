@@ -46,7 +46,7 @@ mod tests {
     use std::marker::PhantomData;
 
     use crate::accumulation_test_input;
-    use crate::bits::SharedValueArray;
+    use crate::bits::Fp2Array;
     use crate::protocol::attribution::input::{
         AccumulateCreditInputRow, MCAccumulateCreditInputRow,
     };

@@ -1,4 +1,4 @@
-use crate::bits::{BitArray40, SharedValueArray};
+use crate::bits::{BitArray40, Fp2Array};
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};

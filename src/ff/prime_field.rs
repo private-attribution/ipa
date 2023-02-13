@@ -85,52 +85,6 @@ macro_rules! field_impl {
             }
         }
 
-        impl std::ops::BitAnd for $field {
-            type Output = Self;
-            fn bitand(self, rhs: Self) -> Self::Output {
-                Self(self.0 & rhs.0)
-            }
-        }
-
-        impl std::ops::BitAndAssign for $field {
-            fn bitand_assign(&mut self, rhs: Self) {
-                *self = *self & rhs;
-            }
-        }
-
-        impl std::ops::BitOr for $field {
-            type Output = Self;
-            fn bitor(self, rhs: Self) -> Self::Output {
-                Self(self.0 | rhs.0)
-            }
-        }
-
-        impl std::ops::BitOrAssign for $field {
-            fn bitor_assign(&mut self, rhs: Self) {
-                *self = *self | rhs;
-            }
-        }
-
-        impl std::ops::BitXor for $field {
-            type Output = Self;
-            fn bitxor(self, rhs: Self) -> Self::Output {
-                Self(self.0 ^ rhs.0)
-            }
-        }
-
-        impl std::ops::BitXorAssign for $field {
-            fn bitxor_assign(&mut self, rhs: Self) {
-                *self = *self ^ rhs;
-            }
-        }
-
-        impl std::ops::Not for $field {
-            type Output = Self;
-            fn not(self) -> Self::Output {
-                Self(!self.0)
-            }
-        }
-
         /// An infallible conversion from `u128` to this type.  This can be used to draw
         /// a random value in the field.  This introduces bias into the final value
         /// but for our purposes that bias is small provided that `2^128 >> PRIME`, which
@@ -191,11 +145,6 @@ macro_rules! field_impl {
                 assert_eq!($field::ZERO, $field::ZERO - $field::ZERO);
                 assert_eq!($field::from(prime - 1), $field::ZERO - $field::ONE);
                 assert_eq!($field::ZERO, $field::ZERO * $field::ONE);
-
-                assert_eq!($field::ZERO, $field::ZERO & $field::ZERO);
-                assert_eq!($field::ZERO, $field::ZERO & $field::ONE);
-                assert_eq!($field::ONE, $field::ZERO | $field::ONE);
-                assert_eq!($field::ZERO, $field::ONE ^ $field::ONE);
             }
 
             proptest! {

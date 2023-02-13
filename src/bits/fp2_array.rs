@@ -1,4 +1,4 @@
-use super::SharedValueArray;
+use super::Fp2Array;
 use crate::bits::Serializable;
 use crate::secret_sharing::SharedValue;
 use bitvec::prelude::{BitArr, Lsb0};
@@ -30,7 +30,7 @@ macro_rules! bit_array_impl {
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
-            impl SharedValueArray for $name {
+            impl Fp2Array for $name {
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
@@ -221,7 +221,7 @@ macro_rules! bit_array_impl {
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
-                use crate::{bits::SharedValueArray, secret_sharing::SharedValue};
+                use crate::{bits::Fp2Array, secret_sharing::SharedValue};
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 

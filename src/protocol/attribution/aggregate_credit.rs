@@ -16,7 +16,7 @@ use crate::protocol::{
 use crate::secret_sharing::replicated::{
     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
 };
-use crate::{bits::SharedValueArray, secret_sharing::Arithmetic};
+use crate::{bits::Fp2Array, secret_sharing::Arithmetic};
 use crate::{
     error::Error,
     protocol::{context::MaliciousContext, malicious::MaliciousValidator},
@@ -37,7 +37,7 @@ pub async fn aggregate_credit<F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
 where
     F: Field,
-    BK: SharedValueArray,
+    BK: Fp2Array,
 {
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -127,7 +127,7 @@ pub async fn malicious_aggregate_credit<F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
 where
     F: Field,
-    BK: SharedValueArray,
+    BK: Fp2Array,
 {
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -217,7 +217,7 @@ where
     F: Field,
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
-    BK: SharedValueArray,
+    BK: Fp2Array,
 {
     let zero = T::ZERO;
     let one = ctx.share_known_value(F::ONE);
@@ -428,7 +428,7 @@ mod tests {
 
     use super::aggregate_credit;
     use crate::aggregation_test_input;
-    use crate::bits::SharedValueArray;
+    use crate::bits::Fp2Array;
     use crate::ff::{Field, Fp32BitPrime};
     use crate::protocol::attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow};
     use crate::protocol::context::Context;

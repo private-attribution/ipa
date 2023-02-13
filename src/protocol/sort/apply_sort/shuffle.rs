@@ -161,7 +161,7 @@ mod tests {
 
     mod semi_honest {
         use crate::accumulation_test_input;
-        use crate::bits::SharedValueArray;
+        use crate::bits::Fp2Array;
         use crate::protocol::attribution::input::{
             AccumulateCreditInputRow, MCAccumulateCreditInputRow,
         };

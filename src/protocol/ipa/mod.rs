@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    bits::SharedValueArray,
+    bits::Fp2Array,
     error::Error,
     ff::Field,
     helpers::Role,
@@ -96,7 +96,7 @@ impl AsRef<str> for IPAInputRowResharableStep {
     }
 }
 
-pub struct IPAInputRow<F: Field, MK: SharedValueArray, BK: SharedValueArray> {
+pub struct IPAInputRow<F: Field, MK: Fp2Array, BK: Fp2Array> {
     pub mk_shares: XorReplicated<MK>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: XorReplicated<BK>,
@@ -169,8 +169,8 @@ pub async fn ipa<F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
 where
     F: Field,
-    MK: SharedValueArray,
-    BK: SharedValueArray,
+    MK: Fp2Array,
+    BK: Fp2Array,
 {
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
         .iter()
@@ -292,8 +292,8 @@ pub async fn ipa_wip_malicious<F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
 where
     F: Field,
-    MK: SharedValueArray,
-    BK: SharedValueArray,
+    MK: Fp2Array,
+    BK: Fp2Array,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
@@ -438,7 +438,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::{ipa, ipa_wip_malicious};
-    use crate::bits::SharedValueArray;
+    use crate::bits::Fp2Array;
     use crate::ipa_test_input;
     use crate::protocol::{BreakdownKey, MatchKey};
     use crate::telemetry::metrics::RECORDS_SENT;

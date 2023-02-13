@@ -1,5 +1,5 @@
 use rand::Rng;
-use raw_ipa::bits::{BitArray40, SharedValueArray};
+use raw_ipa::bits::{BitArray40, Fp2Array};
 use raw_ipa::error::Error;
 use raw_ipa::ff::{Field, Fp32BitPrime};
 use raw_ipa::protocol::context::Context;
