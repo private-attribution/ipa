@@ -221,8 +221,8 @@ impl OrderingMpscEnd {
 
 #[cfg(test)]
 mod fixture {
-    use crate::bits::Serializable;
     use crate::{
+        bits::Serializable,
         ff::Fp32BitPrime,
         helpers::buffers::ordering_mpsc::{
             ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender,
@@ -305,8 +305,8 @@ mod fixture {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod unit {
-    use crate::bits::Serializable;
     use crate::{
+        bits::Serializable,
         ff::Fp31,
         helpers::buffers::ordering_mpsc::{
             fixture::{TestSender, FP32BIT_SIZE},
@@ -329,7 +329,7 @@ mod unit {
         let (_, output) = join(send, rx.next(1)).await;
         assert_eq!(
             input,
-            Fp31::deserialize(GenericArray::clone_from_slice(output.as_ref().unwrap()))
+            Fp31::deserialize(GenericArray::from_slice(output.as_ref().unwrap()))
         );
     }
 

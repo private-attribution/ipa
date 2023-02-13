@@ -102,9 +102,9 @@ where
         self.right().serialize(GenericArray::from_mut_slice(right));
     }
 
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
-        let left = V::deserialize(GenericArray::clone_from_slice(&buf[..V::Size::USIZE]));
-        let right = V::deserialize(GenericArray::clone_from_slice(&buf[V::Size::USIZE..]));
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let left = V::deserialize(GenericArray::from_slice(&buf[..V::Size::USIZE]));
+        let right = V::deserialize(GenericArray::from_slice(&buf[V::Size::USIZE..]));
 
         Self::new(left, right)
     }
@@ -210,6 +210,6 @@ mod tests {
         let mut buf = GenericArray::default();
         share.clone().serialize(&mut buf);
 
-        assert_eq!(share, XorShare::deserialize(buf));
+        assert_eq!(share, XorShare::deserialize(&buf));
     }
 }

@@ -1,25 +1,34 @@
-use super::{
-    do_the_binary_tree_thing,
-    input::{
-        MCAggregateCreditInputRow, MCAggregateCreditOutputRow, MCCappedCreditsWithAggregationBit,
-    },
-};
-use crate::ff::Field;
-use crate::protocol::modulus_conversion::split_into_multi_bit_slices;
-use crate::protocol::sort::apply_sort::apply_sort_permutation;
-use crate::protocol::sort::generate_permutation::generate_permutation_and_reveal_shuffled;
-use crate::protocol::Substep;
-use crate::protocol::{
-    context::{Context, SemiHonestContext},
-    sort::generate_permutation::malicious_generate_permutation_and_reveal_shuffled,
-};
-use crate::secret_sharing::replicated::{
-    malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
-};
-use crate::{bits::Fp2Array, secret_sharing::Arithmetic};
 use crate::{
+    bits::{Fp2Array, Serializable},
     error::Error,
-    protocol::{context::MaliciousContext, malicious::MaliciousValidator},
+    ff::Field,
+    protocol::{
+        attribution::{
+            do_the_binary_tree_thing,
+            input::{
+                MCAggregateCreditInputRow, MCAggregateCreditOutputRow,
+                MCCappedCreditsWithAggregationBit,
+            },
+        },
+        context::{Context, MaliciousContext, SemiHonestContext},
+        malicious::MaliciousValidator,
+        modulus_conversion::split_into_multi_bit_slices,
+        sort::{
+            apply_sort::apply_sort_permutation,
+            generate_permutation::{
+                generate_permutation_and_reveal_shuffled,
+                malicious_generate_permutation_and_reveal_shuffled,
+            },
+        },
+        Substep,
+    },
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        Arithmetic,
+    },
 };
 use std::marker::PhantomData;
 
@@ -34,10 +43,11 @@ pub async fn aggregate_credit<F, BK>(
     capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
     BK: Fp2Array,
+    Replicated<F>: Serializable,
 {
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -86,7 +96,7 @@ where
             aggregation_bit: x.aggregation_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: credits[i].clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
         .collect::<Vec<_>>();
 
@@ -101,11 +111,7 @@ where
     let result = sorted_output
         .iter()
         .take(max_breakdown_key.try_into().unwrap())
-        .map(|x| MCAggregateCreditOutputRow {
-            breakdown_key: x.breakdown_key.clone(),
-            credit: x.credit.clone(),
-            _marker: PhantomData::default(),
-        })
+        .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
         .collect::<Vec<_>>();
 
     Ok(result)
@@ -124,10 +130,11 @@ pub async fn malicious_aggregate_credit<F, BK>(
     capped_credits: &[MCAggregateCreditInputRow<F, MaliciousReplicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>>, Error>
 where
     F: Field,
     BK: Fp2Array,
+    MaliciousReplicated<F>: Serializable,
 {
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -180,7 +187,7 @@ where
             aggregation_bit: x.aggregation_bit.clone(),
             breakdown_key: x.breakdown_key.clone(),
             credit: credits[i].clone(),
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
         .collect::<Vec<_>>();
 
@@ -198,11 +205,7 @@ where
     let result = sorted_output
         .iter()
         .take(max_breakdown_key.try_into().unwrap())
-        .map(|x| MCAggregateCreditOutputRow {
-            breakdown_key: x.breakdown_key.clone(),
-            credit: x.credit.clone(),
-            _marker: PhantomData::default(),
-        })
+        .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
         .collect::<Vec<_>>();
 
     Ok(result)
@@ -245,7 +248,7 @@ where
                 helper_bit: zero.clone(),
                 aggregation_bit: zero.clone(),
                 credit: zero.clone(),
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             }
         })
         .collect::<Vec<_>>();
@@ -259,7 +262,7 @@ where
                 credit: x.credit.clone(),
                 helper_bit: one.clone(),
                 aggregation_bit: one.clone(),
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             })
             .collect::<Vec<_>>(),
     );
@@ -507,7 +510,7 @@ mod tests {
                         .map(|(row, bk)| MCAggregateCreditInputRow {
                             breakdown_key: bk,
                             credit: row.credit.clone(),
-                            _marker: PhantomData::default(),
+                            _marker: PhantomData,
                         })
                         .collect();
 

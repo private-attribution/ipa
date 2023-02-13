@@ -4,6 +4,7 @@ use crate::secret_sharing::SharedValue;
 macro_rules! field_impl {
     ( $field:ident, $int:ty, $prime:expr, $arraylen:ty ) => {
         use super::*;
+        use crate::ff::FieldType;
 
         #[derive(Clone, Copy, PartialEq)]
         pub struct $field(<Self as Field>::Integer);
@@ -155,10 +156,13 @@ macro_rules! field_impl {
                     let mut buf = GenericArray::default();
                     field_v.serialize(&mut buf);
 
-                    assert_eq!(field_v, $field::deserialize(buf));
+                    assert_eq!(field_v, $field::deserialize(&buf));
                 }
             }
         }
+
+        // Make sure FieldType has a member for this field implementation.
+        const _FIELD_TYPE_VALUE: FieldType = crate::ff::FieldType::$field;
     };
 }
 
@@ -187,8 +191,8 @@ mod fp31 {
 }
 
 mod fp32bit {
-    use typenum::U5;
-    field_impl! { Fp32BitPrime, u32, 4_294_967_291, U5 }
+    use typenum::U4;
+    field_impl! { Fp32BitPrime, u32, 4_294_967_291, U4 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {

@@ -1,13 +1,14 @@
 use crate::bits::Fp2Array;
-use crate::protocol::IpaProtocolStep::ModulusConversion;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
 use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{basics::ZeroPositions, boolean::xor_sparse, context::Context, RecordId},
-    secret_sharing::replicated::semi_honest::{
-        AdditiveShare as Replicated, XorShare as XorReplicated,
+    protocol::{
+        basics::ZeroPositions, boolean::xor_sparse, context::Context, IpaProtocolStep, RecordId,
+    },
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        Arithmetic as ArithmeticSecretSharing,
     },
 };
 use futures::future::try_join_all;
@@ -33,7 +34,6 @@ use std::iter::{repeat, zip};
 ///! Now we simply need to XOR these three sharings together in `Z_p`. This is easy because
 ///! we know the secret-shared values are all either 0, or 1. As such, the XOR operation
 ///! is equivalent to fn xor(a, b) { a + b - 2*a*b }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     Xor1,
@@ -153,7 +153,9 @@ where
                 .enumerate()
                 .map(|(idx, (record, ctx))| async move {
                     convert_bit_list(
-                        ctx.narrow(&ModulusConversion(chunk[0].try_into().unwrap())),
+                        ctx.narrow(&IpaProtocolStep::ModulusConversion(
+                            chunk[0].try_into().unwrap(),
+                        )),
                         &chunk.iter().map(|i| &record[*i]).collect::<Vec<_>>(),
                         RecordId::from(idx),
                     )
@@ -183,7 +185,7 @@ where
             .enumerate()
             .map(|(i, (ctx, bit))| async move {
                 convert_bit(
-                    ctx.narrow(&ModulusConversion(i.try_into().unwrap())),
+                    ctx.narrow(&IpaProtocolStep::ModulusConversion(i.try_into().unwrap())),
                     record_id,
                     bit,
                 )
@@ -195,7 +197,6 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-
     use crate::ff::{Field, Fp32BitPrime};
     use crate::helpers::{Direction, Role};
     use crate::protocol::context::Context;

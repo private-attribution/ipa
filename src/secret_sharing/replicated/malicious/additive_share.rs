@@ -1,8 +1,7 @@
-use crate::helpers::Role;
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare;
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue};
 use crate::{
+    bits::Serializable,
     ff::Field,
+    helpers::Role,
     protocol::{
         basics::reveal_permutation,
         context::Context,
@@ -10,13 +9,17 @@ use crate::{
             generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
         },
     },
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
+        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+    },
 };
 use async_trait::async_trait;
 use futures::future::{join, join_all};
-use std::{
-    fmt::{Debug, Formatter},
-    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
-};
+use generic_array::{ArrayLength, GenericArray};
+use std::fmt::{Debug, Formatter};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use typenum::Unsigned;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdditiveShare<V: SharedValue> {
@@ -177,6 +180,40 @@ impl<V: SharedValue> Mul<V> for AdditiveShare<V> {
             x: self.x * rhs,
             rx: self.rx * rhs,
         }
+    }
+}
+
+/// todo serde macro for these collections so we can hide the crazy size calculations
+impl<V: SharedValue> Serializable for AdditiveShare<V>
+where
+    SemiHonestAdditiveShare<V>: Serializable,
+    <SemiHonestAdditiveShare<V> as Serializable>::Size:
+        Add<<SemiHonestAdditiveShare<V> as Serializable>::Size>,
+    <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
+        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+    >>::Output: ArrayLength<u8>,
+{
+    type Size = <<SemiHonestAdditiveShare<V> as Serializable>::Size as Add<
+        <SemiHonestAdditiveShare<V> as Serializable>::Size,
+    >>::Output;
+
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+        let (left, right) =
+            buf.split_at_mut(<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE);
+        self.x.serialize(GenericArray::from_mut_slice(left));
+        self.rx.serialize(GenericArray::from_mut_slice(right));
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let x =
+            <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
+                &buf[..<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE],
+            ));
+        let rx =
+            <SemiHonestAdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(
+                &buf[<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE..],
+            ));
+        Self { x, rx }
     }
 }
 

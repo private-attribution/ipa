@@ -2,14 +2,15 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        context::Context,
+        context::{Context, SemiHonestContext},
         malicious::MaliciousValidator,
         sort::{
-            generate_permutation::shuffle_and_reveal_permutation,
-            secureapplyinv::secureapplyinv_multi,
-        },
-        sort::{
+            compose::compose,
+            generate_permutation::{
+                malicious_shuffle_and_reveal_permutation, shuffle_and_reveal_permutation,
+            },
             multi_bit_permutation::multi_bit_permutation,
+            secureapplyinv::secureapplyinv_multi,
             SortStep::{BitPermutationStep, ComposeStep, MultiApplyInv, ShuffleRevealPermutation},
         },
         IpaProtocolStep::Sort,
@@ -18,9 +19,6 @@ use crate::{
         malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
     },
 };
-
-use super::{compose::compose, generate_permutation::malicious_shuffle_and_reveal_permutation};
-use crate::protocol::context::SemiHonestContext;
 use embed_doc_image::embed_doc_image;
 
 /// This is an implementation of `OptGenPerm` (Algorithm 12) described in:
@@ -45,7 +43,6 @@ use embed_doc_image::embed_doc_image;
 /// If any underlying protocol fails
 /// # Panics
 /// Panics if input doesn't have same number of bits as `num_bits`
-
 pub async fn generate_permutation_opt<F>(
     ctx: SemiHonestContext<'_, F>,
     sort_keys: &[Vec<Vec<Replicated<F>>>],
@@ -60,14 +57,11 @@ where
     let lsb_permutation =
         multi_bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
 
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more that 1B rows
-
     let mut composed_less_significant_bits_permutation = lsb_permutation;
     for (bit_num, one_slice) in sort_keys.iter().enumerate().skip(1) {
         let ctx_bit = ctx.narrow(&Sort(bit_num));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),
-            input_len,
             composed_less_significant_bits_permutation,
         )
         .await?;
@@ -218,26 +212,25 @@ where
         composed_less_significant_bits_permutation,
     ))
 }
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::iter::zip;
-
-    use crate::bits::{BitArray40, Fp2Array};
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::MatchKey;
-    use crate::rand::{thread_rng, Rng};
-
-    use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::join3;
-    use crate::test_fixture::Runner;
     use crate::{
+        bits::{BitArray40, Fp2Array},
         ff::{Field, Fp31},
-        protocol::sort::generate_permutation_opt::{
-            generate_permutation_opt, malicious_generate_permutation_opt,
+        protocol::{
+            context::{Context, SemiHonestContext},
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            sort::generate_permutation_opt::{
+                generate_permutation_opt, malicious_generate_permutation_opt,
+            },
+            MatchKey,
         },
-        test_fixture::{Reconstruct, TestWorld},
+        rand::{thread_rng, Rng},
+        secret_sharing::SharedValue,
+        test_fixture::{join3, Reconstruct, Runner, TestWorld},
     };
+    use std::iter::zip;
 
     #[tokio::test]
     pub async fn semi_honest() {

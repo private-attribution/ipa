@@ -1,9 +1,10 @@
-mod into_shares;
 pub mod replicated;
+
+mod into_shares;
 mod scheme;
+
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use into_shares::IntoShares;
-
 pub use scheme::{Arithmetic, Boolean, SecretSharing};
 
 use crate::bits::Serializable;

@@ -35,7 +35,7 @@ use crate::protocol::{QueryId, Substep};
 use crate::secret_sharing::IntoShares;
 use crate::telemetry::stats::Metrics;
 use crate::telemetry::StepStatsCsvExporter;
-use crate::test_fixture::transport::network::InMemoryNetwork;
+use crate::test_fixture::transport::InMemoryNetwork;
 use tracing::Level;
 
 use super::{sharing::ValidateMalicious, Reconstruct};
@@ -146,9 +146,9 @@ impl TestWorld {
     #[must_use]
     pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
-        zip(Role::all(), zip(&self.participants, &*self.gateways))
-            .map(|(role, (participant, gateway))| {
-                SemiHonestContext::new(*role, participant, gateway)
+        zip(&self.participants, &*self.gateways)
+            .map(|(participant, gateway)| {
+                SemiHonestContext::new(participant, gateway)
                     .narrow(&Self::execution_step(execution))
             })
             .collect::<Vec<_>>()

@@ -35,7 +35,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             items_in_batch: NonZeroUsize::new(1).unwrap(),
-            batch_count: NonZeroUsize::new(1).unwrap(),
+            batch_count: NonZeroUsize::new(16).unwrap(),
         }
     }
 }
@@ -134,7 +134,10 @@ mod tests {
     #[should_panic]
     fn rejects_records_out_of_range() {
         let record_id = RecordId::from(11_u32);
-        let mut buf = SendBuffer::new(Config::default());
+        let mut buf = SendBuffer::new(Config {
+            items_in_batch: NonZeroUsize::new(1).unwrap(),
+            batch_count: NonZeroUsize::new(1).unwrap(),
+        });
         let msg = empty_msg(record_id);
 
         assert_eq!(
@@ -171,7 +174,10 @@ mod tests {
     #[cfg(debug_assertions)] // assertions only generated for debug builds
     #[should_panic(expected = "Attempt to insert out of range at index 1 (allowed=0..1)")]
     fn offset_is_per_channel() {
-        let mut buf = SendBuffer::new(Config::default());
+        let mut buf = SendBuffer::new(Config {
+            items_in_batch: NonZeroUsize::new(1).unwrap(),
+            batch_count: NonZeroUsize::new(1).unwrap(),
+        });
         let c1 = ChannelId::new(Role::H1, Step::default());
         let c2 = ChannelId::new(Role::H2, Step::default());
 
