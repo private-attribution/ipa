@@ -25,9 +25,33 @@ if [[ "$1" == "install" ]]; then
     exit
 fi
 
+save_merge_files() {
+    # MERGE_[HEAD|MODE|MSG]
+    for f in "$root"/.git/MERGE_*; do
+	if [[ -e "$f" ]]; then
+            t=$(basename $f)
+            cp -f "$f" "$t"
+	fi
+    done
+}
+
+restore_merge_files() {
+    for f in MERGE_*; do
+	if [[ -e "$f" ]]; then
+            t=$(basename $f)
+	    if [[ -e "${root}/.git/${t}" ]]; then
+		echo "Failed to restore ${t}. File already exists"
+		exit 1
+	    fi
+            mv -f "$f" "${root}/.git/${t}"
+	fi
+    done
+}
+
 # Check formatting.
 stashfile=$(mktemp .pre-commit.stashXXXXXX)
-trap 'set +e;git stash pop -q; rm -f "$stashfile"' EXIT
+trap 'set +e;git stash pop -q; rm -f "$stashfile"; restore_merge_files' EXIT
+save_merge_files
 git stash push -k -u -q -m "pre-commit stash"
 if ! errors=($(cargo fmt -- --check -l)); then
     echo "Formatting errors found."
