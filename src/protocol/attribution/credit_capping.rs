@@ -288,7 +288,7 @@ mod tests {
             credit_capping::credit_capping,
             input::{CreditCappingInputRow, MCCreditCappingInputRow},
         },
-        protocol::modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
+        protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local},
         protocol::{
             context::Context,
             {BreakdownKey, MatchKey},
@@ -338,16 +338,15 @@ mod tests {
                         .iter()
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
-                    let converted_bk_shares = convert_all_bits(
+                    let mut converted_bk_shares = convert_all_bits(
                         &ctx,
                         &convert_all_bits_local(ctx.role(), &bk_shares),
                         BreakdownKey::BITS,
-                        NUM_MULTI_BITS,
+                        BreakdownKey::BITS,
                     )
                     .await
                     .unwrap();
-                    let converted_bk_shares =
-                        combine_slices(converted_bk_shares.iter(), input_len, BreakdownKey::BITS);
+                    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

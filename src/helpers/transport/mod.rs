@@ -21,7 +21,7 @@ pub enum TransportCommand {
     // `Query` Commands
     /// Query/step data received from a helper peer.
     /// TODO: this is really bad for performance, once we have channel per step all the way
-    /// from gateway to network, this definition should be (QueryId, Step, Stream<Item = Vec<u8>>) instead
+    /// from gateway to network, this definition should be (QueryId, Step, Stream<Item = `Vec<u8>`>) instead
     StepData {
         query_id: QueryId,
         step: Step,

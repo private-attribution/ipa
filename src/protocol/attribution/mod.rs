@@ -42,7 +42,7 @@ where
 
 ///
 /// Computes `SUM(credits[i] through credits[i + n])` where `n` is the number of "matching rows", as indicated by the `helper_bits`
-/// This result is saved as credits[i].
+/// This result is saved as credits`\[`i`\]`.
 ///
 /// Helper bits should be a sharing of either `1` or `0` for each row, indicating if that row "matches" the row preceding it.
 ///

@@ -287,15 +287,15 @@ where
         .unzip();
 
     // Breakdown key modulus conversion
-    let converted_bk_shares = convert_all_bits(
+    let mut converted_bk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &convert_all_bits_local(ctx.role(), &bk_shares),
         BK::BITS,
-        num_multi_bits,
+        BK::BITS,
     )
     .await
     .unwrap();
-    let converted_bk_shares = combine_slices(converted_bk_shares.iter(), num_records, BK::BITS);
+    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
@@ -386,7 +386,7 @@ where
 }
 
 /// Malicious IPA
-/// We return Replicated<F> as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
+/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
@@ -442,19 +442,19 @@ where
     let converted_mk_shares = combine_slices(converted_mk_shares.iter(), num_records, MK::BITS);
 
     // Breakdown key modulus conversion
-    let converted_bk_shares = convert_all_bits(
+    let mut converted_bk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
             .narrow(&Step::ModulusConversionForBreakdownKeys)
             .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
             .await?,
         BK::BITS,
-        num_multi_bits,
+        BK::BITS,
     )
     .await
     .unwrap();
 
-    let converted_bk_shares = combine_slices(converted_bk_shares.iter(), num_records, BK::BITS);
+    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
 
     let intermediate = converted_mk_shares
         .into_iter()
