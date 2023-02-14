@@ -76,7 +76,6 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
         // Note that this clones the values rather than moving them.
-        // This code is only used in test code, so that's probably OK.
         UnauthorizedDowngradeWrapper::new(Self::Target {
             helper_bit: self.helper_bit.x().access_without_downgrade().clone(),
             aggregation_bit: self.aggregation_bit.x().access_without_downgrade().clone(),
@@ -90,6 +89,25 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
         })
     }
 }
+
+#[async_trait]
+impl<F: Field, BK: BitArray> DowngradeMalicious
+    for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>
+where
+    Replicated<F>: Serializable,
+{
+    type Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>;
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper::new(Self::Target::new(
+            self.breakdown_key
+                .into_iter()
+                .map(|bk| bk.x().access_without_downgrade().clone())
+                .collect::<Vec<_>>(),
+            self.credit.x().access_without_downgrade().clone(),
+        ))
+    }
+}
+
 //
 // `aggregate_credit` protocol
 //
@@ -114,7 +132,7 @@ pub struct MCCappedCreditsWithAggregationBit<F: Field, T: Arithmetic<F>> {
 #[derive(Debug)]
 // TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
 //       instead of having a `Vec`, we can probably use an array since the length is known at compile time
-pub struct MCAggregateCreditOutputRow<F: Field, T: Arithmetic<F>, BK: BitArray> {
+pub struct MCAggregateCreditOutputRow<F, T, BK> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
     _marker: PhantomData<(F, BK)>,
