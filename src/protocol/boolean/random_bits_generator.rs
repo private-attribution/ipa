@@ -4,7 +4,7 @@ use crate::ff::Field;
 use crate::helpers::messaging::TotalRecords;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::secret_sharing::SecretSharing;
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -27,7 +27,7 @@ pub struct RandomBitsGenerator<F, S, C> {
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
     C: Context<F, Share = S>,
 {
     #[must_use]

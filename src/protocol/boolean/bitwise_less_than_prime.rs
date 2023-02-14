@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::multiply_all_shares;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::secret_sharing::SecretSharing;
 use futures::future::try_join;
 use std::cmp::Ordering;
 
@@ -26,7 +26,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        S: SecretSharing<F>,
     {
         let one = ctx.share_known_value(F::ONE);
         let gtoe = Self::greater_than_or_equal_to_prime(ctx, record_id, x).await?;
@@ -41,7 +41,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        S: SecretSharing<F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -91,7 +91,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        S: SecretSharing<F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -149,7 +149,7 @@ impl BitwiseLessThanPrime {
     where
         F: Field,
         C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        S: SecretSharing<F>,
     {
         let prime = F::PRIME.into();
         debug_assert!(prime & 0b111 == 0b011);

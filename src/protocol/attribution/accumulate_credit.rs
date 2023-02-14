@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic;
+use crate::secret_sharing::SecretSharing;
 use futures::future::try_join_all;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -36,7 +36,7 @@ pub async fn accumulate_credit<F, C, T>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: SecretSharing<F>,
 {
     let num_rows = input.len();
 

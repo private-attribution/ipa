@@ -9,7 +9,7 @@ use crate::{
     ff::Field,
     protocol::{context::Context, RecordId, Substep},
     repeat64str,
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::SecretSharing,
 };
 use futures::future::{try_join, try_join_all};
 
@@ -24,7 +24,7 @@ async fn if_else<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
@@ -60,7 +60,7 @@ pub async fn do_the_binary_tree_thing<'a, F, C, S, I>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F> + 'a,
+    S: SecretSharing<F> + 'a,
     I: Iterator<Item = &'a S>,
 {
     let num_rows = helper_bits.len() + 1;

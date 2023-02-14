@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BitOpStep, RecordId},
-    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
+    secret_sharing::SecretSharing,
 };
 use futures::future::try_join_all;
 use std::iter::repeat;
@@ -26,12 +26,7 @@ use std::iter::repeat;
 ///       a. Calculate accumulated `prefix_sum` = s + `mult_output`
 /// 4. Compute the final output using sum of products executed in parallel for each record.
 #[allow(dead_code)]
-pub async fn multi_bit_permutation<
-    'a,
-    F: Field,
-    S: ArithmeticSecretSharing<F>,
-    C: Context<F, Share = S>,
->(
+pub async fn multi_bit_permutation<'a, F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
     ctx: C,
     input: &[Vec<S>],
 ) -> Result<Vec<S>, Error> {
@@ -102,7 +97,7 @@ async fn check_everything<F, C, S>(ctx: C, record_idx: usize, record: &[S]) -> R
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     let num_bits = record.len();
     let precomputed_combinations =

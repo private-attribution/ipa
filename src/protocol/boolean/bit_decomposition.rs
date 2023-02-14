@@ -5,7 +5,7 @@ use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::context::Context;
 use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::secret_sharing::SecretSharing;
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///
@@ -31,7 +31,7 @@ impl BitDecomposition {
     ) -> Result<Vec<S>, Error>
     where
         F: Field,
-        S: ArithmeticSecretSharing<F>,
+        S: SecretSharing<F>,
         C: Context<F, Share = S>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`

@@ -20,10 +20,12 @@ use crate::protocol::modulus_conversion::BitConversionTriple;
 use crate::protocol::prss::Endpoint as PrssEndpoint;
 use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
 use crate::repeat64str;
-use crate::secret_sharing::replicated::{
-    malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+use crate::secret_sharing::{
+    replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    },
+    SecretSharing,
 };
-use crate::secret_sharing::Arithmetic;
 use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
@@ -310,7 +312,7 @@ impl<'a, F: Field>
     }
 }
 
-pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: SecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,

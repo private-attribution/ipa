@@ -1,4 +1,3 @@
-use crate::secret_sharing::Arithmetic;
 use crate::{
     bits::{Fp2Array, Serializable},
     ff::{Field, FieldType, Fp31},
@@ -14,7 +13,7 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey, Step,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SecretSharing},
     task::JoinHandle,
 };
 use futures_util::StreamExt;
@@ -47,7 +46,8 @@ where
     }
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: Fp2Array> Result for Vec<MCAggregateCreditOutputRow<F, T, BK>>
+impl<F: Field, T: SecretSharing<F>, BK: Fp2Array> Result
+    for Vec<MCAggregateCreditOutputRow<F, T, BK>>
 where
     T: Serializable,
 {

@@ -28,7 +28,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         },
-        Arithmetic,
+        SecretSharing,
     },
 };
 
@@ -197,7 +197,7 @@ where
     }
 }
 
-pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRow<F: Field, T: SecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
@@ -205,7 +205,7 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
+impl<F: Field, T: SecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
     pub fn new(
         mk_shares: Vec<T>,
         is_trigger_bit: T,
@@ -223,7 +223,7 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
 }
 
 #[async_trait]
-impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedInputRow<F, T> {
+impl<F: Field + Sized, T: SecretSharing<F>> Resharable<F> for IPAModulusConvertedInputRow<F, T> {
     type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>

@@ -2,7 +2,7 @@ use super::or::or;
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::secret_sharing::SecretSharing;
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
 ///
@@ -26,7 +26,7 @@ pub async fn bitwise_greater_than_constant<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     assert!(a.len() <= 128);
 
@@ -49,7 +49,7 @@ async fn first_differing_bit<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     let one = ctx.share_known_value(F::ONE);
 

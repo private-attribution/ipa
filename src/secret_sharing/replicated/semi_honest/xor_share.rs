@@ -6,10 +6,9 @@ use aes::cipher::generic_array::GenericArray;
 use generic_array::ArrayLength;
 use typenum::Unsigned;
 
-use std::ops::Add;
 use std::{
     fmt::{Debug, Formatter},
-    ops::{BitXor, BitXorAssign},
+    ops::{Add, AddAssign, BitXor, BitXorAssign, Mul, Neg, Sub, SubAssign},
 };
 
 #[derive(Clone, PartialEq, Eq)]
@@ -85,6 +84,74 @@ impl<V: Fp2Array> BitXorAssign<&Self> for XorShare<V> {
     fn bitxor_assign(&mut self, rhs: &Self) {
         self.0 ^= rhs.0;
         self.1 ^= rhs.1;
+    }
+}
+
+impl<V: Fp2Array> Add<Self> for &XorShare<V> {
+    type Output = XorShare<V>;
+
+    // `Add` for `Fp2Array` implementation is XOR
+    fn add(self, rhs: Self) -> Self::Output {
+        XorShare(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl<V: Fp2Array> Add<&Self> for XorShare<V> {
+    type Output = Self;
+
+    fn add(mut self, rhs: &Self) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl<V: Fp2Array> AddAssign<&Self> for XorShare<V> {
+    fn add_assign(&mut self, rhs: &Self) {
+        self.0 += rhs.0;
+        self.1 += rhs.1;
+    }
+}
+
+impl<V: Fp2Array> Sub<Self> for &XorShare<V> {
+    type Output = XorShare<V>;
+
+    // `Sub` for `Fp2Array` implementation is XOR
+    fn sub(self, rhs: Self) -> Self::Output {
+        XorShare(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl<V: Fp2Array> Sub<&Self> for XorShare<V> {
+    type Output = Self;
+
+    fn sub(mut self, rhs: &Self) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
+impl<V: Fp2Array> SubAssign<&Self> for XorShare<V> {
+    fn sub_assign(&mut self, rhs: &Self) {
+        self.0 -= rhs.0;
+        self.1 -= rhs.1;
+    }
+}
+
+impl<V: Fp2Array> Mul<V> for XorShare<V> {
+    type Output = Self;
+
+    // `Mul` for `Fp2Array` implementation is AND
+    fn mul(self, rhs: V) -> Self::Output {
+        Self(self.0 * rhs, self.1 * rhs)
+    }
+}
+
+impl<V: Fp2Array> Neg for XorShare<V> {
+    type Output = Self;
+
+    // `Neg` for `Fp2Array` implementation is NOT
+    fn neg(self) -> Self::Output {
+        Self(-self.0, -self.1)
     }
 }
 

@@ -2,7 +2,7 @@ use futures::future::try_join_all;
 
 use crate::error::Error;
 use crate::ff::Field;
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
+use crate::secret_sharing::SecretSharing;
 use std::iter::repeat;
 
 use super::context::Context;
@@ -83,7 +83,7 @@ where
 fn flip_bits<F, S>(one: S, x: &[S]) -> Vec<S>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     x.iter()
         .zip(repeat(one))
@@ -97,7 +97,7 @@ pub(crate) async fn any_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> R
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     let one = ctx.share_known_value(F::ONE);
     let res = no_ones(ctx, record_id, x).await?;
@@ -108,7 +108,7 @@ pub(crate) async fn no_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Re
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     let one = ctx.share_known_value(F::ONE);
     let inverted_elements = flip_bits(one.clone(), x);

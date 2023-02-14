@@ -2,12 +2,13 @@ use super::{
     do_the_binary_tree_thing, if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
 };
+use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
 use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
 use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
-use crate::{error::Error, secret_sharing::Arithmetic};
+use crate::secret_sharing::SecretSharing;
 use futures::future::try_join_all;
 use std::{
     iter::{repeat, zip},
@@ -27,7 +28,7 @@ pub async fn credit_capping<F, C, T>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: SecretSharing<F>,
 {
     let input_len = input.len();
 
@@ -87,7 +88,7 @@ async fn mask_source_credits<F, C, T>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: SecretSharing<F>,
 {
     try_join_all(
         input
@@ -117,7 +118,7 @@ async fn credit_prefix_sum<'a, F, C, T, I>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F> + 'a,
+    T: SecretSharing<F> + 'a,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -137,7 +138,7 @@ async fn is_credit_larger_than_cap<F, C, T>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: SecretSharing<F>,
 {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
@@ -190,7 +191,7 @@ async fn compute_final_credits<F, C, T>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: SecretSharing<F>,
 {
     let num_rows = input.len();
     let cap = ctx.share_known_value(F::from(cap.into()));

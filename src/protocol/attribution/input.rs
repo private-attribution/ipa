@@ -5,13 +5,15 @@ use crate::helpers::Role;
 use crate::protocol::context::Context;
 use crate::protocol::sort::apply_sort::shuffle::Resharable;
 use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::malicious::{
-    AdditiveShare as MaliciousReplicated, DowngradeMalicious,
-    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
-};
 use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
-use crate::secret_sharing::Arithmetic;
+use crate::secret_sharing::{
+    replicated::malicious::{
+        AdditiveShare as MaliciousReplicated, DowngradeMalicious,
+        ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+    },
+    SecretSharing,
+};
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 use generic_array::GenericArray;
@@ -30,7 +32,7 @@ pub struct AccumulateCreditInputRow<F: Field, BK: Fp2Array> {
 }
 
 #[derive(Debug)]
-pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
+pub struct MCAccumulateCreditInputRow<F: Field, T: SecretSharing<F>> {
     pub is_trigger_report: T,
     pub helper_bit: T,
     pub breakdown_key: Vec<T>,
@@ -38,7 +40,7 @@ pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> MCAccumulateCreditInputRow<F, T> {
+impl<F: Field, T: SecretSharing<F>> MCAccumulateCreditInputRow<F, T> {
     pub fn new(
         is_trigger_report: T,
         helper_bit: T,
@@ -64,7 +66,7 @@ pub type CreditCappingInputRow<F, BK> = AccumulateCreditInputRow<F, BK>;
 pub type MCCreditCappingInputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCreditCappingOutputRow<F: Field, T: Arithmetic<F>> {
+pub struct MCCreditCappingOutputRow<F: Field, T: SecretSharing<F>> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
     pub _marker: PhantomData<F>,
@@ -119,7 +121,7 @@ pub struct AggregateCreditInputRow<F: Field, BK: Fp2Array> {
 pub type MCAggregateCreditInputRow<F, T> = MCCreditCappingOutputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCappedCreditsWithAggregationBit<F, T> {
+pub struct MCCappedCreditsWithAggregationBit<F: Field, T: SecretSharing<F>> {
     pub helper_bit: T,
     pub aggregation_bit: T,
     pub breakdown_key: Vec<T>,
@@ -127,7 +129,7 @@ pub struct MCCappedCreditsWithAggregationBit<F, T> {
     marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> MCCappedCreditsWithAggregationBit<F, T> {
+impl<F: Field, T: SecretSharing<F>> MCCappedCreditsWithAggregationBit<F, T> {
     pub fn new(helper_bit: T, aggregation_bit: T, breakdown_key: Vec<T>, credit: T) -> Self {
         Self {
             helper_bit,
@@ -142,13 +144,13 @@ impl<F: Field, T: Arithmetic<F>> MCCappedCreditsWithAggregationBit<F, T> {
 #[derive(Debug)]
 // TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
 //       instead of having a `Vec`, we can probably use an array since the length is known at compile time
-pub struct MCAggregateCreditOutputRow<F, T, BK> {
+pub struct MCAggregateCreditOutputRow<F: Field, T: SecretSharing<F>, BK: Fp2Array> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
     _marker: PhantomData<(F, BK)>,
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: Fp2Array> MCAggregateCreditOutputRow<F, T, BK>
+impl<F: Field, T: SecretSharing<F>, BK: Fp2Array> MCAggregateCreditOutputRow<F, T, BK>
 where
     T: Serializable,
 {
@@ -212,7 +214,7 @@ where
 }
 
 #[async_trait]
-impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F, T> {
+impl<F: Field, T: SecretSharing<F>> Resharable<F> for MCAccumulateCreditInputRow<F, T> {
     type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -253,7 +255,9 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
 }
 
 #[async_trait]
-impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAggregationBit<F, T> {
+impl<F: Field + Sized, T: SecretSharing<F>> Resharable<F>
+    for MCCappedCreditsWithAggregationBit<F, T>
+{
     type Share = T;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>

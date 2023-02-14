@@ -8,7 +8,7 @@ use crate::protocol::sort::{
 };
 use crate::protocol::{context::Context, RecordId};
 use crate::repeat64str;
-use crate::secret_sharing::{Arithmetic, SecretSharing, SharedValue};
+use crate::secret_sharing::{SecretSharing, SharedValue};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
@@ -41,7 +41,7 @@ impl From<usize> for InnerVectorElementStep {
 }
 
 #[async_trait]
-impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
+impl<T: SecretSharing<F>, F: Field> Resharable<F> for Vec<T> {
     type Share = T;
 
     /// This is intended to be used for resharing vectors of bit-decomposed values.

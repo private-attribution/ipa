@@ -6,8 +6,7 @@ use crate::protocol::prss::SharedRandomness;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
 use crate::secret_sharing::{
     replicated::semi_honest::AdditiveShare as Replicated,
-    replicated::semi_honest::XorShare as XorReplicated, Arithmetic as ArithmeticSecretSharing,
-    SecretSharing, SharedValue,
+    replicated::semi_honest::XorShare as XorReplicated, SecretSharing, SharedValue,
 };
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -59,7 +58,7 @@ async fn convert_triples_to_shares<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     let futures = triples.iter().enumerate().map(|(i, t)| {
         let c = ctx.narrow(&BitOpStep::from(i));

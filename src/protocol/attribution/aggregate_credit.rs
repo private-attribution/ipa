@@ -27,7 +27,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Arithmetic,
+        SecretSharing,
     },
 };
 
@@ -226,7 +226,7 @@ fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: SecretSharing<F>,
     BK: Fp2Array,
 {
     let zero = T::ZERO;

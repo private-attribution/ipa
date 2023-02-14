@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::ff::Field;
 use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::secret_sharing::SecretSharing;
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///
@@ -46,7 +46,7 @@ pub async fn bitwise_add_constant<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 
@@ -125,7 +125,7 @@ pub async fn bitwise_add_constant_maybe<F, C, S>(
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    S: SecretSharing<F>,
 {
     assert!(a.len() < 128);
     assert_eq!(

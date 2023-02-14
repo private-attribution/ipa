@@ -2,7 +2,7 @@ use crate::{
     bits::Serializable,
     ff::Field,
     helpers::Role,
-    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue},
+    secret_sharing::{SecretSharing, SharedValue},
 };
 use generic_array::{ArrayLength, GenericArray};
 use std::fmt::{Debug, Formatter};
@@ -15,8 +15,6 @@ pub struct AdditiveShare<V: SharedValue>(V, V);
 impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
-
-impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 
 impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
