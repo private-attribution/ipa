@@ -156,7 +156,7 @@ macro_rules! field_impl {
                     let mut buf = GenericArray::default();
                     field_v.serialize(&mut buf);
 
-                    assert_eq!(field_v, $field::deserialize(buf));
+                    assert_eq!(field_v, $field::deserialize(&buf));
                 }
             }
         }
@@ -191,8 +191,8 @@ mod fp31 {
 }
 
 mod fp32bit {
-    use typenum::U5;
-    field_impl! { Fp32BitPrime, u32, 4_294_967_291, U5 }
+    use typenum::U4;
+    field_impl! { Fp32BitPrime, u32, 4_294_967_291, U4 }
 
     #[cfg(all(test, not(feature = "shuttle")))]
     mod specialized_tests {

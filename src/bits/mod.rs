@@ -71,5 +71,5 @@ pub trait Serializable: Sized {
     /// buffer has enough capacity to fit instances of this trait.
     ///
     /// [`serialize`]: Self::serialize
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self;
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
 }

@@ -127,8 +127,8 @@ impl Serializable for PublicKeyChunk {
         buf.copy_from_slice(&self.0);
     }
 
-    fn deserialize(buf: GenericArray<u8, Self::Size>) -> Self {
-        Self(buf.into())
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        Self((*buf).into())
     }
 }
 
@@ -181,7 +181,7 @@ mod tests {
         chunk.serialize(&mut serialized);
         assert_eq!(chunk_bytes, &serialized);
 
-        let deserialized = PublicKeyChunk::deserialize(serialized);
+        let deserialized = PublicKeyChunk::deserialize(&serialized);
         assert_eq!(chunk, deserialized);
     }
 

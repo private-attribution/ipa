@@ -2,6 +2,7 @@ mod fsv;
 mod ordering_mpsc;
 mod receive;
 mod send;
+mod unordered_receiver;
 
 pub use receive::ReceiveBuffer;
 pub use {send::Config as SendBufferConfig, send::SendBuffer};
