@@ -26,24 +26,24 @@ if [[ "$1" == "install" ]]; then
 fi
 
 save_merge_files() {
-    # MERGE_[HEAD|MODE|MSG]
+    # Move MERGE_[HEAD|MODE|MSG] files to the root directory, and let `git stash push` saves them.
     for f in "$root"/.git/MERGE_*; do
 	if [[ -e "$f" ]]; then
             t=$(basename $f)
-            cp -f "$f" "$t"
+            mv -f "$f" "$t"
 	fi
     done
 }
 
 restore_merge_files() {
+    # Moves MERGE files restored by `git stash pop` back into .git/ directory.
     for f in MERGE_*; do
 	if [[ -e "$f" ]]; then
-            t=$(basename $f)
-	    if [[ -e "${root}/.git/${t}" ]]; then
-		echo "Failed to restore ${t}. File already exists"
-		exit 1
+	    if [[ -e "${root}/.git/${f}" ]]; then
+		echo "Failed to restore ${f}. File already exists" 1>&2
+	    else
+		mv -f "$f" "${root}/.git/${f}"
 	    fi
-            mv -f "$f" "${root}/.git/${t}"
 	fi
     done
 }
