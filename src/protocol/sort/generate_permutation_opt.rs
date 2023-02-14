@@ -59,7 +59,6 @@ where
 
     let mut composed_less_significant_bits_permutation = lsb_permutation;
     for (bit_num, one_slice) in sort_keys.enumerate() {
-        // let bit_num = bit_num + 1;
         let ctx_bit = ctx.narrow(&Sort(bit_num));
         let revealed_and_random_permutations = shuffle_and_reveal_permutation(
             ctx_bit.narrow(&ShuffleRevealPermutation),

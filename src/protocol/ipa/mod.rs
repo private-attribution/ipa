@@ -280,7 +280,6 @@ pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
 where
     Replicated<F>: Serializable,
 {
-    let num_records = input_rows.len();
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
         .iter()
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
@@ -314,7 +313,7 @@ where
     .await
     .unwrap();
 
-    let converted_mk_shares = combine_slices(converted_mk_shares.iter(), num_records, MK::BITS);
+    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
     let combined_match_keys_and_sidecar_data =
         std::iter::zip(converted_mk_shares, converted_bk_shares)
@@ -405,7 +404,6 @@ where
     BK: BitArray,
     MaliciousReplicated<F>: Serializable,
 {
-    let num_records = input_rows.len();
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
 
@@ -439,7 +437,7 @@ where
     let malicious_validator = MaliciousValidator::new(sh_ctx.narrow(&Step::AfterConvertAllBits));
     let m_ctx = malicious_validator.context();
 
-    let converted_mk_shares = combine_slices(converted_mk_shares.iter(), num_records, MK::BITS);
+    let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
