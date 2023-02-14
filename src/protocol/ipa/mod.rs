@@ -43,7 +43,7 @@ use std::{
 use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Step {
+pub enum Step {
     ModulusConversionForMatchKeys,
     ModulusConversionForBreakdownKeys,
     GenSortPermutationFromMatchKeys,
@@ -394,18 +394,19 @@ where
 /// # Panics
 /// Propagates errors from multiplications
 #[allow(dead_code, clippy::too_many_lines)]
-pub async fn ipa_wip_malicious<F, MK, BK>(
-    sh_ctx: SemiHonestContext<'_, F>,
+pub async fn ipa_malicious<'a, F, MK, BK>(
+    sh_ctx: SemiHonestContext<'a, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
     MK: Fp2Array,
     BK: Fp2Array,
     MaliciousReplicated<F>: Serializable,
+    Replicated<F>: Serializable,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
@@ -537,20 +538,20 @@ where
     .await?;
 
     //Validate before calling sort with downgraded context
-    malicious_aggregate_credit::<F, BK>(
-        m_ctx.narrow(&Step::AggregateCredit),
+    let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
         malicious_validator,
         sh_ctx,
         &user_capped_credits,
         max_breakdown_key,
         num_multi_bits,
     )
-    .await
+    .await?;
+    malicious_validator.validate(output).await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use super::{ipa, ipa_wip_malicious, IPAInputRow};
+    use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::bits::{Fp2Array, Serializable};
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::ipa_test_input;
@@ -579,7 +580,7 @@ pub mod tests {
 
         let world = TestWorld::new().await;
 
-        let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
+        let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
@@ -590,7 +591,7 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa::<Fp31, MatchKey, BreakdownKey>(
                     ctx,
@@ -619,7 +620,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn malicious_wip() {
+    async fn malicious() {
         const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
@@ -639,9 +640,9 @@ pub mod tests {
             (Fp31, MatchKey, BreakdownKey)
         );
 
-        let [result0, result1, result2] = world
+        let result: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_wip_malicious::<Fp31, MatchKey, BreakdownKey>(
+                ipa_malicious::<_, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -651,11 +652,19 @@ pub mod tests {
                 .await
                 .unwrap()
             })
-            .await;
+            .await
+            .reconstruct();
+        assert_eq!(EXPECTED.len(), result.len());
 
-        assert_eq!(EXPECTED.len(), result0.len());
-        assert_eq!(EXPECTED.len(), result1.len());
-        assert_eq!(EXPECTED.len(), result2.len());
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
+        }
     }
 
     #[tokio::test]
@@ -761,8 +770,8 @@ pub mod tests {
         /// empirical value as of Feb 4, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE: u64 = 10740;
 
-        /// empirical value as of Feb 4, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 26395;
+        /// empirical value as of Feb 14, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 26410;
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
@@ -804,7 +813,7 @@ pub mod tests {
 
         let _ = world
             .semi_honest(records, |ctx, input_rows| async move {
-                ipa_wip_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
                     PER_USER_CAP,
@@ -818,10 +827,13 @@ pub mod tests {
 
         let snapshot = world.metrics_snapshot();
         let records_sent = snapshot.get_counter(RECORDS_SENT);
-        assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE);
+
         if records_sent < RECORDS_SENT_MALICIOUS_BASELINE {
             tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
-                            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
         }
+
+        assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE,
+            "Baseline for malicious IPA has DEGRADED! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.");
     }
 }

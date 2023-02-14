@@ -1,9 +1,10 @@
+#![cfg(feature = "web-app")]
+
 use crate::net::discovery::Conf;
 use std::fmt::Debug;
 
 /// Creates a new config for helpers configured to run on local machine using unique port.
 #[allow(clippy::missing_panics_doc)]
-#[cfg(feature = "web-app")]
 pub fn localhost_config<P: TryInto<u16>>(ports: [P; 3]) -> Conf
 where
     P::Error: Debug,
