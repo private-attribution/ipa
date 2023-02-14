@@ -403,6 +403,7 @@ where
     MK: BitArray,
     BK: BitArray,
     MaliciousReplicated<F>: Serializable,
+    Replicated<F>: Serializable,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
@@ -547,8 +548,6 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use std::cmp::Ordering;
-
     use crate::{
         bits::{BitArray, Serializable},
         ff::{Field, Fp31, Fp32BitPrime},
@@ -773,7 +772,7 @@ pub mod tests {
         /// empirical value as of Feb 4, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE: u64 = 10740;
 
-        /// empirical value as of Feb 4, 2023.
+        /// empirical value as of Feb 14, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 26410;
 
         let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
@@ -830,17 +829,13 @@ pub mod tests {
 
         let snapshot = world.metrics_snapshot();
         let records_sent = snapshot.get_counter(RECORDS_SENT);
-        match records_sent.cmp(&RECORDS_SENT_MALICIOUS_BASELINE) {
-            Ordering::Less => {
-                tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
+
+        if records_sent < RECORDS_SENT_MALICIOUS_BASELINE {
+            tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
             Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
-            }
-            Ordering::Greater => {
-                tracing::error!("Baseline for malicious IPA has DEGRADED! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.");
-            }
-            Ordering::Equal => {}
         }
 
-        assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE);
+        assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE,
+            "Baseline for malicious IPA has DEGRADED! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.");
     }
 }

@@ -93,18 +93,18 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
 #[async_trait]
 impl<F: Field, BK: BitArray> DowngradeMalicious
     for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>
+where
+    Replicated<F>: Serializable,
 {
     type Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper::new(Self::Target {
-            breakdown_key: self
-                .breakdown_key
+        UnauthorizedDowngradeWrapper::new(Self::Target::new(
+            self.breakdown_key
                 .into_iter()
                 .map(|bk| bk.x().access_without_downgrade().clone())
                 .collect::<Vec<_>>(),
-            credit: self.credit.x().access_without_downgrade().clone(),
-            _marker: PhantomData::default(),
-        })
+            self.credit.x().access_without_downgrade().clone(),
+        ))
     }
 }
 
@@ -132,10 +132,10 @@ pub struct MCCappedCreditsWithAggregationBit<F: Field, T: Arithmetic<F>> {
 #[derive(Debug)]
 // TODO: `breakdown_key`'s length == `<BK as BitArray>::BITS`.
 //       instead of having a `Vec`, we can probably use an array since the length is known at compile time
-pub struct MCAggregateCreditOutputRow<F: Field, T: Arithmetic<F>, BK: BitArray> {
+pub struct MCAggregateCreditOutputRow<F, T, BK> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
-    pub _marker: PhantomData<(F, BK)>,
+    _marker: PhantomData<(F, BK)>,
 }
 
 impl<F: Field, T: Arithmetic<F>, BK: BitArray> MCAggregateCreditOutputRow<F, T, BK>

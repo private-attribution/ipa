@@ -111,11 +111,7 @@ where
     Ok(sorted_output
         .iter()
         .take(max_breakdown_key.try_into().unwrap())
-        .map(|x| MCAggregateCreditOutputRow {
-            breakdown_key: x.breakdown_key.clone(),
-            credit: x.credit.clone(),
-            _marker: PhantomData::default(),
-        })
+        .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
         .collect::<Vec<_>>())
 }
 
@@ -125,7 +121,6 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-#[allow(clippy::too_many_lines)]
 pub async fn malicious_aggregate_credit<'a, F, BK>(
     malicious_validator: MaliciousValidator<'_, F>,
     sh_ctx: SemiHonestContext<'a, F>,
