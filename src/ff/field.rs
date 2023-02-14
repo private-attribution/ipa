@@ -1,7 +1,5 @@
-use crate::{
-    bits::{BooleanOps, Serializable},
-    secret_sharing::ArithmeticShare,
-};
+use crate::bits::{BooleanOps, Serializable};
+use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
 
@@ -18,7 +16,7 @@ impl Int for u32 {
     const BITS: u32 = u32::BITS;
 }
 
-pub trait Field: ArithmeticShare + From<u128> + Into<Self::Integer> {
+pub trait Field: SharedValue + From<u128> + Into<Self::Integer> {
     type Integer: Int;
     type Size: ArrayLength<u8>;
 

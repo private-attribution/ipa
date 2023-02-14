@@ -364,7 +364,7 @@ mod tests {
 
     use rand::seq::SliceRandom;
 
-    use crate::bits::BitArray;
+    use crate::bits::Fp2Array;
     use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::sort::generate_permutation_opt::generate_permutation_opt;
     use crate::protocol::MatchKey;

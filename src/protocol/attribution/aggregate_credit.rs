@@ -1,5 +1,5 @@
 use crate::{
-    bits::{BitArray, Serializable},
+    bits::{Fp2Array, Serializable},
     error::Error,
     ff::Field,
     protocol::{
@@ -39,13 +39,15 @@ use crate::protocol::ipa::Step::AggregateCredit;
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn aggregate_credit<F: Field, BK: BitArray>(
+pub async fn aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
+    F: Field,
+    BK: Fp2Array,
     Replicated<F>: Serializable,
 {
     //
@@ -136,7 +138,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
 >
 where
     F: Field,
-    BK: BitArray,
+    BK: Fp2Array,
     MaliciousReplicated<F>: Serializable,
 {
     let m_ctx = malicious_validator.context().narrow(&AggregateCredit);
@@ -225,7 +227,7 @@ where
     F: Field,
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
-    BK: BitArray,
+    BK: Fp2Array,
 {
     let zero = T::ZERO;
     let one = ctx.share_known_value(F::ONE);
@@ -445,7 +447,7 @@ mod tests {
 
     use super::aggregate_credit;
     use crate::aggregation_test_input;
-    use crate::bits::BitArray;
+    use crate::bits::Fp2Array;
     use crate::ff::{Field, Fp32BitPrime};
     use crate::protocol::attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow};
     use crate::protocol::context::Context;

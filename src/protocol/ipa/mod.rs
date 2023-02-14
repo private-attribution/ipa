@@ -1,5 +1,5 @@
 use crate::{
-    bits::{BitArray, Serializable},
+    bits::{Fp2Array, Serializable},
     error::Error,
     ff::Field,
     helpers::Role,
@@ -95,14 +95,14 @@ impl AsRef<str> for IPAInputRowResharableStep {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct IPAInputRow<F: Field, MK: BitArray, BK: BitArray> {
+pub struct IPAInputRow<F: Field, MK: Fp2Array, BK: Fp2Array> {
     pub mk_shares: XorReplicated<MK>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: XorReplicated<BK>,
     pub trigger_value: Replicated<F>,
 }
 
-impl<F: Field, MK: BitArray, BK: BitArray> Serializable for IPAInputRow<F, MK, BK>
+impl<F: Field, MK: Fp2Array, BK: Fp2Array> Serializable for IPAInputRow<F, MK, BK>
 where
     XorReplicated<BK>: Serializable,
     XorReplicated<MK>: Serializable,
@@ -176,7 +176,7 @@ where
     }
 }
 
-impl<F: Field, MK: BitArray, BK: BitArray> IPAInputRow<F, MK, BK>
+impl<F: Field, MK: Fp2Array, BK: Fp2Array> IPAInputRow<F, MK, BK>
 where
     IPAInputRow<F, MK, BK>: Serializable,
 {
@@ -270,7 +270,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
+pub async fn ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
@@ -278,6 +278,9 @@ pub async fn ipa<F: Field, MK: BitArray, BK: BitArray>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
+    F: Field,
+    MK: Fp2Array,
+    BK: Fp2Array,
     Replicated<F>: Serializable,
 {
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -400,8 +403,8 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    MK: BitArray,
-    BK: BitArray,
+    MK: Fp2Array,
+    BK: Fp2Array,
     MaliciousReplicated<F>: Serializable,
     Replicated<F>: Serializable,
 {
@@ -548,27 +551,22 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use crate::{
-        bits::{BitArray, Serializable},
-        ff::{Field, Fp31, Fp32BitPrime},
-        ipa_test_input,
-        protocol::{
-            ipa::{ipa, ipa_malicious, IPAInputRow},
-            BreakdownKey, MatchKey,
-        },
-        rand::thread_rng,
-        secret_sharing::IntoShares,
-        telemetry::metrics::RECORDS_SENT,
-        test_fixture::{
-            input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
-        },
+    use super::{ipa, ipa_malicious, IPAInputRow};
+    use crate::bits::{Fp2Array, Serializable};
+    use crate::ff::{Field, Fp31, Fp32BitPrime};
+    use crate::ipa_test_input;
+    use crate::protocol::{BreakdownKey, MatchKey};
+    use crate::secret_sharing::IntoShares;
+    use crate::telemetry::metrics::RECORDS_SENT;
+    use crate::test_fixture::{
+        input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
     };
     use generic_array::GenericArray;
     use proptest::{
         proptest,
         test_runner::{RngAlgorithm, TestRng},
     };
-    use rand::Rng;
+    use rand::{thread_rng, Rng};
     use typenum::Unsigned;
 
     #[tokio::test]

@@ -1,9 +1,8 @@
 use crate::helpers::messaging::{Mesh, TotalRecords};
 use crate::helpers::Role;
 use crate::protocol::basics::{Reveal, SecureMul};
-
 use crate::protocol::{Step, Substep};
-use crate::secret_sharing::{ArithmeticShare, SecretSharing};
+use crate::secret_sharing::{SecretSharing, SharedValue};
 
 pub mod malicious;
 mod prss;
@@ -20,7 +19,7 @@ use super::boolean::RandomBits;
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
-pub trait Context<V: ArithmeticShare>:
+pub trait Context<V: SharedValue>:
     SecureMul<V, Share = <Self as Context<V>>::Share>
     + SecureSop<V, Share = <Self as Context<V>>::Share>
     + Reshare<V, Share = <Self as Context<V>>::Share>

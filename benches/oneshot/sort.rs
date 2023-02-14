@@ -1,6 +1,6 @@
 use rand::Rng;
 use raw_ipa::{
-    bits::{BitArray, BitArray40},
+    bits::{BitArray40, Fp2Array},
     error::Error,
     ff::{Field, Fp32BitPrime},
     helpers::messaging::TotalRecords,

@@ -1,26 +1,21 @@
-use std::iter::{repeat, zip};
-
-use crate::repeat64str;
-use crate::secret_sharing::Arithmetic;
-use crate::secret_sharing::{ArithmeticShare, SecretSharing};
-use crate::{
-    error::Error,
-    ff::Field,
-    helpers::{Direction, Role},
-    protocol::{context::Context, RecordId},
+use crate::error::Error;
+use crate::ff::Field;
+use crate::helpers::{Direction, Role};
+use crate::protocol::sort::{
+    apply::{apply, apply_inv},
+    shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
+    ShuffleStep::{self, Step1, Step2, Step3},
 };
+use crate::protocol::{context::Context, RecordId};
+use crate::repeat64str;
+use crate::secret_sharing::{Arithmetic, SecretSharing, SharedValue};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-
-use crate::protocol::sort::shuffle::{shuffle_for_helper, ShuffleOrUnshuffle};
-use crate::protocol::sort::{
-    apply::{apply, apply_inv},
-    ShuffleStep::{self, Step1, Step2, Step3},
-};
+use std::iter::{repeat, zip};
 
 #[async_trait]
-pub trait Resharable<V: ArithmeticShare>: Sized {
+pub trait Resharable<V: SharedValue>: Sized {
     type Share: SecretSharing<V>;
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
@@ -166,7 +161,7 @@ mod tests {
 
     mod semi_honest {
         use crate::accumulation_test_input;
-        use crate::bits::BitArray;
+        use crate::bits::Fp2Array;
         use crate::protocol::attribution::input::{
             AccumulateCreditInputRow, MCAccumulateCreditInputRow,
         };
