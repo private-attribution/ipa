@@ -10,7 +10,7 @@ use crate::{
                 MCCappedCreditsWithAggregationBit,
             },
         },
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{Context, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
         sort::{
@@ -30,6 +30,8 @@ use crate::{
         Arithmetic,
     },
 };
+
+use crate::protocol::ipa::Step::AggregateCredit;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -106,13 +108,11 @@ where
             .await?;
 
     // Take the first k elements, where k is the amount of breakdown keys.
-    let result = sorted_output
+    Ok(sorted_output
         .iter()
         .take(max_breakdown_key.try_into().unwrap())
         .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
-        .collect::<Vec<_>>();
-
-    Ok(result)
+        .collect::<Vec<_>>())
 }
 
 /// Aggregation step for Oblivious Attribution protocol.
@@ -121,19 +121,25 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn malicious_aggregate_credit<F, BK>(
-    m_ctx: MaliciousContext<'_, F>,
+pub async fn malicious_aggregate_credit<'a, F, BK>(
     malicious_validator: MaliciousValidator<'_, F>,
-    sh_ctx: SemiHonestContext<'_, F>,
+    sh_ctx: SemiHonestContext<'a, F>,
     capped_credits: &[MCAggregateCreditInputRow<F, MaliciousReplicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>>, Error>
+) -> Result<
+    (
+        MaliciousValidator<'a, F>,
+        Vec<MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>>,
+    ),
+    Error,
+>
 where
     F: Field,
     BK: BitArray,
     MaliciousReplicated<F>: Serializable,
 {
+    let m_ctx = malicious_validator.context().narrow(&AggregateCredit);
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
     //
@@ -194,7 +200,7 @@ where
     //
     // 4. Sort by `aggregation_bit`
     //
-    let sorted_output = malicious_sort_by_aggregation_bit(
+    let (malicious_validator, sorted_output) = malicious_sort_by_aggregation_bit(
         sh_ctx.narrow(&Step::SortByAttributionBit),
         aggregated_credits,
     )
@@ -207,7 +213,7 @@ where
         .map(|x| MCAggregateCreditOutputRow::new(x.breakdown_key.clone(), x.credit.clone()))
         .collect::<Vec<_>>();
 
-    Ok(result)
+    Ok((malicious_validator, result))
 }
 
 fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
@@ -370,10 +376,16 @@ async fn sort_by_aggregation_bit<F: Field>(
     .await
 }
 
-async fn malicious_sort_by_aggregation_bit<F: Field>(
+async fn malicious_sort_by_aggregation_bit<'a, F: Field>(
     ctx: SemiHonestContext<'_, F>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>, Error> {
+) -> Result<
+    (
+        MaliciousValidator<'_, F>,
+        Vec<MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>>>,
+    ),
+    Error,
+> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
     let aggregation_bits = &[input
@@ -391,12 +403,15 @@ async fn malicious_sort_by_aggregation_bit<F: Field>(
     let m_ctx = malicious_validator.context();
     let input = m_ctx.upgrade(input).await?;
 
-    apply_sort_permutation(
-        m_ctx.narrow(&Step::ApplyPermutationOnAttributionBit),
-        input,
-        &sort_permutation,
-    )
-    .await
+    Ok((
+        malicious_validator,
+        apply_sort_permutation(
+            m_ctx.narrow(&Step::ApplyPermutationOnAttributionBit),
+            input,
+            &sort_permutation,
+        )
+        .await?,
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
