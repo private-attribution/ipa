@@ -26,7 +26,7 @@ if [[ "$1" == "install" ]]; then
 fi
 
 save_merge_files() {
-    # Move MERGE_[HEAD|MODE|MSG] files to the root directory, and let `git stash push` saves them.
+    # Move MERGE_[HEAD|MODE|MSG] files to the root directory, and let `git stash push` save them.
     for f in "$root"/.git/MERGE_*; do
 	if [[ -e "$f" ]]; then
             t=$(basename $f)
