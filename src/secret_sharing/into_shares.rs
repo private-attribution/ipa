@@ -1,9 +1,8 @@
+use super::SharedValue;
 use crate::{
+    bits::Fp2Array,
     rand::{thread_rng, Rng},
-    secret_sharing::{
-        replicated::semi_honest::{AdditiveShare, XorShare},
-        ArithmeticShare, BooleanShare,
-    },
+    secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
 };
 use rand::distributions::{Distribution, Standard};
 
@@ -16,7 +15,7 @@ pub trait IntoShares<T>: Sized {
 
 impl<V> IntoShares<AdditiveShare<V>> for V
 where
-    V: ArithmeticShare,
+    V: SharedValue,
     Standard: Distribution<V>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AdditiveShare<V>; 3] {
@@ -34,7 +33,7 @@ where
 
 impl<V> IntoShares<XorShare<V>> for V
 where
-    V: BooleanShare,
+    V: Fp2Array,
     Standard: Distribution<V>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [XorShare<V>; 3] {

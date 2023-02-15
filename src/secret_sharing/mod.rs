@@ -7,25 +7,15 @@ mod scheme;
 pub use into_shares::IntoShares;
 pub use scheme::{Arithmetic, Boolean, SecretSharing};
 
-use crate::{
-    bits::{BooleanOps, Serializable},
-    ff::ArithmeticOps,
-};
+use crate::bits::Serializable;
+use crate::ff::ArithmeticOps;
 use std::fmt::Debug;
 
 pub trait SharedValue:
-    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + Serializable + 'static
+    Clone + Copy + PartialEq + Debug + Send + Sync + Sized + ArithmeticOps + Serializable + 'static
 {
     /// Number of bits stored in this data type.
     const BITS: u32;
 
     const ZERO: Self;
 }
-
-pub trait ArithmeticShare: SharedValue + ArithmeticOps {}
-
-pub trait BooleanShare: SharedValue + BooleanOps {}
-
-impl<T> ArithmeticShare for T where T: SharedValue + ArithmeticOps + Serializable {}
-
-impl<T> BooleanShare for T where T: SharedValue + BooleanOps + Serializable {}

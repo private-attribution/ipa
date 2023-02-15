@@ -4,7 +4,7 @@ use crate::ff::Field;
 use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
 use crate::secret_sharing::{
     replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, ArithmeticShare, SecretSharing,
+    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, SharedValue,
 };
 use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
@@ -13,7 +13,7 @@ use futures::future::{try_join, try_join_all};
 
 /// Trait for reveal protocol to open a shared secret to all helpers inside the MPC ring.
 #[async_trait]
-pub trait Reveal<V: ArithmeticShare> {
+pub trait Reveal<V: SharedValue> {
     /// Secret sharing type that reveal implementation works with. Note that field type does not
     /// matter - implementations must be able to reveal secret value from any field.
     type Share: SecretSharing<V>;

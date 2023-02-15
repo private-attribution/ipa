@@ -46,7 +46,7 @@ where
 mod tests {
     use crate::{
         accumulation_test_input,
-        bits::BitArray,
+        bits::Fp2Array,
         ff::Fp32BitPrime,
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},

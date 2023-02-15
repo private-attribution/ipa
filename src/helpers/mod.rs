@@ -59,6 +59,7 @@ impl TryFrom<usize> for HelperIdentity {
     }
 }
 
+#[cfg(feature = "web-app")]
 impl From<HelperIdentity> for hyper::header::HeaderValue {
     fn from(id: HelperIdentity) -> Self {
         // does not implement `From<u8>`

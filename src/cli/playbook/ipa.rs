@@ -1,5 +1,7 @@
+#![cfg(feature = "web-app")]
+
 use crate::{
-    bits::{BitArray, Serializable},
+    bits::{Fp2Array, Serializable},
     cli::playbook::InputSource,
     ff::Field,
     helpers::{query::QueryInput, transport::ByteArrStream},
@@ -27,8 +29,8 @@ pub async fn semi_honest<F, MK, BK>(
 ) -> [Vec<impl Send + Debug>; 3]
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: BitArray + IntoShares<XorReplicated<MK>>,
-    BK: BitArray + IntoShares<XorReplicated<BK>>,
+    MK: Fp2Array + IntoShares<XorReplicated<MK>>,
+    BK: Fp2Array + IntoShares<XorReplicated<BK>>,
     Standard: Distribution<F>,
     IPAInputRow<F, MK, BK>: Serializable,
     Replicated<F>: Serializable,
