@@ -25,7 +25,7 @@ use tokio::sync::oneshot;
 pub struct Processor<T: Transport> {
     /// Input stream of commands this processor is attached to. It is not being actively listened
     /// by this instance. Instead, commands are being consumed on demand when an external entity
-    /// drives it by calling handle_next function.
+    /// drives it by calling `handle_next` function.
     #[pin]
     command_stream: T::CommandStream,
     transport: T,

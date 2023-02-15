@@ -162,7 +162,7 @@ mod tests {
                         .await
                         .unwrap();
                     let converted_bk_shares =
-                    converted_bk_shares.remove(0).into_iter();
+                    converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
                         .into_iter()
                         .zip(converted_bk_shares)
@@ -225,7 +225,7 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                        let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
+                        let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                         let modulus_converted_share = MCAccumulateCreditInputRow::new(
                             share.is_trigger_report,

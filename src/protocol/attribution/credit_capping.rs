@@ -346,7 +346,7 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)

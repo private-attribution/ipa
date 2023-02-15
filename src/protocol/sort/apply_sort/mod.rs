@@ -130,7 +130,7 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                     let converted_secret = secret
                         .into_iter()

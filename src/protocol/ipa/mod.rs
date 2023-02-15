@@ -294,7 +294,7 @@ where
     )
     .await
     .unwrap();
-    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
+    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
@@ -452,7 +452,7 @@ where
     .await
     .unwrap();
 
-    let converted_bk_shares = converted_bk_shares.remove(0).into_iter();
+    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
     let intermediate = converted_mk_shares
         .into_iter()
