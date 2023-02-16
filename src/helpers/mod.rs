@@ -1,3 +1,4 @@
+pub mod map;
 pub mod messaging;
 pub mod network;
 pub mod transport;
@@ -9,6 +10,7 @@ mod time;
 
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
+pub use map::{Map, Mapping};
 pub use messaging::GatewayConfig;
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{

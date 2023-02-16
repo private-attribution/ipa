@@ -1,6 +1,7 @@
 use crate::{
     bits::Serializable,
     ff::Field,
+    helpers::{Map, Mapping},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext, NoRecord},
@@ -14,7 +15,6 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::future::{join, join_all};
 use generic_array::{ArrayLength, GenericArray};
 use std::{
     fmt::{Debug, Formatter},
@@ -34,6 +34,19 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
 
 impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 
+/// Trait for dangerously downgrading a malicious sharing to a semi-honest sharing, without an
+/// `UnauthorizedDowngradeWrapper` to prevent unsafe use of the result.
+///
+/// This should not be used directly. Downgrades should use the `Downgrade` trait which applies the
+/// protective `UnauthorizedDowngradeWrapper` to the result. `UncheckedDowngrade` has to be pub because
+/// it is visible in the associated type `Downgrade::Target`.
+///
+/// The value of `UncheckedDowngrade` is that downgrades can be supported for arbitrary structs via a
+/// safe implementation of the `Map` trait.
+pub struct UncheckedDowngrade;
+
+impl Mapping for UncheckedDowngrade {}
+
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
 /// when the protocol is done.  This should not be used directly.
@@ -41,6 +54,19 @@ impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
 pub trait Downgrade: Send {
     type Target: Send;
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target>;
+}
+
+#[async_trait]
+impl<T> Downgrade for T
+where
+    T: Map<UncheckedDowngrade> + Send + 'static,
+    <T as Map<UncheckedDowngrade>>::Output: Send + 'static,
+{
+    type Target = <T as Map<UncheckedDowngrade>>::Output;
+
+    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
+        UnauthorizedDowngradeWrapper(self.map())
+    }
 }
 
 #[must_use = "You should not be downgrading `replicated::malicious::AdditiveShare` values without calling `MaliciousValidator::validate()`"]
@@ -199,27 +225,10 @@ where
     }
 }
 
-#[async_trait]
-impl<F: Field> Downgrade for AdditiveShare<F> {
-    type Target = SemiHonestAdditiveShare<F>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper(self.x)
-    }
-}
-
-#[async_trait]
-impl<T, U> Downgrade for (T, U)
-where
-    T: Downgrade,
-    U: Downgrade,
-{
-    type Target = (<T>::Target, <U>::Target);
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = join(self.0.downgrade(), self.1.downgrade()).await;
-        UnauthorizedDowngradeWrapper((
-            output.0.access_without_downgrade(),
-            output.1.access_without_downgrade(),
-        ))
+impl<F: Field> Map<UncheckedDowngrade> for AdditiveShare<F> {
+    type Output = SemiHonestAdditiveShare<F>;
+    fn map(self) -> Self::Output {
+        self.x
     }
 }
 
@@ -234,21 +243,6 @@ impl<'a, F: Field> Downgrade
             .await
             .unwrap();
         UnauthorizedDowngradeWrapper(output)
-    }
-}
-
-#[async_trait]
-impl<T> Downgrade for Vec<T>
-where
-    T: Downgrade,
-{
-    type Target = Vec<<T as Downgrade>::Target>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let result = join_all(
-            self.into_iter()
-                .map(|v| async move { v.downgrade().await.access_without_downgrade() }),
-        );
-        UnauthorizedDowngradeWrapper(result.await)
     }
 }
 

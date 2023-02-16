@@ -2,16 +2,10 @@ use crate::{
     bits::{Fp2Array, Serializable},
     error::Error,
     ff::Field,
-    helpers::Role,
+    helpers::{Map, Mapping, Role},
     protocol::{basics::Reshare, context::Context, RecordId, Substep},
     secret_sharing::{
-        replicated::{
-            malicious::{
-                AdditiveShare as MaliciousReplicated, DowngradeMalicious,
-                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
-            },
-            semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
-        },
+        replicated::semi_honest::{AdditiveShare, XorShare},
         Arithmetic,
     },
 };
@@ -125,39 +119,18 @@ impl<F: Field, T: Arithmetic<F>> MCCreditCappingOutputRow<F, T> {
     }
 }
 
-#[async_trait]
-impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, MaliciousReplicated<F>> {
-    type Target = MCCappedCreditsWithAggregationBit<F, Replicated<F>>;
-    /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        // Note that this clones the values rather than moving them.
-        UnauthorizedDowngradeWrapper::new(Self::Target::new(
-            self.helper_bit.x().access_without_downgrade().clone(),
-            self.aggregation_bit.x().access_without_downgrade().clone(),
-            self.breakdown_key
-                .into_iter()
-                .map(|bk| bk.x().access_without_downgrade().clone())
-                .collect::<Vec<_>>(),
-            self.credit.x().access_without_downgrade().clone(),
-        ))
-    }
-}
-
-#[async_trait]
-impl<F: Field, BK: Fp2Array> DowngradeMalicious
-    for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>
+impl<F, BK, M, T, U> Map<M> for MCAggregateCreditOutputRow<F, T, BK>
 where
-    Replicated<F>: Serializable,
+    F: Field,
+    BK: Fp2Array,
+    M: Mapping,
+    T: Map<M, Output = U>,
+    U: Arithmetic<F> + Serializable,
 {
-    type Target = MCAggregateCreditOutputRow<F, Replicated<F>, BK>;
-    async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        UnauthorizedDowngradeWrapper::new(Self::Target::new(
-            self.breakdown_key
-                .into_iter()
-                .map(|bk| bk.x().access_without_downgrade().clone())
-                .collect::<Vec<_>>(),
-            self.credit.x().access_without_downgrade().clone(),
-        ))
+    type Output = MCAggregateCreditOutputRow<F, U, BK>;
+
+    fn map(self) -> Self::Output {
+        Self::Output::new(self.breakdown_key.map(), self.credit.map())
     }
 }
 
@@ -315,6 +288,24 @@ where
             breakdown_key,
             trigger_value,
         ))
+    }
+}
+
+impl<F, M, T, U> Map<M> for MCCappedCreditsWithAggregationBit<F, T>
+where
+    F: Field,
+    M: Mapping,
+    T: Map<M, Output = U>,
+    U: Arithmetic<F>,
+{
+    type Output = MCCappedCreditsWithAggregationBit<F, U>;
+    fn map(self) -> Self::Output {
+        Self::Output::new(
+            self.helper_bit.map(),
+            self.aggregation_bit.map(),
+            self.breakdown_key.map(),
+            self.credit.map(),
+        )
     }
 }
 
