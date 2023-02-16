@@ -67,6 +67,16 @@ impl From<HelperIdentity> for hyper::header::HeaderValue {
     }
 }
 
+#[cfg(test)]
+impl From<i32> for HelperIdentity {
+    fn from(value: i32) -> Self {
+        usize::try_from(value)
+            .ok()
+            .and_then(|id| HelperIdentity::try_from(id).ok())
+            .unwrap()
+    }
+}
+
 #[cfg(any(test, feature = "test-fixture"))]
 impl HelperIdentity {
     #[must_use]
