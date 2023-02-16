@@ -238,15 +238,15 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
 
         let (breakdown_key, mut fields) = try_join(
             f_breakdown_key,
-            try_join_all([f_trigger_bit, f_helper_bit, f_value]),
+            try_join_all([f_value, f_helper_bit, f_trigger_bit]),
         )
         .await?;
 
         Ok(MCAccumulateCreditInputRow {
             breakdown_key,
-            is_trigger_report: fields.remove(0),
-            helper_bit: fields.remove(0),
-            trigger_value: fields.remove(0),
+            is_trigger_report: fields.pop().unwrap(),
+            helper_bit: fields.pop().unwrap(),
+            trigger_value: fields.pop().unwrap(),
             _marker: PhantomData,
         })
     }
@@ -279,19 +279,15 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
 
         let (breakdown_key, mut fields) = try_join(
             f_breakdown_key,
-            try_join_all([f_helper_bit, f_aggregation_bit, f_value]),
+            try_join_all([f_value, f_aggregation_bit, f_helper_bit]),
         )
         .await?;
 
-        let value = fields.pop().unwrap();
-        let aggregation_bit = fields.pop().unwrap();
-        let helper_bit = fields.pop().unwrap();
-
         Ok(MCCappedCreditsWithAggregationBit::new(
-            helper_bit,
-            aggregation_bit,
+            fields.pop().unwrap(),
+            fields.pop().unwrap(),
             breakdown_key,
-            value,
+            fields.pop().unwrap(),
         ))
     }
 }

@@ -252,15 +252,15 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
         let (mk_shares, breakdown_key, mut outputs) = try_join3(
             f_mk_shares,
             f_breakdown_key,
-            try_join_all([f_is_trigger_bit, f_trigger_value]),
+            try_join_all([f_trigger_value, f_is_trigger_bit]),
         )
         .await?;
 
         Ok(IPAModulusConvertedInputRow {
             mk_shares,
             breakdown_key,
-            is_trigger_bit: outputs.remove(0),
-            trigger_value: outputs.remove(0),
+            is_trigger_bit: outputs.pop().unwrap(),
+            trigger_value: outputs.pop().unwrap(),
             _marker: PhantomData,
         })
     }
