@@ -301,12 +301,11 @@ impl<'a, F: Field>
                 ZeroPositions::Pvvv,
             )
             .await?;
-        Ok(IPAModulusConvertedInputRowWrapper {
+        Ok(IPAModulusConvertedInputRowWrapper::new(
             mk_shares,
             is_trigger_bit,
             trigger_value,
-            _marker: PhantomData,
-        })
+        ))
     }
 }
 
@@ -314,7 +313,18 @@ pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,
-    pub _marker: PhantomData<F>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRowWrapper<F, T> {
+    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
+        Self {
+            mk_shares,
+            is_trigger_bit,
+            trigger_value,
+            _marker: PhantomData,
+        }
+    }
 }
 
 #[async_trait]

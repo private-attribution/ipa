@@ -67,7 +67,16 @@ pub type MCCreditCappingInputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 pub struct MCCreditCappingOutputRow<F: Field, T: Arithmetic<F>> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
-    pub _marker: PhantomData<F>,
+    _marker: PhantomData<F>,
+}
+impl<F: Field, T: Arithmetic<F>> MCCreditCappingOutputRow<F, T> {
+    pub fn new(breakdown_key: Vec<T>, credit: T) -> Self {
+        Self {
+            breakdown_key,
+            credit,
+            _marker: PhantomData,
+        }
+    }
 }
 
 #[async_trait]

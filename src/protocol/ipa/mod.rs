@@ -198,10 +198,10 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
-    pub mk_shares: Vec<T>,
-    pub is_trigger_bit: T,
-    pub breakdown_key: Vec<T>,
-    pub trigger_value: T,
+    mk_shares: Vec<T>,
+    is_trigger_bit: T,
+    breakdown_key: Vec<T>,
+    trigger_value: T,
     _marker: PhantomData<F>,
 }
 
@@ -256,13 +256,12 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
         )
         .await?;
 
-        Ok(IPAModulusConvertedInputRow {
+        Ok(IPAModulusConvertedInputRow::new(
             mk_shares,
+            outputs.pop().unwrap(),
             breakdown_key,
-            is_trigger_bit: outputs.pop().unwrap(),
-            trigger_value: outputs.pop().unwrap(),
-            _marker: PhantomData,
-        })
+            outputs.pop().unwrap(),
+        ))
     }
 }
 
@@ -461,14 +460,13 @@ where
     let intermediate = converted_mk_shares
         .into_iter()
         .zip(input_rows)
-        .map(
-            |(mk_shares, input_row)| IPAModulusConvertedInputRowWrapper {
+        .map(|(mk_shares, input_row)| {
+            IPAModulusConvertedInputRowWrapper::new(
                 mk_shares,
-                is_trigger_bit: input_row.is_trigger_bit.clone(),
-                trigger_value: input_row.trigger_value.clone(),
-                _marker: PhantomData,
-            },
-        )
+                input_row.is_trigger_bit.clone(),
+                input_row.trigger_value.clone(),
+            )
+        })
         .collect::<Vec<_>>();
 
     let intermediate = m_ctx.upgrade(intermediate).await?;

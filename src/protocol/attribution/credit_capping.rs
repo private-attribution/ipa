@@ -9,10 +9,7 @@ use crate::protocol::context::Context;
 use crate::protocol::{RecordId, Substep};
 use crate::{error::Error, secret_sharing::Arithmetic};
 use futures::future::try_join_all;
-use std::{
-    iter::{repeat, zip},
-    marker::PhantomData,
-};
+use std::iter::{repeat, zip};
 
 /// User-level credit capping protocol.
 ///
@@ -70,10 +67,8 @@ where
     let output = input
         .iter()
         .enumerate()
-        .map(|(i, x)| MCCreditCappingOutputRow {
-            breakdown_key: x.breakdown_key.clone(),
-            credit: final_credits[i].clone(),
-            _marker: PhantomData,
+        .map(|(i, x)| {
+            MCCreditCappingOutputRow::new(x.breakdown_key.clone(), final_credits[i].clone())
         })
         .collect::<Vec<_>>();
 
