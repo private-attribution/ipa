@@ -288,6 +288,9 @@ where
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
 
+    // TODO (richaj) need to revisit convert_all_bits and make it return iterator on a slice for sort
+    // or, a complete slice for breakdown keys. For now, converted_bk_shares has just 1 slice inside
+    // the outermost vector
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),

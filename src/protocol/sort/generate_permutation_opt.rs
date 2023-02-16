@@ -141,15 +141,18 @@ where
 /// # Panics
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
-pub async fn malicious_generate_permutation_opt<'a, F>(
+pub async fn malicious_generate_permutation_opt<'a, F, I>(
     sh_ctx: SemiHonestContext<'_, F>,
-    mut sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
+    sort_keys: I,
 ) -> Result<(MaliciousValidator<'_, F>, Vec<MaliciousReplicated<F>>), Error>
 where
     F: Field,
+    I: IntoIterator<Item = &'a Vec<Vec<Replicated<F>>>>,
 {
     let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let mut m_ctx_bit = malicious_validator.context();
+    let mut sort_keys = sort_keys.into_iter();
+
     let first_keys = sort_keys.next().unwrap();
 
     let upgraded_sort_keys = m_ctx_bit.upgrade(first_keys.clone()).await?;
