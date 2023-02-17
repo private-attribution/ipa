@@ -13,7 +13,7 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
 use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
-use futures::future::{try_join, try_join_all};
+use futures::future::{try_join, try_join3};
 use generic_array::GenericArray;
 use std::marker::PhantomData;
 use typenum::Unsigned;
@@ -245,19 +245,18 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
             .narrow(&AttributionResharableStep::TriggerValue)
             .reshare(&self.trigger_value, record_id, to_helper);
 
-        let (breakdown_key, mut fields) = try_join(
+        let (breakdown_key, (is_trigger_report, helper_bit, trigger_value)) = try_join(
             f_breakdown_key,
-            try_join_all([f_value, f_helper_bit, f_trigger_bit]),
+            try_join3(f_trigger_bit, f_helper_bit, f_value),
         )
         .await?;
 
-        Ok(MCAccumulateCreditInputRow {
+        Ok(MCAccumulateCreditInputRow::new(
+            is_trigger_report,
+            helper_bit,
             breakdown_key,
-            is_trigger_report: fields.pop().unwrap(),
-            helper_bit: fields.pop().unwrap(),
-            trigger_value: fields.pop().unwrap(),
-            _marker: PhantomData,
-        })
+            trigger_value,
+        ))
     }
 }
 
@@ -286,17 +285,17 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
             .narrow(&AttributionResharableStep::TriggerValue)
             .reshare(&self.credit, record_id, to_helper);
 
-        let (breakdown_key, mut fields) = try_join(
+        let (breakdown_key, (helper_bit, aggregation_bit, credit)) = try_join(
             f_breakdown_key,
-            try_join_all([f_value, f_aggregation_bit, f_helper_bit]),
+            try_join3(f_helper_bit, f_aggregation_bit, f_value),
         )
         .await?;
 
         Ok(MCCappedCreditsWithAggregationBit::new(
-            fields.pop().unwrap(),
-            fields.pop().unwrap(),
+            helper_bit,
+            aggregation_bit,
             breakdown_key,
-            fields.pop().unwrap(),
+            credit,
         ))
     }
 }

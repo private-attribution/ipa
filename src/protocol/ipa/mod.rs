@@ -33,7 +33,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join3, try_join_all};
+use futures::future::{try_join, try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
 use std::ops::Add;
 use std::{
@@ -249,18 +249,18 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
             .narrow(&IPAInputRowResharableStep::TriggerValue)
             .reshare(&self.trigger_value, record_id, to_helper);
 
-        let (mk_shares, breakdown_key, mut outputs) = try_join3(
+        let (mk_shares, breakdown_key, (is_trigger_bit, trigger_value)) = try_join3(
             f_mk_shares,
             f_breakdown_key,
-            try_join_all([f_trigger_value, f_is_trigger_bit]),
+            try_join(f_is_trigger_bit, f_trigger_value),
         )
         .await?;
 
         Ok(IPAModulusConvertedInputRow::new(
             mk_shares,
-            outputs.pop().unwrap(),
+            is_trigger_bit,
             breakdown_key,
-            outputs.pop().unwrap(),
+            trigger_value,
         ))
     }
 }
