@@ -31,14 +31,12 @@ use futures::future::try_join;
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
 pub trait Reshare<V: SharedValue> {
-    type Share: SecretSharing<V>;
-
-    async fn reshare(
+    async fn reshare<S: SecretSharing<V>>(
         self,
-        input: &Self::Share,
+        input: &S,
         record: RecordId,
         to_helper: Role,
-    ) -> Result<Self::Share, Error>;
+    ) -> Result<S, Error>;
 }
 
 #[async_trait]
@@ -46,14 +44,13 @@ pub trait Reshare<V: SharedValue> {
 /// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 /// Input: Pi-1 and Pi+1 know their secret shares
 /// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
-impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
-    type Share = Replicated<F>;
-    async fn reshare(
+impl<V: SharedValue> Reshare<V> for SemiHonestContext<'_, V> {
+    async fn reshare<S: SecretSharing<V>>(
         self,
-        input: &Self::Share,
+        input: &S,
         record_id: RecordId,
         to_helper: Role,
-    ) -> Result<Self::Share, Error> {
+    ) -> Result<S, Error> {
         let channel = self.mesh();
         let (r0, r1) = self.prss().generate_fields(record_id);
 
@@ -80,7 +77,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
                 .await?;
 
             // Sleep until `to_helper.left` sends us their part1 value
-            let part1: F = channel
+            let part1: V = channel
                 .receive(to_helper.peer(Direction::Left), record_id)
                 .await?;
 
@@ -96,13 +93,12 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
 /// # Errors
 /// If either of reshares fails
 impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
-    async fn reshare(
+    async fn reshare<S: SecretSharing<F>>(
         self,
-        input: &Self::Share,
+        input: &S,
         record_id: RecordId,
         to_helper: Role,
-    ) -> Result<Self::Share, Error> {
+    ) -> Result<S, Error> {
         use crate::protocol::context::SpecialAccessToMaliciousContext;
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
         let random_constant_ctx = self.narrow(&RandomnessForValidation);

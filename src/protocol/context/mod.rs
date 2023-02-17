@@ -22,7 +22,7 @@ use super::boolean::RandomBits;
 pub trait Context<V: SharedValue>:
     SecureMul<V, Share = <Self as Context<V>>::Share>
     + SecureSop<V, Share = <Self as Context<V>>::Share>
-    + Reshare<V, Share = <Self as Context<V>>::Share>
+    + Reshare<V>
     + Reveal<V, Share = <Self as Context<V>>::Share>
     + RandomBits<V, Share = <Self as Context<V>>::Share>
     + Clone
