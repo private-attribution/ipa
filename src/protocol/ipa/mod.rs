@@ -288,16 +288,19 @@ where
         .map(|x| (x.mk_shares.clone(), x.breakdown_key.clone()))
         .unzip();
 
+    // TODO (richaj) need to revisit convert_all_bits and make it return iterator on a slice for sort
+    // or, a complete slice for breakdown keys. For now, converted_bk_shares has just 1 slice inside
+    // the outermost vector
     // Breakdown key modulus conversion
-    let converted_bk_shares = convert_all_bits(
+    let mut converted_bk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &convert_all_bits_local(ctx.role(), &bk_shares),
         BK::BITS,
-        num_multi_bits,
+        BK::BITS,
     )
     .await
     .unwrap();
-    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
+    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
@@ -311,7 +314,7 @@ where
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        &converted_mk_shares,
+        converted_mk_shares.iter(),
     )
     .await
     .unwrap();
@@ -388,7 +391,7 @@ where
 }
 
 /// Malicious IPA
-/// We return Replicated<F> as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
+/// We return `Replicated<F>` as output since there is compute after this and in `aggregate_credit`, last communication operation was sort
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
@@ -433,7 +436,7 @@ where
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         sh_ctx.narrow(&Step::GenSortPermutationFromMatchKeys),
-        &converted_mk_shares,
+        converted_mk_shares.iter(),
     )
     .await
     .unwrap();
@@ -444,19 +447,19 @@ where
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
     // Breakdown key modulus conversion
-    let converted_bk_shares = convert_all_bits(
+    let mut converted_bk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
             .narrow(&Step::ModulusConversionForBreakdownKeys)
             .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
             .await?,
         BK::BITS,
-        num_multi_bits,
+        BK::BITS,
     )
     .await
     .unwrap();
 
-    let converted_bk_shares = combine_slices(&converted_bk_shares, BK::BITS);
+    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
     let intermediate = converted_mk_shares
         .into_iter()

@@ -52,10 +52,10 @@ pub fn split_into_multi_bit_slices<T: Clone>(
 ///
 /// input:
 /// `[`
-///     `[ row[0].bit0, row[0].bit1, ..., row[0].bitL ], [ row[1].bit0, row[1].bit1, ..., row[1].bitL ], .. [ row[n].bit0, row[n].bit1, ..., row[n].bitL ]`,
-///     `[ row[0].bitL+1, ..., row[0].bit2L ], [ row[1].bitL+1, ..., row[1].bit2L ], .. [ row[n].bitL+1, ..., row[n].bit2L ], `,
+///     `[[ row[0].bit0, row[0].bit1, ..., row[0].bitL ], [ row[1].bit0, row[1].bit1, ..., row[1].bitL ], .. [ row[n].bit0, row[n].bit1, ..., row[n].bitL ]]`,
+///     `[[ row[0].bitL+1, ..., row[0].bit2L ], [ row[1].bitL+1, ..., row[1].bit2L ], .. [ row[n].bitL+1, ..., row[n].bit2L ]], `,
 ///     ...
-///     `[ row[0].bitmL,  ..., row[0].bit31 ], [ row[1].bitmL, ..., row[n].bit31 ], .. [ row[n].bitmL, ..., row[n].bit31 ]`,
+///     `[[ row[0].bitmL,  ..., row[0].bit31 ], [ row[1].bitmL, ..., row[n].bit31 ], .. [ row[n].bitmL, ..., row[n].bit31 ]]`,
 /// `]`
 /// `num_multi_bits`: L
 ///
@@ -73,7 +73,7 @@ pub fn combine_slices<T: Clone>(
     let record_count = input[0].len();
     let mut output = Vec::with_capacity(record_count);
     output.resize_with(record_count, || Vec::with_capacity(num_bits as usize));
-    for slice in input.iter() {
+    for slice in input {
         slice.iter().enumerate().for_each(|(idx, record)| {
             output[idx].append(&mut record.clone());
         });

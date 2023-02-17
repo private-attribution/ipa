@@ -165,9 +165,7 @@ mod tests {
         use crate::protocol::attribution::input::{
             AccumulateCreditInputRow, MCAccumulateCreditInputRow,
         };
-        use crate::protocol::modulus_conversion::{
-            combine_slices, convert_all_bits, convert_all_bits_local,
-        };
+        use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
         use crate::protocol::{BreakdownKey, MatchKey};
         use crate::rand::{thread_rng, Rng};
 
@@ -224,16 +222,15 @@ mod tests {
                             .iter()
                             .map(|x| x.breakdown_key.clone())
                             .collect::<Vec<_>>();
-                        let converted_bk_shares = convert_all_bits(
+                        let mut converted_bk_shares = convert_all_bits(
                             &ctx,
                             &convert_all_bits_local(ctx.role(), &bk_shares),
                             BreakdownKey::BITS,
-                            NUM_MULTI_BITS,
+                            BreakdownKey::BITS,
                         )
                         .await
                         .unwrap();
-                        let converted_bk_shares =
-                            combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                        let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                         let converted_shares = shares
                             .into_iter()

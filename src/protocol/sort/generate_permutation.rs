@@ -88,12 +88,11 @@ pub(super) async fn shuffle_and_reveal_permutation<
 /// 3. Validate the accumulated macs - this returns the revealed permutation
 pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     m_ctx: MaliciousContext<'_, F>,
-    input_len: u32,
     input_permutation: Vec<MaliciousReplicated<F>>,
     malicious_validator: MaliciousValidator<'_, F>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let random_permutations_for_shuffle = get_two_of_three_random_permutations(
-        input_len,
+        input_permutation.len().try_into().unwrap(),
         m_ctx.narrow(&GeneratePermutation).prss_rng(),
     );
 
@@ -217,7 +216,7 @@ where
 /// If unable to convert sort keys length to u32
 pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
     ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Vec<Replicated<F>>>],
+    sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let sort_permutation = generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys).await?;
     shuffle_and_reveal_permutation(ctx.narrow(&ShuffleRevealPermutation), sort_permutation).await
@@ -232,9 +231,8 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// If unable to convert sort keys length to u32
 pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
     sh_ctx: SemiHonestContext<'_, F>,
-    sort_keys: &[Vec<Vec<Replicated<F>>>],
+    sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
-    let key_count = sort_keys[0].len();
     let (malicious_validator, sort_permutation) =
         malicious_generate_permutation_opt(sh_ctx.narrow(&SortKeys), sort_keys).await?;
 
@@ -242,7 +240,6 @@ pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
 
     malicious_shuffle_and_reveal_permutation(
         m_ctx.narrow(&ShuffleRevealPermutation),
-        u32::try_from(key_count).unwrap(),
         sort_permutation,
         malicious_validator,
     )
@@ -293,13 +290,11 @@ where
     let upgraded_sort_keys = m_ctx_bit.upgrade(sort_keys[0].clone()).await?;
     let bit_0_permutation =
         bit_permutation(m_ctx_bit.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
-    let input_len = u32::try_from(sort_keys[0].len()).unwrap(); // safe, we don't sort more than 1B rows
 
     let mut composed_less_significant_bits_permutation = bit_0_permutation;
     for bit_num in 1..num_bits {
         let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
             m_ctx_bit.narrow(&ShuffleRevealPermutation),
-            input_len,
             composed_less_significant_bits_permutation,
             malicious_validator,
         )
@@ -401,7 +396,7 @@ mod tests {
                         convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                             .await
                             .unwrap();
-                    generate_permutation_opt(ctx.narrow("sort"), &converted_shares)
+                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
                         .await
                         .unwrap()
                 },
