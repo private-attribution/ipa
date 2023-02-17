@@ -443,7 +443,6 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::marker::PhantomData;
 
     use super::aggregate_credit;
     use crate::aggregation_test_input;
@@ -520,11 +519,7 @@ mod tests {
                     let modulus_converted_shares: Vec<_> = input
                         .iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAggregateCreditInputRow {
-                            breakdown_key: bk,
-                            credit: row.credit.clone(),
-                            _marker: PhantomData,
-                        })
+                        .map(|(row, bk)| MCAggregateCreditInputRow::new(bk, row.credit.clone()))
                         .collect();
 
                     aggregate_credit::<Fp32BitPrime, BreakdownKey>(

@@ -33,7 +33,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join3, try_join_all};
+use futures::future::{try_join, try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
 use std::ops::Add;
 use std::{
@@ -198,10 +198,10 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
-    pub mk_shares: Vec<T>,
-    pub is_trigger_bit: T,
-    pub breakdown_key: Vec<T>,
-    pub trigger_value: T,
+    mk_shares: Vec<T>,
+    is_trigger_bit: T,
+    breakdown_key: Vec<T>,
+    trigger_value: T,
     _marker: PhantomData<F>,
 }
 
@@ -249,20 +249,19 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
             .narrow(&IPAInputRowResharableStep::TriggerValue)
             .reshare(&self.trigger_value, record_id, to_helper);
 
-        let (mk_shares, breakdown_key, mut outputs) = try_join3(
+        let (mk_shares, breakdown_key, (is_trigger_bit, trigger_value)) = try_join3(
             f_mk_shares,
             f_breakdown_key,
-            try_join_all([f_is_trigger_bit, f_trigger_value]),
+            try_join(f_is_trigger_bit, f_trigger_value),
         )
         .await?;
 
-        Ok(IPAModulusConvertedInputRow {
+        Ok(IPAModulusConvertedInputRow::new(
             mk_shares,
+            is_trigger_bit,
             breakdown_key,
-            is_trigger_bit: outputs.remove(0),
-            trigger_value: outputs.remove(0),
-            _marker: PhantomData,
-        })
+            trigger_value,
+        ))
     }
 }
 
@@ -464,14 +463,13 @@ where
     let intermediate = converted_mk_shares
         .into_iter()
         .zip(input_rows)
-        .map(
-            |(mk_shares, input_row)| IPAModulusConvertedInputRowWrapper {
+        .map(|(mk_shares, input_row)| {
+            IPAModulusConvertedInputRowWrapper::new(
                 mk_shares,
-                is_trigger_bit: input_row.is_trigger_bit.clone(),
-                trigger_value: input_row.trigger_value.clone(),
-                _marker: PhantomData,
-            },
-        )
+                input_row.is_trigger_bit.clone(),
+                input_row.trigger_value.clone(),
+            )
+        })
         .collect::<Vec<_>>();
 
     let intermediate = m_ctx.upgrade(intermediate).await?;
