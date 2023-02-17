@@ -51,7 +51,7 @@ mod tests {
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,
-            modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::{
                 apply_sort::apply_sort_permutation,
                 generate_permutation::generate_permutation_and_reveal_shuffled,
@@ -113,7 +113,7 @@ mod tests {
                     .unwrap();
                     let sort_permutation = generate_permutation_and_reveal_shuffled(
                         ctx.narrow(&SortPreAccumulation),
-                        &converted_shares,
+                        converted_shares.iter(),
                     )
                     .await
                     .unwrap();
@@ -122,16 +122,15 @@ mod tests {
                         .iter()
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
-                    let converted_bk_shares = convert_all_bits(
+                    let mut converted_bk_shares = convert_all_bits(
                         &ctx,
                         &convert_all_bits_local(ctx.role(), &bk_shares),
                         BreakdownKey::BITS,
-                        NUM_MULTI_BITS,
+                        BreakdownKey::BITS,
                     )
                     .await
                     .unwrap();
-                    let converted_bk_shares =
-                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
                     let converted_secret = secret
                         .into_iter()

@@ -297,7 +297,7 @@ async fn sort_by_breakdown_key<F: Field>(
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        &breakdown_keys,
+        breakdown_keys.iter(),
     )
     .await?;
 
@@ -335,7 +335,7 @@ async fn malicious_sort_by_breakdown_key<F: Field>(
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByBreakdownKey),
-        &breakdown_keys,
+        breakdown_keys.iter(),
     )
     .await?;
 
@@ -359,14 +359,14 @@ async fn sort_by_aggregation_bit<F: Field>(
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
-    let aggregation_bits = &[input
+    let aggregation_bits = [input
         .iter()
         .map(|x| vec![x.aggregation_bit.clone()])
         .collect::<Vec<_>>()];
 
     let sort_permutation = generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits,
+        aggregation_bits.iter(),
     )
     .await?;
 
@@ -390,14 +390,14 @@ async fn malicious_sort_by_aggregation_bit<'a, F: Field>(
 > {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
     // field and wrap it in another vector.
-    let aggregation_bits = &[input
+    let aggregation_bits = [input
         .iter()
         .map(|x| vec![x.aggregation_bit.clone()])
         .collect::<Vec<_>>()];
 
     let sort_permutation = malicious_generate_permutation_and_reveal_shuffled(
         ctx.narrow(&Step::GeneratePermutationByAttributionBit),
-        aggregation_bits,
+        aggregation_bits.iter(),
     )
     .await?;
 
@@ -450,9 +450,7 @@ mod tests {
     use crate::ff::{Field, Fp32BitPrime};
     use crate::protocol::attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow};
     use crate::protocol::context::Context;
-    use crate::protocol::modulus_conversion::{
-        combine_slices, convert_all_bits, convert_all_bits_local,
-    };
+    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
     use crate::protocol::{BreakdownKey, MatchKey};
     use crate::secret_sharing::SharedValue;
     use crate::test_fixture::input::GenericReportTestInput;
@@ -509,16 +507,15 @@ mod tests {
                         .iter()
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
-                    let converted_bk_shares = convert_all_bits(
+                    let mut converted_bk_shares = convert_all_bits(
                         &ctx,
                         &convert_all_bits_local(ctx.role(), &bk_shares),
                         BreakdownKey::BITS,
-                        NUM_MULTI_BITS,
+                        BreakdownKey::BITS,
                     )
                     .await
                     .unwrap();
-                    let converted_bk_shares =
-                        combine_slices(&converted_bk_shares, BreakdownKey::BITS);
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
                     let modulus_converted_shares: Vec<_> = input
                         .iter()
                         .zip(converted_bk_shares)
