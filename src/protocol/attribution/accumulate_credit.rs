@@ -22,6 +22,46 @@ impl AsRef<str> for Step {
     }
 }
 
+pub async fn accumulate_credit_cap_one<F, C, T>(
+    ctx: C,
+    input: &[MCAccumulateCreditInputRow<F, T>],
+) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
+    let num_rows = input.len();
+
+    let memoize_context = ctx
+        .narrow(&Step::MemoizeIsTriggerBitTimesHelperBit)
+        .set_total_records(num_rows - 1);
+    let credits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+        let c = memoize_context.clone();
+        let record_id = RecordId::from(i);
+        async move {
+            c.multiply(record_id, &x.is_trigger_report, &x.helper_bit)
+                .await
+        }
+    }))
+    .await?;
+
+    let output = input
+        .iter()
+        .zip(credits)
+        .map(|(x, credit)| {
+            MCAccumulateCreditOutputRow::new(
+                x.is_trigger_report.clone(),
+                x.helper_bit.clone(),
+                x.breakdown_key.clone(),
+                credit,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    Ok(output)
+}
+
 /// The accumulation step operates on a sorted list with O(log N) iterations, where N is the input length.
 /// It is the first step of the Oblivious Attribution protocol, and subsequent steps of all attribution models
 /// (i.e., last touch, equal credit) use an output produced by this step. During each iteration, it accesses each
@@ -32,12 +72,16 @@ impl AsRef<str> for Step {
 pub async fn accumulate_credit<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
+    per_user_credit_cap: u32,
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
 where
     F: Field,
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
 {
+    if per_user_credit_cap == 1 {
+        return accumulate_credit_cap_one(ctx, input).await;
+    }
     let num_rows = input.len();
 
     // For every row, compute:
@@ -174,7 +218,7 @@ mod tests {
                         ))
                         .collect::<Vec<_>>();
 
-                    accumulate_credit(ctx, &modulus_converted_shares)
+                    accumulate_credit(ctx, &modulus_converted_shares, 12345) // cap can be anything but one
                         .await
                         .unwrap()
                 },

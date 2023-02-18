@@ -1,6 +1,7 @@
 use super::{
     do_the_binary_tree_thing, if_else,
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
+    prefix_or_binary_tree_style,
 };
 use crate::ff::Field;
 use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
@@ -26,6 +27,9 @@ where
     C: Context<F, Share = T>,
     T: Arithmetic<F>,
 {
+    if cap == 1 {
+        return credit_capping_max_one(ctx, input).await;
+    }
     let input_len = input.len();
 
     //
@@ -69,6 +73,105 @@ where
         .enumerate()
         .map(|(i, x)| {
             MCCreditCappingOutputRow::new(x.breakdown_key.clone(), final_credits[i].clone())
+        })
+        .collect::<Vec<_>>();
+
+    Ok(output)
+}
+
+/// User-level credit capping protocol.
+///
+/// ## Errors
+/// Fails if the multiplication protocol fails.
+///
+/// ## Panics
+/// It really shouldn't
+pub async fn credit_capping_max_one<F, C, T>(
+    ctx: C,
+    input: &[MCCreditCappingInputRow<F, T>],
+) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
+where
+    F: Field,
+    C: Context<F, Share = T>,
+    T: Arithmetic<F>,
+{
+    let input_len = input.len();
+
+    //
+    // Step 1. Initialize a local vector for the capping computation.
+    //
+    // * `original_credits` will have credit values of only source events
+    //
+    let uncapped_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
+
+    assert_eq!(uncapped_credits.len(), input.len());
+
+    // helper_bits.len() = input.len() - 1
+    let helper_bits = input
+        .iter()
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(helper_bits.len(), input.len() - 1);
+
+    // prefix_ors.len() = input.len()
+    let prefix_ors =
+        prefix_or_binary_tree_style(ctx.clone(), &helper_bits, &uncapped_credits).await?;
+
+    assert_eq!(prefix_ors.len(), input.len());
+
+    let prefix_or_times_helper_bit_ctx = ctx
+        .narrow(&Step::PrefixOrTimesHelperBit)
+        .set_total_records(input.len() - 1);
+    let ever_any_subsequent_credit = try_join_all(
+        prefix_ors
+            .iter()
+            .skip(1)
+            .zip(helper_bits.iter())
+            .enumerate()
+            .map(|(i, (prefix_or, helper_bit))| {
+                let record_id = RecordId::from(i);
+                let c = prefix_or_times_helper_bit_ctx.clone();
+                async move { c.multiply(record_id, prefix_or, helper_bit).await }
+            }),
+    )
+    .await?;
+
+    assert_eq!(ever_any_subsequent_credit.len(), input.len() - 1);
+
+    let potentially_cap_ctx = ctx
+        .narrow(&Step::IfCurrentExceedsCapOrElse)
+        .set_total_records(input.len() - 1);
+    let capped_credits = try_join_all(
+        uncapped_credits
+            .iter()
+            .zip(ever_any_subsequent_credit.iter())
+            .enumerate()
+            .map(|(i, (uncapped_credit, any_subsequent_credit))| {
+                let record_id = RecordId::from(i);
+                let c = potentially_cap_ctx.clone();
+                let one = ctx.share_known_value(F::ONE);
+                async move {
+                    c.multiply(record_id, uncapped_credit, &(one - any_subsequent_credit))
+                        .await
+                }
+            }),
+    )
+    .await?;
+
+    assert_eq!(capped_credits.len(), input.len() - 1);
+
+    let output = input
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            let credit = if i < capped_credits.len() {
+                &capped_credits[i]
+            } else {
+                &uncapped_credits[i]
+            };
+            MCCreditCappingOutputRow::new(x.breakdown_key.clone(), credit.clone())
         })
         .collect::<Vec<_>>();
 
@@ -256,6 +359,7 @@ enum Step {
     IfCurrentExceedsCapOrElse,
     IfNextExceedsCapOrElse,
     IfNextEventHasSameMatchKeyOrElse,
+    PrefixOrTimesHelperBit,
 }
 
 impl Substep for Step {}
@@ -270,6 +374,7 @@ impl AsRef<str> for Step {
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
             Self::IfNextEventHasSameMatchKeyOrElse => "if_next_event_has_same_match_key_or_else",
+            Self::PrefixOrTimesHelperBit => "prefix_or_times_helper_bit",
         }
     }
 }

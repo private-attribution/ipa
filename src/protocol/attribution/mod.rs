@@ -1,9 +1,9 @@
+pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
 pub mod credit_capping;
 pub mod input;
 
-pub(crate) mod accumulate_credit;
-
+use crate::protocol::boolean::or::or;
 use crate::{
     error::Error,
     ff::Field,
@@ -38,6 +38,113 @@ where
         + &ctx
             .multiply(record_id, condition, &(true_value.clone() - false_value))
             .await?)
+}
+
+///
+/// ## Errors
+/// Fails if the multiplication protocol fails.
+///
+/// ## Panics
+/// Nah, it doesn't.
+///
+pub async fn prefix_or_binary_tree_style<F, C, S>(
+    ctx: C,
+    helper_bits: &[S],
+    uncapped_credits: &[S],
+) -> Result<Vec<S>, Error>
+where
+    F: Field,
+    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F>,
+{
+    assert_eq!(helper_bits.len() + 1, uncapped_credits.len());
+
+    let num_rows = uncapped_credits.len();
+    let depth_0_ctx = ctx
+        .narrow(&InteractionPatternStep::from(0))
+        .set_total_records(num_rows - 1);
+
+    let b_times_sibling_credit_ctx = depth_0_ctx.narrow(&Step::BTimesSuccessorCredit);
+
+    let mut prefix_or = try_join_all(
+        helper_bits
+            .iter()
+            .zip(uncapped_credits.iter().skip(1))
+            .enumerate()
+            .map(|(i, (b, sibling_credit))| {
+                let c1 = b_times_sibling_credit_ctx.clone();
+                let c2 = depth_0_ctx.clone();
+                let record_id = RecordId::from(i);
+                let original_credit = &uncapped_credits[i];
+                async move {
+                    let credit_update = c1.multiply(record_id, b, sibling_credit).await?;
+                    or(c2, record_id, original_credit, &credit_update).await
+                }
+            }),
+    )
+    .await?;
+    // This is crap and will resize the vector... it was too hard to fix...
+    prefix_or.push(uncapped_credits[num_rows - 1].clone());
+
+    // Create stop_bit vector.
+    // This vector is updated in each iteration to help accumulate values
+    // and determine when to stop accumulating.
+    let mut stop_bits = helper_bits.to_owned();
+    stop_bits.push(ctx.share_known_value(F::ONE));
+
+    // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
+    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
+        .take_while(|&v| v < num_rows)
+        .enumerate()
+    {
+        let end = num_rows - step_size;
+        let depth_i_ctx = ctx
+            .narrow(&InteractionPatternStep::from(depth + 1))
+            .set_total_records(end);
+        let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
+        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
+        let credit_or_ctx = depth_i_ctx.narrow(&Step::CurrentCreditOrCreditUpdate);
+        let mut futures = Vec::with_capacity(end);
+
+        for i in 0..end {
+            let c1 = depth_i_ctx.clone();
+            let c2 = b_times_sibling_credit_ctx.clone();
+            let c3 = b_times_sibling_stop_bit_ctx.clone();
+            let c4 = credit_or_ctx.clone();
+            let record_id = RecordId::from(i);
+            let sibling_helper_bit = &helper_bits[i + step_size - 1];
+            let current_stop_bit = &stop_bits[i];
+            let sibling_stop_bit = &stop_bits[i + step_size];
+            let sibling_credit = &prefix_or[i + step_size];
+            let current_credit = &prefix_or[i];
+            futures.push(async move {
+                let b = c1
+                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
+                    .await?;
+
+                let (credit_update, new_stop_bit) = try_join(
+                    c2.multiply(record_id, &b, sibling_credit),
+                    c3.multiply(record_id, &b, sibling_stop_bit),
+                )
+                .await?;
+
+                let new_credit = or(c4, record_id, current_credit, &credit_update).await?;
+
+                Ok::<_, Error>((new_credit, new_stop_bit))
+            });
+        }
+
+        let results = try_join_all(futures).await?;
+
+        results
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, (credit, stop_bit))| {
+                prefix_or[i] = credit;
+                stop_bits[i] = stop_bit;
+            });
+    }
+    Ok(prefix_or)
 }
 
 ///
@@ -145,6 +252,7 @@ where
 enum Step {
     BTimesSuccessorCredit,
     BTimesSuccessorStopBit,
+    CurrentCreditOrCreditUpdate,
 }
 
 impl crate::protocol::Substep for Step {}
@@ -154,6 +262,7 @@ impl AsRef<str> for Step {
         match self {
             Self::BTimesSuccessorCredit => "b_times_successor_credit",
             Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
+            Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
         }
     }
 }
