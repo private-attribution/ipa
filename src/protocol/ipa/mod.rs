@@ -674,7 +674,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn cap_of_one_malicious() {
+    async fn cap_of_one_semi_honest() {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
         const MAX_BREAKDOWN_KEY: u128 = 7;

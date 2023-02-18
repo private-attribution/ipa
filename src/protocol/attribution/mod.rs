@@ -1,8 +1,8 @@
-pub(crate) mod accumulate_credit;
 pub mod aggregate_credit;
 pub mod credit_capping;
 pub mod input;
 
+pub(crate) mod accumulate_credit;
 use crate::protocol::boolean::or::or;
 use crate::{
     error::Error,

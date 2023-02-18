@@ -22,7 +22,7 @@ impl AsRef<str> for Step {
     }
 }
 
-pub async fn accumulate_credit_cap_one<F, C, T>(
+async fn accumulate_credit_cap_one<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>

@@ -97,29 +97,16 @@ where
 {
     let input_len = input.len();
 
-    //
-    // Step 1. Initialize a local vector for the capping computation.
-    //
-    // * `original_credits` will have credit values of only source events
-    //
     let uncapped_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
-    assert_eq!(uncapped_credits.len(), input.len());
-
-    // helper_bits.len() = input.len() - 1
     let helper_bits = input
         .iter()
         .skip(1)
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    assert_eq!(helper_bits.len(), input.len() - 1);
-
-    // prefix_ors.len() = input.len()
     let prefix_ors =
         prefix_or_binary_tree_style(ctx.clone(), &helper_bits, &uncapped_credits).await?;
-
-    assert_eq!(prefix_ors.len(), input.len());
 
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
@@ -137,8 +124,6 @@ where
             }),
     )
     .await?;
-
-    assert_eq!(ever_any_subsequent_credit.len(), input.len() - 1);
 
     let potentially_cap_ctx = ctx
         .narrow(&Step::IfCurrentExceedsCapOrElse)
@@ -159,8 +144,6 @@ where
             }),
     )
     .await?;
-
-    assert_eq!(capped_credits.len(), input.len() - 1);
 
     let output = input
         .iter()
