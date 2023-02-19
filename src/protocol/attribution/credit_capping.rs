@@ -79,14 +79,21 @@ where
     Ok(output)
 }
 
-/// User-level credit capping protocol.
 ///
-/// ## Errors
-/// Fails if the multiplication protocol fails.
+/// User-level credit capping protocol that is run when `PER_USER_CAP == 1`
 ///
-/// ## Panics
-/// It really shouldn't
-pub async fn credit_capping_max_one<F, C, T>(
+/// In this mode, `trigger_value` is completely ignored. Each trigger event counts as just one.
+///
+/// Since each user can *at most* contribute just one, if there are multiple attributed conversions
+/// from the same `match key`, we need some way of deciding which one to keep. This current implementation
+/// only keeps the *last attributed conversion*.
+/// This is implemented by virtue of computing a prefix-OR of all of the attributed conversions from
+/// a given `match-key`, starting at each row.
+/// In the final step, each row is compared with the prefix-OR of the following row. If the following row
+/// is from the same `match-key`, and the prefix-OR indicates that there is *at least one* attributed conversion
+/// in the following rows, then the contribution is "capped", which in this context means set to zero.
+/// In this way, only the final attributed conversion will not be "capped".
+async fn credit_capping_max_one<F, C, T>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
 ) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>

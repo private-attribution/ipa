@@ -41,6 +41,10 @@ where
 }
 
 ///
+/// Computes a "prefix-OR" operation starting on each element in the list.
+/// Stops as soon as `helper_bits` indicates the following rows are not from
+/// the same `match key`.
+///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
 ///

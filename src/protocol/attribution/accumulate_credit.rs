@@ -22,6 +22,18 @@ impl AsRef<str> for Step {
     }
 }
 
+///
+/// When `PER_USER_CAP` is set to one, this function is called
+/// In this case, `trigger_value` is ignored entirely. Instead, each `trigger_report` counts as one.
+/// So in the event that a `source report` is followed by multiple `trigger reports`, only one will count.
+/// As such, this function can be simplified a great deal. All that matters is when a `source report` is
+/// immediately followed by a `trigger report` from the same `match key`. As such, each row only needs to
+/// be compared to the following row.
+/// If there are multiple attributed conversions from the same `match key` they will be removed in the
+/// next stage; `user capping`.
+///
+/// This method implements "last touch" attribution, so only the last `source report` before a `trigger report`
+/// will receive any credit.
 async fn accumulate_credit_cap_one<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
