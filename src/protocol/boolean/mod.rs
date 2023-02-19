@@ -14,7 +14,7 @@ mod bitwise_gt_constant;
 mod bitwise_less_than_prime;
 mod dumb_bitwise_add_constant;
 mod generate_random_bits;
-mod or;
+pub mod or;
 pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
