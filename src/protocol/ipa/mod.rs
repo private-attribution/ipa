@@ -760,62 +760,18 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    #[ignore]
-    pub async fn random_ipa_no_result_check() {
-        const BATCHSIZE: u128 = 20;
-        const PER_USER_CAP: u32 = 10;
-        const MAX_BREAKDOWN_KEY: u128 = 8;
-        const MAX_TRIGGER_VALUE: u128 = 5;
-        const NUM_MULTI_BITS: u32 = 3;
-
-        let max_match_key: u128 = BATCHSIZE / 10;
-
-        let world = TestWorld::new().await;
-        let mut rng = thread_rng();
-
-        let mut records = Vec::new();
-
-        for _ in 0..BATCHSIZE {
-            records.push(ipa_test_input!(
-                {
-                    match_key: rng.gen_range(0..max_match_key),
-                    is_trigger_report: rng.gen::<u32>(),
-                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
-                };
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            ));
-        }
-        let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
-    }
-
+    #[derive(Debug)]
     struct TestRawDataRecord {
         user_id: usize,
         timestamp: usize,
         is_trigger_report: bool,
         breakdown_key: usize,
+        trigger_value: u32,
     }
 
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
-    #[ignore]
+    //#[ignore]
     pub async fn random_ipa_cap_one_check() {
         const MAX_BREAKDOWN_KEY: usize = 16;
         const NUM_USERS: usize = 20;
@@ -827,7 +783,8 @@ pub mod tests {
         let mut rng = thread_rng();
 
         let mut raw_data = Vec::with_capacity(NUM_USERS * MAX_RECORDS_PER_USER);
-        let mut expected_results = vec![0_u128; MAX_BREAKDOWN_KEY];
+        let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
+        let per_user_cap: u32 = 1;
         for _ in 0..NUM_USERS {
             let random_user_id = rng.gen_range(0..MAX_USER_ID);
             let num_records_for_user = rng.gen_range(1..MAX_RECORDS_PER_USER);
@@ -840,30 +797,35 @@ pub mod tests {
                 } else {
                     rng.gen_range(0..MAX_BREAKDOWN_KEY)
                 };
+                let trigger_value = u32::from(is_trigger_report);
                 records_for_user.push(TestRawDataRecord {
                     user_id: random_user_id,
                     timestamp: random_timestamp,
                     is_trigger_report,
                     breakdown_key: random_breakdown_key,
+                    trigger_value,
                 });
             }
 
             // sort in reverse time order
             records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
-            let mut encountered_trigger = false;
-            let mut contributed_once = false;
+            let mut pending_trigger_value = 0;
+            let mut total_contribution = 0;
             for record in &records_for_user {
-                if contributed_once {
+                if total_contribution >= per_user_cap {
                     continue;
                 }
 
                 if record.is_trigger_report {
-                    encountered_trigger = true;
-                } else if encountered_trigger {
-                    expected_results[record.breakdown_key] += 1;
-                    contributed_once = true;
-                    encountered_trigger = false;
+                    pending_trigger_value += record.trigger_value;
+                } else if pending_trigger_value > 0 {
+                    let delta_to_per_user_cap = per_user_cap - total_contribution;
+                    let capped_contribution =
+                        std::cmp::min(delta_to_per_user_cap, pending_trigger_value);
+                    expected_results[record.breakdown_key] += capped_contribution;
+                    total_contribution += capped_contribution;
+                    pending_trigger_value = 0;
                 }
             }
 
@@ -871,6 +833,8 @@ pub mod tests {
         }
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
+        println!("raw data (before secret-sharing): {raw_data:#?}");
+        println!("expected result: {expected_results:#?}");
         let records = raw_data
             .iter()
             .map(|x| {
@@ -893,7 +857,7 @@ pub mod tests {
                 ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    1,
+                    per_user_cap,
                     MAX_BREAKDOWN_KEY as u128,
                     NUM_MULTI_BITS,
                 )
@@ -904,9 +868,16 @@ pub mod tests {
             .reconstruct();
 
         assert_eq!(MAX_BREAKDOWN_KEY, result.len());
+        println!(
+            "actual results: {:#?}",
+            result
+                .iter()
+                .map(|x| x.trigger_value.as_u128())
+                .collect::<Vec<_>>(),
+        );
         for (i, expected) in expected_results.iter().enumerate() {
             assert_eq!(
-                [i as u128, *expected],
+                [i as u128, u128::from(*expected)],
                 [
                     result[i].breakdown_key.as_u128(),
                     result[i].trigger_value.as_u128()
