@@ -18,7 +18,7 @@ pub mod protocol;
 pub mod query;
 pub mod secret_sharing;
 pub mod telemetry;
-#[cfg(feature = "enable-serde")]
+#[cfg(all(feature = "enable-serde", feature = "web-app"))]
 pub mod uri;
 
 #[cfg(any(test, feature = "test-fixture"))]

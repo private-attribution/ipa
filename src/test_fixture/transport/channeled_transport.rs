@@ -1,16 +1,6 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
+#![allow(dead_code)]
 
-use std::io;
-
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
-
-use crate::ff::FieldType;
-use crate::helpers::query::{QueryConfig, QueryType};
+use crate::helpers::query::QueryConfig;
 use crate::helpers::transport::{
     ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
 };
@@ -22,6 +12,14 @@ use futures::StreamExt;
 use futures_util::future::Either;
 use futures_util::stream;
 use serde::de::DeserializeOwned;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::future::Future;
+use std::io;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
@@ -206,10 +204,6 @@ impl InMemoryPacket {
             step: Some(step),
             params: String::new(),
         }
-        // Self {
-        //     addr: "records".to_string(),
-        //     params: serde_json::to_string(&(query_id, from, step.as_ref())).unwrap(),
-        // }
     }
 }
 
@@ -396,6 +390,8 @@ impl ChannelledTransport for InMemoryChannelledTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ff::FieldType;
+    use crate::helpers::query::QueryType;
     use crate::helpers::HelperIdentity;
     use crate::protocol::Step;
     use futures_util::stream::poll_immediate;
