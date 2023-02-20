@@ -978,19 +978,19 @@ pub mod tests {
         /// empirical value as of Feb 20, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18885;
 
+        let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
+            [
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+            ];
+            (Fp32BitPrime, MatchKey, BreakdownKey)
+        );
+
         for per_user_cap in [1, 3] {
             let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
-
-            let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
-                [
-                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
-                    { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
-                    { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
-                    { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
-                ];
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            );
 
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
@@ -1025,7 +1025,7 @@ pub mod tests {
             let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
 
             let _ = world
-                .semi_honest(records, |ctx, input_rows| async move {
+                .semi_honest(records.clone(), |ctx, input_rows| async move {
                     ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
                         ctx,
                         &input_rows,
