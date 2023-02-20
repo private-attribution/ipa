@@ -81,6 +81,10 @@ where
 /// accesses and accumulates data of its children. By increasing the distance between the interacting nodes during
 /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
 /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
+///
+/// # Errors
+///
+/// Fails if the multiplication fails.
 pub async fn accumulate_credit<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],

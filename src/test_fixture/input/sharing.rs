@@ -2,8 +2,8 @@ use super::{GenericReportShare, GenericReportTestInput};
 use crate::bits::Fp2Array;
 use crate::ff::Field;
 use crate::protocol::attribution::input::{
-    AccumulateCreditInputRow, AggregateCreditInputRow, MCAccumulateCreditInputRow,
-    MCAggregateCreditOutputRow,
+    AccumulateCreditInputRow, AggregateCreditInputRow, ApplyAttributionWindowInputRow,
+    MCAccumulateCreditInputRow, MCAggregateCreditOutputRow,
 };
 use crate::protocol::ipa::IPAInputRow;
 use crate::rand::Rng;
@@ -72,6 +72,43 @@ where
                 is_trigger_report: optional_field_shares[2][2].clone(),
                 helper_bit: optional_field_shares[3][2].clone(),
                 aggregation_bit: optional_field_shares[4][2].clone(),
+            },
+        ]
+    }
+}
+
+impl<F, MK, BK> IntoShares<ApplyAttributionWindowInputRow<F, BK>>
+    for GenericReportTestInput<F, MK, BK>
+where
+    F: Field + IntoShares<Replicated<F>>,
+    MK: Fp2Array + IntoShares<XorReplicated<MK>>,
+    BK: Fp2Array + IntoShares<XorReplicated<BK>>,
+    Standard: Distribution<F>,
+{
+    fn share_with<R: Rng>(self, rng: &mut R) -> [ApplyAttributionWindowInputRow<F, BK>; 3] {
+        let [s0, s1, s2]: [GenericReportShare<F, MK, BK>; 3] = self.share_with(rng);
+
+        [
+            ApplyAttributionWindowInputRow {
+                timestamp: s0.timestamp.unwrap(),
+                is_trigger_report: s0.is_trigger_report.unwrap(),
+                helper_bit: s0.helper_bit.unwrap(),
+                breakdown_key: s0.breakdown_key,
+                trigger_value: s0.trigger_value,
+            },
+            ApplyAttributionWindowInputRow {
+                timestamp: s1.timestamp.unwrap(),
+                is_trigger_report: s1.is_trigger_report.unwrap(),
+                helper_bit: s1.helper_bit.unwrap(),
+                breakdown_key: s1.breakdown_key,
+                trigger_value: s1.trigger_value,
+            },
+            ApplyAttributionWindowInputRow {
+                timestamp: s2.timestamp.unwrap(),
+                is_trigger_report: s2.is_trigger_report.unwrap(),
+                helper_bit: s2.helper_bit.unwrap(),
+                breakdown_key: s2.breakdown_key,
+                trigger_value: s2.trigger_value,
             },
         ]
     }

@@ -19,9 +19,52 @@ use std::marker::PhantomData;
 use typenum::Unsigned;
 
 //
-// `accumulate_credit` protocol
+// 'apply_attribution_window` protocol
 //
 #[derive(Debug)]
+pub struct ApplyAttributionWindowInputRow<F: Field, BK: Fp2Array> {
+    pub timestamp: AdditiveShare<F>,
+    pub is_trigger_report: AdditiveShare<F>,
+    pub helper_bit: AdditiveShare<F>,
+    pub breakdown_key: XorShare<BK>,
+    pub trigger_value: AdditiveShare<F>,
+}
+
+#[derive(Debug)]
+pub struct MCApplyAttributionWindowInputRow<F: Field, T: Arithmetic<F>> {
+    pub timestamp: T,
+    pub is_trigger_report: T,
+    pub helper_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub trigger_value: T,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> MCApplyAttributionWindowInputRow<F, T> {
+    pub fn new(
+        timestamp: T,
+        is_trigger_report: T,
+        helper_bit: T,
+        breakdown_key: Vec<T>,
+        trigger_value: T,
+    ) -> Self {
+        Self {
+            timestamp,
+            is_trigger_report,
+            helper_bit,
+            breakdown_key,
+            trigger_value,
+            _marker: PhantomData,
+        }
+    }
+}
+
+pub type MCApplyAttributionWindowOutputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
+
+//
+// `accumulate_credit` protocol
+//
+
 pub struct AccumulateCreditInputRow<F: Field, BK: Fp2Array> {
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
