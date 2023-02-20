@@ -963,19 +963,20 @@ pub mod tests {
     /// "catch all" type of test to make sure we don't miss an accidental regression.
     #[tokio::test]
     pub async fn communication_baseline() {
-        const COUNT: usize = 5;
-        const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 4, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE: u64 = 10740;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 10740;
 
         /// empirical value as of Feb 14, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE: u64 = 26410;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 26410;
 
-        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+        /// empirical value as of Feb 20, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 7575;
+
+        /// empirical value as of Feb 20, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18885;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -988,54 +989,70 @@ pub mod tests {
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
-        let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-            .semi_honest(records.clone(), |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
-                )
+        for per_user_cap in [1, 3] {
+            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+
+            let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
+                .semi_honest(records.clone(), |ctx, input_rows| async move {
+                    ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        per_user_cap,
+                        MAX_BREAKDOWN_KEY,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap()
+                })
                 .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
+                .reconstruct();
 
-        let snapshot = world.metrics_snapshot();
-        let records_sent = snapshot.get_counter(RECORDS_SENT);
-        assert!(records_sent <= RECORDS_SENT_SEMI_HONEST_BASELINE);
-        if records_sent < RECORDS_SENT_SEMI_HONEST_BASELINE {
-            tracing::warn!("Baseline for semi-honest IPA has improved! Expected {RECORDS_SENT_SEMI_HONEST_BASELINE}, got {records_sent}.\
-                            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+            let snapshot = world.metrics_snapshot();
+            let records_sent = snapshot.get_counter(RECORDS_SENT);
+            let semi_honest_baseline = if per_user_cap == 1 {
+                RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1
+            } else {
+                RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3
+            };
+            assert!(records_sent <= semi_honest_baseline,
+                "Baseline for semi-honest IPA (cap = {per_user_cap}) has DEGRADED! Expected {semi_honest_baseline}, got {records_sent}.");
+
+            if records_sent < semi_honest_baseline {
+                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}.\
+                                Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+            }
+
+            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+
+            let _ = world
+                .semi_honest(records.clone(), |ctx, input_rows| async move {
+                    ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        per_user_cap,
+                        MAX_BREAKDOWN_KEY,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap()
+                })
+                .await;
+
+            let snapshot = world.metrics_snapshot();
+            let records_sent = snapshot.get_counter(RECORDS_SENT);
+            let malicious_baseline = if per_user_cap == 1 {
+                RECORDS_SENT_MALICIOUS_BASELINE_CAP_1
+            } else {
+                RECORDS_SENT_MALICIOUS_BASELINE_CAP_3
+            };
+
+            if records_sent < malicious_baseline {
+                tracing::warn!("Baseline for malicious IPA (cap = {per_user_cap}) has improved! Expected {malicious_baseline}, got {records_sent}.\
+                Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+            }
+
+            assert!(records_sent <= malicious_baseline,
+                "Baseline for malicious IPA (cap = {per_user_cap}) has DEGRADED! Expected {malicious_baseline}, got {records_sent}.");
         }
-
-        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
-
-        let _ = world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
-                )
-                .await
-                .unwrap()
-            })
-            .await;
-
-        let snapshot = world.metrics_snapshot();
-        let records_sent = snapshot.get_counter(RECORDS_SENT);
-
-        if records_sent < RECORDS_SENT_MALICIOUS_BASELINE {
-            tracing::warn!("Baseline for malicious IPA has improved! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.\
-            Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
-        }
-
-        assert!(records_sent <= RECORDS_SENT_MALICIOUS_BASELINE,
-            "Baseline for malicious IPA has DEGRADED! Expected {RECORDS_SENT_MALICIOUS_BASELINE}, got {records_sent}.");
     }
 }
