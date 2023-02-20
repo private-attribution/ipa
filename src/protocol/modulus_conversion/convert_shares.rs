@@ -89,13 +89,12 @@ pub fn convert_bit_local<F: Field, B: Fp2Array>(
 #[must_use]
 pub fn convert_all_bits_local<F: Field, B: Fp2Array>(
     helper_role: Role,
-    input: &[XorReplicated<B>],
+    input: impl Iterator<Item = XorReplicated<B>>,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {
     input
-        .iter()
         .map(move |record| {
             (0..B::BITS)
-                .map(|bit_index: u32| convert_bit_local::<F, B>(helper_role, bit_index, record))
+                .map(|bit_index: u32| convert_bit_local::<F, B>(helper_role, bit_index, &record))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>()

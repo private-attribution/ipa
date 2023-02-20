@@ -41,7 +41,7 @@ use crate::protocol::ipa::Step::AggregateCredit;
 /// propagates errors from multiplications
 pub async fn aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_, F>,
-    capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
@@ -123,10 +123,10 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn malicious_aggregate_credit<'a, F, BK>(
+pub async fn malicious_aggregate_credit<'a, F, BK, I>(
     malicious_validator: MaliciousValidator<'_, F>,
     sh_ctx: SemiHonestContext<'a, F>,
-    capped_credits: &[MCAggregateCreditInputRow<F, MaliciousReplicated<F>>],
+    capped_credits: I,
     max_breakdown_key: u128,
     num_multi_bits: u32,
 ) -> Result<
@@ -139,6 +139,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
 where
     F: Field,
     BK: Fp2Array,
+    I: Iterator<Item = MCAggregateCreditInputRow<F, MaliciousReplicated<F>>>,
     MaliciousReplicated<F>: Serializable,
 {
     let m_ctx = malicious_validator.context().narrow(&AggregateCredit);
@@ -220,7 +221,7 @@ where
 
 fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
     ctx: &C,
-    capped_credits: &[MCAggregateCreditInputRow<F, T>],
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
     max_breakdown_key: u128,
 ) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
 where
@@ -260,19 +261,14 @@ where
         .collect::<Vec<_>>();
 
     // Add aggregation bits and initialize with 1's.
-    unique_breakdown_keys.append(
-        &mut capped_credits
-            .iter()
-            .map(|x| {
-                MCCappedCreditsWithAggregationBit::new(
-                    one.clone(),
-                    one.clone(),
-                    x.breakdown_key.clone(),
-                    x.credit.clone(),
-                )
-            })
-            .collect::<Vec<_>>(),
-    );
+    unique_breakdown_keys.extend(&mut capped_credits.map(|x| {
+        MCCappedCreditsWithAggregationBit::new(
+            one.clone(),
+            one.clone(),
+            x.breakdown_key.clone(),
+            x.credit,
+        )
+    }));
 
     unique_breakdown_keys
 }
@@ -503,28 +499,24 @@ mod tests {
             .semi_honest(
                 input,
                 |ctx, input: Vec<AggregateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
-                    let bk_shares = input
-                        .iter()
-                        .map(|x| x.breakdown_key.clone())
-                        .collect::<Vec<_>>();
+                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        &convert_all_bits_local(ctx.role(), bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
                     .await
                     .unwrap();
                     let converted_bk_shares = converted_bk_shares.pop().unwrap();
-                    let modulus_converted_shares: Vec<_> = input
+                    let modulus_converted_shares = input
                         .iter()
                         .zip(converted_bk_shares)
-                        .map(|(row, bk)| MCAggregateCreditInputRow::new(bk, row.credit.clone()))
-                        .collect();
+                        .map(|(row, bk)| MCAggregateCreditInputRow::new(bk, row.credit.clone()));
 
                     aggregate_credit::<Fp32BitPrime, BreakdownKey>(
                         ctx,
-                        &modulus_converted_shares,
+                        modulus_converted_shares,
                         MAX_BREAKDOWN_KEY,
                         NUM_MULTI_BITS,
                     )

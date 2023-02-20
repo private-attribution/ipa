@@ -149,6 +149,8 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::iter;
+
     use crate::accumulation_test_input;
     use crate::ff::{Field, Fp31, Fp32BitPrime};
     use crate::helpers::Role;
@@ -207,11 +209,11 @@ mod tests {
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input
                         .iter()
-                        .map(|x| x.breakdown_key.clone())
-                        .collect::<Vec<_>>();
+                        .map(|x| x.breakdown_key.clone());
+
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        &convert_all_bits_local(ctx.role(), bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
@@ -272,10 +274,10 @@ mod tests {
                 .semi_honest(
                     secret,
                     |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
-                        let bk_shares = vec![share.breakdown_key];
+                        let bk_shares = iter::once(share.breakdown_key);
                         let mut converted_bk_shares = convert_all_bits(
                             &ctx,
-                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            &convert_all_bits_local(ctx.role(), bk_shares),
                             BreakdownKey::BITS,
                             BreakdownKey::BITS,
                         )

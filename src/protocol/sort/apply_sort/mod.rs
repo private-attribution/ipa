@@ -102,7 +102,7 @@ mod tests {
                     Vec<XorShare<MatchKey>>,
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
+                    let local_lists = convert_all_bits_local(ctx.role(), mk_shares.into_iter());
                     let converted_shares = convert_all_bits(
                         &ctx.narrow("convert_all_bits"),
                         &local_lists,
@@ -118,13 +118,11 @@ mod tests {
                     .await
                     .unwrap();
 
-                    let bk_shares = secret
-                        .iter()
-                        .map(|x| x.breakdown_key.clone())
-                        .collect::<Vec<_>>();
+                    let bk_shares = secret.iter().map(|x| x.breakdown_key.clone());
+
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        &convert_all_bits_local(ctx.role(), bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
