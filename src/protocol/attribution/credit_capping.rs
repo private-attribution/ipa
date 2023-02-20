@@ -28,7 +28,9 @@ where
     T: Arithmetic<F>,
 {
     if cap == 1 {
-        return credit_capping_max_one(ctx, input).await;
+        return Ok(credit_capping_max_one(ctx, input)
+            .await?
+            .collect::<Vec<_>>());
     }
     let input_len = input.len();
 
@@ -96,7 +98,7 @@ where
 async fn credit_capping_max_one<F, C, T>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
-) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
+) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T>> + '_, Error>
 where
     F: Field,
     C: Context<F, Share = T>,
@@ -152,18 +154,14 @@ where
     )
     .await?;
 
-    let output = input
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            let credit = if i < capped_credits.len() {
-                &capped_credits[i]
-            } else {
-                &uncapped_credits[i]
-            };
-            MCCreditCappingOutputRow::new(x.breakdown_key.clone(), credit.clone())
-        })
-        .collect::<Vec<_>>();
+    let output = input.iter().enumerate().map(move |(i, x)| {
+        let credit = if i < capped_credits.len() {
+            &capped_credits[i]
+        } else {
+            &uncapped_credits[i]
+        };
+        MCCreditCappingOutputRow::new(x.breakdown_key.clone(), credit.clone())
+    });
 
     Ok(output)
 }

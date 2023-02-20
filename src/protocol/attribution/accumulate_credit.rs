@@ -37,7 +37,7 @@ impl AsRef<str> for Step {
 async fn accumulate_credit_cap_one<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
-) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
+) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + '_, Error>
 where
     F: Field,
     C: Context<F, Share = T>,
@@ -58,18 +58,14 @@ where
     }))
     .await?;
 
-    let output = input
-        .iter()
-        .zip(credits)
-        .map(|(x, credit)| {
-            MCAccumulateCreditOutputRow::new(
-                x.is_trigger_report.clone(),
-                x.helper_bit.clone(),
-                x.breakdown_key.clone(),
-                credit,
-            )
-        })
-        .collect::<Vec<_>>();
+    let output = input.iter().zip(credits).map(|(x, credit)| {
+        MCAccumulateCreditOutputRow::new(
+            x.is_trigger_report.clone(),
+            x.helper_bit.clone(),
+            x.breakdown_key.clone(),
+            credit,
+        )
+    });
 
     Ok(output)
 }
@@ -92,7 +88,9 @@ where
     T: Arithmetic<F>,
 {
     if per_user_credit_cap == 1 {
-        return accumulate_credit_cap_one(ctx, input).await;
+        return Ok(accumulate_credit_cap_one(ctx, input)
+            .await?
+            .collect::<Vec<_>>());
     }
     let num_rows = input.len();
 
