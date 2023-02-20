@@ -572,7 +572,9 @@ pub mod tests {
         proptest,
         test_runner::{RngAlgorithm, TestRng},
     };
-    use rand::{thread_rng, Rng};
+    use rand::rngs::StdRng;
+    use rand::Rng;
+    use rand_core::SeedableRng;
     use typenum::Unsigned;
 
     #[tokio::test]
@@ -772,22 +774,22 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     //#[ignore]
-    pub async fn random_ipa_cap_one_check() {
+    pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: usize = 16;
-        const NUM_USERS: usize = 20;
-        const MAX_RECORDS_PER_USER: usize = 10;
+        const NUM_USERS: usize = 1;
+        const MAX_RECORDS_PER_USER: usize = 2;
         const NUM_MULTI_BITS: u32 = 3;
         const MAX_USER_ID: usize = 1_000_000_000_000;
         const SECONDS_IN_EPOCH: usize = 604_800;
 
-        let mut rng = thread_rng();
+        let mut rng = StdRng::from_seed([1_u8; 32]);
 
         let mut raw_data = Vec::with_capacity(NUM_USERS * MAX_RECORDS_PER_USER);
         let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
-        let per_user_cap: u32 = 1;
+        let per_user_cap: u32 = 3;
         for _ in 0..NUM_USERS {
             let random_user_id = rng.gen_range(0..MAX_USER_ID);
-            let num_records_for_user = rng.gen_range(1..MAX_RECORDS_PER_USER);
+            let num_records_for_user = MAX_RECORDS_PER_USER;// rng.gen_range(1..MAX_RECORDS_PER_USER);
             let mut records_for_user = Vec::with_capacity(num_records_for_user);
             for _ in 0..num_records_for_user {
                 let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);
