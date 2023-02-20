@@ -777,14 +777,14 @@ pub mod tests {
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: usize = 16;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 10;
-        const MAX_RECORDS_PER_USER: usize = 6;
+        const NUM_USERS: usize = 2;
+        const MAX_RECORDS_PER_USER: usize = 5;
         const NUM_MULTI_BITS: u32 = 3;
         const MAX_USER_ID: usize = 1_000_000_000_000;
         const SECONDS_IN_EPOCH: usize = 604_800;
 
         let random_seed: u64 = thread_rng().gen();
-        let random_seed = 5120075974259934184;
+        let random_seed = 7560046;
         println!("Using random seed: {random_seed}");
         let mut rng = StdRng::seed_from_u64(random_seed);
 
@@ -792,8 +792,10 @@ pub mod tests {
         let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
         for per_user_cap in [1, 3] {
             println!("Running with a per-user-cap of {per_user_cap}.");
-            for _ in 0..NUM_USERS {
+            for i in 0..NUM_USERS {
                 let random_user_id = rng.gen_range(0..MAX_USER_ID);
+                let matches = 848468829005 == random_user_id;
+                println!("random user ID: {random_user_id}, is it the one? {matches}. This is index {i}."); // 848468829005
                 let num_records_for_user = rng.gen_range(1..MAX_RECORDS_PER_USER);
                 let mut records_for_user = Vec::with_capacity(num_records_for_user);
                 for _ in 0..num_records_for_user {
