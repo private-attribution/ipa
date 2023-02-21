@@ -1,5 +1,4 @@
-use crate::secret_sharing::SecretSharing;
-use crate::{error::Error, ff::Field, protocol::context::Context};
+use crate::{error::Error, ff::Field, protocol::context::Context, secret_sharing::SecretSharing};
 use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
@@ -46,15 +45,17 @@ pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::protocol::context::Context;
-    use crate::rand::thread_rng;
-    use crate::test_fixture::{Reconstruct, Runner};
     use crate::{
         ff::Fp31,
-        protocol::sort::{
-            apply::apply, compose::compose, generate_permutation::shuffle_and_reveal_permutation,
+        protocol::{
+            context::Context,
+            sort::{
+                apply::apply, compose::compose,
+                generate_permutation::shuffle_and_reveal_permutation,
+            },
         },
-        test_fixture::TestWorld,
+        rand::thread_rng,
+        test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use rand::seq::SliceRandom;
 

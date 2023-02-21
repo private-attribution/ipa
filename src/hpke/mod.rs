@@ -2,16 +2,18 @@
 //!
 //! [`specification`]: https://github.com/patcg-individual-drafts/ipa/pull/31
 
-use hpke::aead::AeadTag;
-use hpke::generic_array::typenum::Unsigned;
-use hpke::{single_shot_open_in_place_detached, OpModeR};
+use hpke::{
+    aead::AeadTag, generic_array::typenum::Unsigned, single_shot_open_in_place_detached, OpModeR,
+};
 use std::io;
 
 mod info;
 mod registry;
 
-use crate::bits::{BitArray40, Serializable};
-use crate::secret_sharing::replicated::semi_honest::XorShare;
+use crate::{
+    bits::{BitArray40, Serializable},
+    secret_sharing::replicated::semi_honest::XorShare,
+};
 pub use info::Info;
 pub use registry::KeyRegistry;
 
@@ -276,8 +278,7 @@ mod tests {
     mod proptests {
         use super::*;
         use proptest::prelude::ProptestConfig;
-        use rand::distributions::Alphanumeric;
-        use rand::Rng;
+        use rand::{distributions::Alphanumeric, Rng};
 
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]

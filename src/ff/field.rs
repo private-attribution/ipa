@@ -1,5 +1,7 @@
-use crate::bits::{BooleanOps, Serializable};
-use crate::secret_sharing::SharedValue;
+use crate::{
+    bits::{BooleanOps, Serializable},
+    secret_sharing::SharedValue,
+};
 use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
 

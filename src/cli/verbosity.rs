@@ -1,5 +1,4 @@
-use crate::cli::install_collector;
-use crate::cli::metric_collector::CollectorHandle;
+use crate::cli::{install_collector, metric_collector::CollectorHandle};
 use clap::Parser;
 use metrics_tracing_context::MetricsLayer;
 use std::io::stderr;

@@ -1,11 +1,14 @@
-use super::bitwise_less_than_prime::BitwiseLessThanPrime;
-use super::dumb_bitwise_add_constant::{bitwise_add_constant, bitwise_add_constant_maybe};
-use super::random_bits_generator::RandomBitsGenerator;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use super::{
+    bitwise_less_than_prime::BitwiseLessThanPrime,
+    dumb_bitwise_add_constant::{bitwise_add_constant, bitwise_add_constant_maybe},
+    random_bits_generator::RandomBitsGenerator,
+};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 
 /// This is an implementation of "3. Bit-Decomposition" from I. Damgård et al..
 ///

@@ -445,16 +445,19 @@ impl AsRef<str> for Step {
 mod tests {
 
     use super::aggregate_credit;
-    use crate::aggregation_test_input;
-    use crate::bits::Fp2Array;
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::protocol::attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow};
-    use crate::protocol::context::Context;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::{
+        aggregation_test_input,
+        bits::Fp2Array,
+        ff::{Field, Fp32BitPrime},
+        protocol::{
+            attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
+            context::Context,
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
+        },
+        secret_sharing::SharedValue,
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+    };
 
     #[tokio::test]
     pub async fn aggregate() {

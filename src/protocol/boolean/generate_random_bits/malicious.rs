@@ -1,9 +1,13 @@
 use super::{convert_triples_to_shares, random_bits_triples, RandomBits, Step};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::context::MaliciousContext;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        context::{Context, MaliciousContext},
+        BitOpStep, RecordId,
+    },
+    secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated,
+};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 

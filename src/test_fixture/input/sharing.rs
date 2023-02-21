@@ -1,19 +1,22 @@
 use super::{GenericReportShare, GenericReportTestInput};
-use crate::bits::Fp2Array;
-use crate::ff::Field;
-use crate::protocol::attribution::input::{
-    AccumulateCreditInputRow, AggregateCreditInputRow, MCAccumulateCreditInputRow,
-    MCAggregateCreditOutputRow,
+use crate::{
+    bits::Fp2Array,
+    ff::Field,
+    protocol::{
+        attribution::input::{
+            AccumulateCreditInputRow, AggregateCreditInputRow, MCAccumulateCreditInputRow,
+            MCAggregateCreditOutputRow,
+        },
+        ipa::IPAInputRow,
+    },
+    rand::Rng,
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        IntoShares,
+    },
+    test_fixture::Reconstruct,
 };
-use crate::protocol::ipa::IPAInputRow;
-use crate::rand::Rng;
-use crate::secret_sharing::replicated::semi_honest::{
-    AdditiveShare as Replicated, XorShare as XorReplicated,
-};
-use crate::secret_sharing::IntoShares;
-use crate::test_fixture::Reconstruct;
-use rand::distributions::Standard;
-use rand::prelude::Distribution;
+use rand::{distributions::Standard, prelude::Distribution};
 
 impl<F, MK, BK> IntoShares<GenericReportShare<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where

@@ -1,13 +1,15 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Direction;
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{
-    basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
-    context::{Context, SemiHonestContext},
-    RecordId,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::Direction,
+    protocol::{
+        basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
+        context::{Context, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -78,10 +80,12 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
-    use crate::ff::{Field, Fp31};
-    use crate::protocol::{basics::SecureMul, context::Context, RecordId};
-    use crate::rand::{thread_rng, Rng};
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::{
+        ff::{Field, Fp31},
+        protocol::{basics::SecureMul, context::Context, RecordId},
+        rand::{thread_rng, Rng},
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
     use std::iter::{repeat, zip};

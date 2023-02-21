@@ -1,15 +1,21 @@
-use crate::ff::Field;
-use crate::helpers::messaging::{Gateway, Mesh, TotalRecords};
-use crate::helpers::Role;
-use crate::protocol::context::{
-    Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
-    MaliciousContext,
+use crate::{
+    ff::Field,
+    helpers::{
+        messaging::{Gateway, Mesh, TotalRecords},
+        Role,
+    },
+    protocol::{
+        context::{
+            Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
+            MaliciousContext,
+        },
+        malicious::MaliciousValidatorAccumulator,
+        prss::Endpoint as PrssEndpoint,
+        Step, Substep,
+    },
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    sync::Arc,
 };
-use crate::protocol::malicious::MaliciousValidatorAccumulator;
-use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::{Step, Substep};
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use crate::sync::Arc;
 
 use std::marker::PhantomData;
 

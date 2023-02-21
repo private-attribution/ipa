@@ -3,8 +3,6 @@ use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
 
-use crate::sync::atomic::{AtomicUsize, Ordering};
-use crate::test_fixture::metrics::MetricsHandle;
 use crate::{
     ff::Field,
     helpers::{
@@ -19,23 +17,27 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
     },
     secret_sharing::replicated::malicious::DowngradeMalicious,
-    test_fixture::{logging, make_participants},
+    sync::atomic::{AtomicUsize, Ordering},
+    test_fixture::{logging, make_participants, metrics::MetricsHandle},
 };
 
 use std::io::stdout;
 
-use std::mem::ManuallyDrop;
-use std::num::NonZeroUsize;
-use std::sync::atomic::AtomicBool;
-use std::{fmt::Debug, iter::zip, sync::Arc};
+use std::{
+    fmt::Debug,
+    iter::zip,
+    mem::ManuallyDrop,
+    num::NonZeroUsize,
+    sync::{atomic::AtomicBool, Arc},
+};
 
-use crate::helpers::network::Network;
-use crate::helpers::RoleAssignment;
-use crate::protocol::{QueryId, Substep};
-use crate::secret_sharing::IntoShares;
-use crate::telemetry::stats::Metrics;
-use crate::telemetry::StepStatsCsvExporter;
-use crate::test_fixture::transport::InMemoryNetwork;
+use crate::{
+    helpers::{network::Network, RoleAssignment},
+    protocol::{QueryId, Substep},
+    secret_sharing::IntoShares,
+    telemetry::{stats::Metrics, StepStatsCsvExporter},
+    test_fixture::transport::InMemoryNetwork,
+};
 use tracing::Level;
 
 use super::{sharing::ValidateMalicious, Reconstruct};

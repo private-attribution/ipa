@@ -5,8 +5,10 @@ use crate::{
     secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue},
 };
 use generic_array::{ArrayLength, GenericArray};
-use std::fmt::{Debug, Formatter};
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use std::{
+    fmt::{Debug, Formatter},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+};
 use typenum::Unsigned;
 
 #[derive(Clone, PartialEq, Eq)]

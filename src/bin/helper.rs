@@ -6,8 +6,7 @@ use raw_ipa::{
     net::{discovery::PeerDiscovery, HttpTransport},
     query::Processor,
 };
-use std::error::Error;
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
 use tracing::info;
 

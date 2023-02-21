@@ -13,8 +13,7 @@ use raw_ipa::{
     secret_sharing::SharedValue,
     test_fixture::{join3, Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
-use std::num::NonZeroUsize;
-use std::time::Instant;
+use std::{num::NonZeroUsize, time::Instant};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {

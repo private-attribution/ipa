@@ -16,8 +16,10 @@ use crate::{
 use futures::StreamExt;
 use futures_util::future::try_join;
 use pin_project::pin_project;
-use std::collections::hash_map::Entry;
-use std::fmt::{Debug, Formatter};
+use std::{
+    collections::hash_map::Entry,
+    fmt::{Debug, Formatter},
+};
 use tokio::sync::oneshot;
 
 #[allow(dead_code)]

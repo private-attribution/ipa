@@ -1,12 +1,21 @@
 use std::iter::{repeat, zip};
 
-use crate::ff::Field;
-use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-use crate::secret_sharing::{
-    replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, SharedValue,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::Direction,
+    protocol::{
+        context::{Context, MaliciousContext, SemiHonestContext},
+        RecordId,
+    },
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        SecretSharing, SharedValue,
+    },
 };
-use crate::{error::Error, helpers::Direction, protocol::RecordId};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::{try_join, try_join_all};
@@ -120,24 +129,26 @@ pub async fn reveal_permutation<F: Field, S: SecretSharing<F>, C: Context<F, Sha
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::rand::thread_rng;
-    use crate::test_fixture::Runner;
+    use crate::{rand::thread_rng, test_fixture::Runner};
     use futures::future::{try_join, try_join3};
     use proptest::prelude::Rng;
     use std::iter::zip;
 
-    use crate::secret_sharing::IntoShares;
     use crate::{
         error::Error,
         ff::{Field, Fp31},
         helpers::Direction,
-        protocol::{basics::Reveal, malicious::MaliciousValidator},
         protocol::{
+            basics::Reveal,
             context::{Context, MaliciousContext},
+            malicious::MaliciousValidator,
             RecordId,
         },
-        secret_sharing::replicated::malicious::{
-            AdditiveShare as MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        secret_sharing::{
+            replicated::malicious::{
+                AdditiveShare as MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
+            },
+            IntoShares,
         },
         test_fixture::{join3v, TestWorld},
     };

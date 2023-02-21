@@ -1,10 +1,12 @@
-use crate::protocol::basics::{reveal::Reveal, SecureMul};
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::prss::SharedRandomness;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId},
+    protocol::{
+        basics::{reveal::Reveal, SecureMul},
+        context::{Context, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
@@ -75,13 +77,14 @@ pub async fn check_zero<F: Field>(
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::error::Error;
-    use crate::ff::{Field, Fp31};
-    use crate::protocol::context::Context;
-    use crate::protocol::{basics::check_zero, RecordId};
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::{IntoShares, SharedValue};
-    use crate::test_fixture::TestWorld;
+    use crate::{
+        error::Error,
+        ff::{Field, Fp31},
+        protocol::{basics::check_zero, context::Context, RecordId},
+        rand::thread_rng,
+        secret_sharing::{IntoShares, SharedValue},
+        test_fixture::TestWorld,
+    };
     use futures_util::future::try_join3;
 
     #[tokio::test]

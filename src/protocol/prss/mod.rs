@@ -9,8 +9,10 @@ pub use crypto::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 pub use no_op::{Generator, GeneratorFactory, KeyExchange, SharedRandomness};
 
 use super::Step;
-use crate::rand::{CryptoRng, RngCore};
-use crate::sync::{Arc, Mutex};
+use crate::{
+    rand::{CryptoRng, RngCore},
+    sync::{Arc, Mutex},
+};
 
 use std::{collections::HashMap, fmt::Debug};
 #[cfg(debug_assertions)]
@@ -263,9 +265,12 @@ impl EndpointSetup {
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod test {
     use super::{Generator, KeyExchange, SequentialSharedRandomness};
-    use crate::protocol::prss::SharedRandomness;
-    use crate::rand::{thread_rng, Rng};
-    use crate::{ff::Fp31, protocol::Step, test_fixture::make_participants};
+    use crate::{
+        ff::Fp31,
+        protocol::{prss::SharedRandomness, Step},
+        rand::{thread_rng, Rng},
+        test_fixture::make_participants,
+    };
     use rand::prelude::SliceRandom;
     use std::mem::drop;
 

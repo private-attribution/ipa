@@ -2,9 +2,10 @@ use crate::{
     helpers::{network::ChannelId, MessagePayload, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::RecordId,
 };
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::fmt::Debug;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::Debug,
+};
 use tokio::sync::oneshot;
 
 /// Local buffer for messages that are either awaiting requests to receive them or requests

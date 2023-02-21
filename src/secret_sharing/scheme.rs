@@ -1,6 +1,8 @@
 use super::SharedValue;
-use crate::bits::{BooleanRefOps, Fp2Array};
-use crate::ff::ArithmeticRefOps;
+use crate::{
+    bits::{BooleanRefOps, Fp2Array},
+    ff::ArithmeticRefOps,
+};
 use std::fmt::Debug;
 
 /// Secret sharing scheme i.e. Replicated secret sharing
