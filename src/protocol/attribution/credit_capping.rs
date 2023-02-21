@@ -113,24 +113,20 @@ where
         .collect::<Vec<_>>();
 
     let prefix_ors =
-        prefix_or_binary_tree_style(ctx.clone(), &helper_bits, &uncapped_credits).await?;
+        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..]).await?;
 
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
-    let ever_any_subsequent_credit = try_join_all(
-        prefix_ors
-            .iter()
-            .skip(1)
-            .zip(helper_bits.iter())
-            .enumerate()
-            .map(|(i, (prefix_or, helper_bit))| {
+    let ever_any_subsequent_credit =
+        try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+            |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
                 async move { c.multiply(record_id, prefix_or, helper_bit).await }
-            }),
-    )
-    .await?;
+            },
+        ))
+        .await?;
 
     let potentially_cap_ctx = ctx
         .narrow(&Step::IfCurrentExceedsCapOrElse)
