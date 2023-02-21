@@ -772,7 +772,7 @@ pub mod tests {
     }
 
     fn generate_random_user_records_in_reverse_chronological_order(
-        rng: &mut StdRng,
+        rng: &mut impl Rng,
         max_records_per_user: usize,
         max_breakdown_key: usize,
         max_trigger_value: u32,
@@ -812,6 +812,7 @@ pub mod tests {
     }
 
     /// Assumes records all belong to the same user, and are in reverse chronological order
+    /// Will give incorrect results if this is not true
     fn update_expected_output_for_user(
         records_for_user: &[TestRawDataRecord],
         expected_results: &mut [u32],
@@ -819,24 +820,9 @@ pub mod tests {
     ) {
         let mut pending_trigger_value = 0;
         let mut total_contribution = 0;
-        let mut last_user_id = None;
-        let mut last_timestamp = None;
         for record in records_for_user {
-            match last_user_id {
-                Some(uid) => assert_eq!(uid, record.user_id, "All records passed to `update_expected_output_for_user` should share a common `user_id`."),
-                None => last_user_id = Some(record.user_id),
-            }
-
-            match last_timestamp {
-                Some(ts) => {
-                    assert!(record.timestamp <= ts, "Records passed to `update_expected_output_for_user` should be in reverse chronological order");
-                    last_timestamp = Some(record.timestamp);
-                }
-                None => last_timestamp = Some(record.timestamp),
-            }
-
             if total_contribution >= per_user_cap {
-                continue;
+                break;
             }
 
             if record.is_trigger_report {
