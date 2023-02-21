@@ -42,6 +42,8 @@ use std::{
 };
 use typenum::Unsigned;
 
+use super::context::malicious::IPACapOneInputRowWrapper;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Step {
     ModulusConversionForMatchKeys,
@@ -265,10 +267,64 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
     }
 }
 
+pub struct IPACapOneInputRow<F: Field, T: Arithmetic<F>> {
+    mk_shares: Vec<T>,
+    is_trigger_bit: T,
+    breakdown_key: Vec<T>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> IPACapOneInputRow<F, T> {
+    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, breakdown_key: Vec<T>) -> Self {
+        Self {
+            mk_shares,
+            is_trigger_bit,
+            breakdown_key,
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPACapOneInputRow<F, T> {
+    type Share = T;
+
+    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+    where
+        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+    {
+        let f_mk_shares = self.mk_shares.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
+            record_id,
+            to_helper,
+        );
+        let f_is_trigger_bit = ctx.narrow(&IPAInputRowResharableStep::TriggerBit).reshare(
+            &self.is_trigger_bit,
+            record_id,
+            to_helper,
+        );
+        let f_breakdown_key = self.breakdown_key.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::BreakdownKey),
+            record_id,
+            to_helper,
+        );
+
+        let (mk_shares, breakdown_key, is_trigger_bit) =
+            try_join3(f_mk_shares, f_breakdown_key, f_is_trigger_bit).await?;
+
+        Ok(IPACapOneInputRow::new(
+            mk_shares,
+            is_trigger_bit,
+            breakdown_key,
+        ))
+    }
+}
+
 /// # Errors
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
+#[allow(clippy::too_many_lines)]
 pub async fn ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
@@ -320,27 +376,58 @@ where
 
     let converted_mk_shares = combine_slices(&converted_mk_shares, MK::BITS);
 
-    let combined_match_keys_and_sidecar_data =
-        std::iter::zip(converted_mk_shares, converted_bk_shares)
+    let sorted_rows = if per_user_credit_cap == 1 {
+        let combined_match_keys_and_sidecar_data =
+            std::iter::zip(converted_mk_shares, converted_bk_shares)
+                .into_iter()
+                .zip(input_rows)
+                .map(|((mk_shares, bk_shares), input_row)| {
+                    IPACapOneInputRow::new(mk_shares, input_row.is_trigger_bit.clone(), bk_shares)
+                })
+                .collect::<Vec<_>>();
+
+        let sorted_rows = apply_sort_permutation(
+            ctx.narrow(&Step::ApplySortPermutation),
+            combined_match_keys_and_sidecar_data,
+            &sort_permutation,
+        )
+        .await
+        .unwrap();
+
+        sorted_rows
             .into_iter()
-            .zip(input_rows)
-            .map(|((mk_shares, bk_shares), input_row)| {
+            .map(|x| {
                 IPAModulusConvertedInputRow::new(
-                    mk_shares,
-                    input_row.is_trigger_bit.clone(),
-                    bk_shares,
-                    input_row.trigger_value.clone(),
+                    x.mk_shares,
+                    x.is_trigger_bit,
+                    x.breakdown_key,
+                    Replicated::ZERO,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+    } else {
+        let combined_match_keys_and_sidecar_data =
+            std::iter::zip(converted_mk_shares, converted_bk_shares)
+                .into_iter()
+                .zip(input_rows)
+                .map(|((mk_shares, bk_shares), input_row)| {
+                    IPAModulusConvertedInputRow::new(
+                        mk_shares,
+                        input_row.is_trigger_bit.clone(),
+                        bk_shares,
+                        input_row.trigger_value.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
 
-    let sorted_rows = apply_sort_permutation(
-        ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
-        &sort_permutation,
-    )
-    .await
-    .unwrap();
+        apply_sort_permutation(
+            ctx.narrow(&Step::ApplySortPermutation),
+            combined_match_keys_and_sidecar_data,
+            &sort_permutation,
+        )
+        .await
+        .unwrap()
+    };
 
     let futures = zip(
         repeat(
@@ -399,7 +486,7 @@ where
 /// Propagates errors from multiplications
 /// # Panics
 /// Propagates errors from multiplications
-#[allow(dead_code, clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 pub async fn ipa_malicious<'a, F, MK, BK>(
     sh_ctx: SemiHonestContext<'a, F>,
     input_rows: &[IPAInputRow<F, MK, BK>],
@@ -464,41 +551,86 @@ where
 
     let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
-    let intermediate = converted_mk_shares
-        .into_iter()
-        .zip(input_rows)
-        .map(|(mk_shares, input_row)| {
-            IPAModulusConvertedInputRowWrapper::new(
-                mk_shares,
-                input_row.is_trigger_bit.clone(),
-                input_row.trigger_value.clone(),
+    let sorted_rows = if per_user_credit_cap == 1 {
+        let intermediate = converted_mk_shares
+            .into_iter()
+            .zip(input_rows)
+            .map(|(mk_shares, input_row)| {
+                IPACapOneInputRowWrapper::new(mk_shares, input_row.is_trigger_bit.clone())
+            })
+            .collect::<Vec<_>>();
+
+        let intermediate = m_ctx.upgrade(intermediate).await?;
+
+        let combined_match_keys_and_sidecar_data = intermediate
+            .into_iter()
+            .zip(converted_bk_shares)
+            .map(
+                |(one_row, bk_shares)| IPACapOneInputRow::<F, MaliciousReplicated<F>> {
+                    mk_shares: one_row.mk_shares,
+                    is_trigger_bit: one_row.is_trigger_bit,
+                    breakdown_key: bk_shares,
+                    _marker: PhantomData,
+                },
             )
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
-    let intermediate = m_ctx.upgrade(intermediate).await?;
-
-    let combined_match_keys_and_sidecar_data = intermediate
-        .into_iter()
-        .zip(converted_bk_shares)
-        .map(
-            |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
-                mk_shares: one_row.mk_shares,
-                is_trigger_bit: one_row.is_trigger_bit,
-                trigger_value: one_row.trigger_value,
-                breakdown_key: bk_shares,
-                _marker: PhantomData,
-            },
+        let sorted_rows = apply_sort_permutation(
+            m_ctx.narrow(&Step::ApplySortPermutation),
+            combined_match_keys_and_sidecar_data,
+            &sort_permutation,
         )
-        .collect::<Vec<_>>();
+        .await
+        .unwrap();
 
-    let sorted_rows = apply_sort_permutation(
-        m_ctx.narrow(&Step::ApplySortPermutation),
-        combined_match_keys_and_sidecar_data,
-        &sort_permutation,
-    )
-    .await
-    .unwrap();
+        sorted_rows
+            .into_iter()
+            .map(|x| {
+                IPAModulusConvertedInputRow::new(
+                    x.mk_shares,
+                    x.is_trigger_bit,
+                    x.breakdown_key,
+                    MaliciousReplicated::ZERO,
+                )
+            })
+            .collect::<Vec<_>>()
+    } else {
+        let intermediate = converted_mk_shares
+            .into_iter()
+            .zip(input_rows)
+            .map(|(mk_shares, input_row)| {
+                IPAModulusConvertedInputRowWrapper::new(
+                    mk_shares,
+                    input_row.is_trigger_bit.clone(),
+                    input_row.trigger_value.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let intermediate = m_ctx.upgrade(intermediate).await?;
+
+        let combined_match_keys_and_sidecar_data = intermediate
+            .into_iter()
+            .zip(converted_bk_shares)
+            .map(
+                |(one_row, bk_shares)| IPAModulusConvertedInputRow::<F, MaliciousReplicated<F>> {
+                    mk_shares: one_row.mk_shares,
+                    is_trigger_bit: one_row.is_trigger_bit,
+                    trigger_value: one_row.trigger_value,
+                    breakdown_key: bk_shares,
+                    _marker: PhantomData,
+                },
+            )
+            .collect::<Vec<_>>();
+
+        apply_sort_permutation(
+            m_ctx.narrow(&Step::ApplySortPermutation),
+            combined_match_keys_and_sidecar_data,
+            &sort_permutation,
+        )
+        .await
+        .unwrap()
+    };
 
     let futures = zip(
         repeat(
@@ -972,11 +1104,11 @@ pub mod tests {
         /// empirical value as of Feb 14, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 26410;
 
-        /// empirical value as of Feb 20, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 7557;
+        /// empirical value as of Feb 21, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 7527;
 
-        /// empirical value as of Feb 20, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18849;
+        /// empirical value as of Feb 21, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18774;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [

@@ -309,6 +309,46 @@ impl<'a, F: Field>
     }
 }
 
+#[async_trait]
+impl<'a, F: Field>
+    UpgradeToMalicious<
+        IPACapOneInputRowWrapper<F, Replicated<F>>,
+        IPACapOneInputRowWrapper<F, MaliciousReplicated<F>>,
+    > for UpgradeContext<'a, F, RecordId>
+{
+    async fn upgrade(
+        self,
+        input: IPACapOneInputRowWrapper<F, Replicated<F>>,
+    ) -> Result<IPACapOneInputRowWrapper<F, MaliciousReplicated<F>>, Error> {
+        let ctx_ref = &self.upgrade_ctx;
+        let mk_shares = try_join_all(input.mk_shares.into_iter().enumerate().map(
+            |(idx, mk_share)| async move {
+                self.inner
+                    .upgrade_one(
+                        ctx_ref.narrow(&UpgradeModConvStep::V0(idx)),
+                        self.record_binding,
+                        mk_share,
+                        ZeroPositions::Pvvv,
+                    )
+                    .await
+            },
+        ))
+        .await?;
+
+        let is_trigger_bit = self
+            .inner
+            .upgrade_one(
+                self.upgrade_ctx.narrow(&UpgradeModConvStep::V1),
+                self.record_binding,
+                input.is_trigger_bit,
+                ZeroPositions::Pvvv,
+            )
+            .await?;
+
+        Ok(IPACapOneInputRowWrapper::new(mk_shares, is_trigger_bit))
+    }
+}
+
 pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
@@ -322,6 +362,22 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRowWrapper<F, T> {
             mk_shares,
             is_trigger_bit,
             trigger_value,
+            _marker: PhantomData,
+        }
+    }
+}
+
+pub struct IPACapOneInputRowWrapper<F: Field, T: Arithmetic<F>> {
+    pub mk_shares: Vec<T>,
+    pub is_trigger_bit: T,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, T: Arithmetic<F>> IPACapOneInputRowWrapper<F, T> {
+    pub fn new(mk_shares: Vec<T>, is_trigger_bit: T) -> Self {
+        Self {
+            mk_shares,
+            is_trigger_bit,
             _marker: PhantomData,
         }
     }
