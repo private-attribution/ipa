@@ -1,30 +1,40 @@
-use std::iter::{repeat, zip};
-use std::marker::PhantomData;
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::messaging::{Gateway, Mesh, TotalRecords};
-use crate::helpers::Role;
-use crate::protocol::attribution::input::MCCappedCreditsWithAggregationBit;
-use crate::protocol::basics::mul::malicious::Step::RandomnessForValidation;
-use crate::protocol::basics::{SecureMul, ZeroPositions};
-use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
-use crate::protocol::context::{
-    Context, InstrumentedSequentialSharedRandomness, SemiHonestContext,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::{
+        messaging::{Gateway, Mesh, TotalRecords},
+        Role,
+    },
+    protocol::{
+        attribution::input::MCCappedCreditsWithAggregationBit,
+        basics::{mul::malicious::Step::RandomnessForValidation, SecureMul, ZeroPositions},
+        context::{
+            prss::InstrumentedIndexedSharedRandomness, Context,
+            InstrumentedSequentialSharedRandomness, SemiHonestContext,
+        },
+        malicious::MaliciousValidatorAccumulator,
+        modulus_conversion::BitConversionTriple,
+        prss::Endpoint as PrssEndpoint,
+        BitOpStep, RecordId, Step, Substep, RECORD_0,
+    },
+    repeat64str,
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        Arithmetic,
+    },
+    sync::Arc,
 };
-use crate::protocol::malicious::MaliciousValidatorAccumulator;
-use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
-use crate::repeat64str;
-use crate::secret_sharing::replicated::{
-    malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
-};
-use crate::secret_sharing::Arithmetic;
-use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.

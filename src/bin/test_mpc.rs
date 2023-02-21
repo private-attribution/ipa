@@ -11,9 +11,7 @@ use raw_ipa::{
     net::{discovery::PeerDiscovery, MpcHelperClient},
     protocol::{BreakdownKey, MatchKey},
 };
-use std::error::Error;
-use std::fmt::Debug;
-use std::path::PathBuf;
+use std::{error::Error, fmt::Debug, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[clap(

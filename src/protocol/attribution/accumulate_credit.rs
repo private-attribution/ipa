@@ -1,10 +1,13 @@
-use super::do_the_binary_tree_thing;
-use super::input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic;
+use super::{
+    do_the_binary_tree_thing,
+    input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow},
+};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, RecordId},
+    secret_sharing::Arithmetic,
+};
 use futures::future::try_join_all;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -149,23 +152,27 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::accumulation_test_input;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::helpers::Role;
-    use crate::protocol::attribution::input::MCAccumulateCreditOutputRow;
-    use crate::protocol::attribution::{
-        accumulate_credit::accumulate_credit,
-        input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
+    use crate::{
+        accumulation_test_input,
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::Role,
+        protocol::{
+            attribution::{
+                accumulate_credit::accumulate_credit,
+                input::{
+                    AccumulateCreditInputRow, MCAccumulateCreditInputRow,
+                    MCAccumulateCreditOutputRow,
+                },
+            },
+            context::Context,
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            sort::apply_sort::shuffle::Resharable,
+            BreakdownKey, MatchKey, RecordId,
+        },
+        rand::thread_rng,
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::apply_sort::shuffle::Resharable;
-    use crate::protocol::{context::Context, RecordId};
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::Rng;
 
     #[tokio::test]

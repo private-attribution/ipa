@@ -13,8 +13,10 @@ use futures::StreamExt;
 use futures_util::stream::SelectAll;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Formatter},
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 

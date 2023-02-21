@@ -3,12 +3,19 @@ use super::{
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     prefix_or_binary_tree_style,
 };
-use crate::ff::Field;
-use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
-use crate::protocol::context::Context;
-use crate::protocol::{RecordId, Substep};
-use crate::{error::Error, secret_sharing::Arithmetic};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        boolean::{
+            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
+            BitDecomposition,
+        },
+        context::Context,
+        RecordId, Substep,
+    },
+    secret_sharing::Arithmetic,
+};
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -370,14 +377,14 @@ mod tests {
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp32BitPrime},
-        protocol::attribution::{
-            credit_capping::credit_capping,
-            input::{CreditCappingInputRow, MCCreditCappingInputRow},
-        },
-        protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local},
         protocol::{
+            attribution::{
+                credit_capping::credit_capping,
+                input::{CreditCappingInputRow, MCCreditCappingInputRow},
+            },
             context::Context,
-            {BreakdownKey, MatchKey},
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
         },
         secret_sharing::SharedValue,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},

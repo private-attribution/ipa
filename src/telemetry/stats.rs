@@ -1,14 +1,15 @@
-use std::collections::hash_map::Iter;
-use std::collections::HashMap;
-use std::fmt::Debug;
+use std::{
+    collections::{hash_map::Iter, HashMap},
+    fmt::Debug,
+};
 
 use metrics::{KeyName, Label, SharedString};
 
-use crate::helpers::Role;
-use crate::protocol::Step;
-use crate::telemetry::labels;
-use metrics_util::debugging::{DebugValue, Snapshot};
-use metrics_util::{CompositeKey, MetricKind};
+use crate::{helpers::Role, protocol::Step, telemetry::labels};
+use metrics_util::{
+    debugging::{DebugValue, Snapshot},
+    CompositeKey, MetricKind,
+};
 
 /// Simple counter stats
 #[derive(Debug, Default)]

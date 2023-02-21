@@ -14,8 +14,10 @@ use crate::{
     task::JoinHandle,
 };
 use async_trait::async_trait;
-use std::collections::{hash_map::Entry, HashMap};
-use std::net::SocketAddr;
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    net::SocketAddr,
+};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 

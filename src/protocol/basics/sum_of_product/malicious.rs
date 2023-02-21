@@ -1,13 +1,16 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Direction;
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{
-    context::{Context, MaliciousContext},
-    RecordId,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::Direction,
+    protocol::{
+        context::{Context, MaliciousContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
+    secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    },
 };
-use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -68,8 +71,10 @@ pub async fn sum_of_products<F>(
 where
     F: Field,
 {
-    use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    use crate::{
+        protocol::context::SpecialAccessToMaliciousContext,
+        secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    };
 
     assert_eq!(a.len(), b.len());
     let vec_len = a.len();

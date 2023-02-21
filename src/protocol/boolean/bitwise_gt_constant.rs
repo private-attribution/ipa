@@ -1,8 +1,10 @@
 use super::or::or;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, BitOpStep, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
 ///
@@ -122,12 +124,13 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::bitwise_greater_than_constant;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::protocol::context::Context;
-    use crate::protocol::RecordId;
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{into_bits, Reconstruct, Runner, TestWorld};
+    use crate::{
+        ff::{Field, Fp31, Fp32BitPrime},
+        protocol::{context::Context, RecordId},
+        rand::thread_rng,
+        secret_sharing::SharedValue,
+        test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
+    };
     use proptest::prelude::Rng;
     use rand::{distributions::Standard, prelude::Distribution};
 

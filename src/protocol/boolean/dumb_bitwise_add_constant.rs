@@ -1,7 +1,9 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, BitOpStep, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
 ///
@@ -192,13 +194,14 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::bitwise_add_constant;
-    use crate::protocol::boolean::dumb_bitwise_add_constant::bitwise_add_constant_maybe;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{context::Context, RecordId},
-        test_fixture::{into_bits, Reconstruct, TestWorld},
+        protocol::{
+            boolean::dumb_bitwise_add_constant::bitwise_add_constant_maybe, context::Context,
+            RecordId,
+        },
+        secret_sharing::SharedValue,
+        test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
     use bitvec::macros::internal::funty::Fundamental;
     use rand::{distributions::Standard, prelude::Distribution};

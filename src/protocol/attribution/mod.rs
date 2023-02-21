@@ -3,11 +3,10 @@ pub mod credit_capping;
 pub mod input;
 
 pub(crate) mod accumulate_credit;
-use crate::protocol::boolean::or::or;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId, Substep},
+    protocol::{boolean::or::or, context::Context, RecordId, Substep},
     repeat64str,
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };

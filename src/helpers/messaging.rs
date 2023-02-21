@@ -23,9 +23,11 @@ use crate::{
 use futures::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use generic_array::GenericArray;
-use std::fmt::{Debug, Formatter};
-use std::num::NonZeroUsize;
-use std::time::Duration;
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+    time::Duration,
+};
 use tinyvec::array_vec;
 use tracing::Instrument;
 use typenum::Unsigned;
@@ -374,12 +376,12 @@ fn print_state(role: Role, send_buf: &SendBuffer, receive_buf: &ReceiveBuffer) {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::ff::Fp31;
-    use crate::helpers::messaging::TotalRecords;
-    use crate::helpers::Role;
-    use crate::protocol::context::Context;
-    use crate::protocol::{RecordId, Step};
-    use crate::test_fixture::{TestWorld, TestWorldConfig};
+    use crate::{
+        ff::Fp31,
+        helpers::{messaging::TotalRecords, Role},
+        protocol::{context::Context, RecordId, Step},
+        test_fixture::{TestWorld, TestWorldConfig},
+    };
     use std::num::NonZeroUsize;
 
     #[tokio::test]

@@ -1,12 +1,13 @@
 use futures::future::try_join_all;
 
-use crate::error::Error;
-use crate::ff::Field;
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
+use crate::{
+    error::Error,
+    ff::Field,
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
+};
 use std::iter::repeat;
 
-use super::context::Context;
-use super::{BitOpStep, RecordId};
+use super::{context::Context, BitOpStep, RecordId};
 
 mod bit_decomposition;
 pub mod bitwise_equal;
@@ -19,12 +20,11 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
+pub use bit_decomposition::BitDecomposition;
+pub use bitwise_gt_constant::bitwise_greater_than_constant;
+pub use generate_random_bits::RandomBits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
-pub use {
-    bit_decomposition::BitDecomposition, bitwise_gt_constant::bitwise_greater_than_constant,
-    generate_random_bits::RandomBits,
-};
 
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.

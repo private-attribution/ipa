@@ -35,10 +35,10 @@ use crate::{
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
-use std::ops::Add;
 use std::{
     iter::{repeat, zip},
     marker::PhantomData,
+    ops::Add,
 };
 use typenum::Unsigned;
 
@@ -558,22 +558,23 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::{ipa, ipa_malicious, IPAInputRow};
-    use crate::bits::{Fp2Array, Serializable};
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::ipa_test_input;
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::secret_sharing::IntoShares;
-    use crate::telemetry::metrics::RECORDS_SENT;
-    use crate::test_fixture::{
-        input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+    use crate::{
+        bits::{Fp2Array, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime},
+        ipa_test_input,
+        protocol::{BreakdownKey, MatchKey},
+        secret_sharing::IntoShares,
+        telemetry::metrics::RECORDS_SENT,
+        test_fixture::{
+            input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+        },
     };
     use generic_array::GenericArray;
     use proptest::{
         proptest,
         test_runner::{RngAlgorithm, TestRng},
     };
-    use rand::rngs::StdRng;
-    use rand::{thread_rng, Rng};
+    use rand::{rngs::StdRng, thread_rng, Rng};
     use rand_core::SeedableRng;
     use typenum::Unsigned;
 

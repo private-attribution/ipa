@@ -1,10 +1,10 @@
-use super::any_ones;
-use super::or::or;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::boolean::multiply_all_shares;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use super::{any_ones, or::or};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{boolean::multiply_all_shares, context::Context, BitOpStep, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 use futures::future::try_join;
 use std::cmp::Ordering;
 
@@ -201,12 +201,11 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThanPrime;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
-        test_fixture::{get_bits, Reconstruct, TestWorld},
+        secret_sharing::SharedValue,
+        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 

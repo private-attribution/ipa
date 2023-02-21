@@ -1,7 +1,5 @@
-use bitvec::bitvec;
-use bitvec::prelude::BitVec;
-use std::fmt::Debug;
-use std::num::NonZeroUsize;
+use bitvec::{bitvec, prelude::BitVec};
+use std::{fmt::Debug, num::NonZeroUsize};
 
 /// A store of bytes that allows for random access inserts, but contiguous removal.
 ///

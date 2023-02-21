@@ -184,7 +184,6 @@ impl MultiplyWork for MultiplyZeroPositions {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(in crate::protocol) mod test {
-    use crate::secret_sharing::IntoShares;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::{
@@ -198,7 +197,7 @@ pub(in crate::protocol) mod test {
             BitOpStep, RECORD_0,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join;

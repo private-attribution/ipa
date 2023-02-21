@@ -259,18 +259,21 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use crate::error::Error;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::helpers::Role;
-    use crate::protocol::basics::SecureMul;
-    use crate::protocol::context::Context;
-    use crate::protocol::{malicious::MaliciousValidator, RecordId};
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::{
-        replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares,
+    use crate::{
+        error::Error,
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::Role,
+        protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
+        rand::thread_rng,
+        secret_sharing::{
+            replicated::{
+                malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                semi_honest::AdditiveShare as Replicated,
+            },
+            IntoShares,
+        },
+        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
-    use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 

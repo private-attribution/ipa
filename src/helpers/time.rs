@@ -1,7 +1,9 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::time::Duration;
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 /// Simple timer that only works in the presence of tokio runtime. Any other runtime will
 /// make it a no-op.

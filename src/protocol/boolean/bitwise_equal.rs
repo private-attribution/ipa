@@ -1,9 +1,10 @@
 use super::xor;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::boolean::no_ones;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{boolean::no_ones, context::Context, BitOpStep, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 use futures::future::try_join_all;
 use std::iter::zip;
 
@@ -97,11 +98,10 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
-        test_fixture::{get_bits, Reconstruct, TestWorld},
+        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
 
     use super::{bitwise_equal, bitwise_equal_constant};

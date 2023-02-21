@@ -87,8 +87,10 @@ pub mod query {
     use async_trait::async_trait;
     use axum::extract::{FromRequest, Query, RequestParts};
     use hyper::header::HeaderName;
-    use std::fmt::{Display, Formatter};
-    use std::str::FromStr;
+    use std::{
+        fmt::{Display, Formatter},
+        str::FromStr,
+    };
 
     /// wrapper around [`QueryConfig`] to enable extraction from an `Axum` request. To be used with
     /// the `create` and `prepare` commands
