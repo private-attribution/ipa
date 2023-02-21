@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BitOpStep, RecordId},
+    protocol::{basics::SecureMul, context::Context, BasicProtocols, BitOpStep, RecordId},
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
 
@@ -47,8 +47,8 @@ pub async fn bitwise_add_constant<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 
@@ -61,23 +61,30 @@ where
     let result_bit = if last_carry_known_to_be_zero {
         a[0].clone()
     } else {
-        ctx.share_known_value(F::ONE) - &a[0]
+        S::share_known_value(&ctx, F::ONE) - &a[0]
     };
     output.push(result_bit);
 
     for (bit_index, bit) in a.iter().enumerate().skip(1) {
         let mult_result = if last_carry_known_to_be_zero {
             // TODO: this makes me sad
-            let _ = ctx
-                .narrow(&BitOpStep::from(bit_index))
-                .multiply(record_id, &S::ZERO, &S::ZERO) // this is stupid
-                .await?;
+            let _ = S::multiply(
+                ctx.narrow(&BitOpStep::from(bit_index)),
+                record_id,
+                &S::ZERO,
+                &S::ZERO,
+            ) // this is stupid
+            .await?;
 
             S::ZERO
         } else {
-            ctx.narrow(&BitOpStep::from(bit_index))
-                .multiply(record_id, &last_carry, bit)
-                .await?
+            S::multiply(
+                ctx.narrow(&BitOpStep::from(bit_index)),
+                record_id,
+                &last_carry,
+                bit,
+            )
+            .await?
         };
 
         let next_bit_a_one = (b >> bit_index) & 1 == 1;
@@ -92,7 +99,10 @@ where
         // the current bit of `a` + the current bit of `b` + the carry from the previous bit `-2*next_carry`
         // Since the current bit of `b` has a known value (either 1 or 0), we either add a `share_of_one`, or nothing.
         let result_bit = if next_bit_a_one {
-            -next_carry.clone() * F::from(2) + &ctx.share_known_value(F::ONE) + bit + &last_carry
+            -next_carry.clone() * F::from(2)
+                + &S::share_known_value(&ctx, F::ONE)
+                + bit
+                + &last_carry
         } else {
             -next_carry.clone() * F::from(2) + bit + &last_carry
         };
@@ -126,8 +136,8 @@ pub async fn bitwise_add_constant_maybe<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     assert!(a.len() < 128);
     assert_eq!(
@@ -137,19 +147,20 @@ where
     );
     let mut output = Vec::with_capacity(a.len() + 1);
 
-    let mut last_carry = ctx
-        .narrow(&BitOpStep::from(0))
-        .multiply(record_id, &a[0], maybe)
-        .await?;
+    let mut last_carry =
+        S::multiply(ctx.narrow(&BitOpStep::from(0)), record_id, &a[0], maybe).await?;
     output.push(-last_carry.clone() * F::from(2) + &a[0] + maybe);
 
     let ctx_other = ctx.narrow(&Step::CarryXorBitTimesMaybe);
     for (bit_index, bit) in a.iter().enumerate().skip(1) {
         let next_bit = (b >> bit_index) & 1;
-        let carry_times_bit = ctx
-            .narrow(&BitOpStep::from(bit_index))
-            .multiply(record_id, bit, &last_carry)
-            .await?;
+        let carry_times_bit = S::multiply(
+            ctx.narrow(&BitOpStep::from(bit_index)),
+            record_id,
+            bit,
+            &last_carry,
+        )
+        .await?;
 
         if next_bit == 0 {
             let next_carry = carry_times_bit;
@@ -160,10 +171,13 @@ where
         } else {
             let carry_xor_bit = -carry_times_bit.clone() * F::from(2) + &last_carry + bit;
 
-            let carry_xor_bit_times_maybe = ctx_other
-                .narrow(&BitOpStep::from(bit_index))
-                .multiply(record_id, &carry_xor_bit, maybe)
-                .await?;
+            let carry_xor_bit_times_maybe = S::multiply(
+                ctx_other.narrow(&BitOpStep::from(bit_index)),
+                record_id,
+                &carry_xor_bit,
+                maybe,
+            )
+            .await?;
 
             let next_carry = carry_xor_bit_times_maybe + &carry_times_bit;
 

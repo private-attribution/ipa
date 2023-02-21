@@ -391,7 +391,7 @@ mod tests {
         config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(3).unwrap(); // keep 3 at a time
 
         let world = Box::leak(Box::new(TestWorld::new_with(config).await));
-        let contexts = world.contexts::<Fp31>();
+        let contexts = world.contexts();
         let sender_ctx = contexts[0].narrow("reordering-test").set_total_records(2);
         let recv_ctx = contexts[1].narrow("reordering-test").set_total_records(2);
 

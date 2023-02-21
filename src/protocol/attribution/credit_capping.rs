@@ -7,12 +7,13 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
+        basics::SecureMul,
         boolean::{
             bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
-            BitDecomposition,
+            BitDecomposition, RandomBits,
         },
         context::Context,
-        RecordId, Substep,
+        BasicProtocols, RecordId, Substep,
     },
     secret_sharing::Arithmetic,
 };
@@ -31,8 +32,8 @@ pub async fn credit_capping<F, C, T>(
 ) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context + RandomBits<F, Share = T>,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
         return credit_capping_max_one(ctx, input).await;
@@ -106,8 +107,8 @@ async fn credit_capping_max_one<F, C, T>(
 ) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let input_len = input.len();
 
@@ -130,7 +131,7 @@ where
             |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
-                async move { c.multiply(record_id, prefix_or, helper_bit).await }
+                async move { T::multiply(c, record_id, prefix_or, helper_bit).await }
             },
         ))
         .await?;
@@ -146,10 +147,15 @@ where
             .map(|(i, (uncapped_credit, any_subsequent_credit))| {
                 let record_id = RecordId::from(i);
                 let c = potentially_cap_ctx.clone();
-                let one = ctx.share_known_value(F::ONE);
+                let one = T::share_known_value(&c, F::ONE);
                 async move {
-                    c.multiply(record_id, uncapped_credit, &(one - any_subsequent_credit))
-                        .await
+                    T::multiply(
+                        c,
+                        record_id,
+                        uncapped_credit,
+                        &(one - any_subsequent_credit),
+                    )
+                    .await
                 }
             }),
     )
@@ -177,19 +183,20 @@ async fn mask_source_credits<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     try_join_all(
         input
             .iter()
             .zip(zip(
                 repeat(ctx.narrow(&Step::MaskSourceCredits)),
-                repeat(ctx.share_known_value(F::ONE)),
+                repeat(T::share_known_value(&ctx, F::ONE)),
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
-                ctx.multiply(
+                T::multiply(
+                    ctx,
                     RecordId::from(i),
                     &x.trigger_value,
                     &(one - &x.is_trigger_report),
@@ -207,8 +214,8 @@ async fn credit_prefix_sum<'a, F, C, T, I>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F> + 'a,
+    C: Context,
+    T: Arithmetic<F> + SecureMul<C> + 'a,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -231,8 +238,8 @@ async fn is_credit_larger_than_cap<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context + RandomBits<F, Share = T>,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
@@ -284,11 +291,11 @@ async fn compute_final_credits<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
-    let cap = ctx.share_known_value(F::from(cap.into()));
+    let cap = T::share_known_value(&ctx, F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:

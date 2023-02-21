@@ -12,9 +12,7 @@ use crate::{
     ff::{Field, Fp31},
     protocol::{context::Context, prss::Endpoint as PrssEndpoint, Substep},
     rand::thread_rng,
-    secret_sharing::{
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares, SecretSharing,
-    },
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 use futures::{future::try_join_all, TryFuture};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
@@ -28,10 +26,7 @@ pub use world::{Runner, TestWorld, TestWorldConfig};
 /// # Panics
 /// Never, but then Rust doesn't know that; this is only needed because we don't have `each_ref()`.
 #[must_use]
-pub fn narrow_contexts<C: Debug + Context<F, Share = S>, F: Field, S: SecretSharing<F>>(
-    contexts: &[C; 3],
-    step: &impl Substep,
-) -> [C; 3] {
+pub fn narrow_contexts<C: Debug + Context>(contexts: &[C; 3], step: &impl Substep) -> [C; 3] {
     // This really wants <[_; N]>::each_ref()
     contexts
         .iter()

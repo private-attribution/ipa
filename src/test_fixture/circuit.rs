@@ -40,10 +40,13 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {
-                let mul = ctx
-                    .narrow(&"mult".to_string())
-                    .set_total_records(TotalRecords::Indeterminate)
-                    .multiply(record_id, &a[i], &b[i]);
+                let mul = Replicated::multiply(
+                    ctx.narrow(&"mult".to_string())
+                        .set_total_records(TotalRecords::Indeterminate),
+                    record_id,
+                    &a[i],
+                    &b[i],
+                );
                 coll.push(mul);
             }
 

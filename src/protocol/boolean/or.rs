@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId},
+    protocol::{basics::SecureMul, context::Context, RecordId},
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
 
@@ -10,13 +10,13 @@ use crate::{
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
-pub async fn or<F: Field, C: Context<F, Share = S>, S: ArithmeticSecretSharing<F>>(
+pub async fn or<F: Field, C: Context, S: ArithmeticSecretSharing<F> + SecureMul<C>>(
     ctx: C,
     record_id: RecordId,
     a: &S,
     b: &S,
 ) -> Result<S, Error> {
-    let ab = ctx.multiply(record_id, a, b).await?;
+    let ab = S::multiply(ctx, record_id, a, b).await?;
     Ok(-ab + a + b)
 }
 

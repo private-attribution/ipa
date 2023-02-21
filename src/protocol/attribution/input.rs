@@ -3,7 +3,10 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::Role,
-    protocol::{context::Context, sort::apply_sort::shuffle::Resharable, RecordId, Substep},
+    protocol::{
+        basics::reshare::LegacyReshare, context::Context, sort::apply_sort::shuffle::Resharable,
+        RecordId, Substep,
+    },
     secret_sharing::{
         replicated::{
             malicious::{
@@ -229,7 +232,7 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = T> + Send,
     {
         let f_trigger_bit = ctx
             .narrow(&AttributionResharableStep::IsTriggerReport)
@@ -269,7 +272,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = T> + Send,
     {
         let f_helper_bit = ctx.narrow(&AttributionResharableStep::HelperBit).reshare(
             &self.helper_bit,

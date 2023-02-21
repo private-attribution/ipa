@@ -4,7 +4,10 @@ use crate::{
     ff::Field,
     helpers::Role,
     protocol::{
-        basics::ZeroPositions, boolean::xor_sparse, context::Context, IpaProtocolStep, RecordId,
+        basics::{SecureMul, ZeroPositions},
+        boolean::xor_sparse,
+        context::Context,
+        IpaProtocolStep, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
@@ -111,8 +114,8 @@ pub async fn convert_bit<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let (sh0, sh1, sh2) = (
         &locally_converted_bits.0[0],
@@ -141,8 +144,8 @@ pub async fn convert_all_bits<F, C, S>(
 ) -> Result<Vec<Vec<Vec<S>>>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
@@ -177,8 +180,8 @@ pub async fn convert_bit_list<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())

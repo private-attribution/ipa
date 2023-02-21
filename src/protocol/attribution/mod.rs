@@ -6,7 +6,9 @@ pub(crate) mod accumulate_credit;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{boolean::or::or, context::Context, RecordId, Substep},
+    protocol::{
+        basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId, Substep,
+    },
     repeat64str,
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
@@ -22,8 +24,8 @@ async fn if_else<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
@@ -34,9 +36,13 @@ where
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
     Ok(false_value.clone()
-        + &ctx
-            .multiply(record_id, condition, &(true_value.clone() - false_value))
-            .await?)
+        + &S::multiply(
+            ctx,
+            record_id,
+            condition,
+            &(true_value.clone() - false_value),
+        )
+        .await?)
 }
 
 ///
@@ -57,8 +63,8 @@ pub async fn prefix_or_binary_tree_style<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert_eq!(helper_bits.len() + 1, uncapped_credits.len());
 
@@ -80,7 +86,7 @@ where
                 let record_id = RecordId::from(i);
                 let original_credit = &uncapped_credits[i];
                 async move {
-                    let credit_update = c1.multiply(record_id, b, sibling_credit).await?;
+                    let credit_update = S::multiply(c1, record_id, b, sibling_credit).await?;
                     or(c2, record_id, original_credit, &credit_update).await
                 }
             }),
@@ -93,7 +99,7 @@ where
     // This vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
     let mut stop_bits = helper_bits.to_owned();
-    stop_bits.push(ctx.share_known_value(F::ONE));
+    stop_bits.push(S::share_known_value(&ctx, F::ONE));
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
     for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
@@ -121,13 +127,11 @@ where
             let sibling_credit = &prefix_or[i + step_size];
             let current_credit = &prefix_or[i];
             futures.push(async move {
-                let b = c1
-                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
-                    .await?;
+                let b = S::multiply(c1, record_id, current_stop_bit, sibling_helper_bit).await?;
 
                 let (credit_update, new_stop_bit) = try_join(
-                    c2.multiply(record_id, &b, sibling_credit),
-                    c3.multiply(record_id, &b, sibling_stop_bit),
+                    S::multiply(c2, record_id, &b, sibling_credit),
+                    S::multiply(c3, record_id, &b, sibling_stop_bit),
                 )
                 .await?;
 
@@ -169,8 +173,8 @@ pub async fn do_the_binary_tree_thing<F, C, S>(
 ) -> Result<(), Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let num_rows = values.len();
 
@@ -202,13 +206,11 @@ where
             let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_value = &values[i + step_size];
             value_update_futures.push(async move {
-                c1.multiply(record_id, current_stop_bit, sibling_value)
-                    .await
+                S::multiply(c1, record_id, current_stop_bit, sibling_value).await
             });
             if !last_iteration {
                 stop_bit_futures.push(async move {
-                    c2.multiply(record_id, current_stop_bit, sibling_stop_bit)
-                        .await
+                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
                 });
             }
         }
