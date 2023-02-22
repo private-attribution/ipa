@@ -1002,16 +1002,16 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 4, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 10740;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19290;
 
         /// empirical value as of Feb 14, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 26410;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 47034;
 
         /// empirical value as of Feb 20, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 7557;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13680;
 
         /// empirical value as of Feb 20, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18849;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33723;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -1020,6 +1020,10 @@ pub mod tests {
                 { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
