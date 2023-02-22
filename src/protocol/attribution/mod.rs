@@ -162,10 +162,10 @@ where
 /// ## Panics
 /// Nah, it doesn't.
 ///
-pub async fn do_the_binary_tree_thing<'a, F, C, S>(
+pub async fn do_the_binary_tree_thing<F, C, S>(
     ctx: C,
-    stop_bits: &[S],
-    values: &'a mut [S],
+    mut stop_bits: Vec<S>,
+    values: &mut [S],
 ) -> Result<(), Error>
 where
     F: Field,
@@ -174,10 +174,9 @@ where
 {
     let num_rows = values.len();
 
-    // Create stop_bit vector.
+    // Append [0] to the stop_bit vector.
     // This vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
-    let mut stop_bits = stop_bits.to_owned();
     stop_bits.push(S::ZERO);
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior

@@ -219,7 +219,7 @@ where
 
     let mut credits = original_credits.cloned().collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx, &helper_bits, &mut credits).await?;
+    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
 
     Ok(credits)
 }

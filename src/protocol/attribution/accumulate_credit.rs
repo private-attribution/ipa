@@ -135,7 +135,7 @@ where
     // of other elements, allowing the algorithm to be executed in parallel.
 
     // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-    do_the_binary_tree_thing(ctx, &helper_bits, &mut credits).await?;
+    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
 
     let output = input
         .iter()
