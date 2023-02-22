@@ -217,7 +217,11 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx, &helper_bits, original_credits).await
+    let mut credits = original_credits.cloned().collect::<Vec<_>>();
+
+    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
+
+    Ok(credits)
 }
 
 async fn is_credit_larger_than_cap<F, C, T>(
