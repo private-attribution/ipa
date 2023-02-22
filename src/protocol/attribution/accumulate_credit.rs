@@ -115,7 +115,10 @@ where
     }))
     .await?;
 
-    let credits = input.iter().map(|x| &x.trigger_value);
+    let mut credits = input
+        .iter()
+        .map(|x| x.trigger_value.clone())
+        .collect::<Vec<_>>();
 
     // 2. Accumulate (up to 4 multiplications)
     //
@@ -132,7 +135,7 @@ where
     // of other elements, allowing the algorithm to be executed in parallel.
 
     // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-    let credits = do_the_binary_tree_thing(ctx, &helper_bits, credits).await?;
+    let credits = do_the_binary_tree_thing(ctx, &helper_bits, &mut credits).await?;
 
     let output = input
         .iter()

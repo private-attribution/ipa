@@ -162,49 +162,30 @@ where
 /// ## Panics
 /// Nah, it doesn't.
 ///
-pub async fn do_the_binary_tree_thing<'a, F, C, S, I>(
+pub async fn do_the_binary_tree_thing<F, C, S>(
     ctx: C,
-    helper_bits: &[S],
-    credits: I,
+    stop_bits: &[S],
+    values: &mut [S],
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
     C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F> + 'a,
-    I: Iterator<Item = &'a S>,
+    S: ArithmeticSecretSharing<F>,
 {
-    let num_rows = helper_bits.len() + 1;
-    let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
+    let num_rows = values.len();
 
-    let mut last = None;
-    let credit_and_next_credit = credits.map(|x| (last.replace(x.clone()), x)).skip(1);
-
-    let mut credits = try_join_all(credit_and_next_credit.zip(helper_bits).enumerate().map(
-        |(i, ((current_credit, next_credit), helper_bit))| {
-            let c = depth_0_ctx.clone();
-            let record_id = RecordId::from(i);
-            async move {
-                Ok::<_, Error>(
-                    current_credit.unwrap()
-                        + &c.multiply(record_id, helper_bit, next_credit).await?,
-                )
-            }
-        },
-    ))
-    .await?;
-    // This is crap and will resize the vector... it was too hard to fix...
-    credits.push(last.unwrap());
+    // Create value vector.
+    // This vector is updated in each iteration by adding `value * stop_bit`.
+    let mut values = values.to_owned();
 
     // Create stop_bit vector.
     // This vector is updated in each iteration to help accumulate values
     // and determine when to stop accumulating.
-    let mut stop_bits = helper_bits.to_owned();
-    stop_bits.push(ctx.share_known_value(F::ONE));
+    let mut stop_bits = stop_bits.to_owned();
+    stop_bits.push(S::ZERO);
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
-    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
@@ -212,27 +193,21 @@ where
         let depth_i_ctx = ctx
             .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
-        let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
-        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
+        let new_value_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorCredit);
+        let new_stop_bit_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorStopBit);
         let mut futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let c1 = depth_i_ctx.clone();
-            let c2 = b_times_sibling_credit_ctx.clone();
-            let c3 = b_times_sibling_stop_bit_ctx.clone();
+            let c1 = new_value_ctx.clone();
+            let c2 = new_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
-            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &credits[i + step_size];
+            let sibling_credit = &values[i + step_size];
             futures.push(async move {
-                let b = c1
-                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
-                    .await?;
-
                 try_join(
-                    c2.multiply(record_id, &b, sibling_credit),
-                    c3.multiply(record_id, &b, sibling_stop_bit),
+                    c1.multiply(record_id, current_stop_bit, sibling_credit),
+                    c2.multiply(record_id, current_stop_bit, sibling_stop_bit),
                 )
                 .await
             });
@@ -244,17 +219,19 @@ where
             .into_iter()
             .enumerate()
             .for_each(|(i, (credit, stop_bit))| {
-                credits[i] += &credit;
+                values[i] += &credit;
                 stop_bits[i] = stop_bit;
             });
     }
-    Ok(credits)
+    Ok(values)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     BTimesSuccessorCredit,
     BTimesSuccessorStopBit,
+    CurrentStopBitTimesSuccessorCredit,
+    CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
 }
 
@@ -265,6 +242,10 @@ impl AsRef<str> for Step {
         match self {
             Self::BTimesSuccessorCredit => "b_times_successor_credit",
             Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
+            Self::CurrentStopBitTimesSuccessorCredit => "current_stop_bit_times_successor_credit",
+            Self::CurrentStopBitTimesSuccessorStopBit => {
+                "current_stop_bit_times_successor_stop_bit"
+            }
             Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
         }
     }

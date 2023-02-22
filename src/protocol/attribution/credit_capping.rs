@@ -44,13 +44,13 @@ where
     //
     // * `original_credits` will have credit values of only source events
     //
-    let original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
+    let mut original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
     let prefix_summed_credits =
-        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
+        credit_prefix_sum(ctx.clone(), input, &mut original_credits).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -200,16 +200,15 @@ where
     .await
 }
 
-async fn credit_prefix_sum<'a, F, C, T, I>(
+async fn credit_prefix_sum<F, C, T>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
-    original_credits: I,
+    original_credits: &mut [T],
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F> + 'a,
-    I: Iterator<Item = &'a T>,
+    T: Arithmetic<F>,
 {
     let helper_bits = input
         .iter()
