@@ -213,23 +213,29 @@ where
             }
         }
 
-        let value_updates = try_join_all(value_update_futures).await?;
-        value_updates
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, value_update)| {
-                values[i] += &value_update;
-            });
+        let value_updates = if last_iteration {
+            try_join_all(value_update_futures).await?
+        } else {
+            let (stop_bit_updates, value_updates) = try_join(
+                try_join_all(stop_bit_futures),
+                try_join_all(value_update_futures),
+            )
+            .await?;
 
-        if !last_iteration {
-            let stop_bit_updates = try_join_all(stop_bit_futures).await?;
             stop_bit_updates
                 .into_iter()
                 .enumerate()
                 .for_each(|(i, stop_bit_update)| {
                     stop_bits[i] = stop_bit_update;
                 });
-        }
+            value_updates
+        };
+        value_updates
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, value_update)| {
+                values[i] += &value_update;
+            });
     }
     Ok(())
 }
