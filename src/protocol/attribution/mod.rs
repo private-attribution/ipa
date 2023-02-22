@@ -184,13 +184,15 @@ where
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
+        let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
         let depth_i_ctx = ctx
             .narrow(&InteractionPatternStep::from(depth + 1))
             .set_total_records(end);
         let new_value_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorCredit);
         let new_stop_bit_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorStopBit);
-        let mut futures = Vec::with_capacity(end);
+        let mut value_update_futures = Vec::with_capacity(end);
+        let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
             let c1 = new_value_ctx.clone();
@@ -198,24 +200,41 @@ where
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
             let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &values[i + step_size];
-            futures.push(async move {
-                try_join(
-                    c1.multiply(record_id, current_stop_bit, sibling_credit),
-                    c2.multiply(record_id, current_stop_bit, sibling_stop_bit),
-                )
-                .await
+            let sibling_value = &values[i + step_size];
+            value_update_futures.push(async move {
+                c1.multiply(record_id, current_stop_bit, sibling_value)
+                    .await
             });
+            if !last_iteration {
+                stop_bit_futures.push(async move {
+                    c2.multiply(record_id, current_stop_bit, sibling_stop_bit)
+                        .await
+                });
+            }
         }
 
-        let results = try_join_all(futures).await?;
+        let value_updates = if last_iteration {
+            try_join_all(value_update_futures).await?
+        } else {
+            let (stop_bit_updates, value_updates) = try_join(
+                try_join_all(stop_bit_futures),
+                try_join_all(value_update_futures),
+            )
+            .await?;
 
-        results
+            stop_bit_updates
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, stop_bit_update)| {
+                    stop_bits[i] = stop_bit_update;
+                });
+            value_updates
+        };
+        value_updates
             .into_iter()
             .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                values[i] += &credit;
-                stop_bits[i] = stop_bit;
+            .for_each(|(i, value_update)| {
+                values[i] += &value_update;
             });
     }
     Ok(())
