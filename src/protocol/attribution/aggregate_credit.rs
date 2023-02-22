@@ -89,7 +89,7 @@ where
         .map(|x| x.credit.clone())
         .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(ctx.clone(), &helper_bits, &mut credits).await?;
+    do_the_binary_tree_thing(ctx.clone(), &helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -188,7 +188,7 @@ where
         .map(|x| x.credit.clone())
         .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(m_ctx, &helper_bits, &mut credits).await?;
+    do_the_binary_tree_thing(m_ctx, &helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input

@@ -44,13 +44,13 @@ where
     //
     // * `original_credits` will have credit values of only source events
     //
-    let mut original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
+    let original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
     let prefix_summed_credits =
-        credit_prefix_sum(ctx.clone(), input, &mut original_credits).await?;
+        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -200,15 +200,16 @@ where
     .await
 }
 
-async fn credit_prefix_sum<F, C, T>(
+async fn credit_prefix_sum<'a, F, C, T, I>(
     ctx: C,
     input: &[MCCreditCappingInputRow<F, T>],
-    original_credits: &mut [T],
+    original_credits: I,
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    T: Arithmetic<F> + 'a,
+    I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
         .iter()
@@ -216,7 +217,11 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx, &helper_bits, original_credits).await
+    let mut credits = original_credits.cloned().collect::<Vec<_>>();
+
+    do_the_binary_tree_thing(ctx, &helper_bits, &mut credits).await?;
+
+    Ok(credits)
 }
 
 async fn is_credit_larger_than_cap<F, C, T>(

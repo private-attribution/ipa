@@ -162,21 +162,17 @@ where
 /// ## Panics
 /// Nah, it doesn't.
 ///
-pub async fn do_the_binary_tree_thing<F, C, S>(
+pub async fn do_the_binary_tree_thing<'a, F, C, S>(
     ctx: C,
     stop_bits: &[S],
-    values: &mut [S],
-) -> Result<Vec<S>, Error>
+    values: &'a mut [S],
+) -> Result<(), Error>
 where
     F: Field,
     C: Context<F, Share = S>,
     S: ArithmeticSecretSharing<F>,
 {
     let num_rows = values.len();
-
-    // Create value vector.
-    // This vector is updated in each iteration by adding `value * stop_bit`.
-    let mut values = values.to_owned();
 
     // Create stop_bit vector.
     // This vector is updated in each iteration to help accumulate values
@@ -223,7 +219,7 @@ where
                 stop_bits[i] = stop_bit;
             });
     }
-    Ok(values)
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
