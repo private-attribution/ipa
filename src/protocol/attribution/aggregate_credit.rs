@@ -84,9 +84,12 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let credits = sorted_input.iter().map(|x| &x.credit);
+    let mut credits = sorted_input
+        .iter()
+        .map(|x| x.credit.clone())
+        .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(ctx.clone(), &helper_bits, credits).await?;
+    do_the_binary_tree_thing(ctx.clone(), helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -180,9 +183,12 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let credits = sorted_input.iter().map(|x| &x.credit);
+    let mut credits = sorted_input
+        .iter()
+        .map(|x| x.credit.clone())
+        .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(m_ctx, &helper_bits, credits).await?;
+    do_the_binary_tree_thing(m_ctx, helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
