@@ -11,7 +11,7 @@ use crate::{
 use async_trait::async_trait;
 
 #[async_trait]
-impl<F: Field> RandomBits<F> for SemiHonestContext<'_, F> {
+impl<F: Field> RandomBits<F> for SemiHonestContext<'_> {
     type Share = Replicated<F>;
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.

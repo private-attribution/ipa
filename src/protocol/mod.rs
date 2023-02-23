@@ -18,6 +18,8 @@ use std::{
     ops::AddAssign,
 };
 
+pub use basics::BasicProtocols;
+
 pub type MatchKey = BitArray40;
 pub type BreakdownKey = BitArray8;
 

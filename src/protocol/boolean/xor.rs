@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{MultiplyZeroPositions, ZeroPositions},
+        basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
         context::Context,
         RecordId,
     },
@@ -16,8 +16,8 @@ use crate::{
 pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     xor_sparse(ctx, record_id, a, b, ZeroPositions::NONE).await
 }
@@ -34,10 +34,10 @@ pub async fn xor_sparse<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
-    let ab = ctx.multiply_sparse(record_id, a, b, zeros_at).await?;
+    let ab = S::multiply_sparse(ctx, record_id, a, b, zeros_at).await?;
     Ok(-(ab * F::from(2)) + a + b)
 }
 

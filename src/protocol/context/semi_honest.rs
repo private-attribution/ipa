@@ -17,21 +17,18 @@ use crate::{
     sync::Arc,
 };
 
-use std::marker::PhantomData;
-
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
 #[derive(Clone, Debug)]
-pub struct SemiHonestContext<'a, F: Field> {
+pub struct SemiHonestContext<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
     pub(super) inner: Arc<ContextInner<'a>>,
     pub(super) step: Step,
     pub(super) total_records: TotalRecords,
-    _marker: PhantomData<F>,
 }
 
-impl<'a, F: Field> SemiHonestContext<'a, F> {
+impl<'a> SemiHonestContext<'a> {
     pub fn new(participant: &'a PrssEndpoint, gateway: &'a Gateway) -> Self {
         Self::new_with_total_records(participant, gateway, TotalRecords::Unspecified)
     }
@@ -45,7 +42,6 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
             inner: ContextInner::new(participant, gateway),
             step: Step::default(),
             total_records,
-            _marker: PhantomData,
         }
     }
 
@@ -55,7 +51,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
     /// from `replicated::semi_honest::AdditiveShare` to `replicated::malicious::AdditiveShare`.
     /// `accumulator` and `r_share` come from a `MaliciousValidator`.
     #[must_use]
-    pub fn upgrade<S: Substep + ?Sized>(
+    pub fn upgrade<S: Substep + ?Sized, F: Field>(
         self,
         malicious_step: &S,
         upgrade_step: &S,
@@ -67,9 +63,7 @@ impl<'a, F: Field> SemiHonestContext<'a, F> {
     }
 }
 
-impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
-    type Share = Replicated<F>;
-
+impl<'a> Context for SemiHonestContext<'a> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -83,7 +77,6 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
             inner: Arc::clone(&self.inner),
             step: self.step.narrow(step),
             total_records: self.total_records,
-            _marker: PhantomData,
         }
     }
 
@@ -100,7 +93,6 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
             inner: Arc::clone(&self.inner),
             step: self.step.clone(),
             total_records: total_records.into(),
-            _marker: PhantomData,
         }
     }
 
@@ -125,10 +117,6 @@ impl<'a, F: Field> Context<F> for SemiHonestContext<'a, F> {
 
     fn mesh(&self) -> Mesh<'_, '_> {
         self.inner.gateway.mesh(self.step(), self.total_records)
-    }
-
-    fn share_known_value(&self, scalar: F) -> <Self as Context<F>>::Share {
-        Replicated::share_known_value(self.role(), scalar)
     }
 }
 

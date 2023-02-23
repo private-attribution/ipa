@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BitOpStep, RecordId},
+    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId},
     secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
 };
 use futures::future::try_join_all;
@@ -29,8 +29,8 @@ use std::iter::repeat;
 pub async fn multi_bit_permutation<
     'a,
     F: Field,
-    S: ArithmeticSecretSharing<F>,
-    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context,
 >(
     ctx: C,
     input: &[Vec<S>],
@@ -43,7 +43,7 @@ pub async fn multi_bit_permutation<
 
     let num_possible_bit_values = 2 << (num_multi_bits - 1);
 
-    let share_of_one = ctx.share_known_value(F::ONE);
+    let share_of_one = S::share_known_value(&ctx, F::ONE);
     // Equality bit checker: this checks if each secret shared record is equal to any of numbers between 0 and num_possible_bit_values
     let equality_checks = try_join_all(
         input
@@ -75,7 +75,8 @@ pub async fn multi_bit_permutation<
             .zip(repeat(ctx.set_total_records(num_records)))
             .enumerate()
             .map(|(i, ((eq_checks, prefix_sums), ctx))| async move {
-                ctx.sum_of_products(
+                S::sum_of_products(
+                    ctx,
                     RecordId::from(i),
                     eq_checks.as_slice(),
                     prefix_sums.as_slice(),
@@ -101,8 +102,8 @@ pub async fn multi_bit_permutation<
 async fn check_everything<F, C, S>(ctx: C, record_idx: usize, record: &[S]) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_bits = record.len();
     let precomputed_combinations =
@@ -194,19 +195,20 @@ async fn pregenerate_all_combinations<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    C: Context,
+    S: SecretSharing<F> + BasicProtocols<C, F>,
 {
     let record_id = RecordId::from(record_idx);
     let mut precomputed_combinations = Vec::with_capacity(1 << num_bits);
-    precomputed_combinations.push(ctx.share_known_value(F::ONE));
+    precomputed_combinations.push(S::share_known_value(&ctx, F::ONE));
     for (bit_idx, bit) in input.iter().enumerate() {
         let step = 1 << bit_idx;
         let mut multiplication_results =
             try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
                 |(j, precomputed_combination)| {
                     let child_idx = j + step;
-                    ctx.narrow(&BitOpStep::from(child_idx)).multiply(
+                    S::multiply(
+                        ctx.narrow(&BitOpStep::from(child_idx)),
                         record_id,
                         precomputed_combination,
                         bit,

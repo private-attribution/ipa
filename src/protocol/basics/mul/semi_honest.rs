@@ -25,7 +25,7 @@ use crate::{
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn multiply<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -84,6 +84,7 @@ mod test {
         ff::{Field, Fp31},
         protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join_all;
@@ -113,8 +114,7 @@ mod test {
 
         let res = world
             .semi_honest((a, b), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .multiply(RecordId::from(0), &a, &b)
+                Replicated::multiply(ctx.set_total_records(1), RecordId::from(0), &a, &b)
                     .await
                     .unwrap()
             })
@@ -145,7 +145,7 @@ mod test {
                     )
                     .enumerate()
                     .map(|(i, (ctx, (a_share, b_share)))| async move {
-                        ctx.multiply(RecordId::from(i), &a_share, &b_share).await
+                        Replicated::multiply(ctx, RecordId::from(i), &a_share, &b_share).await
                     }),
                 )
                 .await
@@ -166,10 +166,14 @@ mod test {
 
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                ctx.set_total_records(1)
-                    .multiply(RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                Replicated::multiply(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await;
 

@@ -10,8 +10,12 @@ use crate::{
             credit_capping::credit_capping,
             input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
         },
+        basics::reshare::LegacyReshare,
         boolean::bitwise_equal::bitwise_equal,
-        context::{malicious::IPAModulusConvertedInputRowWrapper, Context, SemiHonestContext},
+        context::{
+            malicious::IPAModulusConvertedInputRowWrapper, Context, MaliciousContext,
+            SemiHonestContext,
+        },
         malicious::MaliciousValidator,
         modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
         sort::{
@@ -21,7 +25,7 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        RecordId, Substep,
+        BasicProtocols, RecordId, Substep,
     },
     secret_sharing::{
         replicated::{
@@ -228,7 +232,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = Self::Share> + Send,
     {
         let f_mk_shares = self.mk_shares.reshare(
             ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
@@ -270,7 +274,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 /// # Panics
 /// Propagates errors from multiplications
 pub async fn ipa<F, MK, BK>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -401,7 +405,7 @@ where
 /// Propagates errors from multiplications
 #[allow(dead_code, clippy::too_many_lines)]
 pub async fn ipa_malicious<'a, F, MK, BK>(
-    sh_ctx: SemiHonestContext<'a, F>,
+    sh_ctx: SemiHonestContext<'a>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -411,8 +415,8 @@ where
     F: Field,
     MK: Fp2Array,
     BK: Fp2Array,
-    MaliciousReplicated<F>: Serializable,
-    Replicated<F>: Serializable,
+    MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
+    Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
@@ -1002,16 +1006,16 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 23, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 10713;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19209;
 
         /// empirical value as of Feb 23, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 26356;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46872;
 
         /// empirical value as of Feb 23, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 7542;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13629;
 
         /// empirical value as of Feb 23, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18819;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33621;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -1020,6 +1024,10 @@ pub mod tests {
                 { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );

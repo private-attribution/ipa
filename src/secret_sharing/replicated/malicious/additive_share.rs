@@ -1,10 +1,9 @@
 use crate::{
     bits::Serializable,
     ff::Field,
-    helpers::Role,
     protocol::{
-        basics::reveal_permutation,
-        context::Context,
+        basics::Reveal,
+        context::{Context, MaliciousContext, NoRecord},
         sort::{
             generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
         },
@@ -89,25 +88,6 @@ impl<V: SharedValue> AdditiveShare<V> {
         x: SemiHonestAdditiveShare::ZERO,
         rx: SemiHonestAdditiveShare::ZERO,
     };
-
-    /// Returns share of a scalar value.
-    pub fn share_known_value(
-        helper_role: Role,
-        value: V,
-        r_share: SemiHonestAdditiveShare<V>,
-    ) -> Self {
-        Self::new(
-            SemiHonestAdditiveShare::share_known_value(helper_role, value),
-            r_share * value,
-        )
-    }
-}
-
-impl<F: Field> AdditiveShare<F> {
-    /// Returns a pair of replicated secret sharings. One of "one", one of "r"
-    pub fn one(helper_role: Role, r_share: SemiHonestAdditiveShare<F>) -> Self {
-        Self::new(SemiHonestAdditiveShare::one(helper_role), r_share)
-    }
 }
 
 impl<V: SharedValue> Add<Self> for &AdditiveShare<V> {
@@ -244,11 +224,13 @@ where
 }
 
 #[async_trait]
-impl<'a, F: Field> Downgrade for ShuffledPermutationWrapper<'a, F> {
+impl<'a, F: Field> Downgrade
+    for ShuffledPermutationWrapper<AdditiveShare<F>, MaliciousContext<'a, F>>
+{
     type Target = Vec<u32>;
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = reveal_permutation(self.m_ctx.narrow(&RevealPermutation), &self.perm)
+        let output = Self::reveal(self.ctx.narrow(&RevealPermutation), NoRecord, &self)
             .await
             .unwrap();
         UnauthorizedDowngradeWrapper(output)
@@ -304,6 +286,7 @@ mod tests {
         // Randomization constant
         let r = rng.gen::<Fp31>();
 
+        let one_shared = Fp31::ONE.share_with(&mut rng);
         let a_shared = a.share_with(&mut rng);
         let b_shared = b.share_with(&mut rng);
         let c_shared = c.share_with(&mut rng);
@@ -327,13 +310,11 @@ mod tests {
         let re_shared = re.share_with(&mut rng);
         let rf_shared = rf.share_with(&mut rng);
 
-        let roles = [Role::H1, Role::H2, Role::H3];
         let mut results = Vec::with_capacity(3);
 
-        for i in 0..3 {
-            let helper_role = roles[i];
-
+        for &i in Role::all() {
             // Avoiding copies here is a real pain: clone!
+            let malicious_one = AdditiveShare::new(one_shared[i].clone(), r_shared[i].clone());
             let malicious_a = AdditiveShare::new(a_shared[i].clone(), ra_shared[i].clone());
             let malicious_b = AdditiveShare::new(b_shared[i].clone(), rb_shared[i].clone());
             let malicious_c = AdditiveShare::new(c_shared[i].clone(), rc_shared[i].clone());
@@ -343,8 +324,7 @@ mod tests {
 
             let malicious_a_plus_b = malicious_a + &malicious_b;
             let malicious_c_minus_d = malicious_c - &malicious_d;
-            let malicious_1_minus_e =
-                AdditiveShare::one(helper_role, r_shared[i].clone()) - &malicious_e;
+            let malicious_1_minus_e = malicious_one - &malicious_e;
             let malicious_2f = malicious_f * Fp31::from(2_u128);
 
             let mut temp = -malicious_a_plus_b - &malicious_c_minus_d - &malicious_1_minus_e;
