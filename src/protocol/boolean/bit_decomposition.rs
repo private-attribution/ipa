@@ -2,11 +2,12 @@ use super::{
     bitwise_less_than_prime::BitwiseLessThanPrime,
     dumb_bitwise_add_constant::{bitwise_add_constant, bitwise_add_constant_maybe},
     random_bits_generator::RandomBitsGenerator,
+    RandomBits,
 };
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId},
+    protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
 
@@ -34,8 +35,8 @@ impl BitDecomposition {
     ) -> Result<Vec<S>, Error>
     where
         F: Field,
-        S: ArithmeticSecretSharing<F>,
-        C: Context<F, Share = S>,
+        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+        C: Context + RandomBits<F, Share = S>,
     {
         // step 1 in the paper is just describing the input, `[a]_p` where `a ∈ F_p`
 
@@ -43,10 +44,12 @@ impl BitDecomposition {
         let r = rbg.generate().await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
-        let c = ctx
-            .narrow(&Step::RevealAMinusB)
-            .reveal(record_id, &(a_p.clone() - &r.b_p))
-            .await?;
+        let c = S::reveal(
+            ctx.narrow(&Step::RevealAMinusB),
+            record_id,
+            &(a_p.clone() - &r.b_p),
+        )
+        .await?;
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //

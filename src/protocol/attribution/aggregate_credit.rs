@@ -10,7 +10,7 @@ use crate::{
                 MCCappedCreditsWithAggregationBit,
             },
         },
-        context::{Context, SemiHonestContext},
+        context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
         sort::{
@@ -20,7 +20,7 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        Substep,
+        BasicProtocols, Substep,
     },
     secret_sharing::{
         replicated::{
@@ -40,7 +40,7 @@ use crate::protocol::ipa::Step::AggregateCredit;
 /// # Errors
 /// propagates errors from multiplications
 pub async fn aggregate_credit<F, BK>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -48,7 +48,7 @@ pub async fn aggregate_credit<F, BK>(
 where
     F: Field,
     BK: Fp2Array,
-    Replicated<F>: Serializable,
+    for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -127,8 +127,8 @@ where
 /// # Errors
 /// propagates errors from multiplications
 pub async fn malicious_aggregate_credit<'a, F, BK>(
-    malicious_validator: MaliciousValidator<'_, F>,
-    sh_ctx: SemiHonestContext<'a, F>,
+    malicious_validator: MaliciousValidator<'a, F>,
+    sh_ctx: SemiHonestContext<'a>,
     capped_credits: &[MCAggregateCreditInputRow<F, MaliciousReplicated<F>>],
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -142,7 +142,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
 where
     F: Field,
     BK: Fp2Array,
-    MaliciousReplicated<F>: Serializable,
+    MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {
     let m_ctx = malicious_validator.context().narrow(&AggregateCredit);
     //
@@ -231,12 +231,12 @@ fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
 ) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
     BK: Fp2Array,
 {
     let zero = T::ZERO;
-    let one = ctx.share_known_value(F::ONE);
+    let one = T::share_known_value(ctx, F::ONE);
 
     // Unique breakdown_key values with all other fields initialized with 0's.
     // Since we cannot see the actual breakdown key values, we'll need to
@@ -284,7 +284,7 @@ where
 }
 
 async fn sort_by_breakdown_key<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -316,7 +316,7 @@ async fn sort_by_breakdown_key<F: Field>(
 }
 
 async fn malicious_sort_by_breakdown_key<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -360,7 +360,7 @@ async fn malicious_sort_by_breakdown_key<F: Field>(
 }
 
 async fn sort_by_aggregation_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
@@ -385,7 +385,7 @@ async fn sort_by_aggregation_bit<F: Field>(
 }
 
 async fn malicious_sort_by_aggregation_bit<'a, F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<
     (

@@ -3,9 +3,14 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
-        context::{Context, MaliciousContext, SemiHonestContext},
+        context::{
+            malicious::RecordBinding, Context, MaliciousContext, NoRecord, SemiHonestContext,
+        },
         prss::SharedRandomness,
-        sort::ReshareStep::{RandomnessForValidation, ReshareRx},
+        sort::{
+            apply_sort::shuffle::InnerVectorElementStep,
+            ReshareStep::{RandomnessForValidation, ReshareRx},
+        },
         RecordId,
     },
     secret_sharing::{
@@ -18,7 +23,62 @@ use crate::{
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join;
+use futures::future::{try_join, try_join_all};
+use std::iter::{repeat, zip};
+
+// Shim to keep existing Resharable impls working until they can be merged with Reshare.
+// TODO: remove when no longer needed
+#[async_trait]
+pub trait LegacyReshare<V: SharedValue> {
+    type Share: SecretSharing<V>;
+
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error>;
+}
+
+#[async_trait]
+/// Reshare(i, \[x\])
+/// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
+/// Input: Pi-1 and Pi+1 know their secret shares
+/// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
+impl<F: Field> LegacyReshare<F> for SemiHonestContext<'_> {
+    type Share = Replicated<F>;
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error> {
+        <Replicated<F> as Reshare<SemiHonestContext<'_>, RecordId>>::reshare(
+            self, record_id, input, to_helper,
+        )
+        .await
+    }
+}
+
+#[async_trait]
+/// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
+/// # Errors
+/// If either of reshares fails
+impl<F: Field> LegacyReshare<F> for MaliciousContext<'_, F> {
+    type Share = MaliciousReplicated<F>;
+    async fn reshare(
+        self,
+        input: &Self::Share,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self::Share, Error> {
+        <MaliciousReplicated<F> as Reshare<MaliciousContext<'_, F>, RecordId>>::reshare(
+            self, record_id, input, to_helper,
+        )
+        .await
+    }
+}
+
 #[embed_doc_image("reshare", "images/sort/reshare.png")]
 /// Trait for reshare protocol to renew shares of a secret value for all 3 helpers.
 ///
@@ -35,15 +95,17 @@ use futures::future::try_join;
 ///    `to_helper`       = (`rand_left`, `rand_right`)     = (r0, r1)
 ///    `to_helper.right` = (`rand_right`, part1 + part2) = (r0, part1 + part2)
 #[async_trait]
-pub trait Reshare<V: SharedValue> {
-    type Share: SecretSharing<V>;
+pub trait Reshare<C: Context, B: RecordBinding> {
+    type Output: Sized;
 
-    async fn reshare(
-        self,
-        input: &Self::Share,
-        record: RecordId,
+    async fn reshare<'fut>(
+        ctx: C,
+        record_binding: B,
+        input: &Self,
         to_helper: Role,
-    ) -> Result<Self::Share, Error>;
+    ) -> Result<Self::Output, Error>
+    where
+        C: 'fut;
 }
 
 #[async_trait]
@@ -51,20 +113,23 @@ pub trait Reshare<V: SharedValue> {
 /// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
 /// Input: Pi-1 and Pi+1 know their secret shares
 /// Output: At the end of the protocol, all 3 helpers receive their shares of a new, random secret sharing of the secret value
-impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
-    type Share = Replicated<F>;
-    async fn reshare(
-        self,
-        input: &Self::Share,
+impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
+    type Output = Self;
+    async fn reshare<'fut>(
+        ctx: SemiHonestContext<'a>,
         record_id: RecordId,
+        input: &Self,
         to_helper: Role,
-    ) -> Result<Self::Share, Error> {
-        let channel = self.mesh();
-        let (r0, r1) = self.prss().generate_fields(record_id);
+    ) -> Result<Self, Error>
+    where
+        'a: 'fut,
+    {
+        let channel = ctx.mesh();
+        let (r0, r1) = ctx.prss().generate_fields(record_id);
 
         // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
         // This is same as (a1 + a2) - r2 in the diagram
-        if self.role() == to_helper.peer(Direction::Left) {
+        if ctx.role() == to_helper.peer(Direction::Left) {
             let part1 = input.left() + input.right() - r1;
             channel
                 .send(to_helper.peer(Direction::Right), record_id, part1)
@@ -76,7 +141,7 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
                 .await?;
 
             Ok(Replicated::new(part1 + part2, r1))
-        } else if self.role() == to_helper.peer(Direction::Right) {
+        } else if ctx.role() == to_helper.peer(Direction::Right) {
             // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
             // This is same as (a3 - r3) in the diagram
             let part2 = input.left() - r0;
@@ -100,27 +165,34 @@ impl<F: Field> Reshare<F> for SemiHonestContext<'_, F> {
 /// For malicious reshare, we run semi honest reshare protocol twice, once for x and another for rx and return the results
 /// # Errors
 /// If either of reshares fails
-impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
-    async fn reshare(
-        self,
-        input: &Self::Share,
+impl<'a, F: Field> Reshare<MaliciousContext<'a, F>, RecordId> for MaliciousReplicated<F> {
+    type Output = Self;
+    async fn reshare<'fut>(
+        ctx: MaliciousContext<'a, F>,
         record_id: RecordId,
+        input: &Self,
         to_helper: Role,
-    ) -> Result<Self::Share, Error> {
+    ) -> Result<Self, Error>
+    where
+        'a: 'fut,
+    {
         use crate::{
             protocol::context::SpecialAccessToMaliciousContext,
             secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
         };
-        let random_constant_ctx = self.narrow(&RandomnessForValidation);
+        let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
 
         let (rx, x) = try_join(
-            self.narrow(&ReshareRx)
-                .semi_honest_context()
-                .reshare(input.rx(), record_id, to_helper),
-            self.semi_honest_context().reshare(
-                input.x().access_without_downgrade(),
+            Replicated::reshare(
+                ctx.narrow(&ReshareRx).semi_honest_context(),
                 record_id,
+                input.rx(),
+                to_helper,
+            ),
+            Replicated::reshare(
+                ctx.semi_honest_context(),
+                record_id,
+                input.x().access_without_downgrade(),
                 to_helper,
             ),
         )
@@ -131,17 +203,71 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
     }
 }
 
+// T must be `Sync` because we are passing `&T` into futures. In practice `T` is plain old data,
+// which is always `Sync`.
+#[async_trait]
+impl<T, C: Context> Reshare<C, RecordId> for [T]
+where
+    T: Reshare<C, RecordId, Output = T> + Send + Sync,
+{
+    type Output = Vec<T>;
+    /// This is intended to be used for resharing vectors of bit-decomposed values.
+    /// # Errors
+    /// If the vector has more than 64 elements
+    async fn reshare<'fut>(
+        ctx: C,
+        record_id: RecordId,
+        input: &[T],
+        to_helper: Role,
+    ) -> Result<Vec<T>, Error>
+    where
+        C: 'fut,
+    {
+        try_join_all(input.iter().enumerate().map(|(i, x)| {
+            let c = ctx.narrow(&InnerVectorElementStep::from(i));
+            async move { T::reshare(c, record_id, x, to_helper).await }
+        }))
+        .await
+    }
+}
+
+// T must be `Sync` because we are passing `&T` into futures. In practice `T` is plain old data,
+// which is always `Sync`.
+#[async_trait]
+impl<T, C: Context> Reshare<C, NoRecord> for [T]
+where
+    T: Reshare<C, RecordId, Output = T> + Send + Sync,
+{
+    type Output = Vec<T>;
+    /// This is intended to be used for resharing arbitrarily long vectors of something other than
+    /// bit-decomposed values (because resharing of bit-decomposed values uses record iteration).
+    async fn reshare<'fut>(
+        ctx: C,
+        _: NoRecord,
+        input: &[T],
+        to_helper: Role,
+    ) -> Result<Vec<T>, Error>
+    where
+        C: 'fut,
+    {
+        try_join_all(zip(repeat(ctx), input.iter()).enumerate().map(|(i, (c, x))| {
+            async move { T::reshare(c, RecordId::from(i), x, to_helper).await }
+        }))
+        .await
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod semi_honest {
         use proptest::prelude::Rng;
 
-        use crate::rand::thread_rng;
-
         use crate::{
             ff::Fp32BitPrime,
             helpers::Role,
             protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
+            rand::thread_rng,
+            secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -162,7 +288,9 @@ mod tests {
                             // test follows the reshare protocol
                             ctx.prss().generate_fields(record_id).into()
                         } else {
-                            ctx.reshare(&share, record_id, target).await.unwrap()
+                            Replicated::reshare(ctx, record_id, &share, target)
+                                .await
+                                .unwrap()
                         }
                     })
                     .await;
@@ -188,10 +316,14 @@ mod tests {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
                     .semi_honest(secret, |ctx, share| async move {
-                        ctx.set_total_records(1)
-                            .reshare(&share, RecordId::from(0), role)
-                            .await
-                            .unwrap()
+                        Replicated::reshare(
+                            ctx.set_total_records(1),
+                            RecordId::from(0),
+                            &share,
+                            role,
+                        )
+                        .await
+                        .unwrap()
                     })
                     .await;
 
@@ -237,10 +369,14 @@ mod tests {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
                 let new_shares = world
                     .malicious(secret, |ctx, share| async move {
-                        ctx.set_total_records(1)
-                            .reshare(&share, RecordId::from(0), role)
-                            .await
-                            .unwrap()
+                        MaliciousReplicated::reshare(
+                            ctx.set_total_records(1),
+                            RecordId::from(0),
+                            &share,
+                            role,
+                        )
+                        .await
+                        .unwrap()
                     })
                     .await;
 
@@ -249,7 +385,7 @@ mod tests {
         }
 
         async fn reshare_with_additive_attack<F: Field>(
-            ctx: SemiHonestContext<'_, F>,
+            ctx: SemiHonestContext<'_>,
             input: &Replicated<F>,
             record_id: RecordId,
             to_helper: Role,
@@ -355,7 +491,9 @@ mod tests {
                             .await
                             .unwrap()
                         } else {
-                            m_ctx.reshare(&m_a, record_id, to_helper).await.unwrap()
+                            MaliciousReplicated::reshare(m_ctx, record_id, &m_a, to_helper)
+                                .await
+                                .unwrap()
                         };
                         match v.validate(m_reshared_a).await {
                             Ok(result) => panic!("Got a result {result:?}"),

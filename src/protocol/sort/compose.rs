@@ -1,4 +1,9 @@
-use crate::{error::Error, ff::Field, protocol::context::Context, secret_sharing::SecretSharing};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{basics::reshare::LegacyReshare, context::Context},
+    secret_sharing::SecretSharing,
+};
 use embed_doc_image::embed_doc_image;
 
 use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
@@ -25,7 +30,7 @@ use super::{apply::apply, shuffle::unshuffle_shares, ComposeStep::UnshuffleRho};
 /// 5. Unshuffle the permutation with the same random permutations used in step 2, to undo the effect of the shuffling
 ///
 /// ![Compose steps][compose]
-pub async fn compose<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+pub async fn compose<F: Field, S: SecretSharing<F>, C: Context + LegacyReshare<F, Share = S>>(
     ctx: C,
     random_permutations_for_shuffle: (&[u32], &[u32]),
     shuffled_sigma: &[u32],

@@ -44,7 +44,7 @@ use embed_doc_image::embed_doc_image;
 /// # Panics
 /// Panics if input doesn't have same number of bits as `num_bits`
 pub async fn generate_permutation_opt<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     mut sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
     //TODO (richaj) implement MultiBitChunk which is discussed in PR #425
 ) -> Result<Vec<Replicated<F>>, Error>
@@ -142,7 +142,7 @@ where
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
 pub async fn malicious_generate_permutation_opt<'a, F, I>(
-    sh_ctx: SemiHonestContext<'_, F>,
+    sh_ctx: SemiHonestContext<'_>,
     sort_keys: I,
 ) -> Result<(MaliciousValidator<'_, F>, Vec<MaliciousReplicated<F>>), Error>
 where
@@ -221,7 +221,7 @@ mod tests {
         bits::{BitArray40, Fp2Array},
         ff::{Field, Fp31},
         protocol::{
-            context::{Context, SemiHonestContext},
+            context::Context,
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::{
                 generate_permutation_opt, malicious_generate_permutation_opt,
@@ -249,20 +249,17 @@ mod tests {
         expected.sort_unstable();
 
         let result = world
-            .semi_honest(
-                match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                let local_lists = convert_all_bits_local::<Fp31, _>(ctx.role(), &mk_shares);
+                let converted_shares =
+                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
-                        .unwrap()
-                },
-            )
+                        .unwrap();
+
+                generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+                    .await
+                    .unwrap()
+            })
             .await;
 
         let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();
@@ -288,20 +285,20 @@ mod tests {
         expected.sort_unstable();
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
-            .semi_honest(
-                match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-
-                    malicious_generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
+                let converted_shares =
+                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
-                        .unwrap()
-                },
-            )
+                        .unwrap();
+
+                malicious_generate_permutation_opt::<Fp31, _>(
+                    ctx.narrow("sort"),
+                    converted_shares.iter(),
+                )
+                .await
+                .unwrap()
+            })
             .await;
         let result = join3(
             v0.validate(result0),

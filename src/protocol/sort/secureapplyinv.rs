@@ -1,7 +1,9 @@
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, sort::ApplyInvStep::ShuffleInputs},
+    protocol::{
+        basics::reshare::LegacyReshare, context::Context, sort::ApplyInvStep::ShuffleInputs,
+    },
     secret_sharing::SecretSharing,
 };
 use embed_doc_image::embed_doc_image;
@@ -36,7 +38,11 @@ use super::{
 /// 3. Secret shared value is shuffled using the same random permutations
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
-pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+pub async fn secureapplyinv<
+    F: Field,
+    S: SecretSharing<F>,
+    C: Context + LegacyReshare<F, Share = S>,
+>(
     ctx: C,
     input: Vec<S>,
     random_permutations_for_shuffle: (&[u32], &[u32]),
@@ -57,7 +63,7 @@ pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 pub async fn secureapplyinv_multi<
     F: Field,
     S: SecretSharing<F>,
-    C: Context<F, Share = S>,
+    C: Context + LegacyReshare<F, Share = S>,
     I: Resharable<F, Share = S>,
 >(
     ctx: C,

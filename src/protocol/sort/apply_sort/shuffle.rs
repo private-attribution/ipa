@@ -3,6 +3,7 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
+        basics::reshare::LegacyReshare,
         context::Context,
         sort::{
             apply::{apply, apply_inv},
@@ -25,7 +26,7 @@ pub trait Resharable<V: SharedValue>: Sized {
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<V, Share = <Self as Resharable<V>>::Share> + Send;
+        C: Context + LegacyReshare<V, Share = Self::Share>;
 }
 
 pub struct InnerVectorElementStep(usize);
@@ -45,6 +46,9 @@ impl From<usize> for InnerVectorElementStep {
     }
 }
 
+// The Resharable and Reshare traits should be combined, but to reduce change size, that hasn't been
+// done yet. When that is done, this impl is redundant with Reshare impls.
+// TODO: replace with Reshare impl
 #[async_trait]
 impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
     type Share = T;
@@ -54,7 +58,7 @@ impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
     /// If the vector has more than 64 elements
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = Self::Share>,
     {
         try_join_all(self.iter().enumerate().map(|(i, x)| {
             let c = ctx.narrow(&InnerVectorElementStep::from(i));
@@ -64,19 +68,21 @@ impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
     }
 }
 
+// TODO: replace with Reshare impl
 async fn reshare<F, C, S, T>(input: &[T], ctx: C, to_helper: Role) -> Result<Vec<T>, Error>
 where
-    C: Context<F, Share = S> + Send,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     S: SecretSharing<F>,
     T: Resharable<F, Share = S>,
 {
     let ctx = ctx.set_total_records(input.len());
-    let reshares = zip(repeat(ctx), input)
-        .enumerate()
-        .map(|(index, (ctx, input))| async move {
-            input.reshare(ctx, RecordId::from(index), to_helper).await
-        });
+    let reshares =
+        zip(repeat(ctx), input.iter())
+            .enumerate()
+            .map(|(index, (ctx, input))| async move {
+                input.reshare(ctx, RecordId::from(index), to_helper).await
+            });
     try_join_all(reshares).await
 }
 
@@ -92,7 +98,7 @@ async fn shuffle_once<F, S, C, I>(
     which_step: ShuffleStep,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context<F, Share = S> + Send,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     I: Resharable<F, Share = S>,
     S: SecretSharing<F>,
@@ -130,7 +136,7 @@ pub async fn shuffle_shares<C, F, I, S>(
     ctx: C,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context<F, Share = S> + Send,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     I: Resharable<F, Share = S>,
     S: SecretSharing<F>,
