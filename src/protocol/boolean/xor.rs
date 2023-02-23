@@ -1,9 +1,13 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::basics::{MultiplyZeroPositions, ZeroPositions};
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        basics::{MultiplyZeroPositions, ZeroPositions},
+        context::Context,
+        RecordId,
+    },
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - 2[ab]`

@@ -2,15 +2,14 @@ use std::iter::{repeat, zip};
 
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
-use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 
-use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
     protocol::{context::Context, RecordId, Substep},
+    secret_sharing::SecretSharing,
 };
 
 use super::{
@@ -214,12 +213,16 @@ mod tests {
     }
 
     mod semi_honest {
-        use crate::ff::Fp31;
-        use crate::protocol::context::Context;
-        use crate::protocol::sort::shuffle::{
-            get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
+        use crate::{
+            ff::Fp31,
+            protocol::{
+                context::Context,
+                sort::shuffle::{
+                    get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
+                },
+            },
+            test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]
@@ -300,12 +303,16 @@ mod tests {
     }
 
     mod malicious {
-        use crate::ff::Fp31;
-        use crate::protocol::context::Context;
-        use crate::protocol::sort::shuffle::{
-            get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
+        use crate::{
+            ff::Fp31,
+            protocol::{
+                context::Context,
+                sort::shuffle::{
+                    get_two_of_three_random_permutations, shuffle_shares, unshuffle_shares,
+                },
+            },
+            test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
         use std::collections::HashSet;
 
         #[tokio::test]

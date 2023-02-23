@@ -1,5 +1,6 @@
 use crate::helpers::{
-    buffers::fsv::FixedSizeByteVec, network::ChannelId, network::MessageEnvelope,
+    buffers::fsv::FixedSizeByteVec,
+    network::{ChannelId, MessageEnvelope},
     MESSAGE_PAYLOAD_SIZE_BYTES,
 };
 use std::{collections::HashMap, num::NonZeroUsize};

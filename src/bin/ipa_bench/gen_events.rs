@@ -2,9 +2,10 @@ use crate::models::{Epoch, Event, EventTimestamp, GenericReport, MatchKey, Numbe
 
 use super::sample::Sample;
 use bitvec::view::BitViewSized;
-use rand::distributions::Bernoulli;
-use rand::distributions::Distribution;
-use rand::{CryptoRng, Rng, RngCore};
+use rand::{
+    distributions::{Bernoulli, Distribution},
+    CryptoRng, Rng, RngCore,
+};
 use std::io;
 use tracing::{debug, info, trace};
 
@@ -170,8 +171,7 @@ fn add_event_timestamps(rhs: EventTimestamp, lhs: EventTimestamp) -> EventTimest
 mod tests {
     use super::{gen_reports, generate_events, EventTimestamp, GenericReport};
     use crate::{gen_events::add_event_timestamps, models::Epoch, sample::Sample};
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
+    use rand::{rngs::StdRng, SeedableRng};
     use std::{
         cmp::Ordering,
         io::{Cursor, Write},

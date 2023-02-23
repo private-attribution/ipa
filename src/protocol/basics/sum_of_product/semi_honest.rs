@@ -1,12 +1,14 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Direction;
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{
-    context::{Context, SemiHonestContext},
-    RecordId,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::Direction,
+    protocol::{
+        context::{Context, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// Sum of product protocol developed using IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -72,12 +74,12 @@ mod test {
 
     use crate::rand::thread_rng;
 
-    use crate::ff::{Field, Fp31};
-    use crate::protocol::basics::sum_of_product::SecureSop;
-    use crate::protocol::context::Context;
-    use crate::protocol::RecordId;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::{
+        ff::{Field, Fp31},
+        protocol::{basics::sum_of_product::SecureSop, context::Context, RecordId},
+        secret_sharing::SharedValue,
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
 
     #[tokio::test]
     async fn basic() {

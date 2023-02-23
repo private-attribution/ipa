@@ -84,9 +84,12 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let credits = sorted_input.iter().map(|x| &x.credit);
+    let mut credits = sorted_input
+        .iter()
+        .map(|x| x.credit.clone())
+        .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(ctx.clone(), &helper_bits, credits).await?;
+    do_the_binary_tree_thing(ctx.clone(), helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -180,9 +183,12 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let credits = sorted_input.iter().map(|x| &x.credit);
+    let mut credits = sorted_input
+        .iter()
+        .map(|x| x.credit.clone())
+        .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(m_ctx, &helper_bits, credits).await?;
+    do_the_binary_tree_thing(m_ctx, helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -445,16 +451,19 @@ impl AsRef<str> for Step {
 mod tests {
 
     use super::aggregate_credit;
-    use crate::aggregation_test_input;
-    use crate::bits::Fp2Array;
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::protocol::attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow};
-    use crate::protocol::context::Context;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::{
+        aggregation_test_input,
+        bits::Fp2Array,
+        ff::{Field, Fp32BitPrime},
+        protocol::{
+            attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
+            context::Context,
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
+        },
+        secret_sharing::SharedValue,
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+    };
 
     #[tokio::test]
     pub async fn aggregate() {

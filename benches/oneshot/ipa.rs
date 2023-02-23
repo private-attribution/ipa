@@ -6,8 +6,7 @@ use raw_ipa::{
     protocol::{ipa::ipa, BreakdownKey, MatchKey},
     test_fixture::{input::GenericReportTestInput, Runner, TestWorld, TestWorldConfig},
 };
-use std::num::NonZeroUsize;
-use std::time::Instant;
+use std::{num::NonZeroUsize, time::Instant};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {

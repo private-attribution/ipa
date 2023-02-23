@@ -1,8 +1,10 @@
 use rand::{CryptoRng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Formatter};
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::ops::Range;
+use std::{
+    fmt::{Debug, Formatter},
+    io::{Error as IoError, ErrorKind as IoErrorKind},
+    ops::Range,
+};
 
 // Type aliases to indicate whether the parameter should be encrypted, secret shared, etc.
 // Underlying types are temporalily assigned for PoC.

@@ -13,8 +13,7 @@ use crate::{
 use axum::Router;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use metrics::increment_counter;
-use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 

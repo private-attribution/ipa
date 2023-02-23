@@ -3,12 +3,19 @@ use super::{
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     prefix_or_binary_tree_style,
 };
-use crate::ff::Field;
-use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
-use crate::protocol::context::Context;
-use crate::protocol::{RecordId, Substep};
-use crate::{error::Error, secret_sharing::Arithmetic};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        boolean::{
+            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
+            BitDecomposition,
+        },
+        context::Context,
+        RecordId, Substep,
+    },
+    secret_sharing::Arithmetic,
+};
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -113,24 +120,20 @@ where
         .collect::<Vec<_>>();
 
     let prefix_ors =
-        prefix_or_binary_tree_style(ctx.clone(), &helper_bits, &uncapped_credits).await?;
+        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..]).await?;
 
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
-    let ever_any_subsequent_credit = try_join_all(
-        prefix_ors
-            .iter()
-            .skip(1)
-            .zip(helper_bits.iter())
-            .enumerate()
-            .map(|(i, (prefix_or, helper_bit))| {
+    let ever_any_subsequent_credit =
+        try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+            |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
                 async move { c.multiply(record_id, prefix_or, helper_bit).await }
-            }),
-    )
-    .await?;
+            },
+        ))
+        .await?;
 
     let potentially_cap_ctx = ctx
         .narrow(&Step::IfCurrentExceedsCapOrElse)
@@ -214,7 +217,11 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx, &helper_bits, original_credits).await
+    let mut credits = original_credits.cloned().collect::<Vec<_>>();
+
+    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
+
+    Ok(credits)
 }
 
 async fn is_credit_larger_than_cap<F, C, T>(
@@ -374,14 +381,14 @@ mod tests {
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp32BitPrime},
-        protocol::attribution::{
-            credit_capping::credit_capping,
-            input::{CreditCappingInputRow, MCCreditCappingInputRow},
-        },
-        protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local},
         protocol::{
+            attribution::{
+                credit_capping::credit_capping,
+                input::{CreditCappingInputRow, MCCreditCappingInputRow},
+            },
             context::Context,
-            {BreakdownKey, MatchKey},
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
         },
         secret_sharing::SharedValue,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},

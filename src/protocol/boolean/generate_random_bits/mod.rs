@@ -1,13 +1,17 @@
-use crate::bits::{BitArray40, Fp2Array};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::{
-    replicated::semi_honest::AdditiveShare as Replicated,
-    replicated::semi_honest::XorShare as XorReplicated, Arithmetic as ArithmeticSecretSharing,
-    SecretSharing, SharedValue,
+use crate::{
+    bits::{BitArray40, Fp2Array},
+    error::Error,
+    ff::Field,
+    protocol::{
+        context::Context,
+        modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
+        prss::SharedRandomness,
+        BitOpStep, RecordId,
+    },
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+    },
 };
 use async_trait::async_trait;
 use futures::future::try_join_all;

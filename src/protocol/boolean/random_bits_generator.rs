@@ -1,10 +1,11 @@
 use super::solved_bits::{solved_bits, RandomBitsShare};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::messaging::TotalRecords;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::messaging::TotalRecords,
+    protocol::{context::Context, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},

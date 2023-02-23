@@ -12,9 +12,11 @@ use crate::{
     bits::{BitArray40, BitArray8},
     error::Error,
 };
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::Hash;
-use std::ops::AddAssign;
+use std::{
+    fmt::{Debug, Display, Formatter},
+    hash::Hash,
+    ops::AddAssign,
+};
 
 pub type MatchKey = BitArray40;
 pub type BreakdownKey = BitArray8;

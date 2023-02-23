@@ -17,8 +17,10 @@ use crate::{
 use async_trait::async_trait;
 use futures::future::{join, join_all};
 use generic_array::{ArrayLength, GenericArray};
-use std::fmt::{Debug, Formatter};
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use std::{
+    fmt::{Debug, Formatter},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+};
 use typenum::Unsigned;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -277,13 +279,15 @@ impl<T> ThisCodeIsAuthorizedToDowngradeFromMalicious<T> for UnauthorizedDowngrad
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::{AdditiveShare, Downgrade, ThisCodeIsAuthorizedToDowngradeFromMalicious};
-    use crate::ff::{Field, Fp31};
-    use crate::helpers::Role;
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::{
-        replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+    use crate::{
+        ff::{Field, Fp31},
+        helpers::Role,
+        rand::thread_rng,
+        secret_sharing::{
+            replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+        },
+        test_fixture::Reconstruct,
     };
-    use crate::test_fixture::Reconstruct;
     use proptest::prelude::Rng;
 
     #[test]

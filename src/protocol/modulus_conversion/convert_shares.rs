@@ -1,5 +1,5 @@
-use crate::bits::Fp2Array;
 use crate::{
+    bits::Fp2Array,
     error::Error,
     ff::Field,
     helpers::Role,
@@ -197,20 +197,18 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::helpers::{Direction, Role};
-    use crate::protocol::context::Context;
-    use crate::protocol::malicious::MaliciousValidator;
-    use crate::protocol::MatchKey;
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{
         error::Error,
-        ff::Fp31,
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::{Direction, Role},
         protocol::{
+            context::Context,
+            malicious::MaliciousValidator,
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
-            RecordId,
+            MatchKey, RecordId,
         },
+        rand::thread_rng,
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use proptest::prelude::Rng;

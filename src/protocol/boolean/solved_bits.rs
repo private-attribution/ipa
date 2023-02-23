@@ -1,11 +1,15 @@
 use super::bitwise_less_than_prime::BitwiseLessThanPrime;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::replicated::malicious::{
-    AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, RecordId},
+    secret_sharing::{
+        replicated::malicious::{
+            AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
+        },
+        Arithmetic as ArithmeticSecretSharing, SecretSharing,
+    },
 };
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use async_trait::async_trait;
 use std::marker::PhantomData;
 
@@ -145,13 +149,11 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::protocol::boolean::solved_bits::solved_bits;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{context::Context, RecordId},
-        test_fixture::{bits_to_value, Reconstruct, TestWorld},
+        protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
+        secret_sharing::SharedValue,
+        test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
     use std::iter::zip;

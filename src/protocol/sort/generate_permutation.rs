@@ -5,18 +5,21 @@ use crate::{
         basics::reveal_permutation,
         context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
-        sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
-        },
         sort::{
             bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
+            SortStep::{
+                ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
+            },
         },
         IpaProtocolStep::Sort,
     },
     secret_sharing::{
-        replicated::malicious::AdditiveShare as MaliciousReplicated,
-        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        SecretSharing,
     },
 };
 
@@ -26,8 +29,7 @@ use super::{
     secureapplyinv::secureapplyinv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
+use crate::protocol::{context::SemiHonestContext, sort::ShuffleRevealStep::GeneratePermutation};
 use embed_doc_image::embed_doc_image;
 
 #[derive(Debug)]
@@ -359,19 +361,24 @@ mod tests {
 
     use rand::seq::SliceRandom;
 
-    use crate::bits::Fp2Array;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::generate_permutation_opt::generate_permutation_opt;
-    use crate::protocol::MatchKey;
-    use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::SharedValue;
+    use crate::{
+        bits::Fp2Array,
+        protocol::{
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            sort::generate_permutation_opt::generate_permutation_opt,
+            MatchKey,
+        },
+        rand::{thread_rng, Rng},
+        secret_sharing::SharedValue,
+    };
 
-    use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::test_fixture::{join3, Runner};
     use crate::{
         ff::{Field, Fp31},
-        protocol::sort::generate_permutation::shuffle_and_reveal_permutation,
-        test_fixture::{generate_shares, Reconstruct, TestWorld},
+        protocol::{
+            context::{Context, SemiHonestContext},
+            sort::generate_permutation::shuffle_and_reveal_permutation,
+        },
+        test_fixture::{generate_shares, join3, Reconstruct, Runner, TestWorld},
     };
 
     #[tokio::test]

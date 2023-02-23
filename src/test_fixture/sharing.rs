@@ -1,13 +1,16 @@
-use crate::bits::Fp2Array;
-use crate::ff::Field;
-use crate::protocol::boolean::RandomBitsShare;
-use crate::secret_sharing::{
-    replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-    SecretSharing,
+use crate::{
+    bits::Fp2Array,
+    ff::Field,
+    protocol::boolean::RandomBitsShare,
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        },
+        SecretSharing,
+    },
 };
-use std::borrow::Borrow;
-use std::iter::zip;
+use std::{borrow::Borrow, iter::zip};
 
 /// Deconstructs a field value into N values, one for each bit.
 pub fn into_bits<F: Field>(v: F) -> Vec<F> {

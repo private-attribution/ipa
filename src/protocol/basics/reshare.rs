@@ -1,15 +1,20 @@
-use crate::ff::Field;
-use crate::protocol::context::{Context, MaliciousContext};
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::sort::ReshareStep::RandomnessForValidation;
-use crate::secret_sharing::{
-    replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, SharedValue,
-};
 use crate::{
     error::Error,
+    ff::Field,
     helpers::{Direction, Role},
-    protocol::{context::SemiHonestContext, sort::ReshareStep::ReshareRx, RecordId},
+    protocol::{
+        context::{Context, MaliciousContext, SemiHonestContext},
+        prss::SharedRandomness,
+        sort::ReshareStep::{RandomnessForValidation, ReshareRx},
+        RecordId,
+    },
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        SecretSharing, SharedValue,
+    },
 };
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
@@ -103,8 +108,10 @@ impl<F: Field> Reshare<F> for MaliciousContext<'_, F> {
         record_id: RecordId,
         to_helper: Role,
     ) -> Result<Self::Share, Error> {
-        use crate::protocol::context::SpecialAccessToMaliciousContext;
-        use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+        use crate::{
+            protocol::context::SpecialAccessToMaliciousContext,
+            secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+        };
         let random_constant_ctx = self.narrow(&RandomnessForValidation);
 
         let (rx, x) = try_join(
@@ -131,12 +138,10 @@ mod tests {
 
         use crate::rand::thread_rng;
 
-        use crate::ff::Fp32BitPrime;
-        use crate::protocol::context::Context;
-        use crate::protocol::prss::SharedRandomness;
         use crate::{
+            ff::Fp32BitPrime,
             helpers::Role,
-            protocol::{basics::Reshare, RecordId},
+            protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -198,21 +203,25 @@ mod tests {
     mod malicious {
         use futures::future::try_join;
 
-        use crate::error::Error;
-        use crate::ff::{Field, Fp32BitPrime};
-        use crate::helpers::{Direction, Role};
-        use crate::protocol::basics::Reshare;
-        use crate::protocol::context::{Context, MaliciousContext, SemiHonestContext};
-        use crate::protocol::malicious::MaliciousValidator;
-        use crate::protocol::prss::SharedRandomness;
-        use crate::protocol::sort::ReshareStep::{RandomnessForValidation, ReshareRx};
-        use crate::protocol::RecordId;
-        use crate::rand::{thread_rng, Rng};
-        use crate::secret_sharing::{
-            replicated::malicious::AdditiveShare as MaliciousReplicated,
-            replicated::semi_honest::AdditiveShare as Replicated,
+        use crate::{
+            error::Error,
+            ff::{Field, Fp32BitPrime},
+            helpers::{Direction, Role},
+            protocol::{
+                basics::Reshare,
+                context::{Context, MaliciousContext, SemiHonestContext},
+                malicious::MaliciousValidator,
+                prss::SharedRandomness,
+                sort::ReshareStep::{RandomnessForValidation, ReshareRx},
+                RecordId,
+            },
+            rand::{thread_rng, Rng},
+            secret_sharing::replicated::{
+                malicious::AdditiveShare as MaliciousReplicated,
+                semi_honest::AdditiveShare as Replicated,
+            },
+            test_fixture::{Reconstruct, Runner, TestWorld},
         };
-        use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
         /// Relies on semi-honest protocol tests that enforce reshare to communicate and produce
         /// new shares.
@@ -289,8 +298,10 @@ mod tests {
             to_helper: Role,
             additive_error: F,
         ) -> Result<MaliciousReplicated<F>, Error> {
-            use crate::protocol::context::SpecialAccessToMaliciousContext;
-            use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+            use crate::{
+                protocol::context::SpecialAccessToMaliciousContext,
+                secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+            };
             let random_constant_ctx = ctx.narrow(&RandomnessForValidation);
 
             let (rx, x) = try_join(

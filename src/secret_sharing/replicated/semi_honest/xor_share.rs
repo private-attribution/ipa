@@ -1,15 +1,16 @@
-use crate::bits::{Fp2Array, Serializable};
-use crate::helpers::Role;
-use crate::secret_sharing::{Boolean as BooleanSecretSharing, SecretSharing};
+use crate::{
+    bits::{Fp2Array, Serializable},
+    helpers::Role,
+    secret_sharing::{Boolean as BooleanSecretSharing, SecretSharing},
+};
 use aes::cipher::generic_array::GenericArray;
 
 use generic_array::ArrayLength;
 use typenum::Unsigned;
 
-use std::ops::Add;
 use std::{
     fmt::{Debug, Formatter},
-    ops::{BitXor, BitXorAssign},
+    ops::{Add, BitXor, BitXorAssign},
 };
 
 #[derive(Clone, PartialEq, Eq)]

@@ -1,6 +1,5 @@
 use iai::black_box;
-use raw_ipa::ff::Fp31;
-use raw_ipa::test_fixture::circuit;
+use raw_ipa::{ff::Fp31, test_fixture::circuit};
 use tokio::runtime::Builder;
 
 pub fn iai_benchmark() {

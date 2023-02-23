@@ -1,17 +1,20 @@
-use crate::bits::{Fp2Array, Serializable};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Role;
-use crate::protocol::context::Context;
-use crate::protocol::sort::apply_sort::shuffle::Resharable;
-use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::malicious::{
-    AdditiveShare as MaliciousReplicated, DowngradeMalicious,
-    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+use crate::{
+    bits::{Fp2Array, Serializable},
+    error::Error,
+    ff::Field,
+    helpers::Role,
+    protocol::{context::Context, sort::apply_sort::shuffle::Resharable, RecordId, Substep},
+    secret_sharing::{
+        replicated::{
+            malicious::{
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious,
+                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+            },
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
+        },
+        Arithmetic,
+    },
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
-use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
 use generic_array::GenericArray;

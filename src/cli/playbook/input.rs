@@ -1,8 +1,10 @@
 use crate::ff::Field;
 
-use std::fs::File;
-use std::io;
-use std::io::{stdin, BufRead, BufReader, Read};
+use std::{
+    fs::File,
+    io,
+    io::{stdin, BufRead, BufReader, Read},
+};
 
 use crate::{bits::Fp2Array, ipa_test_input, test_fixture::input::GenericReportTestInput};
 use std::path::PathBuf;
@@ -112,10 +114,12 @@ impl BufRead for InputSource {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::cli::playbook::input::InputItem;
-    use crate::ff::{Fp31, Fp32BitPrime};
-    use crate::secret_sharing::IntoShares;
-    use crate::test_fixture::Reconstruct;
+    use crate::{
+        cli::playbook::input::InputItem,
+        ff::{Fp31, Fp32BitPrime},
+        secret_sharing::IntoShares,
+        test_fixture::Reconstruct,
+    };
 
     #[test]
     fn from_str() {
@@ -155,8 +159,7 @@ mod tests {
 
     mod input_source {
         use super::*;
-        use crate::cli::playbook::input::InputSource;
-        use crate::ff::Field;
+        use crate::{cli::playbook::input::InputSource, ff::Field};
 
         #[test]
         fn multiline() {

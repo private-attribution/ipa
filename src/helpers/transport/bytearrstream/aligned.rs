@@ -2,10 +2,12 @@ use crate::{error::BoxError, helpers::transport::bytearrstream::Item};
 use bytes::Bytes;
 use futures::{ready, Stream};
 use futures_util::stream::BoxStream;
-use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    collections::VecDeque,
+    fmt::{Debug, Formatter},
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 /// Wraps a [`BoxStream`] and produce a new stream that has chunks of exactly size `size_in_bytes`.
 /// # Errors

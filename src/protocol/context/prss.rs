@@ -1,12 +1,16 @@
 //! Metric-aware PRSS decorators
 
-use crate::helpers::Role;
-use crate::protocol::prss::{
-    IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness,
+use crate::{
+    helpers::Role,
+    protocol::{
+        prss::{IndexedSharedRandomness, SequentialSharedRandomness, SharedRandomness},
+        Step,
+    },
+    telemetry::{
+        labels::{ROLE, STEP},
+        metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED},
+    },
 };
-use crate::protocol::Step;
-use crate::telemetry::labels::{ROLE, STEP};
-use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, SEQUENTIAL_PRSS_GENERATED};
 use rand_core::{Error, RngCore};
 use std::sync::Arc;
 
