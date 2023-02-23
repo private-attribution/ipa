@@ -1,24 +1,29 @@
 #![allow(dead_code)] // TODO: remove once migrated to new transports
 
-use crate::helpers::query::QueryConfig;
-use crate::helpers::transport::{
-    ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding,
+use crate::{
+    helpers::{
+        query::QueryConfig,
+        transport::{
+            ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams,
+            StepBinding,
+        },
+        HelperIdentity,
+    },
+    protocol::{QueryId, Step},
 };
-use crate::helpers::HelperIdentity;
-use crate::protocol::{QueryId, Step};
 use async_trait::async_trait;
-use futures::Stream;
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use futures_util::stream;
 use serde::de::DeserializeOwned;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter};
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    fmt::{Debug, Formatter},
+    future::Future,
+    io,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll, Waker},
+};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
@@ -26,7 +31,6 @@ use tracing::Instrument;
 type ConnectionTx = Sender<(Addr, InMemoryStream)>;
 type ConnectionRx = Receiver<(Addr, InMemoryStream)>;
 type StreamItem = Vec<u8>;
-
 
 /// In-memory implementation of [`ChannelledTransport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
@@ -38,10 +42,7 @@ struct InMemoryChannelledTransport {
 }
 
 impl InMemoryChannelledTransport {
-    fn new(
-        identity: HelperIdentity,
-        connections: HashMap<HelperIdentity, ConnectionTx>,
-    ) -> Self {
+    fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
         Self {
             identity,
             connections,
@@ -58,34 +59,37 @@ impl InMemoryChannelledTransport {
         mut callbacks: TransportCallbacks<CB>,
         mut rx: ConnectionRx,
     ) {
-        tokio::spawn({
-            let streams = self.record_streams.clone();
-            async move {
-                let mut active_queries = HashSet::new();
-                while let Some((addr, stream)) = rx.recv().await {
-                    tracing::trace!("received new message: {addr:?}");
+        tokio::spawn(
+            {
+                let streams = self.record_streams.clone();
+                async move {
+                    let mut active_queries = HashSet::new();
+                    while let Some((addr, stream)) = rx.recv().await {
+                        tracing::trace!("received new message: {addr:?}");
 
-                    match addr.route {
-                        RouteId::ReceiveQuery => {
-                            let qc = addr.into::<QueryConfig>();
-                            let query_id = (callbacks.receive_query)(qc)
-                                .await
-                                .expect("Should be able to receive a new query request");
-                            assert!(
-                                active_queries.insert(query_id),
-                                "the same query id {query_id:?} is generated twice"
-                            );
-                        }
-                        RouteId::Records => {
-                            let query_id = addr.query_id.unwrap();
-                            let step = addr.step.unwrap();
-                            let from = addr.origin.unwrap();
-                            streams.add_stream((query_id, from, step), stream);
+                        match addr.route {
+                            RouteId::ReceiveQuery => {
+                                let qc = addr.into::<QueryConfig>();
+                                let query_id = (callbacks.receive_query)(qc)
+                                    .await
+                                    .expect("Should be able to receive a new query request");
+                                assert!(
+                                    active_queries.insert(query_id),
+                                    "the same query id {query_id:?} is generated twice"
+                                );
+                            }
+                            RouteId::Records => {
+                                let query_id = addr.query_id.unwrap();
+                                let step = addr.step.unwrap();
+                                let from = addr.origin.unwrap();
+                                streams.add_stream((query_id, from, step), stream);
+                            }
                         }
                     }
-                };
+                }
             }
-        }.instrument(tracing::info_span!("transport_loop", id=?self.identity).or_current()));
+            .instrument(tracing::info_span!("transport_loop", id=?self.identity).or_current()),
+        );
     }
 
     fn get_channel(&self, dest: HelperIdentity) -> ConnectionTx {
@@ -116,9 +120,9 @@ impl ChannelledTransport for InMemoryChannelledTransport {
         route: R,
         data: Self::DataStream,
     ) -> Result<(), io::Error>
-        where
-            Option<QueryId>: From<Q>,
-            Option<Step>: From<S>,
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
     {
         let channel = self.get_channel(dest);
         let packet = Addr::from_route(self.identity, &route);
@@ -133,7 +137,10 @@ impl ChannelledTransport for InMemoryChannelledTransport {
         from: HelperIdentity,
         route: R,
     ) -> Self::RecordsStream {
-        ReceiveRecords::new((route.query_id(), from, route.step()), self.record_streams.clone())
+        ReceiveRecords::new(
+            (route.query_id(), from, route.step()),
+            self.record_streams.clone(),
+        )
     }
 }
 
@@ -142,18 +149,18 @@ impl ChannelledTransport for InMemoryChannelledTransport {
 /// the task when stream is received.
 /// Once stream is received, it is moved to this struct and it acts as a proxy to it.
 pub struct ReceiveRecords<S> {
-    inner: ReceiveRecordsInner<S>
+    inner: ReceiveRecordsInner<S>,
 }
 
-impl <S> ReceiveRecords<S> {
+impl<S> ReceiveRecords<S> {
     fn new(key: StreamKey, coll: StreamCollection<S>) -> Self {
         Self {
-            inner: ReceiveRecordsInner::Pending(key, coll)
+            inner: ReceiveRecordsInner::Pending(key, coll),
         }
     }
 }
 
-impl <S: Stream + Unpin> Stream for ReceiveRecords<S> {
+impl<S: Stream + Unpin> Stream for ReceiveRecords<S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -164,7 +171,7 @@ impl <S: Stream + Unpin> Stream for ReceiveRecords<S> {
 /// Convenience struct to support heterogeneous in-memory streams
 struct InMemoryStream {
     /// There is only one reason for this to have dynamic dispatch: tests that use from_iter method.
-    inner: Pin<Box<dyn Stream<Item=StreamItem> + Send>>,
+    inner: Pin<Box<dyn Stream<Item = StreamItem> + Send>>,
 }
 
 impl InMemoryStream {
@@ -173,9 +180,9 @@ impl InMemoryStream {
     }
 
     fn from_iter<I>(input: I) -> Self
-        where
-            I: IntoIterator<Item=StreamItem>,
-            I::IntoIter: Send + 'static,
+    where
+        I: IntoIterator<Item = StreamItem>,
+        I::IntoIter: Send + 'static,
     {
         Self {
             inner: Box::pin(stream::iter(input.into_iter())),
@@ -219,9 +226,9 @@ impl Addr {
         origin: HelperIdentity,
         route: &R,
     ) -> Self
-        where
-            Option<QueryId>: From<Q>,
-            Option<Step>: From<S>,
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
     {
         Self {
             route: route.resource_identifier(),
@@ -267,7 +274,6 @@ impl Debug for Addr {
     }
 }
 
-
 /// Each stream is indexed by query id, the identity of helper where stream is originated from
 /// and step.
 type StreamKey = (QueryId, HelperIdentity, Step);
@@ -282,24 +288,23 @@ struct StreamCollection<S> {
     inner: Arc<Mutex<HashMap<StreamKey, RecordsStream<S>>>>,
 }
 
-impl <S> Default for StreamCollection<S> {
+impl<S> Default for StreamCollection<S> {
     fn default() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(HashMap::new()))
+            inner: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
-impl <S> Clone for StreamCollection<S> {
+impl<S> Clone for StreamCollection<S> {
     fn clone(&self) -> Self {
         Self {
-            inner: Arc::clone(&self.inner)
+            inner: Arc::clone(&self.inner),
         }
     }
 }
 
 impl<S: Stream> StreamCollection<S> {
-
     /// Adds a new stream associated with the given key.
     ///
     /// ## Panics
@@ -307,22 +312,20 @@ impl<S: Stream> StreamCollection<S> {
     pub fn add_stream(&self, key: StreamKey, stream: S) {
         let mut streams = self.inner.lock().unwrap();
         match streams.entry(key) {
-            Entry::Occupied(mut entry) => {
-                match entry.get_mut() {
-                    rs @ RecordsStream::Waiting(_) => {
-                        let RecordsStream::Waiting(waker) = std::mem::replace(rs, RecordsStream::Ready(stream)) else {
+            Entry::Occupied(mut entry) => match entry.get_mut() {
+                rs @ RecordsStream::Waiting(_) => {
+                    let RecordsStream::Waiting(waker) = std::mem::replace(rs, RecordsStream::Ready(stream)) else {
                             unreachable!()
                         };
-                        waker.wake();
-                    }
-                    rs @ RecordsStream::Ready(_) | rs @ RecordsStream::Completed => {
-                        let state = format!("{rs:?}");
-                        let key = entry.key().clone();
-                        drop(streams);
-                        panic!("{key:?} entry state expected to be waiting, got {state:?}");
-                    }
+                    waker.wake();
                 }
-            }
+                rs @ (RecordsStream::Ready(_) | RecordsStream::Completed) => {
+                    let state = format!("{rs:?}");
+                    let key = entry.key().clone();
+                    drop(streams);
+                    panic!("{key:?} entry state expected to be waiting, got {state:?}");
+                }
+            },
             Entry::Vacant(entry) => {
                 entry.insert(RecordsStream::Ready(stream));
             }
@@ -355,7 +358,7 @@ impl<S: Stream> StreamCollection<S> {
                     }
                     RecordsStream::Completed => {
                         drop(streams);
-                        panic!("{:?} stream has been consumed already", key)
+                        panic!("{key:?} stream has been consumed already")
                     }
                 }
             }
@@ -381,9 +384,15 @@ enum RecordsStream<S> {
 impl<S> Debug for RecordsStream<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RecordsStream::Waiting(_) => { write!(f, "Waiting") }
-            RecordsStream::Ready(_) => { write!(f, "Ready") }
-            RecordsStream::Completed => { write!(f, "Completed") }
+            RecordsStream::Waiting(_) => {
+                write!(f, "Waiting")
+            }
+            RecordsStream::Ready(_) => {
+                write!(f, "Ready")
+            }
+            RecordsStream::Completed => {
+                write!(f, "Completed")
+            }
         }
     }
 }
@@ -391,7 +400,7 @@ impl<S> Debug for RecordsStream<S> {
 /// Inner state for [`ReceiveRecords`] struct
 enum ReceiveRecordsInner<S> {
     Pending(StreamKey, StreamCollection<S>),
-    Ready(S)
+    Ready(S),
 }
 
 impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
@@ -403,25 +412,28 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
             match this {
                 Self::Pending(key, streams) => {
                     if let Some(stream) = streams.add_waker(key, cx.waker()) {
-                        *this = Self::Ready(stream)
+                        *this = Self::Ready(stream);
                     } else {
-                        return Poll::Pending
+                        return Poll::Pending;
                     }
                 }
-                Self::Ready(stream) => {
-                    return stream.poll_next_unpin(cx)
-                }
+                Self::Ready(stream) => return stream.poll_next_unpin(cx),
             }
         }
     }
 }
 
 trait ReceiveQueryCallback:
-FnMut(QueryConfig) -> Pin<Box<dyn Future<Output=Result<QueryId, String>> + Send>> + Send + 'static
-{}
+    FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send + 'static
+{
+}
 
-impl<F> ReceiveQueryCallback for F
-    where F: FnMut(QueryConfig) -> Pin<Box<dyn Future<Output=Result<QueryId, String>> + Send>> + Send + 'static {}
+impl<F> ReceiveQueryCallback for F where
+    F: FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>>
+        + Send
+        + 'static
+{
+}
 
 struct TransportCallbacks<RQC: ReceiveQueryCallback> {
     receive_query: RQC,
@@ -468,16 +480,15 @@ impl<CB: ReceiveQueryCallback> Setup<CB> {
 
 #[cfg(test)]
 mod tests {
-    use std::panic::AssertUnwindSafe;
     use super::*;
-    use crate::ff::FieldType;
-    use crate::helpers::query::QueryType;
-    use crate::helpers::HelperIdentity;
-    use crate::protocol::Step;
-    use futures_util::stream::poll_immediate;
-    use tokio::sync::mpsc::channel;
-    use tokio::sync::oneshot;
-    use futures_util::{FutureExt, StreamExt};
+    use crate::{
+        ff::FieldType,
+        helpers::{query::QueryType, HelperIdentity},
+        protocol::Step,
+    };
+    use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
+    use std::panic::AssertUnwindSafe;
+    use tokio::sync::{mpsc::channel, oneshot};
 
     const STEP: &str = "in-memory-transport";
 
@@ -491,32 +502,31 @@ mod tests {
     async fn callback_is_called() {
         let (signal_tx, signal_rx) = oneshot::channel();
         let signal_tx = Arc::new(Mutex::new(Some(signal_tx)));
-        let (tx, _transport) = Setup::new(HelperIdentity::ONE,
-                                          TransportCallbacks {
-                                              receive_query: move |query_config| {
-                                                  let signal_tx = Arc::clone(&signal_tx);
-                                                  Box::pin(async move {
-                                                      // this works because callback is only called once
-                                                      signal_tx
-                                                          .lock()
-                                                          .unwrap()
-                                                          .take()
-                                                          .expect("query callback invoked more than once")
-                                                          .send(query_config)
-                                                          .unwrap();
-                                                      Ok(QueryId)
-                                                  })
-                                              },
-                                          },
-        ).start();
+        let (tx, _transport) = Setup::new(
+            HelperIdentity::ONE,
+            TransportCallbacks {
+                receive_query: move |query_config| {
+                    let signal_tx = Arc::clone(&signal_tx);
+                    Box::pin(async move {
+                        // this works because callback is only called once
+                        signal_tx
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("query callback invoked more than once")
+                            .send(query_config)
+                            .unwrap();
+                        Ok(QueryId)
+                    })
+                },
+            },
+        )
+        .start();
         let expected = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
         };
-        tx.send((
-            Addr::receive_query(expected),
-            InMemoryStream::empty(),
-        ))
+        tx.send((Addr::receive_query(expected), InMemoryStream::empty()))
             .await
             .unwrap();
 
@@ -528,8 +538,7 @@ mod tests {
         let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).start();
         let expected = vec![vec![1], vec![2]];
 
-        let mut stream = transport
-            .receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
+        let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
 
         // make sure it is not ready as it hasn't received the records stream yet.
         assert!(matches!(
@@ -540,8 +549,8 @@ mod tests {
             Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         ))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -555,10 +564,9 @@ mod tests {
             Addr::records(HelperIdentity::TWO, QueryId, Step::from(STEP)),
             InMemoryStream::from_iter(expected.clone()),
         ))
-            .await
-            .unwrap();
-        let stream = transport
-            .receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
+        .await
+        .unwrap();
+        let stream = transport.receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -621,7 +629,6 @@ mod tests {
         send_and_verify(HelperIdentity::TWO, HelperIdentity::ONE, &transports).await;
     }
 
-
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
         let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).start();
@@ -630,7 +637,12 @@ mod tests {
         let stream = InMemoryStream::from(stream_rx);
 
         let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
-        tx.send((Addr::records(HelperIdentity::TWO, QueryId, step.clone()), stream)).await.unwrap();
+        tx.send((
+            Addr::records(HelperIdentity::TWO, QueryId, step.clone()),
+            stream,
+        ))
+        .await
+        .unwrap();
         stream_tx.send(vec![4, 5, 6]).await.unwrap();
         assert_eq!(vec![4, 5, 6], recv_stream.next().await.unwrap());
 
@@ -639,9 +651,9 @@ mod tests {
         let err = AssertUnwindSafe(err_recv.next()).catch_unwind().await;
         assert_eq!(
             Some(true),
-            err.unwrap_err().downcast_ref::<String>().map(|s| {
-                s.contains("stream has been consumed already")
-            })
+            err.unwrap_err()
+                .downcast_ref::<String>()
+                .map(|s| { s.contains("stream has been consumed already") })
         );
 
         // even after the input stream is closed
@@ -650,9 +662,9 @@ mod tests {
         let err = AssertUnwindSafe(err_recv.next()).catch_unwind().await;
         assert_eq!(
             Some(true),
-            err.unwrap_err().downcast_ref::<String>().map(|s| {
-                s.contains("stream has been consumed already")
-            })
+            err.unwrap_err()
+                .downcast_ref::<String>()
+                .map(|s| { s.contains("stream has been consumed already") })
         );
     }
 }
