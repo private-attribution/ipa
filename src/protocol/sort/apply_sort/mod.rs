@@ -1,33 +1,30 @@
 pub mod shuffle;
 
-pub use shuffle::{shuffle_shares, Resharable};
+pub use shuffle::shuffle_shares;
 
 use crate::{
     error::Error,
-    ff::Field,
     protocol::{
-        basics::reshare::LegacyReshare,
+        basics::Reshare,
         context::Context,
         sort::{
             apply::apply_inv, generate_permutation::RevealedAndRandomPermutations,
             ApplyInvStep::ShuffleInputs,
         },
+        RecordId,
     },
-    secret_sharing::SecretSharing,
 };
 
 /// # Errors
 /// Propagates errors from shuffle/reshare
-pub async fn apply_sort_permutation<C, F, S, I>(
+pub async fn apply_sort_permutation<C, I>(
     ctx: C,
     input: Vec<I>,
     sort_permutation: &RevealedAndRandomPermutations,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context + LegacyReshare<F, Share = S>,
-    F: Field,
-    S: SecretSharing<F>,
-    I: Resharable<F, Share = S> + Send + Sync,
+    C: Context,
+    I: Reshare<C, RecordId> + Send + Sync,
 {
     let mut shuffled_objects = shuffle_shares(
         input,

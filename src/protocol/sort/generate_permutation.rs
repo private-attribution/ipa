@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::{reshare::LegacyReshare, Reveal},
+        basics::{Reshare, Reveal},
         context::{Context, MaliciousContext, NoRecord},
         malicious::MaliciousValidator,
         sort::{
@@ -53,8 +53,8 @@ pub struct ShuffledPermutationWrapper<T, C: Context> {
 /// <https://eprint.iacr.org/2019/695.pdf>.
 pub(super) async fn shuffle_and_reveal_permutation<
     F: Field,
-    S: SecretSharing<F> + Reveal<C, RecordId, Output = F>,
-    C: Context + LegacyReshare<F, Share = S>,
+    S: SecretSharing<F> + Reshare<C, RecordId> + Reveal<C, RecordId, Output = F>,
+    C: Context,
 >(
     ctx: C,
     input_permutation: Vec<S>,
