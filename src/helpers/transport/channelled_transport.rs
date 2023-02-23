@@ -120,12 +120,9 @@ pub trait ChannelledTransport: Send + Sync + 'static {
 
     /// Return the stream of records to be received from another helper for the specific query
     /// and step
-    ///
-    /// ## Errors
-    /// When stream has been received already
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
         &self,
         from: HelperIdentity,
         route: R,
-    ) -> Result<Self::RecordsStream, io::Error>;
+    ) -> Self::RecordsStream;
 }
