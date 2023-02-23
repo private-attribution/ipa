@@ -57,20 +57,15 @@ impl AsRef<str> for Step {
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn check_zero<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
     let r_sharing = ctx.prss().generate_replicated(record_id);
 
-    let rv_share = ctx
-        .narrow(&Step::MultiplyWithR)
-        .multiply(record_id, &r_sharing, v)
-        .await?;
-    let rv = ctx
-        .narrow(&Step::RevealR)
-        .reveal(record_id, &rv_share)
-        .await?;
+    let rv_share =
+        Replicated::multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
+    let rv = Replicated::reveal(ctx.narrow(&Step::RevealR), record_id, &rv_share).await?;
 
     Ok(rv == F::ZERO)
 }
@@ -90,7 +85,7 @@ mod tests {
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
         let world = TestWorld::new().await;
-        let context = world.contexts::<Fp31>().map(|ctx| ctx.set_total_records(1));
+        let context = world.contexts().map(|ctx| ctx.set_total_records(1));
         let mut rng = thread_rng();
         let mut counter = 0_u32;
 

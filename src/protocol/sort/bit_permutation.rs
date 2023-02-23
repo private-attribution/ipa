@@ -3,7 +3,7 @@ use std::iter::{repeat, zip};
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId},
+    protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
 
@@ -35,14 +35,14 @@ use futures::future::try_join_all;
 pub async fn bit_permutation<
     'a,
     F: Field,
-    S: ArithmeticSecretSharing<F>,
-    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context,
 >(
     ctx: C,
     input: &[S],
 ) -> Result<Vec<S>, Error> {
     let ctx = ctx.set_total_records(2 * input.len());
-    let share_of_one = ctx.share_known_value(F::ONE);
+    let share_of_one = S::share_known_value(&ctx, F::ONE);
 
     let mult_input = zip(repeat(share_of_one.clone()), input)
         .map(|(one, x)| one - x)
@@ -57,7 +57,7 @@ pub async fn bit_permutation<
             .enumerate()
             .map(|(i, (ctx, (x, sum)))| async move {
                 let record_id = RecordId::from(i);
-                ctx.multiply(record_id, &x, &sum).await
+                S::multiply(ctx, record_id, &x, &sum).await
             });
     let mut mult_output = try_join_all(async_multiply).await?;
 

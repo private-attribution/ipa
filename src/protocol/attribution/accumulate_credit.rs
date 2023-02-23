@@ -5,7 +5,7 @@ use super::{
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId},
+    protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Arithmetic,
 };
 use futures::future::try_join_all;
@@ -43,8 +43,8 @@ async fn accumulate_credit_cap_one<F, C, T>(
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
 
@@ -54,10 +54,7 @@ where
     let credits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = memoize_context.clone();
         let record_id = RecordId::from(i);
-        async move {
-            c.multiply(record_id, &x.is_trigger_report, &x.helper_bit)
-                .await
-        }
+        async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
     }))
     .await?;
 
@@ -91,8 +88,8 @@ pub async fn accumulate_credit<F, C, T>(
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     if per_user_credit_cap == 1 {
         return accumulate_credit_cap_one(ctx, input).await;
@@ -111,7 +108,7 @@ where
         let record_id = RecordId::from(i);
         let is_trigger_bit = &x.is_trigger_report;
         let helper_bit = &x.helper_bit;
-        async move { c.multiply(record_id, is_trigger_bit, helper_bit).await }
+        async move { T::multiply(c, record_id, is_trigger_bit, helper_bit).await }
     }))
     .await?;
 

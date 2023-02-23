@@ -130,9 +130,10 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
+    use super::sum_of_products;
     use crate::{
         ff::Fp31,
-        protocol::{basics::sum_of_product::SecureSop, context::Context, RecordId},
+        protocol::{context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -157,10 +158,14 @@ mod test {
 
         let res = world
             .malicious((av, bv), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
-                    .await
-                    .unwrap()
+                sum_of_products(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    a.as_slice(),
+                    b.as_slice(),
+                )
+                .await
+                .unwrap()
             })
             .await;
 

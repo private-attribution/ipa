@@ -22,7 +22,7 @@ use crate::{
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn sum_of_products<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     a: &[Replicated<F>],
     b: &[Replicated<F>],
@@ -70,13 +70,11 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
-    use crate::rand::Rng;
-
-    use crate::rand::thread_rng;
-
+    use super::sum_of_products;
     use crate::{
         ff::{Field, Fp31},
-        protocol::{basics::sum_of_product::SecureSop, context::Context, RecordId},
+        protocol::{context::Context, RecordId},
+        rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
@@ -120,10 +118,14 @@ mod test {
 
         let res = world
             .semi_honest((av, bv), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
-                    .await
-                    .unwrap()
+                sum_of_products(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    a.as_slice(),
+                    b.as_slice(),
+                )
+                .await
+                .unwrap()
             })
             .await;
 
@@ -140,10 +142,14 @@ mod test {
 
         let result = world
             .semi_honest((a, b), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
-                    .await
-                    .unwrap()
+                sum_of_products(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    a.as_slice(),
+                    b.as_slice(),
+                )
+                .await
+                .unwrap()
             })
             .await;
 

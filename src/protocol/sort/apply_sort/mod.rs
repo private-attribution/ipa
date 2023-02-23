@@ -6,6 +6,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
+        basics::reshare::LegacyReshare,
         context::Context,
         sort::{
             apply::apply_inv, generate_permutation::RevealedAndRandomPermutations,
@@ -23,7 +24,7 @@ pub async fn apply_sort_permutation<C, F, S, I>(
     sort_permutation: &RevealedAndRandomPermutations,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context<F, Share = S>,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     S: SecretSharing<F>,
     I: Resharable<F, Share = S> + Send + Sync,
@@ -47,7 +48,7 @@ mod tests {
     use crate::{
         accumulation_test_input,
         bits::Fp2Array,
-        ff::Fp32BitPrime,
+        ff::{Fp31, Fp32BitPrime},
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,
@@ -102,7 +103,7 @@ mod tests {
                     Vec<XorShare<MatchKey>>,
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
+                    let local_lists = convert_all_bits_local::<Fp31, _>(ctx.role(), &mk_shares);
                     let converted_shares = convert_all_bits(
                         &ctx.narrow("convert_all_bits"),
                         &local_lists,
