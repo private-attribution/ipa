@@ -84,12 +84,16 @@ where
         let first_iteration = step_size == 1;
         let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
-        let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth))
+        let depth_i_ctx = ctx.narrow(&InteractionPatternStep::from(depth));
+        let new_credit_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorCredit)
             .set_total_records(end);
-        let new_credit_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorCredit);
-        let new_stop_bit_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorStopBit);
-        let credit_or_ctx = depth_i_ctx.narrow(&Step::CurrentCreditOrCreditUpdate);
+        let credit_or_ctx = depth_i_ctx
+            .narrow(&Step::CurrentCreditOrCreditUpdate)
+            .set_total_records(end);
+        let new_stop_bit_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorStopBit)
+            .set_total_records(end - 1);
         let mut credit_update_futures = Vec::with_capacity(end);
         let mut stop_bit_futures = Vec::with_capacity(end);
 
@@ -178,11 +182,13 @@ where
     {
         let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
-        let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth))
+        let depth_i_ctx = ctx.narrow(&InteractionPatternStep::from(depth));
+        let new_value_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorCredit)
             .set_total_records(end);
-        let new_value_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorCredit);
-        let new_stop_bit_ctx = depth_i_ctx.narrow(&Step::CurrentStopBitTimesSuccessorStopBit);
+        let new_stop_bit_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorStopBit)
+            .set_total_records(end - 1);
         let mut value_update_futures = Vec::with_capacity(end);
         let mut stop_bit_futures = Vec::with_capacity(end);
 
