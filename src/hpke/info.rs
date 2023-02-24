@@ -7,8 +7,8 @@ const DOMAIN: &str = "private-attribution";
 /// Represents the [`info`] part of the receiver context, that is: application specific data
 /// for each encryption.
 ///
-/// IPA uses key identifier, key event epoch, and helper/match key provider/site origins to
-/// authenticate the encryption of a match key.
+/// IPA uses key identifier, key event epoch, helper and match key provider origins, and
+/// site registrable domain to authenticate the encryption of a match key.
 /// It is not guaranteed that the same receiver can be used for anything else.
 ///
 /// [`info`]: https://www.rfc-editor.org/rfc/rfc9180.html#name-creating-the-encryption-con
@@ -18,7 +18,7 @@ pub struct Info<'a> {
     pub(super) epoch: Epoch,
     pub(super) match_key_provider_origin: &'a str,
     pub(super) helper_origin: &'a str,
-    pub(super) site_origin: &'a str,
+    pub(super) site_registrable_domain: &'a str,
 }
 
 #[derive(Debug)]
@@ -48,14 +48,14 @@ impl<'a> Info<'a> {
         epoch: Epoch,
         match_key_provider_origin: &'a str,
         helper_origin: &'a str,
-        site_origin: &'a str,
+        site_registrable_domain: &'a str,
     ) -> Result<Self, NonAsciiStringError<'a>> {
         if !helper_origin.is_ascii() {
             return Err(helper_origin.into());
         }
 
-        if !site_origin.is_ascii() {
-            return Err(site_origin.into());
+        if !site_registrable_domain.is_ascii() {
+            return Err(site_registrable_domain.into());
         }
 
         Ok(Self {
@@ -63,7 +63,7 @@ impl<'a> Info<'a> {
             epoch,
             match_key_provider_origin,
             helper_origin,
-            site_origin,
+            site_registrable_domain,
         })
     }
 
@@ -73,7 +73,7 @@ impl<'a> Info<'a> {
         let info_len = DOMAIN.len()
             + self.match_key_provider_origin.len()
             + self.helper_origin.len()
-            + self.site_origin.len()
+            + self.site_registrable_domain.len()
             + 4 // account for 4 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch);
@@ -85,7 +85,7 @@ impl<'a> Info<'a> {
         r.push(0);
         r.extend_from_slice(self.helper_origin.as_bytes());
         r.push(0);
-        r.extend_from_slice(self.site_origin.as_bytes());
+        r.extend_from_slice(self.site_registrable_domain.as_bytes());
         r.push(0);
 
         r.push(self.key_id);
