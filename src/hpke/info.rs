@@ -48,7 +48,7 @@ impl<'a> Info<'a> {
         epoch: Epoch,
         match_key_provider_origin: &'a str,
         helper_origin: &'a str,
-        site_registrable_domain: &'a str,
+        site_domain: &'a str,
     ) -> Result<Self, NonAsciiStringError<'a>> {
         if !match_key_provider_origin.is_ascii() {
             return Err(match_key_provider_origin.into());
@@ -58,8 +58,8 @@ impl<'a> Info<'a> {
             return Err(helper_origin.into());
         }
 
-        if !site_registrable_domain.is_ascii() {
-            return Err(site_registrable_domain.into());
+        if !site_domain.is_ascii() {
+            return Err(site_domain.into());
         }
 
         Ok(Self {
@@ -67,7 +67,7 @@ impl<'a> Info<'a> {
             epoch,
             match_key_provider_origin,
             helper_origin,
-            site_registrable_domain,
+            site_domain,
         })
     }
 
@@ -77,7 +77,7 @@ impl<'a> Info<'a> {
         let info_len = DOMAIN.len()
             + self.match_key_provider_origin.len()
             + self.helper_origin.len()
-            + self.site_registrable_domain.len()
+            + self.site_domain.len()
             + 4 // account for 4 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch);
@@ -89,7 +89,7 @@ impl<'a> Info<'a> {
         r.push(0);
         r.extend_from_slice(self.helper_origin.as_bytes());
         r.push(0);
-        r.extend_from_slice(self.site_registrable_domain.as_bytes());
+        r.extend_from_slice(self.site_domain.as_bytes());
         r.push(0);
 
         r.push(self.key_id);

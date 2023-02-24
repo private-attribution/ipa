@@ -150,7 +150,7 @@ mod tests {
     impl<R: RngCore + CryptoRng> EncryptionSuite<R> {
         const MKP_ORIGIN: &'static str = "";
         const HELPER_ORIGIN: &'static str = "foo";
-        const SRD: &'static str = "xn--mozilla.com.xn--example.com";
+        const SITE_DOMAIN: &'static str = "xn--mozilla.com.xn--example.com";
 
         pub fn new(keys: usize, mut rng: R) -> Self {
             Self {
@@ -203,7 +203,7 @@ mod tests {
                 self.epoch,
                 Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
-                Self::SRD,
+                Self::SITE_DOMAIN,
             )
             .unwrap();
 
@@ -220,7 +220,7 @@ mod tests {
                 self.epoch,
                 Self::MKP_ORIGIN,
                 Self::HELPER_ORIGIN,
-                Self::SRD,
+                Self::SITE_DOMAIN,
             )
             .unwrap();
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), info)?;
@@ -365,14 +365,14 @@ mod tests {
             #[test]
             fn arbitrary_info_corruption(corrupted_info_field in 1..5,
                                          mkp_origin in "[a-z]{10}",
-                                         srd in "[a-z]{10}",
+                                         site_domain in "[a-z]{10}",
                                          helper_origin in "[a-z]{10}",
                                          seed: [u8; 32]) {
                 let mut rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(10, rng.clone());
                 // keep the originals, in case if we need to damage them
-                let (mut mkp_clone, mut srd_clone, mut helper_clone) = (mkp_origin.clone(), srd.clone(), helper_origin.clone());
-                let info = Info::new(0, 0, &mkp_origin, &srd, &helper_origin).unwrap();
+                let (mut mkp_clone, mut site_domain_clone, mut helper_clone) = (mkp_origin.clone(), site_domain.clone(), helper_origin.clone());
+                let info = Info::new(0, 0, &mkp_origin, &site_domain, &helper_origin).unwrap();
                 let mut encryption = suite.seal_with_info(info, new_share(0, 0));
 
                 let info = match corrupted_info_field {
@@ -393,10 +393,10 @@ mod tests {
                         }
                     }
                     4 => {
-                        corrupt_str(&mut srd_clone, &mut rng);
+                        corrupt_str(&mut site_domain_clone, &mut rng);
 
                         Info {
-                            site_registrable_domain: &srd_clone,
+                            site_domain: &site_domain_clone,
                             ..encryption.info
                         }
                     },
