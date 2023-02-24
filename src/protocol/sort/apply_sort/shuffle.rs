@@ -1,10 +1,9 @@
 use crate::{
     error::Error,
-    ff::Field,
-    helpers::{Direction, Role},
+    helpers::Direction,
     protocol::{
-        basics::reshare::LegacyReshare,
-        context::Context,
+        basics::Reshare,
+        context::{Context, NoRecord},
         sort::{
             apply::{apply, apply_inv},
             shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
@@ -13,21 +12,8 @@ use crate::{
         RecordId,
     },
     repeat64str,
-    secret_sharing::{Arithmetic, SecretSharing, SharedValue},
 };
-use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
-use futures::future::try_join_all;
-use std::iter::{repeat, zip};
-
-#[async_trait]
-pub trait Resharable<V: SharedValue>: Sized {
-    type Share: SecretSharing<V>;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
-    where
-        C: Context + LegacyReshare<V, Share = Self::Share>;
-}
 
 pub struct InnerVectorElementStep(usize);
 
@@ -46,51 +32,11 @@ impl From<usize> for InnerVectorElementStep {
     }
 }
 
-// The Resharable and Reshare traits should be combined, but to reduce change size, that hasn't been
-// done yet. When that is done, this impl is redundant with Reshare impls.
-// TODO: replace with Reshare impl
-#[async_trait]
-impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
-    type Share = T;
-
-    /// This is intended to be used for resharing vectors of bit-decomposed values.
-    /// # Errors
-    /// If the vector has more than 64 elements
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
-    where
-        C: Context + LegacyReshare<F, Share = Self::Share>,
-    {
-        try_join_all(self.iter().enumerate().map(|(i, x)| {
-            let c = ctx.narrow(&InnerVectorElementStep::from(i));
-            async move { c.reshare(x, record_id, to_helper).await }
-        }))
-        .await
-    }
-}
-
-// TODO: replace with Reshare impl
-async fn reshare<F, C, S, T>(input: &[T], ctx: C, to_helper: Role) -> Result<Vec<T>, Error>
-where
-    C: Context + LegacyReshare<F, Share = S>,
-    F: Field,
-    S: SecretSharing<F>,
-    T: Resharable<F, Share = S>,
-{
-    let ctx = ctx.set_total_records(input.len());
-    let reshares =
-        zip(repeat(ctx), input.iter())
-            .enumerate()
-            .map(|(index, (ctx, input))| async move {
-                input.reshare(ctx, RecordId::from(index), to_helper).await
-            });
-    try_join_all(reshares).await
-}
-
 /// `shuffle_once` is called for the helpers
 /// i)   2 helpers receive permutation pair and choose the permutation to be applied
 /// ii)  2 helpers apply the permutation to their shares
 /// iii) reshare to `to_helper`
-async fn shuffle_once<F, S, C, I>(
+async fn shuffle_once<C, I>(
     mut input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
     shuffle_or_unshuffle: ShuffleOrUnshuffle,
@@ -98,10 +44,8 @@ async fn shuffle_once<F, S, C, I>(
     which_step: ShuffleStep,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context + LegacyReshare<F, Share = S>,
-    F: Field,
-    I: Resharable<F, Share = S>,
-    S: SecretSharing<F>,
+    C: Context,
+    I: Reshare<C, RecordId> + Send + Sync,
 {
     let to_helper = shuffle_for_helper(which_step);
     let ctx = ctx.narrow(&which_step);
@@ -118,7 +62,7 @@ where
             ShuffleOrUnshuffle::Unshuffle => apply(permutation_to_apply, &mut input),
         }
     }
-    reshare(&input, ctx, to_helper).await
+    input.reshare(ctx, NoRecord, to_helper).await
 }
 
 #[embed_doc_image("shuffle", "images/sort/shuffle.png")]
@@ -130,16 +74,14 @@ where
 /// The Shuffle object receives a step function and appends a `ShuffleStep` to form a concrete step
 ///
 /// ![Shuffle steps][shuffle]
-pub async fn shuffle_shares<C, F, I, S>(
+pub async fn shuffle_shares<C, I>(
     input: Vec<I>,
     random_permutations: (&[u32], &[u32]),
     ctx: C,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context + LegacyReshare<F, Share = S>,
-    F: Field,
-    I: Resharable<F, Share = S>,
-    S: SecretSharing<F>,
+    C: Context,
+    I: Reshare<C, RecordId> + Send + Sync,
 {
     let input = shuffle_once(
         input,
