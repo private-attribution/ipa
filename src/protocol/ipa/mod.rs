@@ -1011,11 +1011,11 @@ pub mod tests {
         /// empirical value as of Feb 23, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46872;
 
-        /// empirical value as of Feb 23, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13629;
+        /// empirical value as of Feb 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13611;
 
-        /// empirical value as of Feb 23, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33621;
+        /// empirical value as of Feb 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33585;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
