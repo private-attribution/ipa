@@ -94,6 +94,7 @@ where
         let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
+            let last_row = i == end - 1;
             let c1 = new_credit_ctx.clone();
             let c2 = new_stop_bit_ctx.clone();
             let c3 = credit_or_ctx.clone();
@@ -108,7 +109,7 @@ where
                     S::multiply(c1, record_id, current_stop_bit, sibling_credit).await?;
                 or(c3, record_id, current_credit, &credit_update).await
             });
-            if !last_iteration {
+            if !last_iteration && !last_row {
                 stop_bit_futures.push(async move {
                     S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
                 });
@@ -189,6 +190,7 @@ where
         let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
+            let last_row = i == end - 1;
             let c1 = new_value_ctx.clone();
             let c2 = new_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
@@ -198,7 +200,7 @@ where
             value_update_futures.push(async move {
                 S::multiply(c1, record_id, current_stop_bit, sibling_value).await
             });
-            if !last_iteration {
+            if !last_iteration && !last_row {
                 stop_bit_futures.push(async move {
                     S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
                 });
