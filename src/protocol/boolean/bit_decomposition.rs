@@ -44,12 +44,9 @@ impl BitDecomposition {
         let r = rbg.generate().await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
-        let c = S::reveal(
-            ctx.narrow(&Step::RevealAMinusB),
-            record_id,
-            &(a_p.clone() - &r.b_p),
-        )
-        .await?;
+        let c = (a_p.clone() - &r.b_p)
+            .reveal(ctx.narrow(&Step::RevealAMinusB), record_id)
+            .await?;
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //

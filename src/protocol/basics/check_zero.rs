@@ -65,7 +65,9 @@ pub async fn check_zero<F: Field>(
 
     let rv_share =
         Replicated::multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
-    let rv = Replicated::reveal(ctx.narrow(&Step::RevealR), record_id, &rv_share).await?;
+    let rv = rv_share
+        .reveal(ctx.narrow(&Step::RevealR), record_id)
+        .await?;
 
     Ok(rv == F::ZERO)
 }

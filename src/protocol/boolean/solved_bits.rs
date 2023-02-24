@@ -122,7 +122,7 @@ where
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
             .await?;
-    if S::reveal(ctx.narrow(&Step::RevealC), record_id, &c_b).await? == F::ZERO {
+    if c_b.reveal(ctx.narrow(&Step::RevealC), record_id).await? == F::ZERO {
         return Ok(false);
     }
     Ok(true)
