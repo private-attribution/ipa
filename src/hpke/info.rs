@@ -7,14 +7,16 @@ const DOMAIN: &str = "private-attribution";
 /// Represents the [`info`] part of the receiver context, that is: application specific data
 /// for each encryption.
 ///
-/// IPA uses key identifier, event epoch and both helper and site origins to authenticate match key
-/// encryption. It is not guaranteed that the same receiver can be used for anything else.
+/// IPA uses key identifier, key event epoch, and helper/match key provider/site origins to
+/// authenticate the encryption of a match key.
+/// It is not guaranteed that the same receiver can be used for anything else.
 ///
 /// [`info`]: https://www.rfc-editor.org/rfc/rfc9180.html#name-creating-the-encryption-con
 #[derive(Clone)]
 pub struct Info<'a> {
     pub(super) key_id: KeyIdentifier,
     pub(super) epoch: Epoch,
+    pub(super) match_key_provider_origin: &'a str,
     pub(super) helper_origin: &'a str,
     pub(super) site_origin: &'a str,
 }
@@ -44,6 +46,7 @@ impl<'a> Info<'a> {
     pub fn new(
         key_id: KeyIdentifier,
         epoch: Epoch,
+        match_key_provider_origin: &'a str,
         helper_origin: &'a str,
         site_origin: &'a str,
     ) -> Result<Self, NonAsciiStringError<'a>> {
@@ -58,6 +61,7 @@ impl<'a> Info<'a> {
         Ok(Self {
             key_id,
             epoch,
+            match_key_provider_origin,
             helper_origin,
             site_origin,
         })
@@ -67,14 +71,17 @@ impl<'a> Info<'a> {
     /// sender or receiver context.
     pub(super) fn into_bytes(self) -> Box<[u8]> {
         let info_len = DOMAIN.len()
+            + self.match_key_provider_origin.len()
             + self.helper_origin.len()
             + self.site_origin.len()
-            + 3 // account for 3 delimiters
+            + 4 // account for 4 delimiters
             + std::mem::size_of_val(&self.key_id)
             + std::mem::size_of_val(&self.epoch);
         let mut r = Vec::with_capacity(info_len);
 
         r.extend_from_slice(DOMAIN.as_bytes());
+        r.push(0);
+        r.extend_from_slice(self.match_key_provider_origin.as_bytes());
         r.push(0);
         r.extend_from_slice(self.helper_origin.as_bytes());
         r.push(0);
