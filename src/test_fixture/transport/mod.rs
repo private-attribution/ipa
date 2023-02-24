@@ -1,3 +1,4 @@
+mod channeled_transport;
 mod network;
 mod routing;
 mod util;
