@@ -1,6 +1,8 @@
 use clap::Parser;
-use raw_ipa::ff::{Field, Fp31};
-use raw_ipa::test_fixture::circuit;
+use raw_ipa::{
+    ff::{Field, Fp31},
+    test_fixture::circuit,
+};
 use std::time::Instant;
 
 #[derive(Debug, Parser)]

@@ -4,11 +4,12 @@ pub mod apply_attribution_window;
 pub mod credit_capping;
 pub mod input;
 
-use crate::protocol::boolean::or::or;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId, Substep},
+    protocol::{
+        basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId, Substep,
+    },
     repeat64str,
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
@@ -24,8 +25,8 @@ async fn if_else<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
@@ -36,9 +37,13 @@ where
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
     Ok(false_value.clone()
-        + &ctx
-            .multiply(record_id, condition, &(true_value.clone() - false_value))
-            .await?)
+        + &S::multiply(
+            ctx,
+            record_id,
+            condition,
+            &(true_value.clone() - false_value),
+        )
+        .await?)
 }
 
 ///
@@ -54,102 +59,97 @@ where
 ///
 pub async fn prefix_or_binary_tree_style<F, C, S>(
     ctx: C,
-    helper_bits: &[S],
+    stop_bits: &[S],
     uncapped_credits: &[S],
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
-    assert_eq!(helper_bits.len() + 1, uncapped_credits.len());
+    assert_eq!(stop_bits.len() + 1, uncapped_credits.len());
 
     let num_rows = uncapped_credits.len();
-    let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
 
-    let b_times_sibling_credit_ctx = depth_0_ctx.narrow(&Step::BTimesSuccessorCredit);
+    let mut uncapped_credits = uncapped_credits.to_owned();
 
-    let mut prefix_or = try_join_all(
-        helper_bits
-            .iter()
-            .zip(uncapped_credits.iter().skip(1))
-            .enumerate()
-            .map(|(i, (b, sibling_credit))| {
-                let c1 = b_times_sibling_credit_ctx.clone();
-                let c2 = depth_0_ctx.clone();
-                let record_id = RecordId::from(i);
-                let original_credit = &uncapped_credits[i];
-                async move {
-                    let credit_update = c1.multiply(record_id, b, sibling_credit).await?;
-                    or(c2, record_id, original_credit, &credit_update).await
-                }
-            }),
-    )
-    .await?;
-    // This is crap and will resize the vector... it was too hard to fix...
-    prefix_or.push(uncapped_credits[num_rows - 1].clone());
-
-    // Create stop_bit vector.
-    // This vector is updated in each iteration to help accumulate values
+    // This vector is updated in each iteration to help accumulate credits
     // and determine when to stop accumulating.
-    let mut stop_bits = helper_bits.to_owned();
-    stop_bits.push(ctx.share_known_value(F::ONE));
+    let mut stop_bits = stop_bits.to_owned();
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
-    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
+        let first_iteration = step_size == 1;
+        let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
-        let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth + 1))
+        let depth_i_ctx = ctx.narrow(&InteractionPatternStep::from(depth));
+        let new_credit_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorCredit)
             .set_total_records(end);
-        let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
-        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
-        let credit_or_ctx = depth_i_ctx.narrow(&Step::CurrentCreditOrCreditUpdate);
-        let mut futures = Vec::with_capacity(end);
+        let credit_or_ctx = depth_i_ctx
+            .narrow(&Step::CurrentCreditOrCreditUpdate)
+            .set_total_records(end);
+        let new_stop_bit_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorStopBit)
+            .set_total_records(end - 1);
+        let mut credit_update_futures = Vec::with_capacity(end);
+        let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let c1 = depth_i_ctx.clone();
-            let c2 = b_times_sibling_credit_ctx.clone();
-            let c3 = b_times_sibling_stop_bit_ctx.clone();
-            let c4 = credit_or_ctx.clone();
+            let last_row = i == end - 1;
+            let c1 = new_credit_ctx.clone();
+            let c2 = new_stop_bit_ctx.clone();
+            let c3 = credit_or_ctx.clone();
             let record_id = RecordId::from(i);
-            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &prefix_or[i + step_size];
-            let current_credit = &prefix_or[i];
-            futures.push(async move {
-                let b = c1
-                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
-                    .await?;
+            let sibling_credit = &uncapped_credits[i + step_size];
+            let current_credit = &uncapped_credits[i];
 
-                let (credit_update, new_stop_bit) = try_join(
-                    c2.multiply(record_id, &b, sibling_credit),
-                    c3.multiply(record_id, &b, sibling_stop_bit),
-                )
-                .await?;
-
-                let new_credit = or(c4, record_id, current_credit, &credit_update).await?;
-
-                Ok::<_, Error>((new_credit, new_stop_bit))
+            credit_update_futures.push(async move {
+                let credit_update =
+                    S::multiply(c1, record_id, current_stop_bit, sibling_credit).await?;
+                if first_iteration {
+                    Ok(credit_update + current_credit)
+                } else {
+                    or(c3, record_id, current_credit, &credit_update).await
+                }
             });
+            if !last_iteration && !last_row {
+                let sibling_stop_bit = &stop_bits[i + step_size];
+                stop_bit_futures.push(async move {
+                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
+                });
+            }
         }
 
-        let results = try_join_all(futures).await?;
+        let credit_updates = if last_iteration {
+            try_join_all(credit_update_futures).await?
+        } else {
+            let (stop_bit_updates, credit_updates) = try_join(
+                try_join_all(stop_bit_futures),
+                try_join_all(credit_update_futures),
+            )
+            .await?;
 
-        results
+            stop_bit_updates
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, stop_bit_update)| {
+                    stop_bits[i] = stop_bit_update;
+                });
+            credit_updates
+        };
+        credit_updates
             .into_iter()
             .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                prefix_or[i] = credit;
-                stop_bits[i] = stop_bit;
+            .for_each(|(i, credit_update)| {
+                uncapped_credits[i] = credit_update;
             });
     }
-    Ok(prefix_or)
+    Ok(uncapped_credits)
 }
 
 ///
@@ -164,99 +164,85 @@ where
 /// ## Panics
 /// Nah, it doesn't.
 ///
-pub async fn do_the_binary_tree_thing<'a, F, C, S, I>(
+pub async fn do_the_binary_tree_thing<F, C, S>(
     ctx: C,
-    helper_bits: &[S],
-    credits: I,
-) -> Result<Vec<S>, Error>
+    mut stop_bits: Vec<S>,
+    values: &mut [S],
+) -> Result<(), Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F> + 'a,
-    I: Iterator<Item = &'a S>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
-    let num_rows = helper_bits.len() + 1;
-    let depth_0_ctx = ctx
-        .narrow(&InteractionPatternStep::from(0))
-        .set_total_records(num_rows - 1);
-
-    let mut last = None;
-    let credit_and_next_credit = credits.map(|x| (last.replace(x.clone()), x)).skip(1);
-
-    let mut credits = try_join_all(credit_and_next_credit.zip(helper_bits).enumerate().map(
-        |(i, ((current_credit, next_credit), helper_bit))| {
-            let c = depth_0_ctx.clone();
-            let record_id = RecordId::from(i);
-            async move {
-                Ok::<_, Error>(
-                    current_credit.unwrap()
-                        + &c.multiply(record_id, helper_bit, next_credit).await?,
-                )
-            }
-        },
-    ))
-    .await?;
-    // This is crap and will resize the vector... it was too hard to fix...
-    credits.push(last.unwrap());
-
-    // Create stop_bit vector.
-    // This vector is updated in each iteration to help accumulate values
-    // and determine when to stop accumulating.
-    let mut stop_bits = helper_bits.to_owned();
-    stop_bits.push(ctx.share_known_value(F::ONE));
+    let num_rows = values.len();
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
-    for (depth, step_size) in std::iter::successors(Some(2_usize), |prev| prev.checked_mul(2))
+    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
+        let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
-        let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth + 1))
+        let depth_i_ctx = ctx.narrow(&InteractionPatternStep::from(depth));
+        let new_value_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorCredit)
             .set_total_records(end);
-        let b_times_sibling_credit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorCredit);
-        let b_times_sibling_stop_bit_ctx = depth_i_ctx.narrow(&Step::BTimesSuccessorStopBit);
-        let mut futures = Vec::with_capacity(end);
+        let new_stop_bit_ctx = depth_i_ctx
+            .narrow(&Step::CurrentStopBitTimesSuccessorStopBit)
+            .set_total_records(end - 1);
+        let mut value_update_futures = Vec::with_capacity(end);
+        let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let c1 = depth_i_ctx.clone();
-            let c2 = b_times_sibling_credit_ctx.clone();
-            let c3 = b_times_sibling_stop_bit_ctx.clone();
+            let last_row = i == end - 1;
+            let c1 = new_value_ctx.clone();
+            let c2 = new_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
-            let sibling_helper_bit = &helper_bits[i + step_size - 1];
             let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
-            let sibling_credit = &credits[i + step_size];
-            futures.push(async move {
-                let b = c1
-                    .multiply(record_id, current_stop_bit, sibling_helper_bit)
-                    .await?;
-
-                try_join(
-                    c2.multiply(record_id, &b, sibling_credit),
-                    c3.multiply(record_id, &b, sibling_stop_bit),
-                )
-                .await
+            let sibling_value = &values[i + step_size];
+            value_update_futures.push(async move {
+                S::multiply(c1, record_id, current_stop_bit, sibling_value).await
             });
+            if !last_iteration && !last_row {
+                let sibling_stop_bit = &stop_bits[i + step_size];
+                stop_bit_futures.push(async move {
+                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
+                });
+            }
         }
 
-        let results = try_join_all(futures).await?;
+        let value_updates = if last_iteration {
+            try_join_all(value_update_futures).await?
+        } else {
+            let (stop_bit_updates, value_updates) = try_join(
+                try_join_all(stop_bit_futures),
+                try_join_all(value_update_futures),
+            )
+            .await?;
 
-        results
+            stop_bit_updates
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, stop_bit_update)| {
+                    stop_bits[i] = stop_bit_update;
+                });
+            value_updates
+        };
+        value_updates
             .into_iter()
             .enumerate()
-            .for_each(|(i, (credit, stop_bit))| {
-                credits[i] += &credit;
-                stop_bits[i] = stop_bit;
+            .for_each(|(i, value_update)| {
+                values[i] += &value_update;
             });
     }
-    Ok(credits)
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::enum_variant_names)]
 enum Step {
-    BTimesSuccessorCredit,
-    BTimesSuccessorStopBit,
+    CurrentStopBitTimesSuccessorCredit,
+    CurrentStopBitTimesSuccessorStopBit,
     CurrentCreditOrCreditUpdate,
 }
 
@@ -265,8 +251,10 @@ impl crate::protocol::Substep for Step {}
 impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
-            Self::BTimesSuccessorCredit => "b_times_successor_credit",
-            Self::BTimesSuccessorStopBit => "b_times_successor_stop_bit",
+            Self::CurrentStopBitTimesSuccessorCredit => "current_stop_bit_times_successor_credit",
+            Self::CurrentStopBitTimesSuccessorStopBit => {
+                "current_stop_bit_times_successor_stop_bit"
+            }
             Self::CurrentCreditOrCreditUpdate => "current_credit_or_credit_update",
         }
     }

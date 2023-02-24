@@ -1,6 +1,8 @@
-use crate::bits::Fp2Array;
-use crate::ff::Field;
-use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
+use crate::{
+    bits::Fp2Array,
+    ff::Field,
+    secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
+};
 
 pub mod sharing;
 

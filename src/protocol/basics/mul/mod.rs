@@ -1,10 +1,13 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::context::{MaliciousContext, SemiHonestContext};
-use crate::protocol::RecordId;
-use crate::secret_sharing::{
-    replicated::malicious::AdditiveShare as MaliciousReplicated,
-    replicated::semi_honest::AdditiveShare as Replicated, SecretSharing, SharedValue,
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        context::{Context, MaliciousContext, SemiHonestContext},
+        RecordId,
+    },
+    secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    },
 };
 use async_trait::async_trait;
 
@@ -16,18 +19,13 @@ pub use sparse::{MultiplyZeroPositions, ZeroPositions};
 
 /// Trait to multiply secret shares. That requires communication and `multiply` function is async.
 #[async_trait]
-pub trait SecureMul<V: SharedValue>: Sized {
-    type Share: SecretSharing<V>;
-
+pub trait SecureMul<C: Context>: Send + Sync + Sized {
     /// Multiply and return the result of `a` * `b`.
-    async fn multiply(
-        self,
-        record_id: RecordId,
-        a: &Self::Share,
-        b: &Self::Share,
-    ) -> Result<Self::Share, Error> {
-        self.multiply_sparse(record_id, a, b, ZeroPositions::NONE)
-            .await
+    async fn multiply<'fut>(ctx: C, record_id: RecordId, a: &Self, b: &Self) -> Result<Self, Error>
+    where
+        C: 'fut,
+    {
+        Self::multiply_sparse(ctx, record_id, a, b, ZeroPositions::NONE).await
     }
 
     /// Multiply and return the result of `a` * `b`.
@@ -35,13 +33,15 @@ pub trait SecureMul<V: SharedValue>: Sized {
     /// in the form (self, left, right).
     /// This is the implementation you should invoke if you want to
     /// save work when you have sparse values.
-    async fn multiply_sparse(
-        self,
+    async fn multiply_sparse<'fut>(
+        ctx: C,
         record_id: RecordId,
-        a: &Self::Share,
-        b: &Self::Share,
+        a: &Self,
+        b: &Self,
         zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self::Share, Error>;
+    ) -> Result<Self, Error>
+    where
+        C: 'fut;
 }
 
 /// looks like clippy disagrees with itself on whether this attribute is useless or not.
@@ -49,32 +49,34 @@ use {malicious::multiply as malicious_mul, semi_honest::multiply as semi_honest_
 
 /// Implement secure multiplication for semi-honest contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for SemiHonestContext<'_, F> {
-    type Share = Replicated<F>;
-
-    async fn multiply_sparse(
-        self,
+impl<'a, F: Field> SecureMul<SemiHonestContext<'a>> for Replicated<F> {
+    async fn multiply_sparse<'fut>(
+        ctx: SemiHonestContext<'a>,
         record_id: RecordId,
-        a: &Self::Share,
-        b: &Self::Share,
+        a: &Self,
+        b: &Self,
         zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self::Share, Error> {
-        semi_honest_mul(self, record_id, a, b, zeros_at).await
+    ) -> Result<Self, Error>
+    where
+        'a: 'fut,
+    {
+        semi_honest_mul(ctx, record_id, a, b, zeros_at).await
     }
 }
 
 /// Implement secure multiplication for malicious contexts with replicated secret sharing.
 #[async_trait]
-impl<F: Field> SecureMul<F> for MaliciousContext<'_, F> {
-    type Share = MaliciousReplicated<F>;
-
-    async fn multiply_sparse(
-        self,
+impl<'a, F: Field> SecureMul<MaliciousContext<'a, F>> for MaliciousReplicated<F> {
+    async fn multiply_sparse<'fut>(
+        ctx: MaliciousContext<'a, F>,
         record_id: RecordId,
-        a: &Self::Share,
-        b: &Self::Share,
+        a: &Self,
+        b: &Self,
         zeros_at: MultiplyZeroPositions,
-    ) -> Result<Self::Share, Error> {
-        malicious_mul(self, record_id, a, b, zeros_at).await
+    ) -> Result<Self, Error>
+    where
+        'a: 'fut,
+    {
+        malicious_mul(ctx, record_id, a, b, zeros_at).await
     }
 }

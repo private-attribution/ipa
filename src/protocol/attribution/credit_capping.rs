@@ -3,12 +3,20 @@ use super::{
     input::{MCCreditCappingInputRow, MCCreditCappingOutputRow},
     prefix_or_binary_tree_style,
 };
-use crate::ff::Field;
-use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
-use crate::protocol::context::Context;
-use crate::protocol::{RecordId, Substep};
-use crate::{error::Error, secret_sharing::Arithmetic};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        basics::SecureMul,
+        boolean::{
+            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
+            BitDecomposition, RandomBits,
+        },
+        context::Context,
+        BasicProtocols, RecordId, Substep,
+    },
+    secret_sharing::Arithmetic,
+};
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
@@ -24,8 +32,8 @@ pub async fn credit_capping<F, C, T>(
 ) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context + RandomBits<F, Share = T>,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
         return credit_capping_max_one(ctx, input).await;
@@ -99,8 +107,8 @@ async fn credit_capping_max_one<F, C, T>(
 ) -> Result<Vec<MCCreditCappingOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let input_len = input.len();
 
@@ -113,24 +121,20 @@ where
         .collect::<Vec<_>>();
 
     let prefix_ors =
-        prefix_or_binary_tree_style(ctx.clone(), &helper_bits, &uncapped_credits).await?;
+        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..]).await?;
 
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
         .set_total_records(input.len() - 1);
-    let ever_any_subsequent_credit = try_join_all(
-        prefix_ors
-            .iter()
-            .skip(1)
-            .zip(helper_bits.iter())
-            .enumerate()
-            .map(|(i, (prefix_or, helper_bit))| {
+    let ever_any_subsequent_credit =
+        try_join_all(prefix_ors.iter().zip(helper_bits.iter()).enumerate().map(
+            |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
-                async move { c.multiply(record_id, prefix_or, helper_bit).await }
-            }),
-    )
-    .await?;
+                async move { T::multiply(c, record_id, prefix_or, helper_bit).await }
+            },
+        ))
+        .await?;
 
     let potentially_cap_ctx = ctx
         .narrow(&Step::IfCurrentExceedsCapOrElse)
@@ -143,10 +147,15 @@ where
             .map(|(i, (uncapped_credit, any_subsequent_credit))| {
                 let record_id = RecordId::from(i);
                 let c = potentially_cap_ctx.clone();
-                let one = ctx.share_known_value(F::ONE);
+                let one = T::share_known_value(&c, F::ONE);
                 async move {
-                    c.multiply(record_id, uncapped_credit, &(one - any_subsequent_credit))
-                        .await
+                    T::multiply(
+                        c,
+                        record_id,
+                        uncapped_credit,
+                        &(one - any_subsequent_credit),
+                    )
+                    .await
                 }
             }),
     )
@@ -174,19 +183,20 @@ async fn mask_source_credits<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     try_join_all(
         input
             .iter()
             .zip(zip(
                 repeat(ctx.narrow(&Step::MaskSourceCredits)),
-                repeat(ctx.share_known_value(F::ONE)),
+                repeat(T::share_known_value(&ctx, F::ONE)),
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
-                ctx.multiply(
+                T::multiply(
+                    ctx,
                     RecordId::from(i),
                     &x.trigger_value,
                     &(one - &x.is_trigger_report),
@@ -204,8 +214,8 @@ async fn credit_prefix_sum<'a, F, C, T, I>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F> + 'a,
+    C: Context,
+    T: Arithmetic<F> + SecureMul<C> + 'a,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -214,7 +224,11 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx, &helper_bits, original_credits).await
+    let mut credits = original_credits.cloned().collect::<Vec<_>>();
+
+    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
+
+    Ok(credits)
 }
 
 async fn is_credit_larger_than_cap<F, C, T>(
@@ -224,8 +238,8 @@ async fn is_credit_larger_than_cap<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context + RandomBits<F, Share = T>,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
@@ -277,11 +291,11 @@ async fn compute_final_credits<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
-    let cap = ctx.share_known_value(F::from(cap.into()));
+    let cap = T::share_known_value(&ctx, F::from(cap.into()));
     let mut final_credits = original_credits.to_vec();
 
     // This method implements the logic below:
@@ -374,14 +388,14 @@ mod tests {
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp32BitPrime},
-        protocol::attribution::{
-            credit_capping::credit_capping,
-            input::{CreditCappingInputRow, MCCreditCappingInputRow},
-        },
-        protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local},
         protocol::{
+            attribution::{
+                credit_capping::credit_capping,
+                input::{CreditCappingInputRow, MCCreditCappingInputRow},
+            },
             context::Context,
-            {BreakdownKey, MatchKey},
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
         },
         secret_sharing::SharedValue,
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},

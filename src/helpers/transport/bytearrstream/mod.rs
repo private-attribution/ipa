@@ -6,8 +6,10 @@ use crate::error::BoxError;
 use bytes::Bytes;
 use futures::Stream;
 use futures_util::stream::{self, BoxStream};
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 #[cfg(feature = "web-app")]
 use futures_util::TryStreamExt;

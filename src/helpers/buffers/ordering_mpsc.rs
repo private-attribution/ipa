@@ -1,6 +1,8 @@
 #![allow(dead_code)]
-use crate::bits::Serializable;
-use crate::helpers::{messaging::Message, Error};
+use crate::{
+    bits::Serializable,
+    helpers::{messaging::Message, Error},
+};
 use bitvec::{bitvec, vec::BitVec};
 use futures::FutureExt;
 use generic_array::GenericArray;

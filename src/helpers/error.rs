@@ -1,10 +1,9 @@
-use crate::helpers::TransportError;
 use crate::{
     error::BoxError,
     helpers::{
         messaging::{Message, ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
-        HelperIdentity, Role,
+        HelperIdentity, Role, TransportError,
     },
     protocol::{RecordId, Step},
 };

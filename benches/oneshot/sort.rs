@@ -13,8 +13,7 @@ use raw_ipa::{
     secret_sharing::SharedValue,
     test_fixture::{join3, Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
-use std::num::NonZeroUsize;
-use std::time::Instant;
+use std::{num::NonZeroUsize, time::Instant};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
@@ -26,7 +25,7 @@ async fn main() -> Result<(), Error> {
     config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
     let world = TestWorld::new_with(config).await;
     let [ctx0, ctx1, ctx2] = world
-        .contexts::<Fp32BitPrime>()
+        .contexts()
         .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
     let mut rng = rand::thread_rng();
 
@@ -38,7 +37,7 @@ async fn main() -> Result<(), Error> {
 
     let converted_shares = world
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
-            convert_all_bits(
+            convert_all_bits::<Fp32BitPrime, _, _>(
                 &ctx,
                 &convert_all_bits_local(ctx.role(), &match_key),
                 BitArray40::BITS,

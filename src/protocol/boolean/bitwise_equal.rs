@@ -1,9 +1,12 @@
 use super::xor;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::boolean::no_ones;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        basics::SecureMul, boolean::no_ones, context::Context, BasicProtocols, BitOpStep, RecordId,
+    },
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 use futures::future::try_join_all;
 use std::iter::zip;
 
@@ -22,12 +25,12 @@ pub async fn bitwise_equal_constant<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert!(a.len() <= 128);
 
-    let one = ctx.share_known_value(F::ONE);
+    let one = S::share_known_value(&ctx, F::ONE);
     // Local XOR
     let xored_bits = a
         .iter()
@@ -54,8 +57,8 @@ pub async fn bitwise_equal<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     debug_assert!(a.len() == b.len());
     let xored_bits = xor_all_the_bits(ctx.narrow(&Step::XORAllTheBits), record_id, a, b).await?;
@@ -70,8 +73,8 @@ async fn xor_all_the_bits<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
         let c = ctx.narrow(&BitOpStep::from(i));
@@ -97,11 +100,10 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
-        test_fixture::{get_bits, Reconstruct, TestWorld},
+        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
 
     use super::{bitwise_equal, bitwise_equal_constant};

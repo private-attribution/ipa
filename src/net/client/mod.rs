@@ -204,8 +204,7 @@ mod tests {
     };
     use futures::join;
     use hyper_tls::native_tls::TlsConnector;
-    use std::fmt::Debug;
-    use std::future::Future;
+    use std::{fmt::Debug, future::Future};
     use tokio::sync::mpsc;
 
     async fn setup_server(

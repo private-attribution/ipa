@@ -1,17 +1,23 @@
-use crate::bits::{Fp2Array, Serializable};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Role;
-use crate::protocol::context::Context;
-use crate::protocol::sort::apply_sort::shuffle::Resharable;
-use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::malicious::{
-    AdditiveShare as MaliciousReplicated, DowngradeMalicious,
-    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+use crate::{
+    bits::{Fp2Array, Serializable},
+    error::Error,
+    ff::Field,
+    helpers::Role,
+    protocol::{
+        basics::reshare::LegacyReshare, context::Context, sort::apply_sort::shuffle::Resharable,
+        RecordId, Substep,
+    },
+    secret_sharing::{
+        replicated::{
+            malicious::{
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious,
+                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+            },
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
+        },
+        Arithmetic,
+    },
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
-use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
 use generic_array::GenericArray;
@@ -269,7 +275,7 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = T> + Send,
     {
         let f_trigger_bit = ctx
             .narrow(&AttributionResharableStep::IsTriggerReport)
@@ -309,7 +315,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAg
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = T> + Send,
     {
         let f_helper_bit = ctx.narrow(&AttributionResharableStep::HelperBit).reshare(
             &self.helper_bit,

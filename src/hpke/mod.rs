@@ -2,16 +2,18 @@
 //!
 //! [`specification`]: https://github.com/patcg-individual-drafts/ipa/pull/31
 
-use hpke::aead::AeadTag;
-use hpke::generic_array::typenum::Unsigned;
-use hpke::{single_shot_open_in_place_detached, OpModeR};
+use hpke::{
+    aead::AeadTag, generic_array::typenum::Unsigned, single_shot_open_in_place_detached, OpModeR,
+};
 use std::io;
 
 mod info;
 mod registry;
 
-use crate::bits::{BitArray40, Serializable};
-use crate::secret_sharing::replicated::semi_honest::XorShare;
+use crate::{
+    bits::{BitArray40, Serializable},
+    secret_sharing::replicated::semi_honest::XorShare,
+};
 pub use info::Info;
 pub use registry::KeyRegistry;
 
@@ -146,8 +148,9 @@ mod tests {
     }
 
     impl<R: RngCore + CryptoRng> EncryptionSuite<R> {
+        const MKP_ORIGIN: &'static str = "";
         const HELPER_ORIGIN: &'static str = "foo";
-        const SITE_ORIGIN: &'static str = "bar";
+        const SITE_DOMAIN: &'static str = "xn--mozilla.com.xn--example.com";
 
         pub fn new(keys: usize, mut rng: R) -> Self {
             Self {
@@ -157,18 +160,15 @@ mod tests {
             }
         }
 
-        #[must_use]
-        pub fn seal(
+        pub fn seal_with_info<'a>(
             &mut self,
-            key_id: KeyIdentifier,
+            info: Info<'a>,
             match_key: XorReplicated,
-        ) -> MatchKeyEncryption<'static> {
-            let info =
-                Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
+        ) -> MatchKeyEncryption<'a> {
             let mut plaintext = GenericArray::default();
 
             match_key.serialize(&mut plaintext);
-            let pk_r = self.registry.public_key(key_id).unwrap();
+            let pk_r = self.registry.public_key(info.key_id).unwrap();
 
             let (encap_key, tag) =
                 single_shot_seal_in_place_detached::<IpaAead, super::IpaKdf, super::IpaKem, _>(
@@ -184,6 +184,7 @@ mod tests {
             let mut ct = [0u8; MATCHKEY_CT_LEN];
             ct[..plaintext.len()].copy_from_slice(&plaintext);
             ct[plaintext.len()..].copy_from_slice(&hpke::Serializable::to_bytes(&tag));
+
             MatchKeyEncryption {
                 enc: <[u8; 32]>::from(hpke::Serializable::to_bytes(&encap_key)),
                 ct,
@@ -191,13 +192,37 @@ mod tests {
             }
         }
 
+        #[must_use]
+        pub fn seal(
+            &mut self,
+            key_id: KeyIdentifier,
+            match_key: XorReplicated,
+        ) -> MatchKeyEncryption<'static> {
+            let info = Info::new(
+                key_id,
+                self.epoch,
+                Self::MKP_ORIGIN,
+                Self::HELPER_ORIGIN,
+                Self::SITE_DOMAIN,
+            )
+            .unwrap();
+
+            self.seal_with_info(info, match_key)
+        }
+
         pub fn open(
             &self,
             key_id: KeyIdentifier,
             mut enc: MatchKeyEncryption<'_>,
         ) -> Result<XorReplicated, DecryptionError> {
-            let info =
-                Info::new(key_id, self.epoch, Self::HELPER_ORIGIN, Self::SITE_ORIGIN).unwrap();
+            let info = Info::new(
+                key_id,
+                self.epoch,
+                Self::MKP_ORIGIN,
+                Self::HELPER_ORIGIN,
+                Self::SITE_DOMAIN,
+            )
+            .unwrap();
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), info)?;
 
             // TODO: fix once array split is a thing.
@@ -221,9 +246,9 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad = Info::new(255, 32767, "foo", "bar").unwrap();
+        let aad = Info::new(255, 32767, "mkp_origin", "foo", "bar").unwrap();
         assert_eq!(
-            b"private-attribution\0foo\0bar\0\xff\x7f\xff",
+            b"private-attribution\0mkp_origin\0foo\0bar\0\xff\x7f\xff",
             aad.into_bytes().as_ref()
         );
     }
@@ -276,8 +301,7 @@ mod tests {
     mod proptests {
         use super::*;
         use proptest::prelude::ProptestConfig;
-        use rand::distributions::Alphanumeric;
-        use rand::Rng;
+        use rand::{distributions::Alphanumeric, Rng};
 
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
@@ -339,13 +363,17 @@ mod tests {
         proptest::proptest! {
             #![proptest_config(ProptestConfig::with_cases(50))]
             #[test]
-            fn arbitrary_info_corruption(corrupted_info_field in 1..4,
-                                         mut site_origin in "[a-z]{10}",
-                                         mut helper_origin in "[a-z]{10}",
+            fn arbitrary_info_corruption(corrupted_info_field in 1..5,
+                                         mkp_origin in "[a-z]{10}",
+                                         site_domain in "[a-z]{10}",
+                                         helper_origin in "[a-z]{10}",
                                          seed: [u8; 32]) {
                 let mut rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(10, rng.clone());
-                let mut encryption = suite.seal(0, new_share(0, 0));
+                // keep the originals, in case if we need to damage them
+                let (mut mkp_clone, mut site_domain_clone, mut helper_clone) = (mkp_origin.clone(), site_domain.clone(), helper_origin.clone());
+                let info = Info::new(0, 0, &mkp_origin, &site_domain, &helper_origin).unwrap();
+                let mut encryption = suite.seal_with_info(info, new_share(0, 0));
 
                 let info = match corrupted_info_field {
                     1 => Info {
@@ -357,22 +385,30 @@ mod tests {
                         ..encryption.info
                     },
                     3 => {
-                        corrupt_str(&mut site_origin, &mut rng);
+                        corrupt_str(&mut mkp_clone, &mut rng);
 
                         Info {
-                            site_origin: site_origin.as_ref(),
-                            ..encryption.info
-                        }
-                    },
-                    4 => {
-                        corrupt_str(&mut helper_origin, &mut rng);
-
-                        Info {
-                            helper_origin: helper_origin.as_ref(),
+                            match_key_provider_origin: &mkp_clone,
                             ..encryption.info
                         }
                     }
-                    _ => panic!("bad test setup: only 4 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
+                    4 => {
+                        corrupt_str(&mut site_domain_clone, &mut rng);
+
+                        Info {
+                            site_domain: &site_domain_clone,
+                            ..encryption.info
+                        }
+                    },
+                    5 => {
+                        corrupt_str(&mut helper_clone, &mut rng);
+
+                        Info {
+                            helper_origin: &helper_clone,
+                            ..encryption.info
+                        }
+                    }
+                    _ => panic!("bad test setup: only 5 fields can be corrupted, asked to corrupt: {corrupted_info_field}")
                 };
 
                 let _ = open_in_place(&suite.registry, &encryption.enc, &mut encryption.ct, info).unwrap_err();

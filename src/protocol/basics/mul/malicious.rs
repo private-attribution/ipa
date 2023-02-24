@@ -1,11 +1,16 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{
-    basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
-    context::{Context, MaliciousContext},
-    RecordId,
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        basics::{MultiplyZeroPositions, SecureMul, ZeroPositions},
+        context::{Context, MaliciousContext},
+        RecordId,
+    },
+    secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated,
+        semi_honest::AdditiveShare as SemiHonestReplicated,
+    },
 };
-use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -67,26 +72,28 @@ pub async fn multiply<F>(
 where
     F: Field,
 {
-    use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    use crate::{
+        protocol::context::SpecialAccessToMaliciousContext,
+        secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    };
 
     let duplicate_multiply_ctx = ctx.narrow(&Step::DuplicateMultiply);
     let random_constant_ctx = ctx.narrow(&Step::RandomnessForValidation);
     let (ab, rab) = try_join(
-        ctx.semi_honest_context().multiply_sparse(
+        SemiHonestReplicated::multiply_sparse(
+            ctx.semi_honest_context(),
             record_id,
             a.x().access_without_downgrade(),
             b.x().access_without_downgrade(),
             zeros_at,
         ),
-        duplicate_multiply_ctx
-            .semi_honest_context()
-            .multiply_sparse(
-                record_id,
-                a.rx(),
-                b.x().access_without_downgrade(),
-                (ZeroPositions::Pvvv, zeros_at.1),
-            ),
+        SemiHonestReplicated::multiply_sparse(
+            duplicate_multiply_ctx.semi_honest_context(),
+            record_id,
+            a.rx(),
+            b.x().access_without_downgrade(),
+            (ZeroPositions::Pvvv, zeros_at.1),
+        ),
     )
     .await?;
 
@@ -102,6 +109,7 @@ mod test {
         ff::Fp31,
         protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
+        secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
 
@@ -115,8 +123,7 @@ mod test {
 
         let res = world
             .malicious((a, b), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .multiply(RecordId::from(0), &a, &b)
+                MaliciousReplicated::multiply(ctx.set_total_records(1), RecordId::from(0), &a, &b)
                     .await
                     .unwrap()
             })

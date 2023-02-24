@@ -1,12 +1,20 @@
-use super::input::{MCApplyAttributionWindowInputRow, MCApplyAttributionWindowOutputRow};
-use super::InteractionPatternStep;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::boolean::random_bits_generator::RandomBitsGenerator;
-use crate::protocol::boolean::{bitwise_greater_than_constant, BitDecomposition};
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic;
+use super::{
+    input::{MCApplyAttributionWindowInputRow, MCApplyAttributionWindowOutputRow},
+    InteractionPatternStep,
+};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        boolean::{
+            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
+            BitDecomposition, RandomBits,
+        },
+        context::Context,
+        BasicProtocols, RecordId,
+    },
+    secret_sharing::Arithmetic,
+};
 use futures::future::{try_join, try_join_all};
 use std::iter::{repeat, zip};
 
@@ -24,8 +32,8 @@ async fn apply_attribution_window<F, C, T>(
 ) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context + RandomBits<F, Share = T>,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
 
@@ -56,8 +64,8 @@ async fn prefix_sum_time_deltas<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
 
@@ -73,10 +81,7 @@ where
             try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
                 let c = stop_bit_context.clone();
                 let record_id = RecordId::from(i);
-                async move {
-                    c.multiply(record_id, &x.is_trigger_report, &x.helper_bit)
-                        .await
-                }
+                async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
             }))
             .await?,
         )
@@ -99,7 +104,7 @@ where
                         let c = t_delta_context.clone();
                         let record_id = RecordId::from(i);
                         let delta = curr.timestamp.clone() - &prev.timestamp;
-                        async move { c.multiply(record_id, &delta, b).await }
+                        async move { T::multiply(c, record_id, &delta, b).await }
                     }),
             )
             .await?,
@@ -137,9 +142,9 @@ where
             futures.push(async move {
                 try_join(
                     // if the current stop_bit is 0, don't accumulate
-                    c1.multiply(record_id, previous_t_delta, current_stop_bit),
+                    T::multiply(c1, record_id, previous_t_delta, current_stop_bit),
                     // next `stop_bit`
-                    c2.multiply(record_id, previous_stop_bit, current_stop_bit),
+                    T::multiply(c2, record_id, previous_stop_bit, current_stop_bit),
                 )
                 .await
             });
@@ -175,8 +180,8 @@ async fn zero_out_expired_trigger_values<F, C, T>(
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context + RandomBits<F, Share = T>,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     // Compare the accumulated timestamp deltas with the specified attribution window
     // cap value, and zero-out trigger event values that exceed the cap.
@@ -191,7 +196,7 @@ where
 
     try_join_all(
         zip(input, time_delta)
-            .zip(repeat(ctx.share_known_value(F::ONE)))
+            .zip(repeat(T::share_known_value(ctx, F::ONE)))
             .enumerate()
             .map(|(i, ((row, delta), one))| {
                 let c1 = bit_decomposition_ctx.clone();
@@ -204,8 +209,7 @@ where
                     let compare_bit = one
                         - &bitwise_greater_than_constant(c2, record_id, &delta_bits, cap.into())
                             .await?;
-                    c3.multiply(record_id, &row.trigger_value, &compare_bit)
-                        .await
+                    T::multiply(c3, record_id, &row.trigger_value, &compare_bit).await
                 }
             }),
     )
@@ -241,22 +245,24 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::attribution_window_test_input;
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::protocol::attribution::{
-        apply_attribution_window::apply_attribution_window,
-        input::{
-            ApplyAttributionWindowInputRow, MCApplyAttributionWindowInputRow,
-            MCApplyAttributionWindowOutputRow,
+    use crate::{
+        attribution_window_test_input,
+        ff::{Field, Fp32BitPrime},
+        protocol::{
+            attribution::{
+                apply_attribution_window::apply_attribution_window,
+                input::{
+                    ApplyAttributionWindowInputRow, MCApplyAttributionWindowInputRow,
+                    MCApplyAttributionWindowOutputRow,
+                },
+            },
+            context::Context,
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
         },
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use crate::protocol::context::Context;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
 
     #[tokio::test]
     pub async fn attribution_window() {

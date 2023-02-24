@@ -1,14 +1,16 @@
-use crate::telemetry::metrics::register;
-use crate::telemetry::stats::Metrics;
-use crate::test_fixture::logging;
+use crate::{
+    telemetry::{metrics::register, stats::Metrics},
+    test_fixture::logging,
+};
 use metrics::KeyName;
 use metrics_tracing_context::TracingContextLayer;
-use metrics_util::debugging::{DebuggingRecorder, Snapshotter};
-use metrics_util::layers::Layer;
+use metrics_util::{
+    debugging::{DebuggingRecorder, Snapshotter},
+    layers::Layer,
+};
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, Rng};
-use tracing::span::EnteredSpan;
-use tracing::Level;
+use tracing::{span::EnteredSpan, Level};
 
 // TODO: move to OnceCell from std once it is stabilized
 static ONCE: OnceCell<Snapshotter> = OnceCell::new();

@@ -12,9 +12,13 @@ use crate::{
     bits::{BitArray40, BitArray8},
     error::Error,
 };
-use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
-use std::ops::AddAssign;
+use std::{
+    fmt::{Debug, Display, Formatter},
+    hash::Hash,
+    ops::AddAssign,
+};
+
+pub use basics::BasicProtocols;
 
 pub type MatchKey = BitArray40;
 pub type BreakdownKey = BitArray8;
@@ -73,6 +77,12 @@ impl Substep for str {}
 )]
 pub struct Step {
     id: String,
+}
+
+impl Display for Step {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
 }
 
 impl Step {
@@ -214,6 +224,14 @@ impl Debug for Step {
     serde(into = "&'static str", try_from = "&str")
 )]
 pub struct QueryId;
+
+impl Display for QueryId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // fail when query id becomes meaningful and change the display implementation
+        let _ = QueryId;
+        write!(f, "{self:?}")
+    }
+}
 
 impl QueryId {
     fn repr() -> &'static str {

@@ -1,8 +1,6 @@
-use crate::ff::Field;
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use aes::cipher::KeyInit;
+use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated};
 use aes::{
-    cipher::{generic_array::GenericArray, BlockEncrypt},
+    cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
 };
 use hkdf::Hkdf;

@@ -1,12 +1,14 @@
 use futures::future::try_join_all;
 
-use crate::error::Error;
-use crate::ff::Field;
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{basics::SecureMul, BasicProtocols},
+    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
+};
 use std::iter::repeat;
 
-use super::context::Context;
-use super::{BitOpStep, RecordId};
+use super::{basics::ShareKnownValue, context::Context, BitOpStep, RecordId};
 
 mod bit_decomposition;
 pub mod bitwise_equal;
@@ -19,25 +21,24 @@ pub mod random_bits_generator;
 mod solved_bits;
 mod xor;
 
+pub use bit_decomposition::BitDecomposition;
+pub use bitwise_gt_constant::bitwise_greater_than_constant;
+pub use generate_random_bits::RandomBits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};
-pub use {
-    bit_decomposition::BitDecomposition, bitwise_gt_constant::bitwise_greater_than_constant,
-    generate_random_bits::RandomBits,
-};
 
 /// Converts the given number to a sequence of `{0,1} ⊆ F`, and creates a
 /// local replicated share.
 pub fn local_secret_shared_bits<F, C, S>(ctx: &C, x: u128) -> Vec<S>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    C: Context,
+    S: SecretSharing<F> + ShareKnownValue<C, F>,
 {
     (0..(u128::BITS - F::PRIME.into().leading_zeros()))
         .map(|i| {
             if ((x >> i) & 1) == 1 {
-                ctx.share_known_value(F::ONE)
+                S::share_known_value(ctx, F::ONE)
             } else {
                 S::ZERO
             }
@@ -54,8 +55,8 @@ pub(crate) async fn multiply_all_shares<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    C: Context,
+    S: SecretSharing<F> + SecureMul<C>,
 {
     let mut shares_to_multiply = x.to_vec();
     let mut mult_count = 0_u32;
@@ -64,7 +65,8 @@ where
         let half = shares_to_multiply.len() / 2;
         let mut multiplications = Vec::with_capacity(half);
         for i in 0..half {
-            multiplications.push(ctx.narrow(&BitOpStep::from(mult_count)).multiply(
+            multiplications.push(S::multiply(
+                ctx.narrow(&BitOpStep::from(mult_count)),
                 record_id,
                 &shares_to_multiply[2 * i],
                 &shares_to_multiply[2 * i + 1],
@@ -96,10 +98,10 @@ where
 pub(crate) async fn any_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let one = ctx.share_known_value(F::ONE);
+    let one = S::share_known_value(&ctx, F::ONE);
     let res = no_ones(ctx, record_id, x).await?;
     Ok(one - &res)
 }
@@ -107,10 +109,10 @@ where
 pub(crate) async fn no_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let one = ctx.share_known_value(F::ONE);
+    let one = S::share_known_value(&ctx, F::ONE);
     let inverted_elements = flip_bits(one.clone(), x);
     // To check if a list of shares are all shares of one, we just need to multiply them all together (in any order)
     multiply_all_shares(ctx, record_id, &inverted_elements).await

@@ -1,4 +1,3 @@
-use crate::secret_sharing::Arithmetic;
 use crate::{
     bits::{Fp2Array, Serializable},
     ff::{Field, FieldType, Fp31},
@@ -14,7 +13,7 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey, Step,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Arithmetic},
     task::JoinHandle,
 };
 use futures_util::StreamExt;
@@ -66,14 +65,13 @@ where
 
 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
 async fn execute_test_multiply<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     mut input: AlignedByteArrStream,
 ) -> Vec<Replicated<F>>
 where
     Replicated<F>: Serializable,
 {
-    use crate::protocol::basics::SecureMul;
-    use crate::protocol::RecordId;
+    use crate::protocol::{basics::SecureMul, RecordId};
 
     let mut results = Vec::new();
     while let Some(v) = input.next().await {
@@ -84,11 +82,10 @@ where
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
-                    let result = ctx
-                        .clone()
-                        .multiply(RecordId::from(record_id), &a_v, &share)
-                        .await
-                        .unwrap();
+                    let result =
+                        Replicated::multiply(ctx.clone(), RecordId::from(record_id), &a_v, &share)
+                            .await
+                            .unwrap();
                     results.push(result);
                     record_id += 1;
                     a = None;
@@ -103,7 +100,7 @@ where
 }
 
 async fn execute_ipa<F: Field, MK: Fp2Array, BK: Fp2Array>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,
 ) -> Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>
@@ -143,16 +140,16 @@ pub fn start_query(
             FieldType::Fp31 => match config.query_type {
                 #[cfg(any(test, feature = "cli", feature = "test-fixture"))]
                 QueryType::TestMultiply => {
-                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
+                    let ctx = SemiHonestContext::new_with_total_records(
                         &prss,
                         &gateway,
                         TotalRecords::Indeterminate,
                     );
                     let input = input.align(<Replicated<Fp31> as Serializable>::Size::USIZE);
-                    Box::new(execute_test_multiply(ctx, input).await) as Box<dyn Result>
+                    Box::new(execute_test_multiply::<Fp31>(ctx, input).await) as Box<dyn Result>
                 }
                 QueryType::IPA(config) => {
-                    let ctx = SemiHonestContext::<Fp31>::new_with_total_records(
+                    let ctx = SemiHonestContext::new_with_total_records(
                         &prss,
                         &gateway,
                         // will be specified in downstream steps
@@ -189,7 +186,7 @@ mod tests {
     async fn multiply() {
         let world = TestWorld::new().await;
         let contexts = world
-            .contexts::<Fp31>()
+            .contexts()
             .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
         let a = [Fp31::from(4u128), Fp31::from(5u128)];
         let b = [Fp31::from(3u128), Fp31::from(6u128)];
@@ -215,7 +212,7 @@ mod tests {
             helper_shares
                 .into_iter()
                 .zip(contexts)
-                .map(|(shares, context)| execute_test_multiply(context, shares)),
+                .map(|(shares, context)| execute_test_multiply::<Fp31>(context, shares)),
         )
         .await
         .try_into()
@@ -260,7 +257,7 @@ mod tests {
             });
 
         let world = TestWorld::new().await;
-        let contexts = world.contexts::<Fp31>();
+        let contexts = world.contexts();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {
                 num_multi_bits: 3,

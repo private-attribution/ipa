@@ -1,11 +1,11 @@
-use crate::ff::Field;
-use crate::helpers::messaging::TotalRecords;
-use crate::protocol::basics::SecureMul;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::rand::thread_rng;
-use crate::secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares};
-use crate::test_fixture::{narrow_contexts, Fp31, Reconstruct, TestWorld};
+use crate::{
+    ff::Field,
+    helpers::messaging::TotalRecords,
+    protocol::{basics::SecureMul, context::Context, RecordId},
+    rand::thread_rng,
+    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
+    test_fixture::{narrow_contexts, Fp31, Reconstruct, TestWorld},
+};
 use futures_util::future::join_all;
 
 /// Creates an arithmetic circuit with the given width and depth.
@@ -40,10 +40,13 @@ async fn circuit(world: &TestWorld, record_id: RecordId, depth: u8) -> [Replicat
         a = async move {
             let mut coll = Vec::new();
             for (i, ctx) in bit_ctx.iter().enumerate() {
-                let mul = ctx
-                    .narrow(&"mult".to_string())
-                    .set_total_records(TotalRecords::Indeterminate)
-                    .multiply(record_id, &a[i], &b[i]);
+                let mul = Replicated::multiply(
+                    ctx.narrow(&"mult".to_string())
+                        .set_total_records(TotalRecords::Indeterminate),
+                    record_id,
+                    &a[i],
+                    &b[i],
+                );
                 coll.push(mul);
             }
 

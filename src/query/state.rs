@@ -1,11 +1,13 @@
-use crate::helpers::messaging::Gateway;
-use crate::helpers::query::QueryConfig;
-use crate::protocol::QueryId;
-use crate::query::ProtocolResult;
-use crate::task::JoinHandle;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use crate::{
+    helpers::{messaging::Gateway, query::QueryConfig},
+    protocol::QueryId,
+    query::ProtocolResult,
+    task::JoinHandle,
+};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::{Arc, Mutex},
+};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -47,7 +49,7 @@ pub enum QueryState {
 
 impl QueryState {
     pub fn transition(cur_state: &Self, new_state: Self) -> Result<Self, StateError> {
-        use {QueryState::AwaitingInputs, QueryState::Empty, QueryState::Preparing};
+        use QueryState::{AwaitingInputs, Empty, Preparing};
 
         match (cur_state, &new_state) {
             // If query is not running, coordinator initial state is preparing

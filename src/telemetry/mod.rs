@@ -9,8 +9,7 @@ pub mod labels {
 }
 
 pub mod metrics {
-    use metrics::describe_counter;
-    use metrics::Unit;
+    use metrics::{describe_counter, Unit};
 
     pub const REQUESTS_RECEIVED: &str = "requests.received";
     pub const RECORDS_SENT: &str = "records.sent";

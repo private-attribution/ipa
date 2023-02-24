@@ -1,7 +1,8 @@
-use crate::helpers::{HelperIdentity, Transport};
-use crate::sync::Arc;
-use crate::sync::Weak;
-use crate::test_fixture::transport::InMemoryTransport;
+use crate::{
+    helpers::{HelperIdentity, Transport},
+    sync::{Arc, Weak},
+    test_fixture::transport::InMemoryTransport,
+};
 
 /// Container for all active transports
 #[derive(Clone)]

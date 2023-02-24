@@ -3,8 +3,6 @@ use async_trait::async_trait;
 use futures::{future::join_all, Future};
 use rand::{distributions::Standard, prelude::Distribution};
 
-use crate::sync::atomic::{AtomicUsize, Ordering};
-use crate::test_fixture::metrics::MetricsHandle;
 use crate::{
     ff::Field,
     helpers::{
@@ -19,23 +17,27 @@ use crate::{
         prss::Endpoint as PrssEndpoint,
     },
     secret_sharing::replicated::malicious::DowngradeMalicious,
-    test_fixture::{logging, make_participants},
+    sync::atomic::{AtomicUsize, Ordering},
+    test_fixture::{logging, make_participants, metrics::MetricsHandle},
 };
 
 use std::io::stdout;
 
-use std::mem::ManuallyDrop;
-use std::num::NonZeroUsize;
-use std::sync::atomic::AtomicBool;
-use std::{fmt::Debug, iter::zip, sync::Arc};
+use std::{
+    fmt::Debug,
+    iter::zip,
+    mem::ManuallyDrop,
+    num::NonZeroUsize,
+    sync::{atomic::AtomicBool, Arc},
+};
 
-use crate::helpers::network::Network;
-use crate::helpers::RoleAssignment;
-use crate::protocol::{QueryId, Substep};
-use crate::secret_sharing::IntoShares;
-use crate::telemetry::stats::Metrics;
-use crate::telemetry::StepStatsCsvExporter;
-use crate::test_fixture::transport::InMemoryNetwork;
+use crate::{
+    helpers::{network::Network, RoleAssignment},
+    protocol::{QueryId, Substep},
+    secret_sharing::IntoShares,
+    telemetry::{stats::Metrics, StepStatsCsvExporter},
+    test_fixture::transport::InMemoryNetwork,
+};
 use tracing::Level;
 
 use super::{sharing::ValidateMalicious, Reconstruct};
@@ -144,7 +146,7 @@ impl TestWorld {
     /// # Panics
     /// Panics if world has more or less than 3 gateways/participants
     #[must_use]
-    pub fn contexts<F: Field>(&self) -> [SemiHonestContext<'_, F>; 3] {
+    pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
         zip(&self.participants, &*self.gateways)
             .map(|(participant, gateway)| {
@@ -198,19 +200,21 @@ impl Drop for TestWorld {
 }
 
 #[async_trait]
-pub trait Runner<I, A, F> {
-    async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+pub trait Runner {
+    async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        F: Field,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
         O: Send + Debug,
-        H: Fn(SemiHonestContext<'a, F>, A) -> R + Send + Sync,
-        R: Future<Output = O> + Send,
-        Standard: Distribution<F>;
+        H: Fn(SemiHonestContext<'a>, A) -> R + Send + Sync,
+        R: Future<Output = O> + Send;
 
-    async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn malicious<'a, F, I, A, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
-        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
         F: Field,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
+        for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send,
         H: Fn(MaliciousContext<'a, F>, M) -> R + Send + Sync,
@@ -228,18 +232,14 @@ fn split_array_of_tuples<T, U, V>(v: [(T, U, V); 3]) -> ([T; 3], [U; 3], [V; 3])
 }
 
 #[async_trait]
-impl<I, A, F> Runner<I, A, F> for TestWorld
-where
-    I: 'static + IntoShares<A> + Send,
-    A: Send,
-    F: Field,
-{
-    async fn semi_honest<'a, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
+impl Runner for TestWorld {
+    async fn semi_honest<'a, I, A, O, H, R>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
         O: Send + Debug,
-        H: Fn(SemiHonestContext<'a, F>, A) -> R + Send + Sync,
+        H: Fn(SemiHonestContext<'a>, A) -> R + Send + Sync,
         R: Future<Output = O> + Send,
-        Standard: Distribution<F>,
     {
         let contexts = self.contexts();
         let input_shares = {
@@ -252,8 +252,11 @@ where
         <[_; 3]>::try_from(output).unwrap()
     }
 
-    async fn malicious<'a, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
+    async fn malicious<'a, F, I, A, O, M, H, R, P>(&'a self, input: I, helper_fn: H) -> [O; 3]
     where
+        F: Field,
+        I: IntoShares<A> + Send + 'static,
+        A: Send,
         for<'u> UpgradeContext<'u, F>: UpgradeToMalicious<A, M>,
         O: Send + Debug,
         M: Send,

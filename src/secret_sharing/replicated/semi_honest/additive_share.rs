@@ -1,12 +1,12 @@
 use crate::{
     bits::Serializable,
-    ff::Field,
-    helpers::Role,
     secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue},
 };
 use generic_array::{ArrayLength, GenericArray};
-use std::fmt::{Debug, Formatter};
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use std::{
+    fmt::{Debug, Formatter},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
+};
 use typenum::Unsigned;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -50,15 +50,6 @@ impl<V: SharedValue> AdditiveShare<V> {
     pub fn right(&self) -> V {
         self.1
     }
-
-    /// Returns share of a scalar value.
-    pub fn share_known_value(helper_role: Role, value: V) -> Self {
-        match helper_role {
-            Role::H1 => Self::new(value, V::ZERO),
-            Role::H2 => Self::new(V::ZERO, V::ZERO),
-            Role::H3 => Self::new(V::ZERO, value),
-        }
-    }
 }
 
 impl<V: SharedValue> AdditiveShare<V>
@@ -73,14 +64,6 @@ where
             .map(|chunk| {
                 <AdditiveShare<V> as Serializable>::deserialize(GenericArray::from_slice(chunk))
             })
-    }
-}
-
-impl<F: Field> AdditiveShare<F> {
-    /// Returns share of value one.
-    #[must_use]
-    pub fn one(helper_role: Role) -> Self {
-        Self::share_known_value(helper_role, F::ONE)
     }
 }
 

@@ -11,8 +11,7 @@ use crate::{
 };
 use futures_util::future::try_join_all;
 use generic_array::{ArrayLength, GenericArray};
-use std::fmt::Debug;
-use std::ops::Add;
+use std::{fmt::Debug, ops::Add};
 use typenum::Unsigned;
 
 /// Secure multiplication. Each input must be a valid tuple of field values.

@@ -1,30 +1,43 @@
-use std::iter::{repeat, zip};
-use std::marker::PhantomData;
+use std::{
+    iter::{repeat, zip},
+    marker::PhantomData,
+};
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
 
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::messaging::{Gateway, Mesh, TotalRecords};
-use crate::helpers::Role;
-use crate::protocol::attribution::input::MCCappedCreditsWithAggregationBit;
-use crate::protocol::basics::mul::malicious::Step::RandomnessForValidation;
-use crate::protocol::basics::{SecureMul, ZeroPositions};
-use crate::protocol::context::prss::InstrumentedIndexedSharedRandomness;
-use crate::protocol::context::{
-    Context, InstrumentedSequentialSharedRandomness, SemiHonestContext,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::{
+        messaging::{Gateway, Mesh, TotalRecords},
+        Role,
+    },
+    protocol::{
+        attribution::input::MCCappedCreditsWithAggregationBit,
+        basics::{
+            mul::malicious::Step::RandomnessForValidation, SecureMul, ShareKnownValue,
+            ZeroPositions,
+        },
+        context::{
+            prss::InstrumentedIndexedSharedRandomness, Context,
+            InstrumentedSequentialSharedRandomness, SemiHonestContext,
+        },
+        malicious::MaliciousValidatorAccumulator,
+        modulus_conversion::BitConversionTriple,
+        prss::Endpoint as PrssEndpoint,
+        BitOpStep, RecordId, Step, Substep, RECORD_0,
+    },
+    repeat64str,
+    secret_sharing::{
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        Arithmetic,
+    },
+    sync::Arc,
 };
-use crate::protocol::malicious::MaliciousValidatorAccumulator;
-use crate::protocol::modulus_conversion::BitConversionTriple;
-use crate::protocol::prss::Endpoint as PrssEndpoint;
-use crate::protocol::{BitOpStep, RecordId, Step, Substep, RECORD_0};
-use crate::repeat64str;
-use crate::secret_sharing::replicated::{
-    malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
-};
-use crate::secret_sharing::Arithmetic;
-use crate::sync::Arc;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -39,14 +52,14 @@ pub struct MaliciousContext<'a, F: Field> {
 
 pub trait SpecialAccessToMaliciousContext<'a, F: Field> {
     fn accumulate_macs(self, record_id: RecordId, x: &MaliciousReplicated<F>);
-    fn semi_honest_context(self) -> SemiHonestContext<'a, F>;
+    fn semi_honest_context(self) -> SemiHonestContext<'a>;
 }
 
 impl<'a, F: Field> MaliciousContext<'a, F> {
     pub(super) fn new<S: Substep + ?Sized>(
-        source: &SemiHonestContext<'a, F>,
+        source: &SemiHonestContext<'a>,
         malicious_step: &S,
-        upgrade_ctx: SemiHonestContext<'a, F>,
+        upgrade_ctx: SemiHonestContext<'a>,
         acc: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Self {
@@ -98,11 +111,16 @@ impl<'a, F: Field> MaliciousContext<'a, F> {
             .upgrade_for_record_with(step, record_id, input)
             .await
     }
+
+    pub fn share_known_value(&self, value: F) -> MaliciousReplicated<F> {
+        MaliciousReplicated::new(
+            Replicated::share_known_value(&self.clone().semi_honest_context(), value),
+            self.inner.r_share.clone() * value,
+        )
+    }
 }
 
-impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
-    type Share = MaliciousReplicated<F>;
-
+impl<'a, F: Field> Context for MaliciousContext<'a, F> {
     fn role(&self) -> Role {
         self.inner.gateway.role()
     }
@@ -157,10 +175,6 @@ impl<'a, F: Field> Context<F> for MaliciousContext<'a, F> {
     fn mesh(&self) -> Mesh<'_, '_> {
         self.inner.gateway.mesh(self.step(), self.total_records)
     }
-
-    fn share_known_value(&self, value: F) -> <Self as Context<F>>::Share {
-        MaliciousReplicated::share_known_value(self.role(), value, self.inner.r_share.clone())
-    }
 }
 
 /// Sometimes it is required to reinterpret malicious context as semi-honest. Ideally
@@ -177,7 +191,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     /// Get a semi-honest context that is an  exact copy of this malicious
     /// context, so it will be tied up to the same step and prss.
     #[must_use]
-    fn semi_honest_context(self) -> SemiHonestContext<'a, F> {
+    fn semi_honest_context(self) -> SemiHonestContext<'a> {
         // TODO: it can be made more efficient by impersonating malicious context as semi-honest
         // it does not work as of today because of https://github.com/rust-lang/rust/issues/20400
         // while it is possible to define a struct that wraps a reference to malicious context
@@ -398,14 +412,14 @@ impl<'a, F: Field>
 struct ContextInner<'a, F: Field> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
-    upgrade_ctx: SemiHonestContext<'a, F>,
+    upgrade_ctx: SemiHonestContext<'a>,
     accumulator: MaliciousValidatorAccumulator<F>,
     r_share: Replicated<F>,
 }
 
 impl<'a, F: Field> ContextInner<'a, F> {
     fn new(
-        upgrade_ctx: SemiHonestContext<'a, F>,
+        upgrade_ctx: SemiHonestContext<'a>,
         accumulator: MaliciousValidatorAccumulator<F>,
         r_share: Replicated<F>,
     ) -> Arc<Self> {
@@ -420,20 +434,19 @@ impl<'a, F: Field> ContextInner<'a, F> {
 
     async fn upgrade_one(
         &self,
-        ctx: SemiHonestContext<'a, F>,
+        ctx: SemiHonestContext<'a>,
         record_id: RecordId,
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = ctx
-            .clone()
-            .multiply_sparse(
-                record_id,
-                &x,
-                &self.r_share,
-                (zeros_at, ZeroPositions::Pvvv),
-            )
-            .await?;
+        let rx = Replicated::multiply_sparse(
+            ctx.clone(),
+            record_id,
+            &x,
+            &self.r_share,
+            (zeros_at, ZeroPositions::Pvvv),
+        )
+        .await?;
         let m = MaliciousReplicated::new(x, rx);
         let ctx = ctx.narrow(&RandomnessForValidation);
         let prss = ctx.prss();
@@ -529,7 +542,7 @@ impl RecordBinding for NoRecord {}
 impl RecordBinding for RecordId {}
 
 pub struct UpgradeContext<'a, F: Field, B: RecordBinding = NoRecord> {
-    upgrade_ctx: SemiHonestContext<'a, F>,
+    upgrade_ctx: SemiHonestContext<'a>,
     inner: &'a ContextInner<'a, F>,
     record_binding: B,
 }
@@ -605,6 +618,13 @@ impl<'a, F: Field>
             .try_into()
             .unwrap(),
         ))
+    }
+}
+
+#[async_trait]
+impl<F: Field> UpgradeToMalicious<(), ()> for UpgradeContext<'_, F, NoRecord> {
+    async fn upgrade(self, _input: ()) -> Result<(), Error> {
+        Ok(())
     }
 }
 

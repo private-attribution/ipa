@@ -1,14 +1,20 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::{Direction, Role};
-use crate::protocol::sort::{
-    apply::{apply, apply_inv},
-    shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
-    ShuffleStep::{self, Step1, Step2, Step3},
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::{Direction, Role},
+    protocol::{
+        basics::reshare::LegacyReshare,
+        context::Context,
+        sort::{
+            apply::{apply, apply_inv},
+            shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
+            ShuffleStep::{self, Step1, Step2, Step3},
+        },
+        RecordId,
+    },
+    repeat64str,
+    secret_sharing::{Arithmetic, SecretSharing, SharedValue},
 };
-use crate::protocol::{context::Context, RecordId};
-use crate::repeat64str;
-use crate::secret_sharing::{Arithmetic, SecretSharing, SharedValue};
 use async_trait::async_trait;
 use embed_doc_image::embed_doc_image;
 use futures::future::try_join_all;
@@ -20,7 +26,7 @@ pub trait Resharable<V: SharedValue>: Sized {
 
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<V, Share = <Self as Resharable<V>>::Share> + Send;
+        C: Context + LegacyReshare<V, Share = Self::Share>;
 }
 
 pub struct InnerVectorElementStep(usize);
@@ -40,6 +46,9 @@ impl From<usize> for InnerVectorElementStep {
     }
 }
 
+// The Resharable and Reshare traits should be combined, but to reduce change size, that hasn't been
+// done yet. When that is done, this impl is redundant with Reshare impls.
+// TODO: replace with Reshare impl
 #[async_trait]
 impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
     type Share = T;
@@ -49,7 +58,7 @@ impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
     /// If the vector has more than 64 elements
     async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: Context + LegacyReshare<F, Share = Self::Share>,
     {
         try_join_all(self.iter().enumerate().map(|(i, x)| {
             let c = ctx.narrow(&InnerVectorElementStep::from(i));
@@ -59,19 +68,21 @@ impl<T: Arithmetic<F>, F: Field> Resharable<F> for Vec<T> {
     }
 }
 
+// TODO: replace with Reshare impl
 async fn reshare<F, C, S, T>(input: &[T], ctx: C, to_helper: Role) -> Result<Vec<T>, Error>
 where
-    C: Context<F, Share = S> + Send,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     S: SecretSharing<F>,
     T: Resharable<F, Share = S>,
 {
     let ctx = ctx.set_total_records(input.len());
-    let reshares = zip(repeat(ctx), input)
-        .enumerate()
-        .map(|(index, (ctx, input))| async move {
-            input.reshare(ctx, RecordId::from(index), to_helper).await
-        });
+    let reshares =
+        zip(repeat(ctx), input.iter())
+            .enumerate()
+            .map(|(index, (ctx, input))| async move {
+                input.reshare(ctx, RecordId::from(index), to_helper).await
+            });
     try_join_all(reshares).await
 }
 
@@ -87,7 +98,7 @@ async fn shuffle_once<F, S, C, I>(
     which_step: ShuffleStep,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context<F, Share = S> + Send,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     I: Resharable<F, Share = S>,
     S: SecretSharing<F>,
@@ -125,7 +136,7 @@ pub async fn shuffle_shares<C, F, I, S>(
     ctx: C,
 ) -> Result<Vec<I>, Error>
 where
-    C: Context<F, Share = S> + Send,
+    C: Context + LegacyReshare<F, Share = S>,
     F: Field,
     I: Resharable<F, Share = S>,
     S: SecretSharing<F>,
@@ -160,23 +171,32 @@ where
 mod tests {
 
     mod semi_honest {
-        use crate::accumulation_test_input;
-        use crate::bits::Fp2Array;
-        use crate::protocol::attribution::input::{
-            AccumulateCreditInputRow, MCAccumulateCreditInputRow,
+        use crate::{
+            accumulation_test_input,
+            bits::Fp2Array,
+            protocol::{
+                attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
+                modulus_conversion::{convert_all_bits, convert_all_bits_local},
+                BreakdownKey, MatchKey,
+            },
+            rand::{thread_rng, Rng},
         };
-        use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-        use crate::protocol::{BreakdownKey, MatchKey};
-        use crate::rand::{thread_rng, Rng};
 
-        use crate::ff::{Fp31, Fp32BitPrime};
-        use crate::protocol::context::Context;
-        use crate::protocol::sort::apply_sort::shuffle::shuffle_shares;
-        use crate::protocol::sort::shuffle::get_two_of_three_random_permutations;
-        use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-        use crate::secret_sharing::SharedValue;
-        use crate::test_fixture::input::GenericReportTestInput;
-        use crate::test_fixture::{bits_to_value, get_bits, Reconstruct, Runner, TestWorld};
+        use crate::{
+            ff::{Fp31, Fp32BitPrime},
+            protocol::{
+                context::Context,
+                sort::{
+                    apply_sort::shuffle::shuffle_shares,
+                    shuffle::get_two_of_three_random_permutations,
+                },
+            },
+            secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+            test_fixture::{
+                bits_to_value, get_bits, input::GenericReportTestInput, Reconstruct, Runner,
+                TestWorld,
+            },
+        };
         use std::collections::HashSet;
 
         #[tokio::test]
