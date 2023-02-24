@@ -82,8 +82,8 @@ where
         .enumerate()
     {
         let first_iteration = step_size == 1;
-        let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
+        let next_end = usize::saturating_sub(num_rows, 2 * step_size);
         let depth_i_ctx = ctx.narrow(&InteractionPatternStep::from(depth));
         let new_credit_ctx = depth_i_ctx
             .narrow(&Step::CurrentStopBitTimesSuccessorCredit)
@@ -93,12 +93,11 @@ where
             .set_total_records(end);
         let new_stop_bit_ctx = depth_i_ctx
             .narrow(&Step::CurrentStopBitTimesSuccessorStopBit)
-            .set_total_records(end - 1);
+            .set_total_records(next_end);
         let mut credit_update_futures = Vec::with_capacity(end);
         let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let last_row = i == end - 1;
             let c1 = new_credit_ctx.clone();
             let c2 = new_stop_bit_ctx.clone();
             let c3 = credit_or_ctx.clone();
@@ -116,7 +115,7 @@ where
                     or(c3, record_id, current_credit, &credit_update).await
                 }
             });
-            if !last_iteration && !last_row {
+            if i < next_end {
                 let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
                     S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
@@ -124,23 +123,18 @@ where
             }
         }
 
-        let credit_updates = if last_iteration {
-            try_join_all(credit_update_futures).await?
-        } else {
-            let (stop_bit_updates, credit_updates) = try_join(
-                try_join_all(stop_bit_futures),
-                try_join_all(credit_update_futures),
-            )
-            .await?;
+        let (stop_bit_updates, credit_updates) = try_join(
+            try_join_all(stop_bit_futures),
+            try_join_all(credit_update_futures),
+        )
+        .await?;
 
-            stop_bit_updates
-                .into_iter()
-                .enumerate()
-                .for_each(|(i, stop_bit_update)| {
-                    stop_bits[i] = stop_bit_update;
-                });
-            credit_updates
-        };
+        stop_bit_updates
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, stop_bit_update)| {
+                stop_bits[i] = stop_bit_update;
+            });
         credit_updates
             .into_iter()
             .enumerate()
@@ -180,20 +174,19 @@ where
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
-        let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
+        let next_end = usize::saturating_sub(num_rows, 2 * step_size);
         let depth_i_ctx = ctx.narrow(&InteractionPatternStep::from(depth));
         let new_value_ctx = depth_i_ctx
             .narrow(&Step::CurrentStopBitTimesSuccessorCredit)
             .set_total_records(end);
         let new_stop_bit_ctx = depth_i_ctx
             .narrow(&Step::CurrentStopBitTimesSuccessorStopBit)
-            .set_total_records(end - 1);
+            .set_total_records(next_end);
         let mut value_update_futures = Vec::with_capacity(end);
         let mut stop_bit_futures = Vec::with_capacity(end);
 
         for i in 0..end {
-            let last_row = i == end - 1;
             let c1 = new_value_ctx.clone();
             let c2 = new_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
@@ -202,7 +195,7 @@ where
             value_update_futures.push(async move {
                 S::multiply(c1, record_id, current_stop_bit, sibling_value).await
             });
-            if !last_iteration && !last_row {
+            if i < next_end {
                 let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
                     S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
@@ -210,23 +203,18 @@ where
             }
         }
 
-        let value_updates = if last_iteration {
-            try_join_all(value_update_futures).await?
-        } else {
-            let (stop_bit_updates, value_updates) = try_join(
-                try_join_all(stop_bit_futures),
-                try_join_all(value_update_futures),
-            )
-            .await?;
+        let (stop_bit_updates, value_updates) = try_join(
+            try_join_all(stop_bit_futures),
+            try_join_all(value_update_futures),
+        )
+        .await?;
 
-            stop_bit_updates
-                .into_iter()
-                .enumerate()
-                .for_each(|(i, stop_bit_update)| {
-                    stop_bits[i] = stop_bit_update;
-                });
-            value_updates
-        };
+        stop_bit_updates
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, stop_bit_update)| {
+                stop_bits[i] = stop_bit_update;
+            });
         value_updates
             .into_iter()
             .enumerate()
