@@ -18,7 +18,7 @@ pub struct Info<'a> {
     pub(super) epoch: Epoch,
     pub(super) match_key_provider_origin: &'a str,
     pub(super) helper_origin: &'a str,
-    pub(super) site_registrable_domain: &'a str,
+    pub(super) site_domain: &'a str,
 }
 
 #[derive(Debug)]
