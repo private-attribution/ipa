@@ -50,6 +50,10 @@ impl<'a> Info<'a> {
         helper_origin: &'a str,
         site_registrable_domain: &'a str,
     ) -> Result<Self, NonAsciiStringError<'a>> {
+        if !match_key_provider_origin.is_ascii() {
+            return Err(match_key_provider_origin.into())
+        }
+
         if !helper_origin.is_ascii() {
             return Err(helper_origin.into());
         }
