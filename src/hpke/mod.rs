@@ -160,7 +160,11 @@ mod tests {
             }
         }
 
-        pub fn seal_with_info<'a>(&mut self, info: Info<'a>, match_key: XorReplicated) -> MatchKeyEncryption<'a> {
+        pub fn seal_with_info<'a>(
+            &mut self,
+            info: Info<'a>,
+            match_key: XorReplicated,
+        ) -> MatchKeyEncryption<'a> {
             let mut plaintext = GenericArray::default();
 
             match_key.serialize(&mut plaintext);
@@ -175,7 +179,7 @@ mod tests {
                     &[],
                     &mut self.rng,
                 )
-                    .unwrap();
+                .unwrap();
 
             let mut ct = [0u8; MATCHKEY_CT_LEN];
             ct[..plaintext.len()].copy_from_slice(&plaintext);
@@ -194,8 +198,14 @@ mod tests {
             key_id: KeyIdentifier,
             match_key: XorReplicated,
         ) -> MatchKeyEncryption<'static> {
-            let info =
-                Info::new(key_id, self.epoch, Self::MKP_ORIGIN, Self::HELPER_ORIGIN, Self::SRD).unwrap();
+            let info = Info::new(
+                key_id,
+                self.epoch,
+                Self::MKP_ORIGIN,
+                Self::HELPER_ORIGIN,
+                Self::SRD,
+            )
+            .unwrap();
 
             self.seal_with_info(info, match_key)
         }
@@ -205,8 +215,14 @@ mod tests {
             key_id: KeyIdentifier,
             mut enc: MatchKeyEncryption<'_>,
         ) -> Result<XorReplicated, DecryptionError> {
-            let info =
-                Info::new(key_id, self.epoch, Self::MKP_ORIGIN, Self::HELPER_ORIGIN, Self::SRD).unwrap();
+            let info = Info::new(
+                key_id,
+                self.epoch,
+                Self::MKP_ORIGIN,
+                Self::HELPER_ORIGIN,
+                Self::SRD,
+            )
+            .unwrap();
             open_in_place(&self.registry, &enc.enc, enc.ct.as_mut(), info)?;
 
             // TODO: fix once array split is a thing.
@@ -230,7 +246,7 @@ mod tests {
     /// Make sure we obey the spec
     #[test]
     fn ipa_info_serialize() {
-        let aad = Info::new(255, 32767, "mkp_origin","foo", "bar").unwrap();
+        let aad = Info::new(255, 32767, "mkp_origin", "foo", "bar").unwrap();
         assert_eq!(
             b"private-attribution\0mkp_origin\0foo\0bar\0\xff\x7f\xff",
             aad.into_bytes().as_ref()
