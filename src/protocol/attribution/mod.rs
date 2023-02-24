@@ -75,7 +75,6 @@ where
     // This vector is updated in each iteration to help accumulate credits
     // and determine when to stop accumulating.
     let mut stop_bits = stop_bits.to_owned();
-    stop_bits.push(S::ZERO);
 
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
     for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
@@ -100,7 +99,6 @@ where
             let c3 = credit_or_ctx.clone();
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_credit = &uncapped_credits[i + step_size];
             let current_credit = &uncapped_credits[i];
 
@@ -110,6 +108,7 @@ where
                 or(c3, record_id, current_credit, &credit_update).await
             });
             if !last_iteration && !last_row {
+                let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
                     S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
                 });
@@ -167,13 +166,6 @@ where
 {
     let num_rows = values.len();
 
-    // Append [0] to the stop_bit vector. What value we append doesn't matter because there's
-    // no successor if the current row is at the end of the vector. This is to align the length
-    // with `values` vector.
-    // This vector is updated in each iteration to help accumulate values
-    // and determine when to stop accumulating.
-    stop_bits.push(S::ZERO);
-
     // Each loop the "step size" is doubled. This produces a "binary tree" like behavior
     for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
         .take_while(|&v| v < num_rows)
@@ -195,12 +187,12 @@ where
             let c2 = new_stop_bit_ctx.clone();
             let record_id = RecordId::from(i);
             let current_stop_bit = &stop_bits[i];
-            let sibling_stop_bit = &stop_bits[i + step_size];
             let sibling_value = &values[i + step_size];
             value_update_futures.push(async move {
                 S::multiply(c1, record_id, current_stop_bit, sibling_value).await
             });
             if !last_iteration && !last_row {
+                let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
                     S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
                 });
