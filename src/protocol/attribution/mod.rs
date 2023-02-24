@@ -81,6 +81,7 @@ where
         .take_while(|&v| v < num_rows)
         .enumerate()
     {
+        let first_iteration = step_size == 1;
         let last_iteration = step_size * 2 >= num_rows;
         let end = num_rows - step_size;
         let depth_i_ctx = ctx
@@ -105,7 +106,11 @@ where
             credit_update_futures.push(async move {
                 let credit_update =
                     S::multiply(c1, record_id, current_stop_bit, sibling_credit).await?;
-                or(c3, record_id, current_credit, &credit_update).await
+                if first_iteration {
+                    Ok(credit_update + current_credit)
+                } else {
+                    or(c3, record_id, current_credit, &credit_update).await
+                }
             });
             if !last_iteration && !last_row {
                 let sibling_stop_bit = &stop_bits[i + step_size];
