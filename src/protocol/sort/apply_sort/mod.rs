@@ -102,7 +102,7 @@ mod tests {
                 )| async move {
                     let local_lists = convert_all_bits_local::<Fp31, _>(ctx.role(), &mk_shares);
                     let converted_shares = convert_all_bits(
-                        &ctx.narrow("convert_all_bits"),
+                        ctx.narrow("convert_all_bits"),
                         &local_lists,
                         MatchKey::BITS,
                         NUM_MULTI_BITS,
@@ -121,7 +121,7 @@ mod tests {
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
                     let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
+                        ctx.clone(),
                         &convert_all_bits_local(ctx.role(), &bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,

@@ -137,7 +137,7 @@ where
 /// # Panics
 /// Propagates panics from convert shares
 pub async fn convert_all_bits<F, C, S>(
-    ctx: &C,
+    ctx: C,
     locally_converted_bits: &[Vec<BitConversionTriple<S>>],
     num_bits: u32,
     num_multi_bits: u32,

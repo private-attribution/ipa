@@ -38,7 +38,7 @@ async fn main() -> Result<(), Error> {
     let converted_shares = world
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
             convert_all_bits::<Fp32BitPrime, _, _>(
-                &ctx,
+                ctx.clone(),
                 &convert_all_bits_local(ctx.role(), &match_key),
                 BitArray40::BITS,
                 NUM_MULTI_BITS,

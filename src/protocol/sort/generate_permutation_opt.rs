@@ -252,7 +252,7 @@ mod tests {
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists = convert_all_bits_local::<Fp31, _>(ctx.role(), &mk_shares);
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
+                    convert_all_bits(ctx.clone(), &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
 
@@ -288,7 +288,7 @@ mod tests {
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
+                    convert_all_bits(ctx.clone(), &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
 

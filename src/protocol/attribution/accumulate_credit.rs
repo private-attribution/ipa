@@ -217,7 +217,7 @@ mod tests {
                         .map(|x| x.breakdown_key.clone())
                         .collect::<Vec<_>>();
                     let mut converted_bk_shares = convert_all_bits(
-                        &ctx,
+                        ctx.clone(),
                         &convert_all_bits_local(ctx.role(), &bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
@@ -281,7 +281,7 @@ mod tests {
                     |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
                         let bk_shares = vec![share.breakdown_key];
                         let mut converted_bk_shares = convert_all_bits(
-                            &ctx,
+                            ctx.clone(),
                             &convert_all_bits_local(ctx.role(), &bk_shares),
                             BreakdownKey::BITS,
                             BreakdownKey::BITS,

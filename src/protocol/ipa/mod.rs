@@ -306,7 +306,7 @@ where
     // the outermost vector
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &convert_all_bits_local(ctx.role(), &bk_shares),
         BK::BITS,
         BK::BITS,
@@ -317,7 +317,7 @@ where
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
-        &ctx.narrow(&Step::ModulusConversionForMatchKeys),
+        ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &convert_all_bits_local(ctx.role(), &mk_shares),
         MK::BITS,
         num_multi_bits,
@@ -438,7 +438,7 @@ where
 
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
-        &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
+        m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &m_ctx
             .upgrade(convert_all_bits_local(m_ctx.role(), &mk_shares))
             .await?,
@@ -465,7 +465,7 @@ where
 
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
-        &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
+        m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
             .narrow(&Step::ModulusConversionForBreakdownKeys)
             .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
