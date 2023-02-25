@@ -32,10 +32,18 @@ pub struct OrderingMpscReceiver<M: Message> {
     name: String,
 }
 
-#[derive(Clone)]
 pub struct OrderingMpscSender<M: Message> {
     tx: Sender<(usize, M)>,
     end: Arc<OrderingMpscEnd>,
+}
+
+impl <M: Message> Clone for OrderingMpscSender<M> {
+    fn clone(&self) -> Self {
+        Self {
+            tx: self.tx.clone(),
+            end: Arc::clone(&self.end)
+        }
+    }
 }
 
 struct OrderingMpscEnd {
