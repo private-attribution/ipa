@@ -1025,10 +1025,10 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17181;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46746;
+        /// empirical value as of Feb 27, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46692;
 
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
@@ -1080,8 +1080,8 @@ pub mod tests {
                 "Baseline for semi-honest IPA (cap = {per_user_cap}) has DEGRADED! Expected {semi_honest_baseline}, got {records_sent}.");
 
             if records_sent < semi_honest_baseline {
-                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}.\
-                                Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}. \
+                                Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
             let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
