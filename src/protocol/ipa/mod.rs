@@ -595,10 +595,19 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 5;
+        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const EXPECTED: &[[u128; 2]] = &[
+            [0, 0],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [6, 0],
+            [7, 0],
+        ];
+        const MAX_BREAKDOWN_KEY: u128 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
@@ -914,7 +923,7 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
-        const MAX_BREAKDOWN_KEY: usize = 16;
+        const MAX_BREAKDOWN_KEY: usize = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: usize = 10;
         const MAX_RECORDS_PER_USER: usize = 8;
@@ -1016,13 +1025,13 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19119;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
 
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46692;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13581;
+        /// empirical value as of Feb 27, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
 
         /// empirical value as of Feb 24, 2023.
         const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33525;
