@@ -35,6 +35,11 @@ use crate::{
     },
 };
 
+/// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
+/// Below this number, it's more efficient to just do a ton of equality checks.
+/// This number was determined empirically on 27 Feb 2023
+const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u128 = 32;
+
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
 /// It probably won't
@@ -52,7 +57,7 @@ where
     BK: Fp2Array,
     for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
-    if max_breakdown_key <= 32 {
+    if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
         return simple_aggregate_credit(ctx, capped_credits, max_breakdown_key).await;
     }
     //
@@ -244,11 +249,7 @@ where
         .map(|row| {
             (
                 row.credit.clone(),
-                row.breakdown_key
-                    .iter()
-                    .take(valid_bits_count)
-                    .cloned()
-                    .collect::<Vec<_>>(),
+                row.breakdown_key[..valid_bits_count].to_vec(),
             )
         })
         .collect::<Vec<_>>();

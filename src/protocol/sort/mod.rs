@@ -170,7 +170,7 @@ where
         pregenerate_all_combinations(ctx, record_idx, record, num_bits).await?;
 
     // This loop just iterates over all the possible values this N-bit input could potentially represent
-    // and checks if the bits are equal to this value. It does so my computing a linear combination of the
+    // and checks if the bits are equal to this value. It does so by computing a linear combination of the
     // pre-computed coefficients.
     //
     // Observe that whether a given precomputed coefficient contributes to a
