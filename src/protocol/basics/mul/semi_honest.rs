@@ -1,13 +1,15 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Direction;
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{
-    basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
-    context::{Context, SemiHonestContext},
-    RecordId,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::Direction,
+    protocol::{
+        basics::{mul::sparse::MultiplyWork, MultiplyZeroPositions},
+        context::{Context, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
+    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 
 /// IKHC multiplication protocol
 /// for use with replicated secret sharing over some field F.
@@ -23,7 +25,7 @@ use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn multiply<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     a: &Replicated<F>,
     b: &Replicated<F>,
@@ -78,10 +80,13 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
-    use crate::ff::{Field, Fp31};
-    use crate::protocol::{basics::SecureMul, context::Context, RecordId};
-    use crate::rand::{thread_rng, Rng};
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::{
+        ff::{Field, Fp31},
+        protocol::{basics::SecureMul, context::Context, RecordId},
+        rand::{thread_rng, Rng},
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        test_fixture::{Reconstruct, Runner, TestWorld},
+    };
     use futures::future::try_join_all;
     use rand::distributions::{Distribution, Standard};
     use std::iter::{repeat, zip};
@@ -109,8 +114,7 @@ mod test {
 
         let res = world
             .semi_honest((a, b), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .multiply(RecordId::from(0), &a, &b)
+                Replicated::multiply(ctx.set_total_records(1), RecordId::from(0), &a, &b)
                     .await
                     .unwrap()
             })
@@ -141,7 +145,7 @@ mod test {
                     )
                     .enumerate()
                     .map(|(i, (ctx, (a_share, b_share)))| async move {
-                        ctx.multiply(RecordId::from(i), &a_share, &b_share).await
+                        Replicated::multiply(ctx, RecordId::from(i), &a_share, &b_share).await
                     }),
                 )
                 .await
@@ -162,10 +166,14 @@ mod test {
 
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                ctx.set_total_records(1)
-                    .multiply(RecordId::from(0), &a_share, &b_share)
-                    .await
-                    .unwrap()
+                Replicated::multiply(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_share,
+                    &b_share,
+                )
+                .await
+                .unwrap()
             })
             .await;
 

@@ -1,3 +1,4 @@
+mod channeled_transport;
 mod network;
 mod routing;
 mod util;
@@ -14,8 +15,10 @@ use crate::{
 };
 use async_trait::async_trait;
 use routing::Switch;
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Formatter},
+};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 

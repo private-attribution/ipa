@@ -5,7 +5,7 @@ mod send;
 mod unordered_receiver;
 
 pub use receive::ReceiveBuffer;
-pub use {send::Config as SendBufferConfig, send::SendBuffer};
+pub use send::{Config as SendBufferConfig, SendBuffer};
 
 #[cfg(debug_assertions)]
 mod waiting {

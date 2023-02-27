@@ -1,10 +1,13 @@
-use super::do_the_binary_tree_thing;
-use super::input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic;
+use super::{
+    do_the_binary_tree_thing,
+    input::{MCAccumulateCreditInputRow, MCAccumulateCreditOutputRow},
+};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, BasicProtocols, RecordId},
+    secret_sharing::Arithmetic,
+};
 use futures::future::try_join_all;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,8 +43,8 @@ async fn accumulate_credit_cap_one<F, C, T>(
 ) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + '_, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
 
@@ -51,10 +54,7 @@ where
     let credits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = memoize_context.clone();
         let record_id = RecordId::from(i);
-        async move {
-            c.multiply(record_id, &x.is_trigger_report, &x.helper_bit)
-                .await
-        }
+        async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
     }))
     .await?;
 
@@ -84,8 +84,8 @@ pub async fn accumulate_credit<F, C, T>(
 ) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     if per_user_credit_cap == 1 {
         return Ok(accumulate_credit_cap_one(ctx, input)
@@ -106,11 +106,14 @@ where
         let record_id = RecordId::from(i);
         let is_trigger_bit = &x.is_trigger_report;
         let helper_bit = &x.helper_bit;
-        async move { c.multiply(record_id, is_trigger_bit, helper_bit).await }
+        async move { T::multiply(c, record_id, is_trigger_bit, helper_bit).await }
     }))
     .await?;
 
-    let credits = input.iter().map(|x| &x.trigger_value);
+    let mut credits = input
+        .iter()
+        .map(|x| x.trigger_value.clone())
+        .collect::<Vec<_>>();
 
     // 2. Accumulate (up to 4 multiplications)
     //
@@ -127,7 +130,7 @@ where
     // of other elements, allowing the algorithm to be executed in parallel.
 
     // generate powers of 2 that fit into input len. If num_rows is 15, this will produce [1, 2, 4, 8]
-    let credits = do_the_binary_tree_thing(ctx, &helper_bits, credits).await?;
+    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
 
     let output = input
         .iter()
@@ -149,23 +152,27 @@ where
 mod tests {
     use std::iter;
 
-    use crate::accumulation_test_input;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::helpers::Role;
-    use crate::protocol::attribution::input::MCAccumulateCreditOutputRow;
-    use crate::protocol::attribution::{
-        accumulate_credit::accumulate_credit,
-        input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
+    use crate::{
+        accumulation_test_input,
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::Role,
+        protocol::{
+            attribution::{
+                accumulate_credit::accumulate_credit,
+                input::{
+                    AccumulateCreditInputRow, MCAccumulateCreditInputRow,
+                    MCAccumulateCreditOutputRow,
+                },
+            },
+            basics::Reshare,
+            context::Context,
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey, RecordId,
+        },
+        rand::thread_rng,
+        secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, SharedValue},
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::apply_sort::shuffle::Resharable;
-    use crate::protocol::{context::Context, RecordId};
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
     use rand::Rng;
 
     #[tokio::test]

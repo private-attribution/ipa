@@ -1,7 +1,7 @@
-use crate::helpers::{
-    HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError,
+use crate::{
+    helpers::{HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError},
+    sync::Arc,
 };
-use crate::sync::Arc;
 
 use async_trait::async_trait;
 

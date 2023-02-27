@@ -1,12 +1,16 @@
 //!
 //! Export metrics collected during protocol run in CSV format. Metrics are partitioned by step.
 
-use crate::telemetry::labels;
-use crate::telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED};
-use crate::telemetry::stats::Metrics;
-use std::collections::{BTreeMap, HashMap};
-use std::io;
-use std::io::{Error, Write};
+use crate::telemetry::{
+    labels,
+    metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
+    stats::Metrics,
+};
+use std::{
+    collections::{BTreeMap, HashMap},
+    io,
+    io::{Error, Write},
+};
 
 pub trait CsvExporter {
     /// Writes the serialized version of this instance into the provided writer in CSV format.

@@ -1,17 +1,20 @@
-use crate::bits::{Fp2Array, Serializable};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Role;
-use crate::protocol::context::Context;
-use crate::protocol::sort::apply_sort::shuffle::Resharable;
-use crate::protocol::{RecordId, Substep};
-use crate::secret_sharing::replicated::malicious::{
-    AdditiveShare as MaliciousReplicated, DowngradeMalicious,
-    ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+use crate::{
+    bits::{Fp2Array, Serializable},
+    error::Error,
+    ff::Field,
+    helpers::Role,
+    protocol::{basics::Reshare, context::Context, RecordId, Substep},
+    secret_sharing::{
+        replicated::{
+            malicious::{
+                AdditiveShare as MaliciousReplicated, DowngradeMalicious,
+                ThisCodeIsAuthorizedToDowngradeFromMalicious, UnauthorizedDowngradeWrapper,
+            },
+            semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
+        },
+        Arithmetic,
+    },
 };
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
-use crate::secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare};
-use crate::secret_sharing::Arithmetic;
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3};
 use generic_array::GenericArray;
@@ -221,18 +224,28 @@ where
 }
 
 #[async_trait]
-impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F, T> {
-    type Share = T;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+impl<F, T, C> Reshare<C, RecordId> for MCAccumulateCreditInputRow<F, T>
+where
+    F: Field,
+    T: Arithmetic<F> + Reshare<C, RecordId>,
+    C: Context,
+{
+    async fn reshare<'fut>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: 'fut,
     {
-        let f_trigger_bit = ctx
-            .narrow(&AttributionResharableStep::IsTriggerReport)
-            .reshare(&self.is_trigger_report, record_id, to_helper);
-        let f_helper_bit = ctx.narrow(&AttributionResharableStep::HelperBit).reshare(
-            &self.helper_bit,
+        let f_trigger_bit = self.is_trigger_report.reshare(
+            ctx.narrow(&AttributionResharableStep::IsTriggerReport),
+            record_id,
+            to_helper,
+        );
+        let f_helper_bit = self.helper_bit.reshare(
+            ctx.narrow(&AttributionResharableStep::HelperBit),
             record_id,
             to_helper,
         );
@@ -241,9 +254,11 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
             record_id,
             to_helper,
         );
-        let f_value = ctx
-            .narrow(&AttributionResharableStep::TriggerValue)
-            .reshare(&self.trigger_value, record_id, to_helper);
+        let f_value = self.trigger_value.reshare(
+            ctx.narrow(&AttributionResharableStep::TriggerValue),
+            record_id,
+            to_helper,
+        );
 
         let (breakdown_key, (is_trigger_report, helper_bit, trigger_value)) = try_join(
             f_breakdown_key,
@@ -261,29 +276,41 @@ impl<F: Field, T: Arithmetic<F>> Resharable<F> for MCAccumulateCreditInputRow<F,
 }
 
 #[async_trait]
-impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for MCCappedCreditsWithAggregationBit<F, T> {
-    type Share = T;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+impl<F, T, C> Reshare<C, RecordId> for MCCappedCreditsWithAggregationBit<F, T>
+where
+    F: Field,
+    T: Arithmetic<F> + Reshare<C, RecordId>,
+    C: Context,
+{
+    async fn reshare<'fut>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: 'fut,
     {
-        let f_helper_bit = ctx.narrow(&AttributionResharableStep::HelperBit).reshare(
-            &self.helper_bit,
+        let f_helper_bit = self.helper_bit.reshare(
+            ctx.narrow(&AttributionResharableStep::HelperBit),
             record_id,
             to_helper,
         );
-        let f_aggregation_bit = ctx
-            .narrow(&AttributionResharableStep::AggregationBit)
-            .reshare(&self.aggregation_bit, record_id, to_helper);
+        let f_aggregation_bit = self.aggregation_bit.reshare(
+            ctx.narrow(&AttributionResharableStep::AggregationBit),
+            record_id,
+            to_helper,
+        );
         let f_breakdown_key = self.breakdown_key.reshare(
             ctx.narrow(&AttributionResharableStep::BreakdownKey),
             record_id,
             to_helper,
         );
-        let f_value = ctx
-            .narrow(&AttributionResharableStep::TriggerValue)
-            .reshare(&self.credit, record_id, to_helper);
+        let f_value = self.credit.reshare(
+            ctx.narrow(&AttributionResharableStep::TriggerValue),
+            record_id,
+            to_helper,
+        );
 
         let (breakdown_key, (helper_bit, aggregation_bit, credit)) = try_join(
             f_breakdown_key,

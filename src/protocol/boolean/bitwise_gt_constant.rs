@@ -1,8 +1,10 @@
 use super::or::or;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
 ///
@@ -25,8 +27,8 @@ pub async fn bitwise_greater_than_constant<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert!(a.len() <= 128);
 
@@ -35,9 +37,7 @@ where
     // Compute the dot-product [a] x `first_diff_bit`. 1 iff a > c.
     // We can swap `a` with `c` to yield 1 iff a < c. We just need to convert
     // `c` to `&[c]` using `local_secret_shared_bits`.
-    ctx.narrow(&Step::DotProduct)
-        .sum_of_products(record_id, &first_diff_bit, a)
-        .await
+    S::sum_of_products(ctx.narrow(&Step::DotProduct), record_id, &first_diff_bit, a).await
 }
 
 async fn first_differing_bit<F, C, S>(
@@ -48,10 +48,10 @@ async fn first_differing_bit<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
-    let one = ctx.share_known_value(F::ONE);
+    let one = S::share_known_value(ctx, F::ONE);
 
     // Compute `[a] ^ b`. This step gives us the bits of values where they differ.
     let xored_bits = a
@@ -122,12 +122,13 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::bitwise_greater_than_constant;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::protocol::context::Context;
-    use crate::protocol::RecordId;
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::{into_bits, Reconstruct, Runner, TestWorld};
+    use crate::{
+        ff::{Field, Fp31, Fp32BitPrime},
+        protocol::{context::Context, RecordId},
+        rand::thread_rng,
+        secret_sharing::SharedValue,
+        test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
+    };
     use proptest::prelude::Rng;
     use rand::{distributions::Standard, prelude::Distribution};
 

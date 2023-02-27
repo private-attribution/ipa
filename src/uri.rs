@@ -1,6 +1,5 @@
 use hyper::Uri;
-use serde::de::Error;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
 /// # Errors
 /// if serializing to string fails

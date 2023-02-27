@@ -1,21 +1,22 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{basics::SecureMul, context::Context, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
 /// It computes `[a] + [b] - [ab]`
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
-pub async fn or<F: Field, C: Context<F, Share = S>, S: ArithmeticSecretSharing<F>>(
+pub async fn or<F: Field, C: Context, S: ArithmeticSecretSharing<F> + SecureMul<C>>(
     ctx: C,
     record_id: RecordId,
     a: &S,
     b: &S,
 ) -> Result<S, Error> {
-    let ab = ctx.multiply(record_id, a, b).await?;
+    let ab = S::multiply(ctx, record_id, a, b).await?;
     Ok(-ab + a + b)
 }
 

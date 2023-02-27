@@ -67,8 +67,22 @@ impl From<HelperIdentity> for hyper::header::HeaderValue {
     }
 }
 
+#[cfg(test)]
+impl From<i32> for HelperIdentity {
+    fn from(value: i32) -> Self {
+        usize::try_from(value)
+            .ok()
+            .and_then(|id| HelperIdentity::try_from(id).ok())
+            .unwrap()
+    }
+}
+
 #[cfg(any(test, feature = "test-fixture"))]
 impl HelperIdentity {
+    pub const ONE: Self = Self { id: 1 };
+    pub const TWO: Self = Self { id: 2 };
+    pub const THREE: Self = Self { id: 3 };
+
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn make_three() -> [Self; 3] {

@@ -1,10 +1,12 @@
-use crate::protocol::basics::{reveal::Reveal, SecureMul};
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::prss::SharedRandomness;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, RecordId},
+    protocol::{
+        basics::{reveal::Reveal, SecureMul},
+        context::{Context, SemiHonestContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
@@ -55,39 +57,35 @@ impl AsRef<str> for Step {
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
 pub async fn check_zero<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     record_id: RecordId,
     v: &Replicated<F>,
 ) -> Result<bool, Error> {
     let r_sharing = ctx.prss().generate_replicated(record_id);
 
-    let rv_share = ctx
-        .narrow(&Step::MultiplyWithR)
-        .multiply(record_id, &r_sharing, v)
-        .await?;
-    let rv = ctx
-        .narrow(&Step::RevealR)
-        .reveal(record_id, &rv_share)
-        .await?;
+    let rv_share =
+        Replicated::multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
+    let rv = Replicated::reveal(ctx.narrow(&Step::RevealR), record_id, &rv_share).await?;
 
     Ok(rv == F::ZERO)
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::error::Error;
-    use crate::ff::{Field, Fp31};
-    use crate::protocol::context::Context;
-    use crate::protocol::{basics::check_zero, RecordId};
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::{IntoShares, SharedValue};
-    use crate::test_fixture::TestWorld;
+    use crate::{
+        error::Error,
+        ff::{Field, Fp31},
+        protocol::{basics::check_zero, context::Context, RecordId},
+        rand::thread_rng,
+        secret_sharing::{IntoShares, SharedValue},
+        test_fixture::TestWorld,
+    };
     use futures_util::future::try_join3;
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
         let world = TestWorld::new().await;
-        let context = world.contexts::<Fp31>().map(|ctx| ctx.set_total_records(1));
+        let context = world.contexts().map(|ctx| ctx.set_total_records(1));
         let mut rng = thread_rng();
         let mut counter = 0_u32;
 

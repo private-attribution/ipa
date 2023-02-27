@@ -1,13 +1,16 @@
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::Direction;
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{
-    context::{Context, MaliciousContext},
-    RecordId,
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::Direction,
+    protocol::{
+        context::{Context, MaliciousContext},
+        prss::SharedRandomness,
+        RecordId,
+    },
+    secret_sharing::replicated::{
+        malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+    },
 };
-use crate::secret_sharing::replicated::malicious::AdditiveShare as MaliciousReplicated;
-use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
 use futures::future::try_join;
 use std::fmt::Debug;
 
@@ -68,8 +71,10 @@ pub async fn sum_of_products<F>(
 where
     F: Field,
 {
-    use crate::protocol::context::SpecialAccessToMaliciousContext;
-    use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
+    use crate::{
+        protocol::context::SpecialAccessToMaliciousContext,
+        secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+    };
 
     assert_eq!(a.len(), b.len());
     let vec_len = a.len();
@@ -125,9 +130,10 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod test {
+    use super::sum_of_products;
     use crate::{
         ff::Fp31,
-        protocol::{basics::sum_of_product::SecureSop, context::Context, RecordId},
+        protocol::{context::Context, RecordId},
         rand::{thread_rng, Rng},
         secret_sharing::SharedValue,
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -152,10 +158,14 @@ mod test {
 
         let res = world
             .malicious((av, bv), |ctx, (a, b)| async move {
-                ctx.set_total_records(1)
-                    .sum_of_products(RecordId::from(0), a.as_slice(), b.as_slice())
-                    .await
-                    .unwrap()
+                sum_of_products(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    a.as_slice(),
+                    b.as_slice(),
+                )
+                .await
+                .unwrap()
             })
             .await;
 

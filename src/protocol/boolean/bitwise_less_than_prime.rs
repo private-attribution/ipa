@@ -1,10 +1,12 @@
-use super::any_ones;
-use super::or::or;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::boolean::multiply_all_shares;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use super::{any_ones, or::or};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{
+        boolean::multiply_all_shares, context::Context, BasicProtocols, BitOpStep, RecordId,
+    },
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 use futures::future::try_join;
 use std::cmp::Ordering;
 
@@ -25,10 +27,10 @@ impl BitwiseLessThanPrime {
     pub async fn less_than_prime<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
     where
         F: Field,
-        C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        C: Context,
+        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
     {
-        let one = ctx.share_known_value(F::ONE);
+        let one = S::share_known_value(&ctx, F::ONE);
         let gtoe = Self::greater_than_or_equal_to_prime(ctx, record_id, x).await?;
         Ok(one - &gtoe)
     }
@@ -40,8 +42,8 @@ impl BitwiseLessThanPrime {
     ) -> Result<S, Error>
     where
         F: Field,
-        C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        C: Context,
+        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -90,8 +92,8 @@ impl BitwiseLessThanPrime {
     ) -> Result<S, Error>
     where
         F: Field,
-        C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        C: Context,
+        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
     {
         let prime = F::PRIME.into();
         let l = u128::BITS - prime.leading_zeros();
@@ -118,14 +120,13 @@ impl BitwiseLessThanPrime {
                 multiply_all_shares(ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
             )
             .await?;
-            return ctx
-                .narrow(&Step::AllOnesAndFinalBits)
-                .multiply(
-                    record_id,
-                    &check_least_significant_bits,
-                    &most_significant_bits_all_ones,
-                )
-                .await;
+            return S::multiply(
+                ctx.narrow(&Step::AllOnesAndFinalBits),
+                record_id,
+                &check_least_significant_bits,
+                &most_significant_bits_all_ones,
+            )
+            .await;
         }
         // Not implemented for any other type of prime. Please add to this if you create a new type of Field which
         // is neither a Mersenne Prime, nor which is equal to `2^n - 5` for some value of `n`
@@ -148,26 +149,23 @@ impl BitwiseLessThanPrime {
     ) -> Result<S, Error>
     where
         F: Field,
-        C: Context<F, Share = S>,
-        S: ArithmeticSecretSharing<F>,
+        C: Context,
+        S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
     {
         let prime = F::PRIME.into();
         debug_assert!(prime & 0b111 == 0b011);
         debug_assert!(x.len() == 3);
 
-        let one = ctx.share_known_value(F::ONE);
-        let least_significant_two_bits_both_one = ctx
-            .narrow(&BitOpStep::from(0))
-            .multiply(record_id, &x[0], &x[1])
-            .await?;
-        let least_significant_bits_are_one_one_zero = ctx
-            .narrow(&BitOpStep::from(1))
-            .multiply(
-                record_id,
-                &(one - &x[2]),
-                &least_significant_two_bits_both_one,
-            )
-            .await?;
+        let one = S::share_known_value(&ctx, F::ONE);
+        let least_significant_two_bits_both_one =
+            S::multiply(ctx.narrow(&BitOpStep::from(0)), record_id, &x[0], &x[1]).await?;
+        let least_significant_bits_are_one_one_zero = S::multiply(
+            ctx.narrow(&BitOpStep::from(1)),
+            record_id,
+            &(one - &x[2]),
+            &least_significant_two_bits_both_one,
+        )
+        .await?;
 
         Ok(least_significant_bits_are_one_one_zero + &x[2])
     }
@@ -201,12 +199,11 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::BitwiseLessThanPrime;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{context::Context, RecordId},
-        test_fixture::{get_bits, Reconstruct, TestWorld},
+        secret_sharing::SharedValue,
+        test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
 

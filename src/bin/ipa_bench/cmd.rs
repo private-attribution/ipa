@@ -3,12 +3,14 @@ use crate::sample::Sample;
 use super::gen_events::generate_events;
 
 use clap::Parser;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{rngs::StdRng, SeedableRng};
 use raw_ipa::cli::Verbosity;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::{io, process};
+use std::{
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+    process,
+};
 use tracing::{debug, error, info};
 
 const DEFAULT_EVENT_GEN_COUNT: u32 = 100_000;

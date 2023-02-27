@@ -148,13 +148,13 @@ pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
     protocol_ctx: MaliciousContext<'a, F>,
-    validate_ctx: SemiHonestContext<'a, F>,
+    validate_ctx: SemiHonestContext<'a>,
 }
 
 impl<'a, F: Field> MaliciousValidator<'a, F> {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]
-    pub fn new(ctx: SemiHonestContext<'a, F>) -> MaliciousValidator<F> {
+    pub fn new(ctx: SemiHonestContext<'a>) -> MaliciousValidator<F> {
         // Use the current step in the context for initialization.
         let r_share = ctx.prss().generate_replicated(RECORD_0);
         let prss = ctx.prss();
@@ -208,7 +208,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = narrow_ctx.reveal(RECORD_0, &self.r_share).await?;
+        let r = Replicated::reveal(narrow_ctx, RECORD_0, &self.r_share).await?;
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self
@@ -259,18 +259,24 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
 mod tests {
     use std::iter::{repeat, zip};
 
-    use crate::error::Error;
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::helpers::Role;
-    use crate::protocol::basics::SecureMul;
-    use crate::protocol::context::Context;
-    use crate::protocol::{malicious::MaliciousValidator, RecordId};
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::{
-        replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
-        replicated::semi_honest::AdditiveShare as Replicated, IntoShares,
+    use crate::{
+        error::Error,
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::Role,
+        protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
+        rand::thread_rng,
+        secret_sharing::{
+            replicated::{
+                malicious::{
+                    AdditiveShare as MaliciousReplicated,
+                    ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                },
+                semi_honest::AdditiveShare as Replicated,
+            },
+            IntoShares,
+        },
+        test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
-    use crate::test_fixture::{join3v, Reconstruct, Runner, TestWorld};
     use futures::future::try_join_all;
     use proptest::prelude::Rng;
 
@@ -291,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn simplest_circuit() -> Result<(), Error> {
         let world = TestWorld::new().await;
-        let context = world.contexts::<Fp31>();
+        let context = world.contexts();
         let mut rng = thread_rng();
 
         let a = rng.gen::<Fp31>();
@@ -308,10 +314,13 @@ mod tests {
                 let (a_malicious, b_malicious) =
                     v.context().upgrade((a_share, b_share)).await.unwrap();
 
-                let m_result = m_ctx
-                    .set_total_records(1)
-                    .multiply(RecordId::from(0), &a_malicious, &b_malicious)
-                    .await?;
+                let m_result = MaliciousReplicated::multiply(
+                    m_ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &a_malicious,
+                    &b_malicious,
+                )
+                .await?;
 
                 // Save some cloned values so that we can check them.
                 let r_share = v.r_share().clone();
@@ -405,7 +414,7 @@ mod tests {
     async fn complex_circuit() -> Result<(), Error> {
         const COUNT: usize = 100;
         let world = TestWorld::new().await;
-        let context = world.contexts::<Fp31>();
+        let context = world.contexts();
         let mut rng = thread_rng();
 
         let mut original_inputs = Vec::with_capacity(COUNT);
@@ -436,8 +445,13 @@ mod tests {
                         zip(m_input.iter(), m_input.iter().skip(1)),
                     )
                     .map(|((i, ctx), (a_malicious, b_malicious))| async move {
-                        ctx.multiply(RecordId::from(i), a_malicious, b_malicious)
-                            .await
+                        MaliciousReplicated::multiply(
+                            ctx,
+                            RecordId::from(i),
+                            a_malicious,
+                            b_malicious,
+                        )
+                        .await
                     }),
                 )
                 .await?;

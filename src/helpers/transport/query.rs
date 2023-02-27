@@ -4,11 +4,13 @@ use crate::{
     protocol::{QueryId, Substep},
     query::ProtocolResult,
 };
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct QueryConfig {
     pub field_type: FieldType,
     pub query_type: QueryType,
@@ -89,6 +91,7 @@ impl From<QueryCommand> for TransportCommand {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub enum QueryType {
     #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
     TestMultiply,
@@ -114,6 +117,7 @@ impl AsRef<str> for QueryType {
 impl Substep for QueryType {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct IpaQueryConfig {
     pub per_user_credit_cap: u32,
     pub max_breakdown_key: u128,

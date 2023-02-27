@@ -2,21 +2,25 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        basics::reveal_permutation,
-        context::{Context, MaliciousContext},
+        basics::{Reshare, Reveal},
+        context::{Context, MaliciousContext, NoRecord},
         malicious::MaliciousValidator,
-        sort::SortStep::{
-            ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
-        },
         sort::{
             bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
+            SortStep::{
+                ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
+            },
         },
         IpaProtocolStep::Sort,
+        RecordId,
     },
     secret_sharing::{
-        replicated::malicious::AdditiveShare as MaliciousReplicated,
-        replicated::semi_honest::AdditiveShare as Replicated, SecretSharing,
+        replicated::{
+            malicious::AdditiveShare as MaliciousReplicated,
+            semi_honest::AdditiveShare as Replicated,
+        },
+        SecretSharing,
     },
 };
 
@@ -26,8 +30,7 @@ use super::{
     secureapplyinv::secureapplyinv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
-use crate::protocol::context::SemiHonestContext;
-use crate::protocol::sort::ShuffleRevealStep::GeneratePermutation;
+use crate::protocol::{context::SemiHonestContext, sort::ShuffleRevealStep::GeneratePermutation};
 use embed_doc_image::embed_doc_image;
 
 #[derive(Debug)]
@@ -39,9 +42,9 @@ pub struct RevealedAndRandomPermutations {
     pub randoms_for_shuffle: (Vec<u32>, Vec<u32>),
 }
 
-pub struct ShuffledPermutationWrapper<'a, F: Field> {
-    pub perm: Vec<MaliciousReplicated<F>>,
-    pub m_ctx: MaliciousContext<'a, F>,
+pub struct ShuffledPermutationWrapper<T, C: Context> {
+    pub perm: Vec<T>,
+    pub ctx: C,
 }
 
 /// This is an implementation of `OptApplyInv` (Algorithm 13) and `OptCompose` (Algorithm 14) described in:
@@ -50,8 +53,8 @@ pub struct ShuffledPermutationWrapper<'a, F: Field> {
 /// <https://eprint.iacr.org/2019/695.pdf>.
 pub(super) async fn shuffle_and_reveal_permutation<
     F: Field,
-    S: SecretSharing<F>,
-    C: Context<F, Share = S>,
+    S: SecretSharing<F> + Reshare<C, RecordId> + Reveal<C, RecordId, Output = F>,
+    C: Context,
 >(
     ctx: C,
     input_permutation: Vec<S>,
@@ -71,8 +74,15 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    let revealed_permutation =
-        reveal_permutation(ctx.narrow(&RevealPermutation), &shuffled_permutation).await?;
+    let revealed_permutation = ShuffledPermutationWrapper::reveal(
+        ctx.narrow(&RevealPermutation),
+        NoRecord,
+        &ShuffledPermutationWrapper {
+            perm: shuffled_permutation,
+            ctx,
+        },
+    )
+    .await?;
 
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
@@ -109,7 +119,7 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     let revealed_permutation = malicious_validator
         .validate(ShuffledPermutationWrapper {
             perm: shuffled_permutation,
-            m_ctx,
+            ctx: m_ctx,
         })
         .await?;
 
@@ -140,7 +150,7 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
 ///
 /// ![Generate sort permutation steps][semi_honest_sort]
 pub async fn generate_permutation<F>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<Vec<Replicated<F>>, Error>
@@ -215,7 +225,7 @@ where
 /// # Errors
 /// If unable to convert sort keys length to u32
 pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let sort_permutation = generate_permutation_opt(ctx.narrow(&SortKeys), sort_keys).await?;
@@ -230,7 +240,7 @@ pub async fn generate_permutation_and_reveal_shuffled<F: Field>(
 /// # Errors
 /// If unable to convert sort keys length to u32
 pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
-    sh_ctx: SemiHonestContext<'_, F>,
+    sh_ctx: SemiHonestContext<'_>,
     sort_keys: impl Iterator<Item = &Vec<Vec<Replicated<F>>>>,
 ) -> Result<RevealedAndRandomPermutations, Error> {
     let (malicious_validator, sort_permutation) =
@@ -276,7 +286,7 @@ pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
 /// If sort keys dont have num of bits same as `num_bits`
 /// # Errors
 pub async fn malicious_generate_permutation<'a, F>(
-    sh_ctx: SemiHonestContext<'a, F>,
+    sh_ctx: SemiHonestContext<'a>,
     sort_keys: &[Vec<Replicated<F>>],
     num_bits: u32,
 ) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
@@ -359,19 +369,21 @@ mod tests {
 
     use rand::seq::SliceRandom;
 
-    use crate::bits::Fp2Array;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::sort::generate_permutation_opt::generate_permutation_opt;
-    use crate::protocol::MatchKey;
-    use crate::rand::{thread_rng, Rng};
-    use crate::secret_sharing::SharedValue;
+    use crate::{
+        bits::Fp2Array,
+        protocol::{
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            sort::generate_permutation_opt::generate_permutation_opt,
+            MatchKey,
+        },
+        rand::{thread_rng, Rng},
+        secret_sharing::SharedValue,
+    };
 
-    use crate::protocol::context::{Context, SemiHonestContext};
-    use crate::test_fixture::{join3, Runner};
     use crate::{
         ff::{Field, Fp31},
-        protocol::sort::generate_permutation::shuffle_and_reveal_permutation,
-        test_fixture::{generate_shares, Reconstruct, TestWorld},
+        protocol::{context::Context, sort::generate_permutation::shuffle_and_reveal_permutation},
+        test_fixture::{generate_shares, join3, Reconstruct, Runner, TestWorld},
     };
 
     #[tokio::test]
@@ -388,19 +400,17 @@ mod tests {
         expected.sort_unstable();
 
         let result = world
-            .semi_honest(
-                match_keys.clone(),
-                |ctx: SemiHonestContext<Fp31>, mk_shares| async move {
-                    let local_lists = convert_all_bits_local(ctx.role(), mk_shares.into_iter());
-                    let converted_shares =
-                        convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
-                            .await
-                            .unwrap();
-                    generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+            .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
+                let local_lists =
+                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
+                let converted_shares =
+                    convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                         .await
-                        .unwrap()
-                },
-            )
+                        .unwrap();
+                generate_permutation_opt(ctx.narrow("sort"), converted_shares.iter())
+                    .await
+                    .unwrap()
+            })
             .await;
 
         let mut mpc_sorted_list = (0..u128::try_from(COUNT).unwrap()).collect::<Vec<_>>();

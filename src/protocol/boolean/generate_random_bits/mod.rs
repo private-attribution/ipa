@@ -1,13 +1,18 @@
-use crate::bits::{BitArray40, Fp2Array};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple};
-use crate::protocol::prss::SharedRandomness;
-use crate::protocol::{context::Context, BitOpStep, RecordId};
-use crate::secret_sharing::{
-    replicated::semi_honest::AdditiveShare as Replicated,
-    replicated::semi_honest::XorShare as XorReplicated, Arithmetic as ArithmeticSecretSharing,
-    SecretSharing, SharedValue,
+use crate::{
+    bits::{BitArray40, Fp2Array},
+    error::Error,
+    ff::Field,
+    protocol::{
+        basics::SecureMul,
+        context::Context,
+        modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
+        prss::SharedRandomness,
+        BitOpStep, RecordId,
+    },
+    secret_sharing::{
+        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+    },
 };
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -22,14 +27,13 @@ pub trait RandomBits<V: SharedValue> {
     async fn generate_random_bits(self, record_id: RecordId) -> Result<Vec<Self::Share>, Error>;
 }
 
-fn random_bits_triples<F, C, S>(
+fn random_bits_triples<F, C>(
     ctx: &C,
     record_id: RecordId,
 ) -> Vec<BitConversionTriple<Replicated<F>>>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: SecretSharing<F>,
+    C: Context,
 {
     // Calculate the number of bits we need to form a random number that
     // has the same number of bits as the prime.
@@ -58,8 +62,8 @@ async fn convert_triples_to_shares<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let futures = triples.iter().enumerate().map(|(i, t)| {
         let c = ctx.narrow(&BitOpStep::from(i));

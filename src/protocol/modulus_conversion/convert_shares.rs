@@ -1,10 +1,13 @@
-use crate::bits::Fp2Array;
 use crate::{
+    bits::Fp2Array,
     error::Error,
     ff::Field,
     helpers::Role,
     protocol::{
-        basics::ZeroPositions, boolean::xor_sparse, context::Context, IpaProtocolStep, RecordId,
+        basics::{SecureMul, ZeroPositions},
+        boolean::xor_sparse,
+        context::Context,
+        IpaProtocolStep, RecordId,
     },
     secret_sharing::{
         replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
@@ -110,8 +113,8 @@ pub async fn convert_bit<F, C, S>(
 ) -> Result<S, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let (sh0, sh1, sh2) = (
         &locally_converted_bits.0[0],
@@ -140,8 +143,8 @@ pub async fn convert_all_bits<F, C, S>(
 ) -> Result<Vec<Vec<Vec<S>>>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
@@ -176,8 +179,8 @@ pub async fn convert_bit_list<F, C, S>(
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())
@@ -196,20 +199,18 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::helpers::{Direction, Role};
-    use crate::protocol::context::Context;
-    use crate::protocol::malicious::MaliciousValidator;
-    use crate::protocol::MatchKey;
-    use crate::rand::thread_rng;
-    use crate::secret_sharing::replicated::semi_honest::AdditiveShare as Replicated;
     use crate::{
         error::Error,
-        ff::Fp31,
+        ff::{Field, Fp31, Fp32BitPrime},
+        helpers::{Direction, Role},
         protocol::{
+            context::Context,
+            malicious::MaliciousValidator,
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
-            RecordId,
+            MatchKey, RecordId,
         },
+        rand::thread_rng,
+        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use proptest::prelude::Rng;

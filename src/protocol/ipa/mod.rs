@@ -10,18 +10,22 @@ use crate::{
             credit_capping::credit_capping,
             input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
         },
+        basics::Reshare,
         boolean::bitwise_equal::bitwise_equal,
-        context::{malicious::IPAModulusConvertedInputRowWrapper, Context, SemiHonestContext},
+        context::{
+            malicious::IPAModulusConvertedInputRowWrapper, Context, MaliciousContext,
+            SemiHonestContext,
+        },
         malicious::MaliciousValidator,
         modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
         sort::{
-            apply_sort::{apply_sort_permutation, shuffle::Resharable},
+            apply_sort::apply_sort_permutation,
             generate_permutation::{
                 generate_permutation_and_reveal_shuffled,
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        RecordId, Substep,
+        BasicProtocols, RecordId, Substep,
     },
     secret_sharing::{
         replicated::{
@@ -35,10 +39,10 @@ use crate::{
 use async_trait::async_trait;
 use futures::future::{try_join, try_join3, try_join_all};
 use generic_array::{ArrayLength, GenericArray};
-use std::ops::Add;
 use std::{
     iter::{repeat, zip},
     marker::PhantomData,
+    ops::Add,
 };
 use typenum::Unsigned;
 
@@ -223,20 +227,28 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
 }
 
 #[async_trait]
-impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedInputRow<F, T> {
-    type Share = T;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+impl<F, T, C> Reshare<C, RecordId> for IPAModulusConvertedInputRow<F, T>
+where
+    F: Field,
+    T: Arithmetic<F> + Reshare<C, RecordId>,
+    C: Context,
+{
+    async fn reshare<'fut>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
     where
-        C: Context<F, Share = <Self as Resharable<F>>::Share> + Send,
+        C: 'fut,
     {
         let f_mk_shares = self.mk_shares.reshare(
             ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
             record_id,
             to_helper,
         );
-        let f_is_trigger_bit = ctx.narrow(&IPAInputRowResharableStep::TriggerBit).reshare(
-            &self.is_trigger_bit,
+        let f_is_trigger_bit = self.is_trigger_bit.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
             record_id,
             to_helper,
         );
@@ -245,9 +257,11 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
             record_id,
             to_helper,
         );
-        let f_trigger_value = ctx
-            .narrow(&IPAInputRowResharableStep::TriggerValue)
-            .reshare(&self.trigger_value, record_id, to_helper);
+        let f_trigger_value = self.trigger_value.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::TriggerValue),
+            record_id,
+            to_helper,
+        );
 
         let (mk_shares, breakdown_key, (is_trigger_bit, trigger_value)) = try_join3(
             f_mk_shares,
@@ -270,7 +284,7 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
 /// # Panics
 /// Propagates errors from multiplications
 pub async fn ipa<F, MK, BK>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -401,7 +415,7 @@ where
 /// Propagates errors from multiplications
 #[allow(dead_code, clippy::too_many_lines)]
 pub async fn ipa_malicious<'a, F, MK, BK>(
-    sh_ctx: SemiHonestContext<'a, F>,
+    sh_ctx: SemiHonestContext<'a>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
     max_breakdown_key: u128,
@@ -411,8 +425,8 @@ where
     F: Field,
     MK: Fp2Array,
     BK: Fp2Array,
-    MaliciousReplicated<F>: Serializable,
-    Replicated<F>: Serializable,
+    MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
+    Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     let malicious_validator = MaliciousValidator::new(sh_ctx.clone());
     let m_ctx = malicious_validator.context();
@@ -542,7 +556,7 @@ where
     )
     .await?;
 
-    let (malicious_validator, output) = malicious_aggregate_credit::<F, BK, _>(
+    let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
         malicious_validator,
         sh_ctx,
         user_capped_credits.into_iter(),
@@ -558,21 +572,24 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
     use super::{ipa, ipa_malicious, IPAInputRow};
-    use crate::bits::{Fp2Array, Serializable};
-    use crate::ff::{Field, Fp31, Fp32BitPrime};
-    use crate::ipa_test_input;
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::secret_sharing::IntoShares;
-    use crate::telemetry::metrics::RECORDS_SENT;
-    use crate::test_fixture::{
-        input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+    use crate::{
+        bits::{Fp2Array, Serializable},
+        ff::{Field, Fp31, Fp32BitPrime},
+        ipa_test_input,
+        protocol::{BreakdownKey, MatchKey},
+        secret_sharing::IntoShares,
+        telemetry::metrics::RECORDS_SENT,
+        test_fixture::{
+            input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+        },
     };
     use generic_array::GenericArray;
     use proptest::{
         proptest,
         test_runner::{RngAlgorithm, TestRng},
     };
-    use rand::{thread_rng, Rng};
+    use rand::{rngs::StdRng, thread_rng, Rng};
+    use rand_core::SeedableRng;
     use typenum::Unsigned;
 
     #[tokio::test]
@@ -760,118 +777,92 @@ pub mod tests {
         }
     }
 
-    #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    #[ignore]
-    pub async fn random_ipa_no_result_check() {
-        const BATCHSIZE: u128 = 20;
-        const PER_USER_CAP: u32 = 10;
-        const MAX_BREAKDOWN_KEY: u128 = 8;
-        const MAX_TRIGGER_VALUE: u128 = 5;
-        const NUM_MULTI_BITS: u32 = 3;
-
-        let max_match_key: u128 = BATCHSIZE / 10;
-
-        let world = TestWorld::new().await;
-        let mut rng = thread_rng();
-
-        let mut records = Vec::new();
-
-        for _ in 0..BATCHSIZE {
-            records.push(ipa_test_input!(
-                {
-                    match_key: rng.gen_range(0..max_match_key),
-                    is_trigger_report: rng.gen::<u32>(),
-                    breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                    trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
-                };
-                (Fp32BitPrime, MatchKey, BreakdownKey)
-            ));
-        }
-        let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    PER_USER_CAP,
-                    MAX_BREAKDOWN_KEY,
-                    NUM_MULTI_BITS,
-                )
-                .await
-                .unwrap()
-            })
-            .await
-            .reconstruct();
-
-        assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
-    }
-
+    #[derive(Debug, Clone)]
     struct TestRawDataRecord {
         user_id: usize,
         timestamp: usize,
         is_trigger_report: bool,
         breakdown_key: usize,
+        trigger_value: u32,
     }
 
-    #[tokio::test]
-    #[allow(clippy::missing_panics_doc)]
-    #[ignore]
-    pub async fn random_ipa_cap_one_check() {
-        const MAX_BREAKDOWN_KEY: usize = 16;
-        const NUM_USERS: usize = 20;
-        const MAX_RECORDS_PER_USER: usize = 10;
-        const NUM_MULTI_BITS: u32 = 3;
+    fn generate_random_user_records_in_reverse_chronological_order(
+        rng: &mut impl Rng,
+        max_records_per_user: usize,
+        max_breakdown_key: usize,
+        max_trigger_value: u32,
+    ) -> Vec<TestRawDataRecord> {
         const MAX_USER_ID: usize = 1_000_000_000_000;
         const SECONDS_IN_EPOCH: usize = 604_800;
 
-        let mut rng = thread_rng();
-
-        let mut raw_data = Vec::with_capacity(NUM_USERS * MAX_RECORDS_PER_USER);
-        let mut expected_results = vec![0_u128; MAX_BREAKDOWN_KEY];
-        for _ in 0..NUM_USERS {
-            let random_user_id = rng.gen_range(0..MAX_USER_ID);
-            let num_records_for_user = rng.gen_range(1..MAX_RECORDS_PER_USER);
-            let mut records_for_user = Vec::with_capacity(num_records_for_user);
-            for _ in 0..num_records_for_user {
-                let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);
-                let is_trigger_report = rng.gen::<bool>();
-                let random_breakdown_key = if is_trigger_report {
-                    0
-                } else {
-                    rng.gen_range(0..MAX_BREAKDOWN_KEY)
-                };
-                records_for_user.push(TestRawDataRecord {
-                    user_id: random_user_id,
-                    timestamp: random_timestamp,
-                    is_trigger_report,
-                    breakdown_key: random_breakdown_key,
-                });
-            }
-
-            // sort in reverse time order
-            records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-            let mut encountered_trigger = false;
-            let mut contributed_once = false;
-            for record in &records_for_user {
-                if contributed_once {
-                    continue;
-                }
-
-                if record.is_trigger_report {
-                    encountered_trigger = true;
-                } else if encountered_trigger {
-                    expected_results[record.breakdown_key] += 1;
-                    contributed_once = true;
-                    encountered_trigger = false;
-                }
-            }
-
-            raw_data.append(&mut records_for_user);
+        let random_user_id = rng.gen_range(0..MAX_USER_ID);
+        let num_records_for_user = rng.gen_range(1..max_records_per_user);
+        let mut records_for_user = Vec::with_capacity(num_records_for_user);
+        for _ in 0..num_records_for_user {
+            let random_timestamp = rng.gen_range(0..SECONDS_IN_EPOCH);
+            let is_trigger_report = rng.gen::<bool>();
+            let random_breakdown_key = if is_trigger_report {
+                0
+            } else {
+                rng.gen_range(0..max_breakdown_key)
+            };
+            let trigger_value = if is_trigger_report {
+                rng.gen_range(1..max_trigger_value)
+            } else {
+                0
+            };
+            records_for_user.push(TestRawDataRecord {
+                user_id: random_user_id,
+                timestamp: random_timestamp,
+                is_trigger_report,
+                breakdown_key: random_breakdown_key,
+                trigger_value,
+            });
         }
-        raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
-        let records = raw_data
+        // sort in reverse time order
+        records_for_user.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        records_for_user
+    }
+
+    /// Assumes records all belong to the same user, and are in reverse chronological order
+    /// Will give incorrect results if this is not true
+    fn update_expected_output_for_user(
+        records_for_user: &[TestRawDataRecord],
+        expected_results: &mut [u32],
+        per_user_cap: u32,
+    ) {
+        let mut pending_trigger_value = 0;
+        let mut total_contribution = 0;
+        for record in records_for_user {
+            if total_contribution >= per_user_cap {
+                break;
+            }
+
+            if record.is_trigger_report {
+                pending_trigger_value += record.trigger_value;
+            } else if pending_trigger_value > 0 {
+                let delta_to_per_user_cap = per_user_cap - total_contribution;
+                let capped_contribution =
+                    std::cmp::min(delta_to_per_user_cap, pending_trigger_value);
+                expected_results[record.breakdown_key] += capped_contribution;
+                total_contribution += capped_contribution;
+                pending_trigger_value = 0;
+            }
+        }
+    }
+
+    async fn test_ipa_semi_honest(
+        world: TestWorld,
+        records: &[TestRawDataRecord],
+        expected_results: &[u32],
+        per_user_cap: u32,
+        max_breakdown_key: usize,
+    ) {
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let records = records
             .iter()
             .map(|x| {
                 ipa_test_input!(
@@ -879,22 +870,20 @@ pub mod tests {
                         match_key: x.user_id,
                         is_trigger_report: x.is_trigger_report,
                         breakdown_key: x.breakdown_key,
-                        trigger_value: 0, // unused
+                        trigger_value: x.trigger_value,
                     };
                     (Fp32BitPrime, MatchKey, BreakdownKey)
                 )
             })
             .collect::<Vec<_>>();
 
-        let world = TestWorld::new().await;
-
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(records, |ctx, input_rows| async move {
                 ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
                     ctx,
                     &input_rows,
-                    1,
-                    MAX_BREAKDOWN_KEY as u128,
+                    per_user_cap,
+                    max_breakdown_key as u128,
                     NUM_MULTI_BITS,
                 )
                 .await
@@ -903,15 +892,75 @@ pub mod tests {
             .await
             .reconstruct();
 
-        assert_eq!(MAX_BREAKDOWN_KEY, result.len());
+        assert_eq!(max_breakdown_key, result.len());
+        println!(
+            "actual results: {:#?}",
+            result
+                .iter()
+                .map(|x| x.trigger_value.as_u128())
+                .collect::<Vec<_>>(),
+        );
         for (i, expected) in expected_results.iter().enumerate() {
             assert_eq!(
-                [i as u128, *expected],
+                [i as u128, u128::from(*expected)],
                 [
                     result[i].breakdown_key.as_u128(),
                     result[i].trigger_value.as_u128()
                 ]
             );
+        }
+    }
+
+    #[tokio::test]
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn random_ipa_check() {
+        const MAX_BREAKDOWN_KEY: usize = 16;
+        const MAX_TRIGGER_VALUE: u32 = 5;
+        const NUM_USERS: usize = 10;
+        const MAX_RECORDS_PER_USER: usize = 8;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        let random_seed = thread_rng().gen();
+        println!("Using random seed: {random_seed}");
+        let mut rng = StdRng::seed_from_u64(random_seed);
+
+        let mut random_user_records = Vec::with_capacity(NUM_USERS);
+        for _ in 0..NUM_USERS {
+            let records_for_user = generate_random_user_records_in_reverse_chronological_order(
+                &mut rng,
+                MAX_RECORDS_PER_USER,
+                MAX_BREAKDOWN_KEY,
+                MAX_TRIGGER_VALUE,
+            );
+            random_user_records.push(records_for_user);
+        }
+        let mut raw_data = random_user_records.concat();
+
+        // Sort the records in chronological order
+        // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
+        raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        for per_user_cap in [1, 3] {
+            let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
+
+            for records_for_user in &random_user_records {
+                update_expected_output_for_user(
+                    records_for_user,
+                    &mut expected_results,
+                    per_user_cap,
+                );
+            }
+
+            let world = TestWorld::new().await;
+
+            test_ipa_semi_honest(
+                world,
+                &raw_data,
+                &expected_results,
+                per_user_cap,
+                MAX_BREAKDOWN_KEY,
+            )
+            .await;
         }
     }
 
@@ -966,17 +1015,17 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 4, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 10740;
+        /// empirical value as of Feb 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19146;
 
-        /// empirical value as of Feb 14, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 26410;
+        /// empirical value as of Feb 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46746;
 
-        /// empirical value as of Feb 20, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 7575;
+        /// empirical value as of Feb 24, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13581;
 
-        /// empirical value as of Feb 20, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 18885;
+        /// empirical value as of Feb 24, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33525;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -985,6 +1034,10 @@ pub mod tests {
                 { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
                 { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 5 },
                 { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 2 },
+                { match_key: 12345, is_trigger_report: 0, breakdown_key: 2, trigger_value: 0 },
+                { match_key: 68362, is_trigger_report: 0, breakdown_key: 1, trigger_value: 0 },
+                { match_key: 12345, is_trigger_report: 1, breakdown_key: 0, trigger_value: 3 },
+                { match_key: 68362, is_trigger_report: 1, breakdown_key: 0, trigger_value: 4 },
             ];
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );

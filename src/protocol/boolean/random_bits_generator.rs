@@ -1,10 +1,14 @@
-use super::solved_bits::{solved_bits, RandomBitsShare};
-use crate::error::Error;
-use crate::ff::Field;
-use crate::helpers::messaging::TotalRecords;
-use crate::protocol::context::Context;
-use crate::protocol::RecordId;
-use crate::secret_sharing::Arithmetic as ArithmeticSecretSharing;
+use super::{
+    solved_bits::{solved_bits, RandomBitsShare},
+    RandomBits,
+};
+use crate::{
+    error::Error,
+    ff::Field,
+    helpers::messaging::TotalRecords,
+    protocol::{context::Context, BasicProtocols, RecordId},
+    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+};
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -27,8 +31,8 @@ pub struct RandomBitsGenerator<F, S, C> {
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F>,
-    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context + RandomBits<F, Share = S>,
 {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)] // TODO: pending resolution of TotalRecords::Indeterminate
@@ -82,7 +86,7 @@ mod tests {
     #[tokio::test]
     pub async fn semi_honest() {
         let world = TestWorld::new().await;
-        let [c0, c1, c2] = world.contexts::<Fp31>();
+        let [c0, c1, c2] = world.contexts();
 
         let rbg0 = RandomBitsGenerator::new(c0);
         let rbg1 = RandomBitsGenerator::new(c1);
@@ -91,15 +95,15 @@ mod tests {
         let result = join3(rbg0.generate(), rbg1.generate(), rbg2.generate()).await;
         assert_eq!(rbg0.aborts(), rbg1.aborts());
         assert_eq!(rbg0.aborts(), rbg2.aborts());
-        let _ = result.reconstruct(); // reconstruct() will validate the value.
+        let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
     }
 
     #[tokio::test]
     pub async fn malicious() {
         let world = TestWorld::new().await;
-        let contexts = world.contexts::<Fp31>();
+        let contexts = world.contexts();
 
-        let validators = contexts.map(MaliciousValidator::new);
+        let validators = contexts.map(MaliciousValidator::<Fp31>::new);
         let rbg = validators
             .iter()
             .map(|v| RandomBitsGenerator::new(v.context()))
@@ -115,6 +119,6 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        let _ = result.reconstruct(); // reconstruct() will validate the value.
+        let _: Fp31 = result.reconstruct(); // reconstruct() will validate the value.
     }
 }

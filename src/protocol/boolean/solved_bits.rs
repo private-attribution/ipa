@@ -1,11 +1,15 @@
-use super::bitwise_less_than_prime::BitwiseLessThanPrime;
-use crate::error::Error;
-use crate::ff::Field;
-use crate::protocol::{context::Context, RecordId};
-use crate::secret_sharing::replicated::malicious::{
-    AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
+use super::{bitwise_less_than_prime::BitwiseLessThanPrime, RandomBits};
+use crate::{
+    error::Error,
+    ff::Field,
+    protocol::{context::Context, BasicProtocols, RecordId},
+    secret_sharing::{
+        replicated::malicious::{
+            AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
+        },
+        Arithmetic as ArithmeticSecretSharing, SecretSharing,
+    },
 };
-use crate::secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing};
 use async_trait::async_trait;
 use std::marker::PhantomData;
 
@@ -73,8 +77,8 @@ pub async fn solved_bits<F, S, C>(
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F>,
-    C: Context<F, Share = S>,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    C: Context + RandomBits<F, Share = S>,
 {
     //
     // step 1 & 2
@@ -112,13 +116,13 @@ where
 async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Result<bool, Error>
 where
     F: Field,
-    C: Context<F, Share = S>,
-    S: ArithmeticSecretSharing<F>,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
 {
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)
             .await?;
-    if ctx.narrow(&Step::RevealC).reveal(record_id, &c_b).await? == F::ZERO {
+    if S::reveal(ctx.narrow(&Step::RevealC), record_id, &c_b).await? == F::ZERO {
         return Ok(false);
     }
     Ok(true)
@@ -145,13 +149,11 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::protocol::boolean::solved_bits::solved_bits;
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::Runner;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{context::Context, RecordId},
-        test_fixture::{bits_to_value, Reconstruct, TestWorld},
+        protocol::{boolean::solved_bits::solved_bits, context::Context, RecordId},
+        secret_sharing::SharedValue,
+        test_fixture::{bits_to_value, Reconstruct, Runner, TestWorld},
     };
     use rand::{distributions::Standard, prelude::Distribution};
     use std::iter::zip;
@@ -204,7 +206,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             // Reconstruct b_P
-            let b_p = [&s0.b_p, &s1.b_p, &s2.b_p].reconstruct();
+            let b_p: F = [&s0.b_p, &s1.b_p, &s2.b_p].reconstruct();
 
             // Base10 of `b_B ⊆ Z` must equal `b_P`
             assert_eq!(b_p.as_u128(), bits_to_value(&b_b));

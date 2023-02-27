@@ -1,19 +1,18 @@
 #![allow(dead_code)] // will use these soon
 
-use crate::helpers::transport::CommandOrigin;
-use crate::helpers::{MessagePayload, RoleAssignment};
-use crate::protocol::RecordId;
 use crate::{
     helpers::{
-        transport::{SubscriptionType, Transport, TransportCommand},
-        Error, Role,
+        transport::{CommandOrigin, SubscriptionType, Transport, TransportCommand},
+        Error, MessagePayload, Role, RoleAssignment,
     },
-    protocol::{QueryId, Step},
+    protocol::{QueryId, RecordId, Step},
     sync::{Arc, Mutex},
 };
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Formatter},
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MessageEnvelope {

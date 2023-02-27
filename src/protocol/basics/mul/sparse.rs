@@ -184,7 +184,6 @@ impl MultiplyWork for MultiplyZeroPositions {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub(in crate::protocol) mod test {
-    use crate::secret_sharing::IntoShares;
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::{
@@ -198,7 +197,13 @@ pub(in crate::protocol) mod test {
             BitOpStep, RECORD_0,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        secret_sharing::{
+            replicated::{
+                malicious::AdditiveShare as MaliciousReplicated,
+                semi_honest::AdditiveShare as Replicated,
+            },
+            IntoShares,
+        },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join;
@@ -380,10 +385,15 @@ pub(in crate::protocol) mod test {
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        ctx.set_total_records(1)
-                            .multiply_sparse(RECORD_0, &v_a, &v_b, (a, b))
-                            .await
-                            .unwrap()
+                        Replicated::multiply_sparse(
+                            ctx.set_total_records(1),
+                            RECORD_0,
+                            &v_a,
+                            &v_b,
+                            (a, b),
+                        )
+                        .await
+                        .unwrap()
                     })
                     .await;
                 check_output_zeros(&result, (a, b));
@@ -416,10 +426,15 @@ pub(in crate::protocol) mod test {
                         .await
                         .unwrap();
 
-                        let m_ab = m_ctx
-                            .multiply_sparse(RECORD_0, &m_a, &m_b, (a, b))
-                            .await
-                            .unwrap();
+                        let m_ab = MaliciousReplicated::multiply_sparse(
+                            m_ctx,
+                            RECORD_0,
+                            &m_a,
+                            &m_b,
+                            (a, b),
+                        )
+                        .await
+                        .unwrap();
 
                         v.validate(m_ab).await.unwrap()
                     })

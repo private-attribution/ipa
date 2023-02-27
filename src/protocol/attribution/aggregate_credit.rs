@@ -10,7 +10,7 @@ use crate::{
                 MCCappedCreditsWithAggregationBit,
             },
         },
-        context::{Context, SemiHonestContext},
+        context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
         sort::{
@@ -20,7 +20,7 @@ use crate::{
                 malicious_generate_permutation_and_reveal_shuffled,
             },
         },
-        Substep,
+        BasicProtocols, Substep,
     },
     secret_sharing::{
         replicated::{
@@ -31,8 +31,6 @@ use crate::{
     },
 };
 
-use crate::protocol::ipa::Step::AggregateCredit;
-
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
 /// It probably won't
@@ -40,7 +38,7 @@ use crate::protocol::ipa::Step::AggregateCredit;
 /// # Errors
 /// propagates errors from multiplications
 pub async fn aggregate_credit<F, BK>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -48,7 +46,7 @@ pub async fn aggregate_credit<F, BK>(
 where
     F: Field,
     BK: Fp2Array,
-    Replicated<F>: Serializable,
+    for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     //
     // 1. Add aggregation bits and new rows per unique breakdown_key
@@ -84,9 +82,12 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let credits = sorted_input.iter().map(|x| &x.credit);
+    let mut credits = sorted_input
+        .iter()
+        .map(|x| x.credit.clone())
+        .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(ctx.clone(), &helper_bits, credits).await?;
+    do_the_binary_tree_thing(ctx.clone(), helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -123,10 +124,10 @@ where
 ///
 /// # Errors
 /// propagates errors from multiplications
-pub async fn malicious_aggregate_credit<'a, F, BK, I>(
-    malicious_validator: MaliciousValidator<'_, F>,
-    sh_ctx: SemiHonestContext<'a, F>,
-    capped_credits: I,
+pub async fn malicious_aggregate_credit<'a, F, BK>(
+    malicious_validator: MaliciousValidator<'a, F>,
+    sh_ctx: SemiHonestContext<'a>,
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, MaliciousReplicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
 ) -> Result<
@@ -139,13 +140,9 @@ pub async fn malicious_aggregate_credit<'a, F, BK, I>(
 where
     F: Field,
     BK: Fp2Array,
-    I: Iterator<Item = MCAggregateCreditInputRow<F, MaliciousReplicated<F>>>,
-    MaliciousReplicated<F>: Serializable,
+    MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {
-    let m_ctx = malicious_validator.context().narrow(&AggregateCredit);
-    //
-    // 1. Add aggregation bits and new rows per unique breakdown_key
-    //
+    let m_ctx = malicious_validator.context();
     let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK>(
         &m_ctx,
         capped_credits,
@@ -181,9 +178,12 @@ where
         .map(|x| x.helper_bit.clone())
         .collect::<Vec<_>>();
 
-    let credits = sorted_input.iter().map(|x| &x.credit);
+    let mut credits = sorted_input
+        .iter()
+        .map(|x| x.credit.clone())
+        .collect::<Vec<_>>();
 
-    let credits = do_the_binary_tree_thing(m_ctx, &helper_bits, credits).await?;
+    do_the_binary_tree_thing(m_ctx, helper_bits, &mut credits).await?;
 
     // Prepare the sidecar for sorting
     let aggregated_credits = sorted_input
@@ -226,12 +226,12 @@ fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
 ) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
 where
     F: Field,
-    C: Context<F, Share = T>,
-    T: Arithmetic<F>,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F>,
     BK: Fp2Array,
 {
     let zero = T::ZERO;
-    let one = ctx.share_known_value(F::ONE);
+    let one = T::share_known_value(ctx, F::ONE);
 
     // Unique breakdown_key values with all other fields initialized with 0's.
     // Since we cannot see the actual breakdown key values, we'll need to
@@ -274,7 +274,7 @@ where
 }
 
 async fn sort_by_breakdown_key<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -306,7 +306,7 @@ async fn sort_by_breakdown_key<F: Field>(
 }
 
 async fn malicious_sort_by_breakdown_key<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
     max_breakdown_key: u128,
     num_multi_bits: u32,
@@ -350,7 +350,7 @@ async fn malicious_sort_by_breakdown_key<F: Field>(
 }
 
 async fn sort_by_aggregation_bit<F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     // Since aggregation_bit is a 1-bit share of 1 or 0, we'll just extract the
@@ -375,7 +375,7 @@ async fn sort_by_aggregation_bit<F: Field>(
 }
 
 async fn malicious_sort_by_aggregation_bit<'a, F: Field>(
-    ctx: SemiHonestContext<'_, F>,
+    ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
 ) -> Result<
     (
@@ -441,16 +441,19 @@ impl AsRef<str> for Step {
 mod tests {
 
     use super::aggregate_credit;
-    use crate::aggregation_test_input;
-    use crate::bits::Fp2Array;
-    use crate::ff::{Field, Fp32BitPrime};
-    use crate::protocol::attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow};
-    use crate::protocol::context::Context;
-    use crate::protocol::modulus_conversion::{convert_all_bits, convert_all_bits_local};
-    use crate::protocol::{BreakdownKey, MatchKey};
-    use crate::secret_sharing::SharedValue;
-    use crate::test_fixture::input::GenericReportTestInput;
-    use crate::test_fixture::{Reconstruct, Runner, TestWorld};
+    use crate::{
+        aggregation_test_input,
+        bits::Fp2Array,
+        ff::{Field, Fp32BitPrime},
+        protocol::{
+            attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
+            context::Context,
+            modulus_conversion::{convert_all_bits, convert_all_bits_local},
+            BreakdownKey, MatchKey,
+        },
+        secret_sharing::SharedValue,
+        test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+    };
 
     #[tokio::test]
     pub async fn aggregate() {

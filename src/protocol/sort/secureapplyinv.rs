@@ -1,12 +1,11 @@
-use crate::secret_sharing::SecretSharing;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, sort::ApplyInvStep::ShuffleInputs},
+    protocol::{basics::Reshare, context::Context, sort::ApplyInvStep::ShuffleInputs, RecordId},
+    secret_sharing::SecretSharing,
 };
 use embed_doc_image::embed_doc_image;
 
-use super::apply_sort::Resharable;
 use super::{
     apply::apply_inv, apply_sort::shuffle_shares as shuffle_vectors, shuffle::shuffle_shares,
 };
@@ -35,7 +34,7 @@ use super::{
 /// 3. Secret shared value is shuffled using the same random permutations
 /// 4. The permutation is revealed
 /// 5. All helpers call `apply` to apply the permutation locally.
-pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share = S>>(
+pub async fn secureapplyinv<F: Field, S: SecretSharing<F> + Reshare<C, RecordId>, C: Context>(
     ctx: C,
     input: Vec<S>,
     random_permutations_for_shuffle: (&[u32], &[u32]),
@@ -53,12 +52,7 @@ pub async fn secureapplyinv<F: Field, S: SecretSharing<F>, C: Context<F, Share =
 }
 
 #[allow(dead_code)]
-pub async fn secureapplyinv_multi<
-    F: Field,
-    S: SecretSharing<F>,
-    C: Context<F, Share = S>,
-    I: Resharable<F, Share = S>,
->(
+pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + Sync>(
     ctx: C,
     input: Vec<I>,
     random_permutations_for_shuffle: (&[u32], &[u32]),
@@ -81,15 +75,17 @@ mod tests {
         use proptest::prelude::Rng;
         use rand::seq::SliceRandom;
 
-        use crate::protocol::context::Context;
-        use crate::protocol::sort::secureapplyinv::{secureapplyinv, secureapplyinv_multi};
-        use crate::test_fixture::{Reconstruct, Runner};
         use crate::{
             ff::Fp31,
-            protocol::sort::{
-                apply::apply_inv, generate_permutation::shuffle_and_reveal_permutation,
+            protocol::{
+                context::Context,
+                sort::{
+                    apply::apply_inv,
+                    generate_permutation::shuffle_and_reveal_permutation,
+                    secureapplyinv::{secureapplyinv, secureapplyinv_multi},
+                },
             },
-            test_fixture::TestWorld,
+            test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
         #[tokio::test]
