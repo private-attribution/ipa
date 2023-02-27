@@ -54,6 +54,28 @@ macro_rules! ipa_test_input {
 }
 
 #[macro_export]
+macro_rules! attribution_window_test_input {
+    ( { timestamp: $ts:expr, is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
+        GenericReportTestInput {
+            match_key: None,
+            attribution_constraint_id: None,
+            timestamp: Some($field::from(u128::try_from($ts).unwrap())),
+            is_trigger_report: Some($field::from(u128::try_from($itr).unwrap())),
+            breakdown_key: <$bk_bit_array as $crate::bits::Fp2Array>::truncate_from(u128::try_from($bk).unwrap()),
+            trigger_value: $field::from(u128::try_from($cdt).unwrap()),
+            helper_bit: Some($field::from(u128::try_from($hb).unwrap())),
+            aggregation_bit: None,
+        }
+    };
+
+    ( [ $({ timestamp: $ts:expr, is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }),* $(,)? ]; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
+        vec![
+            $(attribution_window_test_input!({ timestamp: $ts, is_trigger_report: $itr, helper_bit: $hb, breakdown_key: $bk, credit: $cdt }; ($field, $mk_bit_array, $bk_bit_array))),*
+        ]
+    };
+}
+
+#[macro_export]
 macro_rules! accumulation_test_input {
     ( { is_trigger_report: $itr:expr, helper_bit: $hb:expr, breakdown_key: $bk:expr, credit: $cdt:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         GenericReportTestInput {
