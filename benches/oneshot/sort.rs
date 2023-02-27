@@ -3,7 +3,6 @@ use raw_ipa::{
     bits::{BitArray40, Fp2Array},
     error::Error,
     ff::{Field, Fp32BitPrime},
-    helpers::messaging::TotalRecords,
     protocol::{
         context::Context,
         modulus_conversion::{convert_all_bits, convert_all_bits_local},
@@ -24,9 +23,7 @@ async fn main() -> Result<(), Error> {
     config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
     config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
     let world = TestWorld::new_with(config).await;
-    let [ctx0, ctx1, ctx2] = world
-        .contexts()
-        .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
+    let [ctx0, ctx1, ctx2] = world.contexts();
     let mut rng = rand::thread_rng();
 
     let mut match_keys: Vec<MatchKey> = Vec::with_capacity(BATCHSIZE);
