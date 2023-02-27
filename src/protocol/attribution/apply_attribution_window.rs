@@ -72,7 +72,8 @@ where
     let stop_bit_context = ctx
         .narrow(&Step::IsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let stop_bits = std::iter::once(T::ZERO).chain(
+    // `empty().chain()` keeps `try_join_all().await?` as iterator. Is there a better way of doing this?
+    let stop_bits = std::iter::empty().chain(
         try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
             let c = stop_bit_context.clone();
             let record_id = RecordId::from(i);
@@ -87,12 +88,11 @@ where
     let t_delta_context = ctx
         .narrow(&Step::InitializeTimeDelta)
         .set_total_records(num_rows - 1);
-    let mut t_delta = Some(T::ZERO)
-        .into_iter()
+    let mut t_delta = std::iter::once(T::ZERO)
         .chain(
             try_join_all(
                 zip(input.iter(), input.iter().skip(1))
-                    .zip(stop_bits.clone().skip(1))
+                    .zip(stop_bits.clone())
                     .enumerate()
                     .map(|(i, ((prev, curr), b))| {
                         let c = t_delta_context.clone();

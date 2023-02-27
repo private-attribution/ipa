@@ -22,7 +22,7 @@ use std::marker::PhantomData;
 use typenum::Unsigned;
 
 //
-// 'apply_attribution_window` protocol
+// `apply_attribution_window` protocol
 //
 #[derive(Debug)]
 pub struct ApplyAttributionWindowInputRow<F: Field, BK: Fp2Array> {
