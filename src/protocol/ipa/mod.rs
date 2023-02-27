@@ -925,7 +925,7 @@ pub mod tests {
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: usize = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 10;
+        const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
@@ -1027,14 +1027,14 @@ pub mod tests {
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
 
-        /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46692;
+        /// empirical value as of Feb 28, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 41802;
 
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33525;
+        /// empirical value as of Feb 28, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29046;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [

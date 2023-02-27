@@ -12,7 +12,6 @@ use crate::{
                 MCCappedCreditsWithAggregationBit,
             },
         },
-        basics::{SecureMul, ShareKnownValue},
         context::{Context, MaliciousContext, SemiHonestContext},
         malicious::MaliciousValidator,
         modulus_conversion::split_into_multi_bit_slices,
@@ -155,6 +154,12 @@ where
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {
     let m_ctx = malicious_validator.context();
+
+    if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
+        let res = simple_aggregate_credit(m_ctx, capped_credits, max_breakdown_key).await?;
+        return Ok((malicious_validator, res));
+    }
+
     let capped_credits_with_aggregation_bits = add_aggregation_bits_and_breakdown_keys::<_, _, _, BK>(
         &m_ctx,
         capped_credits,
@@ -231,17 +236,18 @@ where
     Ok((malicious_validator, result))
 }
 
-async fn simple_aggregate_credit<F, BK>(
-    ctx: SemiHonestContext<'_>,
-    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, Replicated<F>>>,
+async fn simple_aggregate_credit<F, C, T, BK>(
+    ctx: C,
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
     max_breakdown_key: u128,
-) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
+) -> Result<Vec<MCAggregateCreditOutputRow<F, T, BK>>, Error>
 where
     F: Field,
+    C: Context,
+    T: Arithmetic<F> + BasicProtocols<C, F> + Serializable,
     BK: Fp2Array,
-    for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
-    let mut sums = vec![Replicated::ZERO; max_breakdown_key as usize];
+    let mut sums = vec![T::ZERO; max_breakdown_key as usize];
     let to_take = usize::try_from(max_breakdown_key).unwrap();
     let valid_bits_count = (u128::BITS - (max_breakdown_key - 1).leading_zeros()) as usize;
 
@@ -272,7 +278,7 @@ where
                         let step = BitOpStep::from(check_idx);
                         let c = c2.narrow(&step);
                         let record_id = RecordId::from(i);
-                        async move { Replicated::multiply(c, record_id, check, credit).await }
+                        async move { T::multiply(c, record_id, check, credit).await }
                     },
                 ))
                 .await
@@ -286,8 +292,8 @@ where
         }
     }
 
-    let zero = Replicated::ZERO;
-    let one = Replicated::share_known_value(&ctx, F::ONE);
+    let zero = T::ZERO;
+    let one = T::share_known_value(&ctx, F::ONE);
 
     Ok(sums
         .into_iter()
