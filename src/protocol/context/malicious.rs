@@ -533,7 +533,7 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// // is used internally for vector indexing.
 /// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
 /// ```
-pub trait RecordBinding: Copy + Send + Sync {}
+pub trait RecordBinding: Copy + Send + Sync + 'static {}
 
 #[derive(Clone, Copy)]
 pub struct NoRecord;

@@ -10,7 +10,7 @@ use crate::{
             credit_capping::credit_capping,
             input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
         },
-        basics::reshare::LegacyReshare,
+        basics::Reshare,
         boolean::bitwise_equal::bitwise_equal,
         context::{
             malicious::IPAModulusConvertedInputRowWrapper, Context, MaliciousContext,
@@ -19,7 +19,7 @@ use crate::{
         malicious::MaliciousValidator,
         modulus_conversion::{combine_slices, convert_all_bits, convert_all_bits_local},
         sort::{
-            apply_sort::{apply_sort_permutation, shuffle::Resharable},
+            apply_sort::apply_sort_permutation,
             generate_permutation::{
                 generate_permutation_and_reveal_shuffled,
                 malicious_generate_permutation_and_reveal_shuffled,
@@ -227,20 +227,28 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
 }
 
 #[async_trait]
-impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedInputRow<F, T> {
-    type Share = T;
-
-    async fn reshare<C>(&self, ctx: C, record_id: RecordId, to_helper: Role) -> Result<Self, Error>
+impl<F, T, C> Reshare<C, RecordId> for IPAModulusConvertedInputRow<F, T>
+where
+    F: Field,
+    T: Arithmetic<F> + Reshare<C, RecordId>,
+    C: Context,
+{
+    async fn reshare<'fut>(
+        &self,
+        ctx: C,
+        record_id: RecordId,
+        to_helper: Role,
+    ) -> Result<Self, Error>
     where
-        C: Context + LegacyReshare<F, Share = Self::Share> + Send,
+        C: 'fut,
     {
         let f_mk_shares = self.mk_shares.reshare(
             ctx.narrow(&IPAInputRowResharableStep::MatchKeyShares),
             record_id,
             to_helper,
         );
-        let f_is_trigger_bit = ctx.narrow(&IPAInputRowResharableStep::TriggerBit).reshare(
-            &self.is_trigger_bit,
+        let f_is_trigger_bit = self.is_trigger_bit.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::TriggerBit),
             record_id,
             to_helper,
         );
@@ -249,9 +257,11 @@ impl<F: Field + Sized, T: Arithmetic<F>> Resharable<F> for IPAModulusConvertedIn
             record_id,
             to_helper,
         );
-        let f_trigger_value = ctx
-            .narrow(&IPAInputRowResharableStep::TriggerValue)
-            .reshare(&self.trigger_value, record_id, to_helper);
+        let f_trigger_value = self.trigger_value.reshare(
+            ctx.narrow(&IPAInputRowResharableStep::TriggerValue),
+            record_id,
+            to_helper,
+        );
 
         let (mk_shares, breakdown_key, (is_trigger_bit, trigger_value)) = try_join3(
             f_mk_shares,
@@ -1006,16 +1016,16 @@ pub mod tests {
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19182;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19146;
 
         /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46818;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46746;
 
         /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13596;
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13581;
 
         /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33555;
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33525;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
