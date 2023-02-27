@@ -1,6 +1,6 @@
 use super::{
+    do_the_binary_tree_thing,
     input::{MCApplyAttributionWindowInputRow, MCApplyAttributionWindowOutputRow},
-    InteractionPatternStep,
 };
 use crate::{
     error::Error,
@@ -15,7 +15,7 @@ use crate::{
     },
     secret_sharing::Arithmetic,
 };
-use futures::future::{try_join, try_join_all};
+use futures::future::try_join_all;
 use std::iter::{repeat, zip};
 
 /// This protocol applies the specified attribution window to trigger events. All trigger values of
@@ -75,17 +75,14 @@ where
     let stop_bit_context = ctx
         .narrow(&Step::IsTriggerBitTimesHelperBit)
         .set_total_records(num_rows - 1);
-    let mut stop_bits = Some(T::ZERO)
-        .into_iter()
-        .chain(
-            try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
-                let c = stop_bit_context.clone();
-                let record_id = RecordId::from(i);
-                async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
-            }))
-            .await?,
-        )
-        .collect::<Vec<_>>();
+    let stop_bits = std::iter::once(T::ZERO).chain(
+        try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
+            let c = stop_bit_context.clone();
+            let record_id = RecordId::from(i);
+            async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
+        }))
+        .await?,
+    );
 
     // First, create a vector of timedeltas. This vector contains non-zero values only for
     // rows with `stop_bit` = 1, meaning that the row is a trigger event, and has the same
@@ -98,68 +95,22 @@ where
         .chain(
             try_join_all(
                 zip(input.iter(), input.iter().skip(1))
-                    .zip(stop_bits.iter().skip(1))
+                    .zip(stop_bits.clone().skip(1))
                     .enumerate()
                     .map(|(i, ((prev, curr), b))| {
                         let c = t_delta_context.clone();
                         let record_id = RecordId::from(i);
                         let delta = curr.timestamp.clone() - &prev.timestamp;
-                        async move { T::multiply(c, record_id, &delta, b).await }
+                        async move { T::multiply(c, record_id, &delta, &b).await }
                     }),
             )
             .await?,
         )
+        .rev()
         .collect::<Vec<_>>();
 
-    // Do the prefix-sum accumulation of timedeltas. This is similar to
-    // `do_the_binary_tree_thing()`, but it sums up values in top-down order.
-    for (depth, step_size) in std::iter::successors(Some(1_usize), |prev| prev.checked_mul(2))
-        .take_while(|&v| v < num_rows)
-        .enumerate()
-    {
-        let record_count = num_rows - step_size;
-
-        let depth_i_ctx = ctx
-            .narrow(&InteractionPatternStep::from(depth))
-            .set_total_records(record_count);
-        let mt_ctx = depth_i_ctx.narrow(&Step::PreviousStopBitTimesCurrent);
-
-        let mut futures = Vec::with_capacity(record_count);
-
-        // `i` starts from 0 for RecordId. The actual logic skips the first
-        // `step_size` rows.
-        for i in 0..record_count {
-            let index = i + step_size;
-
-            let c1 = depth_i_ctx.clone();
-            let c2 = mt_ctx.clone();
-            let record_id = RecordId::from(i);
-
-            let previous_stop_bit = &stop_bits[index - step_size];
-            let current_stop_bit = &stop_bits[index];
-            let previous_t_delta = &t_delta[index - step_size];
-
-            futures.push(async move {
-                try_join(
-                    // if the current stop_bit is 0, don't accumulate
-                    T::multiply(c1, record_id, previous_t_delta, current_stop_bit),
-                    // next `stop_bit`
-                    T::multiply(c2, record_id, previous_stop_bit, current_stop_bit),
-                )
-                .await
-            });
-        }
-
-        let results = try_join_all(futures).await?;
-
-        results
-            .into_iter()
-            .enumerate()
-            .for_each(|(i, (delta, stop_bit))| {
-                t_delta[i + step_size] += &delta;
-                stop_bits[i + step_size] = stop_bit;
-            });
-    }
+    do_the_binary_tree_thing(ctx.clone(), stop_bits.rev().collect(), &mut t_delta).await?;
+    t_delta.reverse();
 
     Ok(t_delta)
 }
@@ -220,7 +171,6 @@ where
 enum Step {
     IsTriggerBitTimesHelperBit,
     InitializeTimeDelta,
-    PreviousStopBitTimesCurrent,
     RandomBitsForBitDecomposition,
     TimeDeltaBitDecomposition,
     TimeDeltaLessThanCap,
@@ -234,7 +184,6 @@ impl AsRef<str> for Step {
         match self {
             Self::IsTriggerBitTimesHelperBit => "is_trigger_bit_times_helper_bit",
             Self::InitializeTimeDelta => "initialize_time_delta",
-            Self::PreviousStopBitTimesCurrent => "previous_stop_bit_times_current",
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::TimeDeltaBitDecomposition => "time_delta_bit_decomposition",
             Self::TimeDeltaLessThanCap => "time_delta_less_than_cap",
@@ -274,8 +223,8 @@ mod tests {
         let input: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = attribution_window_test_input!(
             [
                 { timestamp: 500, is_trigger_report: 0, helper_bit: 0, breakdown_key: 3, credit: 0 }, // delta: 0
-                { timestamp: 100, is_trigger_report: 0, helper_bit: 0, breakdown_key: 4, credit: 0 }, // delta: 0
-                { timestamp: 130, is_trigger_report: 0, helper_bit: 1, breakdown_key: 4, credit: 0 }, // delta: 0
+                { timestamp: 100, is_trigger_report: 0, helper_bit: 0, breakdown_key: 4, credit: 0 }, // delta: 0 reset
+                { timestamp: 130, is_trigger_report: 0, helper_bit: 1, breakdown_key: 4, credit: 0 }, // delta: 0 reset
                 { timestamp: 150, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 10 },// delta: 20
                 { timestamp: 250, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 2 }, // delta: 120
                 { timestamp: 310, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 1 }, // delta: 180
@@ -283,16 +232,16 @@ mod tests {
                 { timestamp: 540, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 1 }, // delta: 410
                 { timestamp: 890, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 3 }, // delta: 760
                 { timestamp: 920, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 5 }, // delta: 790
-                { timestamp: 110, is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 0 }, // delta: 0
-                { timestamp: 310, is_trigger_report: 1, helper_bit: 0, breakdown_key: 0, credit: 10 },// delta: 0
-                { timestamp: 270, is_trigger_report: 0, helper_bit: 0, breakdown_key: 2, credit: 0 }, // delta: 0
+                { timestamp: 110, is_trigger_report: 0, helper_bit: 0, breakdown_key: 1, credit: 0 }, // delta: 0 reset
+                { timestamp: 310, is_trigger_report: 1, helper_bit: 0, breakdown_key: 0, credit: 10 },// delta: n/a
+                { timestamp: 270, is_trigger_report: 0, helper_bit: 0, breakdown_key: 2, credit: 0 }, // delta: 0 reset
                 { timestamp: 390, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 3 }, // delta: 120
                 { timestamp: 420, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 12 },// delta: 150
-                { timestamp: 530, is_trigger_report: 0, helper_bit: 1, breakdown_key: 2, credit: 0 }, // delta: 0
-                { timestamp: 790, is_trigger_report: 0, helper_bit: 1, breakdown_key: 2, credit: 0 }, // delta: 0
+                { timestamp: 530, is_trigger_report: 0, helper_bit: 1, breakdown_key: 2, credit: 0 }, // delta: 0 reset
+                { timestamp: 790, is_trigger_report: 0, helper_bit: 1, breakdown_key: 2, credit: 0 }, // delta: 0 reset
                 { timestamp: 990, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 6 }, // delta: 200
                 { timestamp: 1100, is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 4 },// delta: 310
-                { timestamp: 1200, is_trigger_report: 0, helper_bit: 1, breakdown_key: 5, credit: 0 },// delta: 0
+                { timestamp: 1200, is_trigger_report: 0, helper_bit: 1, breakdown_key: 5, credit: 0 },// delta: 0 reset
                 { timestamp: 1490, is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 6 },// delta: 290
                 { timestamp: 1800, is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 1 },// delta: 600
                 { timestamp: 1960, is_trigger_report: 1, helper_bit: 1, breakdown_key: 5, credit: 3 },// delta: 760
