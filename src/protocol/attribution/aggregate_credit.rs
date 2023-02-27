@@ -228,7 +228,7 @@ where
 
 async fn simple_aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_>,
-    capped_credits: &[MCAggregateCreditInputRow<F, Replicated<F>>],
+    capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, Replicated<F>>>,
     max_breakdown_key: u128,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
@@ -238,42 +238,47 @@ where
 {
     let mut sums = vec![Replicated::ZERO; max_breakdown_key as usize];
     let to_take = usize::try_from(max_breakdown_key).unwrap();
+    let valid_bits_count = (u128::BITS - (max_breakdown_key - 1).leading_zeros()) as usize;
+
+    let inputs = capped_credits
+        .map(|row| {
+            (
+                row.credit.clone(),
+                row.breakdown_key
+                    .iter()
+                    .take(valid_bits_count)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
 
     let equality_check_context = ctx
         .narrow(&Step::ComputeEqualityChecks)
-        .set_total_records(capped_credits.len());
+        .set_total_records(inputs.len());
     let check_times_credit_context = ctx
         .narrow(&Step::CheckTimesCredit)
-        .set_total_records(capped_credits.len());
+        .set_total_records(inputs.len());
 
-    let futures = capped_credits.iter().enumerate().map(|(i, row)| {
-        let c1 = equality_check_context.clone();
-        let c2 = check_times_credit_context.clone();
-        let credit = &row.credit;
-        let valid_bits_count = (u128::BITS - (max_breakdown_key - 1).leading_zeros()) as usize;
-        let copy_of_valid_bk_bits = row
-            .breakdown_key
-            .iter()
-            .take(valid_bits_count)
-            .cloned()
-            .collect::<Vec<_>>();
-        async move {
-            let equality_checks = check_everything(c1.clone(), i, &copy_of_valid_bk_bits).await?;
-            let futures =
-                equality_checks
-                    .iter()
-                    .take(to_take)
-                    .enumerate()
-                    .map(|(check_idx, check)| {
+    let increments = try_join_all(inputs.iter().enumerate().map(
+        |(i, (credit, breakdown_key_bits))| {
+            let c1 = equality_check_context.clone();
+            let c2 = check_times_credit_context.clone();
+            async move {
+                let equality_checks = check_everything(c1.clone(), i, breakdown_key_bits).await?;
+                try_join_all(equality_checks.iter().take(to_take).enumerate().map(
+                    |(check_idx, check)| {
                         let step = BitOpStep::from(check_idx);
                         let c = c2.narrow(&step);
                         let record_id = RecordId::from(i);
                         async move { Replicated::multiply(c, record_id, check, credit).await }
-                    });
-            try_join_all(futures).await
-        }
-    });
-    let increments = try_join_all(futures).await?;
+                    },
+                ))
+                .await
+            }
+        },
+    ))
+    .await?;
     for increments_for_row in increments {
         for (i, increment) in increments_for_row.iter().enumerate() {
             sums[i] += increment;
