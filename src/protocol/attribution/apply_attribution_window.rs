@@ -29,29 +29,26 @@ async fn apply_attribution_window<F, C, T>(
     ctx: C,
     input: &[MCApplyAttributionWindowInputRow<F, T>],
     attribution_window_seconds: u32,
-) -> Result<Vec<MCApplyAttributionWindowOutputRow<F, T>>, Error>
+) -> Result<impl Iterator<Item = MCApplyAttributionWindowOutputRow<F, T>> + '_, Error>
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
     T: Arithmetic<F> + BasicProtocols<C, F>,
 {
-    let t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
+    let mut t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
 
     let trigger_values =
-        zero_out_expired_trigger_values(&ctx, input, &t_deltas, attribution_window_seconds).await?;
+        zero_out_expired_trigger_values(&ctx, input, &mut t_deltas, attribution_window_seconds)
+            .await?;
 
-    Ok(input
-        .iter()
-        .zip(trigger_values)
-        .map(|(x, value)| {
-            MCApplyAttributionWindowOutputRow::new(
-                x.is_trigger_report.clone(),
-                x.helper_bit.clone(),
-                x.breakdown_key.clone(),
-                value,
-            )
-        })
-        .collect::<Vec<_>>())
+    Ok(input.iter().zip(trigger_values).map(|(x, value)| {
+        MCApplyAttributionWindowOutputRow::new(
+            x.is_trigger_report.clone(),
+            x.helper_bit.clone(),
+            x.breakdown_key.clone(),
+            value,
+        )
+    }))
 }
 
 /// Computes time deltas from each trigger event to its nearest matching source event.
@@ -109,6 +106,7 @@ where
         .rev()
         .collect::<Vec<_>>();
 
+    // TODO: Change the input/output to iterators
     do_the_binary_tree_thing(ctx.clone(), stop_bits.rev().collect(), &mut t_delta).await?;
     t_delta.reverse();
 
@@ -126,7 +124,7 @@ where
 async fn zero_out_expired_trigger_values<F, C, T>(
     ctx: &C,
     input: &[MCApplyAttributionWindowInputRow<F, T>],
-    time_delta: &[T],
+    time_delta: &mut [T],
     cap: u32,
 ) -> Result<Vec<T>, Error>
 where
@@ -257,11 +255,10 @@ mod tests {
                 |ctx, input: Vec<ApplyAttributionWindowInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input
                         .iter()
-                        .map(|x| x.breakdown_key.clone())
-                        .collect::<Vec<_>>();
+                        .map(|x| x.breakdown_key.clone());
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        &convert_all_bits_local(ctx.role(), bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
@@ -283,7 +280,7 @@ mod tests {
 
                     apply_attribution_window(ctx, &modulus_converted_shares, ATTRIBUTION_WINDOW)
                         .await
-                        .unwrap()
+                        .unwrap().collect()
                 },
             )
             .await;
