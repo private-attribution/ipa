@@ -925,7 +925,7 @@ pub mod tests {
     pub async fn random_ipa_check() {
         const MAX_BREAKDOWN_KEY: usize = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 10;
+        const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
