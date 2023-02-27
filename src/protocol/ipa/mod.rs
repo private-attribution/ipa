@@ -307,7 +307,7 @@ where
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &convert_all_bits_local(ctx.role(), &bk_shares),
+        &convert_all_bits_local(ctx.role(), bk_shares.into_iter()),
         BK::BITS,
         BK::BITS,
     )
@@ -318,7 +318,7 @@ where
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &convert_all_bits_local(ctx.role(), &mk_shares),
+        &convert_all_bits_local(ctx.role(), mk_shares.into_iter()),
         MK::BITS,
         num_multi_bits,
     )
@@ -400,7 +400,7 @@ where
 
     aggregate_credit::<F, BK>(
         ctx.narrow(&Step::AggregateCredit),
-        &user_capped_credits,
+        user_capped_credits.into_iter(),
         max_breakdown_key,
         num_multi_bits,
     )
@@ -440,7 +440,7 @@ where
     let converted_mk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &m_ctx
-            .upgrade(convert_all_bits_local(m_ctx.role(), &mk_shares))
+            .upgrade(convert_all_bits_local(m_ctx.role(), mk_shares.into_iter()))
             .await?,
         MK::BITS,
         num_multi_bits,
@@ -468,7 +468,7 @@ where
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
             .narrow(&Step::ModulusConversionForBreakdownKeys)
-            .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
+            .upgrade(convert_all_bits_local(m_ctx.role(), bk_shares.into_iter()))
             .await?,
         BK::BITS,
         BK::BITS,
@@ -479,7 +479,6 @@ where
     let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
     let intermediate = converted_mk_shares
-        .into_iter()
         .zip(input_rows)
         .map(|(mk_shares, input_row)| {
             IPAModulusConvertedInputRowWrapper::new(
@@ -557,15 +556,16 @@ where
     )
     .await?;
 
-    //Validate before calling sort with downgraded context
     let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
         malicious_validator,
         sh_ctx,
-        &user_capped_credits,
+        user_capped_credits.into_iter(),
         max_breakdown_key,
         num_multi_bits,
     )
     .await?;
+
+    //Validate before returning the result to the report collector
     malicious_validator.validate(output).await
 }
 

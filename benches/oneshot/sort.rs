@@ -36,7 +36,7 @@ async fn main() -> Result<(), Error> {
         .semi_honest(match_keys.clone(), |ctx, match_key| async move {
             convert_all_bits::<Fp32BitPrime, _, _>(
                 &ctx,
-                &convert_all_bits_local(ctx.role(), &match_key),
+                &convert_all_bits_local(ctx.role(), match_key.into_iter()),
                 BitArray40::BITS,
                 NUM_MULTI_BITS,
             )
