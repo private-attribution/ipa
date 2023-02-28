@@ -595,10 +595,19 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 5;
+        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const EXPECTED: &[[u128; 2]] = &[
+            [0, 0],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [6, 0],
+            [7, 0],
+        ];
+        const MAX_BREAKDOWN_KEY: u128 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
@@ -914,9 +923,9 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
-        const MAX_BREAKDOWN_KEY: usize = 16;
+        const MAX_BREAKDOWN_KEY: usize = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 10;
+        const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
@@ -1015,17 +1024,17 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19146;
+        /// empirical value as of Feb 27, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46746;
+        /// empirical value as of Feb 28, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 41802;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13581;
+        /// empirical value as of Feb 27, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33525;
+        /// empirical value as of Feb 28, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29046;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -1071,8 +1080,8 @@ pub mod tests {
                 "Baseline for semi-honest IPA (cap = {per_user_cap}) has DEGRADED! Expected {semi_honest_baseline}, got {records_sent}.");
 
             if records_sent < semi_honest_baseline {
-                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}.\
-                                Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}. \
+                                Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
             let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;

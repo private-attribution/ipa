@@ -16,7 +16,7 @@ use std::{num::NonZeroUsize, time::Instant};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 1000;
+    const BATCHSIZE: usize = 100;
     const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
