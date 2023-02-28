@@ -37,7 +37,7 @@ use ::tokio::sync::{mpsc, oneshot};
 use shuttle::future as tokio;
 
 /// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
-pub trait Message: Debug + Send + Serializable + 'static {}
+pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
 /// Any field value can be send as a message
 impl<F: Field> Message for F {}

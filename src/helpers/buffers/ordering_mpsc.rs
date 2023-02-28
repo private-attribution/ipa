@@ -16,6 +16,7 @@ use std::{
         Arc,
     },
 };
+use std::fmt::{Debug, Formatter};
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
@@ -30,6 +31,16 @@ pub struct OrderingMpscReceiver<M: Message> {
     end: Arc<OrderingMpscEnd>,
     #[cfg(debug_assertions)]
     name: String,
+}
+
+impl <M: Message> Debug for OrderingMpscReceiver<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if cfg!(debug_assertions) {
+            write!(f, "OrderingMpscReceiver[{}]", self.name)
+        } else {
+            write!(f, "OrderingMpscReceiver")
+        }
+    }
 }
 
 pub struct OrderingMpscSender<M: Message> {

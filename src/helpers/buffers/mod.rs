@@ -6,6 +6,8 @@ mod unordered_receiver;
 
 pub use receive::ReceiveBuffer;
 pub use send::{Config as SendBufferConfig, SendBuffer};
+pub use ordering_mpsc::{ordering_mpsc, OrderingMpscSender, OrderingMpscReceiver};
+pub use unordered_receiver::UnorderedReceiver;
 
 #[cfg(debug_assertions)]
 mod waiting {
