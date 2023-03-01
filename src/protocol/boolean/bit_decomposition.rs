@@ -56,7 +56,7 @@ impl BitDecomposition {
         // `BitwiseSum` outputs one more bit than its input, so [d]_B is (el + 1)-bit long.
         let d_b = add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128()).await?;
 
-        // Step 6. p <? d.
+        // Step 6. q = d >=? p (note: the paper uses p <? d, which is incorrect)
         let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
             ctx.narrow(&Step::IsPLessThanD),
             record_id,
@@ -70,14 +70,9 @@ impl BitDecomposition {
 
         // Step 8, 9. [g_i] = [q] * f_i
         // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(el+1))
-        //
-        // Again, `BitwiseSum` outputs an extra bit. Since [d]_B is already
-        // `el + 1` bits long, [h]_B will be `el + 2`-bits long.
-        let h_b =
-            maybe_add_constant_mod2l(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p).await?;
-
         // Step 11. [a]_B = ([h]_0,...[h]_(el-1))
-        let a_b = h_b[0..el as usize].to_vec();
+        let a_b =
+            maybe_add_constant_mod2l(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p).await?;
 
         Ok(a_b)
     }
