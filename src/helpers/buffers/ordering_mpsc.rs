@@ -457,7 +457,7 @@ mod unit {
     async fn recv_stream() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(2).unwrap());
         tx.send_test(1).await;
-        assert_eq!(None, StreamExt::next(&mut rx).now_or_never());
+        assert!(StreamExt::next(&mut rx).now_or_never().is_none());
         tx.send_test(0).await;
         assert!(StreamExt::next(&mut rx).now_or_never().flatten().is_some());
     }

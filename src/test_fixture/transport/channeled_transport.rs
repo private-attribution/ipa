@@ -129,7 +129,7 @@ impl ChannelledTransport for InMemoryChannelledTransport {
         Option<Step>: From<S>,
     {
         let channel = self.get_channel(dest);
-        let packet = Addr::from_route(self.identity, &route);
+        let addr = Addr::from_route(self.identity, &route);
 
         channel
             .send((packet, InMemoryStream::wrap(data)))
