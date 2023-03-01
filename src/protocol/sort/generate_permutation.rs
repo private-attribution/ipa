@@ -74,15 +74,12 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    let revealed_permutation = ShuffledPermutationWrapper::reveal(
-        ctx.narrow(&RevealPermutation),
-        NoRecord,
-        &ShuffledPermutationWrapper {
-            perm: shuffled_permutation,
-            ctx,
-        },
-    )
-    .await?;
+    let reveal_ctx = ctx.narrow(&RevealPermutation);
+    let wrapper = ShuffledPermutationWrapper {
+        perm: shuffled_permutation,
+        ctx,
+    };
+    let revealed_permutation = wrapper.reveal(reveal_ctx, NoRecord).await?;
 
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
