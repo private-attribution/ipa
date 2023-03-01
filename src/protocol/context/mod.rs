@@ -75,7 +75,7 @@ mod tests {
         protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated,
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
         },
         telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     };
@@ -89,26 +89,11 @@ mod tests {
     use super::*;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig};
 
-    trait AsReplicated<F: Field> {
-        fn left(&self) -> F;
-        fn right(&self) -> F;
-    }
-
-    impl<F: Field> AsReplicated<F> for Replicated<F> {
-        fn left(&self) -> F {
-            (self as &Replicated<F>).left()
-        }
-
-        fn right(&self) -> F {
-            (self as &Replicated<F>).right()
-        }
-    }
-
     /// This looks weird because it uses `MaliciousReplicated::rx()` value instead of `x`.
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicated<F> for MaliciousReplicated<F> {
+    impl<F: Field> ReplicatedSecretSharing<F> for MaliciousReplicated<F> {
         fn left(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().left()
         }
@@ -124,7 +109,7 @@ mod tests {
         F: Field,
         Standard: Distribution<F>,
         C: Context,
-        S: AsReplicated<F>,
+        S: ReplicatedSecretSharing<F>,
     {
         let ctx = ctx.narrow("metrics");
         let (left_peer, right_peer) = (

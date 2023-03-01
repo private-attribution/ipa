@@ -8,7 +8,6 @@
 //!
 use crate::{
     bits::Serializable,
-    ff::Field,
     helpers::{
         buffers::{ReceiveBuffer, SendBuffer, SendBufferConfig},
         network::{ChannelId, MessageEnvelope, Network},
@@ -17,6 +16,7 @@ use crate::{
         Error, MessagePayload, Role, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::{RecordId, Step},
+    secret_sharing::SharedValue,
     task::JoinHandle,
     telemetry::{labels::STEP, metrics::RECORDS_SENT},
 };
@@ -40,7 +40,7 @@ use shuttle::future as tokio;
 pub trait Message: Debug + Send + Serializable + 'static {}
 
 /// Any field value can be send as a message
-impl<F: Field> Message for F {}
+impl<S: SharedValue> Message for S {}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides
 /// the ability to send and receive messages from helper peers. Protocols request communication

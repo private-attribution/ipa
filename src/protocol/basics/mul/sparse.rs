@@ -1,5 +1,9 @@
 use crate::{
-    ff::Field, helpers::Role, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    ff::Field,
+    helpers::Role,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
 };
 
 /// A description of a replicated secret sharing, with zero values at known positions.
@@ -200,7 +204,7 @@ pub(in crate::protocol) mod test {
         secret_sharing::{
             replicated::{
                 malicious::AdditiveShare as MaliciousReplicated,
-                semi_honest::AdditiveShare as Replicated,
+                semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
             },
             IntoShares,
         },

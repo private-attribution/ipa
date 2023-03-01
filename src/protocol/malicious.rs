@@ -11,6 +11,7 @@ use crate::{
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
         semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
     sync::{Arc, Mutex, Weak},
 };
@@ -272,6 +273,7 @@ mod tests {
                     ThisCodeIsAuthorizedToDowngradeFromMalicious,
                 },
                 semi_honest::AdditiveShare as Replicated,
+                ReplicatedSecretSharing,
             },
             IntoShares,
         },

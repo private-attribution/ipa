@@ -1,6 +1,9 @@
 use crate::{
     bits::Serializable,
-    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue},
+    secret_sharing::{
+        replicated::ReplicatedSecretSharing, Arithmetic as ArithmeticSecretSharing, SecretSharing,
+        SharedValue,
+    },
 };
 use generic_array::{ArrayLength, GenericArray};
 use std::{
@@ -42,12 +45,14 @@ impl<V: SharedValue> AdditiveShare<V> {
     pub fn as_tuple(&self) -> (V, V) {
         (self.0, self.1)
     }
+}
 
-    pub fn left(&self) -> V {
+impl<V: SharedValue> ReplicatedSecretSharing<V> for AdditiveShare<V> {
+    fn left(&self) -> V {
         self.0
     }
 
-    pub fn right(&self) -> V {
+    fn right(&self) -> V {
         self.1
     }
 }

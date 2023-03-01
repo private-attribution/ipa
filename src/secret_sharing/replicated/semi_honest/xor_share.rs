@@ -1,7 +1,8 @@
 use crate::{
     bits::{Fp2Array, Serializable},
-    helpers::Role,
-    secret_sharing::{Boolean as BooleanSecretSharing, SecretSharing},
+    secret_sharing::{
+        replicated::ReplicatedSecretSharing, Boolean as BooleanSecretSharing, SecretSharing,
+    },
 };
 use aes::cipher::generic_array::GenericArray;
 
@@ -44,25 +45,18 @@ impl<V: Fp2Array> XorShare<V> {
         (self.0, self.1)
     }
 
-    pub fn left(&self) -> V {
+    /// Replicated secret share where both left and right values are `V::ZERO`
+    pub const ZERO: XorShare<V> = Self(V::ZERO, V::ZERO);
+}
+
+impl<V: Fp2Array> ReplicatedSecretSharing<V> for XorShare<V> {
+    fn left(&self) -> V {
         self.0
     }
 
-    pub fn right(&self) -> V {
+    fn right(&self) -> V {
         self.1
     }
-
-    /// Returns share of a scalar value.
-    pub fn share_known_value(helper_role: Role, a: V) -> Self {
-        match helper_role {
-            Role::H1 => Self::new(a, V::ZERO),
-            Role::H2 => Self::new(V::ZERO, V::ZERO),
-            Role::H3 => Self::new(V::ZERO, a),
-        }
-    }
-
-    /// Replicated secret share where both left and right values are `V::ZERO`
-    pub const ZERO: XorShare<V> = Self(V::ZERO, V::ZERO);
 }
 
 impl<V: Fp2Array> BitXor<Self> for &XorShare<V> {
@@ -86,6 +80,12 @@ impl<V: Fp2Array> BitXorAssign<&Self> for XorShare<V> {
     fn bitxor_assign(&mut self, rhs: &Self) {
         self.0 ^= rhs.0;
         self.1 ^= rhs.1;
+    }
+}
+
+impl<V: Fp2Array> From<(V, V)> for XorShare<V> {
+    fn from(s: (V, V)) -> Self {
+        XorShare::new(s.0, s.1)
     }
 }
 

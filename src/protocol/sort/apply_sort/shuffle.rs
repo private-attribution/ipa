@@ -122,6 +122,7 @@ mod tests {
                 BreakdownKey, MatchKey,
             },
             rand::{thread_rng, Rng},
+            secret_sharing::replicated::ReplicatedSecretSharing,
         };
 
         use crate::{

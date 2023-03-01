@@ -9,6 +9,7 @@ use crate::{
     },
     secret_sharing::replicated::{
         malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
 };
 use futures::future::try_join;

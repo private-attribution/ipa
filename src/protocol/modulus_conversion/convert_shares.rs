@@ -10,7 +10,10 @@ use crate::{
         IpaProtocolStep, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+            ReplicatedSecretSharing,
+        },
         Arithmetic as ArithmeticSecretSharing,
     },
 };
@@ -210,7 +213,9 @@ mod tests {
             MatchKey, RecordId,
         },
         rand::thread_rng,
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use proptest::prelude::Rng;
