@@ -357,8 +357,7 @@ mod unit {
             ordering_mpsc,
         },
     };
-    use futures::{future::join, FutureExt};
-    use futures_util::StreamExt;
+    use futures::{future::join, FutureExt, StreamExt};
     use generic_array::GenericArray;
     use std::{mem, num::NonZeroUsize};
 
@@ -457,9 +456,9 @@ mod unit {
     async fn recv_stream() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(2).unwrap());
         tx.send_test(1).await;
-        assert!(StreamExt::next(&mut rx).now_or_never().is_none());
+        assert!(rx.next().now_or_never().is_none());
         tx.send_test(0).await;
-        assert!(StreamExt::next(&mut rx).now_or_never().flatten().is_some());
+        assert!(rx.next().now_or_never().flatten().is_some());
     }
 }
 

@@ -132,7 +132,7 @@ impl ChannelledTransport for InMemoryChannelledTransport {
         let addr = Addr::from_route(self.identity, &route);
 
         channel
-            .send((packet, InMemoryStream::wrap(data)))
+            .send((addr, InMemoryStream::wrap(data)))
             .await
             .map_err(|_e| {
                 io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
