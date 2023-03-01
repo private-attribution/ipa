@@ -4,10 +4,12 @@ use crate::{
     helpers::{messaging::Message, Error},
 };
 use bitvec::{bitvec, vec::BitVec};
-use futures::FutureExt;
+use futures::{FutureExt, Stream};
 use generic_array::GenericArray;
 use std::{
+    fmt::{Debug, Formatter},
     num::NonZeroUsize,
+    pin::Pin,
     sync::{
         atomic::{
             AtomicUsize,
@@ -15,6 +17,7 @@ use std::{
         },
         Arc,
     },
+    task::{Context, Poll},
 };
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
@@ -154,7 +157,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
     }
 
     /// Take the next set of values.  This will not resolve until `min_count` values are available.
-    pub async fn next(&mut self, min_count: usize) -> Option<Vec<u8>> {
+    pub async fn take_next(&mut self, min_count: usize) -> Option<Vec<u8>> {
         // Read all values that are available before trying to return anything.
         while let Some(read) = self.rx.recv().now_or_never() {
             if let Some((index, msg)) = read {
@@ -190,6 +193,37 @@ impl<M: Message> OrderingMpscReceiver<M> {
             start..start
         } else {
             start..(start + absent)
+        }
+    }
+}
+
+impl<M: Message> Debug for OrderingMpscReceiver<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if cfg!(debug_assertions) {
+            write!(f, "OrderingMpscReceiver[{}]", self.name)
+        } else {
+            write!(f, "OrderingMpscReceiver")
+        }
+    }
+}
+
+/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of maximum capacity
+/// this instance can hold.
+impl<M: Message> Stream for OrderingMpscReceiver<M> {
+    type Item = Vec<u8>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = Pin::get_mut(self);
+        loop {
+            let output = this.take(this.capacity.get());
+            if output.is_some() {
+                return Poll::Ready(output);
+            }
+            match this.rx.poll_recv(cx) {
+                Poll::Ready(Some((index, msg))) => this.insert(index, msg),
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
 }
@@ -287,7 +321,7 @@ mod fixture {
         let (tx, report) = channel::<usize>(1);
         spawn(async move {
             let mut bytes = 0;
-            while let Some(buf) = rx.next(1).await {
+            while let Some(buf) = rx.take_next(1).await {
                 bytes += buf.len();
                 if bytes % report_multiple == 0 {
                     tx.send(bytes).await.unwrap();
@@ -324,6 +358,7 @@ mod unit {
         },
     };
     use futures::{future::join, FutureExt};
+    use futures_util::StreamExt;
     use generic_array::GenericArray;
     use std::{mem, num::NonZeroUsize};
 
@@ -336,7 +371,7 @@ mod unit {
         let send = async move {
             tx_a.send(0, input).await.unwrap();
         };
-        let (_, output) = join(send, rx.next(1)).await;
+        let (_, output) = join(send, rx.take_next(1)).await;
         assert_eq!(
             input,
             Fp31::deserialize(GenericArray::from_slice(output.as_ref().unwrap()))
@@ -348,7 +383,7 @@ mod unit {
     async fn drop_tx() {
         let (tx, mut rx) = ordering_mpsc::<Fp31, _>("test", NonZeroUsize::new(3).unwrap());
         mem::drop(tx);
-        assert!(rx.next(1).now_or_never().unwrap().is_none());
+        assert!(rx.take_next(1).now_or_never().unwrap().is_none());
     }
 
     /// ... even if there are things in the pipe ahead of the close.
@@ -357,7 +392,7 @@ mod unit {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
         tx.send_test(2).await;
         mem::drop(tx);
-        assert!(rx.next(1).now_or_never().unwrap().is_none());
+        assert!(rx.take_next(1).now_or_never().unwrap().is_none());
     }
 
     #[tokio::test]
@@ -366,9 +401,9 @@ mod unit {
         tx.send_test(1).await;
 
         assert!(rx.missing().is_empty());
-        assert!(rx.next(1).now_or_never().is_none());
+        assert!(rx.take_next(1).now_or_never().is_none());
         assert_eq!(rx.missing(), 0..1);
-        assert!(rx.next(1).now_or_never().is_none());
+        assert!(rx.take_next(1).now_or_never().is_none());
     }
 
     #[tokio::test]
@@ -377,7 +412,7 @@ mod unit {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
         tx.send_test(1).await;
         tx.send_test(1).await;
-        mem::drop(rx.next(1).await);
+        mem::drop(rx.take_next(1).await);
     }
 
     #[tokio::test]
@@ -385,9 +420,9 @@ mod unit {
     async fn insert_taken() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
         tx.send_test(0).await;
-        assert!(rx.next(1).await.is_some());
+        assert!(rx.take_next(1).await.is_some());
         tx.send_test(0).await;
-        mem::drop(rx.next(1).await);
+        mem::drop(rx.take_next(1).await);
     }
 
     /// When the index is too far into the future, sending does not resolve.
@@ -399,7 +434,7 @@ mod unit {
         assert!(rx.missing().is_empty());
 
         // Poking at the receiver receiving doesn't allow the send to complete.
-        let recv = rx.next(1);
+        let recv = rx.take_next(1);
         assert!(recv.now_or_never().is_none());
         let send3 = tx.send_test(3);
         assert!(send3.now_or_never().is_none());
@@ -412,10 +447,19 @@ mod unit {
         assert!(send3.now_or_never().is_none());
 
         // You have to fill the gap AND receive.
-        let buf = rx.next(1).now_or_never().unwrap().unwrap();
+        let buf = rx.take_next(1).now_or_never().unwrap().unwrap();
         assert_eq!(buf.len(), 3 * FP32BIT_SIZE);
         let send3 = tx.send_test(3);
         assert!(send3.now_or_never().is_some());
+    }
+
+    #[tokio::test]
+    async fn recv_stream() {
+        let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(2).unwrap());
+        tx.send_test(1).await;
+        assert_eq!(None, StreamExt::next(&mut rx).now_or_never());
+        tx.send_test(0).await;
+        assert!(StreamExt::next(&mut rx).now_or_never().flatten().is_some());
     }
 }
 
