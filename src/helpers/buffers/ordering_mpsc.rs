@@ -198,12 +198,14 @@ impl<M: Message> OrderingMpscReceiver<M> {
 }
 
 impl<M: Message> Debug for OrderingMpscReceiver<M> {
+    #[cfg(debug_assertions)]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if cfg!(debug_assertions) {
-            write!(f, "OrderingMpscReceiver[{}]", self.name)
-        } else {
-            write!(f, "OrderingMpscReceiver")
-        }
+        write!(f, "OrderingMpscReceiver[{}]", self.name)
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OrderingMpscReceiver")
     }
 }
 
