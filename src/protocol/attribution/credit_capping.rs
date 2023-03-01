@@ -47,34 +47,21 @@ where
     //
     // * `original_credits` will have credit values of only source events
     //
-    let original_credits = mask_source_credits(
-        input,
-        ctx.narrow("NEWmask_source_credits")
-            .set_total_records(input_len),
-    )
-    .await?;
+    let original_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
     //
     // Step 2. Compute user-level reversed prefix-sums
     //
-    let prefix_summed_credits = credit_prefix_sum(
-        ctx.narrow("NEWcredit_prefix_sum").clone(),
-        input,
-        original_credits.iter(),
-    )
-    .await?;
+    let prefix_summed_credits =
+        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
     //
     // `exceeds_cap_bits` = 1 if `prefix_summed_credits` > `cap`
     //
-    let exceeds_cap_bits = is_credit_larger_than_cap(
-        ctx.narrow("NEWis_credit_larger_than_cap").clone(),
-        &prefix_summed_credits,
-        cap,
-    )
-    .await?;
+    let exceeds_cap_bits =
+        is_credit_larger_than_cap(ctx.clone(), &prefix_summed_credits, cap).await?;
 
     //
     // 4. Compute the `final_credit`
@@ -82,8 +69,7 @@ where
     // We compute capped credits in the method, and writes to `original_credits`.
     //
     let final_credits = compute_final_credits(
-        ctx.narrow("NEWcompute_final_credits")
-            .set_total_records(input_len),
+        ctx.set_total_records(input_len),
         input,
         &prefix_summed_credits,
         &exceeds_cap_bits,
