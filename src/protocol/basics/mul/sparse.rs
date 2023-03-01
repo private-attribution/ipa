@@ -1,9 +1,5 @@
 use crate::{
-    ff::Field,
-    helpers::Role,
-    secret_sharing::replicated::{
-        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
-    },
+    ff::Field, helpers::Role, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
 };
 
 /// A description of a replicated secret sharing, with zero values at known positions.
@@ -112,7 +108,10 @@ impl ZeroPositions {
     pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
         #[cfg(debug_assertions)]
         {
-            use crate::helpers::Direction::Right;
+            use crate::{
+                helpers::Direction::Right, secret_sharing::replicated::ReplicatedSecretSharing,
+            };
+
             let flags = <[bool; 3]>::from(self);
             if flags[role as usize] {
                 assert_eq!(
