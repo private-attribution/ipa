@@ -107,18 +107,17 @@ impl InMemoryChannelledTransport {
 
 #[async_trait]
 impl ChannelledTransport for InMemoryChannelledTransport {
-    type DataStream = InMemoryStream;
-    type RecordsStream = ReceiveRecords<Self::DataStream>;
+    type RecordsStream = ReceiveRecords<InMemoryStream>;
 
     fn identity(&self) -> HelperIdentity {
         self.identity
     }
 
-    async fn send<Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
+    async fn send<D: Stream<Item = Vec<u8>> + Send + 'static, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
         &self,
         dest: HelperIdentity,
         route: R,
-        data: Self::DataStream,
+        data: D,
     ) -> Result<(), io::Error>
     where
         Option<QueryId>: From<Q>,
@@ -127,7 +126,7 @@ impl ChannelledTransport for InMemoryChannelledTransport {
         let channel = self.get_channel(dest);
         let packet = Addr::from_route(self.identity, &route);
 
-        channel.send((packet, data)).await.map_err(|_e| {
+        channel.send((packet, InMemoryStream::wrap(data))).await.map_err(|_e| {
             io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
         })
     }
@@ -177,6 +176,12 @@ struct InMemoryStream {
 impl InMemoryStream {
     fn empty() -> Self {
         Self::from_iter(std::iter::empty())
+    }
+
+    fn wrap<S: Stream<Item = StreamItem> + Send + 'static>(value: S) -> Self {
+        Self {
+            inner: Box::pin(value)
+        }
     }
 
     fn from_iter<I>(input: I) -> Self
@@ -480,6 +485,7 @@ impl<CB: ReceiveQueryCallback> Setup<CB> {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use super::*;
     use crate::{
         ff::FieldType,
@@ -489,6 +495,8 @@ mod tests {
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::panic::AssertUnwindSafe;
     use tokio::sync::{mpsc::channel, oneshot};
+    use crate::ff::Fp31;
+    use crate::helpers::ordering_mpsc;
 
     const STEP: &str = "in-memory-transport";
 
@@ -666,5 +674,29 @@ mod tests {
                 .downcast_ref::<String>()
                 .map(|s| { s.contains("stream has been consumed already") })
         );
+    }
+
+    #[tokio::test]
+    async fn can_consume_unordered_recv() {
+        let (tx, rx) = ordering_mpsc::<Fp31, _>("test", NonZeroUsize::new(2).unwrap());
+        let mut setup1 = Setup::new(HelperIdentity::ONE, stub_callbacks());
+        let mut setup2 = Setup::new(HelperIdentity::TWO, stub_callbacks());
+        setup1.connect(&mut setup2);
+        let (_, transport1) = setup1.start();
+        let (_, transport2) = setup2.start();
+
+        let step = Step::from(STEP);
+        transport1.send(HelperIdentity::TWO, (RouteId::Records, QueryId, step.clone()), rx).await.unwrap();
+        let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, step));
+
+        tx.send(0, Fp31::try_from(0_u128).unwrap()).await.unwrap();
+        // can't receive the value at index 0 because of buffering inside ordering mpsc
+        assert_eq!(Some(Poll::Pending), poll_immediate(&mut recv).next().await);
+
+        // make the head of mpsc receiver ready to be consumed by filling the gap
+        tx.send(1, Fp31::try_from(1_u128).unwrap()).await.unwrap();
+
+        // must be received by now
+        assert_eq!(Some(vec![0, 1]), recv.next().await);
     }
 }
