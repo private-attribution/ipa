@@ -35,7 +35,7 @@ type StreamItem = Vec<u8>;
 /// In-memory implementation of [`ChannelledTransport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
 /// incoming messages.
-struct InMemoryChannelledTransport {
+pub struct InMemoryChannelledTransport {
     identity: HelperIdentity,
     connections: HashMap<HelperIdentity, ConnectionTx>,
     record_streams: StreamCollection<InMemoryStream>,

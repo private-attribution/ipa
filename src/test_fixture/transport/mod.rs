@@ -5,6 +5,7 @@ mod util;
 
 pub use network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
+pub use channeled_transport::InMemoryChannelledTransport;
 
 use crate::{
     helpers::{

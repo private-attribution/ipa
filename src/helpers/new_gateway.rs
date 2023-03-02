@@ -143,7 +143,6 @@ struct GatewayReceivers<T: ChannelledTransport> {
 }
 
 impl <T: ChannelledTransport> GatewayReceivers<T> {
-    const CAPACITY: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(16) };
 
     pub fn get_or_create<M: Message, F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
         let receivers = self.inner.read().unwrap();
@@ -164,6 +163,7 @@ impl <T: ChannelledTransport> GatewayReceivers<T> {
 }
 
 type UR<T> = UnorderedReceiver<<T as ChannelledTransport>::RecordsStream, <<T as ChannelledTransport>::RecordsStream as Stream>::Item>;
+
 struct RoleResolvingTransport<T> {
     roles: [HelperIdentity; 3],
     inner: T
@@ -191,13 +191,13 @@ impl <T: ChannelledTransport> RoleResolvingTransport<T> {
 }
 
 
-struct Gateway<'a, T: ChannelledTransport> {
-    transport: &'a RoleResolvingTransport<T>,
+struct Gateway<'a> {
+    transport: &'a RoleResolvingTransport<Transport>,
     senders: GatewaySenders,
-    receivers: GatewayReceivers<T>,
+    receivers: GatewayReceivers<Transport>,
 }
 
-impl <T: ChannelledTransport> Gateway<'_, T> {
+impl Gateway<'_> {
 
     pub async fn get_sender<'a, 'b: 'a, M: Message>(&'a self, channel_id: &'b ChannelId, total_records: TotalRecords) -> SendingEnd<'a, M> {
         let (sending_end, maybe_recv) = self.senders.get_or_create(channel_id, total_records);
@@ -208,9 +208,49 @@ impl <T: ChannelledTransport> Gateway<'_, T> {
         sending_end
     }
 
-    pub async fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<T, M> {
+    pub async fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<Transport, M> {
         ReceivingEnd::new(self.receivers.get_or_create::<M, _>(channel_id, || {
             self.transport.receive(channel_id)
         }))
+    }
+}
+
+
+enum Transport {
+    #[cfg(feature = "test-fixture")]
+    InMemory(crate::test_fixture::transport::InMemoryChannelledTransport)
+}
+
+#[async_trait]
+impl ChannelledTransport for Transport {
+    #[cfg(feature = "test-fixture")]
+    type RecordsStream = crate::test_fixture::transport::InMemoryChannelledTransport;
+    // TODO: it is likely that this ends up being the only type we could use here.
+    #[cfg(not(feature = "test-fixture"))]
+    type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>>>>;
+
+    fn identity(&self) -> HelperIdentity {
+        match self {
+            #[cfg(feature = "test-fixture")]
+            Transport::InMemory(ref inner) => inner.identity(),
+            // https://github.com/rust-lang/rust/issues/78123
+            _ => unreachable!()
+        }
+    }
+
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), std::io::Error> where Option<QueryId>: From<Q>, Option<Step>: From<S>, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>, D: Stream<Item=Vec<u8>> + Send + 'static {
+        match self {
+            #[cfg(feature = "test-fixture")]
+            Transport::InMemory(inner) => inner.send(dest, route, data),
+            _ => unreachable!()
+        }
+    }
+
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(&self, from: HelperIdentity, route: R) -> Self::RecordsStream {
+        match self {
+            #[cfg(feature = "test-fixture")]
+            Transport::InMemory(inner) => inner.receive(from, route),
+            _ => unreachable!()
+        }
     }
 }

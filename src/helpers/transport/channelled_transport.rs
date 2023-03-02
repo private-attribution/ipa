@@ -104,7 +104,7 @@ pub trait ChannelledTransport: Send + Sync + 'static {
 
     fn identity(&self) -> HelperIdentity;
 
-    async fn send<D: Stream<Item = Vec<u8>> + Send + 'static, Q, S, R>(
+    async fn send<D, Q, S, R>(
         &self,
         dest: HelperIdentity,
         route: R,
@@ -115,7 +115,8 @@ pub trait ChannelledTransport: Send + Sync + 'static {
         Option<Step>: From<S>,
         Q: QueryIdBinding,
         S: StepBinding,
-        R: RouteParams<RouteId, Q, S>;
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item=Vec<u8>> + Send + 'static;
 
     /// Return the stream of records to be received from another helper for the specific query
     /// and step
