@@ -385,7 +385,7 @@ impl AsRef<str> for Step {
 mod tests {
     use crate::{
         accumulation_test_input,
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
             attribution::{
                 credit_capping::credit_capping,
@@ -436,6 +436,78 @@ mod tests {
             .semi_honest(
                 input,
                 |ctx, input: Vec<CreditCappingInputRow<Fp32BitPrime, BreakdownKey>>| async move {
+                    let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
+
+                    let mut converted_bk_shares = convert_all_bits(
+                        &ctx,
+                        &convert_all_bits_local(ctx.role(), bk_shares),
+                        BreakdownKey::BITS,
+                        BreakdownKey::BITS,
+                    )
+                    .await
+                    .unwrap();
+                    let converted_bk_shares = converted_bk_shares.pop().unwrap();
+                    let modulus_converted_shares = input
+                        .iter()
+                        .zip(converted_bk_shares)
+                        .map(|(row, bk)| {
+                            MCCreditCappingInputRow::new(
+                                row.is_trigger_report.clone(),
+                                row.helper_bit.clone(),
+                                bk,
+                                row.trigger_value.clone(),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+
+                    credit_capping(ctx, &modulus_converted_shares, CAP)
+                        .await
+                        .unwrap()
+                },
+            )
+            .await;
+
+        assert_eq!(result[0].len(), input_len);
+        assert_eq!(result[1].len(), input_len);
+        assert_eq!(result[2].len(), input_len);
+        assert_eq!(result[0].len(), EXPECTED.len());
+
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            let v = [
+                &result[0][i].credit,
+                &result[1][i].credit,
+                &result[2][i].credit,
+            ]
+            .reconstruct();
+            assert_eq!(v.as_u128(), *expected);
+        }
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    pub async fn wrapping_add_attack() {
+        const CAP: u32 = 2;
+        const NUM_MULTI_BITS: u32 = 3;
+
+        // Demonstration of the wrapping-add attack.
+        // Prefix-sum with the following input yields (5 + 26) = 0 in Fp31.
+        const EXPECTED: &[u128; 4] = &[2, 0, 0, 0];
+        let input: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = accumulation_test_input!(
+            [
+                { is_trigger_report: 0, helper_bit: 0, breakdown_key: 0, credit: 5 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 5 },
+                { is_trigger_report: 0, helper_bit: 1, breakdown_key: 1, credit: 26 },
+                { is_trigger_report: 1, helper_bit: 1, breakdown_key: 0, credit: 26 },
+            ];
+            (Fp31, MatchKey, BreakdownKey)
+        );
+        let input_len = input.len();
+
+        let world = TestWorld::new().await;
+        let result = world
+            .semi_honest(
+                input,
+                |ctx, input: Vec<CreditCappingInputRow<Fp31, BreakdownKey>>| async move {
                     let bk_shares = input.iter().map(|x| x.breakdown_key.clone());
 
                     let mut converted_bk_shares = convert_all_bits(
