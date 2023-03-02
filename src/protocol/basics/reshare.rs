@@ -76,16 +76,13 @@ pub trait ReshareBorrowed<C: Context, B: RecordBinding> {
 /// We compute the new shares by adding/subtracting shared values and random values. Since `Fp2Array`
 /// implements `ArithmeticOps` using binary operations i.e., `Add`/`Sub` -> `BitXor`, we can use the
 /// same code for both sharing schemes.
-async fn semi_honest_reshare<'a, 'fut, V: SharedValue, S: ReplicatedSecretSharing<V>>(
+async fn semi_honest_reshare<'a, V: SharedValue, S: ReplicatedSecretSharing<V>>(
     ctx: SemiHonestContext<'a>,
     record_id: RecordId,
     to_helper: Role,
     share: &S,
     (r0, r1): (V, V),
-) -> Result<(V, V), Error>
-where
-    SemiHonestContext<'a>: 'fut,
-{
+) -> Result<S, Error> {
     let channel = ctx.mesh();
 
     // `to_helper.left` calculates part1 = (self.0 + self.1) - r1 and sends part1 to `to_helper.right`
@@ -101,7 +98,7 @@ where
             .receive(to_helper.peer(Direction::Right), record_id)
             .await?;
 
-        Ok((part1 + part2, r1))
+        Ok(S::new(part1 + part2, r1))
     } else if ctx.role() == to_helper.peer(Direction::Right) {
         // `to_helper.right` calculates part2 = (self.left() - r0) and sends it to `to_helper.left`
         // This is same as (a3 - r3) in the diagram
@@ -115,9 +112,9 @@ where
             .receive(to_helper.peer(Direction::Left), record_id)
             .await?;
 
-        Ok((r0, part1 + part2))
+        Ok(S::new(r0, part1 + part2))
     } else {
-        Ok((r0, r1))
+        Ok(S::new(r0, r1))
     }
 }
 
@@ -137,8 +134,7 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
         SemiHonestContext<'a>: 'fut,
     {
         let r = ctx.prss().generate_fields(record_id);
-        let (s0, s1) = semi_honest_reshare(ctx, record_id, to_helper, self, r).await?;
-        Ok(Replicated::new(s0, s1))
+        semi_honest_reshare(ctx, record_id, to_helper, self, r).await
     }
 }
 
@@ -194,8 +190,7 @@ impl<'a, B: Fp2Array> Reshare<SemiHonestContext<'a>, RecordId> for XorReplicated
         SemiHonestContext<'a>: 'fut,
     {
         let r = ctx.prss().generate_bit_arrays(record_id);
-        let (s0, s1) = semi_honest_reshare(ctx, record_id, to_helper, self, r).await?;
-        Ok(XorReplicated::new(s0, s1))
+        semi_honest_reshare(ctx, record_id, to_helper, self, r).await
     }
 }
 
@@ -311,7 +306,7 @@ mod tests {
             helpers::Role,
             protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
             rand::thread_rng,
-            secret_sharing::replicated::semi_honest::XorShare,
+            secret_sharing::replicated::{semi_honest::XorShare, ReplicatedSecretSharing},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -361,7 +356,8 @@ mod tests {
                         // run reshare protocol for all helpers except the one that does not know the input
                         if ctx.role() == target {
                             // test follows the reshare protocol
-                            ctx.prss().generate_bit_arrays(record_id).into()
+                            let (r0, r1) = ctx.prss().generate_bit_arrays(record_id);
+                            XorShare::new(r0, r1)
                         } else {
                             share.reshare(ctx, record_id, target).await.unwrap()
                         }

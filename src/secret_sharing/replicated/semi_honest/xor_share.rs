@@ -36,11 +36,6 @@ impl<V: Fp2Array> Default for XorShare<V> {
 }
 
 impl<V: Fp2Array> XorShare<V> {
-    #[must_use]
-    pub fn new(a: V, b: V) -> Self {
-        Self(a, b)
-    }
-
     pub fn as_tuple(&self) -> (V, V) {
         (self.0, self.1)
     }
@@ -50,6 +45,10 @@ impl<V: Fp2Array> XorShare<V> {
 }
 
 impl<V: Fp2Array> ReplicatedSecretSharing<V> for XorShare<V> {
+    fn new(a: V, b: V) -> Self {
+        Self(a, b)
+    }
+
     fn left(&self) -> V {
         self.0
     }
@@ -83,12 +82,6 @@ impl<V: Fp2Array> BitXorAssign<&Self> for XorShare<V> {
     }
 }
 
-impl<V: Fp2Array> From<(V, V)> for XorShare<V> {
-    fn from(s: (V, V)) -> Self {
-        XorShare::new(s.0, s.1)
-    }
-}
-
 impl<V: Fp2Array> Serializable for XorShare<V>
 where
     V::Size: Add<V::Size>,
@@ -114,7 +107,10 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::XorShare;
-    use crate::bits::{BitArray40, Serializable};
+    use crate::{
+        bits::{BitArray40, Serializable},
+        secret_sharing::replicated::ReplicatedSecretSharing,
+    };
 
     use generic_array::GenericArray;
 

@@ -39,7 +39,7 @@ use shuttle::future as tokio;
 /// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
 pub trait Message: Debug + Send + Serializable + 'static {}
 
-/// Any field value can be send as a message
+/// Any secret shared value can be send as a message
 impl<S: SharedValue> Message for S {}
 
 /// Entry point to the messaging layer managing communication channels for protocols and provides

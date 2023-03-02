@@ -1,5 +1,9 @@
 use crate::{
-    bits::Fp2Array, ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    bits::Fp2Array,
+    ff::Field,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
 };
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},

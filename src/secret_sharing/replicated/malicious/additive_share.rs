@@ -266,7 +266,10 @@ mod tests {
         helpers::Role,
         rand::thread_rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+            replicated::{
+                semi_honest::AdditiveShare as SemiHonestAdditiveShare, ReplicatedSecretSharing,
+            },
+            IntoShares,
         },
         test_fixture::Reconstruct,
     };

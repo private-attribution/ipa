@@ -37,17 +37,16 @@ impl<V: SharedValue> AdditiveShare<V> {
     /// Replicated secret share where both left and right values are `F::ZERO`
     pub const ZERO: Self = Self(V::ZERO, V::ZERO);
 
-    #[must_use]
-    pub fn new(a: V, b: V) -> Self {
-        Self(a, b)
-    }
-
     pub fn as_tuple(&self) -> (V, V) {
         (self.0, self.1)
     }
 }
 
 impl<V: SharedValue> ReplicatedSecretSharing<V> for AdditiveShare<V> {
+    fn new(a: V, b: V) -> Self {
+        Self(a, b)
+    }
+
     fn left(&self) -> V {
         self.0
     }
@@ -166,7 +165,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::AdditiveShare;
-    use crate::ff::Fp31;
+    use crate::{ff::Fp31, secret_sharing::replicated::ReplicatedSecretSharing};
 
     fn secret_share(
         a: u8,
