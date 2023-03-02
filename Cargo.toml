@@ -75,6 +75,7 @@ proptest = "1.0.0"
 
 [profile.release]
 incremental = true
+lto = "thin"
 
 [profile.bench]
 debug-assertions = true
