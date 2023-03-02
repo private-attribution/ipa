@@ -60,18 +60,18 @@ impl<T> BooleanRefOps for T where
 }
 
 /// Trait for items that have fixed-byte length representation.
-pub trait Serializable: Sized {
+pub trait Serializable {
     /// Required number of bytes to store this message on disk/network
     type Size: ArrayLength<u8>;
 
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check
     /// the buffer size.
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>);
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) where Self: Sized;
 
     /// Deserialize message from a sequence of bytes. Similar to [`serialize`], it is enforced that
     /// buffer has enough capacity to fit instances of this trait.
     ///
     /// [`serialize`]: Self::serialize
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self;
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self where Self: Sized;
 }

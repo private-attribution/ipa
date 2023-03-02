@@ -1,8 +1,12 @@
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+use async_trait::async_trait;
+use futures::Stream;
 use futures_util::stream::FuturesUnordered;
 use generic_array::{ArrayLength, GenericArray};
 use tinyvec::array_vec;
@@ -10,10 +14,11 @@ use tokio::sync::mpsc::Sender;
 use typenum::{U8, Unsigned};
 use crate::bits::Serializable;
 use crate::helpers::buffers::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender, UnorderedReceiver};
-use crate::helpers::{Error, MESSAGE_PAYLOAD_SIZE_BYTES, Role};
+use crate::helpers::{Error, HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES, Role};
 use crate::helpers::messaging::{Message, TotalRecords};
 use crate::helpers::network::{ChannelId, MessageEnvelope};
-use crate::protocol::{RecordId, Step};
+use crate::helpers::transport::{ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding};
+use crate::protocol::{QueryId, RecordId, Step};
 
 #[derive(Debug)]
 struct Wrapper([u8; Self::SIZE]);
@@ -34,83 +39,178 @@ impl Serializable for Wrapper {
     }
 }
 
-impl Message for Wrapper {
+impl Message for Wrapper {}
 
-}
-
-struct Gateway {
-    senders: Arc<Mutex<HashMap<ChannelId, OrderingMpscSender<Wrapper>>>>,
-    tx: Sender<OrderingMpscReceiver<Wrapper>>,
-    unordered_recv: HashMap<ChannelId, UnorderedReceiver<>>
-    // receivers: FuturesUnordered<OrderingMpscReceiver<Wrapper>>
-    // receivers: Arc<Mutex<Vec<OrderingMpscReceiver<Wrapper>>>>,
-}
-
-impl Gateway {
-    /// Returns a channel that is ready to send messages. There is lock/unlock penalty associated with it,
-    /// so this method is not expected to be called on the hot path.
-    ///
-    /// ## Panics
-    /// Once upon a time, one little baby mutex got poisoned and everyone around it panicked
-    pub async fn channel(&self, channel_id: &ChannelId) -> OrderingMpscSender<Wrapper> {
-        let mut senders = self.senders.lock().unwrap();
-        // sad to clone
-        match senders.entry(channel_id.clone()) {
-            Entry::Occupied(entry) => {
-                entry.get().clone()
-            }
-            Entry::Vacant(entry) => {
-                // TODO: configurable
-                let (tx, rx) = ordering_mpsc(format!("{:?}", channel_id), NonZeroUsize::new(16).unwrap());
-                let tx = entry.insert(tx).clone();
-                drop(senders);
-
-                self.tx.send(rx).await.unwrap();
-                tx
-            }
-        }
+impl Wrapper {
+    fn wrap<M: Message>(v: M) -> Self {
+        let mut buf = GenericArray::default();
+        v.serialize(&mut buf);
+        Self((*buf).try_into().expect("Message fits into 8 bytes"))
     }
 }
 
-struct Mesh<'a> {
-    step: &'a Step,
+
+struct SendingEnd<'a, M: Message> {
+    channel_id: &'a ChannelId,
+    ordering_tx: OrderingMpscSender<Wrapper>,
     total_records: TotalRecords,
-    sender: OrderingMpscSender<Wrapper>
+    _phantom: PhantomData<M>,
 }
 
-impl <'a> Mesh<'a> {
-    pub async fn send<T: Message>(
-        &self,
-        dest: Role,
-        record_id: RecordId,
-        msg: T,
-    ) -> Result<(), Error> {
-        if T::Size::USIZE > Wrapper::SIZE {
-            Err(Error::serialization_error::<String>(record_id,
-                                                     self.step,
-                                                     format!("Message {msg:?} exceeds the maximum size allowed: {MESSAGE_PAYLOAD_SIZE_BYTES}"))
-            )?;
-        }
+struct ReceivingEnd<T: ChannelledTransport, M: Message> {
+    unordered_rx: UR<T>,
+    _phantom: PhantomData<M>
+}
 
+impl<'a, M: Message> SendingEnd<'a, M> {
+    pub fn new(channel_id: &'a ChannelId, tx: OrderingMpscSender<Wrapper>, total_records: TotalRecords) -> Self {
+        Self {
+            channel_id,
+            ordering_tx: tx,
+            total_records,
+            _phantom: PhantomData
+        }
+    }
+
+    pub async fn send(&self, record_id: RecordId, msg: M) {
         if let TotalRecords::Specified(count) = self.total_records {
             assert!(
                 usize::from(record_id) < usize::from(count),
                 "record ID {:?} is out of range for {:?} (expected {:?} records)",
                 record_id,
-                self.step,
+                self.channel_id,
                 self.total_records,
             );
         }
 
-        let mut payload = [0u8; Wrapper::SIZE];
-        let mut data = GenericArray::default();
-        msg.serialize(&mut data);
-        payload.copy_from_slice(&data);
+        self.ordering_tx.send(record_id.into(), Wrapper::wrap(msg)).await.unwrap()
+    }
+}
 
-        self.sender.send(record_id.into(), Wrapper(payload)).await.unwrap();
-        Ok(())
+impl <T: ChannelledTransport, M: Message> ReceivingEnd<T, M> {
+    pub fn new(rx: UR<T>) -> Self {
+        Self {
+            unordered_rx: rx,
+            _phantom: PhantomData
+        }
     }
 
-    pub async fn receive<T: Message>(&self, source: Role, record_id: RecordId) -> Result<T, Error> {
+    pub async fn receive(&self, record_id: RecordId) -> M {
+        self.unordered_rx.recv::<M, _>(record_id).await.unwrap()
+    }
+}
+
+struct GatewaySenders {
+    inner: RwLock<HashMap<ChannelId, OrderingMpscSender<Wrapper>>>,
+}
+
+impl GatewaySenders {
+    const CAPACITY: NonZeroUsize = unsafe {
+        // don't put 0, I beg you
+        NonZeroUsize::new_unchecked(16)
+    };
+
+    /// Returns or creates a new communication channel. In case if channel is newly created,
+    /// returns the receiving end of it as well. It must be send over to the receiving side.
+    pub fn get_or_create<'a, 'b: 'a, M: Message>(&'a self, channel_id: &'b ChannelId, total_records: TotalRecords) -> (SendingEnd<'a, M>, Option<OrderingMpscReceiver<Wrapper>>) {
+        let senders = self.inner.read().unwrap();
+        match senders.get(&channel_id) {
+            Some(sender) => {
+                (SendingEnd::new(channel_id, sender.clone(), total_records), None)
+            }
+            None => {
+                drop(senders);
+                let mut senders = self.inner.write().unwrap();
+                match senders.entry(channel_id.clone()) {
+                    Entry::Occupied(sender) => {
+                        (SendingEnd::new(channel_id, sender.get().clone(), total_records), None)
+                    }
+                    Entry::Vacant(entry) => {
+                        let (tx, rx) = ordering_mpsc::<Wrapper, _>(
+                            format!("{:?}", entry.key()),
+                            Self::CAPACITY
+                        );
+                        (SendingEnd::new(channel_id, entry.insert(tx).clone(), total_records), None)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct GatewayReceivers<T: ChannelledTransport> {
+    inner: RwLock<HashMap<ChannelId, UR<T>>>
+}
+
+impl <T: ChannelledTransport> GatewayReceivers<T> {
+    const CAPACITY: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(16) };
+
+    pub fn get_or_create<M: Message, F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
+        let receivers = self.inner.read().unwrap();
+        match receivers.get(&channel_id) {
+            Some(recv) => recv.clone(),
+            None => {
+                let mut receivers = self.inner.write().unwrap();
+                match receivers.entry(channel_id.clone()) {
+                    Entry::Occupied(entry) => entry.get().clone(),
+                    Entry::Vacant(entry) => {
+                        let stream = ctr();
+                        entry.insert(stream).clone()
+                    }
+                }
+            }
+        }
+    }
+}
+
+type UR<T> = UnorderedReceiver<<T as ChannelledTransport>::RecordsStream, <<T as ChannelledTransport>::RecordsStream as Stream>::Item>;
+struct RoleResolvingTransport<T> {
+    roles: [HelperIdentity; 3],
+    inner: T
+}
+
+impl <T: ChannelledTransport> RoleResolvingTransport<T> {
+    /// SAFETY: 16 is a valid non-zero usize value
+    const RECV_CAPACITY: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(16) };
+
+    async fn send(&self, channel_id: &ChannelId, data: OrderingMpscReceiver<Wrapper>) {
+        let dest_identity = self.roles[channel_id.role];
+        assert_ne!(dest_identity, self.inner.identity(), "can't send message to itself");
+
+        self.inner.send(dest_identity, (RouteId::Records, QueryId, channel_id.step.clone()), data).await.unwrap()
+    }
+
+    fn receive(&self, channel_id: &ChannelId) -> UR<T> {
+        let peer = self.roles[channel_id.role];
+        assert_ne!(peer, self.inner.identity(), "can't receive message from itself");
+
+        UnorderedReceiver::new(
+            Box::pin(self.inner.receive(peer, (QueryId, channel_id.step.clone()))),
+         Self::RECV_CAPACITY)
+    }
+}
+
+
+struct Gateway<'a, T: ChannelledTransport> {
+    transport: &'a RoleResolvingTransport<T>,
+    senders: GatewaySenders,
+    receivers: GatewayReceivers<T>,
+}
+
+impl <T: ChannelledTransport> Gateway<'_, T> {
+
+    pub async fn get_sender<'a, 'b: 'a, M: Message>(&'a self, channel_id: &'b ChannelId, total_records: TotalRecords) -> SendingEnd<'a, M> {
+        let (sending_end, maybe_recv) = self.senders.get_or_create(channel_id, total_records);
+        if let Some(recv) = maybe_recv {
+            self.transport.send(channel_id, recv).await;
+        }
+
+        sending_end
+    }
+
+    pub async fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<T, M> {
+        ReceivingEnd::new(self.receivers.get_or_create::<M, _>(channel_id, || {
+            self.transport.receive(channel_id)
+        }))
     }
 }

@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 use crate::{
     bits::Serializable,
     helpers::{messaging::Message, Error},
@@ -41,11 +42,11 @@ pub struct OrderingMpscSender<M: Message> {
     end: Arc<OrderingMpscEnd>,
 }
 
-impl <M: Message> Clone for OrderingMpscSender<M> {
+impl<M: Message> Clone for OrderingMpscSender<M> {
     fn clone(&self) -> Self {
         Self {
             tx: self.tx.clone(),
-            end: Arc::clone(&self.end)
+            end: Arc::clone(&self.end),
         }
     }
 }
@@ -113,7 +114,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
         let offset = start..start + M::Size::USIZE;
 
         #[cfg_attr(not(debug_assertions), allow(unused_variables))]
-        let overwritten = self.added.replace(i, true);
+            let overwritten = self.added.replace(i, true);
         #[cfg(debug_assertions)]
         assert!(
             !overwritten,
@@ -198,19 +199,23 @@ impl<M: Message> OrderingMpscReceiver<M> {
     }
 }
 
-impl <M: Message> Debug for OrderingMpscReceiver<M> {
+#[cfg(debug_assertions)]
+impl<M: Message> Debug for OrderingMpscReceiver<M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if cfg!(debug_assertions) {
-            write!(f, "OrderingMpscReceiver[{}]", self.name)
-        } else {
-            write!(f, "OrderingMpscReceiver")
-        }
+        write!(f, "OrderingMpscReceiver[{}]", self.name)
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl<M: Message> Debug for OrderingMpscReceiver<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write ! (f, "OrderingMpscReceiver")
     }
 }
 
 /// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of maximum capacity
 /// this instance can hold.
-impl <M: Message> Stream for OrderingMpscReceiver<M> {
+impl<M: Message> Stream for OrderingMpscReceiver<M> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -218,17 +223,17 @@ impl <M: Message> Stream for OrderingMpscReceiver<M> {
         loop {
             let output = this.take(this.capacity.get());
             if output.is_some() {
-                return Poll::Ready(output)
+                return Poll::Ready(output);
             }
             match this.rx.poll_recv(cx) {
                 Poll::Ready(Some((index, msg))) => {
                     this.insert(index, msg)
                 }
                 Poll::Ready(None) => {
-                    return Poll::Ready(None)
+                    return Poll::Ready(None);
                 }
                 Poll::Pending => {
-                    return Poll::Pending
+                    return Poll::Pending;
                 }
             }
         }
