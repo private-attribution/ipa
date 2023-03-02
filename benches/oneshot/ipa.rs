@@ -13,7 +13,7 @@ async fn main() -> Result<(), Error> {
     const BATCHSIZE: usize = 100;
     const MAX_TRIGGER_VALUE: u128 = 5;
     const PER_USER_CAP: u32 = 3;
-    const MAX_BREAKDOWN_KEY: u128 = 4;
+    const MAX_BREAKDOWN_KEY: u32 = 4;
     const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
@@ -57,6 +57,6 @@ async fn main() -> Result<(), Error> {
     let duration = start.elapsed();
     println!("rows {BATCHSIZE} benchmark complete after {duration:?}");
 
-    assert_eq!(MAX_BREAKDOWN_KEY, result[0].len().try_into().unwrap());
+    assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result[0].len()).unwrap());
     Ok(())
 }
