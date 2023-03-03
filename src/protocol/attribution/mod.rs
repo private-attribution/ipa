@@ -37,13 +37,9 @@ where
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
     Ok(false_value.clone()
-        + &S::multiply(
-            ctx,
-            record_id,
-            condition,
-            &(true_value.clone() - false_value),
-        )
-        .await?)
+        + &condition
+            .multiply(&(true_value.clone() - false_value), ctx, record_id)
+            .await?)
 }
 
 ///
@@ -108,8 +104,9 @@ where
             let current_credit = &uncapped_credits[i];
 
             credit_update_futures.push(async move {
-                let credit_update =
-                    S::multiply(c1, record_id, current_stop_bit, sibling_credit).await?;
+                let credit_update = current_stop_bit
+                    .multiply(sibling_credit, c1, record_id)
+                    .await?;
                 if first_iteration {
                     Ok(credit_update + current_credit)
                 } else {
@@ -119,7 +116,9 @@ where
             if i < next_end {
                 let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
-                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
+                    current_stop_bit
+                        .multiply(sibling_stop_bit, c2, record_id)
+                        .await
                 });
             }
         }
@@ -194,12 +193,16 @@ where
             let current_stop_bit = &stop_bits[i];
             let sibling_value = &values[i + step_size];
             value_update_futures.push(async move {
-                S::multiply(c1, record_id, current_stop_bit, sibling_value).await
+                current_stop_bit
+                    .multiply(sibling_value, c1, record_id)
+                    .await
             });
             if i < next_end {
                 let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
-                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
+                    current_stop_bit
+                        .multiply(sibling_stop_bit, c2, record_id)
+                        .await
                 });
             }
         }

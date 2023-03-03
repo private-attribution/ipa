@@ -65,11 +65,10 @@ where
         let half = shares_to_multiply.len() / 2;
         let mut multiplications = Vec::with_capacity(half);
         for i in 0..half {
-            multiplications.push(S::multiply(
+            multiplications.push(shares_to_multiply[2 * i].multiply(
+                &shares_to_multiply[2 * i + 1],
                 ctx.narrow(&BitOpStep::from(mult_count)),
                 record_id,
-                &shares_to_multiply[2 * i],
-                &shares_to_multiply[2 * i + 1],
             ));
             mult_count += 1;
         }
