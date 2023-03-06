@@ -1024,11 +1024,11 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
+        /// empirical value as of Mar 6, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17319;
 
-        /// empirical value as of Feb 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 41802;
+        /// empirical value as of Mar 6, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 42132;
 
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
@@ -1115,6 +1115,83 @@ pub mod tests {
 
             assert!(records_sent <= malicious_baseline,
                 "Baseline for malicious IPA (cap = {per_user_cap}) has DEGRADED! Expected {malicious_baseline}, got {records_sent}.");
+        }
+    }
+
+    /// Test for the "wrapping-add" attack (issue #520).
+    ///
+    /// This test generates 8 pairs of (source event, trigger event) tuple, each having a random
+    /// trigger value between [4, 31). This ensures there's at least 1 wrap around, and catch if
+    /// the contribution ever exceeds the cap.
+    #[tokio::test]
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn random_wrapping_add_attack() {
+        const PER_USER_CAP: u32 = 2;
+        const MAX_BREAKDOWN_KEY: u128 = 8;
+        const NUM_MULTI_BITS: u32 = 3;
+        const RECORD_COUNT: usize = 8;
+
+        const EXPECTED: &[[u128; 2]] = &[
+            [0, 2],
+            [1, 0],
+            [2, 0],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [6, 0],
+            [7, 0],
+        ];
+
+        let random_seed = thread_rng().gen();
+        println!("Using random seed: {random_seed}");
+        let mut rng = StdRng::seed_from_u64(random_seed);
+        let mut records = Vec::with_capacity(RECORD_COUNT * 2);
+
+        for _ in 0..RECORD_COUNT {
+            let mut record = ipa_test_input!(
+                [
+                    { match_key: 11111, is_trigger_report: 0, breakdown_key: 0, trigger_value: 0 },
+                    { match_key: 11111, is_trigger_report: 1, breakdown_key: 0, trigger_value: rng.gen_range(4..31) },
+                ];
+                (Fp31, MatchKey, BreakdownKey)
+            );
+            records.append(&mut record);
+        }
+
+        let world = TestWorld::new().await;
+        let result: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = world
+            .semi_honest(records, |ctx, input_rows| async move {
+                ipa::<Fp31, MatchKey, BreakdownKey>(
+                    ctx,
+                    &input_rows,
+                    PER_USER_CAP,
+                    MAX_BREAKDOWN_KEY,
+                    NUM_MULTI_BITS,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(MAX_BREAKDOWN_KEY as usize, result.len());
+        assert_eq!(EXPECTED.len(), result.len());
+
+        println!(
+            "actual results: {:#?}",
+            result
+                .iter()
+                .map(|x| x.trigger_value.as_u128())
+                .collect::<Vec<_>>(),
+        );
+        for (i, expected) in EXPECTED.iter().enumerate() {
+            assert_eq!(
+                *expected,
+                [
+                    result[i].breakdown_key.as_u128(),
+                    result[i].trigger_value.as_u128()
+                ]
+            );
         }
     }
 }

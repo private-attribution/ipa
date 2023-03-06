@@ -61,6 +61,7 @@ pub async fn prefix_or_binary_tree_style<F, C, S>(
     ctx: C,
     stop_bits: &[S],
     uncapped_credits: &[S],
+    add_credits: bool,
 ) -> Result<Vec<S>, Error>
 where
     F: Field,
@@ -110,9 +111,15 @@ where
             credit_update_futures.push(async move {
                 let credit_update =
                     S::multiply(c1, record_id, current_stop_bit, sibling_credit).await?;
-                if first_iteration {
+                if first_iteration && add_credits {
                     Ok(credit_update + current_credit)
                 } else {
+                    // This function was originally created for `credit_capping_max_one` where it
+                    // intentionally adds credits to make them exceed the cap = 1. However, there is a
+                    // case where we want to perform a pure prefix-or on bits {0, 1} but in Fp where
+                    // p != 2. For that, rather than duplicating this function, use `add_credits` flag
+                    // to skip the addition. This function computes a *reversed* prefix-or, so it's
+                    // okay to not skip the first iteration.
                     or(c3, record_id, current_credit, &credit_update).await
                 }
             });

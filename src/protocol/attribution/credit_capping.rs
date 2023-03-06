@@ -35,8 +35,14 @@ where
     C: Context + RandomBits<F, Share = T>,
     T: Arithmetic<F> + BasicProtocols<C, F>,
 {
+    let helper_bits = input
+        .iter()
+        .skip(1)
+        .map(|x| x.helper_bit.clone())
+        .collect::<Vec<_>>();
+
     if cap == 1 {
-        return Ok(credit_capping_max_one(ctx, input)
+        return Ok(credit_capping_max_one(ctx, input, &helper_bits)
             .await?
             .collect::<Vec<_>>());
     }
@@ -53,7 +59,7 @@ where
     // Step 2. Compute user-level reversed prefix-sums
     //
     let prefix_summed_credits =
-        credit_prefix_sum(ctx.clone(), input, original_credits.iter()).await?;
+        credit_prefix_sum(ctx.clone(), original_credits.iter(), &helper_bits).await?;
 
     //
     // 3. Compute `prefix_summed_credits` >? `cap`
@@ -61,7 +67,7 @@ where
     // `exceeds_cap_bits` = 1 if `prefix_summed_credits` > `cap`
     //
     let exceeds_cap_bits =
-        is_credit_larger_than_cap(ctx.clone(), &prefix_summed_credits, cap).await?;
+        is_credit_larger_than_cap(ctx.clone(), &prefix_summed_credits, cap, &helper_bits).await?;
 
     //
     // 4. Compute the `final_credit`
@@ -103,10 +109,11 @@ where
 /// is from the same `match-key`, and the prefix-OR indicates that there is *at least one* attributed conversion
 /// in the following rows, then the contribution is "capped", which in this context means set to zero.
 /// In this way, only the final attributed conversion will not be "capped".
-async fn credit_capping_max_one<F, C, T>(
+async fn credit_capping_max_one<'a, F, C, T>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
-) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T>> + '_, Error>
+    input: &'a [MCCreditCappingInputRow<F, T>],
+    helper_bits: &'a [T],
+) -> Result<impl Iterator<Item = MCCreditCappingOutputRow<F, T>> + 'a, Error>
 where
     F: Field,
     C: Context,
@@ -116,14 +123,9 @@ where
 
     let uncapped_credits = mask_source_credits(input, ctx.set_total_records(input_len)).await?;
 
-    let helper_bits = input
-        .iter()
-        .skip(1)
-        .map(|x| x.helper_bit.clone())
-        .collect::<Vec<_>>();
-
     let prefix_ors =
-        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..]).await?;
+        prefix_or_binary_tree_style(ctx.clone(), &helper_bits[1..], &uncapped_credits[1..], true)
+            .await?;
 
     let prefix_or_times_helper_bit_ctx = ctx
         .narrow(&Step::PrefixOrTimesHelperBit)
@@ -207,8 +209,8 @@ where
 
 async fn credit_prefix_sum<'a, F, C, T, I>(
     ctx: C,
-    input: &[MCCreditCappingInputRow<F, T>],
     original_credits: I,
+    helper_bits: &[T],
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
@@ -216,15 +218,9 @@ where
     T: Arithmetic<F> + SecureMul<C> + 'a,
     I: Iterator<Item = &'a T>,
 {
-    let helper_bits = input
-        .iter()
-        .skip(1)
-        .map(|x| x.helper_bit.clone())
-        .collect::<Vec<_>>();
-
     let mut credits = original_credits.cloned().collect::<Vec<_>>();
 
-    do_the_binary_tree_thing(ctx, helper_bits, &mut credits).await?;
+    do_the_binary_tree_thing(ctx, helper_bits.to_vec(), &mut credits).await?;
 
     Ok(credits)
 }
@@ -233,18 +229,18 @@ async fn is_credit_larger_than_cap<F, C, T>(
     ctx: C,
     prefix_summed_credits: &[T],
     cap: u32,
+    helper_bits: &[T],
 ) -> Result<Vec<T>, Error>
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
     T: Arithmetic<F> + BasicProtocols<C, F>,
 {
-    //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
     let rbg = &random_bits_generator;
 
-    try_join_all(
+    let credit_exceeds_bits = try_join_all(
         prefix_summed_credits
             .iter()
             .zip(zip(
@@ -253,8 +249,6 @@ where
             ))
             .enumerate()
             .map(|(i, (credit, (ctx, cap)))| {
-                // The buffer inside the generator is `Arc`, so these clones
-                // just increment the reference.
                 async move {
                     let credit_bits = BitDecomposition::execute(
                         ctx.narrow(&Step::BitDecomposeCurrentContribution),
@@ -275,6 +269,16 @@ where
                     Ok::<_, Error>(compare_bit)
                 }
             }),
+    )
+    .await?;
+
+    // Compute a reversed prefix-or of `credit_exceeds_bits` to prevent the wrapping-add attack.
+    // See `wrapping_add_attack` test in "src/protocol/ipa/mod.rs" for the detail.
+    prefix_or_binary_tree_style(
+        ctx.narrow(&Step::ExceedsBitsPrefixOr),
+        helper_bits,
+        &credit_exceeds_bits,
+        false,
     )
     .await
 }
@@ -359,6 +363,7 @@ enum Step {
     RandomBitsForBitDecomposition,
     IsCapLessThanCurrentContribution,
     IfCurrentExceedsCapOrElse,
+    ExceedsBitsPrefixOr,
     IfNextExceedsCapOrElse,
     IfNextEventHasSameMatchKeyOrElse,
     PrefixOrTimesHelperBit,
@@ -374,6 +379,7 @@ impl AsRef<str> for Step {
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
+            Self::ExceedsBitsPrefixOr => "exceeds_bits_prefix_or",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
             Self::IfNextEventHasSameMatchKeyOrElse => "if_next_event_has_same_match_key_or_else",
             Self::PrefixOrTimesHelperBit => "prefix_or_times_helper_bit",
