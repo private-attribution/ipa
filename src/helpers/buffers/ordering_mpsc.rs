@@ -95,7 +95,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
     ///
     /// [`new`]: Self::new
     /// [`take`]: Self::take
-    fn insert(&mut self, index: usize, msg: M) {
+    fn insert(&mut self, index: usize, msg: &M) {
         #[cfg(debug_assertions)]
         {
             let end = self.end.get();
@@ -161,7 +161,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
         // Read all values that are available before trying to return anything.
         while let Some(read) = self.rx.recv().now_or_never() {
             if let Some((index, msg)) = read {
-                self.insert(index, msg);
+                self.insert(index, &msg);
             } else {
                 return None;
             }
@@ -172,7 +172,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
                 return output;
             }
             if let Some((index, msg)) = self.rx.recv().await {
-                self.insert(index, msg);
+                self.insert(index, &msg);
             } else {
                 return None;
             }
@@ -222,7 +222,7 @@ impl<M: Message> Stream for OrderingMpscReceiver<M> {
                 return Poll::Ready(output);
             }
             match this.rx.poll_recv(cx) {
-                Poll::Ready(Some((index, msg))) => this.insert(index, msg),
+                Poll::Ready(Some((index, msg))) => this.insert(index, &msg),
                 Poll::Ready(None) => return Poll::Ready(None),
                 Poll::Pending => return Poll::Pending,
             }

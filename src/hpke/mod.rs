@@ -163,7 +163,7 @@ mod tests {
         pub fn seal_with_info<'a>(
             &mut self,
             info: Info<'a>,
-            match_key: XorReplicated,
+            match_key: &XorReplicated,
         ) -> MatchKeyEncryption<'a> {
             let mut plaintext = GenericArray::default();
 
@@ -196,7 +196,7 @@ mod tests {
         pub fn seal(
             &mut self,
             key_id: KeyIdentifier,
-            match_key: XorReplicated,
+            match_key: &XorReplicated,
         ) -> MatchKeyEncryption<'static> {
             let info = Info::new(
                 key_id,
@@ -259,7 +259,7 @@ mod tests {
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
 
-        let enc = suite.seal(0, match_key.clone());
+        let enc = suite.seal(0, &match_key);
         let r = suite.open(0, enc).unwrap();
 
         assert_eq!(match_key, r);
@@ -270,7 +270,7 @@ mod tests {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
-        let enc = suite.seal(0, match_key);
+        let enc = suite.seal(0, &match_key);
         suite.advance_epoch();
 
         let _ = suite.open(0, enc).unwrap_err();
@@ -281,7 +281,7 @@ mod tests {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(10, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
-        let enc = suite.seal(0, match_key);
+        let enc = suite.seal(0, &match_key);
         let _ = suite.open(1, enc).unwrap_err();
     }
 
@@ -290,7 +290,7 @@ mod tests {
         let rng = StdRng::from_seed([1_u8; 32]);
         let mut suite = EncryptionSuite::new(1, rng);
         let match_key = new_share(1u64 << 39, 1u64 << 20);
-        let enc = suite.seal(0, match_key);
+        let enc = suite.seal(0, &match_key);
 
         assert!(matches!(
             suite.open(1, enc),
@@ -309,7 +309,7 @@ mod tests {
             fn arbitrary_ct_corruption(bad_byte in 0..23_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let mut encryption = suite.seal(0, new_share(0, 0));
+                let mut encryption = suite.seal(0, &new_share(0, 0));
 
                 encryption.ct.as_mut()[bad_byte] ^= 1 << bad_bit;
                 let _ = suite.open(0, encryption).unwrap_err();
@@ -322,7 +322,7 @@ mod tests {
             fn arbitrary_enc_corruption(bad_byte in 0..32_usize, bad_bit in 0..7_usize, seed: [u8; 32]) {
                 let rng = StdRng::from_seed(seed);
                 let mut suite = EncryptionSuite::new(1, rng);
-                let mut encryption = suite.seal(0, new_share(0, 0));
+                let mut encryption = suite.seal(0, &new_share(0, 0));
 
                 encryption.enc.as_mut()[bad_byte] ^= 1 << bad_bit;
                 let _ = suite.open(0, encryption).unwrap_err();
@@ -373,7 +373,7 @@ mod tests {
                 // keep the originals, in case if we need to damage them
                 let (mut mkp_clone, mut site_domain_clone, mut helper_clone) = (mkp_origin.clone(), site_domain.clone(), helper_origin.clone());
                 let info = Info::new(0, 0, &mkp_origin, &site_domain, &helper_origin).unwrap();
-                let mut encryption = suite.seal_with_info(info, new_share(0, 0));
+                let mut encryption = suite.seal_with_info(info, &new_share(0, 0));
 
                 let info = match corrupted_info_field {
                     1 => Info {

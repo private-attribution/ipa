@@ -179,7 +179,7 @@ where
         <SemiHonestAdditiveShare<V> as Serializable>::Size,
     >>::Output;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) =
             buf.split_at_mut(<SemiHonestAdditiveShare<V> as Serializable>::Size::USIZE);
         self.x.serialize(GenericArray::from_mut_slice(left));

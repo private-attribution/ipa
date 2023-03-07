@@ -37,7 +37,7 @@ pub trait Field: SharedValue + From<u128> + Into<Self::Integer> {
 impl<F: Field> Serializable for F {
     type Size = <F as Field>::Size;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let raw = &self.as_u128().to_le_bytes()[..buf.len()];
         buf.copy_from_slice(raw);
     }

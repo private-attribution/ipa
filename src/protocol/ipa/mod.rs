@@ -141,7 +141,7 @@ where
         >>::Output,
     >>::Output;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
         let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
@@ -993,10 +993,10 @@ pub mod tests {
 
         let mut buf =
             vec![0u8; 2 * <IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE];
-        a.clone().serialize(GenericArray::from_mut_slice(
+        a.serialize(GenericArray::from_mut_slice(
             &mut buf[..<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE],
         ));
-        b.clone().serialize(GenericArray::from_mut_slice(
+        b.serialize(GenericArray::from_mut_slice(
             &mut buf[<IPAInputRow<Fp31, MatchKey, BreakdownKey> as Serializable>::Size::USIZE..],
         ));
 

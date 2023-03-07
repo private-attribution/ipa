@@ -144,7 +144,7 @@ where
 {
     type Size = <V::Size as Add<V::Size>>::Output;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         let (left, right) = buf.split_at_mut(V::Size::USIZE);
         self.left().serialize(GenericArray::from_mut_slice(left));
         self.right().serialize(GenericArray::from_mut_slice(right));
