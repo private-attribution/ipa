@@ -27,6 +27,7 @@ pub async fn secure_attribution<F, BK>(
     sorted_rows: Vec<IPAModulusConvertedInputRow<F, AdditiveShare<F>>>,
     per_user_credit_cap: u32,
     max_breakdown_key: u32,
+    _attribution_window_seconds: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>, Error>
 where

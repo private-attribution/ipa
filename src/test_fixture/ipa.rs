@@ -102,6 +102,7 @@ pub async fn test_ipa(
     expected_results: &[u32],
     per_user_cap: u32,
     max_breakdown_key: u32,
+    attribution_window_seconds: u32,
     security_model: IpaSecurityModel,
 ) {
     const NUM_MULTI_BITS: u32 = 3;
@@ -130,6 +131,7 @@ pub async fn test_ipa(
                         &input_rows,
                         per_user_cap,
                         max_breakdown_key,
+                        attribution_window_seconds,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -144,6 +146,7 @@ pub async fn test_ipa(
                         &input_rows,
                         per_user_cap,
                         max_breakdown_key,
+                        attribution_window_seconds,
                         NUM_MULTI_BITS,
                     )
                     .await

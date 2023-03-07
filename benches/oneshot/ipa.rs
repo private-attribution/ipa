@@ -16,6 +16,7 @@ async fn main() -> Result<(), Error> {
     const MAX_QUERY_SIZE: usize = 1000;
     const NUM_USERS: usize = 300;
     const MAX_RECORDS_PER_USER: usize = 10;
+    const ATTRIBUTION_WINDOW_SECONDS: u32 = 0;
 
     let mut config = TestWorldConfig::default();
     config.gateway_config =
@@ -64,6 +65,7 @@ async fn main() -> Result<(), Error> {
         &expected_results,
         per_user_cap,
         MAX_BREAKDOWN_KEY,
+        ATTRIBUTION_WINDOW_SECONDS,
         IpaSecurityModel::Malicious,
     )
     .await;

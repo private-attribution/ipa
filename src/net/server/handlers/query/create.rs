@@ -81,6 +81,7 @@ mod tests {
             query_type: QueryType::IPA(IpaQueryConfig {
                 per_user_credit_cap: 1,
                 max_breakdown_key: 1,
+                attribution_window_seconds: 0,
                 num_multi_bits: 3,
             }),
         })
