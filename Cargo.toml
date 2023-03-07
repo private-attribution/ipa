@@ -34,6 +34,7 @@ clap = { version = "4.0.10", optional = true, features = ["derive"] }
 comfy-table = { version = "6.0.0", optional = true }
 config = "0.13.2"
 criterion = { version = "0.4.0", optional = true, default-features = false, features = ["async_tokio", "plotters", "html_reports"] }
+dashmap = "5.4.0"
 embed-doc-image = "0.1.4"
 futures = "0.3.24"
 futures-util = "0.3.24"
@@ -58,6 +59,7 @@ serde_json = { version = "1.0", optional = true }
 sha2 = "0.10.6"
 shuttle-crate = { package = "shuttle", version = "0.5", optional = true }
 thiserror = "1.0"
+thread_local = "1.1.7"
 tinyvec = "1.6.0"
 tokio = { version = "1.21.2", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-stream = "0.1.10"

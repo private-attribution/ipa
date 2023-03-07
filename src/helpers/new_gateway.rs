@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -23,6 +22,17 @@ use crate::protocol::{QueryId, RecordId, Step};
 use crate::telemetry::metrics::RECORDS_SENT;
 use crate::telemetry::labels::STEP;
 use crate::telemetry::labels::ROLE;
+use std::cell::RefCell;
+use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
+
+thread_local! {
+    // TODO: Rust thread-local implementation is 2x slower than C (in 2023)
+    // consider using C-shim if performance is not satisfactory
+    // https://github.com/rust-lang/rust/issues/29594
+    // https://matklad.github.io/2020/10/03/fast-thread-locals-in-rust.html
+    static GATEWAY_SENDERS: RefCell<HashHashMap<ChannelId, OrderingMpscSender<Wrapper>>> = RefCell::new(HashMap::default());
+}
 
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
@@ -95,6 +105,7 @@ impl<M: Message> SendingEnd<M> {
         }
 
         metrics::increment_counter!(RECORDS_SENT, STEP => self.channel_id.step.as_ref().to_string(), ROLE => self.my_role.as_static_str());
+        println!("sending {record_id:?} through {:?}", self.channel_id);
         Ok(self.ordering_tx.send(record_id.into(), Wrapper::wrap(msg)).await.unwrap())
     }
 }
@@ -118,24 +129,42 @@ impl <M: Message> ReceivingEnd<M> {
     }
 }
 
-#[derive(Default)]
 struct GatewaySenders {
-    inner: RwLock<HashMap<ChannelId, OrderingMpscSender<Wrapper>>>,
+    inner: DashMap<ChannelId, OrderingMpscSender<Wrapper>>,
+}
+
+impl Default for GatewaySenders {
+    fn default() -> Self {
+        Self {
+            inner: DashMap::with_shard_amount(16384)
+        }
+    }
 }
 
 impl GatewaySenders {
-
     /// Returns or creates a new communication channel. In case if channel is newly created,
     /// returns the receiving end of it as well. It must be send over to the receiving side.
     fn get_or_create(&self, channel_id: &ChannelId, total_records: TotalRecords, capacity: NonZeroUsize) -> (OrderingMpscSender<Wrapper>, Option<OrderingMpscReceiver<Wrapper>>) {
-        let senders = self.inner.read().unwrap();
-        match senders.get_key_value(&channel_id) {
-            Some((key, sender)) => {
-                (sender.clone(), None)
+        if let Some(sender) = GATEWAY_SENDERS.with(|it| {
+            if let Some(sender) = it.borrow().get(channel_id) {
+                println!("found sender for {channel_id:?}");
+                Some(sender.clone())
+            } else {
+                None
+            }
+        }) {
+            return (sender, None)
+        }
+
+        // let senders = self.inner.read().unwrap();
+        let senders = &self.inner;
+        match senders.get(&channel_id) {
+            Some(entry) => {
+                (entry.value().clone(), None)
             }
             None => {
-                drop(senders);
-                let mut senders = self.inner.write().unwrap();
+                // drop(senders);
+                // let mut senders = self.inner.write().unwrap();
                 match senders.entry(channel_id.clone()) {
                     Entry::Occupied(entry) => {
                         (entry.get().clone(), None)
@@ -154,13 +183,13 @@ impl GatewaySenders {
 }
 
 struct GatewayReceivers<T: ChannelledTransport> {
-    inner: RwLock<HashMap<ChannelId, UR<T>>>,
+    inner: DashMap<ChannelId, UR<T>>,
 }
 
 impl <T: ChannelledTransport> Default for GatewayReceivers<T> {
     fn default() -> Self {
         Self {
-            inner: RwLock::new(HashMap::default())
+            inner: DashMap::with_shard_amount(16384)
         }
     }
 }
@@ -168,14 +197,17 @@ impl <T: ChannelledTransport> Default for GatewayReceivers<T> {
 impl <T: ChannelledTransport> GatewayReceivers<T> {
 
     pub fn get_or_create<M: Message, F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
-        let receivers = self.inner.read().unwrap();
+        // let receivers = self.inner.read().unwrap();
+        let receivers = &self.inner;
         match receivers.get(&channel_id) {
             Some(recv) => recv.clone(),
             None => {
-                drop(receivers);
-                let mut receivers = self.inner.write().unwrap();
+                // drop(receivers);
+                // let mut receivers = self.inner.write().unwrap();
                 match receivers.entry(channel_id.clone()) {
-                    Entry::Occupied(entry) => entry.get().clone(),
+                    Entry::Occupied(entry) => {
+                        entry.get().clone()
+                    },
                     Entry::Vacant(entry) => {
                         let stream = ctr();
                         entry.insert(stream).clone()
@@ -252,6 +284,11 @@ impl Gateway {
         let send_outstanding = NonZeroUsize::new(self.config.send_outstanding).unwrap();
         let (tx, maybe_recv) = self.senders.get_or_create(channel_id, total_records, send_outstanding);
         if let Some(recv) = maybe_recv {
+            GATEWAY_SENDERS.with(|mut it| {
+                // it is safe to borrow mutably - this thread has exclusive access
+                // to the thread-local cache
+                it.borrow_mut().insert(channel_id.clone(), tx.clone());
+            });
             tokio::spawn({
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();

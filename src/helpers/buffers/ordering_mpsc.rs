@@ -36,6 +36,12 @@ pub struct OrderingMpscReceiver<M: Message> {
     name: String,
 }
 
+impl <M: Message> Drop for OrderingMpscReceiver<M> {
+    fn drop(&mut self) {
+        println!("{}: I am gone", self.name)
+    }
+}
+
 
 pub struct OrderingMpscSender<M: Message> {
     tx: Sender<(usize, M)>,
