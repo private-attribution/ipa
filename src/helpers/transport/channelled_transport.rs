@@ -99,8 +99,8 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
 
 /// Transport that supports per-query,per-step channels
 #[async_trait]
-pub trait ChannelledTransport: Send + Sync + 'static {
-    type RecordsStream: Stream<Item = Vec<u8>>;
+pub trait ChannelledTransport: Clone + Send + Sync + 'static {
+    type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
 
     fn identity(&self) -> HelperIdentity;
 

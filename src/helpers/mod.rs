@@ -8,6 +8,7 @@ mod prss_protocol;
 mod time;
 mod new_gateway;
 
+use std::fmt::{Debug, Formatter};
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
@@ -31,18 +32,20 @@ use typenum::{U8, Unsigned};
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
+
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
+
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
 /// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
+feature = "enable-serde",
+derive(serde::Serialize, serde::Deserialize),
+serde(transparent)
 )]
 pub struct HelperIdentity {
     id: u8,
@@ -61,6 +64,17 @@ impl TryFrom<usize> for HelperIdentity {
                 id: u8::try_from(value).unwrap(),
             })
         }
+    }
+}
+
+impl Debug for HelperIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self.id {
+            1 => "1",
+            2 => "2",
+            3 => "3",
+            _ => unreachable!()
+        })
     }
 }
 
@@ -137,9 +151,9 @@ impl<T> IndexMut<HelperIdentity> for Vec<T> {
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(into = "&'static str", try_from = "&str")
+feature = "enable-serde",
+derive(serde::Serialize, serde::Deserialize),
+serde(into = "&'static str", try_from = "&str")
 )]
 pub enum Role {
     H1 = 0,
@@ -150,9 +164,9 @@ pub enum Role {
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(
-    feature = "enable-serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(transparent)
+feature = "enable-serde",
+derive(serde::Serialize, serde::Deserialize),
+serde(transparent)
 )]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],

@@ -33,8 +33,6 @@ where
     assert_eq!(a.len(), b.len());
     let vec_len = a.len();
 
-    let channel = ctx.mesh();
-
     // generate shared randomness.
     let prss = ctx.prss();
     let (s0, s1): (F, F) = prss.generate_fields(record_id);
@@ -48,13 +46,14 @@ where
     }
 
     // notify helper on the right that we've computed our value
-    channel
-        .send(role.peer(Direction::Right), record_id, right_sops)
+    ctx
+        .send_channel(role.peer(Direction::Right))
+        .send(record_id, right_sops)
         .await?;
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let left_sops: F = channel
-        .receive(role.peer(Direction::Left), record_id)
+    let left_sops: F = ctx.recv_channel(role.peer(Direction::Left))
+        .receive(record_id)
         .await?;
 
     // now we are ready to construct the result - 2/3 secret shares of a * b.

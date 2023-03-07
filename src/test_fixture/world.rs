@@ -39,6 +39,7 @@ use crate::{
     test_fixture::transport::InMemoryNetwork,
 };
 use tracing::Level;
+use crate::helpers::messaging::TransportImpl;
 
 use super::{sharing::ValidateMalicious, Reconstruct};
 
@@ -103,6 +104,7 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
+    #[cfg(any(test, feature = "test-fixture"))]
     pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
@@ -111,17 +113,13 @@ impl TestWorld {
         let network = InMemoryNetwork::default();
         let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = join_all(network.transports.iter().enumerate().map(|(i, transport)| {
+        let gateways = network.transports.iter().enumerate().map(|(i, transport)| {
             let role_assignment = role_assignment.clone();
-            async move {
-                // simple role assignment, based on transport index
-                let role = Role::all()[i];
-                let network = Network::new(Arc::downgrade(transport), QueryId, role_assignment);
-                Gateway::new(role, network, config.gateway_config).await
-            }
-        }))
-        .await
+            Gateway::new(QueryId, config.gateway_config, role_assignment, TransportImpl::InMemory(Arc::downgrade(transport)))
+        })
+        .collect::<Vec<_>>()
         .try_into()
+        .map_err(|_| "Failed to collect into [Gateway; 3]")
         .unwrap();
 
         TestWorld {
@@ -136,6 +134,7 @@ impl TestWorld {
 
     /// # Panics
     /// Never.
+    #[cfg(any(test, feature = "test-fixture"))]
     pub async fn new() -> TestWorld {
         let config = TestWorldConfig::default();
         Self::new_with(config).await
@@ -174,15 +173,16 @@ impl TestWorld {
 
     #[cfg(not(feature = "shuttle"))]
     pub async fn join(mut self) {
-        // SAFETY: self is consumed by this method, so nobody can access gateways field after
-        // calling this method.
-        // joined flag is used inside the destructor to avoid double-free
-        if !self.joined.swap(true, Ordering::Release) {
-            let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
-            for gateway in gateways {
-                gateway.join().await;
-            }
-        }
+        panic!("Gateway interface has changed, it can no longer be joined");
+        // // SAFETY: self is consumed by this method, so nobody can access gateways field after
+        // // calling this method.
+        // // joined flag is used inside the destructor to avoid double-free
+        // if !self.joined.swap(true, Ordering::Release) {
+        //     let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
+        //     for gateway in gateways {
+        //         gateway.join().await;
+        //     }
+        // }
     }
 }
 
@@ -269,7 +269,9 @@ impl Runner for TestWorld {
         let (m_results, r_shares, output) = split_array_of_tuples(
             self.semi_honest(input, |ctx, share| async {
                 let v = MaliciousValidator::new(ctx);
+                println!("malciious upgrade before");
                 let m_share = v.context().upgrade(share).await.unwrap();
+                println!("malciious upgrade after");
                 let m_result = helper_fn(v.context(), m_share).await;
                 let m_result_clone = m_result.clone();
                 let r_share = v.r_share().clone();

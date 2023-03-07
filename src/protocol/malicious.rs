@@ -1,3 +1,5 @@
+use std::any::type_name;
+use std::fmt::{Debug, Formatter};
 use crate::{
     error::Error,
     ff::Field,
@@ -143,7 +145,6 @@ impl<F: Field> MaliciousValidatorAccumulator<F> {
     }
 }
 
-#[derive(Debug)]
 pub struct MaliciousValidator<'a, F: Field> {
     r_share: Replicated<F>,
     u_and_w: Arc<Mutex<AccumulatorState<F>>>,
@@ -232,26 +233,31 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             .validate_ctx
             .narrow(&ValidateStep::PropagateUW)
             .set_total_records(2);
-        let channel = propagate_ctx.mesh();
-        let helper_right = propagate_ctx.role().peer(Direction::Right);
-        let helper_left = propagate_ctx.role().peer(Direction::Left);
+        let helper_right = propagate_ctx.send_channel(propagate_ctx.role().peer(Direction::Right));
+        let helper_left = propagate_ctx.recv_channel(propagate_ctx.role().peer(Direction::Left));
         let (u_local, w_local) = {
             let state = self.u_and_w.lock().unwrap();
             (state.u, state.w)
         };
         try_join(
-            channel.send(helper_right, RECORD_0, u_local),
-            channel.send(helper_right, RECORD_1, w_local),
+            helper_right.send(RECORD_0, u_local),
+            helper_right.send(RECORD_1, w_local),
         )
         .await?;
         let (u_left, w_left): (F, F) = try_join(
-            channel.receive(helper_left, RECORD_0),
-            channel.receive(helper_left, RECORD_1),
+            helper_left.receive(RECORD_0),
+            helper_left.receive(RECORD_1),
         )
         .await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
         Ok((u_share, w_share))
+    }
+}
+
+impl <F: Field> Debug for MaliciousValidator<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }
 }
 

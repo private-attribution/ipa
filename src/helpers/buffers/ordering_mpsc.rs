@@ -64,7 +64,7 @@ pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
     name: S,
     capacity: NonZeroUsize,
 ) -> (OrderingMpscSender<M>, OrderingMpscReceiver<M>) {
-    let (tx, rx) = mpsc::channel((capacity.get() / 4).clamp(4, 256)); // TODO configure, tune
+    let (tx, rx) = mpsc::channel((capacity.get()).clamp(4, 256)); // TODO configure, tune
     let end = Arc::new(OrderingMpscEnd::new(capacity));
     (
         OrderingMpscSender {
@@ -213,15 +213,16 @@ impl<M: Message> Debug for OrderingMpscReceiver<M> {
     }
 }
 
-/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of maximum capacity
-/// this instance can hold.
+/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of at least 1 element
 impl<M: Message> Stream for OrderingMpscReceiver<M> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = Pin::get_mut(self);
         loop {
-            let output = this.take(this.capacity.get());
+            // TODO: take() is greedy and will yield as many elements as possible. However,
+            // it is not clear to me whether it is the right thing to do here.
+            let output = this.take(1);
             if output.is_some() {
                 return Poll::Ready(output);
             }
@@ -242,8 +243,11 @@ impl<M: Message> Stream for OrderingMpscReceiver<M> {
 
 impl<M: Message> OrderingMpscSender<M> {
     pub async fn send(&self, index: usize, msg: M) -> Result<(), Error> {
+        // println!("blocking to send {index}");
         self.end.block(index).await;
+        // println!("unblocked to send {index}");
         self.tx.send((index, msg)).await?;
+        // println!("finally send {index}");
         Ok(())
     }
 }

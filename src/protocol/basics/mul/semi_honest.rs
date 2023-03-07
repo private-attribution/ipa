@@ -42,14 +42,13 @@ where
     // Shared randomness used to mask the values that are sent.
     let (s0, s1) = ctx.prss().generate_fields(record_id);
 
-    let channel = ctx.mesh();
     let mut rhs = a.right() * b.right();
     if need_to_send {
         // Compute the value (d_i) we want to send to the right helper (i+1).
         let right_d = a.left() * b.right() + a.right() * b.left() - s0;
 
-        channel
-            .send(role.peer(Direction::Right), record_id, right_d)
+        ctx.send_channel(role.peer(Direction::Right))
+            .send(record_id, right_d)
             .await?;
         rhs += right_d;
     } else {
@@ -65,8 +64,7 @@ where
     // Sleep until helper on the left sends us their (d_i-1) value.
     let mut lhs = a.left() * b.left();
     if need_to_recv {
-        let left_d = channel
-            .receive(role.peer(Direction::Left), record_id)
+        let left_d = ctx.recv_channel(role.peer(Direction::Left)).receive(record_id)
             .await?;
         lhs += left_d;
     }

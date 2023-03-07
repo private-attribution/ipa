@@ -2,6 +2,8 @@ use std::{
     iter::{repeat, zip},
     marker::PhantomData,
 };
+use std::any::type_name;
+use std::fmt::{Debug, Formatter};
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
@@ -10,7 +12,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{
-        messaging::{Gateway, Mesh, TotalRecords},
+        messaging::{Gateway, TotalRecords},
         Role,
     },
     protocol::{
@@ -38,10 +40,12 @@ use crate::{
     },
     sync::Arc,
 };
+use crate::helpers::messaging::{Message, ReceivingEnd, SendingEnd};
+use crate::helpers::network::ChannelId;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MaliciousContext<'a, F: Field> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
@@ -172,8 +176,12 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
         )
     }
 
-    fn mesh(&self) -> Mesh<'_, '_> {
-        self.inner.gateway.mesh(self.step(), self.total_records)
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner.gateway.get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner.gateway.get_receiver(&ChannelId::new(role, self.step.clone()))
     }
 }
 
@@ -207,6 +215,12 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
         ctx.step = self.step;
 
         ctx
+    }
+}
+
+impl <F: Field> Debug for MaliciousContext<'_, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MaliciousContext<{:?}>", type_name::<F>())
     }
 }
 
@@ -408,7 +422,6 @@ impl<'a, F: Field>
     }
 }
 
-#[derive(Debug)]
 struct ContextInner<'a, F: Field> {
     prss: &'a PrssEndpoint,
     gateway: &'a Gateway,
@@ -673,7 +686,7 @@ where
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx = self.upgrade_ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
-        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+        let r = try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
                 upgrade_ctx: ctx_ref.clone(),
@@ -683,7 +696,10 @@ where
             .upgrade(share)
             .await
         }))
-        .await
+        .await;
+
+        println!("malicious upgrade for vector babe finished");
+        r
     }
 }
 

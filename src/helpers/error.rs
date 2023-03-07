@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     helpers::{
-        messaging::{Message, ReceiveRequest, SendRequest},
+        messaging::{Message},
         network::{ChannelId, MessageChunks},
         HelperIdentity, Role, TransportError,
     },
@@ -92,14 +92,14 @@ impl Error {
     }
 }
 
-impl From<SendError<ReceiveRequest>> for Error {
-    fn from(source: SendError<ReceiveRequest>) -> Self {
-        Self::SendError {
-            channel: source.0.channel_id,
-            inner: "channel closed".into(),
-        }
-    }
-}
+// impl From<SendError<ReceiveRequest>> for Error {
+//     fn from(source: SendError<ReceiveRequest>) -> Self {
+//         Self::SendError {
+//             channel: source.0.channel_id,
+//             inner: "channel closed".into(),
+//         }
+//     }
+// }
 
 impl<M: Message> From<SendError<(usize, M)>> for Error {
     fn from(_: SendError<(usize, M)>) -> Self {
@@ -109,15 +109,15 @@ impl<M: Message> From<SendError<(usize, M)>> for Error {
     }
 }
 
-impl From<SendError<SendRequest>> for Error {
-    fn from(source: SendError<SendRequest>) -> Self {
-        Self::SendError {
-            channel: source.0 .0,
-            inner: "channel closed".into(),
-        }
-    }
-}
-
+// impl From<SendError<SendRequest>> for Error {
+//     fn from(source: SendError<SendRequest>) -> Self {
+//         Self::SendError {
+//             channel: source.0 .0,
+//             inner: "channel closed".into(),
+//         }
+//     }
+// }
+//
 impl From<PollSendError<MessageChunks>> for Error {
     fn from(source: PollSendError<MessageChunks>) -> Self {
         let inner = source.to_string().into();

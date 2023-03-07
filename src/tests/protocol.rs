@@ -10,6 +10,7 @@ use crate::{
     rand::{thread_rng, Rng},
     test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
 };
+use crate::test_fixture::TestWorldConfig;
 
 #[test]
 fn semi_honest_ipa() {
@@ -23,7 +24,10 @@ fn semi_honest_ipa() {
                 const NUM_MULTI_BITS: u32 = 3;
                 const MAX_MATCH_KEY: u128 = 3;
 
-                let world = TestWorld::new().await;
+                let mut config = TestWorldConfig::default();
+                config.gateway_config.send_outstanding = 256;
+                tracing::info!("another iteration");
+                let world = TestWorld::new_with(config).await;
                 let mut rng = thread_rng();
 
                 let records = (0..BATCHSIZE)

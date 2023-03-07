@@ -24,9 +24,13 @@ use std::{
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Weak;
+use ::tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
+
+#[cfg(all(feature = "shuttle", test))]
+use shuttle::future as tokio;
 
 type ConnectionTx = Sender<(Addr, InMemoryStream)>;
 type ConnectionRx = Receiver<(Addr, InMemoryStream)>;
@@ -42,12 +46,21 @@ pub struct InMemoryChannelledTransport {
 }
 
 impl InMemoryChannelledTransport {
+
+    pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup<impl ReceiveQueryCallback> {
+        Setup::new(identity, stub_callbacks())
+    }
+
     fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
         Self {
             identity,
             connections,
             record_streams: StreamCollection::default(),
         }
+    }
+
+    pub fn identity(&self) -> HelperIdentity {
+        self.identity
     }
 
     /// TODO: maybe it shouldn't be active, but rather expose a method that takes the next message
@@ -106,11 +119,11 @@ impl InMemoryChannelledTransport {
 }
 
 #[async_trait]
-impl ChannelledTransport for InMemoryChannelledTransport {
+impl ChannelledTransport for Weak<InMemoryChannelledTransport> {
     type RecordsStream = ReceiveRecords<InMemoryStream>;
 
     fn identity(&self) -> HelperIdentity {
-        self.identity
+        self.upgrade().unwrap().identity
     }
 
     async fn send<D: Stream<Item = Vec<u8>> + Send + 'static, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
@@ -123,8 +136,9 @@ impl ChannelledTransport for InMemoryChannelledTransport {
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
     {
-        let channel = self.get_channel(dest);
-        let packet = Addr::from_route(self.identity, &route);
+        let this = self.upgrade().unwrap();
+        let channel = this.get_channel(dest);
+        let packet = Addr::from_route(this.identity, &route);
 
         channel.send((packet, InMemoryStream::wrap(data))).await.map_err(|_e| {
             io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
@@ -138,7 +152,7 @@ impl ChannelledTransport for InMemoryChannelledTransport {
     ) -> Self::RecordsStream {
         ReceiveRecords::new(
             (route.query_id(), from, route.step()),
-            self.record_streams.clone(),
+            self.upgrade().unwrap().record_streams.clone(),
         )
     }
 }
@@ -168,7 +182,7 @@ impl<S: Stream + Unpin> Stream for ReceiveRecords<S> {
 }
 
 /// Convenience struct to support heterogeneous in-memory streams
-struct InMemoryStream {
+pub struct InMemoryStream {
     /// There is only one reason for this to have dynamic dispatch: tests that use from_iter method.
     inner: Pin<Box<dyn Stream<Item = StreamItem> + Send>>,
 }
@@ -296,7 +310,7 @@ struct StreamCollection<S> {
 impl<S> Default for StreamCollection<S> {
     fn default() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(HashMap::new())),
+            inner: Arc::new(Mutex::new(HashMap::default())),
         }
     }
 }
@@ -428,7 +442,7 @@ impl<S: Stream + Unpin> Stream for ReceiveRecordsInner<S> {
     }
 }
 
-trait ReceiveQueryCallback:
+pub trait ReceiveQueryCallback:
     FnMut(QueryConfig) -> Pin<Box<dyn Future<Output = Result<QueryId, String>> + Send>> + Send + 'static
 {
 }
@@ -440,11 +454,17 @@ impl<F> ReceiveQueryCallback for F where
 {
 }
 
-struct TransportCallbacks<RQC: ReceiveQueryCallback> {
-    receive_query: RQC,
+pub struct TransportCallbacks<RQC: ReceiveQueryCallback> {
+    pub(crate) receive_query: RQC,
 }
 
-struct Setup<CB: ReceiveQueryCallback> {
+fn stub_callbacks() -> TransportCallbacks<impl ReceiveQueryCallback> {
+    TransportCallbacks {
+        receive_query: move |_| Box::pin(async { unimplemented!() }),
+    }
+}
+
+pub struct Setup<CB: ReceiveQueryCallback> {
     identity: HelperIdentity,
     tx: ConnectionTx,
     rx: ConnectionRx,
@@ -475,15 +495,19 @@ impl<CB: ReceiveQueryCallback> Setup<CB> {
             .is_none());
     }
 
-    pub fn start(self) -> (ConnectionTx, InMemoryChannelledTransport) {
+    fn into_active_conn(self) -> (ConnectionTx, Arc<InMemoryChannelledTransport>) {
         let transport = InMemoryChannelledTransport::new(self.identity, self.connections);
         transport.listen(self.callbacks, self.rx);
 
-        (self.tx, transport)
+        (self.tx, Arc::new(transport))
+    }
+
+    pub fn start(self) -> Arc<InMemoryChannelledTransport> {
+        self.into_active_conn().1
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::num::NonZeroUsize;
     use super::*;
@@ -497,14 +521,9 @@ mod tests {
     use tokio::sync::{mpsc::channel, oneshot};
     use crate::ff::Fp31;
     use crate::helpers::ordering_mpsc;
+    use crate::test_fixture::transport::InMemoryNetwork;
 
     const STEP: &str = "in-memory-transport";
-
-    fn stub_callbacks() -> TransportCallbacks<impl ReceiveQueryCallback> {
-        TransportCallbacks {
-            receive_query: move |_| Box::pin(async { unimplemented!() }),
-        }
-    }
 
     #[tokio::test]
     async fn callback_is_called() {
@@ -529,7 +548,7 @@ mod tests {
                 },
             },
         )
-        .start();
+        .into_active_conn();
         let expected = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -543,7 +562,8 @@ mod tests {
 
     #[tokio::test]
     async fn receive_not_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).start();
+        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+        let transport = Arc::downgrade(&transport);
         let expected = vec![vec![1], vec![2]];
 
         let mut stream = transport.receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
@@ -565,7 +585,7 @@ mod tests {
 
     #[tokio::test]
     async fn receive_ready() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).start();
+        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
         let expected = vec![vec![1], vec![2]];
 
         tx.send((
@@ -574,7 +594,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        let stream = transport.receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
+        let stream = Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -584,7 +604,7 @@ mod tests {
         async fn send_and_verify(
             from: HelperIdentity,
             to: HelperIdentity,
-            transports: &HashMap<HelperIdentity, InMemoryChannelledTransport>,
+            transports: &HashMap<HelperIdentity, Weak<InMemoryChannelledTransport>>,
         ) {
             let (stream_tx, stream_rx) = channel(1);
             let stream = InMemoryStream::from(stream_rx);
@@ -626,11 +646,11 @@ mod tests {
 
         setup1.connect(&mut setup2);
 
-        let (_, transport1) = setup1.start();
-        let (_, transport2) = setup2.start();
+        let transport1 = setup1.start();
+        let transport2 = setup2.start();
         let transports = HashMap::from([
-            (HelperIdentity::ONE, transport1),
-            (HelperIdentity::TWO, transport2),
+            (HelperIdentity::ONE, Arc::downgrade(&transport1)),
+            (HelperIdentity::TWO, Arc::downgrade(&transport2)),
         ]);
 
         send_and_verify(HelperIdentity::ONE, HelperIdentity::TWO, &transports).await;
@@ -639,10 +659,11 @@ mod tests {
 
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
-        let (tx, transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).start();
+        let (tx, owned_transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
         let step = Step::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);
+        let transport = Arc::downgrade(&owned_transport);
 
         let mut recv_stream = transport.receive(HelperIdentity::TWO, (QueryId, step.clone()));
         tx.send((
@@ -679,11 +700,9 @@ mod tests {
     #[tokio::test]
     async fn can_consume_unordered_recv() {
         let (tx, rx) = ordering_mpsc::<Fp31, _>("test", NonZeroUsize::new(2).unwrap());
-        let mut setup1 = Setup::new(HelperIdentity::ONE, stub_callbacks());
-        let mut setup2 = Setup::new(HelperIdentity::TWO, stub_callbacks());
-        setup1.connect(&mut setup2);
-        let (_, transport1) = setup1.start();
-        let (_, transport2) = setup2.start();
+        let network = InMemoryNetwork::default();
+        let transport1 = network.transport(HelperIdentity::ONE).unwrap();
+        let transport2 = network.transport(HelperIdentity::TWO).unwrap();
 
         let step = Step::from(STEP);
         transport1.send(HelperIdentity::TWO, (RouteId::Records, QueryId, step.clone()), rx).await.unwrap();
@@ -695,8 +714,9 @@ mod tests {
 
         // make the head of mpsc receiver ready to be consumed by filling the gap
         tx.send(1, Fp31::try_from(1_u128).unwrap()).await.unwrap();
+        drop(tx);
 
         // must be received by now
-        assert_eq!(Some(vec![0, 1]), recv.next().await);
+        assert_eq!(vec![vec![0], vec![1]], recv.collect::<Vec<_>>().await)
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     helpers::{
-        messaging::{Mesh, TotalRecords},
+        messaging::{TotalRecords},
         Role,
     },
     protocol::{Step, Substep},
@@ -14,6 +14,7 @@ pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
+use crate::helpers::messaging::{Message, ReceivingEnd, SendingEnd};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -62,9 +63,8 @@ pub trait Context: Clone + Send + Sync {
         InstrumentedSequentialSharedRandomness,
     );
 
-    /// Get a set of communications channels to different peers.
-    #[must_use]
-    fn mesh(&self) -> Mesh<'_, '_>;
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M>;
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -139,11 +139,12 @@ mod tests {
             let (mut left_rng, mut right_rng) = ctx.prss_rng();
             (left_rng.gen::<F>(), right_rng.gen::<F>())
         };
-        let channel = ctx.mesh();
 
+        let send_channel = ctx.send_channel(left_peer);
+        let recv_channel = ctx.recv_channel::<F>(right_peer);
         let (_, right_share) = try_join!(
-            channel.send(left_peer, record_id, share.left() - l - seq_l),
-            channel.receive::<F>(right_peer, record_id),
+            send_channel.send(record_id, share.left() - l - seq_l),
+            recv_channel.receive(record_id),
         )
         .unwrap();
 
@@ -212,9 +213,11 @@ mod tests {
 
         let _result = world
             .malicious(input.clone(), |ctx, a| async move {
-                for (i, share) in a.iter().enumerate() {
-                    toy_protocol(ctx.set_total_records(input_len), i, share).await;
-                }
+                let ctx = ctx.set_total_records(input_len);
+                join_all(a.iter().enumerate().map(|(i, share)| {
+                    toy_protocol(ctx.clone(), i, share)
+                })).await;
+
                 a
             })
             .await;

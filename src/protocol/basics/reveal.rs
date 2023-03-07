@@ -59,16 +59,15 @@ impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
     where
         'a: 'fut,
     {
-        let (role, channel) = (ctx.role(), ctx.mesh());
         let (left, right) = input.as_tuple();
 
-        channel
-            .send(role.peer(Direction::Right), record_id, left)
+        ctx.send_channel(ctx.role().peer(Direction::Right))
+            .send(record_id, left)
             .await?;
 
         // Sleep until `helper's left` sends their share
-        let share = channel
-            .receive(role.peer(Direction::Left), record_id)
+        let share = ctx.recv_channel(ctx.role().peer(Direction::Left))
+            .receive(record_id)
             .await?;
 
         Ok(left + right + share)
@@ -93,19 +92,22 @@ impl<'a, F: Field> Reveal<MaliciousContext<'a, F>, RecordId> for MaliciousReplic
     {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-        let (role, channel) = (ctx.role(), ctx.mesh());
         let (left, right) = input.x().access_without_downgrade().as_tuple();
+        let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
+        let left_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Left));
+        let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
+        let right_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Right));
 
         // Send share to helpers to the right and left
         try_join(
-            channel.send(role.peer(Direction::Left), record_id, right),
-            channel.send(role.peer(Direction::Right), record_id, left),
+            left_sender.send(record_id, right),
+            right_sender.send(record_id, left),
         )
         .await?;
 
         let (share_from_left, share_from_right) = try_join(
-            channel.receive(role.peer(Direction::Left), record_id),
-            channel.receive(role.peer(Direction::Right), record_id),
+            left_receiver.receive(record_id),
+            right_receiver.receive(record_id),
         )
         .await?;
 
@@ -277,23 +279,22 @@ mod tests {
         input: &MaliciousReplicated<F>,
         additive_error: F,
     ) -> Result<F, Error> {
-        let channel = ctx.mesh();
         let (left, right) = input.x().access_without_downgrade().as_tuple();
+        let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
+        let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
+        let left_recv = ctx.recv_channel(ctx.role().peer(Direction::Left));
+        let right_recv = ctx.recv_channel(ctx.role().peer(Direction::Right));
 
         // Send share to helpers to the right and left
         try_join(
-            channel.send(ctx.role().peer(Direction::Left), record_id, right),
-            channel.send(
-                ctx.role().peer(Direction::Right),
-                record_id,
-                left + additive_error,
-            ),
+            left_sender.send(record_id, right),
+            right_sender.send(record_id, left + additive_error),
         )
         .await?;
 
         let (share_from_left, _share_from_right): (F, F) = try_join(
-            channel.receive(ctx.role().peer(Direction::Left), record_id),
-            channel.receive(ctx.role().peer(Direction::Right), record_id),
+            left_recv.receive(record_id),
+            right_recv.receive(record_id),
         )
         .await?;
 

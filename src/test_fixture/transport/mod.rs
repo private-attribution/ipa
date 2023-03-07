@@ -2,8 +2,9 @@ mod channeled_transport;
 mod network;
 mod routing;
 mod util;
+mod channelled_network;
 
-pub use network::InMemoryNetwork;
+pub use channelled_network::InMemoryNetwork;
 pub use util::{DelayedTransport, FailingTransport};
 pub use channeled_transport::InMemoryChannelledTransport;
 

@@ -1,7 +1,8 @@
+use std::fmt::{Debug, Formatter};
 use crate::{
     ff::Field,
     helpers::{
-        messaging::{Gateway, Mesh, TotalRecords},
+        messaging::{Gateway, TotalRecords},
         Role,
     },
     protocol::{
@@ -16,10 +17,12 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sync::Arc,
 };
+use crate::helpers::messaging::{Message, ReceivingEnd, SendingEnd};
+use crate::helpers::network::ChannelId;
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SemiHonestContext<'a> {
     /// TODO (alex): Arc is required here because of the `TestWorld` structure. Real world
     /// may operate with raw references and be more efficient
@@ -115,12 +118,21 @@ impl<'a> Context for SemiHonestContext<'a> {
         )
     }
 
-    fn mesh(&self) -> Mesh<'_, '_> {
-        self.inner.gateway.mesh(self.step(), self.total_records)
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
+        self.inner.gateway.get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+    }
+
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
+        self.inner.gateway.get_receiver(&ChannelId::new(role, self.step.clone()))
     }
 }
 
-#[derive(Debug)]
+impl Debug for SemiHonestContext<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SemiHonestContext")
+    }
+}
+
 pub(super) struct ContextInner<'a> {
     pub prss: &'a PrssEndpoint,
     pub gateway: &'a Gateway,
