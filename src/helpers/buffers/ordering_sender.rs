@@ -123,18 +123,15 @@ impl WaitingShard {
                 Ordering::Greater => (),
                 Ordering::Equal => {
                     assert!(item.w.will_wake(&self.wakers[j].w));
-                    println!("update waker {i}@{j}");
                     self.wakers[j] = item;
                     return;
                 }
                 Ordering::Less => {
-                    println!("add waker {i}@{j}");
                     self.wakers.insert(j + 1, item);
                     return;
                 }
             }
         }
-        println!("add waker {i}@0");
         self.wakers.insert(0, item);
     }
 
@@ -148,7 +145,6 @@ impl WaitingShard {
             // We only save one waker at each index, but if a future is polled without
             // this function having to wake the task, it will sit here.  Clean those out.
             drop(self.wakers.drain(0..idx));
-            println!("wake {i}");
             self.wakers.pop_front().unwrap().w.wake();
         }
     }
@@ -217,7 +213,6 @@ impl OrderingSender {
     /// * the message is too large for the buffer, or
     /// * the same index is provided more than once.
     pub fn send<M: Message>(&self, i: usize, m: M) -> Send<'_, M> {
-        println!("send {i}");
         Send { i, m, sender: self }
     }
 
@@ -228,7 +223,6 @@ impl OrderingSender {
     /// Polling the future this method returns will panic if a message has already
     /// been sent with an equal or higher index.
     pub fn close(&self, i: usize) -> Close<'_> {
-        println!("send {i}");
         Close { i, sender: self }
     }
 
@@ -239,10 +233,7 @@ impl OrderingSender {
     {
         // This load here is on the hot path.
         // Don't acquire the state mutex unless this test passes.
-        let next = self.next.load(Acquire);
-        println!("next_op {i} / {next}");
-        match next.cmp(&i) {
-            // match self.next.load(Acquire).cmp(&i) {
+        match self.next.load(Acquire).cmp(&i) {
             Ordering::Greater => {
                 panic!("attempt to write/close at index {i} twice");
             }
@@ -261,7 +252,6 @@ impl OrderingSender {
             }
             Ordering::Less => {
                 // This is the hot path. Wait our turn.
-                println!("next_op {i} wait");
                 self.waiting.add(i, cx.waker().clone());
                 Poll::Pending
             }
@@ -276,10 +266,8 @@ impl OrderingSender {
         let v = b.take(cx);
         if let Some(v) = v {
             self.waiting.wake(self.next.load(Acquire));
-            println!("read {el}", el = v.len());
             Poll::Ready(Some(v))
         } else if b.closed {
-            println!("read close");
             Poll::Ready(None)
         } else {
             // `b.take()` will have tracked the waker
@@ -311,7 +299,6 @@ impl<'s, M: Message> Future for Send<'s, M> {
         let res = this.sender.next_op(this.i, cx, |b| {
             assert!(!b.closed, "writing on a closed stream");
             if b.write(&this.m, cx) {
-                println!("sent {i}", i = this.i);
                 Poll::Ready(())
             } else {
                 // Writing is blocked because there is no space.  b.write() saves the waker.
@@ -360,7 +347,6 @@ impl<'s> Stream for OrderedStream<'s> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        println!("poll stream");
         Pin::get_mut(self).sender.take_next(cx)
     }
 }
@@ -472,6 +458,29 @@ mod test {
             let send_many = join_all((0..3_u8).map(|i| sender.send(usize::from(i), Fp31::from(i))));
             let send_again = sender.send(2, Fp31::from(2_u128));
             join(send_many, send_again).await;
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to write/close at index 2 twice")]
+    fn close_over_send() {
+        run(|| async {
+            let sender = sender();
+            let send_many = join_all((0..3_u8).map(|i| sender.send(usize::from(i), Fp31::from(i))));
+            let close_it = sender.close(2);
+            join(send_many, close_it).await;
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "writing on a closed stream")]
+    fn send_after_close() {
+        run(|| async {
+            let sender = sender();
+            // We can't use `join()` here because the close task won't bother to
+            // wake the send task if the send is polled first.
+            sender.close(0).await;
+            sender.send(1, Fp31::from(1_u128)).await;
         });
     }
 
