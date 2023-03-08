@@ -795,11 +795,11 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 27, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
+        /// empirical value as of Mar 8, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 15453;
 
-        /// empirical value as of Feb 28, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 41802;
+        /// empirical value as of Mar 8, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 38400;
 
         /// empirical value as of Feb 27, 2023.
         const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;

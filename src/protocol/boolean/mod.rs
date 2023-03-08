@@ -13,8 +13,8 @@ use super::{basics::ShareKnownValue, context::Context, BitOpStep, RecordId};
 mod add_constant;
 mod bit_decomposition;
 pub mod bitwise_equal;
-mod bitwise_gt_constant;
 mod bitwise_less_than_prime;
+mod comparison;
 mod generate_random_bits;
 pub mod or;
 pub mod random_bits_generator;
@@ -22,7 +22,7 @@ mod solved_bits;
 mod xor;
 
 pub use bit_decomposition::BitDecomposition;
-pub use bitwise_gt_constant::bitwise_greater_than_constant;
+pub use comparison::greater_than_constant;
 pub use generate_random_bits::RandomBits;
 pub use solved_bits::RandomBitsShare;
 pub use xor::{xor, xor_sparse};

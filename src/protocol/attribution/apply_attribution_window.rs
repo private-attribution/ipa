@@ -6,10 +6,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{
-        boolean::{
-            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
-            BitDecomposition, RandomBits,
-        },
+        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
         BasicProtocols, RecordId,
     },
@@ -139,7 +136,6 @@ where
     // Compare the accumulated timestamp deltas with the specified attribution window
     // cap value, and zero-out trigger event values that exceed the cap.
     let c = ctx.clone().set_total_records(input.len());
-    let bit_decomposition_ctx = c.narrow(&Step::TimeDeltaBitDecomposition);
     let cmp_ctx = c.narrow(&Step::TimeDeltaLessThanCap);
     let mul_ctx = c.narrow(&Step::CompareBitTimesTriggerValue);
 
@@ -152,18 +148,15 @@ where
             .zip(repeat(T::share_known_value(ctx, F::ONE)))
             .enumerate()
             .map(|(i, ((row, delta), one))| {
-                let c1 = bit_decomposition_ctx.clone();
-                let c2 = cmp_ctx.clone();
-                let c3 = mul_ctx.clone();
+                let c1 = cmp_ctx.clone();
+                let c2 = mul_ctx.clone();
                 let record_id = RecordId::from(i);
 
                 async move {
-                    let delta_bits = BitDecomposition::execute(c1, record_id, rbg, delta).await?;
-                    let compare_bit = one
-                        - &bitwise_greater_than_constant(c2, record_id, &delta_bits, cap.into())
-                            .await?;
+                    let compare_bit =
+                        one - &greater_than_constant(c1, record_id, rbg, delta, cap.into()).await?;
                     row.trigger_value
-                        .multiply(&compare_bit, c3, record_id)
+                        .multiply(&compare_bit, c2, record_id)
                         .await
                 }
             }),
@@ -176,7 +169,6 @@ enum Step {
     IsTriggerBitTimesHelperBit,
     InitializeTimeDelta,
     RandomBitsForBitDecomposition,
-    TimeDeltaBitDecomposition,
     TimeDeltaLessThanCap,
     CompareBitTimesTriggerValue,
 }
@@ -189,7 +181,6 @@ impl AsRef<str> for Step {
             Self::IsTriggerBitTimesHelperBit => "is_trigger_bit_times_helper_bit",
             Self::InitializeTimeDelta => "initialize_time_delta",
             Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
-            Self::TimeDeltaBitDecomposition => "time_delta_bit_decomposition",
             Self::TimeDeltaLessThanCap => "time_delta_less_than_cap",
             Self::CompareBitTimesTriggerValue => "compare_bit_times_trigger_value",
         }

@@ -2,9 +2,125 @@ use super::or::or;
 use crate::{
     error::Error,
     ff::Field,
-    protocol::{context::Context, BasicProtocols, BitOpStep, RecordId},
+    protocol::{
+        boolean::{random_bits_generator::RandomBitsGenerator, RandomBits},
+        context::Context,
+        BasicProtocols, BitOpStep, RecordId,
+    },
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
+
+// Adapted from 6.1 Interval Test Protocol in "Multiparty Computation for Interval, Equality, and
+// Comparison Without Bit-Decomposition Protocol", Nishide & Ohta, PKC 2007.
+// <https://doi.org/10.1007/978-3-540-71677-8_23>
+//
+// The version in the paper tests c_1 < x < c_2. For us, c_1 is zero (which eliminates the `c < c_1`
+// case enumerated in the paper), we test ≤ rather than <, and we finally return `x > c_2` which is
+// ~(0 ≤ x ≤ c_2).
+//
+// The remainder of this description names the variables consistently with other routines in this
+// file, which map to the paper as follows:
+//
+// Paper  Ours
+// x      a
+// c      b
+// c_1    0
+// c_2    c
+//
+// Goal: Compute `a > c` as `~(0 ≤ a ≤ c)`
+//
+// Strategy:
+//  1. Generate random r
+//  2. Reveal b = a + r
+//  3. Derive bounds r_low and r_high from public values, such that the desired result is a simple
+//     function of `r_low < r` and `r < r_high`.
+//
+// Case 1: b > c
+// b - c - 1 < r < b + 1
+//  ⟺  b - c ≤ r ≤ b
+//  ⟺  b - b ≤ b - r ≤ b - (b - c)
+//  ⟺  0 ≤ a ≤ c
+//  ⟺  ~(a > c)
+//
+// Case 2: b ≤ c
+//  b < r < b + p - c
+//  ⟺  b - (b + p - c) < b - r < b - b
+//  ⟺  -(p - c) < a < 0
+//  ⟺  a > c
+//
+/// # Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+pub async fn greater_than_constant<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    rbg: &RandomBitsGenerator<F, S, C>,
+    a: &S,
+    c: u128,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context + RandomBits<F, Share = S>,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+{
+    use GreaterThanConstantStep as Step;
+
+    let r = rbg.generate().await?;
+
+    let b = (r.b_p.clone() + a)
+        .reveal(ctx.narrow(&Step::Reveal), record_id)
+        .await?;
+
+    let r_lo;
+    let r_hi;
+    let invert;
+    if b.as_u128() > c {
+        r_lo = b.as_u128() - c - 1;
+        r_hi = b.as_u128() + 1;
+        invert = true;
+    } else {
+        r_lo = b.as_u128();
+        r_hi = F::PRIME.into() + b.as_u128() - c;
+        invert = false;
+    }
+
+    let r_gt_r_lo =
+        bitwise_greater_than_constant(ctx.narrow(&Step::CompareLo), record_id, &r.b_b, r_lo)
+            .await?;
+    let r_lt_r_hi =
+        bitwise_less_than_constant(ctx.narrow(&Step::CompareHi), record_id, &r.b_b, r_hi).await?;
+
+    let result = r_gt_r_lo
+        .multiply(&r_lt_r_hi, ctx.narrow(&Step::Multiply), record_id)
+        .await?;
+
+    if invert {
+        Ok(S::share_known_value(&ctx, F::ONE) - &result)
+    } else {
+        Ok(result)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum GreaterThanConstantStep {
+    Reveal,
+    CompareLo,
+    CompareHi,
+    Multiply,
+}
+
+impl crate::protocol::Substep for GreaterThanConstantStep {}
+
+impl AsRef<str> for GreaterThanConstantStep {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Reveal => "reveal",
+            Self::CompareLo => "compare_lo",
+            Self::CompareHi => "compare_hi",
+            Self::Multiply => "multiply",
+        }
+    }
+}
 
 /// Compares the `[a]` and `c`, and returns `1` iff `a > c`
 ///
@@ -35,9 +151,50 @@ where
     let first_diff_bit = first_differing_bit(&ctx, record_id, a, c).await?;
 
     // Compute the dot-product [a] x `first_diff_bit`. 1 iff a > c.
-    // We can swap `a` with `c` to yield 1 iff a < c. We just need to convert
-    // `c` to `&[c]` using `local_secret_shared_bits`.
     S::sum_of_products(ctx.narrow(&Step::DotProduct), record_id, &first_diff_bit, a).await
+}
+
+/// Compares the `[a]` and `c`, and returns `1` iff `a < c`
+///
+/// Rabbit: Efficient Comparison for Secure Multi-Party Computation
+/// 2.1 Comparison with Bitwise Shared Input – `LTBits` Protocol
+/// Eleftheria Makri, et al.
+/// <https://eprint.iacr.org/2021/119.pdf>
+///
+/// # Errors
+/// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
+/// back via the error response
+///
+/// # Panics
+/// if bitwise share `a` is longer than 128 bits.
+pub async fn bitwise_less_than_constant<F, C, S>(
+    ctx: C,
+    record_id: RecordId,
+    a: &[S],
+    c: u128,
+) -> Result<S, Error>
+where
+    F: Field,
+    C: Context,
+    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+{
+    assert!(a.len() <= 128);
+
+    let first_diff_bit = first_differing_bit(&ctx, record_id, a, c).await?;
+
+    let not_a = a
+        .iter()
+        .map(|bit| S::share_known_value(&ctx, F::ONE) - bit)
+        .collect::<Vec<_>>();
+
+    // Compute the dot-product [~a] x `first_diff_bit`. 1 iff a < c.
+    S::sum_of_products(
+        ctx.narrow(&Step::DotProduct),
+        record_id,
+        &first_diff_bit,
+        &not_a,
+    )
+    .await
 }
 
 async fn first_differing_bit<F, C, S>(
@@ -121,10 +278,12 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::bitwise_greater_than_constant;
+    use super::{bitwise_greater_than_constant, greater_than_constant};
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
-        protocol::{context::Context, RecordId},
+        protocol::{
+            boolean::random_bits_generator::RandomBitsGenerator, context::Context, RecordId,
+        },
         rand::thread_rng,
         secret_sharing::SharedValue,
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
@@ -172,8 +331,67 @@ mod tests {
         result
     }
 
+    async fn gt<F: Field>(world: &TestWorld, lhs: F, rhs: u128) -> F
+    where
+        (F, F): Sized,
+        Standard: Distribution<F>,
+    {
+        let result = world
+            .semi_honest(lhs, |ctx, lhs| async move {
+                greater_than_constant(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &RandomBitsGenerator::new(ctx),
+                    &lhs,
+                    rhs,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let m_result = world
+            .malicious(lhs, |ctx, lhs| async move {
+                greater_than_constant(
+                    ctx.set_total_records(1),
+                    RecordId::from(0),
+                    &RandomBitsGenerator::new(ctx),
+                    &lhs,
+                    rhs,
+                )
+                .await
+                .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
+    }
+
     #[tokio::test]
     pub async fn fp31() {
+        let c = Fp31::from;
+        let zero = Fp31::ZERO;
+        let one = Fp31::ONE;
+        let world = TestWorld::new().await;
+
+        assert_eq!(zero, gt(&world, zero, 1).await);
+        assert_eq!(one, gt(&world, one, 0).await);
+        assert_eq!(zero, gt(&world, zero, 0).await);
+        assert_eq!(zero, gt(&world, one, 1).await);
+
+        assert_eq!(zero, gt(&world, c(3_u8), 7).await);
+        assert_eq!(one, gt(&world, c(21), 20).await);
+        assert_eq!(zero, gt(&world, c(9), 9).await);
+
+        assert_eq!(zero, gt(&world, zero, Fp31::PRIME.into()).await);
+    }
+
+    #[tokio::test]
+    pub async fn bw_fp31() {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -192,7 +410,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn fp_32bit_prime() {
+    pub async fn bw_fp_32bit_prime() {
         let c = Fp32BitPrime::from;
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
@@ -234,7 +452,7 @@ mod tests {
     // this test is for manual execution only
     #[ignore]
     #[tokio::test]
-    pub async fn cmp_random_32_bit_prime_field_elements() {
+    pub async fn bw_cmp_random_32_bit_prime_field_elements() {
         let world = TestWorld::new().await;
         let mut rand = thread_rng();
         for _ in 0..1000 {
@@ -250,7 +468,7 @@ mod tests {
     // this test is for manual execution only
     #[ignore]
     #[tokio::test]
-    pub async fn cmp_all_fp31() {
+    pub async fn bw_cmp_all_fp31() {
         let world = TestWorld::new().await;
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
