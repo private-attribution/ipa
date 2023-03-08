@@ -74,15 +74,12 @@ pub(super) async fn shuffle_and_reveal_permutation<
     )
     .await?;
 
-    let revealed_permutation = ShuffledPermutationWrapper::reveal(
-        ctx.narrow(&RevealPermutation),
-        NoRecord,
-        &ShuffledPermutationWrapper {
-            perm: shuffled_permutation,
-            ctx,
-        },
-    )
-    .await?;
+    let reveal_ctx = ctx.narrow(&RevealPermutation);
+    let wrapper = ShuffledPermutationWrapper {
+        perm: shuffled_permutation,
+        ctx,
+    };
+    let revealed_permutation = wrapper.reveal(reveal_ctx, NoRecord).await?;
 
     Ok(RevealedAndRandomPermutations {
         revealed: revealed_permutation,
@@ -401,7 +398,8 @@ mod tests {
 
         let result = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists = convert_all_bits_local::<Fp31, _>(ctx.role(), &mk_shares);
+                let local_lists =
+                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
                     convert_all_bits(&ctx, &local_lists, MatchKey::BITS, NUM_MULTI_BITS)
                         .await

@@ -40,7 +40,7 @@ impl AsRef<str> for Step {
 async fn accumulate_credit_cap_one<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
-) -> Result<Vec<MCAccumulateCreditOutputRow<F, T>>, Error>
+) -> Result<impl Iterator<Item = MCAccumulateCreditOutputRow<F, T>> + '_, Error>
 where
     F: Field,
     C: Context,
@@ -58,18 +58,14 @@ where
     }))
     .await?;
 
-    let output = input
-        .iter()
-        .zip(credits)
-        .map(|(x, credit)| {
-            MCAccumulateCreditOutputRow::new(
-                x.is_trigger_report.clone(),
-                x.helper_bit.clone(),
-                x.breakdown_key.clone(),
-                credit,
-            )
-        })
-        .collect::<Vec<_>>();
+    let output = input.iter().zip(credits).map(|(x, credit)| {
+        MCAccumulateCreditOutputRow::new(
+            x.is_trigger_report.clone(),
+            x.helper_bit.clone(),
+            x.breakdown_key.clone(),
+            credit,
+        )
+    });
 
     Ok(output)
 }
@@ -81,6 +77,10 @@ where
 /// accesses and accumulates data of its children. By increasing the distance between the interacting nodes during
 /// each iteration by a factor of two, we ensure that each node only accumulates the value of each successor only once.
 /// <https://github.com/patcg-individual-drafts/ipa/blob/main/IPA-End-to-End.md#oblivious-last-touch-attribution>
+///
+/// # Errors
+///
+/// Fails if the multiplication fails.
 pub async fn accumulate_credit<F, C, T>(
     ctx: C,
     input: &[MCAccumulateCreditInputRow<F, T>],
@@ -92,7 +92,9 @@ where
     T: Arithmetic<F> + BasicProtocols<C, F>,
 {
     if per_user_credit_cap == 1 {
-        return accumulate_credit_cap_one(ctx, input).await;
+        return Ok(accumulate_credit_cap_one(ctx, input)
+            .await?
+            .collect::<Vec<_>>());
     }
     let num_rows = input.len();
 
@@ -152,6 +154,8 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::iter;
+
     use crate::{
         accumulation_test_input,
         ff::{Field, Fp31, Fp32BitPrime},
@@ -214,11 +218,11 @@ mod tests {
                 |ctx, input: Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>| async move {
                     let bk_shares = input
                         .iter()
-                        .map(|x| x.breakdown_key.clone())
-                        .collect::<Vec<_>>();
+                        .map(|x| x.breakdown_key.clone());
+
                     let mut converted_bk_shares = convert_all_bits(
                         &ctx,
-                        &convert_all_bits_local(ctx.role(), &bk_shares),
+                        &convert_all_bits_local(ctx.role(), bk_shares),
                         BreakdownKey::BITS,
                         BreakdownKey::BITS,
                     )
@@ -279,10 +283,10 @@ mod tests {
                 .semi_honest(
                     secret,
                     |ctx, share: AccumulateCreditInputRow<Fp31, BreakdownKey>| async move {
-                        let bk_shares = vec![share.breakdown_key];
+                        let bk_shares = iter::once(share.breakdown_key);
                         let mut converted_bk_shares = convert_all_bits(
                             &ctx,
-                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            &convert_all_bits_local(ctx.role(), bk_shares),
                             BreakdownKey::BITS,
                             BreakdownKey::BITS,
                         )

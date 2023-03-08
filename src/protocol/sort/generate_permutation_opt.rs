@@ -250,7 +250,8 @@ mod tests {
 
         let result = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists = convert_all_bits_local::<Fp31, _>(ctx.role(), &mk_shares);
+                let local_lists =
+                    convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
                     convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
@@ -286,7 +287,7 @@ mod tests {
 
         let [(v0, result0), (v1, result1), (v2, result2)] = world
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
-                let local_lists = convert_all_bits_local(ctx.role(), &mk_shares);
+                let local_lists = convert_all_bits_local(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
                     convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
                         .await
@@ -300,6 +301,7 @@ mod tests {
                 .unwrap()
             })
             .await;
+
         let result = join3(
             v0.validate(result0),
             v1.validate(result1),

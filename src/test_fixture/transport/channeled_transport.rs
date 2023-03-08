@@ -126,7 +126,9 @@ impl ChannelledTransport for Weak<InMemoryChannelledTransport> {
         self.upgrade().unwrap().identity
     }
 
-    async fn send<D: Stream<Item = Vec<u8>> + Send + 'static, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>>(
+    async fn send<
+        D: Stream<Item = Vec<u8>> + Send + 'static, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>,
+    >(
         &self,
         dest: HelperIdentity,
         route: R,
@@ -138,11 +140,14 @@ impl ChannelledTransport for Weak<InMemoryChannelledTransport> {
     {
         let this = self.upgrade().unwrap();
         let channel = this.get_channel(dest);
-        let packet = Addr::from_route(this.identity, &route);
+        let addr = Addr::from_route(this.identity, &route);
 
-        channel.send((packet, InMemoryStream::wrap(data))).await.map_err(|_e| {
-            io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
-        })
+        channel
+            .send((addr, InMemoryStream::wrap(data)))
+            .await
+            .map_err(|_e| {
+                io::Error::new::<String>(io::ErrorKind::ConnectionAborted, "channel closed".into())
+            })
     }
 
     fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
@@ -194,7 +199,7 @@ impl InMemoryStream {
 
     fn wrap<S: Stream<Item = StreamItem> + Send + 'static>(value: S) -> Self {
         Self {
-            inner: Box::pin(value)
+            inner: Box::pin(value),
         }
     }
 
@@ -509,18 +514,15 @@ impl<CB: ReceiveQueryCallback> Setup<CB> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use std::num::NonZeroUsize;
     use super::*;
     use crate::{
-        ff::FieldType,
-        helpers::{query::QueryType, HelperIdentity},
+        ff::{FieldType, Fp31},
+        helpers::{ordering_mpsc, query::QueryType, HelperIdentity},
         protocol::Step,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
-    use std::panic::AssertUnwindSafe;
+    use std::{num::NonZeroUsize, panic::AssertUnwindSafe};
     use tokio::sync::{mpsc::channel, oneshot};
-    use crate::ff::Fp31;
-    use crate::helpers::ordering_mpsc;
     use crate::test_fixture::transport::InMemoryNetwork;
 
     const STEP: &str = "in-memory-transport";

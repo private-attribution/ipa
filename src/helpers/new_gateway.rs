@@ -31,7 +31,7 @@ thread_local! {
     // consider using C-shim if performance is not satisfactory
     // https://github.com/rust-lang/rust/issues/29594
     // https://matklad.github.io/2020/10/03/fast-thread-locals-in-rust.html
-    static GATEWAY_SENDERS: RefCell<HashHashMap<ChannelId, OrderingMpscSender<Wrapper>>> = RefCell::new(HashMap::default());
+    static GATEWAY_SENDERS: RefCell<HashMap<ChannelId, OrderingMpscSender<Wrapper>>> = RefCell::new(HashMap::default());
 }
 
 #[cfg(all(feature = "shuttle", test))]

@@ -1,6 +1,6 @@
 use super::{
+    add_constant::{add_constant, maybe_add_constant_mod2l},
     bitwise_less_than_prime::BitwiseLessThanPrime,
-    dumb_bitwise_add_constant::{bitwise_add_constant, bitwise_add_constant_maybe},
     random_bits_generator::RandomBitsGenerator,
     RandomBits,
 };
@@ -44,20 +44,16 @@ impl BitDecomposition {
         let r = rbg.generate().await?;
 
         // Step 3, 4. Reveal c = [a - b]_p
-        let c = S::reveal(
-            ctx.narrow(&Step::RevealAMinusB),
-            record_id,
-            &(a_p.clone() - &r.b_p),
-        )
-        .await?;
+        let c = (a_p.clone() - &r.b_p)
+            .reveal(ctx.narrow(&Step::RevealAMinusB), record_id)
+            .await?;
 
         // Step 5. Add back [b] bitwise. [d]_B = BitwiseSum(c, [b]_B) where d ∈ Z
         //
-        // `BitwiseSum` outputs `l + 1` bits, so [d]_B is (l + 1)-bit long.
-        let d_b = bitwise_add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128())
-            .await?;
+        // `BitwiseSum` outputs one more bit than its input, so [d]_B is (el + 1)-bit long.
+        let d_b = add_constant(ctx.narrow(&Step::AddBtoC), record_id, &r.b_b, c.as_u128()).await?;
 
-        // Step 6. p <=? d. The paper says "p <? d", but should actually be "p <=? d"
+        // Step 6. q = d >=? p (note: the paper uses p <? d, which is incorrect)
         let q_p = BitwiseLessThanPrime::greater_than_or_equal_to_prime(
             ctx.narrow(&Step::IsPLessThanD),
             record_id,
@@ -65,20 +61,15 @@ impl BitDecomposition {
         )
         .await?;
 
-        // Step 7. a bitwise scalar value `f_B = bits(2^l - p)`
-        let l = u128::BITS - F::PRIME.into().leading_zeros();
-        let x = 2_u128.pow(l) - F::PRIME.into();
+        // Step 7. a bitwise scalar value `f_B = bits(2^el - p)`
+        let el = u128::BITS - F::PRIME.into().leading_zeros();
+        let x = (1 << el) - F::PRIME.into();
 
         // Step 8, 9. [g_i] = [q] * f_i
-        // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(l+1))
-        //
-        // Again, `BitwiseSum` outputs `l + 1` bits. Since [d]_B is already
-        // `l + 1` bit long, [h]_B will be `l + 2`-bit long.
-        let h_b = bitwise_add_constant_maybe(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p)
-            .await?;
-
-        // Step 11. [a]_B = ([h]_0,...[h]_(l-1))
-        let a_b = h_b[0..l as usize].to_vec();
+        // Step 10. [h]_B = [d + g]_B, where [h]_B = ([h]_0,...[h]_(el+1))
+        // Step 11. [a]_B = ([h]_0,...[h]_(el-1))
+        let a_b =
+            maybe_add_constant_mod2l(ctx.narrow(&Step::AddDtoG), record_id, &d_b, x, &q_p).await?;
 
         Ok(a_b)
     }

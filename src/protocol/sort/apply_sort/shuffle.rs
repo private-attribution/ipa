@@ -180,13 +180,11 @@ mod tests {
                         let perms =
                             get_two_of_three_random_permutations(BATCHSIZE.into(), ctx.prss_rng());
 
-                        let bk_shares = shares
-                            .iter()
-                            .map(|x| x.breakdown_key.clone())
-                            .collect::<Vec<_>>();
+                        let bk_shares = shares.iter().map(|x| x.breakdown_key.clone());
+
                         let mut converted_bk_shares = convert_all_bits(
                             &ctx,
-                            &convert_all_bits_local(ctx.role(), &bk_shares),
+                            &convert_all_bits_local(ctx.role(), bk_shares),
                             BreakdownKey::BITS,
                             BreakdownKey::BITS,
                         )

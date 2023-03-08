@@ -307,7 +307,7 @@ where
     // Breakdown key modulus conversion
     let mut converted_bk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
-        &convert_all_bits_local(ctx.role(), &bk_shares),
+        &convert_all_bits_local(ctx.role(), bk_shares.into_iter()),
         BK::BITS,
         BK::BITS,
     )
@@ -318,7 +318,7 @@ where
     // Match key modulus conversion, and then sort
     let converted_mk_shares = convert_all_bits(
         &ctx.narrow(&Step::ModulusConversionForMatchKeys),
-        &convert_all_bits_local(ctx.role(), &mk_shares),
+        &convert_all_bits_local(ctx.role(), mk_shares.into_iter()),
         MK::BITS,
         num_multi_bits,
     )
@@ -400,7 +400,7 @@ where
 
     aggregate_credit::<F, BK>(
         ctx.narrow(&Step::AggregateCredit),
-        &user_capped_credits,
+        user_capped_credits.into_iter(),
         max_breakdown_key,
         num_multi_bits,
     )
@@ -440,7 +440,7 @@ where
     let converted_mk_shares = convert_all_bits(
         &m_ctx.narrow(&Step::ModulusConversionForMatchKeys),
         &m_ctx
-            .upgrade(convert_all_bits_local(m_ctx.role(), &mk_shares))
+            .upgrade(convert_all_bits_local(m_ctx.role(), mk_shares.into_iter()))
             .await?,
         MK::BITS,
         num_multi_bits,
@@ -468,7 +468,7 @@ where
         &m_ctx.narrow(&Step::ModulusConversionForBreakdownKeys),
         &m_ctx
             .narrow(&Step::ModulusConversionForBreakdownKeys)
-            .upgrade(convert_all_bits_local(m_ctx.role(), &bk_shares))
+            .upgrade(convert_all_bits_local(m_ctx.role(), bk_shares.into_iter()))
             .await?,
         BK::BITS,
         BK::BITS,
@@ -479,7 +479,6 @@ where
     let converted_bk_shares = converted_bk_shares.pop().unwrap();
 
     let intermediate = converted_mk_shares
-        .into_iter()
         .zip(input_rows)
         .map(|(mk_shares, input_row)| {
             IPAModulusConvertedInputRowWrapper::new(
@@ -557,15 +556,16 @@ where
     )
     .await?;
 
-    //Validate before calling sort with downgraded context
     let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
         malicious_validator,
         sh_ctx,
-        &user_capped_credits,
+        user_capped_credits.into_iter(),
         max_breakdown_key,
         num_multi_bits,
     )
     .await?;
+
+    //Validate before returning the result to the report collector
     malicious_validator.validate(output).await
 }
 
@@ -595,10 +595,19 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn semi_honest() {
-        const COUNT: usize = 5;
+        const COUNT: usize = 7;
         const PER_USER_CAP: u32 = 3;
-        const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const EXPECTED: &[[u128; 2]] = &[
+            [0, 0],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+            [6, 0],
+            [7, 0],
+        ];
+        const MAX_BREAKDOWN_KEY: u128 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
@@ -915,9 +924,9 @@ pub mod tests {
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
         return;
-        const MAX_BREAKDOWN_KEY: usize = 16;
+        const MAX_BREAKDOWN_KEY: usize = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
-        const NUM_USERS: usize = 10;
+        const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
@@ -1016,17 +1025,17 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u128 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 19146;
+        /// empirical value as of Feb 27, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_3: u64 = 17154;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 46746;
+        /// empirical value as of Feb 28, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_3: u64 = 41802;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 13581;
+        /// empirical value as of Feb 27, 2023.
+        const RECORDS_SENT_SEMI_HONEST_BASELINE_CAP_1: u64 = 11784;
 
-        /// empirical value as of Feb 24, 2023.
-        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 33525;
+        /// empirical value as of Feb 28, 2023.
+        const RECORDS_SENT_MALICIOUS_BASELINE_CAP_1: u64 = 29046;
 
         let records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -1072,8 +1081,8 @@ pub mod tests {
                 "Baseline for semi-honest IPA (cap = {per_user_cap}) has DEGRADED! Expected {semi_honest_baseline}, got {records_sent}.");
 
             if records_sent < semi_honest_baseline {
-                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}.\
-                                Strongly consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
+                tracing::warn!("Baseline for semi-honest IPA (cap = {per_user_cap}) has improved! Expected {semi_honest_baseline}, got {records_sent}. \
+                                Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
             let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;

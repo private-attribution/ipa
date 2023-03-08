@@ -10,11 +10,11 @@ use std::iter::repeat;
 
 use super::{basics::ShareKnownValue, context::Context, BitOpStep, RecordId};
 
+mod add_constant;
 mod bit_decomposition;
 pub mod bitwise_equal;
 mod bitwise_gt_constant;
 mod bitwise_less_than_prime;
-mod dumb_bitwise_add_constant;
 mod generate_random_bits;
 pub mod or;
 pub mod random_bits_generator;

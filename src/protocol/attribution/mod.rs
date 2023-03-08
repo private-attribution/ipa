@@ -1,8 +1,9 @@
+pub mod accumulate_credit;
 pub mod aggregate_credit;
+pub mod apply_attribution_window;
 pub mod credit_capping;
 pub mod input;
 
-pub(crate) mod accumulate_credit;
 use crate::{
     error::Error,
     ff::Field,

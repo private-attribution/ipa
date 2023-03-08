@@ -209,7 +209,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = Replicated::reveal(narrow_ctx, RECORD_0, &self.r_share).await?;
+        let r = self.r_share.reveal(narrow_ctx, RECORD_0).await?;
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self

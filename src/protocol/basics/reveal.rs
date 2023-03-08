@@ -30,7 +30,7 @@ pub trait Reveal<C: Context, B: RecordBinding>: Sized {
     /// reveal the secret to all helpers in MPC circuit. Note that after method is called,
     /// it must be assumed that the secret value has been revealed to at least one of the helpers.
     /// Even in case when method never terminates, returns an error, etc.
-    async fn reveal<'fut>(ctx: C, record_binding: B, input: &Self) -> Result<Self::Output, Error>
+    async fn reveal<'fut>(&self, ctx: C, record_binding: B) -> Result<Self::Output, Error>
     where
         C: 'fut;
 }
@@ -52,14 +52,14 @@ impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
     type Output = F;
 
     async fn reveal<'fut>(
+        &self,
         ctx: SemiHonestContext<'a>,
         record_id: RecordId,
-        input: &Self,
     ) -> Result<F, Error>
     where
-        'a: 'fut,
+        SemiHonestContext<'a>: 'fut,
     {
-        let (left, right) = input.as_tuple();
+        let (left, right) = self.as_tuple();
 
         ctx.send_channel(ctx.role().peer(Direction::Right))
             .send(record_id, left)
@@ -83,16 +83,16 @@ impl<'a, F: Field> Reveal<MaliciousContext<'a, F>, RecordId> for MaliciousReplic
     type Output = F;
 
     async fn reveal<'fut>(
+        &self,
         ctx: MaliciousContext<'a, F>,
         record_id: RecordId,
-        input: &Self,
     ) -> Result<F, Error>
     where
-        'a: 'fut,
+        MaliciousContext<'a, F>: 'fut,
     {
         use crate::secret_sharing::replicated::malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious;
 
-        let (left, right) = input.x().access_without_downgrade().as_tuple();
+        let (left, right) = self.x().access_without_downgrade().as_tuple();
         let left_sender = ctx.send_channel(ctx.role().peer(Direction::Left));
         let left_receiver = ctx.recv_channel::<F>(ctx.role().peer(Direction::Left));
         let right_sender = ctx.send_channel(ctx.role().peer(Direction::Right));
@@ -135,12 +135,12 @@ where
     /// If we cant convert F to u128
     /// # Panics
     /// If we cant convert F to u128
-    async fn reveal<'fut>(ctx: C, _: NoRecord, input: &Self) -> Result<Vec<u32>, Error> {
-        let ctx = ctx.set_total_records(input.perm.len());
+    async fn reveal<'fut>(&self, ctx: C, _: NoRecord) -> Result<Vec<u32>, Error> {
+        let ctx = ctx.set_total_records(self.perm.len());
         let revealed_permutation =
-            try_join_all(zip(repeat(ctx), input.perm.iter()).enumerate().map(
-                |(index, (ctx, input))| async move {
-                    let reveal_value = S::reveal(ctx, RecordId::from(index), input).await;
+            try_join_all(zip(repeat(ctx), self.perm.iter()).enumerate().map(
+                |(index, (ctx, value))| async move {
+                    let reveal_value = value.reveal(ctx, RecordId::from(index)).await;
 
                     // safety: we wouldn't use fields larger than 64 bits and there are checks that enforce it
                     // in the field module
@@ -171,12 +171,8 @@ mod tests {
             RecordId,
         },
         secret_sharing::{
-            replicated::{
-                malicious::{
-                    AdditiveShare as MaliciousReplicated,
-                    ThisCodeIsAuthorizedToDowngradeFromMalicious,
-                },
-                semi_honest::AdditiveShare as Replicated,
+            replicated::malicious::{
+                AdditiveShare as MaliciousReplicated, ThisCodeIsAuthorizedToDowngradeFromMalicious,
             },
             IntoShares,
         },
@@ -191,7 +187,8 @@ mod tests {
         let input = rng.gen::<Fp31>();
         let results = world
             .semi_honest(input, |ctx, share| async move {
-                Replicated::reveal(ctx.set_total_records(1), RecordId::from(0), &share)
+                share
+                    .reveal(ctx.set_total_records(1), RecordId::from(0))
                     .await
                     .unwrap()
             })
@@ -226,11 +223,10 @@ mod tests {
         )
         .await;
 
-        let results = join3v(zip(m_ctx.clone().into_iter(), m_shares).map(
-            |(m_ctx, m_share)| async move {
-                MaliciousReplicated::reveal(m_ctx, record_id, &m_share).await
-            },
-        ))
+        let results = join3v(
+            zip(m_ctx.clone().into_iter(), m_shares)
+                .map(|(m_ctx, m_share)| async move { m_share.reveal(m_ctx, record_id).await }),
+        )
         .await;
 
         assert_eq!(input, results[0]);
@@ -262,8 +258,8 @@ mod tests {
         )
         .await;
         let result = try_join3(
-            MaliciousReplicated::reveal(m_ctx[0].clone(), record_id, &m_shares[0]),
-            MaliciousReplicated::reveal(m_ctx[1].clone(), record_id, &m_shares[1]),
+            m_shares[0].reveal(m_ctx[0].clone(), record_id),
+            m_shares[1].reveal(m_ctx[1].clone(), record_id),
             reveal_with_additive_attack(m_ctx[2].clone(), record_id, &m_shares[2], Fp31::ONE),
         )
         .await;

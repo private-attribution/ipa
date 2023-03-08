@@ -8,7 +8,9 @@ use bitvec::{bitvec, vec::BitVec};
 use futures::{FutureExt, Stream};
 use generic_array::GenericArray;
 use std::{
+    fmt::{Debug, Formatter},
     num::NonZeroUsize,
+    pin::Pin,
     sync::{
         atomic::{
             AtomicUsize,
@@ -16,10 +18,8 @@ use std::{
         },
         Arc,
     },
+    task::{Context, Poll},
 };
-use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
@@ -35,13 +35,6 @@ pub struct OrderingMpscReceiver<M: Message> {
     #[cfg(debug_assertions)]
     name: String,
 }
-
-impl <M: Message> Drop for OrderingMpscReceiver<M> {
-    fn drop(&mut self) {
-        println!("{}: I am gone", self.name)
-    }
-}
-
 
 pub struct OrderingMpscSender<M: Message> {
     tx: Sender<(usize, M)>,
@@ -205,21 +198,20 @@ impl<M: Message> OrderingMpscReceiver<M> {
     }
 }
 
-#[cfg(debug_assertions)]
 impl<M: Message> Debug for OrderingMpscReceiver<M> {
+    #[cfg(debug_assertions)]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "OrderingMpscReceiver[{}]", self.name)
     }
-}
 
-#[cfg(not(debug_assertions))]
-impl<M: Message> Debug for OrderingMpscReceiver<M> {
+    #[cfg(not(debug_assertions))]
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write ! (f, "OrderingMpscReceiver")
+        write!(f, "OrderingMpscReceiver")
     }
 }
 
-/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of at least 1 element
+/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of maximum capacity
+/// this instance can hold.
 impl<M: Message> Stream for OrderingMpscReceiver<M> {
     type Item = Vec<u8>;
 
@@ -233,15 +225,9 @@ impl<M: Message> Stream for OrderingMpscReceiver<M> {
                 return Poll::Ready(output);
             }
             match this.rx.poll_recv(cx) {
-                Poll::Ready(Some((index, msg))) => {
-                    this.insert(index, msg)
-                }
-                Poll::Ready(None) => {
-                    return Poll::Ready(None);
-                }
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
+                Poll::Ready(Some((index, msg))) => this.insert(index, msg),
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
             }
         }
     }
@@ -379,10 +365,9 @@ mod unit {
             ordering_mpsc,
         },
     };
-    use futures::{future::join, FutureExt};
+    use futures::{future::join, FutureExt, StreamExt};
     use generic_array::GenericArray;
     use std::{mem, num::NonZeroUsize};
-    use futures_util::StreamExt;
 
     /// Test that a single value can be sent and received successfully.
     #[tokio::test]
@@ -479,9 +464,9 @@ mod unit {
     async fn recv_stream() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(2).unwrap());
         tx.send_test(1).await;
-        assert_eq!(None, StreamExt::next(&mut rx).now_or_never());
+        assert!(rx.next().now_or_never().is_none());
         tx.send_test(0).await;
-        assert!(StreamExt::next(&mut rx).now_or_never().flatten().is_some());
+        assert!(rx.next().now_or_never().flatten().is_some());
     }
 }
 
