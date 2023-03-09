@@ -18,7 +18,7 @@ use crate::{
 use futures::{future::try_join_all, TryFuture};
 pub use ipa::{
     generate_random_user_records_in_reverse_chronological_order, test_ipa,
-    update_expected_output_for_user,
+    update_expected_output_for_user, IpaSecurityModel,
 };
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};

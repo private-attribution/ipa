@@ -585,7 +585,7 @@ pub mod tests {
                 generate_random_user_records_in_reverse_chronological_order, test_ipa,
                 update_expected_output_for_user,
             },
-            Reconstruct, Runner, TestWorld, TestWorldConfig,
+            IpaSecurityModel, Reconstruct, Runner, TestWorld, TestWorldConfig,
         },
     };
     use generic_array::GenericArray;
@@ -839,7 +839,7 @@ pub mod tests {
                 &expected_results,
                 per_user_cap,
                 MAX_BREAKDOWN_KEY,
-                false,
+                IpaSecurityModel::SemiHonest,
             )
             .await;
         }

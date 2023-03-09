@@ -3,7 +3,7 @@ use raw_ipa::{
     error::Error,
     test_fixture::{
         generate_random_user_records_in_reverse_chronological_order, test_ipa,
-        update_expected_output_for_user, TestWorld,
+        update_expected_output_for_user, IpaSecurityModel, TestWorld,
     },
 };
 
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Error> {
             &expected_results,
             per_user_cap,
             MAX_BREAKDOWN_KEY,
-            true,
+            IpaSecurityModel::Malicious,
         )
         .await;
     }

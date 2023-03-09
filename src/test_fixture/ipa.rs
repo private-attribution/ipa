@@ -13,6 +13,11 @@ use crate::{
 
 use super::TestWorld;
 
+pub enum IpaSecurityModel {
+    SemiHonest,
+    Malicious,
+}
+
 #[derive(Debug, Clone)]
 pub struct TestRawDataRecord {
     pub user_id: usize,
@@ -96,7 +101,7 @@ pub async fn test_ipa(
     expected_results: &[u32],
     per_user_cap: u32,
     max_breakdown_key: usize,
-    is_malicious: bool,
+    security_model: IpaSecurityModel,
 ) {
     const NUM_MULTI_BITS: u32 = 3;
 
@@ -115,38 +120,37 @@ pub async fn test_ipa(
         })
         .collect::<Vec<_>>();
 
-    let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = if is_malicious
-    {
-        world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    per_user_cap,
-                    max_breakdown_key as u128,
-                    NUM_MULTI_BITS,
-                )
+    let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
+        match security_model {
+            IpaSecurityModel::Malicious => world
+                .semi_honest(records, |ctx, input_rows| async move {
+                    ipa_malicious::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        per_user_cap,
+                        max_breakdown_key as u128,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap()
+                })
                 .await
-                .unwrap()
-            })
-            .await
-            .reconstruct()
-    } else {
-        world
-            .semi_honest(records, |ctx, input_rows| async move {
-                ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                    ctx,
-                    &input_rows,
-                    per_user_cap,
-                    max_breakdown_key as u128,
-                    NUM_MULTI_BITS,
-                )
+                .reconstruct(),
+            IpaSecurityModel::SemiHonest => world
+                .semi_honest(records, |ctx, input_rows| async move {
+                    ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
+                        ctx,
+                        &input_rows,
+                        per_user_cap,
+                        max_breakdown_key as u128,
+                        NUM_MULTI_BITS,
+                    )
+                    .await
+                    .unwrap()
+                })
                 .await
-                .unwrap()
-            })
-            .await
-            .reconstruct()
-    };
+                .reconstruct(),
+        };
 
     assert_eq!(max_breakdown_key, result.len());
 
