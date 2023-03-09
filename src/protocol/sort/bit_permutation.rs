@@ -57,7 +57,7 @@ pub async fn bit_permutation<
             .enumerate()
             .map(|(i, (ctx, (x, sum)))| async move {
                 let record_id = RecordId::from(i);
-                S::multiply(ctx, record_id, &x, &sum).await
+                x.multiply(&sum, ctx, record_id).await
             });
     let mut mult_output = try_join_all(async_multiply).await?;
 

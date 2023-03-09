@@ -84,7 +84,6 @@ mod test {
         ff::{Field, Fp31},
         protocol::{basics::SecureMul, context::Context, RecordId},
         rand::{thread_rng, Rng},
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join_all;
@@ -114,7 +113,7 @@ mod test {
 
         let res = world
             .semi_honest((a, b), |ctx, (a, b)| async move {
-                Replicated::multiply(ctx.set_total_records(1), RecordId::from(0), &a, &b)
+                a.multiply(&b, ctx.set_total_records(1), RecordId::from(0))
                     .await
                     .unwrap()
             })
@@ -145,7 +144,7 @@ mod test {
                     )
                     .enumerate()
                     .map(|(i, (ctx, (a_share, b_share)))| async move {
-                        Replicated::multiply(ctx, RecordId::from(i), &a_share, &b_share).await
+                        a_share.multiply(&b_share, ctx, RecordId::from(i)).await
                     }),
                 )
                 .await
@@ -166,14 +165,10 @@ mod test {
 
         let result = world
             .semi_honest((a, b), |ctx, (a_share, b_share)| async move {
-                Replicated::multiply(
-                    ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_share,
-                    &b_share,
-                )
-                .await
-                .unwrap()
+                a_share
+                    .multiply(&b_share, ctx.set_total_records(1), RecordId::from(0))
+                    .await
+                    .unwrap()
             })
             .await;
 

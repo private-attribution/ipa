@@ -267,11 +267,10 @@ where
             try_join_all(precomputed_combinations.iter().skip(1).enumerate().map(
                 |(j, precomputed_combination)| {
                     let child_idx = j + step;
-                    S::multiply(
+                    precomputed_combination.multiply(
+                        bit,
                         ctx.narrow(&BitOpStep::from(child_idx)),
                         record_id,
-                        precomputed_combination,
-                        bit,
                     )
                 },
             ))

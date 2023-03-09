@@ -54,7 +54,11 @@ where
     let credits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = memoize_context.clone();
         let record_id = RecordId::from(i);
-        async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
+        async move {
+            x.is_trigger_report
+                .multiply(&x.helper_bit, c, record_id)
+                .await
+        }
     }))
     .await?;
 
@@ -110,7 +114,7 @@ where
         let record_id = RecordId::from(i);
         let is_trigger_bit = &x.is_trigger_report;
         let helper_bit = &x.helper_bit;
-        async move { T::multiply(c, record_id, is_trigger_bit, helper_bit).await }
+        async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
     }))
     .await?;
 
