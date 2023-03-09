@@ -12,7 +12,7 @@ async fn main() -> Result<(), Error> {
     const MAX_BREAKDOWN_KEY: usize = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
     const NUM_USERS: usize = 8;
-    const MAX_RECORDS_PER_USER: usize = 10;
+    const MAX_RECORDS_PER_USER: usize = 8;
 
     let random_seed = thread_rng().gen();
     println!("Using random seed: {random_seed}");
