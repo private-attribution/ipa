@@ -209,7 +209,7 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             .validate_ctx
             .narrow(&ValidateStep::RevealR)
             .set_total_records(1);
-        let r = Replicated::reveal(narrow_ctx, RECORD_0, &self.r_share).await?;
+        let r = self.r_share.reveal(narrow_ctx, RECORD_0).await?;
         let t = u_share - &(w_share * r);
 
         let check_zero_ctx = self
@@ -268,12 +268,8 @@ mod tests {
         rand::thread_rng,
         secret_sharing::{
             replicated::{
-                malicious::{
-                    AdditiveShare as MaliciousReplicated,
-                    ThisCodeIsAuthorizedToDowngradeFromMalicious,
-                },
-                semi_honest::AdditiveShare as Replicated,
-                ReplicatedSecretSharing,
+                malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
             },
             IntoShares,
         },
@@ -316,13 +312,9 @@ mod tests {
                 let (a_malicious, b_malicious) =
                     v.context().upgrade((a_share, b_share)).await.unwrap();
 
-                let m_result = MaliciousReplicated::multiply(
-                    m_ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_malicious,
-                    &b_malicious,
-                )
-                .await?;
+                let m_result = a_malicious
+                    .multiply(&b_malicious, m_ctx.set_total_records(1), RecordId::from(0))
+                    .await?;
 
                 // Save some cloned values so that we can check them.
                 let r_share = v.r_share().clone();
@@ -447,13 +439,9 @@ mod tests {
                         zip(m_input.iter(), m_input.iter().skip(1)),
                     )
                     .map(|((i, ctx), (a_malicious, b_malicious))| async move {
-                        MaliciousReplicated::multiply(
-                            ctx,
-                            RecordId::from(i),
-                            a_malicious,
-                            b_malicious,
-                        )
-                        .await
+                        a_malicious
+                            .multiply(b_malicious, ctx, RecordId::from(i))
+                            .await
                     }),
                 )
                 .await?;

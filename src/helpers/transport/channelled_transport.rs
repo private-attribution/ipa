@@ -100,23 +100,23 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
 /// Transport that supports per-query,per-step channels
 #[async_trait]
 pub trait ChannelledTransport: Send + Sync + 'static {
-    type DataStream: Stream<Item = Vec<u8>>;
     type RecordsStream: Stream<Item = Vec<u8>>;
 
     fn identity(&self) -> HelperIdentity;
 
-    async fn send<Q, S, R>(
+    async fn send<D, Q, S, R>(
         &self,
         dest: HelperIdentity,
         route: R,
-        data: Self::DataStream,
+        data: D,
     ) -> Result<(), io::Error>
     where
         Option<QueryId>: From<Q>,
         Option<Step>: From<S>,
         Q: QueryIdBinding,
         S: StepBinding,
-        R: RouteParams<RouteId, Q, S>;
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static;
 
     /// Return the stream of records to be received from another helper for the specific query
     /// and step

@@ -63,9 +63,12 @@ pub async fn check_zero<F: Field>(
 ) -> Result<bool, Error> {
     let r_sharing = ctx.prss().generate_replicated(record_id);
 
-    let rv_share =
-        Replicated::multiply(ctx.narrow(&Step::MultiplyWithR), record_id, &r_sharing, v).await?;
-    let rv = Replicated::reveal(ctx.narrow(&Step::RevealR), record_id, &rv_share).await?;
+    let rv_share = r_sharing
+        .multiply(v, ctx.narrow(&Step::MultiplyWithR), record_id)
+        .await?;
+    let rv = rv_share
+        .reveal(ctx.narrow(&Step::RevealR), record_id)
+        .await?;
 
     Ok(rv == F::ZERO)
 }

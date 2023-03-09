@@ -230,7 +230,8 @@ impl<'a, F: Field> Downgrade
     type Target = Vec<u32>;
     /// For ShuffledPermutationWrapper on downgrading, we return revealed permutation. This runs reveal on the malicious context
     async fn downgrade(self) -> UnauthorizedDowngradeWrapper<Self::Target> {
-        let output = Self::reveal(self.ctx.narrow(&RevealPermutation), NoRecord, &self)
+        let output = self
+            .reveal(self.ctx.narrow(&RevealPermutation), NoRecord)
             .await
             .unwrap();
         UnauthorizedDowngradeWrapper(output)

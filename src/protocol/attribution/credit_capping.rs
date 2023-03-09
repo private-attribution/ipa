@@ -133,7 +133,7 @@ where
             |(i, (prefix_or, helper_bit))| {
                 let record_id = RecordId::from(i);
                 let c = prefix_or_times_helper_bit_ctx.clone();
-                async move { T::multiply(c, record_id, prefix_or, helper_bit).await }
+                async move { prefix_or.multiply(helper_bit, c, record_id).await }
             },
         ))
         .await?;
@@ -151,13 +151,9 @@ where
                 let c = potentially_cap_ctx.clone();
                 let one = T::share_known_value(&c, F::ONE);
                 async move {
-                    T::multiply(
-                        c,
-                        record_id,
-                        uncapped_credit,
-                        &(one - any_subsequent_credit),
-                    )
-                    .await
+                    uncapped_credit
+                        .multiply(&(one - any_subsequent_credit), c, record_id)
+                        .await
                 }
             }),
     )
@@ -193,13 +189,9 @@ where
             ))
             .enumerate()
             .map(|(i, (x, (ctx, one)))| async move {
-                T::multiply(
-                    ctx,
-                    RecordId::from(i),
-                    &x.trigger_value,
-                    &(one - &x.is_trigger_report),
-                )
-                .await
+                x.trigger_value
+                    .multiply(&(one - &x.is_trigger_report), ctx, RecordId::from(i))
+                    .await
             }),
     )
     .await
