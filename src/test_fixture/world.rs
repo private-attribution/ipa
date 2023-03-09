@@ -69,22 +69,8 @@ impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
             gateway_config: GatewayConfig {
-                send_buffer_config: SendBufferConfig {
-                    // This value set to 1 effectively means no buffering. This is the desired mode
-                    // for unit tests to drive them to completion as fast as possible.
-                    items_in_batch: NonZeroUsize::new(1).unwrap(),
-
-                    // How many messages can be sent in parallel. This value is picked arbitrarily as
-                    // most unit tests don't send more than this value, so the setup does not have to
-                    // be annoying. `items_in_batch` * `batch_count` defines the total capacity for
-                    // send buffer. Increasing this value does not really impact the latency for tests
-                    // because they flush the data to network once they've accumulated at least
-                    // `items_in_batch` elements. Ofc setting it to some absurdly large value is going
-                    // to be problematic from memory perspective.
-                    batch_count: NonZeroUsize::new(40).unwrap(),
-                },
-                send_outstanding: 16,
-                recv_outstanding: 16,
+                send_outstanding: NonZeroUsize::new(16).unwrap(),
+                recv_outstanding: NonZeroUsize::new(16).unwrap(),
             },
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.
             // Can be overridden by setting `RUST_LOG` environment variable to match this level.

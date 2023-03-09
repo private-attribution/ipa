@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex, RwLock};
+use crate::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::Stream;
 use futures_util::stream::FuturesUnordered;
@@ -26,16 +26,9 @@ use std::cell::RefCell;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 
-thread_local! {
-    // TODO: Rust thread-local implementation is 2x slower than C (in 2023)
-    // consider using C-shim if performance is not satisfactory
-    // https://github.com/rust-lang/rust/issues/29594
-    // https://matklad.github.io/2020/10/03/fast-thread-locals-in-rust.html
-    static GATEWAY_SENDERS: RefCell<HashMap<ChannelId, OrderingMpscSender<Wrapper>>> = RefCell::new(HashMap::default());
-}
-
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
+use thread_local::ThreadLocal;
 
 #[derive(Debug)]
 struct Wrapper([u8; Self::SIZE]);
@@ -105,7 +98,6 @@ impl<M: Message> SendingEnd<M> {
         }
 
         metrics::increment_counter!(RECORDS_SENT, STEP => self.channel_id.step.as_ref().to_string(), ROLE => self.my_role.as_static_str());
-        println!("sending {record_id:?} through {:?}", self.channel_id);
         Ok(self.ordering_tx.send(record_id.into(), Wrapper::wrap(msg)).await.unwrap())
     }
 }
@@ -131,12 +123,14 @@ impl <M: Message> ReceivingEnd<M> {
 
 struct GatewaySenders {
     inner: DashMap<ChannelId, OrderingMpscSender<Wrapper>>,
+    cache: ThreadLocal<RefCell<HashMap<ChannelId, OrderingMpscSender<Wrapper>>>>,
 }
 
 impl Default for GatewaySenders {
     fn default() -> Self {
         Self {
-            inner: DashMap::with_shard_amount(16384)
+            inner: DashMap::default(),
+            cache: ThreadLocal::new(),
         }
     }
 }
@@ -145,26 +139,12 @@ impl GatewaySenders {
     /// Returns or creates a new communication channel. In case if channel is newly created,
     /// returns the receiving end of it as well. It must be send over to the receiving side.
     fn get_or_create(&self, channel_id: &ChannelId, total_records: TotalRecords, capacity: NonZeroUsize) -> (OrderingMpscSender<Wrapper>, Option<OrderingMpscReceiver<Wrapper>>) {
-        if let Some(sender) = GATEWAY_SENDERS.with(|it| {
-            if let Some(sender) = it.borrow().get(channel_id) {
-                println!("found sender for {channel_id:?}");
-                Some(sender.clone())
-            } else {
-                None
-            }
-        }) {
-            return (sender, None)
-        }
-
-        // let senders = self.inner.read().unwrap();
         let senders = &self.inner;
         match senders.get(&channel_id) {
             Some(entry) => {
                 (entry.value().clone(), None)
             }
             None => {
-                // drop(senders);
-                // let mut senders = self.inner.write().unwrap();
                 match senders.entry(channel_id.clone()) {
                     Entry::Occupied(entry) => {
                         (entry.get().clone(), None)
@@ -189,7 +169,7 @@ struct GatewayReceivers<T: ChannelledTransport> {
 impl <T: ChannelledTransport> Default for GatewayReceivers<T> {
     fn default() -> Self {
         Self {
-            inner: DashMap::with_shard_amount(16384)
+            inner: DashMap::default(),
         }
     }
 }
@@ -197,13 +177,10 @@ impl <T: ChannelledTransport> Default for GatewayReceivers<T> {
 impl <T: ChannelledTransport> GatewayReceivers<T> {
 
     pub fn get_or_create<M: Message, F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
-        // let receivers = self.inner.read().unwrap();
         let receivers = &self.inner;
-        match receivers.get(&channel_id) {
+        let recv = match receivers.get(&channel_id) {
             Some(recv) => recv.clone(),
             None => {
-                // drop(receivers);
-                // let mut receivers = self.inner.write().unwrap();
                 match receivers.entry(channel_id.clone()) {
                     Entry::Occupied(entry) => {
                         entry.get().clone()
@@ -214,7 +191,8 @@ impl <T: ChannelledTransport> GatewayReceivers<T> {
                     }
                 }
             }
-        }
+        };
+        recv
     }
 }
 
@@ -224,13 +202,11 @@ type UR<T> = UnorderedReceiver<<T as ChannelledTransport>::RecordsStream, <<T as
 struct RoleResolvingTransport<T> {
     query_id: QueryId,
     roles: RoleAssignment,
+    config: GatewayConfig,
     inner: T
 }
 
 impl <T: ChannelledTransport> RoleResolvingTransport<T> {
-    /// SAFETY: 16 is a valid non-zero usize value
-    const RECV_CAPACITY: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(16) };
-
     async fn send(&self, channel_id: &ChannelId, data: OrderingMpscReceiver<Wrapper>) {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(dest_identity, self.inner.identity(), "can't send message to itself");
@@ -244,7 +220,7 @@ impl <T: ChannelledTransport> RoleResolvingTransport<T> {
 
         UnorderedReceiver::new(
             Box::pin(self.inner.receive(peer, (self.query_id, channel_id.step.clone()))),
-         Self::RECV_CAPACITY)
+         self.config.recv_outstanding)
     }
 
     fn role(&self) -> Role {
@@ -269,6 +245,7 @@ impl Gateway {
                 query_id,
                 roles,
                 inner: transport,
+                config
             },
             senders: GatewaySenders::default(),
             receivers: GatewayReceivers::default(),
@@ -280,15 +257,8 @@ impl Gateway {
     }
 
     pub fn get_sender<M: Message>(&self, channel_id: &ChannelId, total_records: TotalRecords) -> SendingEnd<M> {
-        // todo: non-zero usize in config
-        let send_outstanding = NonZeroUsize::new(self.config.send_outstanding).unwrap();
-        let (tx, maybe_recv) = self.senders.get_or_create(channel_id, total_records, send_outstanding);
+        let (tx, maybe_recv) = self.senders.get_or_create(channel_id, total_records, self.config.send_outstanding);
         if let Some(recv) = maybe_recv {
-            GATEWAY_SENDERS.with(|mut it| {
-                // it is safe to borrow mutably - this thread has exclusive access
-                // to the thread-local cache
-                it.borrow_mut().insert(channel_id.clone(), tx.clone());
-            });
             tokio::spawn({
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
@@ -308,7 +278,9 @@ impl Gateway {
     }
 }
 
-
+/// Exists to dispatch calls to various [`ChannelledTransport`] implementations without the need
+/// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
+/// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
 #[derive(Clone)]
 pub enum TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]

@@ -212,13 +212,21 @@ impl From<usize> for TotalRecords {
 //
 #[derive(Clone, Copy, Debug)]
 pub struct GatewayConfig {
-    /// Configuration for send buffers. See `SendBufferConfig` for more details
-    pub send_buffer_config: SendBufferConfig,
     /// The maximum number of items that can be outstanding for sending.
-    pub send_outstanding: usize,
+    pub send_outstanding: NonZeroUsize,
     /// The maximum number of items that can be outstanding for receiving.
-    pub recv_outstanding: usize,
+    pub recv_outstanding: NonZeroUsize,
 }
+
+impl GatewayConfig {
+    pub fn symmetric_buffers(capacity: NonZeroUsize) -> Self {
+        Self {
+            send_outstanding: capacity,
+            recv_outstanding: capacity
+        }
+    }
+}
+
 //
 // impl Default for GatewayConfig {
 //     fn default() -> Self {

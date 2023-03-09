@@ -7,6 +7,7 @@ use raw_ipa::{
     test_fixture::{input::GenericReportTestInput, Runner, TestWorld, TestWorldConfig},
 };
 use std::{num::NonZeroUsize, time::Instant};
+use raw_ipa::helpers::GatewayConfig;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
@@ -17,8 +18,8 @@ async fn main() -> Result<(), Error> {
     const NUM_MULTI_BITS: u32 = 3;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
-    config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
+    let buffer_capacity = NonZeroUsize::new(BATCHSIZE.clamp(16, 1024)).unwrap();
+    config.gateway_config = GatewayConfig::symmetric_buffers(buffer_capacity);
     let world = TestWorld::new_with(config).await;
     let mut rng = rand::thread_rng();
 

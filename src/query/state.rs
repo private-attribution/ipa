@@ -6,8 +6,8 @@ use crate::{
 };
 use std::{
     collections::{hash_map::Entry, HashMap},
-    sync::{Arc, Mutex},
 };
+use crate::sync::{Arc, Mutex};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

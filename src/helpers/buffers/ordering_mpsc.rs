@@ -13,10 +13,8 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{
-            AtomicUsize,
             Ordering::{AcqRel, Acquire},
         },
-        Arc,
     },
     task::{Context, Poll},
 };
@@ -25,6 +23,9 @@ use tokio::sync::{
     Notify,
 };
 use typenum::Unsigned;
+use crate::sync::Arc;
+use crate::sync::atomic::AtomicUsize;
+
 
 pub struct OrderingMpscReceiver<M: Message> {
     rx: Receiver<(usize, M)>,
@@ -63,8 +64,9 @@ pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
     name: S,
     capacity: NonZeroUsize,
 ) -> (OrderingMpscSender<M>, OrderingMpscReceiver<M>) {
-    let (tx, rx) = mpsc::channel((capacity.get()).clamp(4, 256)); // TODO configure, tune
-    let end = Arc::new(OrderingMpscEnd::new(capacity));
+    let capacity = capacity.get().clamp(4, 1024);
+    let (tx, rx) = mpsc::channel(capacity); // TODO configure, tune
+    let end = Arc::new(OrderingMpscEnd::new(NonZeroUsize::new(capacity).unwrap()));
     (
         OrderingMpscSender {
             tx,
@@ -72,9 +74,9 @@ pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
         },
         OrderingMpscReceiver {
             rx,
-            buf: vec![0_u8; capacity.get() * <M as Serializable>::Size::USIZE],
-            added: bitvec![0; capacity.get()],
-            capacity,
+            buf: vec![0_u8; capacity * <M as Serializable>::Size::USIZE],
+            added: bitvec![0; capacity],
+            capacity: NonZeroUsize::new(capacity).unwrap(),
             end,
             #[cfg(debug_assertions)]
             name: name.as_ref().to_string(),
@@ -265,7 +267,10 @@ impl OrderingMpscEnd {
 
     /// Block asynchronously until the end reaches `until`.
     async fn block(&self, until: usize) {
+        let mut i = 0;
         while until >= self.get() {
+            // println!("{i}: I am ahead: {until} while channel is at {}", self.get());
+            i += 1;
             self.notify.notified().await;
         }
     }
@@ -423,7 +428,7 @@ mod unit {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Out of range at index 0 on channel \"test\" (allowed=1..4)")]
+    #[should_panic(expected = "Out of range at index 0 on channel \"test\" (allowed=1..5)")]
     async fn insert_taken() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
         tx.send_test(0).await;
@@ -436,28 +441,28 @@ mod unit {
     #[tokio::test]
     async fn send_blocked() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_none());
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_none());
         assert!(rx.missing().is_empty());
 
         // Poking at the receiver receiving doesn't allow the send to complete.
         let recv = rx.take_next(1);
         assert!(recv.now_or_never().is_none());
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_none());
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_none());
 
         // Filling in the gap doesn't either.
-        for i in 0..3 {
+        for i in 0..4 {
             tx.send_test(i).await;
         }
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_none());
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_none());
 
         // You have to fill the gap AND receive.
         let buf = rx.take_next(1).now_or_never().unwrap().unwrap();
-        assert_eq!(buf.len(), 3 * FP32BIT_SIZE);
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_some());
+        assert_eq!(buf.len(), 4 * FP32BIT_SIZE);
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_some());
     }
 
     #[tokio::test]

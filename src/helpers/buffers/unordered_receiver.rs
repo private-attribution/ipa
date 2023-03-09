@@ -9,10 +9,10 @@ use std::{
     mem::take,
     num::NonZeroUsize,
     pin::Pin,
-    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 use typenum::Unsigned;
+use crate::sync::{Arc, Mutex};
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 pub struct Receiver<S, C, M>
