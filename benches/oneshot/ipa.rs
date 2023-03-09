@@ -1,62 +1,57 @@
-use rand::Rng;
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use raw_ipa::{
     error::Error,
-    ff::Fp32BitPrime,
-    ipa_test_input,
-    protocol::{ipa::ipa, BreakdownKey, MatchKey},
-    test_fixture::{input::GenericReportTestInput, Runner, TestWorld, TestWorldConfig},
+    test_fixture::{
+        generate_random_user_records_in_reverse_chronological_order, test_ipa,
+        update_expected_output_for_user, IpaSecurityModel, TestWorld,
+    },
 };
-use std::{num::NonZeroUsize, time::Instant};
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const BATCHSIZE: usize = 100;
-    const MAX_TRIGGER_VALUE: u128 = 5;
-    const PER_USER_CAP: u32 = 3;
-    const MAX_BREAKDOWN_KEY: u128 = 4;
-    const NUM_MULTI_BITS: u32 = 3;
+    const MAX_BREAKDOWN_KEY: usize = 16;
+    const MAX_TRIGGER_VALUE: u32 = 5;
+    const NUM_USERS: usize = 8;
+    const MAX_RECORDS_PER_USER: usize = 10;
 
-    let mut config = TestWorldConfig::default();
-    config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
-    config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
-    let world = TestWorld::new_with(config).await;
-    let mut rng = rand::thread_rng();
+    let random_seed = thread_rng().gen();
+    println!("Using random seed: {random_seed}");
+    let mut rng = StdRng::seed_from_u64(random_seed);
 
-    let max_match_key = u128::try_from(BATCHSIZE / 4).unwrap();
-
-    let mut records: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> =
-        Vec::with_capacity(BATCHSIZE);
-
-    for _ in 0..BATCHSIZE {
-        records.push(ipa_test_input!(
-            {
-                match_key: rng.gen_range(0..max_match_key),
-                is_trigger_report: rng.gen::<u32>(),
-                breakdown_key: rng.gen_range(0..MAX_BREAKDOWN_KEY),
-                trigger_value: rng.gen_range(0..MAX_TRIGGER_VALUE),
-            };
-            (Fp32BitPrime, MatchKey, BreakdownKey)
-        ));
+    let mut random_user_records = Vec::with_capacity(NUM_USERS);
+    for _ in 0..NUM_USERS {
+        let records_for_user = generate_random_user_records_in_reverse_chronological_order(
+            &mut rng,
+            MAX_RECORDS_PER_USER,
+            MAX_BREAKDOWN_KEY,
+            MAX_TRIGGER_VALUE,
+        );
+        random_user_records.push(records_for_user);
     }
+    let mut raw_data = random_user_records.concat();
 
-    let start = Instant::now();
-    let result = world
-        .semi_honest(records, |ctx, input_rows| async move {
-            ipa::<Fp32BitPrime, MatchKey, BreakdownKey>(
-                ctx,
-                &input_rows,
-                PER_USER_CAP,
-                MAX_BREAKDOWN_KEY,
-                NUM_MULTI_BITS,
-            )
-            .await
-            .unwrap()
-        })
+    // Sort the records in chronological order
+    // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
+    raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+    for per_user_cap in [1, 3] {
+        let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
+
+        for records_for_user in &random_user_records {
+            update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);
+        }
+
+        let world = TestWorld::new().await;
+
+        test_ipa(
+            world,
+            &raw_data,
+            &expected_results,
+            per_user_cap,
+            MAX_BREAKDOWN_KEY,
+            IpaSecurityModel::Malicious,
+        )
         .await;
-
-    let duration = start.elapsed();
-    println!("rows {BATCHSIZE} benchmark complete after {duration:?}");
-
-    assert_eq!(MAX_BREAKDOWN_KEY, result[0].len().try_into().unwrap());
+    }
     Ok(())
 }
