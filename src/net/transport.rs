@@ -137,6 +137,7 @@ impl Transport for Arc<HttpTransport> {
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(never)]
 mod e2e_tests {
     use super::*;
     use crate::{

@@ -1,12 +1,12 @@
 use crate::{
     ff::Field,
-    helpers::messaging::TotalRecords,
     protocol::{basics::SecureMul, context::Context, RecordId},
     rand::thread_rng,
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
     test_fixture::{narrow_contexts, Fp31, Reconstruct, TestWorld},
 };
 use futures_util::future::join_all;
+use crate::helpers::TotalRecords;
 
 /// Creates an arithmetic circuit with the given width and depth.
 ///

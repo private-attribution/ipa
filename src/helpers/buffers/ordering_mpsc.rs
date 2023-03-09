@@ -2,7 +2,7 @@
 
 use crate::{
     bits::Serializable,
-    helpers::{messaging::Message, Error},
+    helpers::{Message, Error},
 };
 use bitvec::{bitvec, vec::BitVec};
 use futures::{FutureExt, Stream};
@@ -99,6 +99,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
     /// [`new`]: Self::new
     /// [`take`]: Self::take
     fn insert(&mut self, index: usize, msg: M) {
+        println!("inserting into receiver : {index}");
         #[cfg(debug_assertions)]
         {
             let end = self.end.get();
@@ -212,8 +213,7 @@ impl<M: Message> Debug for OrderingMpscReceiver<M> {
     }
 }
 
-/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of maximum capacity
-/// this instance can hold.
+/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks with at least 1 element in it.
 impl<M: Message> Stream for OrderingMpscReceiver<M> {
     type Item = Vec<u8>;
 

@@ -1,6 +1,6 @@
 use crate::{
     helpers::{
-        messaging::{TotalRecords},
+        TotalRecords,
         Role,
     },
     protocol::{Step, Substep},
@@ -14,7 +14,7 @@ pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
-use crate::helpers::messaging::{Message, ReceivingEnd, SendingEnd};
+use crate::helpers::{Message, ReceivingEnd, SendingEnd};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.

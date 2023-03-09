@@ -5,7 +5,7 @@ use super::{
 use crate::{
     error::Error,
     ff::Field,
-    helpers::messaging::TotalRecords,
+    helpers::TotalRecords,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };

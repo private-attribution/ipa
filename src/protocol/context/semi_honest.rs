@@ -2,7 +2,6 @@ use std::fmt::{Debug, Formatter};
 use crate::{
     ff::Field,
     helpers::{
-        messaging::{Gateway, TotalRecords},
         Role,
     },
     protocol::{
@@ -17,8 +16,8 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sync::Arc,
 };
-use crate::helpers::messaging::{Message, ReceivingEnd, SendingEnd};
 use crate::helpers::network::ChannelId;
+use crate::helpers::{Gateway, Message, ReceivingEnd, SendingEnd, TotalRecords};
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.

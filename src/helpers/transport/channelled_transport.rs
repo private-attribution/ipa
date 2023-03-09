@@ -126,3 +126,46 @@ pub trait ChannelledTransport: Clone + Send + Sync + 'static {
         route: R,
     ) -> Self::RecordsStream;
 }
+
+/// Enum to dispatch calls to various [`ChannelledTransport`] implementations without the need
+/// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
+/// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
+#[derive(Clone)]
+pub enum TransportImpl {
+    #[cfg(any(test, feature = "test-fixture"))]
+    InMemory(std::sync::Weak<crate::test_fixture::transport::InMemoryChannelledTransport>)
+}
+
+#[async_trait]
+impl ChannelledTransport for TransportImpl {
+    #[cfg(any(test, feature = "test-fixture"))]
+    type RecordsStream = <std::sync::Weak<crate::test_fixture::transport::InMemoryChannelledTransport> as ChannelledTransport>::RecordsStream;
+    // TODO: it is likely that this ends up being the only type we could use here.
+    #[cfg(not(any(test, feature = "test-fixture")))]
+    type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
+
+    fn identity(&self) -> HelperIdentity {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            TransportImpl::InMemory(ref inner) => inner.identity(),
+            // https://github.com/rust-lang/rust/issues/78123
+            _ => unreachable!()
+        }
+    }
+
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), std::io::Error> where Option<QueryId>: From<Q>, Option<Step>: From<S>, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>, D: Stream<Item=Vec<u8>> + Send + 'static {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
+            _ => unreachable!()
+        }
+    }
+
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(&self, from: HelperIdentity, route: R) -> Self::RecordsStream {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            TransportImpl::InMemory(inner) => inner.receive(from, route),
+            _ => unreachable!()
+        }
+    }
+}

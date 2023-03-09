@@ -8,6 +8,7 @@ pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 pub use channelled_transport::{
     ChannelledTransport, NoResourceIdentifier, QueryIdBinding, ResourceIdentifier, RouteId,
     RouteParams, StepBinding,
+    TransportImpl
 };
 pub use error::Error as TransportError;
 

@@ -1,4 +1,3 @@
-pub mod messaging;
 pub mod network;
 pub mod transport;
 
@@ -6,17 +5,18 @@ mod buffers;
 mod error;
 mod prss_protocol;
 mod time;
-mod new_gateway;
+mod gateway;
 
 use std::fmt::{Debug, Formatter};
+use std::num::NonZeroUsize;
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
-pub use messaging::GatewayConfig;
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
     CommandEnvelope, CommandOrigin, query, SubscriptionType, Transport, TransportCommand,
     TransportError,
 };
+pub use gateway::{Gateway, GatewayConfig, SendingEnd, ReceivingEnd};
 
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
@@ -29,6 +29,8 @@ use crate::helpers::{
 use std::ops::{Index, IndexMut};
 use tinyvec::ArrayVec;
 use typenum::{U8, Unsigned};
+use crate::bits::Serializable;
+use crate::ff::Field;
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
@@ -322,6 +324,59 @@ impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
         Ok(RoleAssignment::new(result.map(Option::unwrap)))
     }
 }
+
+/// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
+pub trait Message: Debug + Send + Serializable + 'static + Sized {}
+
+/// Any field value can be send as a message
+impl<F: Field> Message for F {}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TotalRecords {
+    Unspecified,
+    Specified(NonZeroUsize),
+
+    /// Total number of records is not well-determined. When the record ID is
+    /// counting solved_bits attempts. The total record count for solved_bits
+    /// depends on the number of failures.
+    ///
+    /// The purpose of this is to waive the warning that there is a known
+    /// number of records when creating a channel. If the warning is firing
+    /// and the total number of records is knowable, prefer to specify it
+    /// rather than use this to waive the warning.
+    Indeterminate,
+}
+
+impl TotalRecords {
+    #[must_use]
+    pub fn is_unspecified(&self) -> bool {
+        matches!(self, &TotalRecords::Unspecified)
+    }
+
+    #[must_use]
+    pub fn is_indeterminate(&self) -> bool {
+        matches!(self, &TotalRecords::Indeterminate)
+    }
+
+    /// If this instance has total number of records specified, returns it.
+    /// Otherwise returns [`Option::None`]
+    pub fn count(&self) -> Option<NonZeroUsize> {
+        match self {
+            TotalRecords::Specified(v) => Some(*v),
+            TotalRecords::Unspecified | TotalRecords::Indeterminate => None
+        }
+    }
+}
+
+impl From<usize> for TotalRecords {
+    fn from(value: usize) -> Self {
+        match NonZeroUsize::new(value) {
+            Some(v) => TotalRecords::Specified(v),
+            None => TotalRecords::Unspecified,
+        }
+    }
+}
+
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {

@@ -16,7 +16,6 @@ pub struct InMemoryNetwork {
 impl Default for InMemoryNetwork {
     fn default() -> Self {
         let [mut first, mut second, mut third] = [
-            // todo: fix for query processor
             InMemoryChannelledTransport::with_stub_callbacks(1.try_into().unwrap()),
             InMemoryChannelledTransport::with_stub_callbacks(2.try_into().unwrap()),
             InMemoryChannelledTransport::with_stub_callbacks(3.try_into().unwrap()),

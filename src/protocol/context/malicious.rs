@@ -12,7 +12,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{
-        messaging::{Gateway, TotalRecords},
+        Gateway, TotalRecords,
         Role,
     },
     protocol::{
@@ -40,7 +40,7 @@ use crate::{
     },
     sync::Arc,
 };
-use crate::helpers::messaging::{Message, ReceivingEnd, SendingEnd};
+use crate::helpers::{Message, ReceivingEnd, SendingEnd};
 use crate::helpers::network::ChannelId;
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary

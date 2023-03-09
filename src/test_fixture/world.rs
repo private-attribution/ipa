@@ -6,7 +6,7 @@ use rand::{distributions::Standard, prelude::Distribution};
 use crate::{
     ff::Field,
     helpers::{
-        messaging::{Gateway, GatewayConfig},
+        {Gateway, GatewayConfig},
         Role, SendBufferConfig,
     },
     protocol::{
@@ -39,7 +39,7 @@ use crate::{
     test_fixture::transport::InMemoryNetwork,
 };
 use tracing::Level;
-use crate::helpers::messaging::TransportImpl;
+use crate::helpers::transport::TransportImpl;
 
 use super::{sharing::ValidateMalicious, Reconstruct};
 
@@ -48,7 +48,7 @@ use super::{sharing::ValidateMalicious, Reconstruct};
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
 pub struct TestWorld {
-    gateways: ManuallyDrop<[Gateway; 3]>,
+    gateways: [Gateway; 3],
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
@@ -90,7 +90,6 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    #[cfg(any(test, feature = "test-fixture"))]
     pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
@@ -109,7 +108,7 @@ impl TestWorld {
         .unwrap();
 
         TestWorld {
-            gateways: ManuallyDrop::new(gateways),
+            gateways,
             participants,
             executions: AtomicUsize::new(0),
             metrics_handle,
@@ -120,7 +119,6 @@ impl TestWorld {
 
     /// # Panics
     /// Never.
-    #[cfg(any(test, feature = "test-fixture"))]
     pub async fn new() -> TestWorld {
         let config = TestWorldConfig::default();
         Self::new_with(config).await
@@ -133,7 +131,7 @@ impl TestWorld {
     #[must_use]
     pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
-        zip(&self.participants, &*self.gateways)
+        zip(&self.participants, &self.gateways)
             .map(|(participant, gateway)| {
                 SemiHonestContext::new(participant, gateway)
                     .narrow(&Self::execution_step(execution))
@@ -156,28 +154,10 @@ impl TestWorld {
     pub fn gateway(&self, role: Role) -> &Gateway {
         &self.gateways[role]
     }
-
-    #[cfg(not(feature = "shuttle"))]
-    pub async fn join(mut self) {
-        panic!("Gateway interface has changed, it can no longer be joined");
-        // // SAFETY: self is consumed by this method, so nobody can access gateways field after
-        // // calling this method.
-        // // joined flag is used inside the destructor to avoid double-free
-        // if !self.joined.swap(true, Ordering::Release) {
-        //     let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
-        //     for gateway in gateways {
-        //         gateway.join().await;
-        //     }
-        // }
-    }
 }
 
 impl Drop for TestWorld {
     fn drop(&mut self) {
-        if !self.joined.load(Ordering::Acquire) {
-            unsafe { ManuallyDrop::drop(&mut self.gateways) };
-        }
-
         if tracing::span_enabled!(Level::DEBUG) {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();
@@ -255,9 +235,7 @@ impl Runner for TestWorld {
         let (m_results, r_shares, output) = split_array_of_tuples(
             self.semi_honest(input, |ctx, share| async {
                 let v = MaliciousValidator::new(ctx);
-                println!("malciious upgrade before");
                 let m_share = v.context().upgrade(share).await.unwrap();
-                println!("malciious upgrade after");
                 let m_result = helper_fn(v.context(), m_share).await;
                 let m_result_clone = m_result.clone();
                 let r_share = v.r_share().clone();

@@ -1,5 +1,5 @@
 use crate::{
-    helpers::{messaging::Gateway, query::QueryConfig},
+    helpers::{Gateway, query::QueryConfig},
     protocol::QueryId,
     query::ProtocolResult,
     task::JoinHandle,

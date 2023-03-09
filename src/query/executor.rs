@@ -2,7 +2,6 @@ use crate::{
     bits::{Fp2Array, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
-        messaging::{Gateway, TotalRecords},
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
         transport::{AlignedByteArrStream, ByteArrStream},
@@ -24,6 +23,7 @@ use rand_core::SeedableRng;
 use shuttle::future as tokio;
 use std::fmt::Debug;
 use typenum::Unsigned;
+use crate::helpers::{Gateway, TotalRecords};
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;

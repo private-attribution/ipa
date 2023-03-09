@@ -1,7 +1,7 @@
 use crate::{
     error::BoxError,
     helpers::{
-        messaging::{Message},
+        Message,
         network::{ChannelId, MessageChunks},
         HelperIdentity, Role, TransportError,
     },

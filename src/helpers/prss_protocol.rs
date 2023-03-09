@@ -1,7 +1,7 @@
 use crate::{
     bits::Serializable,
     helpers::{
-        messaging::{Gateway, Message},
+        Gateway, Message,
         Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,
     },
     protocol::{prss, RecordId, Step, Substep},
