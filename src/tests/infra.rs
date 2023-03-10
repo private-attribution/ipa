@@ -2,7 +2,7 @@
 
 use crate::{
     ff::Fp32BitPrime,
-    helpers::Direction,
+    helpers::{Direction, GatewayConfig},
     protocol::{context::Context, RecordId},
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
@@ -16,7 +16,7 @@ fn send_receive_sequential() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(Fp32BitPrime::from).collect::<Vec<_>>();
                 let mut config = TestWorldConfig::default();
-                config.gateway_config.send_outstanding = input.len();
+                config.gateway_config = GatewayConfig::sym(input.len());
                 let world = TestWorld::new_with(config).await;
 
                 let output = world
@@ -68,7 +68,7 @@ fn send_receive_parallel() {
             shuttle::future::block_on(async {
                 let input = (0u32..11).map(Fp32BitPrime::from).collect::<Vec<_>>();
                 let mut config = TestWorldConfig::default();
-                config.gateway_config.send_outstanding = input.len();
+                config.gateway_config = GatewayConfig::sym(input.len());
                 let world = TestWorld::new_with(config).await;
 
                 let output = world

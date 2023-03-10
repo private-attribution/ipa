@@ -469,6 +469,7 @@ mod test {
     /// Demonstrate that throwing out a future (as `now_or_never` does)
     /// is safe.
     #[test]
+    #[cfg(not(feature = "shuttle"))]
     fn synchronous() {
         const DATA: &[u8] = &[18, 12];
         let recv = receiver(&[DATA]);

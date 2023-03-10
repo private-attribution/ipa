@@ -100,7 +100,6 @@ impl<M: Message> OrderingMpscReceiver<M> {
     /// [`new`]: Self::new
     /// [`take`]: Self::take
     fn insert(&mut self, index: usize, msg: M) {
-        println!("inserting into receiver : {index}");
         #[cfg(debug_assertions)]
         {
             let end = self.end.get();

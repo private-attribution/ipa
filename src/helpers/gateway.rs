@@ -169,7 +169,7 @@ impl<M: Message> SendingEnd<M> {
     /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
         if let TotalRecords::Specified(count) = self.total_records {
-            if usize::from(record_id) < count.get() {
+            if usize::from(record_id) >= count.get() {
                 return Err(Error::TooManyRecords {
                     record_id,
                     channel_id: self.channel_id.clone(),
@@ -216,6 +216,17 @@ impl<M: Message> ReceivingEnd<M> {
 
         buf.copy_from_slice(&v.0[..sz]);
         Ok(M::deserialize(&buf))
+    }
+}
+
+impl GatewayConfig {
+    /// Config for symmetric send and receive buffers. Capacity must not be zero.
+    pub fn sym(capacity: usize) -> Self {
+        let capacity = NonZeroUsize::new(capacity).unwrap();
+        Self {
+            send_outstanding: capacity,
+            recv_outstanding: capacity,
+        }
     }
 }
 
