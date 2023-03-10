@@ -2,7 +2,7 @@ use crate::{
     helpers::{HelperIdentity},
     sync::{Arc, Weak},
 };
-use crate::helpers::transport::ChannelledTransport;
+use crate::helpers::transport::Transport;
 use crate::test_fixture::transport::transport::TransportCallbacks;
 use crate::test_fixture::transport::InMemoryChannelledTransport;
 
@@ -42,7 +42,7 @@ impl InMemoryNetwork {
     }
 
     #[must_use]
-    pub fn transport(&self, id: HelperIdentity) -> Option<impl ChannelledTransport> {
+    pub fn transport(&self, id: HelperIdentity) -> Option<impl Transport> {
         self.transports
             .iter()
             .find(|t| t.identity() == id)
@@ -51,7 +51,7 @@ impl InMemoryNetwork {
 
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
-    pub fn transports(&self) -> [impl ChannelledTransport + Clone; 3] {
+    pub fn transports(&self) -> [impl Transport + Clone; 3] {
         let transports: [Weak<InMemoryChannelledTransport>; 3] = self
             .transports
             .iter()

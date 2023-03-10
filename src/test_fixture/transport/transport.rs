@@ -4,7 +4,7 @@ use crate::{
     helpers::{
         query::QueryConfig,
         transport::{
-            ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams,
+            Transport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams,
             StepBinding,
         },
         HelperIdentity,
@@ -36,7 +36,7 @@ type ConnectionTx = Sender<(Addr, InMemoryStream)>;
 type ConnectionRx = Receiver<(Addr, InMemoryStream)>;
 type StreamItem = Vec<u8>;
 
-/// In-memory implementation of [`ChannelledTransport`] backed by Tokio mpsc channels.
+/// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
 /// incoming messages.
 pub struct InMemoryChannelledTransport {
@@ -65,7 +65,7 @@ impl InMemoryChannelledTransport {
 
     /// TODO: maybe it shouldn't be active, but rather expose a method that takes the next message
     /// out and processes it, the same way as query processor does. That will allow all tasks to be
-    /// created in one place (driver). It does not affect the [`ChannelledTransport`] interface,
+    /// created in one place (driver). It does not affect the [`Transport`] interface,
     /// so I'll leave it as is for now.
     fn listen<CB: ReceiveQueryCallback>(
         &self,
@@ -119,7 +119,7 @@ impl InMemoryChannelledTransport {
 }
 
 #[async_trait]
-impl ChannelledTransport for Weak<InMemoryChannelledTransport> {
+impl Transport for Weak<InMemoryChannelledTransport> {
     type RecordsStream = ReceiveRecords<InMemoryStream>;
 
     fn identity(&self) -> HelperIdentity {

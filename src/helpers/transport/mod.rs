@@ -104,7 +104,7 @@ impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
 
 /// Transport that supports per-query,per-step channels
 #[async_trait]
-pub trait ChannelledTransport: Clone + Send + Sync + 'static {
+pub trait Transport: Clone + Send + Sync + 'static {
     type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
 
     fn identity(&self) -> HelperIdentity;
@@ -132,7 +132,7 @@ pub trait ChannelledTransport: Clone + Send + Sync + 'static {
     ) -> Self::RecordsStream;
 }
 
-/// Enum to dispatch calls to various [`ChannelledTransport`] implementations without the need
+/// Enum to dispatch calls to various [`Transport`] implementations without the need
 /// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
 /// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
 #[derive(Clone)]
@@ -142,9 +142,9 @@ pub enum TransportImpl {
 }
 
 #[async_trait]
-impl ChannelledTransport for TransportImpl {
+impl Transport for TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
-    type RecordsStream = <std::sync::Weak<crate::test_fixture::transport::InMemoryChannelledTransport> as ChannelledTransport>::RecordsStream;
+    type RecordsStream = <std::sync::Weak<crate::test_fixture::transport::InMemoryChannelledTransport> as Transport>::RecordsStream;
     // TODO: it is likely that this ends up being the only type we could use here.
     #[cfg(not(any(test, feature = "test-fixture")))]
     type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;

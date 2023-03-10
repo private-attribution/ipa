@@ -16,7 +16,7 @@ use crate::bits::Serializable;
 use crate::helpers::buffers::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender, UnorderedReceiver};
 use crate::helpers::{ChannelId, Error, HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES, Role, RoleAssignment};
 use crate::helpers::{Message, TotalRecords};
-use crate::helpers::transport::{ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding, TransportImpl};
+use crate::helpers::transport::{Transport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding, TransportImpl};
 use crate::protocol::{QueryId, RecordId, Step};
 use crate::telemetry::metrics::RECORDS_SENT;
 use crate::telemetry::labels::STEP;
@@ -71,7 +71,7 @@ struct GatewaySenders {
 }
 
 /// Receiving channels, indexed by (role, step).
-struct GatewayReceivers<T: ChannelledTransport> {
+struct GatewayReceivers<T: Transport> {
     inner: DashMap<ChannelId, UR<T>>,
 }
 
@@ -237,7 +237,7 @@ impl GatewaySenders {
 }
 
 
-impl<T: ChannelledTransport> Default for GatewayReceivers<T> {
+impl<T: Transport> Default for GatewayReceivers<T> {
     fn default() -> Self {
         Self {
             inner: DashMap::default(),
@@ -245,7 +245,7 @@ impl<T: ChannelledTransport> Default for GatewayReceivers<T> {
     }
 }
 
-impl<T: ChannelledTransport> GatewayReceivers<T> {
+impl<T: Transport> GatewayReceivers<T> {
     pub fn get_or_create<M: Message, F: FnOnce() -> UR<T>>(&self, channel_id: &ChannelId, ctr: F) -> UR<T> {
         let receivers = &self.inner;
         let recv = match receivers.get(&channel_id) {
@@ -266,10 +266,10 @@ impl<T: ChannelledTransport> GatewayReceivers<T> {
     }
 }
 
-type UR<T> = UnorderedReceiver<<T as ChannelledTransport>::RecordsStream, <<T as ChannelledTransport>::RecordsStream as Stream>::Item>;
+type UR<T> = UnorderedReceiver<<T as Transport>::RecordsStream, <<T as Transport>::RecordsStream as Stream>::Item>;
 
 
-impl<T: ChannelledTransport> RoleResolvingTransport<T> {
+impl<T: Transport> RoleResolvingTransport<T> {
     async fn send(&self, channel_id: &ChannelId, data: OrderingMpscReceiver<Wrapper>) {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(dest_identity, self.inner.identity(), "can't send message to itself");

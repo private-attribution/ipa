@@ -6,7 +6,7 @@ use crate::{
 use async_trait::async_trait;
 use futures::Stream;
 use crate::helpers::HelperIdentity;
-use crate::helpers::transport::{ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding};
+use crate::helpers::transport::{Transport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding};
 use crate::protocol::{QueryId, Step};
 
 /// Transport that does not acknowledge send requests until the given number of send requests
@@ -17,7 +17,7 @@ pub struct DelayedTransport<T> {
     barrier: Arc<tokio::sync::Barrier>,
 }
 
-impl<T: ChannelledTransport> DelayedTransport<T> {
+impl<T: Transport> DelayedTransport<T> {
     #[must_use]
     pub fn new(inner: T, concurrent_sends: usize) -> Self {
         Self {
@@ -32,7 +32,7 @@ impl<T: ChannelledTransport> DelayedTransport<T> {
 }
 
 #[async_trait]
-impl<T: ChannelledTransport> ChannelledTransport for DelayedTransport<T> {
+impl<T: Transport> Transport for DelayedTransport<T> {
     type RecordsStream = T::RecordsStream;
 
     fn identity(&self) -> HelperIdentity {
