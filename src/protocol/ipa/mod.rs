@@ -570,6 +570,8 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
+    use std::num::NonZeroUsize;
+
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
         bits::{Fp2Array, Serializable},
@@ -830,7 +832,11 @@ pub mod tests {
                 );
             }
 
-            let world = TestWorld::new().await;
+            let mut config = TestWorldConfig::default();
+            config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
+            config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
+
+            let world = TestWorld::new_with(config).await;
 
             test_ipa(
                 world,
