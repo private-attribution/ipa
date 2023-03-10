@@ -4,14 +4,8 @@ use crate::{
     ff::Field,
     helpers::Role,
     protocol::{
-        attribution::{
-            accumulate_credit::accumulate_credit,
-            aggregate_credit::{aggregate_credit, malicious_aggregate_credit},
-            credit_capping::credit_capping,
-            input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
-        },
+        attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
         basics::Reshare,
-        boolean::bitwise_equal::bitwise_equal,
         context::{
             malicious::IPAModulusConvertedInputRowWrapper, Context, MaliciousContext,
             SemiHonestContext,
@@ -37,13 +31,9 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures::future::{try_join, try_join3, try_join_all};
+use futures::future::{try_join, try_join3};
 use generic_array::{ArrayLength, GenericArray};
-use std::{
-    iter::{repeat, zip},
-    marker::PhantomData,
-    ops::Add,
-};
+use std::{marker::PhantomData, ops::Add};
 use typenum::Unsigned;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,10 +42,6 @@ pub enum Step {
     ModulusConversionForBreakdownKeys,
     GenSortPermutationFromMatchKeys,
     ApplySortPermutation,
-    ComputeHelperBits,
-    AccumulateCredit,
-    PerformUserCapping,
-    AggregateCredit,
     AfterConvertAllBits,
 }
 
@@ -68,10 +54,6 @@ impl AsRef<str> for Step {
             Self::ModulusConversionForBreakdownKeys => "mod_conv_breakdown_key",
             Self::GenSortPermutationFromMatchKeys => "gen_sort_permutation_from_match_keys",
             Self::ApplySortPermutation => "apply_sort_permutation",
-            Self::ComputeHelperBits => "compute_helper_bits",
-            Self::AccumulateCredit => "accumulate_credit",
-            Self::PerformUserCapping => "user_capping",
-            Self::AggregateCredit => "aggregate_credit",
             Self::AfterConvertAllBits => "after_convert_all_bits",
         }
     }
@@ -202,10 +184,10 @@ where
 }
 
 pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
-    mk_shares: Vec<T>,
-    is_trigger_bit: T,
-    breakdown_key: Vec<T>,
-    trigger_value: T,
+    pub mk_shares: Vec<T>,
+    pub is_trigger_bit: T,
+    pub breakdown_key: Vec<T>,
+    pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
@@ -287,7 +269,7 @@ pub async fn ipa<F, MK, BK>(
     ctx: SemiHonestContext<'_>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
@@ -355,51 +337,10 @@ where
     .await
     .unwrap();
 
-    let futures = zip(
-        repeat(
-            ctx.narrow(&Step::ComputeHelperBits)
-                .set_total_records(sorted_rows.len() - 1),
-        ),
-        sorted_rows.iter(),
-    )
-    .zip(sorted_rows.iter().skip(1))
-    .enumerate()
-    .map(|(i, ((ctx, row), next_row))| {
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal(ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
-    });
-    let helper_bits = Some(Replicated::ZERO)
-        .into_iter()
-        .chain(try_join_all(futures).await?);
-
-    let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| {
-            MCAccumulateCreditInputRow::new(
-                row.is_trigger_bit,
-                hb,
-                row.breakdown_key,
-                row.trigger_value,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let accumulated_credits = accumulate_credit(
-        ctx.narrow(&Step::AccumulateCredit),
-        &attribution_input_rows,
+    semi_honest::secure_attribution(
+        ctx,
+        sorted_rows,
         per_user_credit_cap,
-    )
-    .await?;
-
-    let user_capped_credits = credit_capping(
-        ctx.narrow(&Step::PerformUserCapping),
-        &accumulated_credits,
-        per_user_credit_cap,
-    )
-    .await?;
-
-    aggregate_credit::<F, BK>(
-        ctx.narrow(&Step::AggregateCredit),
-        user_capped_credits.into_iter(),
         max_breakdown_key,
         num_multi_bits,
     )
@@ -417,7 +358,7 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     sh_ctx: SemiHonestContext<'a>,
     input_rows: &[IPAInputRow<F, MK, BK>],
     per_user_credit_cap: u32,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
@@ -512,60 +453,15 @@ where
     .await
     .unwrap();
 
-    let futures = zip(
-        repeat(
-            m_ctx
-                .narrow(&Step::ComputeHelperBits)
-                .set_total_records(sorted_rows.len() - 1),
-        ),
-        sorted_rows.iter(),
-    )
-    .zip(sorted_rows.iter().skip(1))
-    .enumerate()
-    .map(|(i, ((m_ctx, row), next_row))| {
-        let record_id = RecordId::from(i);
-        async move { bitwise_equal(m_ctx, record_id, &row.mk_shares, &next_row.mk_shares).await }
-    });
-    let helper_bits = Some(MaliciousReplicated::ZERO)
-        .into_iter()
-        .chain(try_join_all(futures).await?);
-
-    let attribution_input_rows = zip(sorted_rows, helper_bits)
-        .map(|(row, hb)| {
-            MCAccumulateCreditInputRow::new(
-                row.is_trigger_bit,
-                hb,
-                row.breakdown_key,
-                row.trigger_value,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let accumulated_credits = accumulate_credit(
-        m_ctx.narrow(&Step::AccumulateCredit),
-        &attribution_input_rows,
-        per_user_credit_cap,
-    )
-    .await?;
-
-    let user_capped_credits = credit_capping(
-        m_ctx.narrow(&Step::PerformUserCapping),
-        &accumulated_credits,
-        per_user_credit_cap,
-    )
-    .await?;
-
-    let (malicious_validator, output) = malicious_aggregate_credit::<F, BK>(
-        malicious_validator,
+    malicious::secure_attribution(
         sh_ctx,
-        user_capped_credits.into_iter(),
+        malicious_validator,
+        sorted_rows,
+        per_user_credit_cap,
         max_breakdown_key,
         num_multi_bits,
     )
-    .await?;
-
-    //Validate before returning the result to the report collector
-    malicious_validator.validate(output).await
+    .await
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -613,7 +509,7 @@ pub mod tests {
             [6, 0],
             [7, 0],
         ];
-        const MAX_BREAKDOWN_KEY: u128 = 8;
+        const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
@@ -662,7 +558,7 @@ pub mod tests {
         const COUNT: usize = 5;
         const PER_USER_CAP: u32 = 3;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 2], [2, 3]];
-        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
@@ -709,7 +605,7 @@ pub mod tests {
     async fn cap_of_one() {
         const PER_USER_CAP: u32 = 1;
         const EXPECTED: &[[u128; 2]] = &[[0, 0], [1, 1], [2, 0], [3, 0], [4, 0], [5, 1], [6, 1]];
-        const MAX_BREAKDOWN_KEY: u128 = 7;
+        const MAX_BREAKDOWN_KEY: u32 = 7;
         const NUM_MULTI_BITS: u32 = 3;
 
         let world = TestWorld::new().await;
@@ -795,7 +691,7 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
-        const MAX_BREAKDOWN_KEY: usize = 64;
+        const MAX_BREAKDOWN_KEY: u32 = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: usize = 8;
         const MAX_RECORDS_PER_USER: usize = 8;
@@ -822,7 +718,7 @@ pub mod tests {
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         for per_user_cap in [1, 3] {
-            let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
+            let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
 
             for records_for_user in &random_user_records {
                 update_expected_output_for_user(
@@ -898,7 +794,7 @@ pub mod tests {
     /// "catch all" type of test to make sure we don't miss an accidental regression.
     #[tokio::test]
     pub async fn communication_baseline() {
-        const MAX_BREAKDOWN_KEY: u128 = 3;
+        const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
         /// empirical value as of Feb 27, 2023.

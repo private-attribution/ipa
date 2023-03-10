@@ -10,7 +10,7 @@ use std::num::NonZeroUsize;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {
-    const MAX_BREAKDOWN_KEY: usize = 16;
+    const MAX_BREAKDOWN_KEY: u32 = 16;
     const MAX_TRIGGER_VALUE: u32 = 5;
     const MAX_QUERY_SIZE: usize = 100;
     const NUM_USERS: usize = 30;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Error> {
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
     for per_user_cap in [1, 3] {
-        let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY];
+        let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
 
         for records_for_user in &random_user_records {
             update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);

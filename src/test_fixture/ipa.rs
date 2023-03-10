@@ -23,14 +23,14 @@ pub struct TestRawDataRecord {
     pub user_id: usize,
     pub timestamp: usize,
     pub is_trigger_report: bool,
-    pub breakdown_key: usize,
+    pub breakdown_key: u32,
     pub trigger_value: u32,
 }
 
 pub fn generate_random_user_records_in_reverse_chronological_order(
     rng: &mut impl Rng,
     max_records_per_user: usize,
-    max_breakdown_key: usize,
+    max_breakdown_key: u32,
     max_trigger_value: u32,
 ) -> Vec<TestRawDataRecord> {
     const MAX_USER_ID: usize = 1_000_000_000_000;
@@ -69,6 +69,7 @@ pub fn generate_random_user_records_in_reverse_chronological_order(
 
 /// Assumes records all belong to the same user, and are in reverse chronological order
 /// Will give incorrect results if this is not true
+#[allow(clippy::missing_panics_doc)]
 pub fn update_expected_output_for_user(
     records_for_user: &[TestRawDataRecord],
     expected_results: &mut [u32],
@@ -86,7 +87,8 @@ pub fn update_expected_output_for_user(
         } else if pending_trigger_value > 0 {
             let delta_to_per_user_cap = per_user_cap - total_contribution;
             let capped_contribution = std::cmp::min(delta_to_per_user_cap, pending_trigger_value);
-            expected_results[record.breakdown_key] += capped_contribution;
+            let bk: usize = record.breakdown_key.try_into().unwrap();
+            expected_results[bk] += capped_contribution;
             total_contribution += capped_contribution;
             pending_trigger_value = 0;
         }
@@ -100,7 +102,7 @@ pub async fn test_ipa(
     records: &[TestRawDataRecord],
     expected_results: &[u32],
     per_user_cap: u32,
-    max_breakdown_key: usize,
+    max_breakdown_key: u32,
     security_model: IpaSecurityModel,
 ) {
     const NUM_MULTI_BITS: u32 = 3;
@@ -128,7 +130,7 @@ pub async fn test_ipa(
                         ctx,
                         &input_rows,
                         per_user_cap,
-                        max_breakdown_key as u128,
+                        max_breakdown_key,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -142,7 +144,7 @@ pub async fn test_ipa(
                         ctx,
                         &input_rows,
                         per_user_cap,
-                        max_breakdown_key as u128,
+                        max_breakdown_key,
                         NUM_MULTI_BITS,
                     )
                     .await
@@ -152,7 +154,7 @@ pub async fn test_ipa(
                 .reconstruct(),
         };
 
-    assert_eq!(max_breakdown_key, result.len());
+    assert_eq!(max_breakdown_key, u32::try_from(result.len()).unwrap());
 
     for (i, expected) in expected_results.iter().enumerate() {
         assert_eq!(
