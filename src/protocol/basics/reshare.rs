@@ -3,15 +3,13 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
-        context::{
-            malicious::RecordBinding, Context, MaliciousContext, NoRecord, SemiHonestContext,
-        },
+        context::{Context, MaliciousContext, SemiHonestContext},
         prss::SharedRandomness,
         sort::{
             apply_sort::shuffle::InnerVectorElementStep,
             ReshareStep::{RandomnessForValidation, ReshareRx},
         },
-        RecordId,
+        NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::replicated::{
         malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
