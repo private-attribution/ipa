@@ -237,11 +237,8 @@ impl<M: Message> Stream for OrderingMpscReceiver<M> {
 
 impl<M: Message> OrderingMpscSender<M> {
     pub async fn send(&self, index: usize, msg: M) -> Result<(), Error> {
-        // println!("blocking to send {index}");
         self.end.block(index).await;
-        // println!("unblocked to send {index}");
         self.tx.send((index, msg)).await?;
-        // println!("finally send {index}");
         Ok(())
     }
 }

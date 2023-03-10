@@ -1,18 +1,23 @@
-pub mod transport;
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+};
 
 mod buffers;
 mod error;
 mod gateway;
 mod prss_protocol;
 mod time;
+mod transport;
 
 pub use error::{Error, Result};
 pub use gateway::{Gateway, GatewayConfig, ReceivingEnd, SendingEnd};
 pub use prss_protocol::negotiate as negotiate_prss;
-use std::{
-    fmt::{Debug, Formatter},
-    num::NonZeroUsize,
+pub use transport::{
+    AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding, RouteId,
+    RouteParams, StepBinding, Transport, TransportImpl,
 };
+
 pub use transport::query;
 
 /// to validate that transport can actually send streams of this type

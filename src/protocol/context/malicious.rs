@@ -685,7 +685,7 @@ where
     async fn upgrade(self, input: Vec<T>) -> Result<Vec<M>, Error> {
         let ctx = self.upgrade_ctx.set_total_records(input.len());
         let ctx_ref = &ctx;
-        let r = try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
+        try_join_all(input.into_iter().enumerate().map(|(i, share)| async move {
             // TODO: make it a bit more ergonomic to call with record id bound
             UpgradeContext {
                 upgrade_ctx: ctx_ref.clone(),
@@ -695,10 +695,7 @@ where
             .upgrade(share)
             .await
         }))
-        .await;
-
-        println!("malicious upgrade for vector babe finished");
-        r
+        .await
     }
 }
 

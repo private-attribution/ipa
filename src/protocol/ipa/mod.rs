@@ -466,12 +466,11 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 pub mod tests {
-    use std::num::NonZeroUsize;
-
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
         bits::{Fp2Array, Serializable},
         ff::{Field, Fp31, Fp32BitPrime},
+        helpers::GatewayConfig,
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,
@@ -716,6 +715,12 @@ pub mod tests {
         // Sort the records in chronological order
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        let config = TestWorldConfig {
+            gateway_config: GatewayConfig::sym(raw_data.len().clamp(4, 1024)),
+            ..Default::default()
+        };
+
+        let world = TestWorld::new_with(config).await;
 
         for per_user_cap in [1, 3] {
             let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
@@ -728,14 +733,8 @@ pub mod tests {
                 );
             }
 
-            let mut config = TestWorldConfig::default();
-            config.gateway_config.send_buffer_config.items_in_batch = NonZeroUsize::new(1).unwrap();
-            config.gateway_config.send_buffer_config.batch_count = NonZeroUsize::new(1024).unwrap();
-
-            let world = TestWorld::new_with(config).await;
-
             test_ipa(
-                world,
+                &world,
                 &raw_data,
                 &expected_results,
                 per_user_cap,

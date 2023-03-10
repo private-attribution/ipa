@@ -2,7 +2,7 @@ mod transport;
 mod util;
 
 use crate::{
-    helpers::{transport::Transport, HelperIdentity},
+    helpers::{HelperIdentity, Transport},
     sync::{Arc, Weak},
 };
 

@@ -138,7 +138,6 @@ mod tests {
         Standard: Distribution<F>,
     {
         let input = into_bits(a);
-        println!("into bits done");
 
         let result = world
             .semi_honest(input.clone(), |ctx, a_share| async move {
@@ -153,11 +152,9 @@ mod tests {
             })
             .await
             .reconstruct();
-        println!("semi-honest greater than constant done");
 
         let m_result = world
             .malicious(input.clone(), |ctx, a_share| async move {
-                println!("malicious hi");
                 bitwise_greater_than_constant(
                     ctx.set_total_records(1),
                     RecordId::from(0),
@@ -170,7 +167,6 @@ mod tests {
             .await
             .reconstruct();
 
-        println!("malicious greater than constant done");
         assert_eq!(result, m_result);
 
         result

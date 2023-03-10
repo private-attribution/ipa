@@ -221,6 +221,10 @@ impl<M: Message> ReceivingEnd<M> {
 
 impl GatewayConfig {
     /// Config for symmetric send and receive buffers. Capacity must not be zero.
+    ///
+    /// ## Panics
+    /// if capacity is set to be 0.
+    #[must_use]
     pub fn sym(capacity: usize) -> Self {
         let capacity = NonZeroUsize::new(capacity).unwrap();
         Self {

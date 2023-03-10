@@ -1,17 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use comfy_table::Table;
-use raw_ipa::{
-    cli::{
-        helpers_config,
-        playbook::{secure_mul, semi_honest, InputSource},
-        Verbosity,
-    },
-    ff::{FieldType, Fp31},
-    helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
-    net::{discovery::PeerDiscovery, MpcHelperClient},
-    protocol::{BreakdownKey, MatchKey},
-};
-use std::{error::Error, fmt::Debug, path::PathBuf};
+use raw_ipa::cli::Verbosity;
+use std::{fmt::Debug, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -42,6 +31,7 @@ pub struct CommandInput {
     input_type: InputType,
 }
 
+#[cfg(never)]
 impl From<&CommandInput> for InputSource {
     fn from(source: &CommandInput) -> Self {
         if let Some(ref file_name) = source.input_file {
@@ -66,28 +56,34 @@ enum TestAction {
     SemiHonestIPA,
 }
 
-fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
-    let mut shares_table = Table::new();
-    shares_table.set_header(vec!["Row", "H1", "H2", "H3"]);
-    for i in 0..values[0].len() {
-        shares_table.add_row(vec![
-            i.to_string(),
-            format!("{:?}", values[0][i]),
-            format!("{:?}", values[1][i]),
-            format!("{:?}", values[2][i]),
-        ]);
-    }
-
-    println!("{shares_table}");
-}
-
-fn make_clients() -> [MpcHelperClient; 3] {
-    let config = helpers_config();
-    MpcHelperClient::from_conf(config.peers())
+#[cfg(not(never))]
+fn main() {
+    println!("Hello, world");
 }
 
 #[tokio::main]
+#[cfg(never)]
 async fn main() -> Result<(), Box<dyn Error>> {
+    fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
+        let mut shares_table = Table::new();
+        shares_table.set_header(vec!["Row", "H1", "H2", "H3"]);
+        for i in 0..values[0].len() {
+            shares_table.add_row(vec![
+                i.to_string(),
+                format!("{:?}", values[0][i]),
+                format!("{:?}", values[1][i]),
+                format!("{:?}", values[2][i]),
+            ]);
+        }
+
+        println!("{shares_table}");
+    }
+
+    fn make_clients() -> [MpcHelperClient; 3] {
+        let config = helpers_config();
+        MpcHelperClient::from_conf(config.peers())
+    }
+
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 

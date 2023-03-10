@@ -23,7 +23,7 @@ use std::io::stdout;
 use std::{fmt::Debug, iter::zip, num::NonZeroUsize};
 
 use crate::{
-    helpers::{transport::TransportImpl, RoleAssignment},
+    helpers::{RoleAssignment, TransportImpl},
     protocol::{QueryId, Substep},
     secret_sharing::IntoShares,
     sync::Arc,

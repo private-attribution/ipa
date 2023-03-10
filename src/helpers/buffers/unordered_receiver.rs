@@ -40,7 +40,6 @@ where
         if recv.is_next(this.i) {
             recv.poll_next(cx)
         } else {
-            println!("I am not the next, adding a waker");
             recv.add_waker(this.i, cx.waker().clone());
             Poll::Pending
         }
@@ -309,7 +308,7 @@ mod test {
     use futures::{
         future::{try_join, try_join_all},
         stream::iter,
-        Future, FutureExt, Stream,
+        Future, Stream,
     };
     use generic_array::GenericArray;
     use rand::Rng;
@@ -471,6 +470,8 @@ mod test {
     #[test]
     #[cfg(not(feature = "shuttle"))]
     fn synchronous() {
+        use futures::FutureExt;
+
         const DATA: &[u8] = &[18, 12];
         let recv = receiver(&[DATA]);
         assert!(recv.recv::<Fp31, _>(1_usize).now_or_never().is_none());

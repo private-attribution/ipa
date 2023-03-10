@@ -4,8 +4,7 @@ use crate::{
     helpers::{
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
-        transport::{AlignedByteArrStream, ByteArrStream},
-        Gateway, TotalRecords,
+        AlignedByteArrStream, ByteArrStream, Gateway, TotalRecords,
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
