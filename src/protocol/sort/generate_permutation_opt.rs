@@ -21,6 +21,7 @@ use crate::{
 };
 use embed_doc_image::embed_doc_image;
 
+#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
 /// This is an implementation of `OptGenPerm` (Algorithm 12) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -112,7 +113,6 @@ where
     Ok(composed_less_significant_bits_permutation)
 }
 
-#[allow(dead_code)]
 #[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
 /// Returns a sort permutation in a malicious context.
 /// This runs sort in a malicious context. The caller is responsible to validate the accumulator contents and downgrade context to Semi-honest before calling this function
