@@ -1,8 +1,5 @@
 use crate::{
-    helpers::{
-        TotalRecords,
-        Role,
-    },
+    helpers::{Role, TotalRecords},
     protocol::{Step, Substep},
 };
 
@@ -10,11 +7,11 @@ pub mod malicious;
 mod prss;
 mod semi_honest;
 
+use crate::helpers::{Message, ReceivingEnd, SendingEnd};
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
-use crate::helpers::{Message, ReceivingEnd, SendingEnd};
 
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
@@ -214,9 +211,12 @@ mod tests {
         let _result = world
             .malicious(input.clone(), |ctx, a| async move {
                 let ctx = ctx.set_total_records(input_len);
-                join_all(a.iter().enumerate().map(|(i, share)| {
-                    toy_protocol(ctx.clone(), i, share)
-                })).await;
+                join_all(
+                    a.iter()
+                        .enumerate()
+                        .map(|(i, share)| toy_protocol(ctx.clone(), i, share)),
+                )
+                .await;
 
                 a
             })

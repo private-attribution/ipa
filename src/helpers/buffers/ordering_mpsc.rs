@@ -2,7 +2,8 @@
 
 use crate::{
     bits::Serializable,
-    helpers::{Message, Error},
+    helpers::{Error, Message},
+    sync::{atomic::AtomicUsize, Arc},
 };
 use bitvec::{bitvec, vec::BitVec};
 use futures::{FutureExt, Stream};
@@ -11,11 +12,7 @@ use std::{
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
     pin::Pin,
-    sync::{
-        atomic::{
-            Ordering::{AcqRel, Acquire},
-        },
-    },
+    sync::atomic::Ordering::{AcqRel, Acquire},
     task::{Context, Poll},
 };
 use tokio::sync::{
@@ -23,9 +20,6 @@ use tokio::sync::{
     Notify,
 };
 use typenum::Unsigned;
-use crate::sync::Arc;
-use crate::sync::atomic::AtomicUsize;
-
 
 pub struct OrderingMpscReceiver<M: Message> {
     rx: Receiver<(usize, M)>,
@@ -116,7 +110,7 @@ impl<M: Message> OrderingMpscReceiver<M> {
         let offset = start..start + M::Size::USIZE;
 
         #[cfg_attr(not(debug_assertions), allow(unused_variables))]
-            let overwritten = self.added.replace(i, true);
+        let overwritten = self.added.replace(i, true);
         #[cfg(debug_assertions)]
         assert!(
             !overwritten,
@@ -267,10 +261,7 @@ impl OrderingMpscEnd {
 
     /// Block asynchronously until the end reaches `until`.
     async fn block(&self, until: usize) {
-        let mut i = 0;
         while until >= self.get() {
-            // println!("{i}: I am ahead: {until} while channel is at {}", self.get());
-            i += 1;
             self.notify.notified().await;
         }
     }

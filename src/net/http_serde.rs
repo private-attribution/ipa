@@ -78,10 +78,7 @@ pub mod echo {
 pub mod query {
     use crate::{
         ff::FieldType,
-        helpers::{
-            HelperIdentity,
-            query::QueryType,
-        },
+        helpers::{query::QueryType, HelperIdentity},
         net::server,
     };
     use async_trait::async_trait;
@@ -359,7 +356,7 @@ pub mod query {
 
     pub mod input {
         use crate::{
-            helpers::{query::QueryInput},
+            helpers::query::QueryInput,
             net::{client, http_serde::query::BASE_AXUM_PATH, server},
         };
         use async_trait::async_trait;

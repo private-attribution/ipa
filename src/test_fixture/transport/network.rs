@@ -1,30 +1,29 @@
 use crate::{
-    helpers::{HelperIdentity},
+    helpers::{transport::Transport, HelperIdentity},
     sync::{Arc, Weak},
 };
-use crate::helpers::transport::Transport;
-use crate::test_fixture::transport::transport::TransportCallbacks;
-use crate::test_fixture::transport::InMemoryChannelledTransport;
+
+use crate::test_fixture::transport::InMemoryTransport;
 
 /// Container for all active transports
 #[derive(Clone)]
 pub struct InMemoryNetwork {
-    pub transports: [Arc<InMemoryChannelledTransport>; 3],
+    pub transports: [Arc<InMemoryTransport>; 3],
 }
 
 impl Default for InMemoryNetwork {
     fn default() -> Self {
         let [mut first, mut second, mut third] = [
-            InMemoryChannelledTransport::with_stub_callbacks(1.try_into().unwrap()),
-            InMemoryChannelledTransport::with_stub_callbacks(2.try_into().unwrap()),
-            InMemoryChannelledTransport::with_stub_callbacks(3.try_into().unwrap()),
+            InMemoryTransport::with_stub_callbacks(1.try_into().unwrap()),
+            InMemoryTransport::with_stub_callbacks(2.try_into().unwrap()),
+            InMemoryTransport::with_stub_callbacks(3.try_into().unwrap()),
         ];
         first.connect(&mut second);
         second.connect(&mut third);
         third.connect(&mut first);
 
         Self {
-            transports: [first.start(), second.start(), third.start()]
+            transports: [first.start(), second.start(), third.start()],
         }
     }
 }
@@ -52,7 +51,7 @@ impl InMemoryNetwork {
     #[allow(clippy::missing_panics_doc)]
     #[must_use]
     pub fn transports(&self) -> [impl Transport + Clone; 3] {
-        let transports: [Weak<InMemoryChannelledTransport>; 3] = self
+        let transports: [Weak<InMemoryTransport>; 3] = self
             .transports
             .iter()
             .map(Arc::downgrade)

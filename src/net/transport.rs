@@ -1,8 +1,5 @@
 use crate::{
-    helpers::{
-        query::QueryCommand,
-        HelperIdentity,
-    },
+    helpers::{query::QueryCommand, HelperIdentity},
     net::{
         client::MpcHelperClient,
         discovery::peer,

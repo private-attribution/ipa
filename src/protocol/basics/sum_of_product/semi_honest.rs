@@ -46,13 +46,13 @@ where
     }
 
     // notify helper on the right that we've computed our value
-    ctx
-        .send_channel(role.peer(Direction::Right))
+    ctx.send_channel(role.peer(Direction::Right))
         .send(record_id, right_sops)
         .await?;
 
     // Sleep until helper on the left sends us their (d_i-1) value
-    let left_sops: F = ctx.recv_channel(role.peer(Direction::Left))
+    let left_sops: F = ctx
+        .recv_channel(role.peer(Direction::Left))
         .receive(record_id)
         .await?;
 

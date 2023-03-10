@@ -1,5 +1,3 @@
-use std::any::type_name;
-use std::fmt::{Debug, Formatter};
 use crate::{
     error::Error,
     ff::Field,
@@ -17,6 +15,10 @@ use crate::{
     sync::{Arc, Mutex, Weak},
 };
 use futures::future::try_join;
+use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
+};
 
 /// Steps used by the validation component of malicious protocol execution.
 /// In addition to these, an implicit step is used to initialize the value of `r`.
@@ -244,18 +246,15 @@ impl<'a, F: Field> MaliciousValidator<'a, F> {
             helper_right.send(RECORD_1, w_local),
         )
         .await?;
-        let (u_left, w_left): (F, F) = try_join(
-            helper_left.receive(RECORD_0),
-            helper_left.receive(RECORD_1),
-        )
-        .await?;
+        let (u_left, w_left): (F, F) =
+            try_join(helper_left.receive(RECORD_0), helper_left.receive(RECORD_1)).await?;
         let u_share = Replicated::new(u_left, u_local);
         let w_share = Replicated::new(w_left, w_local);
         Ok((u_share, w_share))
     }
 }
 
-impl <F: Field> Debug for MaliciousValidator<'_, F> {
+impl<F: Field> Debug for MaliciousValidator<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousValidator<{:?}>", type_name::<F>())
     }

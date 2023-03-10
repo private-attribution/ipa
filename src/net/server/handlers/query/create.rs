@@ -1,6 +1,4 @@
-use crate::{
-    net::{http_serde, server::Error},
-};
+use crate::net::{http_serde, server::Error};
 use axum::{routing::post, Extension, Json, Router};
 use tokio::sync::{mpsc, oneshot};
 

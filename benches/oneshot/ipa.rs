@@ -2,12 +2,12 @@ use rand::Rng;
 use raw_ipa::{
     error::Error,
     ff::Fp32BitPrime,
+    helpers::GatewayConfig,
     ipa_test_input,
     protocol::{ipa::ipa, BreakdownKey, MatchKey},
     test_fixture::{input::GenericReportTestInput, Runner, TestWorld, TestWorldConfig},
 };
 use std::{num::NonZeroUsize, time::Instant};
-use raw_ipa::helpers::GatewayConfig;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() -> Result<(), Error> {

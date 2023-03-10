@@ -67,11 +67,15 @@ pub trait Serializable {
     /// Serialize this message to a mutable slice. It is enforced at compile time or on the caller
     /// side that this slice is sized to fit this instance. Implementations do not need to check
     /// the buffer size.
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) where Self: Sized;
+    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>)
+    where
+        Self: Sized;
 
     /// Deserialize message from a sequence of bytes. Similar to [`serialize`], it is enforced that
     /// buffer has enough capacity to fit instances of this trait.
     ///
     /// [`serialize`]: Self::serialize
-    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self where Self: Sized;
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self
+    where
+        Self: Sized;
 }

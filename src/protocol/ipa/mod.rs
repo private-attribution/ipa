@@ -923,7 +923,6 @@ pub mod tests {
     #[tokio::test]
     #[allow(clippy::missing_panics_doc)]
     pub async fn random_ipa_check() {
-        return;
         const MAX_BREAKDOWN_KEY: usize = 64;
         const MAX_TRIGGER_VALUE: u32 = 5;
         const NUM_USERS: usize = 8;

@@ -1,10 +1,11 @@
 mod ordering_mpsc;
 mod unordered_receiver;
 
-pub use ordering_mpsc::{ordering_mpsc, OrderingMpscSender, OrderingMpscReceiver};
+pub use ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender};
 pub use unordered_receiver::UnorderedReceiver;
 
 #[cfg(debug_assertions)]
+#[allow(unused)] // todo(alex): make test world print the state again
 mod waiting {
     use crate::helpers::ChannelId;
     use std::collections::HashMap;

@@ -2,9 +2,8 @@
 
 use crate::{
     helpers::{
-        Gateway,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        GatewayConfig, HelperIdentity, Role, RoleAssignment,
+        Gateway, GatewayConfig, HelperIdentity, Role, RoleAssignment,
     },
     protocol::QueryId,
     query::{

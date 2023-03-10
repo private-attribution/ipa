@@ -1,13 +1,17 @@
+use crate::sync::Arc;
 use std::io;
-use crate::{
-    sync::Arc,
-};
 
+use crate::{
+    helpers::{
+        transport::{
+            NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding, Transport,
+        },
+        HelperIdentity,
+    },
+    protocol::{QueryId, Step},
+};
 use async_trait::async_trait;
 use futures::Stream;
-use crate::helpers::HelperIdentity;
-use crate::helpers::transport::{Transport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding};
-use crate::protocol::{QueryId, Step};
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.
@@ -39,12 +43,29 @@ impl<T: Transport> Transport for DelayedTransport<T> {
         self.inner.identity()
     }
 
-    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), io::Error> where Option<QueryId>: From<Q>, Option<Step>: From<S>, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>, D: Stream<Item=Vec<u8>> + Send + 'static {
+    async fn send<D, Q, S, R>(
+        &self,
+        dest: HelperIdentity,
+        route: R,
+        data: D,
+    ) -> Result<(), io::Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+    {
         self.barrier.wait().await;
         self.inner.send(dest, route, data).await
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(&self, from: HelperIdentity, route: R) -> Self::RecordsStream {
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+        &self,
+        from: HelperIdentity,
+        route: R,
+    ) -> Self::RecordsStream {
         self.inner.receive(from, route)
     }
 }

@@ -91,7 +91,8 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
                 .await?;
 
             // Sleep until `to_helper.right` sends us their part2 value
-            let part2 = ctx.recv_channel(to_helper.peer(Direction::Right))
+            let part2 = ctx
+                .recv_channel(to_helper.peer(Direction::Right))
                 .receive(record_id)
                 .await?;
 
@@ -105,7 +106,8 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
                 .await?;
 
             // Sleep until `to_helper.left` sends us their part1 value
-            let part1: F = ctx.recv_channel(to_helper.peer(Direction::Left))
+            let part1: F = ctx
+                .recv_channel(to_helper.peer(Direction::Left))
                 .receive(record_id)
                 .await?;
 

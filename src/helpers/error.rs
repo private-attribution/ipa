@@ -1,15 +1,10 @@
 use crate::{
     error::BoxError,
-    helpers::{
-        Message,
-        ChannelId,
-        HelperIdentity, Role,
-    },
+    helpers::{ChannelId, HelperIdentity, Message, Role},
     protocol::{RecordId, Step},
 };
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
-use tokio_util::sync::PollSendError;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -50,11 +45,6 @@ pub enum Error {
     },
     #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
-    // #[cfg(feature = "web-app")]
-    // #[error("identity had invalid format: {0}")]
-    // InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
-    // #[error("Failed to send command on the transport: {0}")]
-    // TransportError(#[from] TransportError),
 }
 
 impl Error {
@@ -99,15 +89,5 @@ impl<M: Message> From<SendError<(usize, M)>> for Error {
         }
     }
 }
-
-// impl From<PollSendError<MessageChunks>> for Error {
-//     fn from(source: PollSendError<MessageChunks>) -> Self {
-//         let inner = source.to_string().into();
-//         match source.into_inner() {
-//             Some((channel, _)) => Self::SendError { channel, inner },
-//             None => Self::PollSendError { inner },
-//         }
-//     }
-// }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -2,38 +2,39 @@ pub mod transport;
 
 mod buffers;
 mod error;
+mod gateway;
 mod prss_protocol;
 mod time;
-mod gateway;
 
-use std::fmt::{Debug, Formatter};
-use std::num::NonZeroUsize;
 pub use error::{Error, Result};
+pub use gateway::{Gateway, GatewayConfig, ReceivingEnd, SendingEnd};
 pub use prss_protocol::negotiate as negotiate_prss;
-pub use gateway::{Gateway, GatewayConfig, SendingEnd, ReceivingEnd};
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+};
 pub use transport::query;
 
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
 pub use buffers::ordering_mpsc;
 
-use crate::helpers::{
-    Direction::{Left, Right},
-    Role::{H1, H2, H3},
+use crate::{
+    bits::Serializable,
+    ff::Field,
+    helpers::{
+        Direction::{Left, Right},
+        Role::{H1, H2, H3},
+    },
+    protocol::Step,
 };
 use std::ops::{Index, IndexMut};
-use tinyvec::ArrayVec;
-use typenum::{U8, Unsigned};
-use crate::bits::Serializable;
-use crate::ff::Field;
-use crate::protocol::Step;
+use typenum::{Unsigned, U8};
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
 
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
-
-type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
 /// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
@@ -41,9 +42,9 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
-feature = "enable-serde",
-derive(serde::Serialize, serde::Deserialize),
-serde(transparent)
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
 )]
 pub struct HelperIdentity {
     id: u8,
@@ -67,12 +68,16 @@ impl TryFrom<usize> for HelperIdentity {
 
 impl Debug for HelperIdentity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self.id {
-            1 => "1",
-            2 => "2",
-            3 => "3",
-            _ => unreachable!()
-        })
+        write!(
+            f,
+            "{}",
+            match self.id {
+                1 => "1",
+                2 => "2",
+                3 => "3",
+                _ => unreachable!(),
+            }
+        )
     }
 }
 
@@ -149,9 +154,9 @@ impl<T> IndexMut<HelperIdentity> for Vec<T> {
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[cfg_attr(
-feature = "enable-serde",
-derive(serde::Serialize, serde::Deserialize),
-serde(into = "&'static str", try_from = "&str")
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "&'static str", try_from = "&str")
 )]
 pub enum Role {
     H1 = 0,
@@ -162,9 +167,9 @@ pub enum Role {
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(
-feature = "enable-serde",
-derive(serde::Serialize, serde::Deserialize),
-serde(transparent)
+    feature = "enable-serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
 )]
 pub struct RoleAssignment {
     helper_roles: [HelperIdentity; 3],
@@ -382,7 +387,7 @@ impl TotalRecords {
     pub fn count(&self) -> Option<NonZeroUsize> {
         match self {
             TotalRecords::Specified(v) => Some(*v),
-            TotalRecords::Unspecified | TotalRecords::Indeterminate => None
+            TotalRecords::Unspecified | TotalRecords::Indeterminate => None,
         }
     }
 }
@@ -395,7 +400,6 @@ impl From<usize> for TotalRecords {
         }
     }
 }
-
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {

@@ -64,7 +64,9 @@ where
     // Sleep until helper on the left sends us their (d_i-1) value.
     let mut lhs = a.left() * b.left();
     if need_to_recv {
-        let left_d = ctx.recv_channel(role.peer(Direction::Left)).receive(record_id)
+        let left_d = ctx
+            .recv_channel(role.peer(Direction::Left))
+            .receive(record_id)
             .await?;
         lhs += left_d;
     }

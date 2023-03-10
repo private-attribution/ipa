@@ -5,11 +5,9 @@ use crate::{
     helpers::Direction,
     protocol::{context::Context, RecordId},
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
-    test_fixture::{Reconstruct, Runner, TestWorld},
+    test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
 };
 use futures_util::future::{try_join, try_join_all};
-use crate::test_fixture::TestWorldConfig;
-
 
 #[test]
 fn send_receive_sequential() {
@@ -32,14 +30,8 @@ fn send_receive_sequential() {
                         // send all shares to the right peer
                         for (i, share) in shares.iter().enumerate() {
                             let record_id = RecordId::from(i);
-                            left_channel
-                                .send(record_id, share.left())
-                                .await
-                                .unwrap();
-                            right_channel
-                                .send(record_id, share.right())
-                                .await
-                                .unwrap();
+                            left_channel.send(record_id, share.left()).await.unwrap();
+                            right_channel.send(record_id, share.right()).await.unwrap();
                         }
 
                         let left_peer = ctx.role().peer(Direction::Left);

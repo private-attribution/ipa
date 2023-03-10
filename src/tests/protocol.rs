@@ -8,9 +8,10 @@ use crate::{
         BreakdownKey, MatchKey,
     },
     rand::{thread_rng, Rng},
-    test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
+    test_fixture::{
+        input::GenericReportTestInput, Reconstruct, Runner, TestWorld, TestWorldConfig,
+    },
 };
-use crate::test_fixture::TestWorldConfig;
 
 #[test]
 fn semi_honest_ipa() {

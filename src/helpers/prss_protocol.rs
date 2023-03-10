@@ -1,9 +1,6 @@
 use crate::{
     bits::Serializable,
-    helpers::{
-        Gateway, Message,
-        Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,
-    },
+    helpers::{Direction, Error, Gateway, Message, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::{prss, RecordId, Step, Substep},
 };
 use futures_util::future::try_join4;
@@ -40,8 +37,10 @@ pub async fn negotiate<R: RngCore + CryptoRng>(
     let right_channel = ChannelId::new(gateway.role().peer(Direction::Right), step.clone());
     // let channel = gateway.mesh(&step, PUBLIC_KEY_CHUNK_COUNT.into());
 
-    let left_sender = gateway.get_sender::<PublicKeyChunk>(&left_channel, PUBLIC_KEY_CHUNK_COUNT.into());
-    let right_sender = gateway.get_sender::<PublicKeyChunk>(&right_channel, PUBLIC_KEY_CHUNK_COUNT.into());
+    let left_sender =
+        gateway.get_sender::<PublicKeyChunk>(&left_channel, PUBLIC_KEY_CHUNK_COUNT.into());
+    let right_sender =
+        gateway.get_sender::<PublicKeyChunk>(&right_channel, PUBLIC_KEY_CHUNK_COUNT.into());
     let left_receiver = gateway.get_receiver::<PublicKeyChunk>(&left_channel);
     let right_receiver = gateway.get_receiver::<PublicKeyChunk>(&right_channel);
 

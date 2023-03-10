@@ -4,13 +4,13 @@ use crate::{
     helpers::{
         query::QueryConfig,
         transport::{
-            Transport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams,
-            StepBinding,
+            NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding, Transport,
         },
         HelperIdentity,
     },
     protocol::{QueryId, Step},
 };
+use ::tokio::sync::mpsc::{channel, Receiver, Sender};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use futures_util::stream;
@@ -21,11 +21,9 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     task::{Context, Poll, Waker},
 };
-use std::sync::Weak;
-use ::tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::Instrument;
 
@@ -39,14 +37,13 @@ type StreamItem = Vec<u8>;
 /// In-memory implementation of [`Transport`] backed by Tokio mpsc channels.
 /// Use [`Setup`] to initialize it and call [`Setup::start`] to make it actively listen for
 /// incoming messages.
-pub struct InMemoryChannelledTransport {
+pub struct InMemoryTransport {
     identity: HelperIdentity,
     connections: HashMap<HelperIdentity, ConnectionTx>,
     record_streams: StreamCollection<InMemoryStream>,
 }
 
-impl InMemoryChannelledTransport {
-
+impl InMemoryTransport {
     pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup<impl ReceiveQueryCallback> {
         Setup::new(identity, stub_callbacks())
     }
@@ -119,7 +116,7 @@ impl InMemoryChannelledTransport {
 }
 
 #[async_trait]
-impl Transport for Weak<InMemoryChannelledTransport> {
+impl Transport for Weak<InMemoryTransport> {
     type RecordsStream = ReceiveRecords<InMemoryStream>;
 
     fn identity(&self) -> HelperIdentity {
@@ -127,7 +124,10 @@ impl Transport for Weak<InMemoryChannelledTransport> {
     }
 
     async fn send<
-        D: Stream<Item = Vec<u8>> + Send + 'static, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
     >(
         &self,
         dest: HelperIdentity,
@@ -500,14 +500,14 @@ impl<CB: ReceiveQueryCallback> Setup<CB> {
             .is_none());
     }
 
-    fn into_active_conn(self) -> (ConnectionTx, Arc<InMemoryChannelledTransport>) {
-        let transport = InMemoryChannelledTransport::new(self.identity, self.connections);
+    fn into_active_conn(self) -> (ConnectionTx, Arc<InMemoryTransport>) {
+        let transport = InMemoryTransport::new(self.identity, self.connections);
         transport.listen(self.callbacks, self.rx);
 
         (self.tx, Arc::new(transport))
     }
 
-    pub fn start(self) -> Arc<InMemoryChannelledTransport> {
+    pub fn start(self) -> Arc<InMemoryTransport> {
         self.into_active_conn().1
     }
 }
@@ -519,11 +519,11 @@ mod tests {
         ff::{FieldType, Fp31},
         helpers::{ordering_mpsc, query::QueryType, HelperIdentity},
         protocol::Step,
+        test_fixture::transport::InMemoryNetwork,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::{num::NonZeroUsize, panic::AssertUnwindSafe};
     use tokio::sync::{mpsc::channel, oneshot};
-    use crate::test_fixture::transport::InMemoryNetwork;
 
     const STEP: &str = "in-memory-transport";
 
@@ -596,7 +596,8 @@ mod tests {
         ))
         .await
         .unwrap();
-        let stream = Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
+        let stream =
+            Arc::downgrade(&transport).receive(HelperIdentity::TWO, (QueryId, Step::from(STEP)));
 
         assert_eq!(expected, stream.collect::<Vec<_>>().await);
     }
@@ -606,7 +607,7 @@ mod tests {
         async fn send_and_verify(
             from: HelperIdentity,
             to: HelperIdentity,
-            transports: &HashMap<HelperIdentity, Weak<InMemoryChannelledTransport>>,
+            transports: &HashMap<HelperIdentity, Weak<InMemoryTransport>>,
         ) {
             let (stream_tx, stream_rx) = channel(1);
             let stream = InMemoryStream::from(stream_rx);
@@ -661,7 +662,8 @@ mod tests {
 
     #[tokio::test]
     async fn panic_if_stream_received_twice() {
-        let (tx, owned_transport) = Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
+        let (tx, owned_transport) =
+            Setup::new(HelperIdentity::ONE, stub_callbacks()).into_active_conn();
         let step = Step::from(STEP);
         let (stream_tx, stream_rx) = channel(1);
         let stream = InMemoryStream::from(stream_rx);
@@ -707,7 +709,14 @@ mod tests {
         let transport2 = network.transport(HelperIdentity::TWO).unwrap();
 
         let step = Step::from(STEP);
-        transport1.send(HelperIdentity::TWO, (RouteId::Records, QueryId, step.clone()), rx).await.unwrap();
+        transport1
+            .send(
+                HelperIdentity::TWO,
+                (RouteId::Records, QueryId, step.clone()),
+                rx,
+            )
+            .await
+            .unwrap();
         let mut recv = transport2.receive(HelperIdentity::ONE, (QueryId, step));
 
         tx.send(0, Fp31::try_from(0_u128).unwrap()).await.unwrap();

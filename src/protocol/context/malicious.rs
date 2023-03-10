@@ -1,9 +1,9 @@
 use std::{
+    any::type_name,
+    fmt::{Debug, Formatter},
     iter::{repeat, zip},
     marker::PhantomData,
 };
-use std::any::type_name;
-use std::fmt::{Debug, Formatter};
 
 use async_trait::async_trait;
 use futures::future::{try_join, try_join_all};
@@ -11,10 +11,7 @@ use futures::future::{try_join, try_join_all};
 use crate::{
     error::Error,
     ff::Field,
-    helpers::{
-        Gateway, TotalRecords,
-        Role,
-    },
+    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         attribution::input::MCCappedCreditsWithAggregationBit,
         basics::{
@@ -40,7 +37,6 @@ use crate::{
     },
     sync::Arc,
 };
-use crate::helpers::{ChannelId, Message, ReceivingEnd, SendingEnd};
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.
@@ -176,11 +172,15 @@ impl<'a, F: Field> Context for MaliciousContext<'a, F> {
     }
 
     fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
-        self.inner.gateway.get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+        self.inner
+            .gateway
+            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
     }
 
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
-        self.inner.gateway.get_receiver(&ChannelId::new(role, self.step.clone()))
+        self.inner
+            .gateway
+            .get_receiver(&ChannelId::new(role, self.step.clone()))
     }
 }
 
@@ -217,7 +217,7 @@ impl<'a, F: Field> SpecialAccessToMaliciousContext<'a, F> for MaliciousContext<'
     }
 }
 
-impl <F: Field> Debug for MaliciousContext<'_, F> {
+impl<F: Field> Debug for MaliciousContext<'_, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "MaliciousContext<{:?}>", type_name::<F>())
     }

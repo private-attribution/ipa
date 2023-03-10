@@ -1,25 +1,25 @@
-use std::io;
 use crate::{
     helpers::HelperIdentity,
     protocol::{QueryId, Step},
 };
 use async_trait::async_trait;
 use futures::Stream;
+use std::io;
 
-pub mod query;
 mod bytearrstream;
+pub mod query;
 
 pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
 
 pub trait ResourceIdentifier: Sized {}
 pub trait QueryIdBinding: Sized
-    where
-        Option<QueryId>: From<Self>,
+where
+    Option<QueryId>: From<Self>,
 {
 }
 pub trait StepBinding: Sized
-    where
-        Option<Step>: From<Self>,
+where
+    Option<Step>: From<Self>,
 {
 }
 
@@ -55,9 +55,9 @@ impl StepBinding for NoStep {}
 impl StepBinding for Step {}
 
 pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>: Send
-    where
-        Option<QueryId>: From<Q>,
-        Option<Step>: From<S>,
+where
+    Option<QueryId>: From<Q>,
+    Option<Step>: From<S>,
 {
     fn resource_identifier(&self) -> R;
     fn query_id(&self) -> Q;
@@ -115,13 +115,13 @@ pub trait Transport: Clone + Send + Sync + 'static {
         route: R,
         data: D,
     ) -> Result<(), io::Error>
-        where
-            Option<QueryId>: From<Q>,
-            Option<Step>: From<S>,
-            Q: QueryIdBinding,
-            S: StepBinding,
-            R: RouteParams<RouteId, Q, S>,
-            D: Stream<Item=Vec<u8>> + Send + 'static;
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static;
 
     /// Return the stream of records to be received from another helper for the specific query
     /// and step
@@ -138,14 +138,14 @@ pub trait Transport: Clone + Send + Sync + 'static {
 #[derive(Clone)]
 pub enum TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
-    InMemory(std::sync::Weak<crate::test_fixture::transport::InMemoryChannelledTransport>)
+    InMemory(std::sync::Weak<crate::test_fixture::transport::InMemoryTransport>),
 }
 
 #[async_trait]
+#[allow(unused_variables)]
 impl Transport for TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
-    type RecordsStream = <std::sync::Weak<crate::test_fixture::transport::InMemoryChannelledTransport> as Transport>::RecordsStream;
-    // TODO: it is likely that this ends up being the only type we could use here.
+    type RecordsStream = <std::sync::Weak<crate::test_fixture::transport::InMemoryTransport> as Transport>::RecordsStream;
     #[cfg(not(any(test, feature = "test-fixture")))]
     type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
 
@@ -153,24 +153,44 @@ impl Transport for TransportImpl {
         match self {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(ref inner) => inner.identity(),
+            #[cfg(not(any(test, feature = "test-fixture")))]
             // https://github.com/rust-lang/rust/issues/78123
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
-    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), std::io::Error> where Option<QueryId>: From<Q>, Option<Step>: From<S>, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>, D: Stream<Item=Vec<u8>> + Send + 'static {
+    async fn send<D, Q, S, R>(
+        &self,
+        dest: HelperIdentity,
+        route: R,
+        data: D,
+    ) -> Result<(), std::io::Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+    {
         match self {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
-            _ => unreachable!()
+            #[cfg(not(any(test, feature = "test-fixture")))]
+            _ => unreachable!(),
         }
     }
 
-    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(&self, from: HelperIdentity, route: R) -> Self::RecordsStream {
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+        &self,
+        from: HelperIdentity,
+        route: R,
+    ) -> Self::RecordsStream {
         match self {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(inner) => inner.receive(from, route),
-            _ => unreachable!()
+            #[cfg(not(any(test, feature = "test-fixture")))]
+            _ => unreachable!(),
         }
     }
 }

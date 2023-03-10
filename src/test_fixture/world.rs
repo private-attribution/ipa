@@ -5,10 +5,7 @@ use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{
     ff::Field,
-    helpers::{
-        {Gateway, GatewayConfig},
-        Role,
-    },
+    helpers::{Gateway, GatewayConfig, Role},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
@@ -23,23 +20,17 @@ use crate::{
 
 use std::io::stdout;
 
-use std::{
-    fmt::Debug,
-    iter::zip,
-    mem::ManuallyDrop,
-    num::NonZeroUsize,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{fmt::Debug, iter::zip, num::NonZeroUsize};
 
 use crate::{
-    helpers::{ RoleAssignment},
+    helpers::{transport::TransportImpl, RoleAssignment},
     protocol::{QueryId, Substep},
     secret_sharing::IntoShares,
+    sync::Arc,
     telemetry::{stats::Metrics, StepStatsCsvExporter},
     test_fixture::transport::InMemoryNetwork,
 };
 use tracing::Level;
-use crate::helpers::transport::TransportImpl;
 
 use super::{sharing::ValidateMalicious, Reconstruct};
 
@@ -52,7 +43,6 @@ pub struct TestWorld {
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
-    joined: AtomicBool,
     _network: InMemoryNetwork,
 }
 
@@ -98,21 +88,28 @@ impl TestWorld {
         let network = InMemoryNetwork::default();
         let role_assignment = RoleAssignment::new(network.helper_identities());
 
-        let gateways = network.transports.iter().enumerate().map(|(i, transport)| {
-            let role_assignment = role_assignment.clone();
-            Gateway::new(QueryId, config.gateway_config, role_assignment, TransportImpl::InMemory(Arc::downgrade(transport)))
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| "Failed to collect into [Gateway; 3]")
-        .unwrap();
+        let gateways = network
+            .transports
+            .iter()
+            .map(|transport| {
+                let role_assignment = role_assignment.clone();
+                Gateway::new(
+                    QueryId,
+                    config.gateway_config,
+                    role_assignment,
+                    TransportImpl::InMemory(Arc::downgrade(transport)),
+                )
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| "Failed to collect into [Gateway; 3]")
+            .unwrap();
 
         TestWorld {
             gateways,
             participants,
             executions: AtomicUsize::new(0),
             metrics_handle,
-            joined: AtomicBool::new(false),
             _network: network,
         }
     }

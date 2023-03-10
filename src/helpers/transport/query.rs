@@ -1,13 +1,12 @@
 use crate::{
     ff::FieldType,
+    helpers::{transport::ByteArrStream, RoleAssignment},
     protocol::{QueryId, Substep},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
-use crate::helpers::RoleAssignment;
-use crate::helpers::transport::ByteArrStream;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]

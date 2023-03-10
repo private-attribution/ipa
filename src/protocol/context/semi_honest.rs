@@ -1,9 +1,6 @@
-use std::fmt::{Debug, Formatter};
 use crate::{
     ff::Field,
-    helpers::{
-        Role,
-    },
+    helpers::{ChannelId, Gateway, Message, ReceivingEnd, Role, SendingEnd, TotalRecords},
     protocol::{
         context::{
             Context, InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness,
@@ -16,7 +13,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sync::Arc,
 };
-use crate::helpers::{ChannelId, Gateway, Message, ReceivingEnd, SendingEnd, TotalRecords};
+use std::fmt::{Debug, Formatter};
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.
@@ -117,11 +114,15 @@ impl<'a> Context for SemiHonestContext<'a> {
     }
 
     fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M> {
-        self.inner.gateway.get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
+        self.inner
+            .gateway
+            .get_sender(&ChannelId::new(role, self.step.clone()), self.total_records)
     }
 
     fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M> {
-        self.inner.gateway.get_receiver(&ChannelId::new(role, self.step.clone()))
+        self.inner
+            .gateway
+            .get_receiver(&ChannelId::new(role, self.step.clone()))
     }
 }
 

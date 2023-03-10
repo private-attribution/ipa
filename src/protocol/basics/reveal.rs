@@ -66,7 +66,8 @@ impl<'a, F: Field> Reveal<SemiHonestContext<'a>, RecordId> for Replicated<F> {
             .await?;
 
         // Sleep until `helper's left` sends their share
-        let share = ctx.recv_channel(ctx.role().peer(Direction::Left))
+        let share = ctx
+            .recv_channel(ctx.role().peer(Direction::Left))
             .receive(record_id)
             .await?;
 
@@ -288,11 +289,8 @@ mod tests {
         )
         .await?;
 
-        let (share_from_left, _share_from_right): (F, F) = try_join(
-            left_recv.receive(record_id),
-            right_recv.receive(record_id),
-        )
-        .await?;
+        let (share_from_left, _share_from_right): (F, F) =
+            try_join(left_recv.receive(record_id), right_recv.receive(record_id)).await?;
 
         Ok(left + right + share_from_left)
     }

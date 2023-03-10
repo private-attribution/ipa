@@ -1,6 +1,7 @@
 use crate::{
-    helpers::{Message, Error},
+    helpers::{Error, Message},
     protocol::RecordId,
+    sync::{Arc, Mutex},
 };
 use futures::{task::Waker, Future, Stream};
 use generic_array::GenericArray;
@@ -12,7 +13,6 @@ use std::{
     task::{Context, Poll},
 };
 use typenum::Unsigned;
-use crate::sync::{Arc, Mutex};
 
 /// A future for receiving item `i` from an `UnorderedReceiver`.
 pub struct Receiver<S, C, M>
