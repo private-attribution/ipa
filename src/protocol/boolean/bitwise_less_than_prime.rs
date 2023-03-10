@@ -120,13 +120,13 @@ impl BitwiseLessThanPrime {
                 multiply_all_shares(ctx.narrow(&Step::CheckIfAllOnes), record_id, &x[3..]),
             )
             .await?;
-            return S::multiply(
-                ctx.narrow(&Step::AllOnesAndFinalBits),
-                record_id,
-                &check_least_significant_bits,
-                &most_significant_bits_all_ones,
-            )
-            .await;
+            return check_least_significant_bits
+                .multiply(
+                    &most_significant_bits_all_ones,
+                    ctx.narrow(&Step::AllOnesAndFinalBits),
+                    record_id,
+                )
+                .await;
         }
         // Not implemented for any other type of prime. Please add to this if you create a new type of Field which
         // is neither a Mersenne Prime, nor which is equal to `2^n - 5` for some value of `n`
@@ -157,15 +157,16 @@ impl BitwiseLessThanPrime {
         debug_assert!(x.len() == 3);
 
         let one = S::share_known_value(&ctx, F::ONE);
-        let least_significant_two_bits_both_one =
-            S::multiply(ctx.narrow(&BitOpStep::from(0)), record_id, &x[0], &x[1]).await?;
-        let least_significant_bits_are_one_one_zero = S::multiply(
-            ctx.narrow(&BitOpStep::from(1)),
-            record_id,
-            &(one - &x[2]),
-            &least_significant_two_bits_both_one,
-        )
-        .await?;
+        let least_significant_two_bits_both_one = x[0]
+            .multiply(&x[1], ctx.narrow(&BitOpStep::from(0)), record_id)
+            .await?;
+        let least_significant_bits_are_one_one_zero = (one - &x[2])
+            .multiply(
+                &least_significant_two_bits_both_one,
+                ctx.narrow(&BitOpStep::from(1)),
+                record_id,
+            )
+            .await?;
 
         Ok(least_significant_bits_are_one_one_zero + &x[2])
     }

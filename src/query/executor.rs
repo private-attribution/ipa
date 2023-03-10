@@ -82,10 +82,10 @@ where
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
-                    let result =
-                        Replicated::multiply(ctx.clone(), RecordId::from(record_id), &a_v, &share)
-                            .await
-                            .unwrap();
+                    let result = a_v
+                        .multiply(&share, ctx.clone(), RecordId::from(record_id))
+                        .await
+                        .unwrap();
                     results.push(result);
                     record_id += 1;
                     a = None;

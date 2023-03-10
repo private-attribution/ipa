@@ -37,7 +37,7 @@ where
     C: Context,
     S: ArithmeticSecretSharing<F> + SecureMul<C>,
 {
-    let ab = S::multiply_sparse(ctx, record_id, a, b, zeros_at).await?;
+    let ab = a.multiply_sparse(b, ctx, record_id, zeros_at).await?;
     Ok(-(ab * F::from(2)) + a + b)
 }
 

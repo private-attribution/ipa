@@ -16,6 +16,10 @@ pub use transport::{
     TransportError,
 };
 
+/// to test integration between in memory transport and mpsc buffer.
+#[cfg(test)]
+pub use buffers::ordering_mpsc;
+
 use crate::helpers::{
     Direction::{Left, Right},
     Role::{H1, H2, H3},

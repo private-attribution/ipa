@@ -278,7 +278,7 @@ where
                         let step = BitOpStep::from(check_idx);
                         let c = c2.narrow(&step);
                         let record_id = RecordId::from(i);
-                        async move { T::multiply(c, record_id, check, credit).await }
+                        async move { check.multiply(credit, c, record_id).await }
                     },
                 ))
                 .await
