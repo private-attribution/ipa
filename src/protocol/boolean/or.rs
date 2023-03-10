@@ -16,7 +16,7 @@ pub async fn or<F: Field, C: Context, S: ArithmeticSecretSharing<F> + SecureMul<
     a: &S,
     b: &S,
 ) -> Result<S, Error> {
-    let ab = S::multiply(ctx, record_id, a, b).await?;
+    let ab = a.multiply(b, ctx, record_id).await?;
     Ok(-ab + a + b)
 }
 

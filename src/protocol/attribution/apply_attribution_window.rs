@@ -77,7 +77,11 @@ where
         try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
             let c = stop_bit_context.clone();
             let record_id = RecordId::from(i);
-            async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
+            async move {
+                x.is_trigger_report
+                    .multiply(&x.helper_bit, c, record_id)
+                    .await
+            }
         }))
         .await?,
     );
@@ -98,7 +102,7 @@ where
                         let c = t_delta_context.clone();
                         let record_id = RecordId::from(i);
                         let delta = curr.timestamp.clone() - &prev.timestamp;
-                        async move { T::multiply(c, record_id, &delta, &b).await }
+                        async move { delta.multiply(&b, c, record_id).await }
                     }),
             )
             .await?,
@@ -158,7 +162,9 @@ where
                     let compare_bit = one
                         - &bitwise_greater_than_constant(c2, record_id, &delta_bits, cap.into())
                             .await?;
-                    T::multiply(c3, record_id, &row.trigger_value, &compare_bit).await
+                    row.trigger_value
+                        .multiply(&compare_bit, c3, record_id)
+                        .await
                 }
             }),
     )

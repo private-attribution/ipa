@@ -451,14 +451,14 @@ impl<'a, F: Field> ContextInner<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = Replicated::multiply_sparse(
-            ctx.clone(),
-            record_id,
-            &x,
-            &self.r_share,
-            (zeros_at, ZeroPositions::Pvvv),
-        )
-        .await?;
+        let rx = x
+            .multiply_sparse(
+                &self.r_share,
+                ctx.clone(),
+                record_id,
+                (zeros_at, ZeroPositions::Pvvv),
+            )
+            .await?;
         let m = MaliciousReplicated::new(x, rx);
         let ctx = ctx.narrow(&RandomnessForValidation);
         let prss = ctx.prss();

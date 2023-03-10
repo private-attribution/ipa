@@ -123,7 +123,7 @@ pub mod query {
                     #[derive(serde::Deserialize)]
                     struct IPAQueryConfigParam {
                         per_user_credit_cap: u32,
-                        max_breakdown_key: u128,
+                        max_breakdown_key: u32,
                         num_multi_bits: u32,
                     }
                     let Query(IPAQueryConfigParam {

@@ -114,7 +114,7 @@ impl Substep for QueryType {}
 #[cfg_attr(feature = "enable-serde", derive(Serialize, Deserialize))]
 pub struct IpaQueryConfig {
     pub per_user_credit_cap: u32,
-    pub max_breakdown_key: u128,
+    pub max_breakdown_key: u32,
     pub num_multi_bits: u32,
 }
 
