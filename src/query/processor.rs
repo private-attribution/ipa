@@ -1,10 +1,10 @@
+#![cfg(never)]
+
 use crate::{
     helpers::{
         Gateway,
-        network::Network,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport,
-        TransportCommand, TransportError,
+        GatewayConfig, HelperIdentity, Role, RoleAssignment,
     },
     protocol::QueryId,
     query::{

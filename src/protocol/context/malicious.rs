@@ -40,8 +40,7 @@ use crate::{
     },
     sync::Arc,
 };
-use crate::helpers::{Message, ReceivingEnd, SendingEnd};
-use crate::helpers::network::ChannelId;
+use crate::helpers::{ChannelId, Message, ReceivingEnd, SendingEnd};
 
 /// Represents protocol context in malicious setting, i.e. secure against one active adversary
 /// in 3 party MPC ring.

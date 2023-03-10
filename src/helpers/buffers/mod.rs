@@ -1,17 +1,12 @@
-mod fsv;
 mod ordering_mpsc;
-mod receive;
-mod send;
 mod unordered_receiver;
 
-pub use receive::ReceiveBuffer;
-pub use send::{Config as SendBufferConfig, SendBuffer};
 pub use ordering_mpsc::{ordering_mpsc, OrderingMpscSender, OrderingMpscReceiver};
 pub use unordered_receiver::UnorderedReceiver;
 
 #[cfg(debug_assertions)]
 mod waiting {
-    use crate::helpers::network::ChannelId;
+    use crate::helpers::ChannelId;
     use std::collections::HashMap;
 
     pub(in crate::helpers) struct WaitingTasks<'a> {

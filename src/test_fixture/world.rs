@@ -7,7 +7,7 @@ use crate::{
     ff::Field,
     helpers::{
         {Gateway, GatewayConfig},
-        Role, SendBufferConfig,
+        Role,
     },
     protocol::{
         context::{
@@ -32,7 +32,7 @@ use std::{
 };
 
 use crate::{
-    helpers::{network::Network, RoleAssignment},
+    helpers::{ RoleAssignment},
     protocol::{QueryId, Substep},
     secret_sharing::IntoShares,
     telemetry::{stats::Metrics, StepStatsCsvExporter},

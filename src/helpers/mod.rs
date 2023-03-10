@@ -1,4 +1,3 @@
-pub mod network;
 pub mod transport;
 
 mod buffers;
@@ -9,14 +8,10 @@ mod gateway;
 
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
-pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use prss_protocol::negotiate as negotiate_prss;
-pub use transport::{
-    CommandEnvelope, CommandOrigin, query, SubscriptionType, Transport, TransportCommand,
-    TransportError,
-};
 pub use gateway::{Gateway, GatewayConfig, SendingEnd, ReceivingEnd};
+pub use transport::query;
 
 /// to validate that transport can actually send streams of this type
 #[cfg(test)]
@@ -31,6 +26,7 @@ use tinyvec::ArrayVec;
 use typenum::{U8, Unsigned};
 use crate::bits::Serializable;
 use crate::ff::Field;
+use crate::protocol::Step;
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
@@ -322,6 +318,29 @@ impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
         }
 
         Ok(RoleAssignment::new(result.map(Option::unwrap)))
+    }
+}
+
+/// Combination of helper role and step that uniquely identifies a single channel of communication
+/// between two helpers.
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct ChannelId {
+    pub role: Role,
+    // TODO: step could be either reference or owned value. references are convenient to use inside
+    // gateway , owned values can be used inside lookup tables.
+    pub step: Step,
+}
+
+impl ChannelId {
+    #[must_use]
+    pub fn new(role: Role, step: Step) -> Self {
+        Self { role, step }
+    }
+}
+
+impl Debug for ChannelId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "channel[{:?},{:?}]", self.role, self.step)
     }
 }
 

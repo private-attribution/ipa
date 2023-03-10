@@ -4,7 +4,6 @@ mod handlers;
 pub use error::Error;
 
 use crate::{
-    helpers::CommandEnvelope,
     protocol::QueryId,
     sync::{Arc, Mutex},
     task::JoinHandle,

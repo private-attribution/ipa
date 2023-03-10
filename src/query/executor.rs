@@ -4,7 +4,6 @@ use crate::{
     helpers::{
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
-        transport::{AlignedByteArrStream, ByteArrStream},
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -24,6 +23,7 @@ use shuttle::future as tokio;
 use std::fmt::Debug;
 use typenum::Unsigned;
 use crate::helpers::{Gateway, TotalRecords};
+use crate::helpers::transport::{AlignedByteArrStream, ByteArrStream};
 
 pub trait Result: Send + Debug {
     fn into_bytes(self: Box<Self>) -> Vec<u8>;

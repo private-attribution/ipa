@@ -16,8 +16,7 @@ use crate::{
     secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
     sync::Arc,
 };
-use crate::helpers::network::ChannelId;
-use crate::helpers::{Gateway, Message, ReceivingEnd, SendingEnd, TotalRecords};
+use crate::helpers::{ChannelId, Gateway, Message, ReceivingEnd, SendingEnd, TotalRecords};
 
 /// Context for protocol executions suitable for semi-honest security model, i.e. secure against
 /// honest-but-curious adversary parties.

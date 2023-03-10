@@ -13,6 +13,7 @@ pub mod ff;
 pub mod helpers;
 pub mod hpke;
 #[cfg(feature = "web-app")]
+#[cfg(never)]
 pub mod net;
 pub mod protocol;
 pub mod query;

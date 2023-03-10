@@ -79,8 +79,8 @@ pub mod query {
     use crate::{
         ff::FieldType,
         helpers::{
-            query::{IpaQueryConfig, QueryConfig, QueryType},
             HelperIdentity,
+            query::QueryType,
         },
         net::server,
     };
@@ -215,7 +215,6 @@ pub mod query {
 
     pub mod create {
         use crate::{
-            helpers::query::QueryConfig,
             net::{
                 client,
                 http_serde::query::{server, QueryConfigQueryParams, BASE_AXUM_PATH},
@@ -360,7 +359,7 @@ pub mod query {
 
     pub mod input {
         use crate::{
-            helpers::{query::QueryInput, transport::ByteArrStream},
+            helpers::{query::QueryInput},
             net::{client, http_serde::query::BASE_AXUM_PATH, server},
         };
         use async_trait::async_trait;

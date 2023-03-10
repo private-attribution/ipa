@@ -1,12 +1,13 @@
 use crate::{
     ff::FieldType,
-    helpers::{transport::ByteArrStream, RoleAssignment, TransportCommand},
     protocol::{QueryId, Substep},
     query::ProtocolResult,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot;
+use crate::helpers::RoleAssignment;
+use crate::helpers::transport::ByteArrStream;
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -81,12 +82,6 @@ impl QueryCommand {
             Self::Input(data, _) => Some(data.query_id),
             Self::Results(query_id, _) => Some(*query_id),
         }
-    }
-}
-
-impl From<QueryCommand> for TransportCommand {
-    fn from(value: QueryCommand) -> Self {
-        TransportCommand::Query(value)
     }
 }
 

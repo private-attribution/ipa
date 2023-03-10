@@ -122,8 +122,7 @@ impl PublicKeyChunk {
     }
 }
 
-use crate::helpers::MessagePayloadArrayLen;
-use crate::helpers::network::ChannelId;
+use crate::helpers::{ChannelId, MessagePayloadArrayLen};
 
 impl Serializable for PublicKeyChunk {
     type Size = MessagePayloadArrayLen;

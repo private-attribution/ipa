@@ -1,9 +1,13 @@
+use std::io;
 use crate::{
-    helpers::{HelperIdentity, SubscriptionType, Transport, TransportCommand, TransportError},
     sync::Arc,
 };
 
 use async_trait::async_trait;
+use futures::Stream;
+use crate::helpers::HelperIdentity;
+use crate::helpers::transport::{ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding};
+use crate::protocol::{QueryId, Step};
 
 /// Transport that does not acknowledge send requests until the given number of send requests
 /// is received. `wait` blocks the current task until this condition is satisfied.
@@ -13,7 +17,7 @@ pub struct DelayedTransport<T> {
     barrier: Arc<tokio::sync::Barrier>,
 }
 
-impl<T: Transport> DelayedTransport<T> {
+impl<T: ChannelledTransport> DelayedTransport<T> {
     #[must_use]
     pub fn new(inner: T, concurrent_sends: usize) -> Self {
         Self {
@@ -28,59 +32,19 @@ impl<T: Transport> DelayedTransport<T> {
 }
 
 #[async_trait]
-impl<T: Transport> Transport for DelayedTransport<T> {
-    type CommandStream = T::CommandStream;
-
-    fn identity(&self) -> HelperIdentity {
-        T::identity(&self.inner)
-    }
-
-    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
-        self.inner.subscribe(subscription).await
-    }
-
-    async fn send<C: Send + Into<TransportCommand>>(
-        &self,
-        destination: HelperIdentity,
-        command: C,
-    ) -> Result<(), TransportError> {
-        self.barrier.wait().await;
-        self.inner.send(destination, command).await
-    }
-}
-
-/// Transport that fails every `send` request using provided `error_fn` to resolve errors.
-#[derive(Clone)]
-pub struct FailingTransport<T, F> {
-    inner: T,
-    error_fn: F,
-}
-
-impl<T: Transport, F: Fn(TransportCommand) -> TransportError> FailingTransport<T, F> {
-    pub fn new(inner: T, error_fn: F) -> Self {
-        Self { inner, error_fn }
-    }
-}
-
-#[async_trait]
-impl<T: Transport, F: Fn(TransportCommand) -> TransportError + Send + Sync + 'static> Transport
-    for FailingTransport<T, F>
-{
-    type CommandStream = T::CommandStream;
+impl<T: ChannelledTransport> ChannelledTransport for DelayedTransport<T> {
+    type RecordsStream = T::RecordsStream;
 
     fn identity(&self) -> HelperIdentity {
         self.inner.identity()
     }
 
-    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream {
-        self.inner.subscribe(subscription).await
+    async fn send<D, Q, S, R>(&self, dest: HelperIdentity, route: R, data: D) -> Result<(), io::Error> where Option<QueryId>: From<Q>, Option<Step>: From<S>, Q: QueryIdBinding, S: StepBinding, R: RouteParams<RouteId, Q, S>, D: Stream<Item=Vec<u8>> + Send + 'static {
+        self.barrier.wait().await;
+        self.inner.send(dest, route, data).await
     }
 
-    async fn send<C: Send + Into<TransportCommand>>(
-        &self,
-        _destination: HelperIdentity,
-        command: C,
-    ) -> Result<(), TransportError> {
-        Err((self.error_fn)(command.into()))
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(&self, from: HelperIdentity, route: R) -> Self::RecordsStream {
+        self.inner.receive(from, route)
     }
 }

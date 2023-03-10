@@ -5,6 +5,7 @@ mod world;
 pub mod circuit;
 pub mod logging;
 pub mod metrics;
+#[cfg(never)]
 pub mod net;
 pub mod transport;
 

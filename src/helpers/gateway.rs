@@ -14,9 +14,8 @@ use ::tokio::sync::mpsc::Sender;
 use typenum::{U8, Unsigned};
 use crate::bits::Serializable;
 use crate::helpers::buffers::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender, UnorderedReceiver};
-use crate::helpers::{Error, HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES, Role, RoleAssignment};
+use crate::helpers::{ChannelId, Error, HelperIdentity, MESSAGE_PAYLOAD_SIZE_BYTES, Role, RoleAssignment};
 use crate::helpers::{Message, TotalRecords};
-use crate::helpers::network::{ChannelId, MessageEnvelope};
 use crate::helpers::transport::{ChannelledTransport, NoResourceIdentifier, QueryIdBinding, RouteId, RouteParams, StepBinding, TransportImpl};
 use crate::protocol::{QueryId, RecordId, Step};
 use crate::telemetry::metrics::RECORDS_SENT;
@@ -303,7 +302,6 @@ mod tests {
     use std::num::NonZeroUsize;
     use futures_util::future::{try_join, try_join_all};
     use tokio_stream::StreamExt;
-    use crate::helpers::network::ChannelId;
 
     #[tokio::test]
     pub async fn handles_reordering() {

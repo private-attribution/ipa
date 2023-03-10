@@ -2,8 +2,8 @@ use crate::{
     error::BoxError,
     helpers::{
         Message,
-        network::{ChannelId, MessageChunks},
-        HelperIdentity, Role, TransportError,
+        ChannelId,
+        HelperIdentity, Role,
     },
     protocol::{RecordId, Step},
 };
@@ -50,11 +50,11 @@ pub enum Error {
     },
     #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
-    #[cfg(feature = "web-app")]
-    #[error("identity had invalid format: {0}")]
-    InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
-    #[error("Failed to send command on the transport: {0}")]
-    TransportError(#[from] TransportError),
+    // #[cfg(feature = "web-app")]
+    // #[error("identity had invalid format: {0}")]
+    // InvalidIdentity(#[from] hyper::http::uri::InvalidUri),
+    // #[error("Failed to send command on the transport: {0}")]
+    // TransportError(#[from] TransportError),
 }
 
 impl Error {
@@ -92,15 +92,6 @@ impl Error {
     }
 }
 
-// impl From<SendError<ReceiveRequest>> for Error {
-//     fn from(source: SendError<ReceiveRequest>) -> Self {
-//         Self::SendError {
-//             channel: source.0.channel_id,
-//             inner: "channel closed".into(),
-//         }
-//     }
-// }
-
 impl<M: Message> From<SendError<(usize, M)>> for Error {
     fn from(_: SendError<(usize, M)>) -> Self {
         Self::OrderedChannelError {
@@ -109,23 +100,14 @@ impl<M: Message> From<SendError<(usize, M)>> for Error {
     }
 }
 
-// impl From<SendError<SendRequest>> for Error {
-//     fn from(source: SendError<SendRequest>) -> Self {
-//         Self::SendError {
-//             channel: source.0 .0,
-//             inner: "channel closed".into(),
+// impl From<PollSendError<MessageChunks>> for Error {
+//     fn from(source: PollSendError<MessageChunks>) -> Self {
+//         let inner = source.to_string().into();
+//         match source.into_inner() {
+//             Some((channel, _)) => Self::SendError { channel, inner },
+//             None => Self::PollSendError { inner },
 //         }
 //     }
 // }
-//
-impl From<PollSendError<MessageChunks>> for Error {
-    fn from(source: PollSendError<MessageChunks>) -> Self {
-        let inner = source.to_string().into();
-        match source.into_inner() {
-            Some((channel, _)) => Self::SendError { channel, inner },
-            None => Self::PollSendError { inner },
-        }
-    }
-}
 
 pub type Result<T> = std::result::Result<T, Error>;
