@@ -381,15 +381,6 @@ impl TotalRecords {
     pub fn is_indeterminate(&self) -> bool {
         matches!(self, &TotalRecords::Indeterminate)
     }
-
-    /// If this instance has total number of records specified, returns it.
-    /// Otherwise returns [`Option::None`]
-    pub fn count(&self) -> Option<NonZeroUsize> {
-        match self {
-            TotalRecords::Specified(v) => Some(*v),
-            TotalRecords::Unspecified | TotalRecords::Indeterminate => None,
-        }
-    }
 }
 
 impl From<usize> for TotalRecords {

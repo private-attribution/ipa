@@ -44,10 +44,12 @@ pub struct InMemoryTransport {
 }
 
 impl InMemoryTransport {
+    #[must_use]
     pub fn with_stub_callbacks(identity: HelperIdentity) -> Setup<impl ReceiveQueryCallback> {
         Setup::new(identity, stub_callbacks())
     }
 
+    #[must_use]
     fn new(identity: HelperIdentity, connections: HashMap<HelperIdentity, ConnectionTx>) -> Self {
         Self {
             identity,
@@ -56,6 +58,7 @@ impl InMemoryTransport {
         }
     }
 
+    #[must_use]
     pub fn identity(&self) -> HelperIdentity {
         self.identity
     }
@@ -519,7 +522,7 @@ mod tests {
         ff::{FieldType, Fp31},
         helpers::{ordering_mpsc, query::QueryType, HelperIdentity},
         protocol::Step,
-        test_fixture::transport::InMemoryNetwork,
+        test_fixture::network::InMemoryNetwork,
     };
     use futures_util::{stream::poll_immediate, FutureExt, StreamExt};
     use std::{num::NonZeroUsize, panic::AssertUnwindSafe};
@@ -728,6 +731,6 @@ mod tests {
         drop(tx);
 
         // must be received by now
-        assert_eq!(vec![vec![0], vec![1]], recv.collect::<Vec<_>>().await)
+        assert_eq!(vec![vec![0], vec![1]], recv.collect::<Vec<_>>().await);
     }
 }

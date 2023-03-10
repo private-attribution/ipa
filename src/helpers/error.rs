@@ -1,6 +1,6 @@
 use crate::{
     error::BoxError,
-    helpers::{ChannelId, HelperIdentity, Message, Role},
+    helpers::{ChannelId, HelperIdentity, Message, Role, TotalRecords},
     protocol::{RecordId, Step},
 };
 use thiserror::Error;
@@ -45,6 +45,12 @@ pub enum Error {
     },
     #[error("Encountered unknown identity {0:?}")]
     UnknownIdentity(HelperIdentity),
+    #[error("record ID {record_id:?} is out of range for {channel_id:?} (expected {total_records:?} records)")]
+    TooManyRecords {
+        record_id: RecordId,
+        channel_id: ChannelId,
+        total_records: TotalRecords,
+    },
 }
 
 impl Error {

@@ -28,7 +28,7 @@ use crate::{
     secret_sharing::IntoShares,
     sync::Arc,
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::transport::InMemoryNetwork,
+    test_fixture::network::InMemoryNetwork,
 };
 use tracing::Level;
 
@@ -80,6 +80,7 @@ impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
+    #[allow(clippy::unused_async)] // we likely need it ?
     pub async fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 

@@ -1,9 +1,13 @@
+mod transport;
+mod util;
+
 use crate::{
     helpers::{transport::Transport, HelperIdentity},
     sync::{Arc, Weak},
 };
 
-use crate::test_fixture::transport::InMemoryTransport;
+pub use transport::InMemoryTransport;
+pub use util::DelayedTransport;
 
 /// Container for all active transports
 #[derive(Clone)]

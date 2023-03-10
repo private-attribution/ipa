@@ -7,7 +7,7 @@ pub mod logging;
 pub mod metrics;
 #[cfg(never)]
 pub mod net;
-pub mod transport;
+pub mod network;
 
 use crate::{
     ff::{Field, Fp31},

@@ -138,14 +138,14 @@ pub trait Transport: Clone + Send + Sync + 'static {
 #[derive(Clone)]
 pub enum TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
-    InMemory(std::sync::Weak<crate::test_fixture::transport::InMemoryTransport>),
+    InMemory(std::sync::Weak<crate::test_fixture::network::InMemoryTransport>),
 }
 
 #[async_trait]
 #[allow(unused_variables)]
 impl Transport for TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
-    type RecordsStream = <std::sync::Weak<crate::test_fixture::transport::InMemoryTransport> as Transport>::RecordsStream;
+    type RecordsStream = <std::sync::Weak<crate::test_fixture::network::InMemoryTransport> as Transport>::RecordsStream;
     #[cfg(not(any(test, feature = "test-fixture")))]
     type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
 

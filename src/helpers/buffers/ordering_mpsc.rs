@@ -53,14 +53,21 @@ struct OrderingMpscEnd {
 /// A multi-producer, single-consumer channel that performs buffered reordering
 /// of inputs, with back pressure if the insertion is beyond the end of its buffer.
 /// This requires that each item be serializable and fixed size.
+///
+/// ## Panics
+/// Will not panic, unless 4 becomes equal to 0
 #[cfg_attr(not(debug_assertions), allow(unused_variables))] // For name.
 pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
     name: S,
     capacity: NonZeroUsize,
 ) -> (OrderingMpscSender<M>, OrderingMpscReceiver<M>) {
-    let capacity = capacity.get().clamp(4, 1024);
-    let (tx, rx) = mpsc::channel(capacity); // TODO configure, tune
-    let end = Arc::new(OrderingMpscEnd::new(NonZeroUsize::new(capacity).unwrap()));
+    // TODO configure, tune
+    let capacity = capacity.clamp(
+        NonZeroUsize::new(4).unwrap(),
+        NonZeroUsize::new(1024).unwrap(),
+    );
+    let (tx, rx) = mpsc::channel(capacity.get());
+    let end = Arc::new(OrderingMpscEnd::new(capacity));
     (
         OrderingMpscSender {
             tx,
@@ -68,9 +75,9 @@ pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
         },
         OrderingMpscReceiver {
             rx,
-            buf: vec![0_u8; capacity * <M as Serializable>::Size::USIZE],
-            added: bitvec![0; capacity],
-            capacity: NonZeroUsize::new(capacity).unwrap(),
+            buf: vec![0_u8; capacity.get() * <M as Serializable>::Size::USIZE],
+            added: bitvec![0; capacity.get()],
+            capacity,
             end,
             #[cfg(debug_assertions)]
             name: name.as_ref().to_string(),

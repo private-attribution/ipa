@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, io, marker::PhantomData};
 
 use std::num::NonZeroUsize;
 
@@ -63,6 +63,7 @@ pub struct GatewayConfig {
 struct Wrapper([u8; Self::SIZE]);
 
 /// Sending channels, indexed by (role, step).
+#[derive(Default)]
 struct GatewaySenders {
     inner: DashMap<ChannelId, OrderingMpscSender<Wrapper>>,
 }
@@ -83,6 +84,7 @@ struct RoleResolvingTransport<T> {
 }
 
 impl Gateway {
+    #[must_use]
     pub fn new(
         query_id: QueryId,
         config: GatewayConfig,
@@ -102,10 +104,12 @@ impl Gateway {
         }
     }
 
+    #[must_use]
     pub fn role(&self) -> Role {
         self.transport.role()
     }
 
+    #[must_use]
     pub fn get_sender<M: Message>(
         &self,
         channel_id: &ChannelId,
@@ -129,6 +133,7 @@ impl Gateway {
         SendingEnd::new(channel_id.clone(), self.role(), tx, total_records)
     }
 
+    #[must_use]
     pub fn get_receiver<M: Message>(&self, channel_id: &ChannelId) -> ReceivingEnd<M> {
         ReceivingEnd::new(
             self.receivers
@@ -153,23 +158,35 @@ impl<M: Message> SendingEnd<M> {
         }
     }
 
+    /// Sends the given message to the recipient. This method will block if there is no enough
+    /// capacity to hold the message and will return only after message has been confirmed
+    /// for sending.
+    ///
+    /// ## Errors
+    /// If send operation fails or [`record_id`] exceeds the channel limit set by [`set_total_records`]
+    /// call.
+    ///
+    /// [`set_total_records`]: crate::protocol::context::Context::set_total_records
     pub async fn send(&self, record_id: RecordId, msg: M) -> Result<(), Error> {
         if let TotalRecords::Specified(count) = self.total_records {
-            assert!(
-                usize::from(record_id) < usize::from(count),
-                "record ID {:?} is out of range for {:?} (expected {:?} records)",
-                record_id,
-                self.channel_id,
-                self.total_records,
-            );
+            if usize::from(record_id) < count.get() {
+                return Err(Error::TooManyRecords {
+                    record_id,
+                    channel_id: self.channel_id.clone(),
+                    total_records: self.total_records,
+                });
+            }
         }
 
-        metrics::increment_counter!(RECORDS_SENT, STEP => self.channel_id.step.as_ref().to_string(), ROLE => self.my_role.as_static_str());
-        Ok(self
-            .ordering_tx
+        metrics::increment_counter!(RECORDS_SENT,
+            STEP => self.channel_id.step.as_ref().to_string(),
+            ROLE => self.my_role.as_static_str()
+        );
+
+        self.ordering_tx
             .send(record_id.into(), Wrapper::wrap(msg))
             .await
-            .unwrap())
+            .map_err(|e| Error::send_error(self.channel_id.clone(), e))
     }
 }
 
@@ -181,13 +198,19 @@ impl<M: Message> ReceivingEnd<M> {
         }
     }
 
+    /// Receive message associated with the given record id. This method does not return until
+    /// message is actually received and deserialized.
+    ///
+    /// ## Errors
+    /// Returns an error if receiving fails
+    ///
+    /// ## Panics
+    /// This will panic if message size does not fit into 8 bytes and it somehow got serialized
+    /// and sent to this helper.
     pub async fn receive(&self, record_id: RecordId) -> Result<M, Error> {
         // TODO: proper error handling
-        let v = self
-            .unordered_rx
-            .recv::<Wrapper, _>(record_id)
-            .await
-            .unwrap();
+        let v = self.unordered_rx.recv::<Wrapper, _>(record_id).await?;
+
         let mut buf = GenericArray::default();
         let sz = buf.len();
 
@@ -222,14 +245,6 @@ impl Wrapper {
     }
 }
 
-impl Default for GatewaySenders {
-    fn default() -> Self {
-        Self {
-            inner: DashMap::default(),
-        }
-    }
-}
-
 impl GatewaySenders {
     /// Returns or creates a new communication channel. In case if channel is newly created,
     /// returns the receiving end of it as well. It must be send over to the receiver in order for
@@ -243,7 +258,7 @@ impl GatewaySenders {
         Option<OrderingMpscReceiver<Wrapper>>,
     ) {
         let senders = &self.inner;
-        match senders.get(&channel_id) {
+        match senders.get(channel_id) {
             Some(entry) => (entry.value().clone(), None),
             None => match senders.entry(channel_id.clone()) {
                 Entry::Occupied(entry) => (entry.get().clone(), None),
@@ -272,7 +287,7 @@ impl<T: Transport> GatewayReceivers<T> {
         ctr: F,
     ) -> UR<T> {
         let receivers = &self.inner;
-        let recv = match receivers.get(&channel_id) {
+        let recv = match receivers.get(channel_id) {
             Some(recv) => recv.clone(),
             None => match receivers.entry(channel_id.clone()) {
                 Entry::Occupied(entry) => entry.get().clone(),
@@ -292,7 +307,11 @@ type UR<T> = UnorderedReceiver<
 >;
 
 impl<T: Transport> RoleResolvingTransport<T> {
-    async fn send(&self, channel_id: &ChannelId, data: OrderingMpscReceiver<Wrapper>) {
+    async fn send(
+        &self,
+        channel_id: &ChannelId,
+        data: OrderingMpscReceiver<Wrapper>,
+    ) -> Result<(), io::Error> {
         let dest_identity = self.roles.identity(channel_id.role);
         assert_ne!(
             dest_identity,
@@ -307,7 +326,6 @@ impl<T: Transport> RoleResolvingTransport<T> {
                 data,
             )
             .await
-            .unwrap()
     }
 
     fn receive(&self, channel_id: &ChannelId) -> UR<T> {
@@ -376,6 +394,6 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!((Fp31::from(1u128), Fp31::from(0u128)), result)
+        assert_eq!((Fp31::from(1u128), Fp31::from(0u128)), result);
     }
 }
