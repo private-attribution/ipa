@@ -95,7 +95,7 @@ jobs:
         run: cargo build --features shuttle
 
       - name: Run concurrency tests
-        run: cargo test --features shuttle
+        run: cargo test --release --features shuttle
 
       - name: Run IPA bench
         run: cargo bench --bench oneshot_ipa --no-default-features --features="enable-benches"
