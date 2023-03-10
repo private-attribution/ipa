@@ -336,7 +336,6 @@ where
 
     let combined_match_keys_and_sidecar_data =
         std::iter::zip(converted_mk_shares, converted_bk_shares)
-            .into_iter()
             .zip(input_rows)
             .map(|((mk_shares, bk_shares), input_row)| {
                 IPAModulusConvertedInputRow::new(
