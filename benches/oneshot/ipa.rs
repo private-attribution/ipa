@@ -33,9 +33,9 @@ async fn main() -> Result<(), Error> {
         );
         random_user_records.push(records_for_user);
     }
-
     let mut raw_data = random_user_records.concat();
     println!("Running test for {:?} records", raw_data.len());
+
     // Sort the records in chronological order
     // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
     raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
