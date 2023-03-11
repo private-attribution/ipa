@@ -3,13 +3,13 @@ use crate::{
     ff::Field,
     protocol::{
         basics::{Reshare, Reveal},
-        context::{Context, MaliciousContext, NoRecord},
+        context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::{
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
             SortStep::{ShuffleRevealPermutation, SortKeys},
         },
-        RecordId,
+        NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{
