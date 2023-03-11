@@ -1,5 +1,5 @@
 use crate::{
-    config::NetworkConfig,
+    config::{NetworkConfig, PeerConfig},
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         HelperIdentity,
@@ -7,14 +7,17 @@ use crate::{
     net::{http_serde, Error},
     protocol::{step, QueryId},
 };
-use axum::http::uri;
+use axum::http::uri::{self, Parts, Scheme};
 use futures::{Stream, StreamExt};
 use hyper::{
     body,
     client::{HttpConnector, ResponseFuture},
     Body, Client, Response, StatusCode, Uri,
 };
-use hyper_tls::HttpsConnector;
+use hyper_tls::{
+    native_tls::{Certificate, TlsConnector},
+    HttpsConnector,
+};
 use std::collections::HashMap;
 
 /// TODO: we need a client that can be used by any system that is not aware of the internals
@@ -35,19 +38,36 @@ impl MpcHelperClient {
     pub fn from_conf(conf: &NetworkConfig) -> [MpcHelperClient; 3] {
         conf.peers()
             .iter()
-            .map(|conf| Self::new(conf.origin.clone()))
+            .map(|conf| Self::new(conf.clone()))
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
     }
 
-    /// addr must have a valid scheme and authority
+    /// Create a new client with the given configuration
+    ///
     /// # Panics
-    /// if addr does not have scheme and authority
+    /// If some aspect of the configuration is not valid.
     #[must_use]
-    pub fn new(addr: Uri) -> Self {
-        // HttpsConnector works for both http and https
-        Self::new_with_connector(addr, HttpsConnector::new())
+    pub fn new(config: PeerConfig) -> Self {
+        let connector = if config.url.scheme() == Some(&Scheme::HTTP) {
+            // This connector works for both http and https. A regular HttpConnector would suffice,
+            // but would make the type of `self.client` variable.
+            HttpsConnector::new()
+        } else {
+            let mut builder = TlsConnector::builder();
+            if let Some(certificate) = config.certificate {
+                builder
+                    .disable_built_in_roots(true)
+                    .add_root_certificate(Certificate::from_pem(certificate.as_bytes()).unwrap());
+            }
+            // `enforce_http` must be false to request HTTPS URLs. This is done automatically by
+            // `HttpsConnector::new()`, but not by `HttpsConnector::from()`.
+            let mut http = HttpConnector::new();
+            http.enforce_http(false);
+            HttpsConnector::from((http, builder.build().unwrap().into()))
+        };
+        Self::new_with_connector(config.url, connector)
     }
 
     /// addr must have a valid scheme and authority
@@ -56,11 +76,17 @@ impl MpcHelperClient {
     #[must_use]
     pub fn new_with_connector(addr: Uri, connector: HttpsConnector<HttpConnector>) -> Self {
         let client = Client::builder().build(connector);
-        let parts = addr.into_parts();
+        let Parts {
+            scheme: Some(scheme),
+            authority: Some(authority),
+            ..
+        } = addr.into_parts() else {
+            panic!("peer URL must have a scheme and authority");
+        };
         Self {
             client,
-            scheme: parts.scheme.unwrap(),
-            authority: parts.authority.unwrap(),
+            scheme,
+            authority,
         }
     }
 
@@ -68,7 +94,7 @@ impl MpcHelperClient {
     /// # Errors
     /// if addr is an invalid [Uri], this will fail
     pub fn with_str_addr(addr: &str) -> Result<Self, Error> {
-        Ok(Self::new(addr.parse()?))
+        Ok(Self::new(PeerConfig::new(addr.parse()?)))
     }
 
     /// Responds with whatever input is passed to it
@@ -243,6 +269,26 @@ pub(crate) mod tests {
 
         let arc_cb = Arc::new(cb);
         (wrap(&arc_cb), wrap(&arc_cb))
+    }
+
+    #[tokio::test]
+    async fn untrusted_certificate() {
+        let echo_data = "asdf";
+
+        let TestServer { addr, .. } = TestServer::builder().https().build().await;
+
+        let client_config = PeerConfig {
+            url: format!("https://localhost:{}", addr.port())
+                .parse()
+                .unwrap(),
+            certificate: None,
+        };
+        let client = MpcHelperClient::new(client_config);
+
+        // The server's self-signed test cert is not in the system truststore, and we didn't supply
+        // it in the client config, so the connection should fail with a certificate error.
+        let res = client.echo(echo_data).await;
+        assert!(matches!(res, Err(Error::HyperPassthrough(e)) if e.is_connect()));
     }
 
     /// tests that a query command runs as expected. Since query commands require the server to

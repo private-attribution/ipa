@@ -1,8 +1,7 @@
 mod handlers;
 
-use hyper::{server::conn::AddrStream, Request};
-
 use crate::{
+    config::ServerConfig,
     net::{Error, HttpTransport},
     sync::Arc,
     task::JoinHandle,
@@ -12,11 +11,12 @@ use axum::{routing::IntoMakeService, Router};
 use axum_server::{
     accept::Accept,
     service::{MakeServiceRef, SendService},
-    tls_rustls::RustlsConfig,
     Handle, Server,
 };
+use futures::Future;
+use hyper::{server::conn::AddrStream, Request};
 use metrics::increment_counter;
-use std::net::{SocketAddr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
@@ -44,35 +44,37 @@ impl TracingSpanMaker for () {
     }
 }
 
-/// MPC helper supports HTTP and HTTPS protocols. Only the latter is suitable for production,
-/// http mode may be useful to debug network communication on dev machines
-pub enum BindTarget {
-    Http(SocketAddr),
-    Https(SocketAddr, RustlsConfig),
-    HttpListener(TcpListener),
-}
-
 /// IPA helper web service
 ///
 /// `MpcHelperServer` handles requests from both peer helpers and external clients.
 pub struct MpcHelperServer {
     transport: Arc<HttpTransport>,
+    config: ServerConfig,
 }
 
 impl MpcHelperServer {
-    pub fn new(transport: Arc<HttpTransport>) -> Self {
-        MpcHelperServer { transport }
+    pub fn new(transport: Arc<HttpTransport>, config: ServerConfig) -> Self {
+        MpcHelperServer { transport, config }
     }
 
     fn router(&self) -> Router {
         handlers::router(Arc::clone(&self.transport))
     }
 
-    /// Starts a new instance of MPC helper and binds it to a given target.
-    /// Returns a socket it is listening to and the join handle of the web server running.
-    pub async fn bind<T: TracingSpanMaker>(
+    /// Starts the MPC helper service.
+    ///
+    /// If `listener` is provided, listens on the supplied socket. This is used for tests which want
+    /// to use a dynamically assigned free port, but need to know the port number when generating
+    /// helper configurations. If `listener` is not provided, binds according to the server
+    /// configuration supplied to `new`.
+    ///
+    /// Returns the `SocketAddr` of the server socket and the `JoinHandle` of the server task.
+    ///
+    /// # Panics
+    /// If the server TLS configuration is not valid.
+    pub async fn start_on<T: TracingSpanMaker>(
         &self,
-        target: BindTarget,
+        listener: Option<TcpListener>,
         tracing: T,
     ) -> (SocketAddr, JoinHandle<()>) {
         async fn serve<A>(
@@ -105,6 +107,13 @@ impl MpcHelperServer {
                 }
             })
         }
+        // This should probably come from the server config.
+        // Note that listening on 0.0.0.0 requires accepting a MacOS security
+        // warning on each test run.
+        #[cfg(test)]
+        const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::LOCALHOST;
+        #[cfg(not(test))]
+        const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 
         let svc = self
             .router()
@@ -121,14 +130,36 @@ impl MpcHelperServer {
             .into_make_service();
         let handle = Handle::new();
 
-        let task_handle = match target {
-            BindTarget::Http(addr) => serve(axum_server::bind(addr), handle.clone(), svc).await,
-            BindTarget::HttpListener(listener) => {
+        let task_handle = match (self.config.https, listener) {
+            (false, Some(listener)) => {
                 serve(axum_server::from_tcp(listener), handle.clone(), svc).await
             }
-            BindTarget::Https(addr, tls_config) => {
+            (false, None) => {
+                let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
+                serve(axum_server::bind(addr), handle.clone(), svc).await
+            }
+            (true, Some(listener)) => {
+                let rustls_config = self
+                    .config
+                    .as_rustls_config()
+                    .await
+                    .expect("invalid TLS configuration");
                 serve(
-                    axum_server::bind_rustls(addr, tls_config),
+                    axum_server::from_tcp_rustls(listener, rustls_config),
+                    handle.clone(),
+                    svc,
+                )
+                .await
+            }
+            (true, None) => {
+                let addr = SocketAddr::new(BIND_ADDRESS.into(), self.config.port.unwrap_or(0));
+                let rustls_config = self
+                    .config
+                    .as_rustls_config()
+                    .await
+                    .expect("invalid TLS configuration");
+                serve(
+                    axum_server::bind_rustls(addr, rustls_config),
                     handle.clone(),
                     svc,
                 )
@@ -140,7 +171,20 @@ impl MpcHelperServer {
             .listening()
             .await
             .expect("Failed to bind server to a port");
+        #[cfg(not(test))] // reduce spam in test output
+        tracing::info!(
+            "server listening on {}://{}",
+            if self.config.https { "https" } else { "http" },
+            bound_addr,
+        );
         (bound_addr, task_handle)
+    }
+
+    pub fn start<T: TracingSpanMaker>(
+        &self,
+        tracing: T,
+    ) -> impl Future<Output = (SocketAddr, JoinHandle<()>)> + '_ {
+        self.start_on(None, tracing)
     }
 }
 

@@ -5,13 +5,14 @@ use ipa::{
         playbook::{secure_mul, semi_honest, InputSource},
         Verbosity,
     },
+    config::NetworkConfig,
     ff::{FieldType, Fp31, Fp32BitPrime},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
     net::MpcHelperClient,
     protocol::{BreakdownKey, MatchKey},
     test_fixture::config::TestConfigBuilder,
 };
-use std::{error::Error, fmt::Debug, path::PathBuf};
+use std::{error::Error, fmt::Debug, fs, path::PathBuf};
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -22,6 +23,10 @@ use std::{error::Error, fmt::Debug, path::PathBuf};
 struct Args {
     #[clap(flatten)]
     logging: Verbosity,
+
+    /// Path to helper network configuration file
+    #[arg(long)]
+    network: Option<PathBuf>,
 
     #[clap(flatten)]
     input: CommandInput,
@@ -84,16 +89,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("{shares_table}");
     }
 
-    fn make_clients() -> [MpcHelperClient; 3] {
-        let config = TestConfigBuilder::with_default_test_ports().build();
-        MpcHelperClient::from_conf(&config.network)
+    fn make_clients(config_path: Option<PathBuf>) -> [MpcHelperClient; 3] {
+        let config = if let Some(path) = config_path {
+            NetworkConfig::from_toml_str(&fs::read_to_string(path).unwrap()).unwrap()
+        } else {
+            TestConfigBuilder::with_default_test_ports().build().network
+        };
+        MpcHelperClient::from_conf(&config)
     }
 
     let args = Args::parse();
     let _handle = args.logging.setup_logging();
 
     let input = InputSource::from(&args.input);
-    let clients = make_clients();
+    let clients = make_clients(args.network);
     match args.action {
         TestAction::Multiply => match args.input.input_type {
             InputType::Fp31 => {

@@ -1,6 +1,7 @@
-use hyper::{http::uri::Scheme, Uri};
-use serde::{Deserialize, Deserializer};
-use x25519_dalek::PublicKey;
+use axum_server::tls_rustls::RustlsConfig;
+use hyper::Uri;
+use serde::{Deserialize, Serialize};
+use std::{io, path::PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -16,12 +17,12 @@ pub enum Error {
 ///
 /// The most important thing this contains is discovery information for each of the participating
 /// helpers.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkConfig {
     /// Information about each helper participating in the network. The order that helpers are
     /// listed here determines their assigned helper identities in the network. Note that while the
     /// helper identities are stable, roles are assigned per query.
-    peers: [PeerConfig; 3],
+    pub peers: [PeerConfig; 3],
 }
 
 impl NetworkConfig {
@@ -46,18 +47,50 @@ impl NetworkConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct HttpConfig {
-    #[serde(deserialize_with = "pk_from_str")]
-    pub public_key: PublicKey,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PeerConfig {
+    /// Peer URL
+    #[serde(with = "crate::uri")]
+    pub url: Uri,
+
+    /// Peer's TLS certificate or CA
+    ///
+    /// If the peer's TLS certificate can be verified using the system truststore, this may be omitted.
+    ///
+    /// If the peer's TLS certificate cannot be verified using the system truststore, or for a stronger
+    /// check that the peer uses the expected PKI, either the peer certificate or the authority
+    /// certificate that issues the peer's certificate may be specified here.
+    ///
+    /// If a certificate is specified here, only the specified certificate will be accepted. The system
+    /// truststore will not be used.
+    pub certificate: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct PeerConfig {
-    #[serde(with = "crate::uri")]
-    pub origin: Uri,
-    pub tls: HttpConfig,
+impl PeerConfig {
+    pub fn new(url: Uri) -> Self {
+        Self {
+            url,
+            certificate: None,
+        }
+    }
+
+    /// Returns `PeerConfig` for talking to the default self-signed server test cert.
+    /// # Errors
+    /// if cert is invalid
+    /// # Panics
+    /// never, but clippy doesn't understand that
+    #[must_use]
+    #[cfg(any(test, feature = "self-signed-certs"))]
+    pub fn https_self_signed(port: u16) -> PeerConfig {
+        PeerConfig {
+            url: format!("https://localhost:{port}").parse().unwrap(),
+            certificate: Some(TEST_CERT.to_owned()),
+        }
+    }
 }
+
+/*
+ * TODO(tls): delete this if not needed when TLS and config work is finished
 
 fn pk_from_str<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
 where
@@ -69,6 +102,25 @@ where
 
     Ok(PublicKey::from(buf))
 }
+*/
+
+#[derive(Clone, Debug)]
+pub enum TlsConfig {
+    File {
+        /// Path to file containing certificate
+        certificate_file: PathBuf,
+
+        /// Path to file containing private key
+        private_key_file: PathBuf,
+    },
+    Inline {
+        /// Certificate in PEM format
+        certificate: String,
+
+        // Private key in PEM format
+        private_key: String,
+    },
+}
 
 /// Configuration information for launching an instance of the helper party web service.
 #[derive(Clone, Debug)]
@@ -78,39 +130,118 @@ pub struct ServerConfig {
     /// Port to listen. If not specified, will ask Kernel to assign the port
     pub port: Option<u16>,
 
-    /// Indicates whether to start HTTP or HTTPS endpoint
-    pub scheme: Scheme,
-    /*
-    /// TLS certificate for helper-to-helper communication
-    pub tls_certificate_file: Option<PathBuf>,
+    /// If true, enable HTTPS. Otherwise, use insecure HTTP.
+    pub https: bool,
 
-    /// TLS key for helper-to-helper communication
-    pub tls_private_key_file: Option<PathBuf>,
-    */
+    /// TLS configuration for helper-to-helper communication
+    pub tls: Option<TlsConfig>,
 }
 
 impl ServerConfig {
     #[must_use]
-    pub fn with_http_and_port(port: u16) -> ServerConfig {
+    pub fn http() -> ServerConfig {
+        ServerConfig {
+            port: None,
+            https: false,
+            tls: None,
+        }
+    }
+
+    #[must_use]
+    pub fn http_port(port: u16) -> ServerConfig {
         ServerConfig {
             port: Some(port),
-            scheme: Scheme::HTTP,
+            https: false,
+            tls: None,
+        }
+    }
+
+    /// Returns `ServerConfig` instance configured with self-signed cert and key. Not intended to
+    /// use in production, therefore it is hidden behind a feature flag.
+    /// # Errors
+    /// if cert is invalid
+    #[must_use]
+    #[cfg(any(test, feature = "self-signed-certs"))]
+    pub fn https_self_signed() -> ServerConfig {
+        ServerConfig {
+            port: None,
+            https: true,
+            tls: Some(TlsConfig::Inline {
+                certificate: TEST_CERT.to_owned(),
+                private_key: TEST_KEY.to_owned(),
+            }),
+        }
+    }
+
+    /// Create a `RustlsConfig` for the `ServerConfig`.
+    ///
+    /// # Errors
+    /// If there is a problem with the TLS configuration.
+    pub async fn as_rustls_config(&self) -> io::Result<RustlsConfig> {
+        match &self.tls {
+            None => {
+                // Using io::Error for this would not be my first choice, but it's
+                // what the axum RustlsConfig::from_* routines do as well.
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "missing TLS configuration",
+                ))
+            }
+            Some(TlsConfig::Inline {
+                certificate,
+                private_key,
+            }) => {
+                RustlsConfig::from_pem(
+                    certificate.as_bytes().to_owned(),
+                    private_key.as_bytes().to_owned(),
+                )
+                .await
+            }
+            Some(TlsConfig::File {
+                certificate_file,
+                private_key_file,
+            }) => RustlsConfig::from_pem_file(&certificate_file, &private_key_file).await,
         }
     }
 }
+
+// This is here because it can be activated outside of tests with the
+// `self-signed-certs` feature. It can probably be made test-only
+// and moved to `crate::net::test`.
+#[cfg(any(test, feature = "self-signed-certs"))]
+const TEST_CERT: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIBlDCCATugAwIBAgIICJ+d1TBXe0AwCgYIKoZIzj0EAwIwFDESMBAGA1UEAwwJ
+bG9jYWxob3N0MB4XDTIzMDMyODAwMDIwOVoXDTIzMDYyNzAwMDIwOVowFDESMBAG
+A1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEbuhfFs0U
+Qae5KoQuCNBaJ81cpIWntGXSbaxJxkXNERkgcD9zf35HBAM7j8NYr3Kjh+W1lz80
+qj6kHwAzq3fJSqN3MHUwFAYDVR0RBA0wC4IJbG9jYWxob3N0MA4GA1UdDwEB/wQE
+AwICpDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwHQYDVR0OBBYEFFvf
+qKaSDivAf1+1H3wkItW8+GumMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwID
+RwAwRAIgBqQPA/TAIh0J4GqUuclWkyDIZbaoUXSYbM4tYM//clMCIAaEHKVK5krK
+MEv5kZ1e2xkmEQ+b3v7cAy3d58SjhW+v
+-----END CERTIFICATE-----
+";
+
+#[cfg(any(test, feature = "self-signed-certs"))]
+const TEST_KEY: &str = "\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg2ZJo2GQ7gbCrj2PC
+zQVb6BVsrGhV6E3GrDIAerI/HbKhRANCAARu6F8WzRRBp7kqhC4I0FonzVykhae0
+ZdJtrEnGRc0RGSBwP3N/fkcEAzuPw1ivcqOH5bWXPzSqPqQfADOrd8lK
+-----END PRIVATE KEY-----
+";
 
 #[cfg(all(test, not(feature = "shuttle"), feature = "in-memory-infra"))]
 mod tests {
     use crate::{helpers::HelperIdentity, test_fixture::config::TestConfigBuilder};
     use hyper::Uri;
 
-    const PUBLIC_KEY_1: &str = "13ccf4263cecbc30f50e6a8b9c8743943ddde62079580bc0b9019b05ba8fe924";
-    const PUBLIC_KEY_2: &str = "925bf98243cf70b729de1d75bf4fe6be98a986608331db63902b82a1691dc13b";
-    const PUBLIC_KEY_3: &str = "12c09881a1c7a92d1c70d9ea619d7ae0684b9cb45ecc207b98ef30ec2160a074";
     const URI_1: &str = "http://localhost:3000/";
     const URI_2: &str = "http://localhost:3001/";
     const URI_3: &str = "http://localhost:3002/";
 
+    #[allow(dead_code)] // TODO(tls) need to add back report public key configuration
     fn hex_str_to_public_key(hex_str: &str) -> x25519_dalek::PublicKey {
         let pk_bytes: [u8; 32] = hex::decode(hex_str)
             .expect("valid hex string")
@@ -126,19 +257,16 @@ mod tests {
         let uri1 = URI_1.parse::<Uri>().unwrap();
         let id1 = HelperIdentity::try_from(1usize).unwrap();
         let value1 = &conf.network.peers()[id1];
-        assert_eq!(value1.origin, uri1);
-        assert_eq!(value1.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_1));
+        assert_eq!(value1.url, uri1);
 
         let uri2 = URI_2.parse::<Uri>().unwrap();
         let id2 = HelperIdentity::try_from(2usize).unwrap();
         let value2 = &conf.network.peers()[id2];
-        assert_eq!(value2.origin, uri2);
-        assert_eq!(value2.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_2));
+        assert_eq!(value2.url, uri2);
 
         let uri3 = URI_3.parse::<Uri>().unwrap();
         let id3 = HelperIdentity::try_from(3usize).unwrap();
         let value3 = &conf.network.peers()[id3];
-        assert_eq!(value3.origin, uri3);
-        assert_eq!(value3.tls.public_key, hex_str_to_public_key(PUBLIC_KEY_3));
+        assert_eq!(value3.url, uri3);
     }
 }

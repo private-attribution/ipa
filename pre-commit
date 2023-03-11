@@ -89,7 +89,7 @@ check "Tests" \
     cargo test
 
 check "Web tests" \
-    cargo test --no-default-features --features "web-app real-world-infra"
+    cargo test --no-default-features --features "cli web-app real-world-infra test-fixture"
 
 check "Concurrency tests" \
     cargo test --release --features shuttle
