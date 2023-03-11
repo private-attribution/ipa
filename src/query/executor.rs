@@ -184,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiply() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let contexts = world
             .contexts()
             .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
@@ -256,7 +256,7 @@ mod tests {
                     .collect::<Vec<_>>()
             });
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let contexts = world.contexts();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {

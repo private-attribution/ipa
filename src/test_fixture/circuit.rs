@@ -13,7 +13,7 @@ use futures_util::future::join_all;
 /// # Panics
 /// panics when circuits did not produce the expected value.
 pub async fn arithmetic<F: Field>(width: u32, depth: u8) {
-    let world = TestWorld::new().await;
+    let world = TestWorld::default();
 
     let mut multiplications = Vec::new();
     for record in 0..width {

@@ -239,7 +239,7 @@ mod tests {
         const COUNT: usize = 10;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -276,7 +276,7 @@ mod tests {
         const COUNT: usize = 10;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);

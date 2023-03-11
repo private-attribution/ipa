@@ -76,12 +76,18 @@ impl TestWorldConfig {
     }
 }
 
+impl Default for TestWorld {
+    fn default() -> Self {
+        Self::new_with(TestWorldConfig::default())
+    }
+}
+
 impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    #[allow(clippy::unused_async)] // we likely need it ?
-    pub async fn new_with(config: TestWorldConfig) -> TestWorld {
+    #[must_use]
+    pub fn new_with(config: TestWorldConfig) -> TestWorld {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
@@ -113,13 +119,6 @@ impl TestWorld {
             metrics_handle,
             _network: network,
         }
-    }
-
-    /// # Panics
-    /// Never.
-    pub async fn new() -> TestWorld {
-        let config = TestWorldConfig::default();
-        Self::new_with(config).await
     }
 
     /// Creates protocol contexts for 3 helpers

@@ -183,7 +183,7 @@ mod tests {
     #[tokio::test]
     pub async fn simple() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let input = rng.gen::<Fp31>();
         let results = world
@@ -205,7 +205,7 @@ mod tests {
     #[tokio::test]
     pub async fn malicious() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let sh_ctx = world.contexts();
         let v = sh_ctx.map(MaliciousValidator::new);
         let m_ctx: [_; 3] = v
@@ -240,7 +240,7 @@ mod tests {
     #[tokio::test]
     pub async fn malicious_validation_fail() -> Result<(), Error> {
         let mut rng = thread_rng();
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let sh_ctx = world.contexts();
         let v = sh_ctx.map(MaliciousValidator::new);
         let m_ctx: [_; 3] = v

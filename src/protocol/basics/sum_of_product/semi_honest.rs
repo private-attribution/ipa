@@ -80,7 +80,7 @@ mod test {
 
     #[tokio::test]
     async fn basic() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         assert_eq!(11, sop_sync::<Fp31>(&world, &[7], &[6]).await);
         assert_eq!(3, sop_sync::<Fp31>(&world, &[6, 2], &[5, 2]).await);
         assert_eq!(28, sop_sync::<Fp31>(&world, &[5, 3], &[5, 1]).await);
@@ -98,7 +98,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const MULTI_BIT_LEN: usize = 10;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = thread_rng();
 

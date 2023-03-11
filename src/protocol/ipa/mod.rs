@@ -511,7 +511,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let records: Vec<GenericReportTestInput<_, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -560,7 +560,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 3;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -607,7 +607,7 @@ pub mod tests {
         const MAX_BREAKDOWN_KEY: u32 = 7;
         const NUM_MULTI_BITS: u32 = 3;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let records: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> = ipa_test_input!(
             [
@@ -720,7 +720,7 @@ pub mod tests {
             ..Default::default()
         };
 
-        let world = TestWorld::new_with(config).await;
+        let world = TestWorld::new_with(config);
 
         for per_user_cap in [1, 3] {
             let mut expected_results = vec![0_u32; MAX_BREAKDOWN_KEY.try_into().unwrap()];
@@ -824,7 +824,7 @@ pub mod tests {
         );
 
         for per_user_cap in [1, 3] {
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics());
 
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
@@ -856,7 +856,7 @@ pub mod tests {
                                 Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics());
 
             let _ = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {

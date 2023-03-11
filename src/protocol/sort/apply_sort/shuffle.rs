@@ -145,7 +145,7 @@ mod tests {
         async fn shuffle_attribution_input_row() {
             const NUM_MULTI_BITS: u32 = 3;
             const BATCHSIZE: u8 = 25;
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
             let mut rng = thread_rng();
 
             let mut input: Vec<GenericReportTestInput<Fp31, MatchKey, BreakdownKey>> =
@@ -258,7 +258,7 @@ mod tests {
             ];
             let some_numbers_as_bits =
                 some_numbers.map(|x| get_bits::<Fp32BitPrime>(x, BIT_LENGTH));
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
 
             let result = world
                 .semi_honest(

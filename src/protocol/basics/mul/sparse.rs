@@ -366,7 +366,7 @@ pub(in crate::protocol) mod test {
 
     #[tokio::test]
     async fn check_output() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         for &a in ZeroPositions::all() {
@@ -392,7 +392,7 @@ pub(in crate::protocol) mod test {
 
     #[tokio::test]
     async fn check_output_malicious() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         for &a in ZeroPositions::all() {

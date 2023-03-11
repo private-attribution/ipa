@@ -60,7 +60,7 @@ impl<T> BooleanRefOps for T where
 }
 
 /// Trait for items that have fixed-byte length representation.
-pub trait Serializable : Sized {
+pub trait Serializable: Sized {
     /// Required number of bytes to store this message on disk/network
     type Size: ArrayLength<u8>;
 

@@ -423,7 +423,7 @@ mod tests {
         );
         let input_len = input.len();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let result = world
             .semi_honest(
                 input,

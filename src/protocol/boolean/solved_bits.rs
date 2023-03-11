@@ -165,7 +165,7 @@ mod tests {
     where
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let [rv0, rv1, rv2] = world
             .semi_honest((), |ctx, ()| async move {
                 let mut outputs = Vec::with_capacity(COUNT);
@@ -233,7 +233,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut success = 0;
 
         for _ in 0..4 {

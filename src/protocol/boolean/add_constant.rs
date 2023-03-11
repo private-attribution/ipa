@@ -287,7 +287,7 @@ mod tests {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(vec![1, 0, 0, 0, 0, 0], add(&world, zero, 1).await);
         assert_eq!(vec![1, 0, 0, 0, 0], maybe_add(&world, zero, 1, one).await);
@@ -317,7 +317,7 @@ mod tests {
     pub async fn fp32_bit_prime() {
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         // 0 + 0
         assert_eq!(

@@ -177,7 +177,7 @@ mod tests {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(zero, bitwise_gt(&world, zero, 1).await);
         assert_eq!(one, bitwise_gt(&world, one, 0).await);
@@ -197,7 +197,7 @@ mod tests {
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
         let u16_max: u32 = u16::MAX.into();
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(zero, bitwise_gt(&world, zero, 1).await);
         assert_eq!(one, bitwise_gt(&world, one, 0).await);
@@ -235,7 +235,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn cmp_random_32_bit_prime_field_elements() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rand = thread_rng();
         for _ in 0..1000 {
             let a = rand.gen::<Fp32BitPrime>();
@@ -251,7 +251,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn cmp_all_fp31() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         for a in 0..Fp31::PRIME {
             for b in 0..Fp31::PRIME {
                 assert_eq!(

@@ -381,7 +381,7 @@ mod tests {
         let mut config = TestWorldConfig::default();
         config.gateway_config.send_outstanding = 2.try_into().unwrap();
 
-        let world = Box::leak(Box::new(TestWorld::new_with(config).await));
+        let world = Box::leak(Box::new(TestWorld::new_with(config)));
         let contexts = world.contexts();
         let sender_ctx = contexts[0].narrow("reordering-test").set_total_records(2);
         let recv_ctx = contexts[1].narrow("reordering-test").set_total_records(2);

@@ -286,7 +286,7 @@ mod tests {
         F: Field + Sized,
         Standard: Distribution<F>,
     {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let bits = get_bits::<F>(a, num_bits);
         let result = world
             .semi_honest(bits.clone(), |ctx, x_share| async move {

@@ -87,7 +87,7 @@ mod tests {
 
     #[tokio::test]
     async fn basic() -> Result<(), Error> {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let context = world.contexts().map(|ctx| ctx.set_total_records(1));
         let mut rng = thread_rng();
         let mut counter = 0_u32;

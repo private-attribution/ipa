@@ -215,7 +215,7 @@ mod tests {
         );
         let input_len = input.len();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let result: [Vec<MCAccumulateCreditOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
             .semi_honest(
                 input,
@@ -281,7 +281,7 @@ mod tests {
             (Fp31, MathKey, BreakdownKey)
         );
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         for &role in Role::all() {
             let new_shares = world
                 .semi_honest(

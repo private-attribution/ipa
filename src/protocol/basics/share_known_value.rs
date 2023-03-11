@@ -57,7 +57,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn semi_honest_share_known_values() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = rand::thread_rng();
         let a = rng.gen::<Fp31>();
@@ -73,7 +73,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn malicious_share_known_values() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = rand::thread_rng();
         let a = rng.gen::<Fp31>();

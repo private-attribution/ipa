@@ -146,7 +146,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const BATCHSIZE: usize = 10;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = thread_rng();
 

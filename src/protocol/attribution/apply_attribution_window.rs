@@ -254,7 +254,7 @@ mod tests {
         );
         let input_len = input.len();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let result: [Vec<MCApplyAttributionWindowOutputRow<Fp32BitPrime, Replicated<Fp32BitPrime>>>; 3] = world
             .semi_honest(
                 input,

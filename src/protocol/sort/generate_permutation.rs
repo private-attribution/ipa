@@ -185,7 +185,7 @@ mod tests {
     pub async fn semi_honest() {
         const COUNT: usize = 5;
         const NUM_MULTI_BITS: u32 = 3;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let mut rng = thread_rng();
 
         let mut match_keys = Vec::with_capacity(COUNT);
@@ -225,7 +225,7 @@ mod tests {
         let mut permutation: Vec<u32> = (0..BATCHSIZE).collect();
         permutation.shuffle(&mut rng);
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let [ctx0, ctx1, ctx2] = world.contexts();
         let permutation: Vec<u128> = permutation.iter().map(|x| u128::from(*x)).collect();
 

@@ -19,7 +19,7 @@ fn send_receive_sequential() {
                     gateway_config: GatewayConfig::sym(input.len()),
                     ..Default::default()
                 };
-                let world = TestWorld::new_with(config).await;
+                let world = TestWorld::new_with(config);
 
                 let output = world
                     .semi_honest(input.clone(), |ctx, mut shares| async move {
@@ -73,7 +73,7 @@ fn send_receive_parallel() {
                     gateway_config: GatewayConfig::sym(input.len()),
                     ..Default::default()
                 };
-                let world = TestWorld::new_with(config).await;
+                let world = TestWorld::new_with(config);
 
                 let output = world
                     .semi_honest(input.clone(), |ctx, shares| async move {
