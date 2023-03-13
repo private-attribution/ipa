@@ -1,4 +1,10 @@
-use crate::{ff::Field, secret_sharing::replicated::semi_honest::AdditiveShare as Replicated};
+use crate::{
+    bits::Fp2Array,
+    ff::Field,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
+};
 use aes::{
     cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit},
     Aes256,
@@ -20,6 +26,13 @@ pub trait SharedRandomness {
     fn generate_fields<F: Field, I: Into<u128>>(&self, index: I) -> (F, F) {
         let (l, r) = self.generate_values(index);
         (F::from(l), F::from(r))
+    }
+
+    /// Generate two sequences of random Fp2 bits.
+    #[must_use]
+    fn generate_bit_arrays<B: Fp2Array, I: Into<u128>>(&self, index: I) -> (B, B) {
+        let (l, r) = self.generate_values(index);
+        (B::truncate_from(l), B::truncate_from(r))
     }
 
     ///

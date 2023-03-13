@@ -1,4 +1,4 @@
-use super::SharedValue;
+use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
     bits::Fp2Array,
     rand::{thread_rng, Rng},

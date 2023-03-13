@@ -40,7 +40,9 @@ mod tests {
         net::server::handlers::query::test_helpers::{assert_req_fails_with, IntoFailingReq},
         protocol::QueryId,
         query::ProtocolResult,
-        secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+        secret_sharing::replicated::{
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+        },
     };
     use axum::http::Request;
     use futures::pin_mut;

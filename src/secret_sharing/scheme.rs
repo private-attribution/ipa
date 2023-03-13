@@ -9,6 +9,7 @@ use std::fmt::Debug;
 pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
     const ZERO: Self;
 }
+
 /// Secret share of a secret that has additive and multiplicative properties.
 pub trait Arithmetic<V: SharedValue>: SecretSharing<V> + ArithmeticRefOps<V> {}
 
