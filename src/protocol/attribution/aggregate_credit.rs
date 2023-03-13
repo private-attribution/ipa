@@ -1,9 +1,8 @@
 use futures::future::try_join_all;
 
 use crate::{
-    ff::{GaloisField, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     protocol::{
         attribution::{
             do_the_binary_tree_thing,
@@ -544,8 +543,7 @@ mod tests {
     use super::aggregate_credit;
     use crate::{
         aggregation_test_input,
-        ff::GaloisField,
-        ff::{Field, Fp32BitPrime},
+        ff::{Field, Fp32BitPrime, GaloisField},
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},
             context::Context,

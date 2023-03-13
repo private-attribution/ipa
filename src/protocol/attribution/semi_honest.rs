@@ -5,9 +5,8 @@ use super::{
     input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
 };
 use crate::{
-    ff::{GaloisField, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     protocol::{
         boolean::bitwise_equal::bitwise_equal,
         context::{Context, SemiHonestContext},

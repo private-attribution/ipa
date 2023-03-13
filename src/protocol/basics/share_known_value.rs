@@ -1,6 +1,5 @@
 use crate::{
-    ff::GaloisField,
-    ff::Field,
+    ff::{Field, GaloisField},
     helpers::Role,
     protocol::context::{Context, MaliciousContext, SemiHonestContext},
     secret_sharing::{

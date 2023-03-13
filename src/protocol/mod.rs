@@ -9,8 +9,8 @@ pub mod prss;
 pub mod sort;
 
 use crate::{
-    ff::{GF_2_pow_40, GF_2_pow_8},
     error::Error,
+    ff::{Gf40Bit, Gf8Bit},
 };
 use std::{
     fmt::{Debug, Display, Formatter},
@@ -20,8 +20,8 @@ use std::{
 
 pub use basics::BasicProtocols;
 
-pub type MatchKey = GF_2_pow_40;
-pub type BreakdownKey = GF_2_pow_8;
+pub type MatchKey = Gf40Bit;
+pub type BreakdownKey = Gf8Bit;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///

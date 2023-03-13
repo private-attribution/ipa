@@ -1,6 +1,5 @@
 use crate::{
-    ff::GaloisField,
-    ff::Field,
+    ff::{Field, GaloisField},
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
     },

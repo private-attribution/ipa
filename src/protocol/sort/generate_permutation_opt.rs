@@ -218,8 +218,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{GF_2_pow_40, GaloisField},
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, GaloisField, Gf40Bit},
         protocol::{
             context::Context,
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
@@ -253,7 +252,7 @@ mod tests {
                 let local_lists =
                     convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, GF_2_pow_40::BITS, NUM_MULTI_BITS)
+                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
 
@@ -289,7 +288,7 @@ mod tests {
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists = convert_all_bits_local(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, GF_2_pow_40::BITS, NUM_MULTI_BITS)
+                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
 

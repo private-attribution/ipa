@@ -472,7 +472,7 @@ macro_rules! bit_array_impl {
 
 bit_array_impl!(
     bit_array_40,
-    GF_2_pow_40,
+    Gf40Bit,
     U8_5,
     40,
     U5,
@@ -482,7 +482,7 @@ bit_array_impl!(
 
 bit_array_impl!(
     bit_array_32,
-    GF_2_pow_32,
+    Gf32Bit,
     U8_4,
     32,
     U4,
@@ -492,7 +492,7 @@ bit_array_impl!(
 
 bit_array_impl!(
     bit_array_8,
-    GF_2_pow_8,
+    Gf8Bit,
     U8_1,
     8,
     U1,

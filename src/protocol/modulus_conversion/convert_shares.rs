@@ -1,7 +1,6 @@
 use crate::{
-    ff::GaloisField,
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField},
     helpers::Role,
     protocol::{
         basics::{SecureMul, ZeroPositions},

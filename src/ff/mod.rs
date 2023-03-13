@@ -67,7 +67,7 @@ use generic_array::{ArrayLength, GenericArray};
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
 
 mod galois_field;
-pub use galois_field::{GF_2_pow_40, GF_2_pow_8};
+pub use galois_field::{Gf40Bit, Gf8Bit};
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`

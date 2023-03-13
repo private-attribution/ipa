@@ -268,8 +268,7 @@ impl OrderingMpscEnd {
 #[cfg(test)]
 mod fixture {
     use crate::{
-        ff::Serializable,
-        ff::Fp32BitPrime,
+        ff::{Fp32BitPrime, Serializable},
         helpers::buffers::ordering_mpsc::{
             ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender,
         },
@@ -352,8 +351,7 @@ mod fixture {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod unit {
     use crate::{
-        ff::Serializable,
-        ff::Fp31,
+        ff::{Fp31, Serializable},
         helpers::buffers::ordering_mpsc::{
             fixture::{TestSender, FP32BIT_SIZE},
             ordering_mpsc,

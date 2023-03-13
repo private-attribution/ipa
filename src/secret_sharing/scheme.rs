@@ -1,8 +1,5 @@
 use super::SharedValue;
-use crate::{
-    ff::{BooleanRefOps, GaloisField},
-    ff::ArithmeticRefOps,
-};
+use crate::ff::{ArithmeticRefOps, BooleanRefOps, GaloisField};
 use std::fmt::Debug;
 
 /// Secret sharing scheme i.e. Replicated secret sharing

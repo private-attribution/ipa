@@ -1,7 +1,6 @@
 use crate::{
-    ff::{GF_2_pow_40, GaloisField},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Gf40Bit},
     protocol::{
         basics::SecureMul,
         context::Context,
@@ -48,13 +47,13 @@ where
 
     // Same here. For now, 256-bit is enough for our F_p
     let xor_share = XorReplicated::new(
-        GF_2_pow_40::truncate_from(b_bits_left),
-        GF_2_pow_40::truncate_from(b_bits_right),
+        Gf40Bit::truncate_from(b_bits_left),
+        Gf40Bit::truncate_from(b_bits_right),
     );
 
     // Convert each bit to secret sharings of that bit in the target field
     (0..l)
-        .map(|i| convert_bit_local::<F, GF_2_pow_40>(ctx.role(), i, &xor_share))
+        .map(|i| convert_bit_local::<F, Gf40Bit>(ctx.role(), i, &xor_share))
         .collect::<Vec<_>>()
 }
 
