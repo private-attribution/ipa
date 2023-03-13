@@ -1,4 +1,4 @@
-use super::SharedValue;
+use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
     bits::GaloisField,
     rand::{thread_rng, Rng},

@@ -7,6 +7,7 @@ use crate::{
         replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::{AdditiveShare as Replicated, XorShare},
+            ReplicatedSecretSharing,
         },
         SharedValue,
     },
