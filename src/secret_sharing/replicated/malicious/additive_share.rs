@@ -265,7 +265,7 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::{
                 semi_honest::AdditiveShare as SemiHonestAdditiveShare, ReplicatedSecretSharing,
@@ -274,7 +274,6 @@ mod tests {
         },
         test_fixture::Reconstruct,
     };
-    use proptest::prelude::Rng;
 
     #[test]
     #[allow(clippy::many_single_char_names)]

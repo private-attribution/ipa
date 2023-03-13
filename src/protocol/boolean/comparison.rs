@@ -10,19 +10,24 @@ use crate::{
     secret_sharing::Arithmetic as ArithmeticSecretSharing,
 };
 
+// Compare an arithmetic-shared value `a` to a known value `c`.
+//
+// The known value must be a valid field element, i.e., `0 ≤ c < p`.
+//
 // Adapted from 6.1 Interval Test Protocol in "Multiparty Computation for Interval, Equality, and
 // Comparison Without Bit-Decomposition Protocol", Nishide & Ohta, PKC 2007.
 // <https://doi.org/10.1007/978-3-540-71677-8_23>
 //
-// The version in the paper tests c_1 < x < c_2. For us, c_1 is zero (which eliminates the `c < c_1`
-// case enumerated in the paper), we test ≤ rather than <, and we finally return `x > c_2` which is
-// ~(0 ≤ x ≤ c_2).
+// The version in the paper tests c_1 < a < c_2. For us, c_1 is zero (which eliminates the `c < c_1`
+// case enumerated in the paper), we test ≤ rather than <, and we finally return `a > c_2` which is
+// ~(0 ≤ a ≤ c_2).
 //
 // The remainder of this description names the variables consistently with other routines in this
 // file, which map to the paper as follows:
 //
 // Paper  Ours
-// x      a
+// a      a
+// r      r
 // c      b
 // c_1    0
 // c_2    c
@@ -51,6 +56,9 @@ use crate::{
 /// # Errors
 /// Lots of things may go wrong here, from timeouts to bad output. They will be signalled
 /// back via the error response
+///
+/// # Panics
+/// If `c` is not less than `F::PRIME`.
 pub async fn greater_than_constant<F, C, S>(
     ctx: C,
     record_id: RecordId,
@@ -65,40 +73,71 @@ where
 {
     use GreaterThanConstantStep as Step;
 
+    assert!(c < F::PRIME.into());
+
     let r = rbg.generate().await?;
 
+    // Mask `a` with random `r` and reveal.
     let b = (r.b_p.clone() + a)
         .reveal(ctx.narrow(&Step::Reveal), record_id)
         .await?;
 
-    let r_lo;
-    let r_hi;
-    let invert;
-    if b.as_u128() > c {
-        r_lo = b.as_u128() - c - 1;
-        r_hi = b.as_u128() + 1;
-        invert = true;
-    } else {
-        r_lo = b.as_u128();
-        r_hi = F::PRIME.into() + b.as_u128() - c;
-        invert = false;
-    }
+    let RBounds { r_lo, r_hi, invert } = compute_r_bounds(b.as_u128(), c, F::PRIME.into());
 
+    // Following logic should match RBounds::evaluate
     let r_gt_r_lo =
         bitwise_greater_than_constant(ctx.narrow(&Step::CompareLo), record_id, &r.b_b, r_lo)
             .await?;
     let r_lt_r_hi =
         bitwise_less_than_constant(ctx.narrow(&Step::CompareHi), record_id, &r.b_b, r_hi).await?;
 
-    let result = r_gt_r_lo
-        .multiply(&r_lt_r_hi, ctx.narrow(&Step::Multiply), record_id)
+    // in_range = (r > r_lo) && (r < r_hi)
+    let in_range = r_gt_r_lo
+        .multiply(&r_lt_r_hi, ctx.narrow(&Step::And), record_id)
         .await?;
 
+    // result = invert ? ~in_range : in_range
     if invert {
-        Ok(S::share_known_value(&ctx, F::ONE) - &result)
+        Ok(S::share_known_value(&ctx, F::ONE) - &in_range)
     } else {
-        Ok(result)
+        Ok(in_range)
     }
+}
+
+struct RBounds {
+    r_lo: u128,
+    r_hi: u128,
+    invert: bool,
+}
+
+#[cfg(all(test, not(feature = "shuttle")))]
+impl RBounds {
+    // This is used for the proptest. It must match the actual implementation!
+    fn evaluate(&self, r: u128) -> bool {
+        if self.invert {
+            !(self.r_lo < r && r < self.r_hi)
+        } else {
+            self.r_lo < r && r < self.r_hi
+        }
+    }
+}
+
+fn compute_r_bounds(b: u128, c: u128, p: u128) -> RBounds {
+    let r_lo;
+    let r_hi;
+    let invert;
+    if b > c {
+        // Case 1 in description of greater_than_constant
+        r_lo = b - c - 1;
+        r_hi = b + 1;
+        invert = true;
+    } else {
+        // Case 2 in description of greater_than_constant
+        r_lo = b;
+        r_hi = p + b - c;
+        invert = false;
+    }
+    RBounds { r_lo, r_hi, invert }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -106,7 +145,7 @@ enum GreaterThanConstantStep {
     Reveal,
     CompareLo,
     CompareHi,
-    Multiply,
+    And,
 }
 
 impl crate::protocol::Substep for GreaterThanConstantStep {}
@@ -117,7 +156,7 @@ impl AsRef<str> for GreaterThanConstantStep {
             Self::Reveal => "reveal",
             Self::CompareLo => "compare_lo",
             Self::CompareHi => "compare_hi",
-            Self::Multiply => "multiply",
+            Self::And => "and",
         }
     }
 }
@@ -278,7 +317,10 @@ impl AsRef<str> for Step {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use super::{bitwise_greater_than_constant, greater_than_constant};
+    use super::{
+        bitwise_greater_than_constant, bitwise_less_than_constant, compute_r_bounds,
+        greater_than_constant,
+    };
     use crate::{
         ff::{Field, Fp31, Fp32BitPrime},
         protocol::{
@@ -288,8 +330,38 @@ mod tests {
         secret_sharing::SharedValue,
         test_fixture::{into_bits, Reconstruct, Runner, TestWorld},
     };
-    use proptest::prelude::Rng;
-    use rand::{distributions::Standard, prelude::Distribution};
+    use proptest::proptest;
+    use rand::{distributions::Standard, prelude::Distribution, Rng};
+
+    async fn bitwise_lt<F: Field>(world: &TestWorld, a: F, b: u128) -> F
+    where
+        (F, F): Sized,
+        Standard: Distribution<F>,
+    {
+        let input = into_bits(a);
+
+        let result = world
+            .semi_honest(input.clone(), |ctx, a_share| async move {
+                bitwise_less_than_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        let m_result = world
+            .malicious(input.clone(), |ctx, a_share| async move {
+                bitwise_less_than_constant(ctx.set_total_records(1), RecordId::from(0), &a_share, b)
+                    .await
+                    .unwrap()
+            })
+            .await
+            .reconstruct();
+
+        assert_eq!(result, m_result);
+
+        result
+    }
 
     async fn bitwise_gt<F: Field>(world: &TestWorld, a: F, b: u128) -> F
     where
@@ -372,7 +444,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn fp31() {
+    pub async fn gt_fp31() {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -387,11 +459,11 @@ mod tests {
         assert_eq!(one, gt(&world, c(21), 20).await);
         assert_eq!(zero, gt(&world, c(9), 9).await);
 
-        assert_eq!(zero, gt(&world, zero, Fp31::PRIME.into()).await);
+        assert_eq!(zero, gt(&world, zero, u128::from(Fp31::PRIME) - 1).await);
     }
 
     #[tokio::test]
-    pub async fn bw_fp31() {
+    pub async fn bw_gt_fp31() {
         let c = Fp31::from;
         let zero = Fp31::ZERO;
         let one = Fp31::ONE;
@@ -407,10 +479,31 @@ mod tests {
         assert_eq!(zero, bitwise_gt(&world, c(9), 9).await);
 
         assert_eq!(zero, bitwise_gt(&world, zero, Fp31::PRIME.into()).await);
+        assert_eq!(one, bitwise_gt(&world, c(Fp31::PRIME - 1), 0).await);
     }
 
     #[tokio::test]
-    pub async fn bw_fp_32bit_prime() {
+    pub async fn bw_lt_fp31() {
+        let c = Fp31::from;
+        let zero = Fp31::ZERO;
+        let one = Fp31::ONE;
+        let world = TestWorld::new().await;
+
+        assert_eq!(one, bitwise_lt(&world, zero, 1).await);
+        assert_eq!(zero, bitwise_lt(&world, one, 0).await);
+        assert_eq!(zero, bitwise_lt(&world, zero, 0).await);
+        assert_eq!(zero, bitwise_lt(&world, one, 1).await);
+
+        assert_eq!(one, bitwise_lt(&world, c(3_u8), 7).await);
+        assert_eq!(zero, bitwise_lt(&world, c(21), 20).await);
+        assert_eq!(zero, bitwise_lt(&world, c(9), 9).await);
+
+        assert_eq!(one, bitwise_lt(&world, zero, Fp31::PRIME.into()).await);
+        assert_eq!(zero, bitwise_lt(&world, c(Fp31::PRIME - 1), 0).await);
+    }
+
+    #[tokio::test]
+    pub async fn bw_gt_fp_32bit_prime() {
         let c = Fp32BitPrime::from;
         let zero = Fp32BitPrime::ZERO;
         let one = Fp32BitPrime::ONE;
@@ -447,6 +540,24 @@ mod tests {
             zero,
             bitwise_gt(&world, zero, Fp32BitPrime::PRIME.into()).await
         );
+    }
+
+    proptest! {
+        #[test]
+        fn gt_fp31_proptest(a in 0..Fp31::PRIME, c in 0..Fp31::PRIME) {
+            type F = Fp31;
+            let r = thread_rng().gen::<F>();
+            let b = F::from(a) + r;
+            assert_eq!(a > c, compute_r_bounds(b.as_u128(), c.into(), F::PRIME.into()).evaluate(r.as_u128()));
+        }
+
+        #[test]
+        fn gt_fp_32bit_prime_proptest(a in 0..Fp32BitPrime::PRIME, c in 0..Fp32BitPrime::PRIME) {
+            type F = Fp32BitPrime;
+            let r = thread_rng().gen::<F>();
+            let b = F::from(a) + r;
+            assert_eq!(a > c, compute_r_bounds(b.as_u128(), c.into(), F::PRIME.into()).evaluate(r.as_u128()));
+        }
     }
 
     // this test is for manual execution only
