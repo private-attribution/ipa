@@ -2,6 +2,7 @@ mod fsv;
 mod ordering_mpsc;
 mod receive;
 mod send;
+mod seq_futures;
 mod unordered_receiver;
 
 pub use ordering_mpsc::ordering_mpsc;
