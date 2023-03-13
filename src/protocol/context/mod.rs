@@ -75,7 +75,7 @@ mod tests {
         protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated,
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
         },
         telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     };
@@ -89,17 +89,17 @@ mod tests {
     use super::*;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig};
 
-    trait AsReplicated<F: Field> {
-        fn left(&self) -> F;
-        fn right(&self) -> F;
+    trait AsReplicatedTestOnly<F: Field> {
+        fn l(&self) -> F;
+        fn r(&self) -> F;
     }
 
-    impl<F: Field> AsReplicated<F> for Replicated<F> {
-        fn left(&self) -> F {
+    impl<F: Field> AsReplicatedTestOnly<F> for Replicated<F> {
+        fn l(&self) -> F {
             (self as &Replicated<F>).left()
         }
 
-        fn right(&self) -> F {
+        fn r(&self) -> F {
             (self as &Replicated<F>).right()
         }
     }
@@ -108,12 +108,12 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicated<F> for MaliciousReplicated<F> {
-        fn left(&self) -> F {
+    impl<F: Field> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
+        fn l(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().left()
         }
 
-        fn right(&self) -> F {
+        fn r(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().right()
         }
     }
@@ -124,7 +124,7 @@ mod tests {
         F: Field,
         Standard: Distribution<F>,
         C: Context,
-        S: AsReplicated<F>,
+        S: AsReplicatedTestOnly<F>,
     {
         let ctx = ctx.narrow("metrics");
         let (left_peer, right_peer) = (
@@ -142,12 +142,12 @@ mod tests {
         let channel = ctx.mesh();
 
         let (_, right_share) = try_join!(
-            channel.send(left_peer, record_id, share.left() - l - seq_l),
+            channel.send(left_peer, record_id, share.l() - l - seq_l),
             channel.receive::<F>(right_peer, record_id),
         )
         .unwrap();
 
-        Replicated::new(share.left(), right_share + r + seq_r)
+        Replicated::new(share.l(), right_share + r + seq_r)
     }
 
     #[tokio::test]

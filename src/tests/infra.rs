@@ -4,7 +4,9 @@ use crate::{
     ff::Fp32BitPrime,
     helpers::Direction,
     protocol::{context::Context, RecordId},
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
     test_fixture::{Reconstruct, Runner, TestWorld},
 };
 use futures_util::future::{try_join, try_join_all};

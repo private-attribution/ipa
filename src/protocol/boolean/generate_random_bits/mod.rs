@@ -10,7 +10,10 @@ use crate::{
         BitOpStep, RecordId,
     },
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        replicated::{
+            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+            ReplicatedSecretSharing,
+        },
         Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
     },
 };

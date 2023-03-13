@@ -136,7 +136,7 @@ mod tests {
     use super::*;
     use generic_array::GenericArray;
 
-    use crate::bits::Serializable;
+    use crate::{bits::Serializable, secret_sharing::replicated::ReplicatedSecretSharing};
     use hpke::{single_shot_seal_in_place_detached, OpModeS};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
