@@ -216,15 +216,15 @@ macro_rules! bit_array_impl {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
                     debug_assert!(2 * $bits < u128::BITS);
-                    let a = <Self as Into<u128>>::into(self);
+                    let a = <Self as Fp2Array>::as_u128(self);
                     let mut product = 0;
                     for i in 0..Self::BITS {
                         let bit = u128::from(rhs[i]);
                         product ^= bit * (a << i);
                     }
 
+                    let poly = <Self as Fp2Array>::POLYNOMIAL;
                     while (u128::BITS - product.leading_zeros()) > $bits {
-                        let poly = <Self as Fp2Array>::POLYNOMIAL;
                         let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
                         product ^= (poly << bits_to_shift);
                     }
