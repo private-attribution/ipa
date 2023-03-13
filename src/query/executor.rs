@@ -1,6 +1,5 @@
 use crate::{
-    bits::{GaloisField, Serializable},
-    ff::{Field, FieldType, Fp31},
+    ff::{Field, FieldType, Fp31, GaloisField, Serializable},
     helpers::{
         messaging::{Gateway, TotalRecords},
         negotiate_prss,

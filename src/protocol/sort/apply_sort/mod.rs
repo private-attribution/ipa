@@ -44,8 +44,7 @@ where
 mod tests {
     use crate::{
         accumulation_test_input,
-        bits::GaloisField,
-        ff::{Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, GaloisField},
         protocol::{
             attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
             context::Context,

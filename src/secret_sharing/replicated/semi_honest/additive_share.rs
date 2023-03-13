@@ -1,5 +1,5 @@
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Arithmetic as ArithmeticSecretSharing, SecretSharing,
         SharedValue,

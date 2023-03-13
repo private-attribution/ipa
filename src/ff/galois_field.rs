@@ -1,5 +1,5 @@
 use crate::{
-    bits::{GaloisField, Serializable},
+    ff::{GaloisField, Serializable},
     secret_sharing::SharedValue,
 };
 use bitvec::prelude::{BitArr, Lsb0};
@@ -298,7 +298,7 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            /// Compares two `BitArray`s by their representational ordering
+            /// Compares two Galois Field elements by their representational ordering
             ///
             /// The original implementation of `Ord` for `bitvec::BitArray` compares two arrays
             /// from LSB, and at the first index where the arrays differ, the array with the high
@@ -332,7 +332,7 @@ macro_rules! bit_array_impl {
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
-                use crate::{bits::GaloisField, secret_sharing::SharedValue};
+                use crate::{ff::GaloisField, secret_sharing::SharedValue};
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 
@@ -472,7 +472,7 @@ macro_rules! bit_array_impl {
 
 bit_array_impl!(
     bit_array_40,
-    BitArray40,
+    Gf40Bit,
     U8_5,
     40,
     U5,
@@ -482,7 +482,7 @@ bit_array_impl!(
 
 bit_array_impl!(
     bit_array_32,
-    BitArray32,
+    Gf32Bit,
     U8_4,
     32,
     U4,
@@ -492,7 +492,7 @@ bit_array_impl!(
 
 bit_array_impl!(
     bit_array_8,
-    BitArray8,
+    Gf8Bit,
     U8_1,
     8,
     U1,

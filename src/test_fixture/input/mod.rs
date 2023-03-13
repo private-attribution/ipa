@@ -1,6 +1,5 @@
 use crate::{
-    bits::GaloisField,
-    ff::Field,
+    ff::{Field, GaloisField},
     secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
 };
 
@@ -35,11 +34,11 @@ pub struct GenericReportTestInput<F: Field, MK: GaloisField, BK: GaloisField> {
 macro_rules! ipa_test_input {
     ( { match_key: $mk:expr, is_trigger_report: $itr:expr, breakdown_key: $bk:expr, trigger_value: $tv:expr $(,)? }; ($field:tt, $mk_bit_array:tt, $bk_bit_array:tt) ) => {
         GenericReportTestInput {
-            match_key: Some(<$mk_bit_array as $crate::bits::GaloisField>::truncate_from(u128::try_from($mk).unwrap())),
+            match_key: Some(<$mk_bit_array as $crate::ff::GaloisField>::truncate_from(u128::try_from($mk).unwrap())),
             attribution_constraint_id: None,
             timestamp: None,
             is_trigger_report: Some($field::from(u128::try_from($itr).unwrap())),
-            breakdown_key: <$bk_bit_array as $crate::bits::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
+            breakdown_key: <$bk_bit_array as $crate::ff::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
             trigger_value: $field::from(u128::try_from($tv).unwrap()),
             helper_bit: None,
             aggregation_bit: None,
@@ -61,7 +60,7 @@ macro_rules! attribution_window_test_input {
             attribution_constraint_id: None,
             timestamp: Some($field::from(u128::try_from($ts).unwrap())),
             is_trigger_report: Some($field::from(u128::try_from($itr).unwrap())),
-            breakdown_key: <$bk_bit_array as $crate::bits::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
+            breakdown_key: <$bk_bit_array as $crate::ff::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
             trigger_value: $field::from(u128::try_from($cdt).unwrap()),
             helper_bit: Some($field::from(u128::try_from($hb).unwrap())),
             aggregation_bit: None,
@@ -83,7 +82,7 @@ macro_rules! accumulation_test_input {
             attribution_constraint_id: None,
             timestamp: None,
             is_trigger_report: Some($field::from(u128::try_from($itr).unwrap())),
-            breakdown_key: <$bk_bit_array as $crate::bits::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
+            breakdown_key: <$bk_bit_array as $crate::ff::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
             trigger_value: $field::from(u128::try_from($cdt).unwrap()),
             helper_bit: Some($field::from(u128::try_from($hb).unwrap())),
             aggregation_bit: None,
@@ -105,7 +104,7 @@ macro_rules! aggregation_test_input {
             attribution_constraint_id: None,
             timestamp: None,
             is_trigger_report: None,
-            breakdown_key: <$bk_bit_array as $crate::bits::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
+            breakdown_key: <$bk_bit_array as $crate::ff::GaloisField>::truncate_from(u128::try_from($bk).unwrap()),
             trigger_value: $field::from(u128::try_from($cdt).unwrap()),
             helper_bit: Some($field::from(u128::try_from($hb).unwrap())),
             aggregation_bit: None

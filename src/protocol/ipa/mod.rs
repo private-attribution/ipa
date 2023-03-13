@@ -1,7 +1,6 @@
 use crate::{
-    bits::{GaloisField, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -470,8 +469,7 @@ pub mod tests {
 
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
-        bits::{GaloisField, Serializable},
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, GaloisField, Serializable},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},
         secret_sharing::IntoShares,

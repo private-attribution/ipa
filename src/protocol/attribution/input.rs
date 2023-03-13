@@ -1,7 +1,6 @@
 use crate::{
-    bits::{GaloisField, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     helpers::Role,
     protocol::{basics::Reshare, context::Context, RecordId, Substep},
     secret_sharing::{

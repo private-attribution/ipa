@@ -7,7 +7,7 @@ mod scheme;
 pub use into_shares::IntoShares;
 pub use scheme::{Arithmetic, Boolean, SecretSharing};
 
-use crate::{bits::Serializable, ff::ArithmeticOps};
+use crate::ff::{ArithmeticOps, Serializable};
 use std::fmt::Debug;
 
 pub trait SharedValue:

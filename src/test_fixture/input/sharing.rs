@@ -1,7 +1,6 @@
 use super::{GenericReportShare, GenericReportTestInput};
 use crate::{
-    bits::GaloisField,
-    ff::Field,
+    ff::{Field, GaloisField},
     protocol::{
         attribution::input::{
             AccumulateCreditInputRow, AggregateCreditInputRow, ApplyAttributionWindowInputRow,

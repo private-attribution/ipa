@@ -1,6 +1,5 @@
 use crate::{
-    bits::Serializable,
-    ff::Field,
+    ff::{Field, Serializable},
     protocol::{
         basics::Reveal,
         context::{Context, MaliciousContext},
