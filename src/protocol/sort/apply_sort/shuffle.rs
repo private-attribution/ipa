@@ -115,7 +115,7 @@ mod tests {
     mod semi_honest {
         use crate::{
             accumulation_test_input,
-            bits::Fp2Array,
+            bits::GaloisField,
             protocol::{
                 attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
                 modulus_conversion::{convert_all_bits, convert_all_bits_local},

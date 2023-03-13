@@ -218,7 +218,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        bits::{BitArray40, Fp2Array},
+        bits::{BitArray40, GaloisField},
         ff::{Field, Fp31},
         protocol::{
             context::Context,

@@ -1,5 +1,5 @@
 use crate::{
-    bits::Fp2Array,
+    bits::GaloisField,
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
@@ -69,8 +69,8 @@ pub trait ReshareBorrowed<C: Context, B: RecordBinding> {
         C: 'fut;
 }
 
-/// A common semi-honest reshare algorithm for `AdditiveShare<F: Field>` and `XorShare<B: Fp2Array>`.
-/// We compute the new shares by adding/subtracting shared values and random values. Since `Fp2Array`
+/// A common semi-honest reshare algorithm for `AdditiveShare<F: Field>` and `XorShare<B: GaloisField>`.
+/// We compute the new shares by adding/subtracting shared values and random values. Since `GaloisField`
 /// implements `ArithmeticOps` using binary operations i.e., `Add`/`Sub` -> `BitXor`, we can use the
 /// same code for both sharing schemes.
 async fn semi_honest_reshare<'a, V: SharedValue, S: ReplicatedSecretSharing<V>>(
@@ -176,7 +176,7 @@ impl<'a, F: Field> Reshare<MaliciousContext<'a, F>, RecordId> for MaliciousRepli
 
 #[async_trait]
 /// Reshare algorithm for xor secret shares.
-impl<'a, B: Fp2Array> Reshare<SemiHonestContext<'a>, RecordId> for XorReplicated<B> {
+impl<'a, B: GaloisField> Reshare<SemiHonestContext<'a>, RecordId> for XorReplicated<B> {
     async fn reshare<'fut>(
         &self,
         ctx: SemiHonestContext<'a>,
@@ -197,7 +197,7 @@ impl<'a, B: Fp2Array> Reshare<SemiHonestContext<'a>, RecordId> for XorReplicated
 /// As of March 2023, we aren't sure what is a proper way of doing reshare in malicious context.
 /// We believe that, even though an additive attack is possible, a malicious helper can ONLY
 /// corrupt the protocol output, but cannot learn any private info.
-impl<'a, F: Field, B: Fp2Array> Reshare<MaliciousContext<'a, F>, RecordId> for XorReplicated<B> {
+impl<'a, F: Field, B: GaloisField> Reshare<MaliciousContext<'a, F>, RecordId> for XorReplicated<B> {
     #[allow(clippy::missing_panics_doc)]
     async fn reshare<'fut>(
         &self,

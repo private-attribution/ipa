@@ -1,5 +1,5 @@
 use crate::{
-    bits::Fp2Array,
+    bits::GaloisField,
     ff::Field,
     secret_sharing::replicated::{
         semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
@@ -30,7 +30,7 @@ pub trait SharedRandomness {
 
     /// Generate two sequences of random Fp2 bits.
     #[must_use]
-    fn generate_bit_arrays<B: Fp2Array, I: Into<u128>>(&self, index: I) -> (B, B) {
+    fn generate_bit_arrays<B: GaloisField, I: Into<u128>>(&self, index: I) -> (B, B) {
         let (l, r) = self.generate_values(index);
         (B::truncate_from(l), B::truncate_from(r))
     }

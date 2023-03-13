@@ -1,5 +1,5 @@
 use crate::{
-    bits::{BitArray40, Fp2Array},
+    bits::{BitArray40, GaloisField},
     error::Error,
     ff::Field,
     protocol::{

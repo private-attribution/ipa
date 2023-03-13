@@ -1,6 +1,6 @@
 use rand::Rng;
 use raw_ipa::{
-    bits::{BitArray40, Fp2Array},
+    bits::{BitArray40, GaloisField},
     error::Error,
     ff::{Field, Fp32BitPrime},
     protocol::{
