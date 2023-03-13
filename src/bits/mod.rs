@@ -15,6 +15,8 @@ pub trait Fp2Array:
     + Index<usize, Output = bool>
     + Index<u32, Output = bool>
 {
+    const POLYNOMIAL: u128;
+
     /// Truncates the higher-order bits larger than `Self::BITS`, and converts
     /// into this data type. This conversion is lossy. Callers are encouraged
     /// to use `try_from` if the input is not known in advance.
