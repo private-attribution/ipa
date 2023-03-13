@@ -53,7 +53,7 @@ async fn main() -> Result<(), Error> {
         for records_for_user in &random_user_records {
             update_expected_output_for_user(records_for_user, &mut expected_results, per_user_cap);
         }
-        let world = TestWorld::new_with(config).await;
+        let world = TestWorld::new_with(config.clone()).await;
 
         test_ipa(
             world,

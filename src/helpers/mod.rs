@@ -81,12 +81,28 @@ impl From<i32> for HelperIdentity {
     }
 }
 
-#[cfg(any(test, feature = "test-fixture"))]
 impl HelperIdentity {
     pub const ONE: Self = Self { id: 1 };
     pub const TWO: Self = Self { id: 2 };
     pub const THREE: Self = Self { id: 3 };
 
+    /// Given a helper identity, return an array of the identities of the other two helpers.
+    // The order that helpers are returned here is not intended to be meaningful, however,
+    // it is currently used directly to determine the assignment of roles in
+    // `Processor::new_query`.
+    #[must_use]
+    pub fn others(&self) -> [HelperIdentity; 2] {
+        match self.id {
+            1 => [Self::TWO, Self::THREE],
+            2 => [Self::THREE, Self::ONE],
+            3 => [Self::ONE, Self::TWO],
+            _ => unreachable!("helper identity out of range"),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-fixture"))]
+impl HelperIdentity {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn make_three() -> [Self; 3] {
@@ -308,6 +324,18 @@ impl TryFrom<[(HelperIdentity, Role); 3]> for RoleAssignment {
     }
 }
 
+impl TryFrom<[Role; 3]> for RoleAssignment {
+    type Error = String;
+
+    fn try_from(value: [Role; 3]) -> std::result::Result<Self, Self::Error> {
+        Self::try_from([
+            (HelperIdentity::ONE, value[0]),
+            (HelperIdentity::TWO, value[1]),
+            (HelperIdentity::THREE, value[2]),
+        ])
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
@@ -335,6 +363,13 @@ mod tests {
     }
 
     mod role_assignment_tests {
+        use crate::{
+            ff::Fp31,
+            protocol::{basics::SecureMul, context::Context, RecordId},
+            rand::{thread_rng, Rng},
+            test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig},
+        };
+
         use super::*;
 
         #[test]
@@ -408,6 +443,57 @@ mod tests {
                 HelperIdentity::try_from(1).unwrap(),
                 assignment.identity(Role::H3)
             );
+        }
+
+        #[test]
+        fn illegal() {
+            use Role::{H1, H2, H3};
+
+            assert_eq!(
+                RoleAssignment::try_from([H1, H1, H3]),
+                Err("Role H1 has been assigned twice".into()),
+            );
+
+            assert_eq!(
+                RoleAssignment::try_from([H3, H2, H3]),
+                Err("Role H3 has been assigned twice".into()),
+            );
+        }
+
+        #[tokio::test]
+        async fn multiply_with_various_roles() {
+            use Role::{H1, H2, H3};
+            const ROLE_PERMUTATIONS: [[Role; 3]; 6] = [
+                [H1, H2, H3],
+                [H1, H3, H2],
+                [H2, H1, H3],
+                [H2, H3, H1],
+                [H3, H1, H2],
+                [H3, H2, H1],
+            ];
+
+            for &rp in &ROLE_PERMUTATIONS {
+                let config = TestWorldConfig {
+                    role_assignment: Some(RoleAssignment::try_from(rp).unwrap()),
+                    ..TestWorldConfig::default()
+                };
+
+                let world = TestWorld::new_with(config).await;
+
+                let mut rng = thread_rng();
+                let a = rng.gen::<Fp31>();
+                let b = rng.gen::<Fp31>();
+
+                let res = world
+                    .semi_honest((a, b), |ctx, (a, b)| async move {
+                        a.multiply(&b, ctx.set_total_records(1), RecordId::from(0))
+                            .await
+                            .unwrap()
+                    })
+                    .await;
+
+                assert_eq!(a * b, res.reconstruct());
+            }
         }
     }
 }

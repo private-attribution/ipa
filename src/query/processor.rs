@@ -31,7 +31,6 @@ pub struct Processor<T: Transport> {
     #[pin]
     command_stream: T::CommandStream,
     transport: T,
-    identities: [HelperIdentity; 3],
     queries: RunningQueries,
 }
 
@@ -88,19 +87,22 @@ pub enum QueryCompletionError {
 
 #[allow(dead_code)]
 impl<T: Transport + Clone> Processor<T> {
-    pub async fn new(transport: T, identities: [HelperIdentity; 3]) -> Self {
+    pub async fn new(transport: T) -> Self {
         Self {
             command_stream: transport.subscribe(SubscriptionType::QueryManagement).await,
             transport,
-            identities,
             queries: RunningQueries::default(),
         }
+    }
+
+    fn identity(&self) -> HelperIdentity {
+        self.transport.identity()
     }
 
     /// Upon receiving a new query request:
     /// * processor generates new query id
     /// * assigns roles to helpers in the ring. Helper that received new query request becomes `Role::H1` (aka coordinator).
-    /// and is free to choose helpers for `Role::H2` and `Role::H3` arbitrarily (aka followers).
+    /// The coordinator is in theory free to choose helpers for `Role::H2` and `Role::H3` arbitrarily (aka followers), however, this is not currently exercised.
     /// * Requests Infra and Network layer to create resources for this query
     /// * sends `prepare` request that describes the query configuration (query id, query type, field type, roles -> endpoints or reverse) to followers and waits for the confirmation
     /// * records newly created query id internally and sets query state to awaiting data
@@ -114,14 +116,11 @@ impl<T: Transport + Clone> Processor<T> {
         let handle = self.queries.handle(query_id);
         handle.set_state(QueryState::Preparing(req))?;
 
-        // invariant: this helper's identity must be the first element in the array.
-        let this = self.identities[0];
-        let right = self.identities[1];
-        let left = self.identities[2];
+        let id = self.identity();
+        let [right, left] = id.others();
 
-        let roles =
-            RoleAssignment::try_from([(this, Role::H1), (right, Role::H2), (left, Role::H3)])
-                .unwrap();
+        let roles = RoleAssignment::try_from([(id, Role::H1), (right, Role::H2), (left, Role::H3)])
+            .unwrap();
 
         let network = Network::new(self.transport.clone(), query_id, roles.clone());
 
@@ -303,11 +302,10 @@ mod tests {
     /// used to drive query workflow, while two others will be spawned in a tokio task and will
     /// be listening for incoming commands.
     async fn active_passive<T: Transport + Clone>(transports: [T; 3]) -> Processor<T> {
-        let identities = HelperIdentity::make_three();
         let [t0, t1, t2] = transports;
         tokio::spawn(async move {
-            let mut processor2 = Processor::new(t1, identities).await;
-            let mut processor3 = Processor::new(t2, identities).await;
+            let mut processor2 = Processor::new(t1).await;
+            let mut processor3 = Processor::new(t2).await;
             // don't use tokio::select! here because it cancels one of the futures if another one is making progress
             // that causes events to be dropped
             loop {
@@ -316,7 +314,7 @@ mod tests {
             }
         });
 
-        Processor::new(t0, identities).await
+        Processor::new(t0).await
     }
 
     #[tokio::test]
@@ -377,8 +375,7 @@ mod tests {
             query_id: command.query_id(),
             inner: "Transport failed".into(),
         });
-        let identities = HelperIdentity::make_three();
-        let processor = Processor::new(transport, identities).await;
+        let processor = Processor::new(transport).await;
         let request = QueryConfig {
             field_type: FieldType::Fp32BitPrime,
             query_type: QueryType::TestMultiply,
@@ -410,8 +407,7 @@ mod tests {
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]).unwrap();
-
-            let processor = Processor::new(transport, identities).await;
+            let processor = Processor::new(transport).await;
 
             assert_eq!(None, processor.status(QueryId));
             processor.prepare(req).await.unwrap();
@@ -424,7 +420,7 @@ mod tests {
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[0]).unwrap();
-            let processor = Processor::new(transport, identities).await;
+            let processor = Processor::new(transport).await;
 
             assert!(matches!(
                 processor.prepare(req).await,
@@ -438,8 +434,7 @@ mod tests {
             let identities = HelperIdentity::make_three();
             let req = prepare_query(identities);
             let transport = network.transport(identities[1]).unwrap();
-
-            let processor = Processor::new(transport, identities).await;
+            let processor = Processor::new(transport).await;
             processor.prepare(req.clone()).await.unwrap();
             assert!(matches!(
                 processor.prepare(req).await,
@@ -469,10 +464,12 @@ mod tests {
         use typenum::Unsigned;
 
         async fn make_three(network: &InMemoryNetwork) -> [Processor<Weak<InMemoryTransport>>; 3] {
-            let identities = HelperIdentity::make_three();
-            join_all(network.transports.iter().map(|transport| async {
-                Processor::new(Arc::downgrade(transport), identities).await
-            }))
+            join_all(
+                network
+                    .transports
+                    .iter()
+                    .map(|transport| async { Processor::new(Arc::downgrade(transport)).await }),
+            )
             .await
             .try_into()
             .unwrap()

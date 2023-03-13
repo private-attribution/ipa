@@ -2,14 +2,14 @@ use clap::{Parser, Subcommand, ValueEnum};
 use comfy_table::Table;
 use raw_ipa::{
     cli::{
-        helpers_config,
         playbook::{secure_mul, semi_honest, InputSource},
         Verbosity,
     },
     ff::{FieldType, Fp31},
     helpers::query::{IpaQueryConfig, QueryConfig, QueryType},
-    net::{discovery::PeerDiscovery, MpcHelperClient},
+    net::MpcHelperClient,
     protocol::{BreakdownKey, MatchKey},
+    test_fixture::config::TestConfigBuilder,
 };
 use std::{error::Error, fmt::Debug, path::PathBuf};
 
@@ -82,8 +82,8 @@ fn print_output<O: Debug>(values: &[Vec<O>; 3]) {
 }
 
 fn make_clients() -> [MpcHelperClient; 3] {
-    let config = helpers_config();
-    MpcHelperClient::from_conf(config.peers())
+    let config = TestConfigBuilder::with_default_test_ports().build();
+    MpcHelperClient::from_conf(&config.network)
 }
 
 #[tokio::main]
