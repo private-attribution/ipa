@@ -4,7 +4,6 @@
 #![allow(clippy::similar_names)]
 #![allow(clippy::module_name_repetitions)]
 
-pub mod bits;
 pub mod chunkscan;
 #[cfg(feature = "cli")]
 pub mod cli;

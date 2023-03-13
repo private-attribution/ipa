@@ -5,7 +5,7 @@ use super::{
     input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
 };
 use crate::{
-    bits::{GaloisField, Serializable},
+    ff::{GaloisField, Serializable},
     error::Error,
     ff::Field,
     protocol::{

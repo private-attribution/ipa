@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     helpers::{messaging::Message, Error},
 };
 use bitvec::{bitvec, vec::BitVec};
@@ -268,7 +268,7 @@ impl OrderingMpscEnd {
 #[cfg(test)]
 mod fixture {
     use crate::{
-        bits::Serializable,
+        ff::Serializable,
         ff::Fp32BitPrime,
         helpers::buffers::ordering_mpsc::{
             ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender,
@@ -352,7 +352,7 @@ mod fixture {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod unit {
     use crate::{
-        bits::Serializable,
+        ff::Serializable,
         ff::Fp31,
         helpers::buffers::ordering_mpsc::{
             fixture::{TestSender, FP32BIT_SIZE},

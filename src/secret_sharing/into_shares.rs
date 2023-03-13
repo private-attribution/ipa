@@ -1,6 +1,6 @@
 use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     rand::{thread_rng, Rng},
     secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
 };

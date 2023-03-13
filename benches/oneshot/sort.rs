@@ -1,6 +1,6 @@
 use rand::Rng;
 use raw_ipa::{
-    bits::{BitArray40, GaloisField},
+    ff::{GF_2_pow_40, GaloisField},
     error::Error,
     ff::{Field, Fp32BitPrime},
     protocol::{
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Error> {
             convert_all_bits::<Fp32BitPrime, _, _>(
                 &ctx,
                 &convert_all_bits_local(ctx.role(), match_key.into_iter()),
-                BitArray40::BITS,
+                GF_2_pow_40::BITS,
                 NUM_MULTI_BITS,
             )
             .await

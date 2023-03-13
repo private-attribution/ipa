@@ -1,5 +1,5 @@
 use crate::{
-    bits::{GaloisField, Serializable},
+    ff::{GaloisField, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
         messaging::{Gateway, TotalRecords},

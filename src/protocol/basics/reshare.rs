@@ -1,5 +1,5 @@
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
@@ -298,7 +298,7 @@ mod tests {
         use proptest::prelude::Rng;
 
         use crate::{
-            bits::BitArray40,
+            ff::GF_2_pow_40,
             ff::Fp32BitPrime,
             helpers::Role,
             protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
@@ -344,9 +344,9 @@ mod tests {
             let world = TestWorld::new().await;
 
             for &target in Role::all() {
-                let secret = thread_rng().gen::<BitArray40>();
+                let secret = thread_rng().gen::<GF_2_pow_40>();
                 let shares = world
-                    .semi_honest(secret, |ctx, share: XorShare<BitArray40>| async move {
+                    .semi_honest(secret, |ctx, share: XorShare<GF_2_pow_40>| async move {
                         let record_id = RecordId::from(0);
                         let ctx = ctx.set_total_records(1);
 

@@ -1,5 +1,5 @@
 use crate::{
-    bits::{GaloisField, Serializable},
+    ff::{GaloisField, Serializable},
     secret_sharing::{
         replicated::ReplicatedSecretSharing, Boolean as BooleanSecretSharing, SecretSharing,
     },
@@ -108,7 +108,7 @@ where
 mod tests {
     use super::XorShare;
     use crate::{
-        bits::{BitArray40, Serializable},
+        ff::{GF_2_pow_40, Serializable},
         secret_sharing::replicated::ReplicatedSecretSharing,
     };
 
@@ -119,30 +119,30 @@ mod tests {
         b: u128,
         c: u128,
     ) -> (
-        XorShare<BitArray40>,
-        XorShare<BitArray40>,
-        XorShare<BitArray40>,
+        XorShare<GF_2_pow_40>,
+        XorShare<GF_2_pow_40>,
+        XorShare<GF_2_pow_40>,
     ) {
         (
             XorShare::new(
-                BitArray40::try_from(a).unwrap(),
-                BitArray40::try_from(b).unwrap(),
+                GF_2_pow_40::try_from(a).unwrap(),
+                GF_2_pow_40::try_from(b).unwrap(),
             ),
             XorShare::new(
-                BitArray40::try_from(b).unwrap(),
-                BitArray40::try_from(c).unwrap(),
+                GF_2_pow_40::try_from(b).unwrap(),
+                GF_2_pow_40::try_from(c).unwrap(),
             ),
             XorShare::new(
-                BitArray40::try_from(c).unwrap(),
-                BitArray40::try_from(a).unwrap(),
+                GF_2_pow_40::try_from(c).unwrap(),
+                GF_2_pow_40::try_from(a).unwrap(),
             ),
         )
     }
 
     fn assert_valid_secret_sharing(
-        res1: &XorShare<BitArray40>,
-        res2: &XorShare<BitArray40>,
-        res3: &XorShare<BitArray40>,
+        res1: &XorShare<GF_2_pow_40>,
+        res2: &XorShare<GF_2_pow_40>,
+        res3: &XorShare<GF_2_pow_40>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -150,18 +150,18 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: &XorShare<BitArray40>,
-        a2: &XorShare<BitArray40>,
-        a3: &XorShare<BitArray40>,
+        a1: &XorShare<GF_2_pow_40>,
+        a2: &XorShare<GF_2_pow_40>,
+        a3: &XorShare<GF_2_pow_40>,
         expected_value: u128,
     ) {
         assert_eq!(
             a1.0 ^ a2.0 ^ a3.0,
-            BitArray40::try_from(expected_value).unwrap()
+            GF_2_pow_40::try_from(expected_value).unwrap()
         );
         assert_eq!(
             a1.1 ^ a2.1 ^ a3.1,
-            BitArray40::try_from(expected_value).unwrap()
+            GF_2_pow_40::try_from(expected_value).unwrap()
         );
     }
 
@@ -200,8 +200,8 @@ mod tests {
     #[test]
     fn serde() {
         let share = XorShare::new(
-            BitArray40::try_from(1u128 << 25).unwrap(),
-            BitArray40::try_from(1u128 << 15).unwrap(),
+            GF_2_pow_40::try_from(1u128 << 25).unwrap(),
+            GF_2_pow_40::try_from(1u128 << 15).unwrap(),
         );
 
         let mut buf = GenericArray::default();

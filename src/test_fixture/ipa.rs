@@ -1,7 +1,7 @@
 use rand::Rng;
 
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     ff::{Field, Fp32BitPrime},
     ipa_test_input,
     protocol::{

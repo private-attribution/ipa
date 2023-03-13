@@ -1,5 +1,5 @@
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     ff::Field,
     protocol::{
         basics::Reveal,

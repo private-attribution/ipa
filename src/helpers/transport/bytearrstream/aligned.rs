@@ -214,7 +214,7 @@ mod test {
 
     mod unit_test {
         use super::*;
-        use crate::bits::Serializable;
+        use crate::ff::Serializable;
         use futures_util::{StreamExt, TryStreamExt};
         use typenum::Unsigned;
 
@@ -409,7 +409,7 @@ mod test {
         proptest::proptest! {
             #[test]
             fn test_byte_arr_stream_works_with_any_chunks(
-                (size_in_bytes, expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(<<ff::Fp32BitPrime as crate::bits::Serializable>::Size as typenum::Unsigned>::USIZE, 30, 100)
+                (size_in_bytes, expected_bytes, chunked_bytes, _seed) in arb_expected_and_chunked_body(<<ff::Fp32BitPrime as crate::ff::Serializable>::Size as typenum::Unsigned>::USIZE, 30, 100)
             ) {
                 tokio::runtime::Runtime::new().unwrap().block_on(async {
                     // flatten the chunks to compare with expected

@@ -6,7 +6,7 @@ use std::{
     io::{stdin, BufRead, BufReader, Read},
 };
 
-use crate::{bits::GaloisField, ipa_test_input, test_fixture::input::GenericReportTestInput};
+use crate::{ff::GaloisField, ipa_test_input, test_fixture::input::GenericReportTestInput};
 use std::path::PathBuf;
 
 pub trait InputItem {

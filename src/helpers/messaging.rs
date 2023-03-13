@@ -7,7 +7,7 @@
 //! enables MPC protocols to do.
 //!
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     helpers::{
         buffers::{ReceiveBuffer, SendBuffer, SendBufferConfig},
         network::{ChannelId, MessageEnvelope, Network},

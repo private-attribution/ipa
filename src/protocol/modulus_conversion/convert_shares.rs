@@ -1,5 +1,5 @@
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     error::Error,
     ff::Field,
     helpers::Role,

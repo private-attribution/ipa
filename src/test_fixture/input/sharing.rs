@@ -1,6 +1,6 @@
 use super::{GenericReportShare, GenericReportTestInput};
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     ff::Field,
     protocol::{
         attribution::input::{

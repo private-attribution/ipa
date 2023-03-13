@@ -1,5 +1,5 @@
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     ff::Field,
     protocol::boolean::RandomBitsShare,
     secret_sharing::{

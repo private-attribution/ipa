@@ -11,7 +11,7 @@ mod info;
 mod registry;
 
 use crate::{
-    bits::{BitArray40, Serializable},
+    ff::{GF_2_pow_40, Serializable},
     secret_sharing::replicated::semi_honest::XorShare,
 };
 pub use info::Info;
@@ -27,7 +27,7 @@ pub type KeyIdentifier = u8;
 /// Right now we assume the match keys to be 40 bits long. If it is not the case, the decryption
 /// will fail. This assumption allows to keep the bitstrings on the stack, for dynamically sized
 /// match keys we would have to heap allocate.
-type XorReplicated = XorShare<BitArray40>;
+type XorReplicated = XorShare<GF_2_pow_40>;
 
 /// Event epoch as described [`ipa-spec`]
 /// For the purposes of this module, epochs are used to authenticate match key encryption. As
@@ -136,7 +136,7 @@ mod tests {
     use super::*;
     use generic_array::GenericArray;
 
-    use crate::{bits::Serializable, secret_sharing::replicated::ReplicatedSecretSharing};
+    use crate::{ff::Serializable, secret_sharing::replicated::ReplicatedSecretSharing};
     use hpke::{single_shot_seal_in_place_detached, OpModeS};
     use rand::rngs::StdRng;
     use rand_core::{CryptoRng, RngCore, SeedableRng};
@@ -237,8 +237,8 @@ mod tests {
     }
 
     fn new_share(a: u64, b: u64) -> XorReplicated {
-        let left = BitArray40::try_from(u128::from(a)).unwrap();
-        let right = BitArray40::try_from(u128::from(b)).unwrap();
+        let left = GF_2_pow_40::try_from(u128::from(a)).unwrap();
+        let right = GF_2_pow_40::try_from(u128::from(b)).unwrap();
 
         XorReplicated::new(left, right)
     }

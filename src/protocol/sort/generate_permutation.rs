@@ -165,7 +165,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::{
-        bits::GaloisField,
+        ff::GaloisField,
         protocol::{
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,

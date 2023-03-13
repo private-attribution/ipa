@@ -301,7 +301,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        bits::Serializable,
+        ff::Serializable,
         ff::{Fp31, Fp32BitPrime},
         helpers::buffers::unordered_receiver::UnorderedReceiver,
     };

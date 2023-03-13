@@ -1,6 +1,6 @@
 use super::SharedValue;
 use crate::{
-    bits::{BooleanRefOps, GaloisField},
+    ff::{BooleanRefOps, GaloisField},
     ff::ArithmeticRefOps,
 };
 use std::fmt::Debug;

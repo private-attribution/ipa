@@ -1,5 +1,5 @@
 use crate::{
-    bits::GaloisField,
+    ff::GaloisField,
     ff::Field,
     helpers::Role,
     protocol::context::{Context, MaliciousContext, SemiHonestContext},

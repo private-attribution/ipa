@@ -1,5 +1,5 @@
 use crate::{
-    bits::{GaloisField, Serializable},
+    ff::{GaloisField, Serializable},
     error::Error,
     ff::Field,
     helpers::Role,
@@ -470,7 +470,7 @@ pub mod tests {
 
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
-        bits::{GaloisField, Serializable},
+        ff::{GaloisField, Serializable},
         ff::{Field, Fp31, Fp32BitPrime},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},

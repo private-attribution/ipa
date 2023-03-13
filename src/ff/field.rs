@@ -1,5 +1,5 @@
 use crate::{
-    bits::{BooleanOps, Serializable},
+    ff::{BooleanOps, Serializable},
     secret_sharing::SharedValue,
 };
 use generic_array::{ArrayLength, GenericArray};

@@ -1,5 +1,5 @@
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     helpers::{
         messaging::{Gateway, Message},
         Direction, Error, MESSAGE_PAYLOAD_SIZE_BYTES,

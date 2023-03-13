@@ -1,7 +1,7 @@
 #![cfg(feature = "web-app")]
 
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     cli::playbook::InputSource,
     ff::Field,
     helpers::{query::QueryInput, transport::ByteArrStream},
