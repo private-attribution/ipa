@@ -5,7 +5,7 @@ use super::{
     input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
 };
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     error::Error,
     ff::Field,
     protocol::{
@@ -36,7 +36,7 @@ pub async fn secure_attribution<'a, F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, SemiHonestAdditiveShare<F>, BK>>, Error>
 where
     F: Field,
-    BK: Fp2Array,
+    BK: GaloisField,
     AdditiveShare<F>: Serializable,
     SemiHonestAdditiveShare<F>: Serializable,
 {

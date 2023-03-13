@@ -5,7 +5,7 @@ use super::{
     input::{MCAccumulateCreditInputRow, MCAggregateCreditOutputRow},
 };
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     error::Error,
     ff::Field,
     protocol::{
@@ -32,7 +32,7 @@ pub async fn secure_attribution<F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, AdditiveShare<F>, BK>>, Error>
 where
     F: Field,
-    BK: Fp2Array,
+    BK: GaloisField,
     AdditiveShare<F>: Serializable,
 {
     let futures = zip(

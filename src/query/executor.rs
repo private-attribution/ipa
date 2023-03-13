@@ -1,5 +1,5 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     ff::{Field, FieldType, Fp31},
     helpers::{
         messaging::{Gateway, TotalRecords},
@@ -46,7 +46,8 @@ where
     }
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: Fp2Array> Result for Vec<MCAggregateCreditOutputRow<F, T, BK>>
+impl<F: Field, T: Arithmetic<F>, BK: GaloisField> Result
+    for Vec<MCAggregateCreditOutputRow<F, T, BK>>
 where
     T: Serializable,
 {
@@ -99,7 +100,7 @@ where
     results
 }
 
-async fn execute_ipa<F: Field, MK: Fp2Array, BK: Fp2Array>(
+async fn execute_ipa<F: Field, MK: GaloisField, BK: GaloisField>(
     ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,

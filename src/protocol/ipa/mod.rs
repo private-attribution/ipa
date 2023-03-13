@@ -1,5 +1,5 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     error::Error,
     ff::Field,
     helpers::Role,
@@ -81,14 +81,14 @@ impl AsRef<str> for IPAInputRowResharableStep {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
-pub struct IPAInputRow<F: Field, MK: Fp2Array, BK: Fp2Array> {
+pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
     pub mk_shares: XorReplicated<MK>,
     pub is_trigger_bit: Replicated<F>,
     pub breakdown_key: XorReplicated<BK>,
     pub trigger_value: Replicated<F>,
 }
 
-impl<F: Field, MK: Fp2Array, BK: Fp2Array> Serializable for IPAInputRow<F, MK, BK>
+impl<F: Field, MK: GaloisField, BK: GaloisField> Serializable for IPAInputRow<F, MK, BK>
 where
     XorReplicated<BK>: Serializable,
     XorReplicated<MK>: Serializable,
@@ -162,7 +162,7 @@ where
     }
 }
 
-impl<F: Field, MK: Fp2Array, BK: Fp2Array> IPAInputRow<F, MK, BK>
+impl<F: Field, MK: GaloisField, BK: GaloisField> IPAInputRow<F, MK, BK>
 where
     IPAInputRow<F, MK, BK>: Serializable,
 {
@@ -274,8 +274,8 @@ pub async fn ipa<F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    MK: Fp2Array,
-    BK: Fp2Array,
+    MK: GaloisField,
+    BK: GaloisField,
     Replicated<F>: Serializable,
 {
     let (mk_shares, bk_shares): (Vec<_>, Vec<_>) = input_rows
@@ -363,8 +363,8 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    MK: Fp2Array,
-    BK: Fp2Array,
+    MK: GaloisField,
+    BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
     Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
@@ -470,7 +470,7 @@ pub mod tests {
 
     use super::{ipa, ipa_malicious, IPAInputRow};
     use crate::{
-        bits::{Fp2Array, Serializable},
+        bits::{GaloisField, Serializable},
         ff::{Field, Fp31, Fp32BitPrime},
         ipa_test_input,
         protocol::{BreakdownKey, MatchKey},

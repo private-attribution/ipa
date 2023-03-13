@@ -1,7 +1,7 @@
 use futures::future::try_join_all;
 
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     error::Error,
     ff::Field,
     protocol::{
@@ -53,7 +53,7 @@ pub async fn aggregate_credit<F, BK>(
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
     F: Field,
-    BK: Fp2Array,
+    BK: GaloisField,
     for<'a> Replicated<F>: Serializable + BasicProtocols<SemiHonestContext<'a>, F>,
 {
     if max_breakdown_key <= SIMPLE_AGGREGATION_BREAK_EVEN_POINT {
@@ -150,7 +150,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
 >
 where
     F: Field,
-    BK: Fp2Array,
+    BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,
 {
     let m_ctx = malicious_validator.context();
@@ -245,7 +245,7 @@ where
     F: Field,
     C: Context,
     T: Arithmetic<F> + BasicProtocols<C, F> + Serializable,
-    BK: Fp2Array,
+    BK: GaloisField,
 {
     let mut sums = vec![T::ZERO; max_breakdown_key as usize];
     let to_take = usize::try_from(max_breakdown_key).unwrap();
@@ -325,7 +325,7 @@ where
     F: Field,
     C: Context,
     T: Arithmetic<F> + BasicProtocols<C, F>,
-    BK: Fp2Array,
+    BK: GaloisField,
 {
     let zero = T::ZERO;
     let one = T::share_known_value(ctx, F::ONE);
@@ -544,7 +544,7 @@ mod tests {
     use super::aggregate_credit;
     use crate::{
         aggregation_test_input,
-        bits::Fp2Array,
+        bits::GaloisField,
         ff::{Field, Fp32BitPrime},
         protocol::{
             attribution::input::{AggregateCreditInputRow, MCAggregateCreditInputRow},

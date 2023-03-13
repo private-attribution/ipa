@@ -1,5 +1,5 @@
 use crate::{
-    bits::Fp2Array,
+    bits::GaloisField,
     ff::Field,
     helpers::Role,
     protocol::context::{Context, MaliciousContext, SemiHonestContext},
@@ -26,7 +26,7 @@ impl<'a, F: Field> ShareKnownValue<SemiHonestContext<'a>, F> for Replicated<F> {
     }
 }
 
-impl<'a, V: Fp2Array> ShareKnownValue<SemiHonestContext<'a>, V> for XorShare<V> {
+impl<'a, V: GaloisField> ShareKnownValue<SemiHonestContext<'a>, V> for XorShare<V> {
     fn share_known_value(ctx: &SemiHonestContext<'a>, value: V) -> Self {
         match ctx.role() {
             Role::H1 => Self::new(value, V::ZERO),

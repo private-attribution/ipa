@@ -1,6 +1,6 @@
 use super::SharedValue;
 use crate::{
-    bits::{BooleanRefOps, Fp2Array},
+    bits::{BooleanRefOps, GaloisField},
     ff::ArithmeticRefOps,
 };
 use std::fmt::Debug;
@@ -13,4 +13,4 @@ pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
 pub trait Arithmetic<V: SharedValue>: SecretSharing<V> + ArithmeticRefOps<V> {}
 
 /// Secret share of a secret with bit operations
-pub trait Boolean<V: Fp2Array>: SecretSharing<V> + BooleanRefOps {}
+pub trait Boolean<V: GaloisField>: SecretSharing<V> + BooleanRefOps {}

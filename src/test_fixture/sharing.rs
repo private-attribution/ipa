@@ -1,5 +1,5 @@
 use crate::{
-    bits::Fp2Array,
+    bits::GaloisField,
     ff::Field,
     protocol::boolean::RandomBitsShare,
     secret_sharing::{
@@ -63,7 +63,7 @@ impl<F: Field> Reconstruct<F> for [Replicated<F>; 3] {
     }
 }
 
-impl<B: Fp2Array> Reconstruct<B> for [&XorReplicated<B>; 3] {
+impl<B: GaloisField> Reconstruct<B> for [&XorReplicated<B>; 3] {
     fn reconstruct(&self) -> B {
         let s0 = &self[0];
         let s1 = &self[1];
@@ -82,7 +82,7 @@ impl<B: Fp2Array> Reconstruct<B> for [&XorReplicated<B>; 3] {
     }
 }
 
-impl<B: Fp2Array> Reconstruct<B> for [XorReplicated<B>; 3] {
+impl<B: GaloisField> Reconstruct<B> for [XorReplicated<B>; 3] {
     fn reconstruct(&self) -> B {
         [&self[0], &self[1], &self[2]].reconstruct()
     }

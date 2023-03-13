@@ -1,5 +1,5 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     helpers::Role,
     secret_sharing::{Boolean as BooleanSecretSharing, SecretSharing},
 };
@@ -14,27 +14,27 @@ use std::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct XorShare<V: Fp2Array>(V, V);
+pub struct XorShare<V: GaloisField>(V, V);
 
-impl<V: Fp2Array> SecretSharing<V> for XorShare<V> {
+impl<V: GaloisField> SecretSharing<V> for XorShare<V> {
     const ZERO: Self = XorShare::ZERO;
 }
 
-impl<V: Fp2Array> BooleanSecretSharing<V> for XorShare<V> {}
+impl<V: GaloisField> BooleanSecretSharing<V> for XorShare<V> {}
 
-impl<V: Fp2Array + Debug> Debug for XorShare<V> {
+impl<V: GaloisField + Debug> Debug for XorShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<V: Fp2Array> Default for XorShare<V> {
+impl<V: GaloisField> Default for XorShare<V> {
     fn default() -> Self {
         XorShare::new(V::ZERO, V::ZERO)
     }
 }
 
-impl<V: Fp2Array> XorShare<V> {
+impl<V: GaloisField> XorShare<V> {
     #[must_use]
     pub fn new(a: V, b: V) -> Self {
         Self(a, b)
@@ -65,7 +65,7 @@ impl<V: Fp2Array> XorShare<V> {
     pub const ZERO: XorShare<V> = Self(V::ZERO, V::ZERO);
 }
 
-impl<V: Fp2Array> BitXor<Self> for &XorShare<V> {
+impl<V: GaloisField> BitXor<Self> for &XorShare<V> {
     type Output = XorShare<V>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
@@ -73,7 +73,7 @@ impl<V: Fp2Array> BitXor<Self> for &XorShare<V> {
     }
 }
 
-impl<V: Fp2Array> BitXor<&Self> for XorShare<V> {
+impl<V: GaloisField> BitXor<&Self> for XorShare<V> {
     type Output = Self;
 
     fn bitxor(mut self, rhs: &Self) -> Self::Output {
@@ -82,14 +82,14 @@ impl<V: Fp2Array> BitXor<&Self> for XorShare<V> {
     }
 }
 
-impl<V: Fp2Array> BitXorAssign<&Self> for XorShare<V> {
+impl<V: GaloisField> BitXorAssign<&Self> for XorShare<V> {
     fn bitxor_assign(&mut self, rhs: &Self) {
         self.0 ^= rhs.0;
         self.1 ^= rhs.1;
     }
 }
 
-impl<V: Fp2Array> Serializable for XorShare<V>
+impl<V: GaloisField> Serializable for XorShare<V>
 where
     V::Size: Add<V::Size>,
     <V::Size as Add<V::Size>>::Output: ArrayLength<u8>,

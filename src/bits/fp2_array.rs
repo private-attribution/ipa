@@ -1,5 +1,5 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
+    bits::{GaloisField, Serializable},
     secret_sharing::SharedValue,
 };
 use bitvec::prelude::{BitArr, Lsb0};
@@ -38,7 +38,7 @@ macro_rules! bit_array_impl {
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
-            impl Fp2Array for $name {
+            impl GaloisField for $name {
                 const POLYNOMIAL: u128 = $polynomial;
 
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
@@ -224,12 +224,12 @@ macro_rules! bit_array_impl {
                     }
 
                     while (u128::BITS - product.leading_zeros()) > $bits {
-                        let poly = <Self as Fp2Array>::POLYNOMIAL;
+                        let poly = <Self as GaloisField>::POLYNOMIAL;
                         let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
                         product ^= (poly << bits_to_shift);
                     }
 
-                    <Self as Fp2Array>::truncate_from(product)
+                    <Self as GaloisField>::truncate_from(product)
                 }
             }
 
@@ -332,7 +332,7 @@ macro_rules! bit_array_impl {
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
-                use crate::{bits::Fp2Array, secret_sharing::SharedValue};
+                use crate::{bits::GaloisField, secret_sharing::SharedValue};
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 

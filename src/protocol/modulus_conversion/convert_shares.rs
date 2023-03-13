@@ -1,5 +1,5 @@
 use crate::{
-    bits::Fp2Array,
+    bits::GaloisField,
     error::Error,
     ff::Field,
     helpers::Role,
@@ -63,7 +63,7 @@ pub struct BitConversionTriple<S>(pub(crate) [S; 3]);
 /// This is an implementation of "Algorithm 3" from <https://eprint.iacr.org/2018/387.pdf>
 ///
 #[must_use]
-pub fn convert_bit_local<F: Field, B: Fp2Array>(
+pub fn convert_bit_local<F: Field, B: GaloisField>(
     helper_role: Role,
     bit_index: u32,
     input: &XorReplicated<B>,
@@ -90,7 +90,7 @@ pub fn convert_bit_local<F: Field, B: Fp2Array>(
 }
 
 #[must_use]
-pub fn convert_all_bits_local<F: Field, B: Fp2Array>(
+pub fn convert_all_bits_local<F: Field, B: GaloisField>(
     helper_role: Role,
     input: impl Iterator<Item = XorReplicated<B>>,
 ) -> Vec<Vec<BitConversionTriple<Replicated<F>>>> {

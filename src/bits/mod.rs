@@ -7,7 +7,7 @@ pub use fp2_array::{BitArray40, BitArray8};
 
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
-pub trait Fp2Array:
+pub trait GaloisField:
     SharedValue
     + BooleanOps
     + TryFrom<u128>
