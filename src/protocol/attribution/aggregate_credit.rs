@@ -37,7 +37,7 @@ use crate::{
 /// This is the number of breakdown keys above which it is more efficient to SORT by breakdown key.
 /// Below this number, it's more efficient to just do a ton of equality checks.
 /// This number was determined empirically on 27 Feb 2023
-const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u128 = 32;
+const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u32 = 32;
 
 /// Aggregation step for Oblivious Attribution protocol.
 /// # Panics
@@ -48,7 +48,7 @@ const SIMPLE_AGGREGATION_BREAK_EVEN_POINT: u128 = 32;
 pub async fn aggregate_credit<F, BK>(
     ctx: SemiHonestContext<'_>,
     capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, Replicated<F>>>,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
@@ -139,7 +139,7 @@ pub async fn malicious_aggregate_credit<'a, F, BK>(
     malicious_validator: MaliciousValidator<'a, F>,
     sh_ctx: SemiHonestContext<'a>,
     capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, MaliciousReplicated<F>>>,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<
     (
@@ -239,7 +239,7 @@ where
 async fn simple_aggregate_credit<F, C, T, BK>(
     ctx: C,
     capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, T, BK>>, Error>
 where
     F: Field,
@@ -249,7 +249,7 @@ where
 {
     let mut sums = vec![T::ZERO; max_breakdown_key as usize];
     let to_take = usize::try_from(max_breakdown_key).unwrap();
-    let valid_bits_count = (u128::BITS - (max_breakdown_key - 1).leading_zeros()) as usize;
+    let valid_bits_count = (u32::BITS - (max_breakdown_key - 1).leading_zeros()) as usize;
 
     let inputs = capped_credits
         .map(|row| {
@@ -319,7 +319,7 @@ where
 fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
     ctx: &C,
     capped_credits: impl Iterator<Item = MCAggregateCreditInputRow<F, T>>,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
 ) -> Vec<MCCappedCreditsWithAggregationBit<F, T>>
 where
     F: Field,
@@ -373,7 +373,7 @@ where
 async fn sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>, Error> {
     let breakdown_keys = input
@@ -383,7 +383,7 @@ async fn sort_by_breakdown_key<F: Field>(
 
     // We only need to run a radix sort on the bits used by all possible
     // breakdown key values.
-    let valid_bits_count = u128::BITS - (max_breakdown_key - 1).leading_zeros();
+    let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
     let breakdown_keys =
         split_into_multi_bit_slices(&breakdown_keys, valid_bits_count, num_multi_bits);
@@ -405,7 +405,7 @@ async fn sort_by_breakdown_key<F: Field>(
 async fn malicious_sort_by_breakdown_key<F: Field>(
     ctx: SemiHonestContext<'_>,
     input: Vec<MCCappedCreditsWithAggregationBit<F, Replicated<F>>>,
-    max_breakdown_key: u128,
+    max_breakdown_key: u32,
     num_multi_bits: u32,
 ) -> Result<
     (
@@ -421,7 +421,7 @@ async fn malicious_sort_by_breakdown_key<F: Field>(
 
     // We only need to run a radix sort on the bits used by all possible
     // breakdown key values.
-    let valid_bits_count = u128::BITS - (max_breakdown_key - 1).leading_zeros();
+    let valid_bits_count = u32::BITS - (max_breakdown_key - 1).leading_zeros();
 
     let breakdown_keys =
         split_into_multi_bit_slices(&breakdown_keys, valid_bits_count, num_multi_bits);
@@ -558,7 +558,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn aggregate() {
-        const MAX_BREAKDOWN_KEY: u128 = 8;
+        const MAX_BREAKDOWN_KEY: u32 = 8;
         const NUM_MULTI_BITS: u32 = 3;
 
         const EXPECTED: &[[u128; 2]] = &[

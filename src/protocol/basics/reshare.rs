@@ -4,16 +4,13 @@ use crate::{
     ff::Field,
     helpers::{Direction, Role},
     protocol::{
-        context::{
-            malicious::RecordBinding, Context, MaliciousContext, NoRecord, SemiHonestContext,
-            SpecialAccessToMaliciousContext,
-        },
+        context::{Context, MaliciousContext, SemiHonestContext},
         prss::SharedRandomness,
         sort::{
             apply_sort::shuffle::InnerVectorElementStep,
             ReshareStep::{RandomnessForValidation, ReshareRx},
         },
-        RecordId,
+        NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -201,17 +198,17 @@ impl<'a, B: Fp2Array> Reshare<SemiHonestContext<'a>, RecordId> for XorReplicated
 /// We believe that, even though an additive attack is possible, a malicious helper can ONLY
 /// corrupt the protocol output, but cannot learn any private info.
 impl<'a, F: Field, B: Fp2Array> Reshare<MaliciousContext<'a, F>, RecordId> for XorReplicated<B> {
+    #[allow(clippy::missing_panics_doc)]
     async fn reshare<'fut>(
         &self,
-        ctx: MaliciousContext<'a, F>,
-        record_id: RecordId,
-        to_helper: Role,
+        _ctx: MaliciousContext<'a, F>,
+        _record_id: RecordId,
+        _to_helper: Role,
     ) -> Result<Self, Error>
     where
         MaliciousContext<'a, F>: 'fut,
     {
-        self.reshare(ctx.semi_honest_context(), record_id, to_helper)
-            .await
+        panic!("we don't know how to do this");
     }
 }
 

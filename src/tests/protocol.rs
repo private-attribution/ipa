@@ -18,8 +18,8 @@ fn semi_honest_ipa() {
             shuttle::future::block_on(async {
                 const BATCHSIZE: usize = 5;
                 const PER_USER_CAP: u32 = 10;
-                const MAX_BREAKDOWN_KEY: u128 = 8;
-                const MAX_TRIGGER_VALUE: u128 = 5;
+                const MAX_BREAKDOWN_KEY: u32 = 8;
+                const MAX_TRIGGER_VALUE: u32 = 5;
                 const NUM_MULTI_BITS: u32 = 3;
                 const MAX_MATCH_KEY: u128 = 3;
 
@@ -56,7 +56,7 @@ fn semi_honest_ipa() {
                         .await
                         .reconstruct();
 
-                assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
+                assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result.len()).unwrap());
             });
         },
         10,
@@ -70,8 +70,8 @@ fn malicious_ipa() {
             shuttle::future::block_on(async {
                 const BATCHSIZE: usize = 5;
                 const PER_USER_CAP: u32 = 10;
-                const MAX_BREAKDOWN_KEY: u128 = 8;
-                const MAX_TRIGGER_VALUE: u128 = 5;
+                const MAX_BREAKDOWN_KEY: u32 = 8;
+                const MAX_TRIGGER_VALUE: u32 = 5;
                 const NUM_MULTI_BITS: u32 = 3;
                 const MAX_MATCH_KEY: u128 = 3;
 
@@ -108,7 +108,7 @@ fn malicious_ipa() {
                         .await
                         .reconstruct();
 
-                assert_eq!(MAX_BREAKDOWN_KEY, result.len() as u128);
+                assert_eq!(MAX_BREAKDOWN_KEY, u32::try_from(result.len()).unwrap());
             });
         },
         4,

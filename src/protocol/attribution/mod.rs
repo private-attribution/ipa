@@ -3,6 +3,8 @@ pub mod aggregate_credit;
 pub mod apply_attribution_window;
 pub mod credit_capping;
 pub mod input;
+pub mod malicious;
+pub mod semi_honest;
 
 use crate::{
     error::Error,

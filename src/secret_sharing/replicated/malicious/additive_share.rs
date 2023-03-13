@@ -3,10 +3,11 @@ use crate::{
     ff::Field,
     protocol::{
         basics::Reveal,
-        context::{Context, MaliciousContext, NoRecord},
+        context::{Context, MaliciousContext},
         sort::{
             generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
         },
+        NoRecord,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,

@@ -3,13 +3,13 @@ use crate::{
     helpers::Direction,
     protocol::{
         basics::Reshare,
-        context::{Context, NoRecord},
+        context::Context,
         sort::{
             apply::{apply, apply_inv},
             shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
             ShuffleStep::{self, Step1, Step2, Step3},
         },
-        RecordId,
+        NoRecord, RecordId,
     },
     repeat64str,
 };
