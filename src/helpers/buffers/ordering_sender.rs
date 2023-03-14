@@ -25,6 +25,10 @@ use typenum::Unsigned;
 struct State {
     /// A store of bytes to write into.
     buf: Vec<u8>,
+    /// The portion of the buffer that is marked "spare".
+    /// Once `written + spare` is greater than the buffer capacity,
+    /// data is available to the stream.
+    spare: NonZeroUsize,
     /// How many bytes have been written and are available.
     written: usize,
     /// The sender is closed.
@@ -36,9 +40,10 @@ struct State {
 }
 
 impl State {
-    fn new(capacity: NonZeroUsize) -> Self {
+    fn new(capacity: NonZeroUsize, spare: NonZeroUsize) -> Self {
         Self {
-            buf: vec![0; capacity.get()],
+            buf: vec![0; capacity.get() + spare.get()],
+            spare,
             written: 0,
             closed: false,
             write_ready: None,
@@ -58,32 +63,33 @@ impl State {
         }
     }
 
-    fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> bool {
+    fn write<M: Message>(&mut self, m: &M, cx: &Context<'_>) -> Poll<()> {
+        assert!(M::Size::USIZE < self.spare.get());
         let b = &mut self.buf[self.written..];
         if M::Size::USIZE <= b.len() {
             self.written += M::Size::USIZE;
             m.serialize(GenericArray::from_mut_slice(&mut b[..M::Size::USIZE]));
 
-            if self.written * 2 >= self.buf.len() {
+            if self.written + self.spare.get() >= self.buf.len() {
                 Self::wake(&mut self.stream_ready);
             }
-            true
+            Poll::Ready(())
         } else {
             Self::save_waker(&mut self.write_ready, cx);
-            false
+            Poll::Pending
         }
     }
 
-    fn take(&mut self, cx: &Context<'_>) -> Option<Vec<u8>> {
-        if self.written > 0 && (self.written * 2 >= self.buf.len() || self.closed) {
+    fn take(&mut self, cx: &Context<'_>) -> Poll<Vec<u8>> {
+        if self.written > 0 && (self.written + self.spare.get() >= self.buf.len() || self.closed) {
             let v = self.buf[..self.written].to_vec();
             self.written = 0;
 
             Self::wake(&mut self.write_ready);
-            Some(v)
+            Poll::Ready(v)
         } else {
             Self::save_waker(&mut self.stream_ready, cx);
-            None
+            Poll::Pending
         }
     }
 
@@ -148,22 +154,35 @@ impl WaitingShard {
     }
 }
 
-const NUM_SHARDS: usize = 8;
-
 /// A collection of wakers that are indexed by the send index (`i`).
 /// This structure aims to reduce mutex contention by including a number of shards.
 #[derive(Default)]
 struct Waiting {
-    shards: [Mutex<WaitingShard>; NUM_SHARDS],
+    shards: [Mutex<WaitingShard>; Self::SHARDS],
 }
 
 impl Waiting {
+    const SHARDS: usize = 8;
+    /// The number of low bits to ignore when indexing into shards.
+    /// This will ensure that consecutive items will hit the same shard (and mutex)
+    /// when we operate.
+    /// TODO - this should be close to the number we use for the active items in
+    /// `seq_join()`.
+    const CONTIGUOUS_BITS: u32 = 6;
+
+    /// Find a shard.  This ensures that sequential values pick the same shard
+    /// in a contiguous block.
+    fn shard(&self, i: usize) -> MutexGuard<WaitingShard> {
+        let idx = (i >> Self::CONTIGUOUS_BITS) % Self::SHARDS;
+        self.shards[idx].lock().unwrap()
+    }
+
     fn add(&self, i: usize, w: Waker) {
-        self.shards[i % NUM_SHARDS].lock().unwrap().add(i, w);
+        self.shard(i).add(i, w);
     }
 
     fn wake(&self, i: usize) {
-        self.shards[i % NUM_SHARDS].lock().unwrap().wake(i);
+        self.shard(i).wake(i);
     }
 }
 
@@ -171,17 +190,19 @@ impl Waiting {
 /// ensures that they are serialized based on an index.
 ///
 /// # Performance
-/// It is recommended that the capacity of the buffer is set to
-/// double the number of bytes you want to have transmitted at a time.
-/// Data is made available to the output stream once **half** of the
-/// capacity has been written.
 ///
-/// Data less than this threshold only becomes available to the stream
-/// when the sender is closed (with [`close`]).
+/// `OrderingSender` maintains a buffer that includes a write threshold
+/// (`write_size`) with spare capacity (`spare`) to allow for writing of
+/// messages that are not a multiple of `write_size` and extra buffering.
+/// Data in excess of `write_size` will be passed to the stream without
+/// segmentation, so a stream implementation needs to be able to handle
+/// `write_size + spare` bytes at a time.
 ///
-/// If the messages that are passed to [`send`] are large relative to
-/// the capacity, you might need to increase the capacity accordingly
-/// so that multiple messages can be accepted.
+/// Data less than the `write_size` threshold only becomes available to
+/// the stream when the sender is closed (with [`close`]).
+///
+/// The `spare` capacity determines the size of messages that can be sent;
+/// see [`send`] for details.
 ///
 /// [`new`]: OrderingSender::new
 /// [`send`]: OrderingSender::send
@@ -194,10 +215,10 @@ struct OrderingSender {
 
 impl OrderingSender {
     /// Make an `OrderingSender` with a capacity of `capacity` (in bytes).
-    pub fn new(capacity: NonZeroUsize) -> Self {
+    pub fn new(write_size: NonZeroUsize, spare: NonZeroUsize) -> Self {
         Self {
             next: AtomicUsize::new(0),
-            state: Mutex::new(State::new(capacity)),
+            state: Mutex::new(State::new(write_size, spare)),
             waiting: Waiting::default(),
         }
     }
@@ -207,9 +228,17 @@ impl OrderingSender {
     /// space becomes available in the sender's buffer.
     ///
     /// # Panics
+    ///
     /// Polling the future this method returns will panic if
-    /// * the message is too large for the buffer, or
+    /// * the message is larger than the spare capacity (see below), or
     /// * the same index is provided more than once.
+    ///
+    /// This code could deadlock if a message is larger than the spare capacity.
+    /// This occurs when a message cannot reliably be written to the buffer
+    /// because it would overflow the buffer.  The data already in the buffer
+    /// might not reach the threshold for sending, which means that progress
+    /// is impossible.  Polling the promise returned by [`send`] will panic if
+    /// the spare capacity is insufficient.
     pub fn send<M: Message>(&self, i: usize, m: M) -> Send<'_, M> {
         Send { i, m, sender: self }
     }
@@ -239,9 +268,8 @@ impl OrderingSender {
                 // OK, now it is our turn, so we need to hold a lock.
                 // No one else should be incrementing this atomic, so
                 // there should be no contention on this lock except for
-                // any calls to `take()`, which is fine.
-                let mut b = self.state.lock().unwrap();
-                let res = f(&mut b);
+                // any calls to `take()`, which is tolerable.
+                let res = f(&mut self.state.lock().unwrap());
                 if res.is_ready() {
                     let curr = self.next.fetch_add(1, AcqRel);
                     debug_assert_eq!(i, curr, "we just checked this");
@@ -261,8 +289,7 @@ impl OrderingSender {
     fn take_next(&self, cx: &Context<'_>) -> Poll<Option<Vec<u8>>> {
         let mut b = self.state.lock().unwrap();
 
-        let v = b.take(cx);
-        if let Some(v) = v {
+        if let Poll::Ready(v) = b.take(cx) {
             self.waiting.wake(self.next.load(Acquire));
             Poll::Ready(Some(v))
         } else if b.closed {
@@ -296,12 +323,7 @@ impl<'s, M: Message> Future for Send<'s, M> {
 
         let res = this.sender.next_op(this.i, cx, |b| {
             assert!(!b.closed, "writing on a closed stream");
-            if b.write(&this.m, cx) {
-                Poll::Ready(())
-            } else {
-                // Writing is blocked because there is no space.  b.write() saves the waker.
-                Poll::Pending
-            }
+            b.write(&this.m, cx)
         });
         // A successful write: wake the next in line.
         // But not while holding the lock on state.
@@ -374,9 +396,8 @@ mod test {
     use std::{iter::zip, num::NonZeroUsize};
     use typenum::Unsigned;
 
-
     fn sender() -> OrderingSender {
-        OrderingSender::new(NonZeroUsize::new(11).unwrap())
+        OrderingSender::new(NonZeroUsize::new(6).unwrap(), NonZeroUsize::new(5).unwrap())
     }
 
     #[cfg(not(feature = "shuttle"))]
