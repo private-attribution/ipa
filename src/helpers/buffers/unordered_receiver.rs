@@ -467,6 +467,9 @@ mod test {
     /// Demonstrate that throwing out a future (as `now_or_never` does)
     /// is safe.
     #[test]
+    // UnorderedReceiver uses Mutex that gets replaced with Shuttle version of it.
+    // The problem here is that this test does not use any async engine, so Shuttle cannot really
+    // inject its runtime and this test panics. There is no reason to use Shuttle here.
     #[cfg(not(feature = "shuttle"))]
     fn synchronous() {
         use futures::FutureExt;

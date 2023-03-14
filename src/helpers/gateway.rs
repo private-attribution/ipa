@@ -275,13 +275,11 @@ impl GatewaySenders {
         let senders = &self.inner;
         match senders.get(channel_id) {
             Some(entry) => (entry.value().clone(), None),
-            None => match senders.entry(channel_id.clone()) {
-                Entry::Occupied(entry) => (entry.get().clone(), None),
-                Entry::Vacant(entry) => {
-                    let (tx, rx) =
-                        ordering_mpsc::<Wrapper, _>(format!("{:?}", entry.key()), capacity);
-                    (entry.insert(tx).clone(), Some(rx))
-                }
+            None => {
+                let (tx, rx) =
+                    ordering_mpsc::<Wrapper, _>(format!("{:?}", channel_id), capacity);
+                senders.insert(channel_id.clone(), tx.clone());
+                (tx, Some(rx))
             },
         }
     }
@@ -304,12 +302,10 @@ impl<T: Transport> GatewayReceivers<T> {
         let receivers = &self.inner;
         let recv = match receivers.get(channel_id) {
             Some(recv) => recv.clone(),
-            None => match receivers.entry(channel_id.clone()) {
-                Entry::Occupied(entry) => entry.get().clone(),
-                Entry::Vacant(entry) => {
-                    let stream = ctr();
-                    entry.insert(stream).clone()
-                }
+            None => {
+                let stream = ctr();
+                receivers.insert(channel_id.clone(), stream.clone());
+                stream
             },
         };
         recv
