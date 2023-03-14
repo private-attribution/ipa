@@ -1,7 +1,4 @@
-use crate::{
-    ff::{BooleanOps, Serializable},
-    secret_sharing::SharedValue,
-};
+use crate::{ff::Serializable, secret_sharing::SharedValue};
 use generic_array::{ArrayLength, GenericArray};
 use std::fmt::Debug;
 
@@ -49,8 +46,6 @@ impl<F: Field> Serializable for F {
         Self::from(u128::from_le_bytes(buf_to))
     }
 }
-
-pub trait BinaryField: Field + BooleanOps {}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "enable-serde", derive(serde::Serialize, serde::Deserialize))]

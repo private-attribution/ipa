@@ -3,13 +3,16 @@
 // This is where we store arithmetic shared secret data models.
 
 mod field;
+mod galois_field;
 mod prime_field;
 
-pub use field::{BinaryField, Field, FieldType, Int};
+pub use field::{Field, FieldType, Int};
+pub use galois_field::{Gf40Bit, Gf8Bit};
 pub use prime_field::{Fp31, Fp32BitPrime};
 
 use crate::secret_sharing::SharedValue;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use generic_array::{ArrayLength, GenericArray};
+use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Index, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -63,21 +66,10 @@ where
 {
 }
 
-use generic_array::{ArrayLength, GenericArray};
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Index, Not};
-
-mod galois_field;
-pub use galois_field::{Gf40Bit, Gf8Bit};
-
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
 pub trait GaloisField:
-    SharedValue
-    + BooleanOps
-    + TryFrom<u128>
-    + Into<u128>
-    + Index<usize, Output = bool>
-    + Index<u32, Output = bool>
+    SharedValue + TryFrom<u128> + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
 {
     const POLYNOMIAL: u128;
 
@@ -89,30 +81,6 @@ pub trait GaloisField:
     fn as_u128(self) -> u128 {
         <Self as Into<u128>>::into(self)
     }
-}
-
-pub trait BooleanOps:
-    BitAnd<Output = Self>
-    + BitAndAssign
-    + BitOr<Output = Self>
-    + BitOrAssign
-    + BitXor<Output = Self>
-    + BitXorAssign
-    + Not<Output = Self>
-    + Sized
-{
-}
-
-impl<T> BooleanOps for T where
-    T: BitAnd<Output = Self>
-        + BitAndAssign
-        + BitOr<Output = Self>
-        + BitOrAssign
-        + BitXor<Output = Self>
-        + BitXorAssign
-        + Not<Output = Self>
-        + Sized
-{
 }
 
 pub trait BooleanRefOps:
