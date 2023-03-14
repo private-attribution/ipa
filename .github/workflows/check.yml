@@ -92,6 +92,9 @@ jobs:
         run: cargo build --benches --features enable-benches
 
       - name: Build concurrency tests
+        run: cargo build --release --features shuttle
+
+      - name: Build concurrency tests (debug mode)
         run: cargo build --features shuttle
 
       - name: Run concurrency tests
