@@ -23,7 +23,7 @@ struct Args {
 }
 
 fn main() {
-    println!("Hello, world");
+    unimplemented!();
 }
 
 #[tokio::main]
