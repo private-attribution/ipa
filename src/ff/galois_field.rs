@@ -197,7 +197,7 @@ macro_rules! bit_array_impl {
             impl std::ops::Neg for $name {
                 type Output = Self;
                 fn neg(self) -> Self::Output {
-                    Self(!self.0)
+                    Self(self.0)
                 }
             }
 
@@ -334,14 +334,14 @@ macro_rules! bit_array_impl {
                     let b = rng.gen::<u128>();
 
                     let xor = $name::truncate_from(a ^ b);
-                    let not = $name::truncate_from(!a);
 
                     let a = $name::truncate_from(a);
                     let b = $name::truncate_from(b);
 
                     assert_eq!(a + b, xor);
                     assert_eq!(a - b, xor);
-                    assert_eq!(-a, not);
+                    assert_eq!(-a, a);
+                    assert_eq!(a + (-a), $name::ZERO);
                 }
 
                 #[test]
