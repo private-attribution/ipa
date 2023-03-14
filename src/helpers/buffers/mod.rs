@@ -8,6 +8,7 @@ mod unordered_receiver;
 pub use ordering_mpsc::ordering_mpsc;
 pub use receive::ReceiveBuffer;
 pub use send::{Config as SendBufferConfig, SendBuffer};
+pub use seq_futures::seq_join;
 
 #[cfg(debug_assertions)]
 mod waiting {
