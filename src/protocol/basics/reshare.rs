@@ -294,13 +294,11 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod semi_honest {
-        use proptest::prelude::Rng;
-
         use crate::{
             ff::{Fp32BitPrime, Gf40Bit},
             helpers::Role,
             protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
-            rand::thread_rng,
+            rand::{thread_rng, Rng},
             secret_sharing::replicated::{semi_honest::XorShare, ReplicatedSecretSharing},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
