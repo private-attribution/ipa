@@ -64,6 +64,7 @@ impl<const N: usize> FixedSizeByteVec<N> {
 
     /// Return any gap ahead of the first missing value.
     #[cfg(any(test, debug_assertions))]
+    #[allow(unused)]
     pub fn missing(&self) -> std::ops::Range<usize> {
         let start = self.end - self.capacity.get();
         let i = self.end % self.capacity.get();
