@@ -714,7 +714,7 @@ pub mod tests {
         // This is part of the IPA spec. Callers should do this before sending a batch of records in for processing.
         raw_data.sort_unstable_by(|a, b| a.timestamp.cmp(&b.timestamp));
         let config = TestWorldConfig {
-            gateway_config: GatewayConfig::sym(raw_data.len().clamp(4, 1024)),
+            gateway_config: GatewayConfig::symmetric_buffers(raw_data.len().clamp(4, 1024)),
             ..Default::default()
         };
 

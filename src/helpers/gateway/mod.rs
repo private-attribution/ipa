@@ -100,7 +100,7 @@ impl GatewayConfig {
     /// ## Panics
     /// if capacity is set to be 0.
     #[must_use]
-    pub fn sym(capacity: usize) -> Self {
+    pub fn symmetric_buffers(capacity: usize) -> Self {
         let capacity = NonZeroUsize::new(capacity).unwrap();
         Self {
             send_outstanding: capacity,

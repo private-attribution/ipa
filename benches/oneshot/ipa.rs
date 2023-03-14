@@ -18,7 +18,8 @@ async fn main() -> Result<(), Error> {
     const MAX_RECORDS_PER_USER: usize = 10;
 
     let mut config = TestWorldConfig::default();
-    config.gateway_config = GatewayConfig::sym((NUM_USERS * MAX_RECORDS_PER_USER).clamp(16, 1024));
+    config.gateway_config =
+        GatewayConfig::symmetric_buffers((NUM_USERS * MAX_RECORDS_PER_USER).clamp(16, 1024));
 
     let random_seed = thread_rng().gen();
     println!("Using random seed: {random_seed}");
