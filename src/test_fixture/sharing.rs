@@ -70,15 +70,15 @@ impl<B: GaloisField> Reconstruct<B> for [&XorReplicated<B>; 3] {
         let s2 = &self[2];
 
         assert_eq!(
-            s0.left() ^ s1.left() ^ s2.left(),
-            s0.right() ^ s1.right() ^ s2.right(),
+            s0.left() + s1.left() + s2.left(),
+            s0.right() + s1.right() + s2.right(),
         );
 
         assert_eq!(s0.right(), s1.left());
         assert_eq!(s1.right(), s2.left());
         assert_eq!(s2.right(), s0.left());
 
-        s0.left() ^ s1.left() ^ s2.left()
+        s0.left() + s1.left() + s2.left()
     }
 }
 

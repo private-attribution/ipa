@@ -39,7 +39,7 @@ where
     fn share_with<R: Rng>(self, rng: &mut R) -> [XorShare<V>; 3] {
         let s0 = rng.gen::<V>();
         let s1 = rng.gen::<V>();
-        let s2 = self ^ s0 ^ s1;
+        let s2 = self - (s0 + s1);
         [
             XorShare::new(s0, s1),
             XorShare::new(s1, s2),

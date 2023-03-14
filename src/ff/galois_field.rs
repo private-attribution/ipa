@@ -53,80 +53,7 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            impl std::ops::BitAnd for $name {
-                type Output = Self;
-                fn bitand(self, rhs: Self) -> Self::Output {
-                    Self(self.0 & rhs.0)
-                }
-            }
-
-            impl std::ops::BitAndAssign for $name {
-                fn bitand_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() &= rhs.0;
-                }
-            }
-
-            impl std::ops::BitOr for $name {
-                type Output = Self;
-                fn bitor(self, rhs: Self) -> Self::Output {
-                    Self(self.0 | rhs.0)
-                }
-            }
-
-            impl std::ops::BitOrAssign for $name {
-                fn bitor_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() |= rhs.0;
-                }
-            }
-
-            impl std::ops::BitXor for $name {
-                type Output = Self;
-                fn bitxor(self, rhs: Self) -> Self::Output {
-                    Self(self.0 ^ rhs.0)
-                }
-            }
-
-            impl std::ops::BitXorAssign for $name {
-                fn bitxor_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() ^= rhs.0;
-                }
-            }
-
-            impl std::ops::Not for $name {
-                type Output = Self;
-                fn not(self) -> Self::Output {
-                    Self(!self.0)
-                }
-            }
-
-            impl std::ops::Add for $name {
-                type Output = Self;
-                fn add(self, rhs: Self) -> Self::Output {
-                    self ^ rhs
-                }
-            }
-
-            impl std::ops::AddAssign for $name {
-                fn add_assign(&mut self, rhs: Self) {
-                    *self ^= rhs;
-                }
-            }
-
-            impl std::ops::Sub for $name {
-                type Output = Self;
-                fn sub(self, rhs: Self) -> Self::Output {
-                    self ^ rhs
-                }
-            }
-
-            impl std::ops::SubAssign for $name {
-                fn sub_assign(&mut self, rhs: Self) {
-                    *self ^= rhs;
-                }
-            }
-
-            // This is an implementation of a Galois field.
-            // A Galois field of order 2^8 is often written as GF(2^8)
+            // Addition in Galois fields.
             //
             // You can think of its structure as similar to polynomials, where all of the coefficients belong to the original field;
             // meaning they are either 0 or 1.
@@ -145,6 +72,34 @@ macro_rules! bit_array_impl {
             // = 01011001
             // Since the coefficients are in GF(2), we can just XOR these bitwise representations.
             // Note for x^7 + x^7 = 0 because 1 + 1 = 0 in GF(2)
+            impl std::ops::Add for $name {
+                type Output = Self;
+                fn add(self, rhs: Self) -> Self::Output {
+                    Self(self.0 ^ rhs.0)
+                }
+            }
+
+            impl std::ops::AddAssign for $name {
+                fn add_assign(&mut self, rhs: Self) {
+                    *self.0.as_mut_bitslice() ^= rhs.0;
+                }
+            }
+
+            impl std::ops::Sub for $name {
+                type Output = Self;
+                fn sub(self, rhs: Self) -> Self::Output {
+                    self + rhs
+                }
+            }
+
+            impl std::ops::SubAssign for $name {
+                fn sub_assign(&mut self, rhs: Self) {
+                    *self += rhs;
+                }
+            }
+
+            // This is an implementation of a Galois field.
+            // A Galois field of order 2^8 is often written as GF(2^8)
             //
             // Multiplication is a bit more complex:
             //
@@ -235,14 +190,14 @@ macro_rules! bit_array_impl {
 
             impl std::ops::MulAssign for $name {
                 fn mul_assign(&mut self, rhs: Self) {
-                    *self &= rhs;
+                    *self = *self * rhs;
                 }
             }
 
             impl std::ops::Neg for $name {
                 type Output = Self;
                 fn neg(self) -> Self::Output {
-                    !self
+                    Self(!self.0)
                 }
             }
 
@@ -373,23 +328,16 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
-                pub fn boolean_ops() {
+                pub fn basic_ops() {
                     let mut rng = thread_rng();
                     let a = rng.gen::<u128>();
                     let b = rng.gen::<u128>();
 
-                    let and = $name::truncate_from(a & b);
-                    let or = $name::truncate_from(a | b);
                     let xor = $name::truncate_from(a ^ b);
                     let not = $name::truncate_from(!a);
 
                     let a = $name::truncate_from(a);
                     let b = $name::truncate_from(b);
-
-                    assert_eq!(a & b, and);
-                    assert_eq!(a | b, or);
-                    assert_eq!(a ^ b, xor);
-                    assert_eq!(!a, not);
 
                     assert_eq!(a + b, xor);
                     assert_eq!(a - b, xor);
