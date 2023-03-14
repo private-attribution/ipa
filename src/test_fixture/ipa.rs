@@ -1,8 +1,7 @@
 use rand::Rng;
 
 use crate::{
-    bits::Fp2Array,
-    ff::{Field, Fp32BitPrime},
+    ff::{Field, Fp32BitPrime, GaloisField},
     ipa_test_input,
     protocol::{
         ipa::{ipa, ipa_malicious},

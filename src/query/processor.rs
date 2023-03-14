@@ -450,8 +450,7 @@ mod tests {
     mod e2e {
         use super::*;
         use crate::{
-            bits::{Fp2Array, Serializable},
-            ff::{Field, Fp31},
+            ff::{Field, Fp31, GaloisField, Serializable},
             helpers::{query::IpaQueryConfig, transport::ByteArrStream},
             ipa_test_input,
             protocol::{

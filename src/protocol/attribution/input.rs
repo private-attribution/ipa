@@ -1,7 +1,6 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
     error::Error,
-    ff::Field,
+    ff::{Field, GaloisField, Serializable},
     helpers::Role,
     protocol::{basics::Reshare, context::Context, RecordId, Substep},
     secret_sharing::{
@@ -25,7 +24,7 @@ use typenum::Unsigned;
 // `apply_attribution_window` protocol
 //
 #[derive(Debug)]
-pub struct ApplyAttributionWindowInputRow<F: Field, BK: Fp2Array> {
+pub struct ApplyAttributionWindowInputRow<F: Field, BK: GaloisField> {
     pub timestamp: AdditiveShare<F>,
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
@@ -68,7 +67,7 @@ pub type MCApplyAttributionWindowOutputRow<F, T> = MCAccumulateCreditInputRow<F,
 // `accumulate_credit` protocol
 //
 
-pub struct AccumulateCreditInputRow<F: Field, BK: Fp2Array> {
+pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
     pub is_trigger_report: AdditiveShare<F>,
     pub helper_bit: AdditiveShare<F>,
     pub breakdown_key: XorShare<BK>,
@@ -144,7 +143,7 @@ impl<F: Field> DowngradeMalicious for MCCappedCreditsWithAggregationBit<F, Malic
 }
 
 #[async_trait]
-impl<F: Field, BK: Fp2Array> DowngradeMalicious
+impl<F: Field, BK: GaloisField> DowngradeMalicious
     for MCAggregateCreditOutputRow<F, MaliciousReplicated<F>, BK>
 where
     Replicated<F>: Serializable,
@@ -166,7 +165,7 @@ where
 //
 
 #[derive(Debug)]
-pub struct AggregateCreditInputRow<F: Field, BK: Fp2Array> {
+pub struct AggregateCreditInputRow<F: Field, BK: GaloisField> {
     pub breakdown_key: XorShare<BK>,
     pub credit: AdditiveShare<F>,
 }
@@ -203,7 +202,7 @@ pub struct MCAggregateCreditOutputRow<F, T, BK> {
     _marker: PhantomData<(F, BK)>,
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: Fp2Array> MCAggregateCreditOutputRow<F, T, BK>
+impl<F: Field, T: Arithmetic<F>, BK: GaloisField> MCAggregateCreditOutputRow<F, T, BK>
 where
     T: Serializable,
 {

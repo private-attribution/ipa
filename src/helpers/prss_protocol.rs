@@ -1,5 +1,5 @@
 use crate::{
-    bits::Serializable,
+    ff::Serializable,
     helpers::{Direction, Error, Gateway, Message, MESSAGE_PAYLOAD_SIZE_BYTES},
     protocol::{prss, RecordId, Step, Substep},
 };

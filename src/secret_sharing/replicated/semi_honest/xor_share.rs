@@ -1,7 +1,8 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
-    helpers::Role,
-    secret_sharing::{Boolean as BooleanSecretSharing, SecretSharing},
+    ff::{GaloisField, Serializable},
+    secret_sharing::{
+        replicated::ReplicatedSecretSharing, Boolean as BooleanSecretSharing, SecretSharing,
+    },
 };
 use aes::cipher::generic_array::GenericArray;
 
@@ -14,58 +15,50 @@ use std::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct XorShare<V: Fp2Array>(V, V);
+pub struct XorShare<V: GaloisField>(V, V);
 
-impl<V: Fp2Array> SecretSharing<V> for XorShare<V> {
+impl<V: GaloisField> SecretSharing<V> for XorShare<V> {
     const ZERO: Self = XorShare::ZERO;
 }
 
-impl<V: Fp2Array> BooleanSecretSharing<V> for XorShare<V> {}
+impl<V: GaloisField> BooleanSecretSharing<V> for XorShare<V> {}
 
-impl<V: Fp2Array + Debug> Debug for XorShare<V> {
+impl<V: GaloisField + Debug> Debug for XorShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "({:?}, {:?})", self.0, self.1)
     }
 }
 
-impl<V: Fp2Array> Default for XorShare<V> {
+impl<V: GaloisField> Default for XorShare<V> {
     fn default() -> Self {
         XorShare::new(V::ZERO, V::ZERO)
     }
 }
 
-impl<V: Fp2Array> XorShare<V> {
-    #[must_use]
-    pub fn new(a: V, b: V) -> Self {
-        Self(a, b)
-    }
-
+impl<V: GaloisField> XorShare<V> {
     pub fn as_tuple(&self) -> (V, V) {
         (self.0, self.1)
-    }
-
-    pub fn left(&self) -> V {
-        self.0
-    }
-
-    pub fn right(&self) -> V {
-        self.1
-    }
-
-    /// Returns share of a scalar value.
-    pub fn share_known_value(helper_role: Role, a: V) -> Self {
-        match helper_role {
-            Role::H1 => Self::new(a, V::ZERO),
-            Role::H2 => Self::new(V::ZERO, V::ZERO),
-            Role::H3 => Self::new(V::ZERO, a),
-        }
     }
 
     /// Replicated secret share where both left and right values are `V::ZERO`
     pub const ZERO: XorShare<V> = Self(V::ZERO, V::ZERO);
 }
 
-impl<V: Fp2Array> BitXor<Self> for &XorShare<V> {
+impl<V: GaloisField> ReplicatedSecretSharing<V> for XorShare<V> {
+    fn new(a: V, b: V) -> Self {
+        Self(a, b)
+    }
+
+    fn left(&self) -> V {
+        self.0
+    }
+
+    fn right(&self) -> V {
+        self.1
+    }
+}
+
+impl<V: GaloisField> BitXor<Self> for &XorShare<V> {
     type Output = XorShare<V>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
@@ -73,7 +66,7 @@ impl<V: Fp2Array> BitXor<Self> for &XorShare<V> {
     }
 }
 
-impl<V: Fp2Array> BitXor<&Self> for XorShare<V> {
+impl<V: GaloisField> BitXor<&Self> for XorShare<V> {
     type Output = Self;
 
     fn bitxor(mut self, rhs: &Self) -> Self::Output {
@@ -82,14 +75,14 @@ impl<V: Fp2Array> BitXor<&Self> for XorShare<V> {
     }
 }
 
-impl<V: Fp2Array> BitXorAssign<&Self> for XorShare<V> {
+impl<V: GaloisField> BitXorAssign<&Self> for XorShare<V> {
     fn bitxor_assign(&mut self, rhs: &Self) {
         self.0 ^= rhs.0;
         self.1 ^= rhs.1;
     }
 }
 
-impl<V: Fp2Array> Serializable for XorShare<V>
+impl<V: GaloisField> Serializable for XorShare<V>
 where
     V::Size: Add<V::Size>,
     <V::Size as Add<V::Size>>::Output: ArrayLength<u8>,
@@ -114,7 +107,10 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::XorShare;
-    use crate::bits::{BitArray40, Serializable};
+    use crate::{
+        ff::{Gf40Bit, Serializable},
+        secret_sharing::replicated::ReplicatedSecretSharing,
+    };
 
     use generic_array::GenericArray;
 
@@ -122,31 +118,18 @@ mod tests {
         a: u128,
         b: u128,
         c: u128,
-    ) -> (
-        XorShare<BitArray40>,
-        XorShare<BitArray40>,
-        XorShare<BitArray40>,
-    ) {
+    ) -> (XorShare<Gf40Bit>, XorShare<Gf40Bit>, XorShare<Gf40Bit>) {
         (
-            XorShare::new(
-                BitArray40::try_from(a).unwrap(),
-                BitArray40::try_from(b).unwrap(),
-            ),
-            XorShare::new(
-                BitArray40::try_from(b).unwrap(),
-                BitArray40::try_from(c).unwrap(),
-            ),
-            XorShare::new(
-                BitArray40::try_from(c).unwrap(),
-                BitArray40::try_from(a).unwrap(),
-            ),
+            XorShare::new(Gf40Bit::try_from(a).unwrap(), Gf40Bit::try_from(b).unwrap()),
+            XorShare::new(Gf40Bit::try_from(b).unwrap(), Gf40Bit::try_from(c).unwrap()),
+            XorShare::new(Gf40Bit::try_from(c).unwrap(), Gf40Bit::try_from(a).unwrap()),
         )
     }
 
     fn assert_valid_secret_sharing(
-        res1: &XorShare<BitArray40>,
-        res2: &XorShare<BitArray40>,
-        res3: &XorShare<BitArray40>,
+        res1: &XorShare<Gf40Bit>,
+        res2: &XorShare<Gf40Bit>,
+        res3: &XorShare<Gf40Bit>,
     ) {
         assert_eq!(res1.1, res2.0);
         assert_eq!(res2.1, res3.0);
@@ -154,18 +137,18 @@ mod tests {
     }
 
     fn assert_secret_shared_value(
-        a1: &XorShare<BitArray40>,
-        a2: &XorShare<BitArray40>,
-        a3: &XorShare<BitArray40>,
+        a1: &XorShare<Gf40Bit>,
+        a2: &XorShare<Gf40Bit>,
+        a3: &XorShare<Gf40Bit>,
         expected_value: u128,
     ) {
         assert_eq!(
             a1.0 ^ a2.0 ^ a3.0,
-            BitArray40::try_from(expected_value).unwrap()
+            Gf40Bit::try_from(expected_value).unwrap()
         );
         assert_eq!(
             a1.1 ^ a2.1 ^ a3.1,
-            BitArray40::try_from(expected_value).unwrap()
+            Gf40Bit::try_from(expected_value).unwrap()
         );
     }
 
@@ -204,8 +187,8 @@ mod tests {
     #[test]
     fn serde() {
         let share = XorShare::new(
-            BitArray40::try_from(1u128 << 25).unwrap(),
-            BitArray40::try_from(1u128 << 15).unwrap(),
+            Gf40Bit::try_from(1u128 << 25).unwrap(),
+            Gf40Bit::try_from(1u128 << 15).unwrap(),
         );
 
         let mut buf = GenericArray::default();

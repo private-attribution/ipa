@@ -3,13 +3,13 @@ use crate::{
     ff::Field,
     protocol::{
         basics::{Reshare, Reveal},
-        context::{Context, MaliciousContext, NoRecord},
+        context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::{
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
             SortStep::{ShuffleRevealPermutation, SortKeys},
         },
-        RecordId,
+        NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -165,7 +165,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::{
-        bits::Fp2Array,
+        ff::GaloisField,
         protocol::{
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,

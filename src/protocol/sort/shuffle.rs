@@ -5,11 +5,7 @@ use crate::{
     error::Error,
     ff::Field,
     helpers::{Direction, Role},
-    protocol::{
-        basics::Reshare,
-        context::{Context, NoRecord},
-        RecordId, Substep,
-    },
+    protocol::{basics::Reshare, context::Context, NoRecord, RecordId, Substep},
     secret_sharing::SecretSharing,
 };
 

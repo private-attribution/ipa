@@ -5,11 +5,9 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{
-        context::{
-            malicious::RecordBinding, Context, MaliciousContext, NoRecord, SemiHonestContext,
-        },
+        context::{Context, MaliciousContext, SemiHonestContext},
         sort::generate_permutation::ShuffledPermutationWrapper,
-        RecordId,
+        NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{

@@ -7,7 +7,6 @@ use futures::Stream;
 use generic_array::GenericArray;
 
 use crate::{
-    bits::Serializable,
     helpers::{
         buffers::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender, UnorderedReceiver},
         transport::{RouteId, Transport, TransportImpl},
@@ -23,6 +22,7 @@ use typenum::U8;
 
 use dashmap::{mapref::entry::Entry, DashMap};
 
+use crate::ff::Serializable;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 

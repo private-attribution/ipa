@@ -9,8 +9,8 @@ pub mod prss;
 pub mod sort;
 
 use crate::{
-    bits::{BitArray40, BitArray8},
     error::Error,
+    ff::{Gf40Bit, Gf8Bit},
 };
 use std::{
     fmt::{Debug, Display, Formatter},
@@ -20,8 +20,8 @@ use std::{
 
 pub use basics::BasicProtocols;
 
-pub type MatchKey = BitArray40;
-pub type BreakdownKey = BitArray8;
+pub type MatchKey = Gf40Bit;
+pub type BreakdownKey = Gf8Bit;
 
 /// Defines a unique step of the IPA protocol at a given level of implementation.
 ///
@@ -320,3 +320,18 @@ impl AddAssign<usize> for RecordId {
         self.0 += u32::try_from(rhs).unwrap();
     }
 }
+
+/// Helper used when an operation may or may not be associated with a specific record. This is
+/// also used to prevent some kinds of invalid uses of record ID iteration. For example, trying to
+/// use the record ID to iterate over both the inner and outer vectors in a `Vec<Vec<T>>` is an
+/// error. Instead, one level of iteration can use the record ID and the other can use something
+/// like a `BitOpStep`.
+///
+/// There are some doc tests on `UpgradeContext` showing the use of `RecordBinding`.
+pub trait RecordBinding: Copy + Send + Sync + 'static {}
+
+#[derive(Clone, Copy)]
+pub struct NoRecord;
+impl RecordBinding for NoRecord {}
+
+impl RecordBinding for RecordId {}

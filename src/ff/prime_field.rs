@@ -134,7 +134,7 @@ macro_rules! field_impl {
         #[cfg(all(test, not(feature = "shuttle")))]
         mod common_tests {
             use super::*;
-            use crate::bits::Serializable;
+            use crate::ff::Serializable;
             use generic_array::GenericArray;
             use proptest::proptest;
 

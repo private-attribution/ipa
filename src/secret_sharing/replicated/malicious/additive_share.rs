@@ -1,12 +1,12 @@
 use crate::{
-    bits::Serializable,
-    ff::Field,
+    ff::{Field, Serializable},
     protocol::{
         basics::Reveal,
-        context::{Context, MaliciousContext, NoRecord},
+        context::{Context, MaliciousContext},
         sort::{
             generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
         },
+        NoRecord,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
@@ -267,7 +267,10 @@ mod tests {
         helpers::Role,
         rand::thread_rng,
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+            replicated::{
+                semi_honest::AdditiveShare as SemiHonestAdditiveShare, ReplicatedSecretSharing,
+            },
+            IntoShares,
         },
         test_fixture::Reconstruct,
     };

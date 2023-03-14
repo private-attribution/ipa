@@ -1,6 +1,6 @@
-use super::SharedValue;
+use super::{replicated::ReplicatedSecretSharing, SharedValue};
 use crate::{
-    bits::Fp2Array,
+    ff::GaloisField,
     rand::{thread_rng, Rng},
     secret_sharing::replicated::semi_honest::{AdditiveShare, XorShare},
 };
@@ -33,7 +33,7 @@ where
 
 impl<V> IntoShares<XorShare<V>> for V
 where
-    V: Fp2Array,
+    V: GaloisField,
     Standard: Distribution<V>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [XorShare<V>; 3] {

@@ -25,13 +25,13 @@ pub use transport::query;
 pub use buffers::ordering_mpsc;
 
 use crate::{
-    bits::Serializable,
-    ff::Field,
+    ff::Serializable,
     helpers::{
         Direction::{Left, Right},
         Role::{H1, H2, H3},
     },
     protocol::Step,
+    secret_sharing::SharedValue,
 };
 use std::ops::{Index, IndexMut};
 use typenum::{Unsigned, U8};
@@ -357,8 +357,8 @@ impl Debug for ChannelId {
 /// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
 pub trait Message: Debug + Send + Serializable + 'static + Sized {}
 
-/// Any field value can be send as a message
-impl<F: Field> Message for F {}
+/// Any shared value can be send as a message
+impl<V: SharedValue> Message for V {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum TotalRecords {

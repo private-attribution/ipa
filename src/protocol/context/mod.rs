@@ -9,7 +9,7 @@ mod semi_honest;
 
 use crate::helpers::{Message, ReceivingEnd, SendingEnd};
 pub(super) use malicious::SpecialAccessToMaliciousContext;
-pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
+pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 
@@ -72,7 +72,7 @@ mod tests {
         protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated,
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
         },
         telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     };
@@ -86,17 +86,17 @@ mod tests {
     use super::*;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig};
 
-    trait AsReplicated<F: Field> {
-        fn left(&self) -> F;
-        fn right(&self) -> F;
+    trait AsReplicatedTestOnly<F: Field> {
+        fn l(&self) -> F;
+        fn r(&self) -> F;
     }
 
-    impl<F: Field> AsReplicated<F> for Replicated<F> {
-        fn left(&self) -> F {
+    impl<F: Field> AsReplicatedTestOnly<F> for Replicated<F> {
+        fn l(&self) -> F {
             (self as &Replicated<F>).left()
         }
 
-        fn right(&self) -> F {
+        fn r(&self) -> F {
             (self as &Replicated<F>).right()
         }
     }
@@ -105,12 +105,12 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicated<F> for MaliciousReplicated<F> {
-        fn left(&self) -> F {
+    impl<F: Field> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
+        fn l(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().left()
         }
 
-        fn right(&self) -> F {
+        fn r(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().right()
         }
     }
@@ -121,7 +121,7 @@ mod tests {
         F: Field,
         Standard: Distribution<F>,
         C: Context,
-        S: AsReplicated<F>,
+        S: AsReplicatedTestOnly<F>,
     {
         let ctx = ctx.narrow("metrics");
         let (left_peer, right_peer) = (
@@ -140,12 +140,12 @@ mod tests {
         let send_channel = ctx.send_channel(left_peer);
         let recv_channel = ctx.recv_channel::<F>(right_peer);
         let (_, right_share) = try_join!(
-            send_channel.send(record_id, share.left() - l - seq_l),
+            send_channel.send(record_id, share.l() - l - seq_l),
             recv_channel.receive(record_id),
         )
         .unwrap();
 
-        Replicated::new(share.left(), right_share + r + seq_r)
+        Replicated::new(share.l(), right_share + r + seq_r)
     }
 
     #[tokio::test]

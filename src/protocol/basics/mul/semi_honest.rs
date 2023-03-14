@@ -8,7 +8,9 @@ use crate::{
         prss::SharedRandomness,
         RecordId,
     },
-    secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,
+    secret_sharing::replicated::{
+        semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
+    },
 };
 
 /// IKHC multiplication protocol

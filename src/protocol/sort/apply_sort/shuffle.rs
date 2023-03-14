@@ -3,13 +3,13 @@ use crate::{
     helpers::Direction,
     protocol::{
         basics::Reshare,
-        context::{Context, NoRecord},
+        context::Context,
         sort::{
             apply::{apply, apply_inv},
             shuffle::{shuffle_for_helper, ShuffleOrUnshuffle},
             ShuffleStep::{self, Step1, Step2, Step3},
         },
-        RecordId,
+        NoRecord, RecordId,
     },
     repeat64str,
 };
@@ -115,13 +115,14 @@ mod tests {
     mod semi_honest {
         use crate::{
             accumulation_test_input,
-            bits::Fp2Array,
+            ff::GaloisField,
             protocol::{
                 attribution::input::{AccumulateCreditInputRow, MCAccumulateCreditInputRow},
                 modulus_conversion::{convert_all_bits, convert_all_bits_local},
                 BreakdownKey, MatchKey,
             },
             rand::{thread_rng, Rng},
+            secret_sharing::replicated::ReplicatedSecretSharing,
         };
 
         use crate::{
