@@ -27,10 +27,8 @@ struct State {
     buf: Vec<u8>,
     /// How many bytes have been written and are available.
     written: usize,
-
     /// The sender is closed.
     closed: bool,
-
     /// An entity to wake when the buffer is read from.
     write_ready: Option<Waker>,
     /// Another entity to wake when the buffer is read from.
@@ -376,10 +374,6 @@ mod test {
     use std::{iter::zip, num::NonZeroUsize};
     use typenum::Unsigned;
 
-    // #[cfg(feature = "shuttle")]
-    // use shuttle::future::spawn;
-    // #[cfg(not(feature = "shuttle"))]
-    // use tokio::spawn;
 
     fn sender() -> OrderingSender {
         OrderingSender::new(NonZeroUsize::new(11).unwrap())
