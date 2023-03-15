@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{basics::SecureMul, context::Context, BasicProtocols, BitOpStep, RecordId},
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 /// This is an implementation of a Bitwise Sum of a bitwise-shared number with a constant.
@@ -48,7 +48,7 @@ pub async fn add_constant<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let mut output = Vec::with_capacity(a.len() + 1);
 
@@ -68,23 +68,15 @@ where
     for (bit_index, bit) in a.iter().enumerate().skip(1) {
         let mult_result = if last_carry_known_to_be_zero {
             // TODO: this makes me sad
-            let _ = S::multiply(
-                ctx.narrow(&BitOpStep::from(bit_index)),
-                record_id,
-                &S::ZERO,
-                &S::ZERO,
-            ) // this is stupid
-            .await?;
+            let _ = S::ZERO
+                .multiply(&S::ZERO, ctx.narrow(&BitOpStep::from(bit_index)), record_id) // this is stupid
+                .await?;
 
             S::ZERO
         } else {
-            S::multiply(
-                ctx.narrow(&BitOpStep::from(bit_index)),
-                record_id,
-                &last_carry,
-                bit,
-            )
-            .await?
+            last_carry
+                .multiply(bit, ctx.narrow(&BitOpStep::from(bit_index)), record_id)
+                .await?
         };
 
         let next_bit_a_one = (b >> bit_index) & 1 == 1;
@@ -138,7 +130,7 @@ pub async fn maybe_add_constant_mod2l<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let el = usize::try_from(u128::BITS - F::PRIME.into().leading_zeros()).unwrap();
     assert!(a.len() >= el);
@@ -149,20 +141,21 @@ where
     );
     let mut output = Vec::with_capacity(a.len() + 1);
 
-    let mut last_carry =
-        S::multiply(ctx.narrow(&BitOpStep::from(0)), record_id, &a[0], maybe).await?;
+    let mut last_carry = a[0]
+        .multiply(maybe, ctx.narrow(&BitOpStep::from(0)), record_id)
+        .await?;
     output.push(-last_carry.clone() * F::from(2) + &a[0] + maybe);
 
     let ctx_other = ctx.narrow(&Step::CarryXorBitTimesMaybe);
     for (bit_index, bit) in a.iter().enumerate().skip(1).take(el - 1) {
         let next_bit = (b >> bit_index) & 1;
-        let carry_times_bit = S::multiply(
-            ctx.narrow(&BitOpStep::from(bit_index)),
-            record_id,
-            bit,
-            &last_carry,
-        )
-        .await?;
+        let carry_times_bit = bit
+            .multiply(
+                &last_carry,
+                ctx.narrow(&BitOpStep::from(bit_index)),
+                record_id,
+            )
+            .await?;
 
         if next_bit == 0 {
             let next_carry = carry_times_bit;
@@ -173,13 +166,13 @@ where
         } else {
             let carry_xor_bit = -carry_times_bit.clone() * F::from(2) + &last_carry + bit;
 
-            let carry_xor_bit_times_maybe = S::multiply(
-                ctx_other.narrow(&BitOpStep::from(bit_index)),
-                record_id,
-                &carry_xor_bit,
-                maybe,
-            )
-            .await?;
+            let carry_xor_bit_times_maybe = carry_xor_bit
+                .multiply(
+                    maybe,
+                    ctx_other.narrow(&BitOpStep::from(bit_index)),
+                    record_id,
+                )
+                .await?;
 
             let next_carry = carry_xor_bit_times_maybe + &carry_times_bit;
 

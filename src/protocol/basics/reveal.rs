@@ -5,11 +5,9 @@ use crate::{
     ff::Field,
     helpers::Direction,
     protocol::{
-        context::{
-            malicious::RecordBinding, Context, MaliciousContext, NoRecord, SemiHonestContext,
-        },
+        context::{Context, MaliciousContext, SemiHonestContext},
         sort::generate_permutation::ShuffledPermutationWrapper,
-        RecordId,
+        NoRecord, RecordBinding, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -153,9 +151,11 @@ where
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
-    use crate::{rand::thread_rng, test_fixture::Runner};
+    use crate::{
+        rand::{thread_rng, Rng},
+        test_fixture::Runner,
+    };
     use futures::future::{try_join, try_join3};
-    use proptest::prelude::Rng;
     use std::iter::zip;
 
     use crate::{

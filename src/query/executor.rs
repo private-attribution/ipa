@@ -1,6 +1,5 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
-    ff::{Field, FieldType, Fp31},
+    ff::{Field, FieldType, Fp31, GaloisField, Serializable},
     helpers::{
         messaging::{Gateway, TotalRecords},
         negotiate_prss,
@@ -13,7 +12,9 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey, Step,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Arithmetic},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
+    },
     task::JoinHandle,
 };
 use futures_util::StreamExt;
@@ -46,7 +47,8 @@ where
     }
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: Fp2Array> Result for Vec<MCAggregateCreditOutputRow<F, T, BK>>
+impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> Result
+    for Vec<MCAggregateCreditOutputRow<F, T, BK>>
 where
     T: Serializable,
 {
@@ -82,10 +84,10 @@ where
             match a {
                 None => a = Some(share),
                 Some(a_v) => {
-                    let result =
-                        Replicated::multiply(ctx.clone(), RecordId::from(record_id), &a_v, &share)
-                            .await
-                            .unwrap();
+                    let result = a_v
+                        .multiply(&share, ctx.clone(), RecordId::from(record_id))
+                        .await
+                        .unwrap();
                     results.push(result);
                     record_id += 1;
                     a = None;
@@ -99,7 +101,7 @@ where
     results
 }
 
-async fn execute_ipa<F: Field, MK: Fp2Array, BK: Fp2Array>(
+async fn execute_ipa<F: Field, MK: GaloisField, BK: GaloisField>(
     ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,

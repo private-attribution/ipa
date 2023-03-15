@@ -3,12 +3,13 @@ mod error;
 pub use error::Error;
 
 use crate::{
+    config::NetworkConfig,
     helpers::{
         query::{PrepareQuery, QueryConfig, QueryInput},
         transport::ByteArrStream,
         HelperIdentity,
     },
-    net::{discovery::peer, http_serde},
+    net::http_serde,
     protocol::{QueryId, Step},
 };
 use axum::{body::StreamBody, http::uri};
@@ -31,8 +32,8 @@ pub struct MpcHelperClient {
 impl MpcHelperClient {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
-    pub fn from_conf(peers_conf: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
-        peers_conf
+    pub fn from_conf(conf: &NetworkConfig) -> [MpcHelperClient; 3] {
+        conf.peers()
             .iter()
             .map(|conf| Self::new(conf.origin.clone()))
             .collect::<Vec<_>>()

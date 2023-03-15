@@ -11,6 +11,7 @@ use crate::{
     secret_sharing::replicated::{
         malicious::{AdditiveShare as MaliciousReplicated, DowngradeMalicious},
         semi_honest::AdditiveShare as Replicated,
+        ReplicatedSecretSharing,
     },
     sync::{Arc, Mutex, Weak},
 };
@@ -264,21 +265,17 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::Role,
         protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::{
-                malicious::{
-                    AdditiveShare as MaliciousReplicated,
-                    ThisCodeIsAuthorizedToDowngradeFromMalicious,
-                },
-                semi_honest::AdditiveShare as Replicated,
+                malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
+                semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
             },
             IntoShares,
         },
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join_all;
-    use proptest::prelude::Rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -
@@ -314,13 +311,9 @@ mod tests {
                 let (a_malicious, b_malicious) =
                     v.context().upgrade((a_share, b_share)).await.unwrap();
 
-                let m_result = MaliciousReplicated::multiply(
-                    m_ctx.set_total_records(1),
-                    RecordId::from(0),
-                    &a_malicious,
-                    &b_malicious,
-                )
-                .await?;
+                let m_result = a_malicious
+                    .multiply(&b_malicious, m_ctx.set_total_records(1), RecordId::from(0))
+                    .await?;
 
                 // Save some cloned values so that we can check them.
                 let r_share = v.r_share().clone();
@@ -445,13 +438,9 @@ mod tests {
                         zip(m_input.iter(), m_input.iter().skip(1)),
                     )
                     .map(|((i, ctx), (a_malicious, b_malicious))| async move {
-                        MaliciousReplicated::multiply(
-                            ctx,
-                            RecordId::from(i),
-                            a_malicious,
-                            b_malicious,
-                        )
-                        .await
+                        a_malicious
+                            .multiply(b_malicious, ctx, RecordId::from(i))
+                            .await
                     }),
                 )
                 .await?;

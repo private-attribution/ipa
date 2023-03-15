@@ -26,7 +26,7 @@ use crate::{
         malicious::MaliciousValidatorAccumulator,
         modulus_conversion::BitConversionTriple,
         prss::Endpoint as PrssEndpoint,
-        BitOpStep, RecordId, Step, Substep, RECORD_0,
+        BitOpStep, NoRecord, RecordBinding, RecordId, Step, Substep, RECORD_0,
     },
     repeat64str,
     secret_sharing::{
@@ -34,7 +34,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
     sync::Arc,
 };
@@ -323,14 +323,14 @@ impl<'a, F: Field>
     }
 }
 
-pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRowWrapper<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
     pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             mk_shares,
@@ -439,14 +439,14 @@ impl<'a, F: Field> ContextInner<'a, F> {
         x: Replicated<F>,
         zeros_at: ZeroPositions,
     ) -> Result<MaliciousReplicated<F>, Error> {
-        let rx = Replicated::multiply_sparse(
-            ctx.clone(),
-            record_id,
-            &x,
-            &self.r_share,
-            (zeros_at, ZeroPositions::Pvvv),
-        )
-        .await?;
+        let rx = x
+            .multiply_sparse(
+                &self.r_share,
+                ctx.clone(),
+                record_id,
+                (zeros_at, ZeroPositions::Pvvv),
+            )
+            .await?;
         let m = MaliciousReplicated::new(x, rx);
         let ctx = ctx.narrow(&RandomnessForValidation);
         let prss = ctx.prss();
@@ -508,10 +508,15 @@ impl<'a, F: Field> ContextInner<'a, F> {
     }
 }
 
-/// Helper to prevent using the record ID multiple times to implement an upgrade.
+/// Special context type used for malicious upgrades.
+///
+/// The `B: RecordBinding` type parameter is used to prevent using the record ID multiple times to
+/// implement an upgrade. For example, trying to use the record ID to iterate over both the inner
+/// and outer vectors in a `Vec<Vec<T>>` is an error. Instead, one level of iteration can use the
+/// record ID and the other can use something like a `BitOpStep`.
 ///
 /// ```no_run
-/// use raw_ipa::protocol::{context::{NoRecord, UpgradeContext, UpgradeToMalicious}, RecordId};
+/// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
 /// use raw_ipa::ff::Fp31;
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
@@ -524,7 +529,7 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// ```
 ///
 /// ```compile_fail
-/// use raw_ipa::protocol::{context::{NoRecord, UpgradeContext, UpgradeToMalicious}, RecordId};
+/// use raw_ipa::protocol::{context::{UpgradeContext, UpgradeToMalicious}, NoRecord, RecordId};
 /// use raw_ipa::ff::Fp31;
 /// use raw_ipa::secret_sharing::replicated::{
 ///     malicious::AdditiveShare as MaliciousReplicated, semi_honest::AdditiveShare as Replicated,
@@ -533,14 +538,6 @@ impl<'a, F: Field> ContextInner<'a, F> {
 /// // is used internally for vector indexing.
 /// let _ = <UpgradeContext<Fp31, RecordId> as UpgradeToMalicious<Vec<Replicated<Fp31>>, _>>::upgrade;
 /// ```
-pub trait RecordBinding: Copy + Send + Sync + 'static {}
-
-#[derive(Clone, Copy)]
-pub struct NoRecord;
-impl RecordBinding for NoRecord {}
-
-impl RecordBinding for RecordId {}
-
 pub struct UpgradeContext<'a, F: Field, B: RecordBinding = NoRecord> {
     upgrade_ctx: SemiHonestContext<'a>,
     inner: &'a ContextInner<'a, F>,

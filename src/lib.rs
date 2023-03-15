@@ -4,10 +4,11 @@
 #![allow(clippy::similar_names)]
 #![allow(clippy::module_name_repetitions)]
 
-pub mod bits;
 pub mod chunkscan;
 #[cfg(feature = "cli")]
 pub mod cli;
+#[cfg(all(feature = "enable-serde", feature = "web-app"))]
+pub mod config;
 pub mod error;
 pub mod ff;
 pub mod helpers;

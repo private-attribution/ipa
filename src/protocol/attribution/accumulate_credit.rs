@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
-    secret_sharing::Arithmetic,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 
@@ -44,7 +44,7 @@ async fn accumulate_credit_cap_one<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
 
@@ -54,7 +54,11 @@ where
     let credits = try_join_all(input.iter().skip(1).enumerate().map(|(i, x)| {
         let c = memoize_context.clone();
         let record_id = RecordId::from(i);
-        async move { T::multiply(c, record_id, &x.is_trigger_report, &x.helper_bit).await }
+        async move {
+            x.is_trigger_report
+                .multiply(&x.helper_bit, c, record_id)
+                .await
+        }
     }))
     .await?;
 
@@ -89,7 +93,7 @@ pub async fn accumulate_credit<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if per_user_credit_cap == 1 {
         return Ok(accumulate_credit_cap_one(ctx, input)
@@ -110,7 +114,7 @@ where
         let record_id = RecordId::from(i);
         let is_trigger_bit = &x.is_trigger_report;
         let helper_bit = &x.helper_bit;
-        async move { T::multiply(c, record_id, is_trigger_bit, helper_bit).await }
+        async move { is_trigger_bit.multiply(helper_bit, c, record_id).await }
     }))
     .await?;
 

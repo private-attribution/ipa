@@ -1,4 +1,5 @@
 use crate::{
+    config::{NetworkConfig, ServerConfig},
     helpers::{
         query::QueryCommand,
         transport::{SubscriptionType, Transport, TransportCommand, TransportError},
@@ -6,7 +7,6 @@ use crate::{
     },
     net::{
         client::MpcHelperClient,
-        discovery::peer,
         server::{BindTarget, MpcHelperServer},
     },
     protocol::QueryId,
@@ -16,14 +16,14 @@ use crate::{
 use async_trait::async_trait;
 use std::{
     collections::{hash_map::Entry, HashMap},
-    net::SocketAddr,
+    net::{SocketAddr, TcpListener},
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 pub struct HttpTransport {
     id: HelperIdentity,
-    peers_conf: Arc<[peer::Config; 3]>,
+    conf: Arc<NetworkConfig>,
     subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<CommandEnvelope>>>>,
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<CommandEnvelope>>>>,
     server: MpcHelperServer,
@@ -32,14 +32,19 @@ pub struct HttpTransport {
 
 impl HttpTransport {
     #[must_use]
-    pub fn new(id: HelperIdentity, peers_conf: Arc<[peer::Config; 3]>) -> Arc<Self> {
+    #[allow(clippy::needless_pass_by_value)] // TODO: remove when ServerConfig is used
+    pub fn new(
+        id: HelperIdentity,
+        _server_conf: ServerConfig,
+        network_conf: Arc<NetworkConfig>,
+    ) -> Arc<Self> {
         let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         let server = MpcHelperServer::new(subscribe_sender, Arc::clone(&ongoing_queries));
-        let clients = MpcHelperClient::from_conf(&peers_conf);
+        let clients = MpcHelperClient::from_conf(&network_conf);
         Arc::new(Self {
             id,
-            peers_conf,
+            conf: network_conf,
             subscribe_receiver: Arc::new(Mutex::new(Some(subscribe_receiver))),
             ongoing_queries,
             server,
@@ -47,11 +52,16 @@ impl HttpTransport {
         })
     }
 
+    pub async fn from_tcp(&self, socket: TcpListener) {
+        tracing::info!("starting server");
+        self.server.bind(BindTarget::HttpListener(socket)).await;
+    }
+
     /// Binds self to port described in `peers_conf`.
     /// # Panics
     /// if self id not found in `peers_conf`
     pub async fn bind(&self) -> (SocketAddr, JoinHandle<()>) {
-        let this_conf = &self.peers_conf[self.id];
+        let this_conf = &self.conf.peers()[self.id];
         let port = this_conf.origin.port().unwrap();
         let target = BindTarget::Http(format!("0.0.0.0:{}", port.as_str()).parse().unwrap());
         tracing::info!("starting server; binding to port {}", port.as_str());
@@ -138,21 +148,22 @@ impl Transport for Arc<HttpTransport> {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
+    use std::{iter::zip, net::TcpListener};
+
     use super::*;
     use crate::{
-        bits::Serializable,
-        ff::{FieldType, Fp31},
+        config::PeerConfig,
+        ff::{FieldType, Fp31, Serializable},
         helpers::{
             network::{ChannelId, Network},
             query::{QueryConfig, QueryInput, QueryType},
             transport::ByteArrStream,
             Role, RoleAssignment, MESSAGE_PAYLOAD_SIZE_BYTES,
         },
-        net::discovery::PeerDiscovery,
         protocol::Step,
         query::Processor,
         secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
-        test_fixture::{net::localhost_config, Reconstruct},
+        test_fixture::{config::TestConfigBuilder, Reconstruct},
     };
     use futures::stream::StreamExt;
     use futures_util::{
@@ -162,12 +173,9 @@ mod e2e_tests {
     use generic_array::GenericArray;
     use typenum::Unsigned;
 
-    fn open_port() -> u16 {
-        std::net::UdpSocket::bind("0.0.0.0:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+    fn select_first<T>(value: [T; 3]) -> T {
+        let [first, _, _] = value;
+        first
     }
 
     #[tokio::test]
@@ -179,10 +187,16 @@ mod e2e_tests {
         );
 
         let identities = HelperIdentity::make_three();
-        let h1_identity = identities[Role::H1];
-        let conf = localhost_config([open_port(), open_port(), open_port()]);
-        let transport = HttpTransport::new(h1_identity, Arc::new(conf.peers().clone()));
-        transport.bind().await;
+        let h1_index = 0usize;
+        let h1_identity = identities[h1_index];
+        let mut conf = TestConfigBuilder::with_open_ports().build();
+        let transport = HttpTransport::new(
+            h1_identity,
+            conf.servers[h1_index].clone(),
+            Arc::new(conf.network),
+        );
+        let socket = select_first(conf.sockets.take().unwrap());
+        transport.from_tcp(socket).await;
         let network = Network::new(
             Arc::clone(&transport),
             expected_query_id,
@@ -206,15 +220,20 @@ mod e2e_tests {
     #[tokio::test]
     async fn fails_if_not_subscribed() {
         let expected_query_id = QueryId;
-        let expected_role = Role::H1;
         let expected_step = Step::default().narrow("no-subscribe");
         let expected_payload = vec![0u8; MESSAGE_PAYLOAD_SIZE_BYTES];
 
         let identities = HelperIdentity::make_three();
-        let h1_identity = identities[expected_role];
-        let conf = localhost_config([open_port(), open_port(), open_port()]);
-        let transport = HttpTransport::new(h1_identity, Arc::new(conf.peers().clone()));
-        transport.bind().await;
+        let h1_index = 0;
+        let h1_identity = identities[h1_index];
+        let mut conf = TestConfigBuilder::with_open_ports().build();
+        let transport = HttpTransport::new(
+            h1_identity,
+            conf.servers[h1_index].clone(),
+            Arc::new(conf.network),
+        );
+        let socket = select_first(conf.sockets.take().unwrap());
+        transport.from_tcp(socket).await;
         let command = TransportCommand::StepData {
             query_id: expected_query_id,
             step: expected_step.clone(),
@@ -237,22 +256,24 @@ mod e2e_tests {
 
     async fn make_processors(
         ids: [HelperIdentity; 3],
-        conf: Arc<[peer::Config; 3]>,
+        sockets: [TcpListener; 3],
+        server_conf: [ServerConfig; 3],
+        network_conf: Arc<NetworkConfig>,
     ) -> [Processor<Arc<HttpTransport>>; 3] {
-        join_all(ids.map(|id| {
-            let conf = Arc::clone(&conf);
-            async move {
-                let transport = HttpTransport::new(id, conf);
-                transport.bind().await;
-                Processor::new(transport, ids).await
-            }
-        }))
+        let network_conf = &network_conf;
+        join_all(zip(ids, zip(sockets, server_conf)).map(
+            |(id, (socket, server_conf))| async move {
+                let transport = HttpTransport::new(id, server_conf, Arc::clone(network_conf));
+                transport.from_tcp(socket).await;
+                Processor::new(transport).await
+            },
+        ))
         .await
         .try_into()
         .unwrap()
     }
 
-    fn make_clients(confs: &[peer::Config; 3]) -> [MpcHelperClient; 3] {
+    fn make_clients(confs: &[PeerConfig; 3]) -> [MpcHelperClient; 3] {
         confs
             .iter()
             .map(|conf| MpcHelperClient::new(conf.origin.clone()))
@@ -272,15 +293,20 @@ mod e2e_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn happy_case() {
         const SZ: usize = <Replicated<Fp31> as Serializable>::Size::USIZE;
-        let conf = localhost_config([open_port(), open_port(), open_port()]);
-        let peers_conf = Arc::new(conf.peers().clone());
+        let mut conf = TestConfigBuilder::with_open_ports().build();
         let ids: [HelperIdentity; 3] = [
             HelperIdentity::try_from(1usize).unwrap(),
             HelperIdentity::try_from(2usize).unwrap(),
             HelperIdentity::try_from(3usize).unwrap(),
         ];
-        let mut processors = make_processors(ids, Arc::clone(&peers_conf)).await;
-        let clients = make_clients(&peers_conf);
+        let clients = make_clients(conf.network.peers());
+        let mut processors = make_processors(
+            ids,
+            conf.sockets.take().unwrap(),
+            conf.servers,
+            Arc::new(conf.network),
+        )
+        .await;
 
         // send a create query command
         let leader_client = &clients[0];

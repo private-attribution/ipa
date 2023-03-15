@@ -3,6 +3,8 @@ pub mod aggregate_credit;
 pub mod apply_attribution_window;
 pub mod credit_capping;
 pub mod input;
+pub mod malicious;
+pub mod semi_honest;
 
 use crate::{
     error::Error,
@@ -11,7 +13,7 @@ use crate::{
         basics::SecureMul, boolean::or::or, context::Context, BasicProtocols, RecordId, Substep,
     },
     repeat64str,
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::{try_join, try_join_all};
 
@@ -26,7 +28,7 @@ async fn if_else<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     // If `condition` is a share of 1 (true), then
     //   = false_value + 1 * (true_value - false_value)
@@ -37,13 +39,9 @@ where
     //   = false_value + 0 * (true_value - false_value)
     //   = false_value
     Ok(false_value.clone()
-        + &S::multiply(
-            ctx,
-            record_id,
-            condition,
-            &(true_value.clone() - false_value),
-        )
-        .await?)
+        + &condition
+            .multiply(&(true_value.clone() - false_value), ctx, record_id)
+            .await?)
 }
 
 ///
@@ -65,7 +63,7 @@ pub async fn prefix_or_binary_tree_style<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert_eq!(stop_bits.len() + 1, uncapped_credits.len());
 
@@ -108,8 +106,9 @@ where
             let current_credit = &uncapped_credits[i];
 
             credit_update_futures.push(async move {
-                let credit_update =
-                    S::multiply(c1, record_id, current_stop_bit, sibling_credit).await?;
+                let credit_update = current_stop_bit
+                    .multiply(sibling_credit, c1, record_id)
+                    .await?;
                 if first_iteration {
                     Ok(credit_update + current_credit)
                 } else {
@@ -119,7 +118,9 @@ where
             if i < next_end {
                 let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
-                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
+                    current_stop_bit
+                        .multiply(sibling_stop_bit, c2, record_id)
+                        .await
                 });
             }
         }
@@ -166,7 +167,7 @@ pub async fn do_the_binary_tree_thing<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let num_rows = values.len();
 
@@ -194,12 +195,16 @@ where
             let current_stop_bit = &stop_bits[i];
             let sibling_value = &values[i + step_size];
             value_update_futures.push(async move {
-                S::multiply(c1, record_id, current_stop_bit, sibling_value).await
+                current_stop_bit
+                    .multiply(sibling_value, c1, record_id)
+                    .await
             });
             if i < next_end {
                 let sibling_stop_bit = &stop_bits[i + step_size];
                 stop_bit_futures.push(async move {
-                    S::multiply(c2, record_id, current_stop_bit, sibling_stop_bit).await
+                    current_stop_bit
+                        .multiply(sibling_stop_bit, c2, record_id)
+                        .await
                 });
             }
         }

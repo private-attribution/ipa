@@ -3,9 +3,10 @@ mod sharing;
 mod world;
 
 pub mod circuit;
+pub mod config;
+pub mod ipa;
 pub mod logging;
 pub mod metrics;
-pub mod net;
 pub mod transport;
 
 use crate::{
@@ -15,6 +16,10 @@ use crate::{
     secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, IntoShares},
 };
 use futures::{future::try_join_all, TryFuture};
+pub use ipa::{
+    generate_random_user_records_in_reverse_chronological_order, test_ipa,
+    update_expected_output_for_user, IpaSecurityModel,
+};
 use rand::{distributions::Standard, prelude::Distribution, rngs::mock::StepRng};
 pub use sharing::{get_bits, into_bits, Reconstruct};
 use std::fmt::Debug;

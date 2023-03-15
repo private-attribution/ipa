@@ -6,7 +6,7 @@ use crate::{
         context::Context,
         RecordId,
     },
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 /// Secure XOR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
@@ -17,7 +17,7 @@ pub async fn xor<F, C, S>(ctx: C, record_id: RecordId, a: &S, b: &S) -> Result<S
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     xor_sparse(ctx, record_id, a, b, ZeroPositions::NONE).await
 }
@@ -35,9 +35,9 @@ pub async fn xor_sparse<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
-    let ab = S::multiply_sparse(ctx, record_id, a, b, zeros_at).await?;
+    let ab = a.multiply_sparse(b, ctx, record_id, zeros_at).await?;
     Ok(-(ab * F::from(2)) + a + b)
 }
 

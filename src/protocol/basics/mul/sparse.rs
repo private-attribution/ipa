@@ -108,7 +108,10 @@ impl ZeroPositions {
     pub fn check<F: Field>(self, role: Role, which: &str, v: &Replicated<F>) {
         #[cfg(debug_assertions)]
         {
-            use crate::helpers::Direction::Right;
+            use crate::{
+                helpers::Direction::Right, secret_sharing::replicated::ReplicatedSecretSharing,
+            };
+
             let flags = <[bool; 3]>::from(self);
             if flags[role as usize] {
                 assert_eq!(
@@ -198,10 +201,7 @@ pub(in crate::protocol) mod test {
         },
         rand::{thread_rng, Rng},
         secret_sharing::{
-            replicated::{
-                malicious::AdditiveShare as MaliciousReplicated,
-                semi_honest::AdditiveShare as Replicated,
-            },
+            replicated::{semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing},
             IntoShares,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
@@ -385,15 +385,9 @@ pub(in crate::protocol) mod test {
                 let v2 = SparseField::new(rng.gen::<Fp31>(), b);
                 let result = world
                     .semi_honest((v1, v2), |ctx, (v_a, v_b)| async move {
-                        Replicated::multiply_sparse(
-                            ctx.set_total_records(1),
-                            RECORD_0,
-                            &v_a,
-                            &v_b,
-                            (a, b),
-                        )
-                        .await
-                        .unwrap()
+                        v_a.multiply_sparse(&v_b, ctx.set_total_records(1), RECORD_0, (a, b))
+                            .await
+                            .unwrap()
                     })
                     .await;
                 check_output_zeros(&result, (a, b));
@@ -426,15 +420,10 @@ pub(in crate::protocol) mod test {
                         .await
                         .unwrap();
 
-                        let m_ab = MaliciousReplicated::multiply_sparse(
-                            m_ctx,
-                            RECORD_0,
-                            &m_a,
-                            &m_b,
-                            (a, b),
-                        )
-                        .await
-                        .unwrap();
+                        let m_ab = m_a
+                            .multiply_sparse(&m_b, m_ctx, RECORD_0, (a, b))
+                            .await
+                            .unwrap();
 
                         v.validate(m_ab).await.unwrap()
                     })

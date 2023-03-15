@@ -21,6 +21,7 @@ use crate::{
 };
 use embed_doc_image::embed_doc_image;
 
+#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
 /// This is an implementation of `OptGenPerm` (Algorithm 12) described in:
 /// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
 /// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
@@ -112,7 +113,6 @@ where
     Ok(composed_less_significant_bits_permutation)
 }
 
-#[allow(dead_code)]
 #[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
 /// Returns a sort permutation in a malicious context.
 /// This runs sort in a malicious context. The caller is responsible to validate the accumulator contents and downgrade context to Semi-honest before calling this function
@@ -218,8 +218,7 @@ where
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        bits::{BitArray40, Fp2Array},
-        ff::{Field, Fp31},
+        ff::{Field, Fp31, GaloisField, Gf40Bit},
         protocol::{
             context::Context,
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
@@ -253,7 +252,7 @@ mod tests {
                 let local_lists =
                     convert_all_bits_local::<Fp31, _>(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
+                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
 
@@ -289,7 +288,7 @@ mod tests {
             .semi_honest(match_keys.clone(), |ctx, mk_shares| async move {
                 let local_lists = convert_all_bits_local(ctx.role(), mk_shares.into_iter());
                 let converted_shares =
-                    convert_all_bits(&ctx, &local_lists, BitArray40::BITS, NUM_MULTI_BITS)
+                    convert_all_bits(&ctx, &local_lists, Gf40Bit::BITS, NUM_MULTI_BITS)
                         .await
                         .unwrap();
 

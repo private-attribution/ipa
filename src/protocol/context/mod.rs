@@ -11,7 +11,7 @@ mod prss;
 mod semi_honest;
 
 pub(super) use malicious::SpecialAccessToMaliciousContext;
-pub use malicious::{MaliciousContext, NoRecord, UpgradeContext, UpgradeToMalicious};
+pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
 pub use semi_honest::SemiHonestContext;
 
@@ -75,7 +75,7 @@ mod tests {
         protocol::{malicious::Step::MaliciousProtocol, prss::SharedRandomness, RecordId},
         secret_sharing::replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::AdditiveShare as Replicated,
+            semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
         },
         telemetry::metrics::{INDEXED_PRSS_GENERATED, RECORDS_SENT, SEQUENTIAL_PRSS_GENERATED},
     };
@@ -89,17 +89,17 @@ mod tests {
     use super::*;
     use crate::test_fixture::{Reconstruct, Runner, TestWorld, TestWorldConfig};
 
-    trait AsReplicated<F: Field> {
-        fn left(&self) -> F;
-        fn right(&self) -> F;
+    trait AsReplicatedTestOnly<F: Field> {
+        fn l(&self) -> F;
+        fn r(&self) -> F;
     }
 
-    impl<F: Field> AsReplicated<F> for Replicated<F> {
-        fn left(&self) -> F {
+    impl<F: Field> AsReplicatedTestOnly<F> for Replicated<F> {
+        fn l(&self) -> F {
             (self as &Replicated<F>).left()
         }
 
-        fn right(&self) -> F {
+        fn r(&self) -> F {
             (self as &Replicated<F>).right()
         }
     }
@@ -108,12 +108,12 @@ mod tests {
     /// Malicious context intentionally disallows access to `x` without validating first and
     /// here it does not matter at all. It needs just some value to send (any value would do just
     /// fine)
-    impl<F: Field> AsReplicated<F> for MaliciousReplicated<F> {
-        fn left(&self) -> F {
+    impl<F: Field> AsReplicatedTestOnly<F> for MaliciousReplicated<F> {
+        fn l(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().left()
         }
 
-        fn right(&self) -> F {
+        fn r(&self) -> F {
             (self as &MaliciousReplicated<F>).rx().right()
         }
     }
@@ -124,7 +124,7 @@ mod tests {
         F: Field,
         Standard: Distribution<F>,
         C: Context,
-        S: AsReplicated<F>,
+        S: AsReplicatedTestOnly<F>,
     {
         let ctx = ctx.narrow("metrics");
         let (left_peer, right_peer) = (
@@ -142,17 +142,17 @@ mod tests {
         let channel = ctx.mesh();
 
         let (_, right_share) = try_join!(
-            channel.send(left_peer, record_id, share.left() - l - seq_l),
+            channel.send(left_peer, record_id, share.l() - l - seq_l),
             channel.receive::<F>(right_peer, record_id),
         )
         .unwrap();
 
-        Replicated::new(share.left(), right_share + r + seq_r)
+        Replicated::new(share.l(), right_share + r + seq_r)
     }
 
     #[tokio::test]
     async fn semi_honest_metrics() {
-        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics()).await;
         let input = (0..10u128).map(Fp31::from).collect::<Vec<_>>();
         let input_len = input.len();
 
@@ -206,7 +206,7 @@ mod tests {
 
     #[tokio::test]
     async fn malicious_metrics() {
-        let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics()).await;
         let input = vec![Fp31::from(0u128), Fp31::from(1u128)];
         let input_len = input.len();
 

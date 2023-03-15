@@ -6,7 +6,7 @@ use std::{
     io::{stdin, BufRead, BufReader, Read},
 };
 
-use crate::{bits::Fp2Array, ipa_test_input, test_fixture::input::GenericReportTestInput};
+use crate::{ff::GaloisField, ipa_test_input, test_fixture::input::GenericReportTestInput};
 use std::path::PathBuf;
 
 pub trait InputItem {
@@ -26,7 +26,7 @@ impl InputItem for u64 {
     }
 }
 
-impl<F: Field, MK: Fp2Array, BK: Fp2Array> InputItem for GenericReportTestInput<F, MK, BK> {
+impl<F: Field, MK: GaloisField, BK: GaloisField> InputItem for GenericReportTestInput<F, MK, BK> {
     fn from_str(s: &str) -> Self {
         if let [match_key, is_trigger_bit, breakdown_key, trigger_value] =
             s.splitn(4, ',').collect::<Vec<_>>()[..]

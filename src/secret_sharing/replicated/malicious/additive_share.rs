@@ -1,16 +1,16 @@
 use crate::{
-    bits::Serializable,
-    ff::Field,
+    ff::{Field, Serializable},
     protocol::{
         basics::Reveal,
-        context::{Context, MaliciousContext, NoRecord},
+        context::{Context, MaliciousContext},
         sort::{
             generate_permutation::ShuffledPermutationWrapper, ShuffleRevealStep::RevealPermutation,
         },
+        NoRecord,
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
-        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+        Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
 };
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 
-impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
+impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`
@@ -265,13 +265,15 @@ mod tests {
     use crate::{
         ff::{Field, Fp31},
         helpers::Role,
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::{
-            replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare, IntoShares,
+            replicated::{
+                semi_honest::AdditiveShare as SemiHonestAdditiveShare, ReplicatedSecretSharing,
+            },
+            IntoShares,
         },
         test_fixture::Reconstruct,
     };
-    use proptest::prelude::Rng;
 
     #[test]
     #[allow(clippy::many_single_char_names)]

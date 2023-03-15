@@ -1,15 +1,15 @@
 use crate::{
-    bits::{Fp2Array, Serializable},
+    ff::{GaloisField, Serializable},
     secret_sharing::SharedValue,
 };
 use bitvec::prelude::{BitArr, Lsb0};
 use generic_array::GenericArray;
-use typenum::{Unsigned, U1, U5, U8};
+use typenum::{Unsigned, U1, U4, U5};
 
 // Bit store type definitions
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
+type U8_4 = BitArr!(for 32, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
-type U8_8 = BitArr!(for 64, in u8, Lsb0);
 
 /// The implementation below cannot be constrained without breaking Rust's
 /// macro processor.  This noop ensures that the instance of `GenericArray` used
@@ -19,7 +19,7 @@ fn assert_copy<C: Copy>(c: C) -> C {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -38,7 +38,9 @@ macro_rules! bit_array_impl {
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
-            impl Fp2Array for $name {
+            impl GaloisField for $name {
+                const POLYNOMIAL: u128 = $polynomial;
+
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
@@ -51,95 +53,151 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            impl std::ops::BitAnd for $name {
-                type Output = Self;
-                fn bitand(self, rhs: Self) -> Self::Output {
-                    Self(self.0 & rhs.0)
-                }
-            }
-
-            impl std::ops::BitAndAssign for $name {
-                fn bitand_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() &= rhs.0;
-                }
-            }
-
-            impl std::ops::BitOr for $name {
-                type Output = Self;
-                fn bitor(self, rhs: Self) -> Self::Output {
-                    Self(self.0 | rhs.0)
-                }
-            }
-
-            impl std::ops::BitOrAssign for $name {
-                fn bitor_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() |= rhs.0;
-                }
-            }
-
-            impl std::ops::BitXor for $name {
-                type Output = Self;
-                fn bitxor(self, rhs: Self) -> Self::Output {
-                    Self(self.0 ^ rhs.0)
-                }
-            }
-
-            impl std::ops::BitXorAssign for $name {
-                fn bitxor_assign(&mut self, rhs: Self) {
-                    *self.0.as_mut_bitslice() ^= rhs.0;
-                }
-            }
-
-            impl std::ops::Not for $name {
-                type Output = Self;
-                fn not(self) -> Self::Output {
-                    Self(!self.0)
-                }
-            }
-
+            // Addition in Galois fields.
+            //
+            // You can think of its structure as similar to polynomials, where all of the coefficients belong to the original field;
+            // meaning they are either 0 or 1.
+            //
+            // Here's an example in GF(2^8)
+            // Let a = x^7 + x^4 + x + 1
+            // We will write that as 10010011
+            // (big-endian notation, where each bit is a coefficient from the polynomial)
+            //
+            // Let b = x^7 + x^6 + x^3 + x
+            // We will write that as 11001010
+            //
+            // Addition of polynomials is trivial.
+            // (x^7 + x^4 + x + 1) + (x^7 + x^6 + x^3 + x)
+            // = x^6 + x^4 + x^3 + 1
+            // = 01011001
+            // Since the coefficients are in GF(2), we can just XOR these bitwise representations.
+            // Note for x^7 + x^7 = 0 because 1 + 1 = 0 in GF(2)
             impl std::ops::Add for $name {
                 type Output = Self;
                 fn add(self, rhs: Self) -> Self::Output {
-                    self ^ rhs
+                    Self(self.0 ^ rhs.0)
                 }
             }
 
             impl std::ops::AddAssign for $name {
                 fn add_assign(&mut self, rhs: Self) {
-                    *self ^= rhs;
+                    *self.0.as_mut_bitslice() ^= rhs.0;
                 }
             }
 
             impl std::ops::Sub for $name {
                 type Output = Self;
                 fn sub(self, rhs: Self) -> Self::Output {
-                    self ^ rhs
+                    self + rhs
                 }
             }
 
             impl std::ops::SubAssign for $name {
                 fn sub_assign(&mut self, rhs: Self) {
-                    *self ^= rhs;
+                    *self += rhs;
                 }
             }
 
+            // This is an implementation of a Galois field.
+            // A Galois field of order 2^8 is often written as GF(2^8)
+            //
+            // Multiplication is a bit more complex:
+            //
+            // First we need to perform "bitwise multiplication" of the two numbers:
+            //            10010011
+            //          x 11001010
+            //         -----------
+            //            00000000
+            //           10010011
+            //          00000000
+            //         10010011
+            //        00000000
+            //       00000000
+            //      10010011
+            //   + 10010011
+            //   -----------------
+            //     110100011111110
+            //
+            // Notice that addition here is just XOR, there are no carries. Think about the analogy to polynomials:
+            //
+            // The first part, where the original bit sequence is just bit-shifted can be conceptualized as distributing terms:
+            // (x^7 + x^4 + x + 1) * (x^7 + x^6 + x^3 + x)
+            //
+            // Next, the terms of a given order are combined by adding the coefficients (in this case mod 2).
+            // There are no "carries" here, since adding x^6 + x^6 does not yield x^7.
+            //
+            // So the answer is:
+            // x^14 + x^13 + 0 + x^11 + 0 + 0 + 0 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 0
+            //
+            // Finally, we need to reduce this polynomial to something of the same size as the original inputs.
+            // For this, we use an irreducible polynomial of order 8. Let's say we've chosen x^8 + x^4 + x^3 + x + 1
+            // Any irreducible polynomial of order 8 will do, but this is the one we've chosen as a constant for our implementation of GF(2^8)
+            //
+            // We assume that: x^8 + x^4 + x^3 + x + 1 = 0
+            //
+            // Now there are roots of this polynomial, but no *real* roots, only complex roots. Let's call one of those roots α.
+            // Our Galois field is really represented by polynomials of α. So our input a was:
+            // α^7 + α^4 + α + 1
+            //
+            // Since we know that x^8 + x^4 + x^3 + x + 1 = 0, we can distribute out terms of this structure and replace them with zero.
+            //
+            // So the result of our multipliation was:
+            // 110100011111110
+            // which you can think of as:
+            // x^14 + x^13 + 0 + x^11 + 0 + 0 + 0 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 0
+            //
+            // We start by reducing the degree of the highest order element.
+            // We know that x^6 * (x^8 + x^4 + x^3 + x + 1) = 0, so we can subtract this value without changing anything
+            //
+            // The result is the same as
+            //      110100011111110
+            //  XOR 10001101
+            //
+            // Basically just bit-shift the irreducible polynomial up 6 bits and XOR it.
+            //
+            // We can continue this process until we have reached a polynomial where all terms are less than x^8.
+            //
+            // This defines a field, since all of the following properties hold:
+            //
+            // 1. Closure: For any two elements a and b in the field, a+b and ab are also in the field.
+            // 2. Associativity: Addition and multiplication are both associative, meaning that (a+b)+c = a+(b+c) and (ab)c = a(bc) for any elements a,b, and c in the field.
+            // 3. Commutativity: Addition and multiplication are both commutative, meaning that a+b = b+a and ab = ba for any elements a and b in the field.
+            // 4. Identity elements: There exist unique elements 0 and 1 in the field such that for any element a in the field, a+0 = a and a×1 = a.
+            // 5. Inverse elements: For any non-zero element a in the field, there exists a unique element -a such that a+(-a) = 0, and there exists a unique element a^(-1) such that a×a^(-1) = 1.
+            // 6. Distributivity: Multiplication distributes over addition, meaning that a(b+c) = ab+ac for any elements a, b, and c in the field.
+            //
+            // Tests of Associativity, Commutativity and Distributivity are below.
             impl std::ops::Mul for $name {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
-                    self & rhs
+                    debug_assert!(2 * $bits < u128::BITS);
+                    let a = <Self as GaloisField>::as_u128(self);
+                    let mut product = 0;
+                    for i in 0..Self::BITS {
+                        let bit = u128::from(rhs[i]);
+                        product ^= bit * (a << i);
+                    }
+
+                    let poly = <Self as GaloisField>::POLYNOMIAL;
+                    while (u128::BITS - product.leading_zeros()) > $bits {
+                        let bits_to_shift = poly.leading_zeros() - product.leading_zeros();
+                        product ^= (poly << bits_to_shift);
+                    }
+
+                    <Self as GaloisField>::truncate_from(product)
                 }
             }
 
             impl std::ops::MulAssign for $name {
                 fn mul_assign(&mut self, rhs: Self) {
-                    *self &= rhs;
+                    *self = *self * rhs;
                 }
             }
 
             impl std::ops::Neg for $name {
                 type Output = Self;
                 fn neg(self) -> Self::Output {
-                    !self
+                    Self(self.0)
                 }
             }
 
@@ -195,7 +253,7 @@ macro_rules! bit_array_impl {
                 }
             }
 
-            /// Compares two `BitArray`s by their representational ordering
+            /// Compares two Galois Field elements by their representational ordering
             ///
             /// The original implementation of `Ord` for `bitvec::BitArray` compares two arrays
             /// from LSB, and at the first index where the arrays differ, the array with the high
@@ -229,7 +287,7 @@ macro_rules! bit_array_impl {
             #[cfg(all(test, not(feature = "shuttle")))]
             mod tests {
                 use super::*;
-                use crate::{bits::Fp2Array, secret_sharing::SharedValue};
+                use crate::{ff::GaloisField, secret_sharing::SharedValue};
                 use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 
@@ -270,29 +328,54 @@ macro_rules! bit_array_impl {
                 }
 
                 #[test]
-                pub fn boolean_ops() {
+                pub fn basic_ops() {
                     let mut rng = thread_rng();
                     let a = rng.gen::<u128>();
                     let b = rng.gen::<u128>();
 
-                    let and = $name::truncate_from(a & b);
-                    let or = $name::truncate_from(a | b);
                     let xor = $name::truncate_from(a ^ b);
-                    let not = $name::truncate_from(!a);
 
                     let a = $name::truncate_from(a);
                     let b = $name::truncate_from(b);
 
-                    assert_eq!(a & b, and);
-                    assert_eq!(a | b, or);
-                    assert_eq!(a ^ b, xor);
-                    assert_eq!(!a, not);
-
                     assert_eq!(a + b, xor);
                     assert_eq!(a - b, xor);
-                    assert_eq!(a * b, and);
-                    assert_eq!(-(-a * -b), or);
-                    assert_eq!(-a, not);
+                    assert_eq!(-a, a);
+                    assert_eq!(a + (-a), $name::ZERO);
+                }
+
+                #[test]
+                pub fn distributive_property_of_multiplication() {
+                    let mut rng = thread_rng();
+                    let a = $name::truncate_from(rng.gen::<u128>());
+                    let b = $name::truncate_from(rng.gen::<u128>());
+                    let r = $name::truncate_from(rng.gen::<u128>());
+                    let a_plus_b = a + b;
+                    let r_a_plus_b = r * a_plus_b;
+                    assert_eq!(r_a_plus_b, r * a + r * b);
+                }
+
+                #[test]
+                pub fn commutative_property_of_multiplication() {
+                    let mut rng = thread_rng();
+                    let a = $name::truncate_from(rng.gen::<u128>());
+                    let b = $name::truncate_from(rng.gen::<u128>());
+                    let ab = a * b;
+                    // This stupid hack is here to FORCE the compiler to not just optimize this away and really run the test
+                    let b_copy = $name::truncate_from(b.as_u128());
+                    let ba = b_copy * a;
+                    assert_eq!(ab, ba);
+                }
+
+                #[test]
+                pub fn associative_property_of_multiplication() {
+                    let mut rng = thread_rng();
+                    let a = $name::truncate_from(rng.gen::<u128>());
+                    let b = $name::truncate_from(rng.gen::<u128>());
+                    let c = $name::truncate_from(rng.gen::<u128>());
+                    let bc = b * c;
+                    let ab = a * b;
+                    assert_eq!(a * bc, ab * c);
                 }
 
                 #[test]
@@ -335,6 +418,32 @@ macro_rules! bit_array_impl {
     };
 }
 
-bit_array_impl!(bit_array_64, BitArray64, U8_8, 64, U8);
-bit_array_impl!(bit_array_40, BitArray40, U8_5, 40, U5);
-bit_array_impl!(bit_array_8, BitArray8, U8_1, 8, U1);
+bit_array_impl!(
+    bit_array_40,
+    Gf40Bit,
+    U8_5,
+    40,
+    U5,
+    // x^40 + x^5 + x^3 + x^2 + 1
+    0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
+);
+
+bit_array_impl!(
+    bit_array_32,
+    Gf32Bit,
+    U8_4,
+    32,
+    U4,
+    // x^32 + x^7 + x^3 + x^2 + 1
+    0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
+);
+
+bit_array_impl!(
+    bit_array_8,
+    Gf8Bit,
+    U8_1,
+    8,
+    U1,
+    // x^8 + x^4 + x^3 + x + 1
+    0b1_0001_1011_u128
+);

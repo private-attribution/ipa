@@ -382,8 +382,7 @@ impl<'s> Deref for OrderedStream<'s> {
 mod test {
     use super::OrderingSender;
     use crate::{
-        bits::Serializable,
-        ff::{Fp31, Fp32BitPrime},
+        ff::{Fp31, Fp32BitPrime, Serializable},
         rand::thread_rng,
     };
     use futures::{

@@ -1,5 +1,3 @@
-pub mod discovery;
-
 mod client;
 mod http_serde;
 mod server;

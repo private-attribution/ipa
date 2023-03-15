@@ -3,17 +3,13 @@ use crate::{
     ff::Field,
     protocol::{
         basics::{Reshare, Reveal},
-        context::{Context, MaliciousContext, NoRecord},
+        context::{Context, MaliciousContext},
         malicious::MaliciousValidator,
         sort::{
-            bit_permutation::bit_permutation,
             ShuffleRevealStep::{RevealPermutation, ShufflePermutation},
-            SortStep::{
-                ApplyInv, BitPermutationStep, ComposeStep, ShuffleRevealPermutation, SortKeys,
-            },
+            SortStep::{ShuffleRevealPermutation, SortKeys},
         },
-        IpaProtocolStep::Sort,
-        RecordId,
+        NoRecord, RecordId,
     },
     secret_sharing::{
         replicated::{
@@ -25,13 +21,10 @@ use crate::{
 };
 
 use super::{
-    compose::compose,
     generate_permutation_opt::{generate_permutation_opt, malicious_generate_permutation_opt},
-    secureapplyinv::secureapplyinv,
     shuffle::{get_two_of_three_random_permutations, shuffle_shares},
 };
 use crate::protocol::{context::SemiHonestContext, sort::ShuffleRevealStep::GeneratePermutation};
-use embed_doc_image::embed_doc_image;
 
 #[derive(Debug)]
 /// This object contains the output of `shuffle_and_reveal_permutation`
@@ -126,94 +119,6 @@ pub(super) async fn malicious_shuffle_and_reveal_permutation<F: Field>(
     })
 }
 
-#[embed_doc_image("semi_honest_sort", "images/sort/semi-honest-sort.png")]
-/// This is an implementation of `GenPerm` (Algorithm 6) described in:
-/// "An Efficient Secure Three-Party Sorting Protocol with an Honest Majority"
-/// by K. Chida, K. Hamada, D. Ikarashi, R. Kikuchi, N. Kiribuchi, and B. Pinkas
-/// <https://eprint.iacr.org/2019/695.pdf>.
-/// This protocol generates permutation of a stable sort for the given shares of inputs.
-///
-/// Steps
-/// For the 0th bit
-/// 1. Get replicated shares in Field using modulus conversion
-/// 2. Compute bit permutation that sorts 0th bit
-/// For 1st to N-1th bit of input share
-/// 1. Shuffle and reveal the i-1th composition
-/// 2. Get replicated shares in Field using modulus conversion
-/// 3. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
-/// 4  Compute bit permutation that sorts ith bit
-/// 5. Compute ith composition by composing i-1th composition on ith permutation
-/// In the end, n-1th composition is returned. This is the permutation which sorts the inputs
-///
-/// ![Generate sort permutation steps][semi_honest_sort]
-pub async fn generate_permutation<F>(
-    ctx: SemiHonestContext<'_>,
-    sort_keys: &[Vec<Replicated<F>>],
-    num_bits: u32,
-) -> Result<Vec<Replicated<F>>, Error>
-where
-    F: Field,
-{
-    let ctx_0 = ctx.narrow(&Sort(0));
-    assert_eq!(sort_keys.len(), num_bits as usize);
-
-    let bit_0_permutation =
-        bit_permutation(ctx_0.narrow(&BitPermutationStep), &sort_keys[0]).await?;
-
-    let mut composed_less_significant_bits_permutation = bit_0_permutation;
-    for bit_num in 1..num_bits {
-        let ctx_bit = ctx.narrow(&Sort(bit_num.try_into().unwrap()));
-
-        let revealed_and_random_permutations = shuffle_and_reveal_permutation(
-            ctx_bit.narrow(&ShuffleRevealPermutation),
-            composed_less_significant_bits_permutation,
-        )
-        .await?;
-
-        let bit_i_sorted_by_less_significant_bits = secureapplyinv(
-            ctx_bit.narrow(&ApplyInv),
-            sort_keys[bit_num as usize].clone(),
-            (
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .0
-                    .as_slice(),
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .1
-                    .as_slice(),
-            ),
-            &revealed_and_random_permutations.revealed,
-        )
-        .await?;
-
-        let bit_i_permutation = bit_permutation(
-            ctx_bit.narrow(&BitPermutationStep),
-            &bit_i_sorted_by_less_significant_bits,
-        )
-        .await?;
-
-        let composed_i_permutation = compose(
-            ctx_bit.narrow(&ComposeStep),
-            (
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .0
-                    .as_slice(),
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .1
-                    .as_slice(),
-            ),
-            &revealed_and_random_permutations.revealed,
-            bit_i_permutation,
-        )
-        .await?;
-        composed_less_significant_bits_permutation = composed_i_permutation;
-    }
-    Ok(composed_less_significant_bits_permutation)
-}
-
 /// This function takes in a semihonest context and sort keys, generates a sort permutation, shuffles and reveals it and
 /// returns both shuffle-revealed permutation and 2/3 randoms which were used to shuffle the permutation
 /// The output of this can be applied to any of semihonest/malicious context
@@ -253,113 +158,6 @@ pub async fn malicious_generate_permutation_and_reveal_shuffled<F: Field>(
     .await
 }
 
-#[allow(dead_code)]
-#[embed_doc_image("malicious_sort", "images/sort/malicious-sort.png")]
-/// Returns a sort permutation in a malicious context.
-/// This runs sort in a malicious context. The caller is responsible to validate the accumulator contents and downgrade context to Semi-honest before calling this function
-/// The function takes care of upgrading and validating while the sort protocol runs.
-/// It then returns a semi honest context with output in Replicated format. The caller should then upgrade the output and context before moving forward
-///
-/// Steps
-/// 1. [Malicious Special] Upgrade the context from semihonest to malicious and get a validator
-/// 2. [Malicious Special] Upgrade 0th sort bit keys
-/// 3. Compute bit permutation that sorts 0th bit
-///
-/// For 1st to N-1th bit of input share
-/// 1. i. Shuffle the i-1th composition
-///   ii. [Malicious Special] Validate the accumulator contents
-///  iii. [Malicious Special] Malicious reveal
-///   iv. [Malicious Special] Downgrade context to semihonest
-/// 2. i. [Malicious Special] Upgrade ith sort bit keys
-///   ii. Sort ith bit based on i-1th bits by applying i-1th composition on ith bit
-/// 3. Compute bit permutation that sorts ith bit
-/// 4. Compute ith composition by composing i-1th composition on ith permutation
-/// In the end, following is returned
-///    i. n-1th composition: This is the permutation which sorts the inputs
-///   ii. Validator which can be used to validate the leftover items in the accumulator
-///
-/// ![Malicious sort permutation steps][malicious_sort]
-/// # Panics
-/// If sort keys dont have num of bits same as `num_bits`
-/// # Errors
-pub async fn malicious_generate_permutation<'a, F>(
-    sh_ctx: SemiHonestContext<'a>,
-    sort_keys: &[Vec<Replicated<F>>],
-    num_bits: u32,
-) -> Result<(MaliciousValidator<'a, F>, Vec<MaliciousReplicated<F>>), Error>
-where
-    F: Field,
-{
-    let mut malicious_validator = MaliciousValidator::new(sh_ctx.clone());
-    let mut m_ctx_bit = malicious_validator.context();
-    assert_eq!(sort_keys.len(), num_bits as usize);
-
-    let upgraded_sort_keys = m_ctx_bit.upgrade(sort_keys[0].clone()).await?;
-    let bit_0_permutation =
-        bit_permutation(m_ctx_bit.narrow(&BitPermutationStep), &upgraded_sort_keys).await?;
-
-    let mut composed_less_significant_bits_permutation = bit_0_permutation;
-    for bit_num in 1..num_bits {
-        let revealed_and_random_permutations = malicious_shuffle_and_reveal_permutation(
-            m_ctx_bit.narrow(&ShuffleRevealPermutation),
-            composed_less_significant_bits_permutation,
-            malicious_validator,
-        )
-        .await?;
-
-        malicious_validator =
-            MaliciousValidator::new(sh_ctx.narrow(&Sort(bit_num.try_into().unwrap())));
-        m_ctx_bit = malicious_validator.context();
-        let upgraded_sort_keys = m_ctx_bit
-            .upgrade(sort_keys[bit_num as usize].clone())
-            .await?;
-        let bit_i_sorted_by_less_significant_bits = secureapplyinv(
-            m_ctx_bit.narrow(&ApplyInv),
-            upgraded_sort_keys,
-            (
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .0
-                    .as_slice(),
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .1
-                    .as_slice(),
-            ),
-            &revealed_and_random_permutations.revealed,
-        )
-        .await?;
-
-        let bit_i_permutation = bit_permutation(
-            m_ctx_bit.narrow(&BitPermutationStep),
-            &bit_i_sorted_by_less_significant_bits,
-        )
-        .await?;
-
-        let composed_i_permutation = compose(
-            m_ctx_bit.narrow(&ComposeStep),
-            (
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .0
-                    .as_slice(),
-                revealed_and_random_permutations
-                    .randoms_for_shuffle
-                    .1
-                    .as_slice(),
-            ),
-            &revealed_and_random_permutations.revealed,
-            bit_i_permutation,
-        )
-        .await?;
-        composed_less_significant_bits_permutation = composed_i_permutation;
-    }
-    Ok((
-        malicious_validator,
-        composed_less_significant_bits_permutation,
-    ))
-}
-
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::iter::zip;
@@ -367,7 +165,7 @@ mod tests {
     use rand::seq::SliceRandom;
 
     use crate::{
-        bits::Fp2Array,
+        ff::GaloisField,
         protocol::{
             modulus_conversion::{convert_all_bits, convert_all_bits_local},
             sort::generate_permutation_opt::generate_permutation_opt,
