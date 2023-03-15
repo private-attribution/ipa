@@ -275,7 +275,7 @@ macro_rules! bit_array_impl {
             impl Serializable for $name {
                 type Size = $arraylen;
 
-                fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+                fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
                     buf.copy_from_slice(self.0.as_raw_slice());
                 }
 

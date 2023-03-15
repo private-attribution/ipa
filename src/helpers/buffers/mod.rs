@@ -1,4 +1,5 @@
 mod ordering_mpsc;
+mod ordering_sender;
 mod unordered_receiver;
 
 pub use ordering_mpsc::{ordering_mpsc, OrderingMpscReceiver, OrderingMpscSender};

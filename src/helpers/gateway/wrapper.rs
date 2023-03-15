@@ -13,7 +13,7 @@ pub(super) struct Wrapper(pub [u8; Self::SIZE]);
 impl Serializable for Wrapper {
     type Size = U8;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf.copy_from_slice(&self.0);
     }
 
@@ -27,7 +27,7 @@ impl Message for Wrapper {}
 impl Wrapper {
     const SIZE: usize = MESSAGE_PAYLOAD_SIZE_BYTES;
 
-    pub fn wrap<M: Message>(v: M) -> Self {
+    pub fn wrap<M: Message>(v: &M) -> Self {
         let mut buf = GenericArray::default();
         v.serialize(&mut buf);
         let mut this = [0_u8; Self::SIZE];

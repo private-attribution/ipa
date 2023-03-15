@@ -126,7 +126,7 @@ use crate::helpers::{ChannelId, MessagePayloadArrayLen};
 impl Serializable for PublicKeyChunk {
     type Size = MessagePayloadArrayLen;
 
-    fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
         buf.copy_from_slice(&self.0);
     }
 

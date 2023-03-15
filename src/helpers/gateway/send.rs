@@ -71,7 +71,7 @@ impl<M: Message> SendingEnd<M> {
         );
 
         self.ordering_tx
-            .send(record_id.into(), Wrapper::wrap(msg))
+            .send(record_id.into(), Wrapper::wrap(&msg))
             .await
             .map_err(|e| Error::send_error(self.channel_id.clone(), e))
     }
