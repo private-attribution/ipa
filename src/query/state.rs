@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![cfg(never)]
 
 use crate::{
     helpers::{query::QueryConfig, Gateway},

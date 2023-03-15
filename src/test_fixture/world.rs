@@ -87,7 +87,7 @@ impl TestWorld {
     /// # Panics
     /// Never.
     #[must_use]
-    pub fn new_with(config: TestWorldConfig) -> TestWorld {
+    pub fn new_with(config: TestWorldConfig) -> Self {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);

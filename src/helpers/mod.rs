@@ -77,9 +77,9 @@ impl Debug for HelperIdentity {
             f,
             "{}",
             match self.id {
-                1 => "1",
-                2 => "2",
-                3 => "3",
+                1 => "A",
+                2 => "B",
+                3 => "C",
                 _ => unreachable!(),
             }
         )

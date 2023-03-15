@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![cfg(never)]
 
 use std::{
     future::Future,

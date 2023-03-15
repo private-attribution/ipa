@@ -139,6 +139,8 @@ pub trait Transport: Clone + Send + Sync + 'static {
 pub enum TransportImpl {
     #[cfg(any(test, feature = "test-fixture"))]
     InMemory(std::sync::Weak<crate::test_fixture::network::InMemoryTransport>),
+    #[cfg(not(any(test, feature = "test-fixture")))]
+    RealWorld,
 }
 
 #[async_trait]
@@ -154,8 +156,7 @@ impl Transport for TransportImpl {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(ref inner) => inner.identity(),
             #[cfg(not(any(test, feature = "test-fixture")))]
-            // https://github.com/rust-lang/rust/issues/78123
-            _ => unreachable!(),
+            TransportImpl::RealWorld => { unimplemented!() }
         }
     }
 
@@ -177,7 +178,7 @@ impl Transport for TransportImpl {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
             #[cfg(not(any(test, feature = "test-fixture")))]
-            _ => unreachable!(),
+            TransportImpl::RealWorld => { unimplemented!() }
         }
     }
 
@@ -190,7 +191,7 @@ impl Transport for TransportImpl {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(inner) => inner.receive(from, route),
             #[cfg(not(any(test, feature = "test-fixture")))]
-            _ => unreachable!(),
+            TransportImpl::RealWorld => { unimplemented!() }
         }
     }
 }

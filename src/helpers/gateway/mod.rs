@@ -70,14 +70,13 @@ impl Gateway {
         let (tx, maybe_recv) = self
             .senders
             .get_or_create(channel_id, self.config.send_outstanding);
-        // I don't understand why rustc complains about unused variables there
-        #[allow(unused)]
         if let Some(recv) = maybe_recv {
             tokio::spawn({
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
                 async move {
-                    transport.send(&channel_id, recv).await;
+                    transport.send(&channel_id, recv).await
+                        .expect("{channel_id:?} receiving end should be accepted by transport");
                 }
             });
         }
