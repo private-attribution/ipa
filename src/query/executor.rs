@@ -12,7 +12,9 @@ use crate::{
         ipa::{ipa, IPAInputRow},
         BreakdownKey, MatchKey, Step,
     },
-    secret_sharing::{replicated::semi_honest::AdditiveShare as Replicated, Arithmetic},
+    secret_sharing::{
+        replicated::semi_honest::AdditiveShare as Replicated, Linear as LinearSecretSharing,
+    },
     task::JoinHandle,
 };
 use futures_util::StreamExt;
@@ -45,7 +47,7 @@ where
     }
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: GaloisField> Result
+impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> Result
     for Vec<MCAggregateCreditOutputRow<F, T, BK>>
 where
     T: Serializable,

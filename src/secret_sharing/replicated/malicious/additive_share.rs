@@ -10,7 +10,7 @@ use crate::{
     },
     secret_sharing::{
         replicated::semi_honest::AdditiveShare as SemiHonestAdditiveShare,
-        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+        Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
 };
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 
-impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
+impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
 /// A trait that is implemented for various collections of `replicated::malicious::AdditiveShare`.
 /// This allows a protocol to downgrade to ordinary `replicated::semi_honest::AdditiveShare`

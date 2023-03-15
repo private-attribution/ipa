@@ -5,7 +5,7 @@ mod scheme;
 
 #[cfg(any(test, feature = "test-fixture", feature = "cli"))]
 pub use into_shares::IntoShares;
-pub use scheme::{Arithmetic, Boolean, SecretSharing};
+pub use scheme::{Bitwise, Linear, SecretSharing};
 
 use crate::ff::{ArithmeticOps, Serializable};
 use std::fmt::Debug;

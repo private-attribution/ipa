@@ -1,7 +1,7 @@
 use crate::{
     ff::Serializable,
     secret_sharing::{
-        replicated::ReplicatedSecretSharing, Arithmetic as ArithmeticSecretSharing, SecretSharing,
+        replicated::ReplicatedSecretSharing, Linear as LinearSecretSharing, SecretSharing,
         SharedValue,
     },
 };
@@ -19,7 +19,7 @@ impl<V: SharedValue> SecretSharing<V> for AdditiveShare<V> {
     const ZERO: Self = AdditiveShare::ZERO;
 }
 
-impl<V: SharedValue> ArithmeticSecretSharing<V> for AdditiveShare<V> {}
+impl<V: SharedValue> LinearSecretSharing<V> for AdditiveShare<V> {}
 
 impl<V: SharedValue + Debug> Debug for AdditiveShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

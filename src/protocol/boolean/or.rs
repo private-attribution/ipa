@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{basics::SecureMul, context::Context, RecordId},
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 /// Secure OR protocol with two inputs, `a, b ∈ {0,1} ⊆ F_p`.
@@ -10,7 +10,7 @@ use crate::{
 ///
 /// ## Errors
 /// Fails if the multiplication protocol fails.
-pub async fn or<F: Field, C: Context, S: ArithmeticSecretSharing<F> + SecureMul<C>>(
+pub async fn or<F: Field, C: Context, S: LinearSecretSharing<F> + SecureMul<C>>(
     ctx: C,
     record_id: RecordId,
     a: &S,
