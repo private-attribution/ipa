@@ -270,7 +270,7 @@ mod tests {
         ff::{Field, Fp31, Fp32BitPrime},
         helpers::Role,
         protocol::{basics::SecureMul, context::Context, malicious::MaliciousValidator, RecordId},
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::{
             replicated::{
                 malicious::ThisCodeIsAuthorizedToDowngradeFromMalicious,
@@ -281,7 +281,6 @@ mod tests {
         test_fixture::{join3v, Reconstruct, Runner, TestWorld},
     };
     use futures::future::try_join_all;
-    use proptest::prelude::Rng;
 
     /// This is the simplest arithmetic circuit that allows us to test all of the pieces of this validator
     /// A -

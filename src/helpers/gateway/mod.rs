@@ -75,7 +75,9 @@ impl Gateway {
                 let channel_id = channel_id.clone();
                 let transport = self.transport.clone();
                 async move {
-                    transport.send(&channel_id, recv).await
+                    transport
+                        .send(&channel_id, recv)
+                        .await
                         .expect("{channel_id:?} receiving end should be accepted by transport");
                 }
             });

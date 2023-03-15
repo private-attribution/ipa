@@ -156,7 +156,9 @@ impl Transport for TransportImpl {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(ref inner) => inner.identity(),
             #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => { unimplemented!() }
+            TransportImpl::RealWorld => {
+                unimplemented!()
+            }
         }
     }
 
@@ -178,7 +180,9 @@ impl Transport for TransportImpl {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
             #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => { unimplemented!() }
+            TransportImpl::RealWorld => {
+                unimplemented!()
+            }
         }
     }
 
@@ -191,7 +195,9 @@ impl Transport for TransportImpl {
             #[cfg(any(test, feature = "test-fixture"))]
             TransportImpl::InMemory(inner) => inner.receive(from, route),
             #[cfg(not(any(test, feature = "test-fixture")))]
-            TransportImpl::RealWorld => { unimplemented!() }
+            TransportImpl::RealWorld => {
+                unimplemented!()
+            }
         }
     }
 }

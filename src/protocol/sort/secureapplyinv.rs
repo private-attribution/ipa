@@ -25,7 +25,6 @@ pub async fn secureapplyinv_multi<C: Context, I: Reshare<C, RecordId> + Send + S
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     mod semi_honest {
-        use proptest::prelude::Rng;
         use rand::seq::SliceRandom;
 
         use crate::{
@@ -37,6 +36,7 @@ mod tests {
                     secureapplyinv::secureapplyinv_multi,
                 },
             },
+            rand::Rng,
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 

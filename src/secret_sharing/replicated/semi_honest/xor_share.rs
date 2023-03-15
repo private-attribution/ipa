@@ -62,7 +62,7 @@ impl<V: GaloisField> BitXor<Self> for &XorShare<V> {
     type Output = XorShare<V>;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        XorShare(self.0 ^ rhs.0, self.1 ^ rhs.1)
+        XorShare(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
@@ -77,8 +77,8 @@ impl<V: GaloisField> BitXor<&Self> for XorShare<V> {
 
 impl<V: GaloisField> BitXorAssign<&Self> for XorShare<V> {
     fn bitxor_assign(&mut self, rhs: &Self) {
-        self.0 ^= rhs.0;
-        self.1 ^= rhs.1;
+        self.0 += rhs.0;
+        self.1 += rhs.1;
     }
 }
 
@@ -143,11 +143,11 @@ mod tests {
         expected_value: u128,
     ) {
         assert_eq!(
-            a1.0 ^ a2.0 ^ a3.0,
+            a1.0 + a2.0 + a3.0,
             Gf40Bit::try_from(expected_value).unwrap()
         );
         assert_eq!(
-            a1.1 ^ a2.1 ^ a3.1,
+            a1.1 + a2.1 + a3.1,
             Gf40Bit::try_from(expected_value).unwrap()
         );
     }

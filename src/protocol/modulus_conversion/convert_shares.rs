@@ -211,13 +211,12 @@ mod tests {
             modulus_conversion::{convert_bit, convert_bit_local, BitConversionTriple},
             MatchKey, RecordId,
         },
-        rand::thread_rng,
+        rand::{thread_rng, Rng},
         secret_sharing::replicated::{
             semi_honest::AdditiveShare as Replicated, ReplicatedSecretSharing,
         },
         test_fixture::{Reconstruct, Runner, TestWorld},
     };
-    use proptest::prelude::Rng;
 
     #[tokio::test]
     pub async fn one_bit() {

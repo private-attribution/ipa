@@ -8,10 +8,7 @@ use crate::{
     ff::Field,
     protocol::{
         basics::SecureMul,
-        boolean::{
-            bitwise_greater_than_constant, random_bits_generator::RandomBitsGenerator,
-            BitDecomposition, RandomBits,
-        },
+        boolean::{greater_than_constant, random_bits_generator::RandomBitsGenerator, RandomBits},
         context::Context,
         BasicProtocols, RecordId, Substep,
     },
@@ -231,9 +228,8 @@ where
     C: Context + RandomBits<F, Share = T>,
     T: Arithmetic<F> + BasicProtocols<C, F>,
 {
-    //TODO: `cap` is publicly known value for each query. We can avoid creating shares every time.
     let random_bits_generator =
-        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForBitDecomposition));
+        RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
     let rbg = &random_bits_generator;
 
     try_join_all(
@@ -245,27 +241,13 @@ where
             ))
             .enumerate()
             .map(|(i, (credit, (ctx, cap)))| {
-                // The buffer inside the generator is `Arc`, so these clones
-                // just increment the reference.
-                async move {
-                    let credit_bits = BitDecomposition::execute(
-                        ctx.narrow(&Step::BitDecomposeCurrentContribution),
-                        RecordId::from(i),
-                        rbg,
-                        credit,
-                    )
-                    .await?;
-
-                    // compare_bit = current_contribution > cap
-                    let compare_bit = bitwise_greater_than_constant(
-                        ctx.narrow(&Step::IsCapLessThanCurrentContribution),
-                        RecordId::from(i),
-                        &credit_bits,
-                        cap.into(),
-                    )
-                    .await?;
-                    Ok::<_, Error>(compare_bit)
-                }
+                greater_than_constant(
+                    ctx.narrow(&Step::IsCapLessThanCurrentContribution),
+                    RecordId::from(i),
+                    rbg,
+                    credit,
+                    cap.into(),
+                )
             }),
     )
     .await
@@ -347,8 +329,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Step {
     MaskSourceCredits,
-    BitDecomposeCurrentContribution,
-    RandomBitsForBitDecomposition,
+    RandomBitsForComparison,
     IsCapLessThanCurrentContribution,
     IfCurrentExceedsCapOrElse,
     IfNextExceedsCapOrElse,
@@ -362,8 +343,7 @@ impl AsRef<str> for Step {
     fn as_ref(&self) -> &str {
         match self {
             Self::MaskSourceCredits => "mask_source_credits",
-            Self::BitDecomposeCurrentContribution => "bit_decompose_current_contribution",
-            Self::RandomBitsForBitDecomposition => "random_bits_for_bit_decomposition",
+            Self::RandomBitsForComparison => "random_bits_for_comparison",
             Self::IsCapLessThanCurrentContribution => "is_cap_less_than_current_contribution",
             Self::IfCurrentExceedsCapOrElse => "if_current_exceeds_cap_or_else",
             Self::IfNextExceedsCapOrElse => "if_next_exceeds_cap_or_else",
