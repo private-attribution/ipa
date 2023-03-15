@@ -1,7 +1,7 @@
 use crate::{
     ff::{GaloisField, Serializable},
     secret_sharing::{
-        replicated::ReplicatedSecretSharing, Boolean as BooleanSecretSharing, SecretSharing,
+        replicated::ReplicatedSecretSharing, Bitwise as BitwiseSecretSharing, SecretSharing,
     },
 };
 use aes::cipher::generic_array::GenericArray;
@@ -21,7 +21,7 @@ impl<V: GaloisField> SecretSharing<V> for XorShare<V> {
     const ZERO: Self = XorShare::ZERO;
 }
 
-impl<V: GaloisField> BooleanSecretSharing<V> for XorShare<V> {}
+impl<V: GaloisField> BitwiseSecretSharing<V> for XorShare<V> {}
 
 impl<V: GaloisField + Debug> Debug for XorShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -11,7 +11,7 @@ use crate::{
             },
             semi_honest::{AdditiveShare as Replicated, AdditiveShare, XorShare},
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -33,7 +33,7 @@ pub struct ApplyAttributionWindowInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCApplyAttributionWindowInputRow<F: Field, T: Arithmetic<F>> {
+pub struct MCApplyAttributionWindowInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub timestamp: T,
     pub is_trigger_report: T,
     pub helper_bit: T,
@@ -42,7 +42,7 @@ pub struct MCApplyAttributionWindowInputRow<F: Field, T: Arithmetic<F>> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> MCApplyAttributionWindowInputRow<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> MCApplyAttributionWindowInputRow<F, T> {
     pub fn new(
         timestamp: T,
         is_trigger_report: T,
@@ -75,7 +75,7 @@ pub struct AccumulateCreditInputRow<F: Field, BK: GaloisField> {
 }
 
 #[derive(Debug)]
-pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
+pub struct MCAccumulateCreditInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub is_trigger_report: T,
     pub helper_bit: T,
     pub breakdown_key: Vec<T>,
@@ -83,7 +83,7 @@ pub struct MCAccumulateCreditInputRow<F: Field, T: Arithmetic<F>> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> MCAccumulateCreditInputRow<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> MCAccumulateCreditInputRow<F, T> {
     pub fn new(
         is_trigger_report: T,
         helper_bit: T,
@@ -109,12 +109,12 @@ pub type CreditCappingInputRow<F, BK> = AccumulateCreditInputRow<F, BK>;
 pub type MCCreditCappingInputRow<F, T> = MCAccumulateCreditInputRow<F, T>;
 
 #[derive(Debug)]
-pub struct MCCreditCappingOutputRow<F: Field, T: Arithmetic<F>> {
+pub struct MCCreditCappingOutputRow<F: Field, T: LinearSecretSharing<F>> {
     pub breakdown_key: Vec<T>,
     pub credit: T,
     _marker: PhantomData<F>,
 }
-impl<F: Field, T: Arithmetic<F>> MCCreditCappingOutputRow<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> MCCreditCappingOutputRow<F, T> {
     pub fn new(breakdown_key: Vec<T>, credit: T) -> Self {
         Self {
             breakdown_key,
@@ -181,7 +181,7 @@ pub struct MCCappedCreditsWithAggregationBit<F, T> {
     marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> MCCappedCreditsWithAggregationBit<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> MCCappedCreditsWithAggregationBit<F, T> {
     pub fn new(helper_bit: T, aggregation_bit: T, breakdown_key: Vec<T>, credit: T) -> Self {
         Self {
             helper_bit,
@@ -202,7 +202,7 @@ pub struct MCAggregateCreditOutputRow<F, T, BK> {
     _marker: PhantomData<(F, BK)>,
 }
 
-impl<F: Field, T: Arithmetic<F>, BK: GaloisField> MCAggregateCreditOutputRow<F, T, BK>
+impl<F: Field, T: LinearSecretSharing<F>, BK: GaloisField> MCAggregateCreditOutputRow<F, T, BK>
 where
     T: Serializable,
 {
@@ -269,7 +269,7 @@ where
 impl<F, T, C> Reshare<C, RecordId> for MCAccumulateCreditInputRow<F, T>
 where
     F: Field,
-    T: Arithmetic<F> + Reshare<C, RecordId>,
+    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
     C: Context,
 {
     async fn reshare<'fut>(
@@ -321,7 +321,7 @@ where
 impl<F, T, C> Reshare<C, RecordId> for MCCappedCreditsWithAggregationBit<F, T>
 where
     F: Field,
-    T: Arithmetic<F> + Reshare<C, RecordId>,
+    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
     C: Context,
 {
     async fn reshare<'fut>(

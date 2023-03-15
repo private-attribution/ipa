@@ -29,7 +29,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -243,7 +243,7 @@ async fn simple_aggregate_credit<F, C, T, BK>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F> + Serializable,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F> + Serializable,
     BK: GaloisField,
 {
     let mut sums = vec![T::ZERO; max_breakdown_key as usize];
@@ -323,7 +323,7 @@ fn add_aggregation_bits_and_breakdown_keys<F, C, T, BK>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
     BK: GaloisField,
 {
     let zero = T::ZERO;

@@ -7,7 +7,7 @@ use crate::{
     ff::Field,
     helpers::messaging::TotalRecords,
     protocol::{context::Context, BasicProtocols, RecordId},
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use std::{
     marker::PhantomData,
@@ -31,7 +31,7 @@ pub struct RandomBitsGenerator<F, S, C> {
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context + RandomBits<F, Share = S>,
 {
     #[must_use]

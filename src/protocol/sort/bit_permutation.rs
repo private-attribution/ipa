@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 use embed_doc_image::embed_doc_image;
@@ -35,7 +35,7 @@ use futures::future::try_join_all;
 pub async fn bit_permutation<
     'a,
     F: Field,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context,
 >(
     ctx: C,
