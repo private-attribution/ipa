@@ -5,6 +5,7 @@ use crate::{
 use bitvec::prelude::{BitArr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U4, U5};
+use core::arch::x86_64::{_mm_clmulepi64_si128, _mm_set_epi64x, _mm_extract_epi64};
 
 // Bit store type definitions
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
@@ -171,12 +172,17 @@ macro_rules! bit_array_impl {
                 type Output = Self;
                 fn mul(self, rhs: Self) -> Self::Output {
                     debug_assert!(2 * $bits < u128::BITS);
-                    let a = <Self as GaloisField>::as_u128(self);
-                    let mut product = 0;
-                    for i in 0..Self::BITS {
-                        let bit = u128::from(rhs[i]);
-                        product ^= bit * (a << i);
-                    }
+                    let a = _mm_set_epi64x(
+                        0, 
+                        i64::try_from(<Self as GaloisField>::as_u128(self)).unwrap(),
+                    );
+                    let b = _mm_set_epi64x(
+                        0,
+                        i64::try_from(<Self as GaloisField>::as_u128(rhs)).unwrap(),
+                    );
+                    let intrinsic_result = _mm_clmulepi64_si128(a, b, 0);
+                    let intermediate_result = _mm_extract_epi64(intrinsic_result, 0);
+                    let mut product = u128::try_from(intermediate_result).unwrap();
 
                     let poly = <Self as GaloisField>::POLYNOMIAL;
                     while (u128::BITS - product.leading_zeros()) > $bits {
