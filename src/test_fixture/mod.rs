@@ -3,10 +3,10 @@ mod sharing;
 mod world;
 
 pub mod circuit;
+pub mod config;
 pub mod ipa;
 pub mod logging;
 pub mod metrics;
-pub mod net;
 pub mod transport;
 
 use crate::{

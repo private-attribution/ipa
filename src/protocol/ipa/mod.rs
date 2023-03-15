@@ -823,7 +823,7 @@ pub mod tests {
         );
 
         for per_user_cap in [1, 3] {
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics()).await;
 
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
@@ -855,7 +855,7 @@ pub mod tests {
                                 Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics()).await;
+            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics()).await;
 
             let _ = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
