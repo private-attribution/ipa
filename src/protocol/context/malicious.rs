@@ -33,7 +33,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::AdditiveShare as Replicated,
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
     sync::Arc,
 };
@@ -336,14 +336,14 @@ impl<'a, F: Field>
     }
 }
 
-pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRowWrapper<F: Field, T: LinearSecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub trigger_value: T,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRowWrapper<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRowWrapper<F, T> {
     pub fn new(mk_shares: Vec<T>, is_trigger_bit: T, trigger_value: T) -> Self {
         Self {
             mk_shares,

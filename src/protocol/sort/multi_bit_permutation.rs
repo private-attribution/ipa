@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, sort::check_everything, BasicProtocols, RecordId},
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 use std::iter::repeat;
@@ -28,7 +28,7 @@ use std::iter::repeat;
 pub async fn multi_bit_permutation<
     'a,
     F: Field,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context,
 >(
     ctx: C,

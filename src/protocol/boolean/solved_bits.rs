@@ -7,7 +7,7 @@ use crate::{
         replicated::malicious::{
             AdditiveShare as MaliciousReplicated, DowngradeMalicious, UnauthorizedDowngradeWrapper,
         },
-        Arithmetic as ArithmeticSecretSharing, SecretSharing,
+        Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use async_trait::async_trait;
@@ -77,7 +77,7 @@ pub async fn solved_bits<F, S, C>(
 ) -> Result<Option<RandomBitsShare<F, S>>, Error>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context + RandomBits<F, Share = S>,
 {
     //
@@ -117,7 +117,7 @@ async fn is_less_than_p<F, C, S>(ctx: C, record_id: RecordId, b_b: &[S]) -> Resu
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let c_b =
         BitwiseLessThanPrime::less_than_prime(ctx.narrow(&Step::IsPLessThanB), record_id, b_b)

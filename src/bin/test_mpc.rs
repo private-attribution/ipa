@@ -80,8 +80,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     fn make_clients() -> [MpcHelperClient; 3] {
-        let config = helpers_config();
-        MpcHelperClient::from_conf(config.peers())
+        let config = TestConfigBuilder::with_default_test_ports().build();
+        MpcHelperClient::from_conf(&config.network)
     }
 
     let args = Args::parse();

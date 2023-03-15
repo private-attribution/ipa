@@ -46,13 +46,15 @@ pub struct TestWorld {
     _network: InMemoryNetwork,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct TestWorldConfig {
     pub gateway_config: GatewayConfig,
     /// Level for metrics span. If set to the tracing level or above (controlled by `RUST_LOG` and
     /// `logging` module) will result in metrics being recorded by this test world instance.
     /// recorded by this test world unless `RUST_LOG` for this crate is set to
     pub metrics_level: Level,
+    /// Assignment of roles to helpers. If `None`, a default assignment will be used.
+    pub role_assignment: Option<RoleAssignment>,
 }
 
 impl Default for TestWorldConfig {
@@ -65,12 +67,14 @@ impl Default for TestWorldConfig {
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.
             // Can be overridden by setting `RUST_LOG` environment variable to match this level.
             metrics_level: Level::DEBUG,
+            role_assignment: None,
         }
     }
 }
 
 impl TestWorldConfig {
-    pub fn enable_metrics(&mut self) -> &mut Self {
+    #[must_use]
+    pub fn enable_metrics(mut self) -> Self {
         self.metrics_level = Level::INFO;
         self
     }
@@ -93,24 +97,24 @@ impl TestWorld {
         let metrics_handle = MetricsHandle::new(config.metrics_level);
         let participants = make_participants();
         let network = InMemoryNetwork::default();
-        let role_assignment = RoleAssignment::new(network.helper_identities());
+        let role_assignment = config
+            .role_assignment
+            .unwrap_or_else(|| RoleAssignment::new(network.helper_identities()));
 
-        let gateways = network
-            .transports
-            .iter()
-            .map(|transport| {
-                let role_assignment = role_assignment.clone();
-                Gateway::new(
-                    QueryId,
-                    config.gateway_config,
-                    role_assignment,
-                    TransportImpl::InMemory(Arc::downgrade(transport)),
-                )
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| "Failed to collect into [Gateway; 3]")
-            .unwrap();
+        let mut gateways = [None, None, None];
+        for i in 0..3 {
+            let transport = &network.transports[i];
+            let role_assignment = role_assignment.clone();
+            let gateway = Gateway::new(
+                QueryId,
+                config.gateway_config,
+                role_assignment,
+                TransportImpl::InMemory(Arc::downgrade(transport)),
+            );
+            let role = gateway.role();
+            gateways[role] = Some(gateway);
+        }
+        let gateways = gateways.map(Option::unwrap);
 
         TestWorld {
             gateways,

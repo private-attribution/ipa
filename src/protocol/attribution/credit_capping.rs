@@ -12,7 +12,7 @@ use crate::{
         context::Context,
         BasicProtocols, RecordId, Substep,
     },
-    secret_sharing::Arithmetic,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -30,7 +30,7 @@ pub async fn credit_capping<F, C, T>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if cap == 1 {
         return Ok(credit_capping_max_one(ctx, input)
@@ -107,7 +107,7 @@ async fn credit_capping_max_one<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let input_len = input.len();
 
@@ -175,7 +175,7 @@ async fn mask_source_credits<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     try_join_all(
         input
@@ -202,7 +202,7 @@ async fn credit_prefix_sum<'a, F, C, T, I>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + SecureMul<C> + 'a,
+    T: LinearSecretSharing<F> + SecureMul<C> + 'a,
     I: Iterator<Item = &'a T>,
 {
     let helper_bits = input
@@ -226,7 +226,7 @@ async fn is_credit_larger_than_cap<F, C, T>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let random_bits_generator =
         RandomBitsGenerator::new(ctx.narrow(&Step::RandomBitsForComparison));
@@ -264,7 +264,7 @@ async fn compute_final_credits<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
     let cap = T::share_known_value(&ctx, F::from(cap.into()));

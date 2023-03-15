@@ -7,7 +7,7 @@ use crate::{
         context::Context,
         BasicProtocols, BitOpStep, RecordId,
     },
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 
 // Compare an arithmetic-shared value `a` to a known value `c`.
@@ -69,7 +69,7 @@ pub async fn greater_than_constant<F, C, S>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = S>,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     use GreaterThanConstantStep as Step;
 
@@ -183,7 +183,7 @@ pub async fn bitwise_greater_than_constant<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert!(a.len() <= 128);
 
@@ -215,7 +215,7 @@ pub async fn bitwise_less_than_constant<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert!(a.len() <= 128);
 
@@ -245,7 +245,7 @@ async fn first_differing_bit<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let one = S::share_known_value(ctx, F::ONE);
 

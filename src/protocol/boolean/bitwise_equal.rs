@@ -5,7 +5,7 @@ use crate::{
     protocol::{
         basics::SecureMul, boolean::no_ones, context::Context, BasicProtocols, BitOpStep, RecordId,
     },
-    secret_sharing::Arithmetic as ArithmeticSecretSharing,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 use std::iter::zip;
@@ -26,7 +26,7 @@ pub async fn bitwise_equal_constant<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     assert!(a.len() <= 128);
 
@@ -58,7 +58,7 @@ pub async fn bitwise_equal<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     debug_assert!(a.len() == b.len());
     let xored_bits = xor_all_the_bits(ctx.narrow(&Step::XORAllTheBits), record_id, a, b).await?;
@@ -74,7 +74,7 @@ async fn xor_all_the_bits<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let xor = zip(a, b).enumerate().map(|(i, (a_bit, b_bit))| {
         let c = ctx.narrow(&BitOpStep::from(i));

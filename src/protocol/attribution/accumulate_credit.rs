@@ -6,7 +6,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{context::Context, BasicProtocols, RecordId},
-    secret_sharing::Arithmetic,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 
@@ -44,7 +44,7 @@ async fn accumulate_credit_cap_one<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
 
@@ -93,7 +93,7 @@ pub async fn accumulate_credit<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     if per_user_credit_cap == 1 {
         return Ok(accumulate_credit_cap_one(ctx, input)

@@ -4,7 +4,7 @@ use crate::{
     error::Error,
     ff::Field,
     protocol::{basics::SecureMul, BasicProtocols},
-    secret_sharing::{Arithmetic as ArithmeticSecretSharing, SecretSharing},
+    secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
 use std::iter::repeat;
 
@@ -84,7 +84,7 @@ where
 fn flip_bits<F, S>(one: S, x: &[S]) -> Vec<S>
 where
     F: Field,
-    S: ArithmeticSecretSharing<F>,
+    S: LinearSecretSharing<F>,
 {
     x.iter()
         .zip(repeat(one))
@@ -98,7 +98,7 @@ pub(crate) async fn any_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> R
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let one = S::share_known_value(&ctx, F::ONE);
     let res = no_ones(ctx, record_id, x).await?;
@@ -109,7 +109,7 @@ pub(crate) async fn no_ones<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Re
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + BasicProtocols<C, F>,
+    S: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let one = S::share_known_value(&ctx, F::ONE);
     let inverted_elements = flip_bits(one.clone(), x);

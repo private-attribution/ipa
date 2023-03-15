@@ -25,7 +25,7 @@ use crate::{
             malicious::AdditiveShare as MaliciousReplicated,
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
         },
-        Arithmetic,
+        Linear as LinearSecretSharing,
     },
 };
 
@@ -182,7 +182,7 @@ where
     }
 }
 
-pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
+pub struct IPAModulusConvertedInputRow<F: Field, T: LinearSecretSharing<F>> {
     pub mk_shares: Vec<T>,
     pub is_trigger_bit: T,
     pub breakdown_key: Vec<T>,
@@ -190,7 +190,7 @@ pub struct IPAModulusConvertedInputRow<F: Field, T: Arithmetic<F>> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
+impl<F: Field, T: LinearSecretSharing<F>> IPAModulusConvertedInputRow<F, T> {
     pub fn new(
         mk_shares: Vec<T>,
         is_trigger_bit: T,
@@ -211,7 +211,7 @@ impl<F: Field, T: Arithmetic<F>> IPAModulusConvertedInputRow<F, T> {
 impl<F, T, C> Reshare<C, RecordId> for IPAModulusConvertedInputRow<F, T>
 where
     F: Field,
-    T: Arithmetic<F> + Reshare<C, RecordId>,
+    T: LinearSecretSharing<F> + Reshare<C, RecordId>,
     C: Context,
 {
     async fn reshare<'fut>(
@@ -822,7 +822,7 @@ pub mod tests {
         );
 
         for per_user_cap in [1, 3] {
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics());
+            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
             let _: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {
@@ -854,7 +854,7 @@ pub mod tests {
                                 Consider adjusting the baseline, so the gains won't be accidentally offset by a regression.");
             }
 
-            let world = TestWorld::new_with(*TestWorldConfig::default().enable_metrics());
+            let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
 
             let _ = world
                 .semi_honest(records.clone(), |ctx, input_rows| async move {

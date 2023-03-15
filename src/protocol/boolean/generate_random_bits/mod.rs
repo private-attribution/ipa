@@ -13,7 +13,7 @@ use crate::{
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
             ReplicatedSecretSharing,
         },
-        Arithmetic as ArithmeticSecretSharing, SecretSharing, SharedValue,
+        Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
 };
 use async_trait::async_trait;
@@ -65,7 +65,7 @@ async fn convert_triples_to_shares<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let futures = triples.iter().enumerate().map(|(i, t)| {
         let c = ctx.narrow(&BitOpStep::from(i));

@@ -10,7 +10,7 @@ use crate::{
         context::Context,
         BasicProtocols, RecordId,
     },
-    secret_sharing::Arithmetic,
+    secret_sharing::Linear as LinearSecretSharing,
 };
 use futures::future::try_join_all;
 use std::iter::{repeat, zip};
@@ -30,7 +30,7 @@ async fn apply_attribution_window<F, C, T>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let mut t_deltas = prefix_sum_time_deltas(&ctx, input).await?;
 
@@ -59,7 +59,7 @@ async fn prefix_sum_time_deltas<F, C, T>(
 where
     F: Field,
     C: Context,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     let num_rows = input.len();
 
@@ -131,7 +131,7 @@ async fn zero_out_expired_trigger_values<F, C, T>(
 where
     F: Field,
     C: Context + RandomBits<F, Share = T>,
-    T: Arithmetic<F> + BasicProtocols<C, F>,
+    T: LinearSecretSharing<F> + BasicProtocols<C, F>,
 {
     // Compare the accumulated timestamp deltas with the specified attribution window
     // cap value, and zero-out trigger event values that exceed the cap.

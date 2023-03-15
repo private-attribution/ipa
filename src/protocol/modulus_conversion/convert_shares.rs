@@ -13,7 +13,7 @@ use crate::{
             semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
             ReplicatedSecretSharing,
         },
-        Arithmetic as ArithmeticSecretSharing,
+        Linear as LinearSecretSharing,
     },
 };
 use futures::future::try_join_all;
@@ -116,7 +116,7 @@ pub async fn convert_bit<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let (sh0, sh1, sh2) = (
         &locally_converted_bits.0[0],
@@ -146,7 +146,7 @@ pub async fn convert_all_bits<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     let ctx = ctx.set_total_records(locally_converted_bits.len());
 
@@ -182,7 +182,7 @@ pub async fn convert_bit_list<F, C, S>(
 where
     F: Field,
     C: Context,
-    S: ArithmeticSecretSharing<F> + SecureMul<C>,
+    S: LinearSecretSharing<F> + SecureMul<C>,
 {
     try_join_all(
         zip(repeat(ctx), locally_converted_bits.iter())

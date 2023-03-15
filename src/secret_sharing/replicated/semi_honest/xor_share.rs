@@ -1,7 +1,8 @@
 use crate::{
     ff::{GaloisField, Serializable},
     secret_sharing::{
-        replicated::ReplicatedSecretSharing, Boolean as BooleanSecretSharing, SecretSharing,
+        replicated::ReplicatedSecretSharing, Bitwise as BitwiseSecretSharing,
+        Linear as LinearSecretSharing, SecretSharing,
     },
 };
 use aes::cipher::generic_array::GenericArray;
@@ -11,8 +12,13 @@ use typenum::Unsigned;
 
 use std::{
     fmt::{Debug, Formatter},
-    ops::{Add, BitXor, BitXorAssign},
+    ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
+
+// TODO (taikiy): Merge `AddtiveShare` and `XorShare` implementations
+// We'll need to merge the two to remove dup code, but implementing `Reshare` for `AdditiveShare<SharedValue>`
+// and `AdditiveShare<GaloisField>` will require further refactoring. Since we don't know what `Reshare` might
+// look like for Galois Field shares, I'm differing the merge to after the `Reshare` implementation.
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct XorShare<V: GaloisField>(V, V);
@@ -21,7 +27,9 @@ impl<V: GaloisField> SecretSharing<V> for XorShare<V> {
     const ZERO: Self = XorShare::ZERO;
 }
 
-impl<V: GaloisField> BooleanSecretSharing<V> for XorShare<V> {}
+impl<V: GaloisField> LinearSecretSharing<V> for XorShare<V> {}
+
+impl<V: GaloisField> BitwiseSecretSharing<V> for XorShare<V> {}
 
 impl<V: GaloisField + Debug> Debug for XorShare<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -58,27 +66,67 @@ impl<V: GaloisField> ReplicatedSecretSharing<V> for XorShare<V> {
     }
 }
 
-impl<V: GaloisField> BitXor<Self> for &XorShare<V> {
+impl<V: GaloisField> Add<Self> for &XorShare<V> {
     type Output = XorShare<V>;
 
-    fn bitxor(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: Self) -> Self::Output {
         XorShare(self.0 + rhs.0, self.1 + rhs.1)
     }
 }
 
-impl<V: GaloisField> BitXor<&Self> for XorShare<V> {
+impl<V: GaloisField> Add<&Self> for XorShare<V> {
     type Output = Self;
 
-    fn bitxor(mut self, rhs: &Self) -> Self::Output {
-        self ^= rhs;
+    fn add(mut self, rhs: &Self) -> Self::Output {
+        self += rhs;
         self
     }
 }
 
-impl<V: GaloisField> BitXorAssign<&Self> for XorShare<V> {
-    fn bitxor_assign(&mut self, rhs: &Self) {
+impl<V: GaloisField> AddAssign<&Self> for XorShare<V> {
+    fn add_assign(&mut self, rhs: &Self) {
         self.0 += rhs.0;
         self.1 += rhs.1;
+    }
+}
+
+impl<V: GaloisField> Neg for XorShare<V> {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0, -self.1)
+    }
+}
+
+impl<V: GaloisField> Sub<Self> for &XorShare<V> {
+    type Output = XorShare<V>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        XorShare(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl<V: GaloisField> Sub<&Self> for XorShare<V> {
+    type Output = Self;
+
+    fn sub(mut self, rhs: &Self) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
+impl<V: GaloisField> SubAssign<&Self> for XorShare<V> {
+    fn sub_assign(&mut self, rhs: &Self) {
+        self.0 -= rhs.0;
+        self.1 -= rhs.1;
+    }
+}
+
+impl<V: GaloisField> Mul<V> for XorShare<V> {
+    type Output = Self;
+
+    fn mul(self, rhs: V) -> Self::Output {
+        Self(self.0 * rhs, self.1 * rhs)
     }
 }
 
@@ -108,7 +156,7 @@ where
 mod tests {
     use super::XorShare;
     use crate::{
-        ff::{Gf40Bit, Serializable},
+        ff::{GaloisField, Gf40Bit, Serializable},
         secret_sharing::replicated::ReplicatedSecretSharing,
     };
 
@@ -152,36 +200,104 @@ mod tests {
         );
     }
 
-    fn xor_test_case(a: (u128, u128, u128), b: (u128, u128, u128), expected_output: u128) {
+    fn addition_test_case(a: (u128, u128, u128), b: (u128, u128, u128), expected_output: u128) {
         let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
         let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
 
-        let res1 = a1 ^ &b1;
-        let res2 = a2 ^ &b2;
-        let res3 = a3 ^ &b3;
+        // Compute a + b
+        let res1 = a1 + &b1;
+        let res2 = a2 + &b2;
+        let res3 = a3 + &b3;
 
         assert_valid_secret_sharing(&res1, &res2, &res3);
         assert_secret_shared_value(&res1, &res2, &res3, expected_output);
     }
 
     #[test]
-    fn test_simple_xor() {
-        xor_test_case((0, 0, 0), (0, 0, 0), 0);
-        xor_test_case((1, 1, 1), (1, 1, 1), 0);
+    fn test_simple_addition() {
+        // Addition in Galois Fields is XOR
+        addition_test_case((0, 0, 0), (0, 0, 0), 0);
+        addition_test_case((1, 1, 1), (1, 1, 1), 0);
 
-        xor_test_case((10, 0, 0), (12, 0, 0), 6);
-        xor_test_case((10, 0, 0), (0, 12, 0), 6);
-        xor_test_case((10, 0, 0), (0, 0, 12), 6);
+        addition_test_case((10, 0, 0), (12, 0, 0), 6);
+        addition_test_case((10, 0, 0), (0, 12, 0), 6);
+        addition_test_case((10, 0, 0), (0, 0, 12), 6);
 
-        xor_test_case((0, 10, 0), (12, 0, 0), 6);
-        xor_test_case((0, 10, 0), (0, 12, 0), 6);
-        xor_test_case((0, 10, 0), (0, 0, 12), 6);
+        addition_test_case((0, 10, 0), (12, 0, 0), 6);
+        addition_test_case((0, 10, 0), (0, 12, 0), 6);
+        addition_test_case((0, 10, 0), (0, 0, 12), 6);
 
-        xor_test_case((0, 0, 10), (12, 0, 0), 6);
-        xor_test_case((0, 0, 10), (0, 12, 0), 6);
-        xor_test_case((0, 0, 10), (0, 0, 12), 6);
+        addition_test_case((0, 0, 10), (12, 0, 0), 6);
+        addition_test_case((0, 0, 10), (0, 12, 0), 6);
+        addition_test_case((0, 0, 10), (0, 0, 12), 6);
 
-        xor_test_case((163, 202, 92), (172, 21, 199), 75);
+        addition_test_case((163, 202, 92), (172, 21, 199), 75);
+    }
+
+    fn subtraction_test_case(a: (u128, u128, u128), b: (u128, u128, u128), expected_output: u128) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+        let (b1, b2, b3) = secret_share(b.0, b.1, b.2);
+
+        // Compute a - b
+        let res1 = a1 - &b1;
+        let res2 = a2 - &b2;
+        let res3 = a3 - &b3;
+
+        assert_valid_secret_sharing(&res1, &res2, &res3);
+        assert_secret_shared_value(&res1, &res2, &res3, expected_output);
+    }
+
+    #[test]
+    fn test_simple_subtraction() {
+        // Subtraction in Galois Fields is XOR (same as addition).
+        subtraction_test_case((0, 0, 0), (0, 0, 0), 0);
+        subtraction_test_case((1, 1, 1), (1, 1, 1), 0);
+
+        subtraction_test_case((10, 0, 0), (12, 0, 0), 6);
+        subtraction_test_case((10, 0, 0), (0, 12, 0), 6);
+        subtraction_test_case((10, 0, 0), (0, 0, 12), 6);
+
+        subtraction_test_case((0, 10, 0), (12, 0, 0), 6);
+        subtraction_test_case((0, 10, 0), (0, 12, 0), 6);
+        subtraction_test_case((0, 10, 0), (0, 0, 12), 6);
+
+        subtraction_test_case((0, 0, 10), (12, 0, 0), 6);
+        subtraction_test_case((0, 0, 10), (0, 12, 0), 6);
+        subtraction_test_case((0, 0, 10), (0, 0, 12), 6);
+
+        subtraction_test_case((163, 202, 92), (172, 21, 199), 75);
+    }
+
+    fn mul_by_constant_test_case(a: (u128, u128, u128), c: u128, expected_output: u128) {
+        let (a1, a2, a3) = secret_share(a.0, a.1, a.2);
+
+        // Compute a * c
+        let res1 = a1 * Gf40Bit::truncate_from(c);
+        let res2 = a2 * Gf40Bit::truncate_from(c);
+        let res3 = a3 * Gf40Bit::truncate_from(c);
+
+        assert_valid_secret_sharing(&res1, &res2, &res3);
+        assert_secret_shared_value(&res1, &res2, &res3, expected_output);
+    }
+
+    #[test]
+    fn test_mul_by_constant() {
+        // This test tests mul by constant for GF(2^40)
+        // The Irreducible Polynomial (P) for GF(2^40) is:
+        //
+        // x^40 + x^5 + x^3 + x^2 + 1
+        //
+        // or in the binary notation
+        //
+        // 0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
+
+        // 1 * 1 / P = 1 / P = 1
+        mul_by_constant_test_case((1, 0, 0), 1, 1);
+        mul_by_constant_test_case((0, 1, 0), 1, 1);
+        mul_by_constant_test_case((0, 0, 1), 1, 1);
+
+        // 0 * 1 / P = 0 / P = 0
+        mul_by_constant_test_case((0, 0, 0), 1, 0);
     }
 
     #[test]
