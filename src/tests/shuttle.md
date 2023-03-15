@@ -59,7 +59,7 @@ fn my_first_concurrency_test() {
     let iterations = 1000; 
     shuttle::check_random(|| { shuttle::future::block_on(async {
         // run semi-honest multiplication
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let a = Fp31::from(2);
         let b = Fp31::from(5);
@@ -137,7 +137,7 @@ fn deadlock() {
     shuttle::check_random(
         || {
             shuttle::future::block_on(async {
-                let world = TestWorld::new().await;
+                let world = TestWorld::default();
                 let input = Fp31::from(1u128);
                 let results: [Replicated<Fp31>; 3] = world.semi_honest(input, |ctx, share| async move {
                     // this will lead to a deadlock. All three helpers blocked awaiting data from peers.

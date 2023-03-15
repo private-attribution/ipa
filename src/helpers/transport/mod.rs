@@ -1,114 +1,203 @@
-pub mod query;
-
-mod bytearrstream;
-mod channelled_transport;
-mod error;
-
-pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
-pub use channelled_transport::{
-    ChannelledTransport, NoResourceIdentifier, QueryIdBinding, ResourceIdentifier, RouteId,
-    RouteParams, StepBinding,
-};
-pub use error::Error as TransportError;
-
 use crate::{
     helpers::HelperIdentity,
     protocol::{QueryId, Step},
 };
 use async_trait::async_trait;
 use futures::Stream;
+use std::io;
 
-#[derive(Debug)]
-pub enum TransportCommand {
-    // `Administration` Commands
-    Query(query::QueryCommand),
+mod bytearrstream;
+pub mod query;
 
-    // `Query` Commands
-    /// Query/step data received from a helper peer.
-    /// TODO: this is really bad for performance, once we have channel per step all the way
-    /// from gateway to network, this definition should be `(QueryId, Step, Stream<Item = Vec<u8>>)` instead
-    StepData {
-        query_id: QueryId,
-        step: Step,
-        payload: Vec<u8>,
-        // TODO: we shouldn't require an offset here
-        offset: u32,
-    },
+pub use bytearrstream::{AlignedByteArrStream, ByteArrStream};
+
+pub trait ResourceIdentifier: Sized {}
+pub trait QueryIdBinding: Sized
+where
+    Option<QueryId>: From<Self>,
+{
+}
+pub trait StepBinding: Sized
+where
+    Option<Step>: From<Self>,
+{
 }
 
-impl TransportCommand {
-    /// TODO: why do we need this? can `#[derive(Debug)]` be enough?
-    #[must_use]
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Query(query_command) => query_command.name(),
-            Self::StepData { .. } => "StepData",
-        }
-    }
+pub struct NoResourceIdentifier;
+pub struct NoQueryId;
+pub struct NoStep;
 
-    #[must_use]
-    pub fn query_id(&self) -> Option<QueryId> {
-        match self {
-            Self::Query(query_command) => query_command.query_id(),
-            Self::StepData { query_id, .. } => Some(*query_id),
-        }
-    }
+#[derive(Debug, Copy, Clone)]
+pub enum RouteId {
+    Records,
+    ReceiveQuery,
 }
 
-/// Users of a [`Transport`] must subscribe to a specific type of command, and so must pass this
-/// type as argument to the `subscribe` function
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum SubscriptionType {
-    /// Commands for managing queries
-    QueryManagement,
-    /// Commands intended for a running query
-    Query(QueryId),
-}
+impl ResourceIdentifier for NoResourceIdentifier {}
+impl ResourceIdentifier for RouteId {}
 
-impl From<&TransportCommand> for SubscriptionType {
-    fn from(value: &TransportCommand) -> Self {
-        match value {
-            TransportCommand::Query(_) => SubscriptionType::QueryManagement,
-            TransportCommand::StepData { query_id, .. } => SubscriptionType::Query(*query_id),
-        }
+impl From<NoQueryId> for Option<QueryId> {
+    fn from(_: NoQueryId) -> Self {
+        None
     }
 }
 
-/// The source of the command, i.e. where it came from. Some may arrive from helper peers, others
-/// may come directly from the clients
-#[derive(Debug, Eq, PartialEq)]
-pub enum CommandOrigin {
-    Helper(HelperIdentity),
-    Other,
+impl QueryIdBinding for NoQueryId {}
+impl QueryIdBinding for QueryId {}
+
+impl From<NoStep> for Option<Step> {
+    fn from(_: NoStep) -> Self {
+        None
+    }
 }
 
-/// Wrapper around `TransportCommand` that indicates the origin of it.
-#[derive(Debug)]
-pub struct CommandEnvelope {
-    pub origin: CommandOrigin,
-    pub payload: TransportCommand,
+impl StepBinding for NoStep {}
+impl StepBinding for Step {}
+
+pub trait RouteParams<R: ResourceIdentifier, Q: QueryIdBinding, S: StepBinding>: Send
+where
+    Option<QueryId>: From<Q>,
+    Option<Step>: From<S>,
+{
+    fn resource_identifier(&self) -> R;
+    fn query_id(&self) -> Q;
+    fn step(&self) -> S;
+
+    fn extra(&self) -> &str;
 }
 
-/// Represents the transport layer of the IPA network. Allows layers above to subscribe for events
-/// arriving from helper peers or other parties (clients) and also reliably deliver messages using
-/// `send` method.
+impl RouteParams<NoResourceIdentifier, QueryId, Step> for (QueryId, Step) {
+    fn resource_identifier(&self) -> NoResourceIdentifier {
+        NoResourceIdentifier
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.0
+    }
+
+    fn step(&self) -> Step {
+        self.1.clone()
+    }
+
+    fn extra(&self) -> &str {
+        ""
+    }
+}
+
+impl RouteParams<RouteId, QueryId, Step> for (RouteId, QueryId, Step) {
+    fn resource_identifier(&self) -> RouteId {
+        self.0
+    }
+
+    fn query_id(&self) -> QueryId {
+        self.1
+    }
+
+    fn step(&self) -> Step {
+        self.2.clone()
+    }
+
+    fn extra(&self) -> &str {
+        ""
+    }
+}
+
+/// Transport that supports per-query,per-step channels
 #[async_trait]
-pub trait Transport: Send + Sync + 'static {
-    type CommandStream: Stream<Item = CommandEnvelope> + Send + Sync + Unpin;
+pub trait Transport: Clone + Send + Sync + 'static {
+    type RecordsStream: Stream<Item = Vec<u8>> + Send + Unpin;
 
-    /// Returns the identity of the helper that runs this transport
     fn identity(&self) -> HelperIdentity;
 
-    /// To be called by an entity which will handle the events as indicated by the
-    /// [`SubscriptionType`]. There should be only 1 subscriber per type.
-    /// # Panics
-    /// May panic if attempt to subscribe to the same [`SubscriptionType`] twice
-    async fn subscribe(&self, subscription: SubscriptionType) -> Self::CommandStream;
-
-    /// To be called when an entity wants to send commands to the `Transport`.
-    async fn send<C: Send + Into<TransportCommand>>(
+    async fn send<D, Q, S, R>(
         &self,
-        destination: HelperIdentity,
-        command: C,
-    ) -> Result<(), TransportError>;
+        dest: HelperIdentity,
+        route: R,
+        data: D,
+    ) -> Result<(), io::Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static;
+
+    /// Return the stream of records to be received from another helper for the specific query
+    /// and step
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+        &self,
+        from: HelperIdentity,
+        route: R,
+    ) -> Self::RecordsStream;
+}
+
+/// Enum to dispatch calls to various [`Transport`] implementations without the need
+/// of dynamic dispatch. DD is not even possible with this trait, so that is the only way to prevent
+/// [`Gateway`] to be generic over it. We want to avoid that as it pollutes our protocol code.
+#[derive(Clone)]
+pub enum TransportImpl {
+    #[cfg(any(test, feature = "test-fixture"))]
+    InMemory(std::sync::Weak<crate::test_fixture::network::InMemoryTransport>),
+    #[cfg(not(any(test, feature = "test-fixture")))]
+    RealWorld,
+}
+
+#[async_trait]
+#[allow(unused_variables)]
+impl Transport for TransportImpl {
+    #[cfg(any(test, feature = "test-fixture"))]
+    type RecordsStream = <std::sync::Weak<crate::test_fixture::network::InMemoryTransport> as Transport>::RecordsStream;
+    #[cfg(not(any(test, feature = "test-fixture")))]
+    type RecordsStream = std::pin::Pin<Box<dyn Stream<Item = Vec<u8>> + Send>>;
+
+    fn identity(&self) -> HelperIdentity {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            TransportImpl::InMemory(ref inner) => inner.identity(),
+            #[cfg(not(any(test, feature = "test-fixture")))]
+            TransportImpl::RealWorld => {
+                unimplemented!()
+            }
+        }
+    }
+
+    async fn send<D, Q, S, R>(
+        &self,
+        dest: HelperIdentity,
+        route: R,
+        data: D,
+    ) -> Result<(), std::io::Error>
+    where
+        Option<QueryId>: From<Q>,
+        Option<Step>: From<S>,
+        Q: QueryIdBinding,
+        S: StepBinding,
+        R: RouteParams<RouteId, Q, S>,
+        D: Stream<Item = Vec<u8>> + Send + 'static,
+    {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            TransportImpl::InMemory(inner) => inner.send(dest, route, data).await,
+            #[cfg(not(any(test, feature = "test-fixture")))]
+            TransportImpl::RealWorld => {
+                unimplemented!()
+            }
+        }
+    }
+
+    fn receive<R: RouteParams<NoResourceIdentifier, QueryId, Step>>(
+        &self,
+        from: HelperIdentity,
+        route: R,
+    ) -> Self::RecordsStream {
+        match self {
+            #[cfg(any(test, feature = "test-fixture"))]
+            TransportImpl::InMemory(inner) => inner.receive(from, route),
+            #[cfg(not(any(test, feature = "test-fixture")))]
+            TransportImpl::RealWorld => {
+                unimplemented!()
+            }
+        }
+    }
 }

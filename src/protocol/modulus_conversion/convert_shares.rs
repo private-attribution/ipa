@@ -223,7 +223,7 @@ mod tests {
         const BITNUM: u32 = 4;
         let mut rng = thread_rng();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
@@ -241,7 +241,7 @@ mod tests {
         const BITNUM: u32 = 4;
         let mut rng = thread_rng();
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let match_key = rng.gen::<MatchKey>();
         let result: [Replicated<Fp31>; 3] = world
             .semi_honest(match_key, |ctx, mk_share| async move {
@@ -298,7 +298,7 @@ mod tests {
         const BITNUM: u32 = 4;
 
         let mut rng = thread_rng();
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         for tweak in TWEAKS {
             let match_key = rng.gen::<MatchKey>();
             world

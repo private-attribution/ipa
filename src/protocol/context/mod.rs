@@ -1,8 +1,5 @@
 use crate::{
-    helpers::{
-        messaging::{Mesh, TotalRecords},
-        Role,
-    },
+    helpers::{Role, TotalRecords},
     protocol::{Step, Substep},
 };
 
@@ -10,6 +7,7 @@ pub mod malicious;
 mod prss;
 mod semi_honest;
 
+use crate::helpers::{Message, ReceivingEnd, SendingEnd};
 pub(super) use malicious::SpecialAccessToMaliciousContext;
 pub use malicious::{MaliciousContext, UpgradeContext, UpgradeToMalicious};
 pub use prss::{InstrumentedIndexedSharedRandomness, InstrumentedSequentialSharedRandomness};
@@ -62,9 +60,8 @@ pub trait Context: Clone + Send + Sync {
         InstrumentedSequentialSharedRandomness,
     );
 
-    /// Get a set of communications channels to different peers.
-    #[must_use]
-    fn mesh(&self) -> Mesh<'_, '_>;
+    fn send_channel<M: Message>(&self, role: Role) -> SendingEnd<M>;
+    fn recv_channel<M: Message>(&self, role: Role) -> ReceivingEnd<M>;
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
@@ -139,11 +136,12 @@ mod tests {
             let (mut left_rng, mut right_rng) = ctx.prss_rng();
             (left_rng.gen::<F>(), right_rng.gen::<F>())
         };
-        let channel = ctx.mesh();
 
+        let send_channel = ctx.send_channel(left_peer);
+        let recv_channel = ctx.recv_channel::<F>(right_peer);
         let (_, right_share) = try_join!(
-            channel.send(left_peer, record_id, share.l() - l - seq_l),
-            channel.receive::<F>(right_peer, record_id),
+            send_channel.send(record_id, share.l() - l - seq_l),
+            recv_channel.receive(record_id),
         )
         .unwrap();
 
@@ -152,7 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn semi_honest_metrics() {
-        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics()).await;
+        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
         let input = (0..10u128).map(Fp31::from).collect::<Vec<_>>();
         let input_len = input.len();
 
@@ -206,15 +204,20 @@ mod tests {
 
     #[tokio::test]
     async fn malicious_metrics() {
-        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics()).await;
+        let world = TestWorld::new_with(TestWorldConfig::default().enable_metrics());
         let input = vec![Fp31::from(0u128), Fp31::from(1u128)];
         let input_len = input.len();
 
         let _result = world
             .malicious(input.clone(), |ctx, a| async move {
-                for (i, share) in a.iter().enumerate() {
-                    toy_protocol(ctx.set_total_records(input_len), i, share).await;
-                }
+                let ctx = ctx.set_total_records(input_len);
+                join_all(
+                    a.iter()
+                        .enumerate()
+                        .map(|(i, share)| toy_protocol(ctx.clone(), i, share)),
+                )
+                .await;
+
                 a
             })
             .await;

@@ -1,10 +1,6 @@
 use crate::{
     config::{NetworkConfig, ServerConfig},
-    helpers::{
-        query::QueryCommand,
-        transport::{SubscriptionType, Transport, TransportCommand, TransportError},
-        CommandEnvelope, HelperIdentity,
-    },
+    helpers::{query::QueryCommand, HelperIdentity},
     net::{
         client::MpcHelperClient,
         server::{BindTarget, MpcHelperServer},
@@ -147,6 +143,7 @@ impl Transport for Arc<HttpTransport> {
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(never)]
 mod e2e_tests {
     use std::{iter::zip, net::TcpListener};
 

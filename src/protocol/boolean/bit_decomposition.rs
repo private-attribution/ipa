@@ -146,7 +146,7 @@ mod tests {
     // New BitwiseLessThan -> 0.56 secs * 5 cases = 2.8
     #[tokio::test]
     pub async fn fp31() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let c = Fp31::from;
         assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));
         assert_eq!(1, bits_to_value(&bit_decomposition(&world, c(1)).await));
@@ -160,7 +160,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     pub async fn fp32_bit_prime() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let c = Fp32BitPrime::from;
         let u16_max: u32 = u16::MAX.into();
         assert_eq!(0, bits_to_value(&bit_decomposition(&world, c(0_u32)).await));

@@ -1,8 +1,8 @@
 mod echo;
+#[cfg(never)]
 mod query;
 
 use crate::{
-    helpers::CommandEnvelope,
     net::http_serde,
     protocol::QueryId,
     sync::{Arc, Mutex},

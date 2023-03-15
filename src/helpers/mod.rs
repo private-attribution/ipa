@@ -1,43 +1,51 @@
-pub mod messaging;
-pub mod network;
-pub mod transport;
+use std::{
+    fmt::{Debug, Formatter},
+    num::NonZeroUsize,
+};
 
 mod buffers;
 mod error;
+mod gateway;
 mod prss_protocol;
 mod time;
+mod transport;
 
-pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
-pub use messaging::GatewayConfig;
+pub use gateway::{Gateway, GatewayConfig, ReceivingEnd, SendingEnd};
 pub use prss_protocol::negotiate as negotiate_prss;
 pub use transport::{
-    query, CommandEnvelope, CommandOrigin, SubscriptionType, Transport, TransportCommand,
-    TransportError,
+    AlignedByteArrStream, ByteArrStream, NoResourceIdentifier, QueryIdBinding, RouteId,
+    RouteParams, StepBinding, Transport, TransportImpl,
 };
 
-/// to test integration between in memory transport and mpsc buffer.
+pub use transport::query;
+
+/// to validate that transport can actually send streams of this type
 #[cfg(test)]
 pub use buffers::ordering_mpsc;
 
-use crate::helpers::{
-    Direction::{Left, Right},
-    Role::{H1, H2, H3},
+use crate::{
+    ff::Serializable,
+    helpers::{
+        Direction::{Left, Right},
+        Role::{H1, H2, H3},
+    },
+    protocol::Step,
+    secret_sharing::SharedValue,
 };
 use std::ops::{Index, IndexMut};
-use tinyvec::ArrayVec;
 use typenum::{Unsigned, U8};
 
 // TODO work with ArrayLength only
 pub type MessagePayloadArrayLen = U8;
+
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = MessagePayloadArrayLen::USIZE;
-type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
 /// Represents an opaque identifier of the helper instance. Compare with a [`Role`], which
 /// represents a helper's role within an MPC protocol, which may be different per protocol.
 /// `HelperIdentity` will be established at startup and then never change. Components that want to
 /// resolve this identifier into something (Uri, encryption keys, etc) must consult configuration
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(
     feature = "enable-serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -60,6 +68,21 @@ impl TryFrom<usize> for HelperIdentity {
                 id: u8::try_from(value).unwrap(),
             })
         }
+    }
+}
+
+impl Debug for HelperIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self.id {
+                1 => "A",
+                2 => "B",
+                3 => "C",
+                _ => unreachable!(),
+            }
+        )
     }
 }
 
@@ -336,6 +359,72 @@ impl TryFrom<[Role; 3]> for RoleAssignment {
     }
 }
 
+/// Combination of helper role and step that uniquely identifies a single channel of communication
+/// between two helpers.
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct ChannelId {
+    pub role: Role,
+    // TODO: step could be either reference or owned value. references are convenient to use inside
+    // gateway , owned values can be used inside lookup tables.
+    pub step: Step,
+}
+
+impl ChannelId {
+    #[must_use]
+    pub fn new(role: Role, step: Step) -> Self {
+        Self { role, step }
+    }
+}
+
+impl Debug for ChannelId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "channel[{:?},{:?}]", self.role, self.step)
+    }
+}
+
+/// Trait for messages sent between helpers. Everything needs to be serializable and safe to send.
+pub trait Message: Debug + Send + Serializable + 'static + Sized {}
+
+/// Any shared value can be send as a message
+impl<V: SharedValue> Message for V {}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TotalRecords {
+    Unspecified,
+    Specified(NonZeroUsize),
+
+    /// Total number of records is not well-determined. When the record ID is
+    /// counting solved_bits attempts. The total record count for solved_bits
+    /// depends on the number of failures.
+    ///
+    /// The purpose of this is to waive the warning that there is a known
+    /// number of records when creating a channel. If the warning is firing
+    /// and the total number of records is knowable, prefer to specify it
+    /// rather than use this to waive the warning.
+    Indeterminate,
+}
+
+impl TotalRecords {
+    #[must_use]
+    pub fn is_unspecified(&self) -> bool {
+        matches!(self, &TotalRecords::Unspecified)
+    }
+
+    #[must_use]
+    pub fn is_indeterminate(&self) -> bool {
+        matches!(self, &TotalRecords::Indeterminate)
+    }
+}
+
+impl From<usize> for TotalRecords {
+    fn from(value: usize) -> Self {
+        match NonZeroUsize::new(value) {
+            Some(v) => TotalRecords::Specified(v),
+            None => TotalRecords::Unspecified,
+        }
+    }
+}
+
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
@@ -478,8 +567,7 @@ mod tests {
                     ..TestWorldConfig::default()
                 };
 
-                let world = TestWorld::new_with(config).await;
-
+                let world = TestWorld::new_with(config);
                 let mut rng = thread_rng();
                 let a = rng.gen::<Fp31>();
                 let b = rng.gen::<Fp31>();

@@ -1,6 +1,6 @@
 #![allow(dead_code)] // TODO remove
 
-use crate::helpers::messaging::Message;
+use crate::helpers::Message;
 use futures::{task::Waker, Future, Stream};
 use generic_array::GenericArray;
 use std::{

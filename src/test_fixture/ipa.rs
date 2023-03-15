@@ -97,7 +97,7 @@ pub fn update_expected_output_for_user(
 /// # Panics
 /// If any of the IPA protocol modules panic
 pub async fn test_ipa(
-    world: TestWorld,
+    world: &TestWorld,
     records: &[TestRawDataRecord],
     expected_results: &[u32],
     per_user_cap: u32,

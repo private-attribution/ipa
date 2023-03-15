@@ -1,15 +1,6 @@
 use clap::Parser;
 use hyper::http::uri::Scheme;
-use raw_ipa::{
-    cli::Verbosity,
-    helpers::{HelperIdentity, Transport},
-    net::HttpTransport,
-    query::Processor,
-    test_fixture::config::TestConfigBuilder,
-};
-use std::{error::Error, sync::Arc};
-
-use tracing::info;
+use raw_ipa::cli::Verbosity;
 
 #[derive(Debug, Parser)]
 #[clap(name = "mpc-helper", about = "CLI to start an MPC helper endpoint")]
@@ -31,7 +22,12 @@ struct Args {
     scheme: Scheme,
 }
 
+fn main() {
+    unimplemented!();
+}
+
 #[tokio::main]
+#[cfg(never)]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let _handle = args.logging.setup_logging();

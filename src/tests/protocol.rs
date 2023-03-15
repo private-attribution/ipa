@@ -23,7 +23,7 @@ fn semi_honest_ipa() {
                 const NUM_MULTI_BITS: u32 = 3;
                 const MAX_MATCH_KEY: u128 = 3;
 
-                let world = TestWorld::new().await;
+                let world = TestWorld::default();
                 let mut rng = thread_rng();
 
                 let records = (0..BATCHSIZE)
@@ -75,7 +75,7 @@ fn malicious_ipa() {
                 const NUM_MULTI_BITS: u32 = 3;
                 const MAX_MATCH_KEY: u128 = 3;
 
-                let world = TestWorld::new().await;
+                let world = TestWorld::default();
                 let mut rng = thread_rng();
 
                 let records = (0..BATCHSIZE)

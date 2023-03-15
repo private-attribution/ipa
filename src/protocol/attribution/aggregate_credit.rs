@@ -596,7 +596,7 @@ mod tests {
             (Fp32BitPrime, MatchKey, BreakdownKey)
         );
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let result: Vec<GenericReportTestInput<Fp32BitPrime, MatchKey, BreakdownKey>> = world
             .semi_honest(
                 input,

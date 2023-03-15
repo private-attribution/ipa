@@ -101,7 +101,7 @@ mod tests {
     pub async fn all_combinations() {
         type F = Fp32BitPrime;
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         assert_eq!(F::ZERO, run(&world, F::ZERO, F::ZERO).await);
         assert_eq!(F::ONE, run(&world, F::ONE, F::ZERO).await);
@@ -152,7 +152,7 @@ mod tests {
     /// Run all XOR operations with all combinations of sparse inputs.
     #[tokio::test]
     pub async fn all_sparse() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         for &a in ZeroPositions::all() {
             for &b in ZeroPositions::all() {

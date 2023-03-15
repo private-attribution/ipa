@@ -5,10 +5,7 @@ use rand::{distributions::Standard, prelude::Distribution};
 
 use crate::{
     ff::Field,
-    helpers::{
-        messaging::{Gateway, GatewayConfig},
-        Role, SendBufferConfig,
-    },
+    helpers::{Gateway, GatewayConfig, Role},
     protocol::{
         context::{
             Context, MaliciousContext, SemiHonestContext, UpgradeContext, UpgradeToMalicious,
@@ -23,20 +20,15 @@ use crate::{
 
 use std::io::stdout;
 
-use std::{
-    fmt::Debug,
-    iter::zip,
-    mem::ManuallyDrop,
-    num::NonZeroUsize,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{fmt::Debug, iter::zip, num::NonZeroUsize};
 
 use crate::{
-    helpers::{network::Network, RoleAssignment},
+    helpers::{RoleAssignment, TransportImpl},
     protocol::{QueryId, Substep},
     secret_sharing::IntoShares,
+    sync::Arc,
     telemetry::{stats::Metrics, StepStatsCsvExporter},
-    test_fixture::transport::InMemoryNetwork,
+    test_fixture::network::InMemoryNetwork,
 };
 use tracing::Level;
 
@@ -47,11 +39,10 @@ use super::{sharing::ValidateMalicious, Reconstruct};
 /// there is no need to associate each of them with `QueryId`, but this API makes it possible
 /// to do if we need it.
 pub struct TestWorld {
-    gateways: ManuallyDrop<[Gateway; 3]>,
+    gateways: [Gateway; 3],
     participants: [PrssEndpoint; 3],
     executions: AtomicUsize,
     metrics_handle: MetricsHandle,
-    joined: AtomicBool,
     _network: InMemoryNetwork,
 }
 
@@ -70,22 +61,8 @@ impl Default for TestWorldConfig {
     fn default() -> Self {
         Self {
             gateway_config: GatewayConfig {
-                send_buffer_config: SendBufferConfig {
-                    // This value set to 1 effectively means no buffering. This is the desired mode
-                    // for unit tests to drive them to completion as fast as possible.
-                    items_in_batch: NonZeroUsize::new(1).unwrap(),
-
-                    // How many messages can be sent in parallel. This value is picked arbitrarily as
-                    // most unit tests don't send more than this value, so the setup does not have to
-                    // be annoying. `items_in_batch` * `batch_count` defines the total capacity for
-                    // send buffer. Increasing this value does not really impact the latency for tests
-                    // because they flush the data to network once they've accumulated at least
-                    // `items_in_batch` elements. Ofc setting it to some absurdly large value is going
-                    // to be problematic from memory perspective.
-                    batch_count: NonZeroUsize::new(40).unwrap(),
-                },
-                send_outstanding: 16,
-                recv_outstanding: 16,
+                send_outstanding: NonZeroUsize::new(16).unwrap(),
+                recv_outstanding: NonZeroUsize::new(16).unwrap(),
             },
             // Disable metrics by default because `logging` only enables `Level::INFO` spans.
             // Can be overridden by setting `RUST_LOG` environment variable to match this level.
@@ -103,11 +80,18 @@ impl TestWorldConfig {
     }
 }
 
+impl Default for TestWorld {
+    fn default() -> Self {
+        Self::new_with(TestWorldConfig::default())
+    }
+}
+
 impl TestWorld {
     /// Creates a new `TestWorld` instance using the provided `config`.
     /// # Panics
     /// Never.
-    pub async fn new_with(config: TestWorldConfig) -> TestWorld {
+    #[must_use]
+    pub fn new_with(config: TestWorldConfig) -> Self {
         logging::setup();
 
         let metrics_handle = MetricsHandle::new(config.metrics_level);
@@ -120,27 +104,25 @@ impl TestWorld {
         let mut gateways = [None, None, None];
         for i in 0..3 {
             let transport = &network.transports[i];
-            let network = Network::new(Arc::downgrade(transport), QueryId, role_assignment.clone());
-            let role = role_assignment.role(transport.identity());
-            gateways[role] = Some(Gateway::new(role, network, config.gateway_config).await);
+            let role_assignment = role_assignment.clone();
+            let gateway = Gateway::new(
+                QueryId,
+                config.gateway_config,
+                role_assignment,
+                TransportImpl::InMemory(Arc::downgrade(transport)),
+            );
+            let role = gateway.role();
+            gateways[role] = Some(gateway);
         }
         let gateways = gateways.map(Option::unwrap);
 
         TestWorld {
-            gateways: ManuallyDrop::new(gateways),
+            gateways,
             participants,
             executions: AtomicUsize::new(0),
             metrics_handle,
-            joined: AtomicBool::new(false),
             _network: network,
         }
-    }
-
-    /// # Panics
-    /// Never.
-    pub async fn new() -> TestWorld {
-        let config = TestWorldConfig::default();
-        Self::new_with(config).await
     }
 
     /// Creates protocol contexts for 3 helpers
@@ -150,7 +132,7 @@ impl TestWorld {
     #[must_use]
     pub fn contexts(&self) -> [SemiHonestContext<'_>; 3] {
         let execution = self.executions.fetch_add(1, Ordering::Release);
-        zip(&self.participants, &*self.gateways)
+        zip(&self.participants, &self.gateways)
             .map(|(participant, gateway)| {
                 SemiHonestContext::new(participant, gateway)
                     .narrow(&Self::execution_step(execution))
@@ -173,27 +155,10 @@ impl TestWorld {
     pub fn gateway(&self, role: Role) -> &Gateway {
         &self.gateways[role]
     }
-
-    #[cfg(not(feature = "shuttle"))]
-    pub async fn join(mut self) {
-        // SAFETY: self is consumed by this method, so nobody can access gateways field after
-        // calling this method.
-        // joined flag is used inside the destructor to avoid double-free
-        if !self.joined.swap(true, Ordering::Release) {
-            let gateways = unsafe { ManuallyDrop::take(&mut self.gateways) };
-            for gateway in gateways {
-                gateway.join().await;
-            }
-        }
-    }
 }
 
 impl Drop for TestWorld {
     fn drop(&mut self) {
-        if !self.joined.load(Ordering::Acquire) {
-            unsafe { ManuallyDrop::drop(&mut self.gateways) };
-        }
-
         if tracing::span_enabled!(Level::DEBUG) {
             let metrics = self.metrics_handle.snapshot();
             metrics.export(&mut stdout()).unwrap();

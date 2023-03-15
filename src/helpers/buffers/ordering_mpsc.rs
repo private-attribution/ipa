@@ -1,7 +1,9 @@
 #![allow(dead_code)]
+
 use crate::{
     ff::Serializable,
-    helpers::{messaging::Message, Error},
+    helpers::{Error, Message},
+    sync::{atomic::AtomicUsize, Arc},
 };
 use bitvec::{bitvec, vec::BitVec};
 use futures::{FutureExt, Stream};
@@ -10,13 +12,7 @@ use std::{
     fmt::{Debug, Formatter},
     num::NonZeroUsize,
     pin::Pin,
-    sync::{
-        atomic::{
-            AtomicUsize,
-            Ordering::{AcqRel, Acquire},
-        },
-        Arc,
-    },
+    sync::atomic::Ordering::{AcqRel, Acquire},
     task::{Context, Poll},
 };
 use tokio::sync::{
@@ -57,12 +53,20 @@ struct OrderingMpscEnd {
 /// A multi-producer, single-consumer channel that performs buffered reordering
 /// of inputs, with back pressure if the insertion is beyond the end of its buffer.
 /// This requires that each item be serializable and fixed size.
+///
+/// ## Panics
+/// Will not panic, unless 4 becomes equal to 0
 #[cfg_attr(not(debug_assertions), allow(unused_variables))] // For name.
 pub fn ordering_mpsc<M: Message, S: AsRef<str>>(
     name: S,
     capacity: NonZeroUsize,
 ) -> (OrderingMpscSender<M>, OrderingMpscReceiver<M>) {
-    let (tx, rx) = mpsc::channel((capacity.get() / 4).clamp(4, 256)); // TODO configure, tune
+    // TODO configure, tune
+    let capacity = capacity.clamp(
+        NonZeroUsize::new(4).unwrap(),
+        NonZeroUsize::new(1024).unwrap(),
+    );
+    let (tx, rx) = mpsc::channel(capacity.get());
     let end = Arc::new(OrderingMpscEnd::new(capacity));
     (
         OrderingMpscSender {
@@ -209,15 +213,16 @@ impl<M: Message> Debug for OrderingMpscReceiver<M> {
     }
 }
 
-/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks of maximum capacity
-/// this instance can hold.
+/// [`OrderingMpscReceiver`] is a [`Stream`] that yields chunks with at least 1 element in it.
 impl<M: Message> Stream for OrderingMpscReceiver<M> {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = Pin::get_mut(self);
         loop {
-            let output = this.take(this.capacity.get());
+            // TODO: take() is greedy and will yield as many elements as possible. However,
+            // it is not clear to me whether it is the right thing to do here.
+            let output = this.take(1);
             if output.is_some() {
                 return Poll::Ready(output);
             }
@@ -415,7 +420,7 @@ mod unit {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Out of range at index 0 on channel \"test\" (allowed=1..4)")]
+    #[should_panic(expected = "Out of range at index 0 on channel \"test\" (allowed=1..5)")]
     async fn insert_taken() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
         tx.send_test(0).await;
@@ -428,28 +433,28 @@ mod unit {
     #[tokio::test]
     async fn send_blocked() {
         let (tx, mut rx) = ordering_mpsc("test", NonZeroUsize::new(3).unwrap());
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_none());
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_none());
         assert!(rx.missing().is_empty());
 
         // Poking at the receiver receiving doesn't allow the send to complete.
         let recv = rx.take_next(1);
         assert!(recv.now_or_never().is_none());
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_none());
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_none());
 
         // Filling in the gap doesn't either.
-        for i in 0..3 {
+        for i in 0..4 {
             tx.send_test(i).await;
         }
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_none());
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_none());
 
         // You have to fill the gap AND receive.
         let buf = rx.take_next(1).now_or_never().unwrap().unwrap();
-        assert_eq!(buf.len(), 3 * FP32BIT_SIZE);
-        let send3 = tx.send_test(3);
-        assert!(send3.now_or_never().is_some());
+        assert_eq!(buf.len(), 4 * FP32BIT_SIZE);
+        let send5 = tx.send_test(5);
+        assert!(send5.now_or_never().is_some());
     }
 
     #[tokio::test]

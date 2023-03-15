@@ -1,13 +1,14 @@
+#![allow(unused)]
+#![cfg(never)]
+
 use crate::{
-    helpers::{messaging::Gateway, query::QueryConfig},
+    helpers::{query::QueryConfig, Gateway},
     protocol::QueryId,
     query::ProtocolResult,
+    sync::{Arc, Mutex},
     task::JoinHandle,
 };
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::{Arc, Mutex},
-};
+use std::collections::{hash_map::Entry, HashMap};
 
 /// The status of query processing
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

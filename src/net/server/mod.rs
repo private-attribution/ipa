@@ -5,7 +5,6 @@ pub use error::Error;
 use hyper::{server::conn::AddrStream, Request};
 
 use crate::{
-    helpers::CommandEnvelope,
     protocol::QueryId,
     sync::{Arc, Mutex},
     task::JoinHandle,

@@ -1,6 +1,6 @@
 use crate::{
     ff::FieldType,
-    helpers::{transport::ByteArrStream, RoleAssignment, TransportCommand},
+    helpers::{transport::ByteArrStream, RoleAssignment},
     protocol::{QueryId, Substep},
     query::ProtocolResult,
 };
@@ -81,12 +81,6 @@ impl QueryCommand {
             Self::Input(data, _) => Some(data.query_id),
             Self::Results(query_id, _) => Some(*query_id),
         }
-    }
-}
-
-impl From<QueryCommand> for TransportCommand {
-    fn from(value: QueryCommand) -> Self {
-        TransportCommand::Query(value)
     }
 }
 

@@ -103,18 +103,22 @@ where
     }
 
     // notify helper on the right that we've computed our value
-    let channel = ctx.mesh();
-    let channel_m = duplicate_multiply_ctx.mesh();
     try_join(
-        channel.send(role.peer(Direction::Right), record_id, right_sops),
-        channel_m.send(role.peer(Direction::Right), record_id, right_sops_m),
+        ctx.send_channel(role.peer(Direction::Right))
+            .send(record_id, right_sops),
+        duplicate_multiply_ctx
+            .send_channel(role.peer(Direction::Right))
+            .send(record_id, right_sops_m),
     )
     .await?;
 
     // Sleep until helper on the left sends us their (d_i-1) value
     let (left_sops, left_sops_m): (F, F) = try_join(
-        channel.receive(role.peer(Direction::Left), record_id),
-        channel_m.receive(role.peer(Direction::Left), record_id),
+        ctx.recv_channel(role.peer(Direction::Left))
+            .receive(record_id),
+        duplicate_multiply_ctx
+            .recv_channel(role.peer(Direction::Left))
+            .receive(record_id),
     )
     .await?;
 
@@ -143,7 +147,7 @@ mod test {
     #[tokio::test]
     pub async fn simple() {
         const BATCHSIZE: usize = 10;
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let mut rng = thread_rng();
 

@@ -44,7 +44,7 @@ mod tests {
         pub async fn multi() {
             const BATCHSIZE: u32 = 25;
             const NUM_MULTI_BITS: u32 = 3;
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
             let mut rng = rand::thread_rng();
 
             let mut input = Vec::with_capacity(NUM_MULTI_BITS.try_into().unwrap());

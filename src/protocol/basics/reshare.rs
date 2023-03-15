@@ -79,19 +79,18 @@ async fn semi_honest_reshare<'a, V: SharedValue, S: ReplicatedSecretSharing<V>>(
     share: &S,
     (r0, r1): (V, V),
 ) -> Result<S, Error> {
-    let channel = ctx.mesh();
-
     // `to_helper.left` calculates part1 = (self.0 + self.1) - r1 and sends part1 to `to_helper.right`
     // This is same as (a1 + a2) - r2 in the diagram
     if ctx.role() == to_helper.peer(Direction::Left) {
         let part1 = share.left() + share.right() - r1;
-        channel
-            .send(to_helper.peer(Direction::Right), record_id, part1)
+        ctx.send_channel(to_helper.peer(Direction::Right))
+            .send(record_id, part1)
             .await?;
 
         // Sleep until `to_helper.right` sends us their part2 value
-        let part2 = channel
-            .receive(to_helper.peer(Direction::Right), record_id)
+        let part2 = ctx
+            .recv_channel(to_helper.peer(Direction::Right))
+            .receive(record_id)
             .await?;
 
         Ok(S::new(part1 + part2, r1))
@@ -99,13 +98,14 @@ async fn semi_honest_reshare<'a, V: SharedValue, S: ReplicatedSecretSharing<V>>(
         // `to_helper.right` calculates part2 = (self.left() - r0) and sends it to `to_helper.left`
         // This is same as (a3 - r3) in the diagram
         let part2 = share.left() - r0;
-        channel
-            .send(to_helper.peer(Direction::Left), record_id, part2)
+        ctx.send_channel(to_helper.peer(Direction::Left))
+            .send(record_id, part2)
             .await?;
 
         // Sleep until `to_helper.left` sends us their part1 value
-        let part1: V = channel
-            .receive(to_helper.peer(Direction::Left), record_id)
+        let part1: V = ctx
+            .recv_channel(to_helper.peer(Direction::Left))
+            .receive(record_id)
             .await?;
 
         Ok(S::new(r0, part1 + part2))
@@ -306,7 +306,7 @@ mod tests {
         /// Validates that reshare protocol actually generates new additive shares using PRSS.
         #[tokio::test]
         async fn generates_unique_shares() {
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
 
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -337,7 +337,7 @@ mod tests {
         /// Validates that reshare protocol actually generates new xor shares using PRSS.
         #[tokio::test]
         async fn generates_unique_xor_shares() {
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
 
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Gf40Bit>();
@@ -372,7 +372,7 @@ mod tests {
         /// the input will pass this test. However `generates_unique_shares` will fail this implementation.
         #[tokio::test]
         async fn correct() {
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -421,7 +421,7 @@ mod tests {
         /// it.
         #[tokio::test]
         async fn correct() {
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
 
             for &role in Role::all() {
                 let secret = thread_rng().gen::<Fp32BitPrime>();
@@ -445,35 +445,32 @@ mod tests {
             to_helper: Role,
             additive_error: F,
         ) -> Result<Replicated<F>, Error> {
-            let channel = ctx.mesh();
             let (r0, r1) = ctx.prss().generate_fields(record_id);
 
             // `to_helper.left` calculates part1 = (input.0 + input.1) - r1 and sends part1 to `to_helper.right`
             // This is same as (a1 + a2) - r2 in the diagram
             if ctx.role() == to_helper.peer(Direction::Left) {
+                let send_channel = ctx.send_channel(to_helper.peer(Direction::Right));
+                let receive_channel = ctx.recv_channel(to_helper.peer(Direction::Right));
+
                 let part1 = input.left() + input.right() - r1 + additive_error;
-                channel
-                    .send(to_helper.peer(Direction::Right), record_id, part1)
-                    .await?;
+                send_channel.send(record_id, part1).await?;
 
                 // Sleep until `to_helper.right` sends us their part2 value
-                let part2 = channel
-                    .receive(to_helper.peer(Direction::Right), record_id)
-                    .await?;
+                let part2 = receive_channel.receive(record_id).await?;
 
                 Ok(Replicated::new(part1 + part2, r1))
             } else if ctx.role() == to_helper.peer(Direction::Right) {
+                let send_channel = ctx.send_channel(to_helper.peer(Direction::Left));
+                let receive_channel = ctx.recv_channel::<F>(to_helper.peer(Direction::Left));
+
                 // `to_helper.right` calculates part2 = (input.left() - r0) and sends it to `to_helper.left`
                 // This is same as (a3 - r3) in the diagram
                 let part2 = input.left() - r0 + additive_error;
-                channel
-                    .send(to_helper.peer(Direction::Left), record_id, part2)
-                    .await?;
+                send_channel.send(record_id, part2).await?;
 
                 // Sleep until `to_helper.left` sends us their part1 value
-                let part1: F = channel
-                    .receive(to_helper.peer(Direction::Left), record_id)
-                    .await?;
+                let part1 = receive_channel.receive(record_id).await?;
 
                 Ok(Replicated::new(r0, part1 + part2))
             } else {
@@ -519,7 +516,7 @@ mod tests {
 
         #[tokio::test]
         async fn malicious_validation_fail() {
-            let world = TestWorld::new().await;
+            let world = TestWorld::default();
             let mut rng = thread_rng();
 
             let a = rng.gen::<Fp32BitPrime>();

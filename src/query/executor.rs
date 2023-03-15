@@ -1,10 +1,9 @@
 use crate::{
     ff::{Field, FieldType, Fp31, GaloisField, Serializable},
     helpers::{
-        messaging::{Gateway, TotalRecords},
         negotiate_prss,
         query::{IpaQueryConfig, QueryConfig, QueryType},
-        transport::{AlignedByteArrStream, ByteArrStream},
+        AlignedByteArrStream, ByteArrStream, Gateway, TotalRecords,
     },
     protocol::{
         attribution::input::MCAggregateCreditOutputRow,
@@ -126,6 +125,7 @@ where
     .unwrap()
 }
 
+#[allow(unused)]
 pub fn start_query(
     config: QueryConfig,
     gateway: Gateway,
@@ -186,7 +186,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiply() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let contexts = world
             .contexts()
             .map(|ctx| ctx.set_total_records(TotalRecords::Indeterminate));
@@ -258,7 +258,7 @@ mod tests {
                     .collect::<Vec<_>>()
             });
 
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
         let contexts = world.contexts();
         let results: [_; 3] = join_all(records.into_iter().zip(contexts).map(|(shares, ctx)| {
             let query_config = IpaQueryConfig {

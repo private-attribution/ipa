@@ -4,11 +4,7 @@ pub use error::Error;
 
 use crate::{
     config::NetworkConfig,
-    helpers::{
-        query::{PrepareQuery, QueryConfig, QueryInput},
-        transport::ByteArrStream,
-        HelperIdentity,
-    },
+    helpers::HelperIdentity,
     net::http_serde,
     protocol::{QueryId, Step},
 };
@@ -188,16 +184,13 @@ impl MpcHelperClient {
     }
 }
 
+#[cfg(never)]
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use super::*;
     use crate::{
         ff::{FieldType, Fp31},
-        helpers::{
-            query::{QueryCommand, QueryType},
-            CommandEnvelope, CommandOrigin, RoleAssignment, TransportCommand,
-            MESSAGE_PAYLOAD_SIZE_BYTES,
-        },
+        helpers::{transport::query::QueryType, MESSAGE_PAYLOAD_SIZE_BYTES},
         net::{server::BindTarget, MpcHelperServer},
         query::ProtocolResult,
         secret_sharing::replicated::semi_honest::AdditiveShare as Replicated,

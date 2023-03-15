@@ -118,7 +118,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn semi_honest() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let input: Vec<Vec<_>> = INPUT
             .into_iter()
@@ -135,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn equality_checks() {
-        let world = TestWorld::new().await;
+        let world = TestWorld::default();
 
         let input: Vec<Vec<_>> = INPUT
             .into_iter()

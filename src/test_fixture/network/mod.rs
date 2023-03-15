@@ -1,8 +1,13 @@
+mod transport;
+mod util;
+
 use crate::{
     helpers::{HelperIdentity, Transport},
     sync::{Arc, Weak},
-    test_fixture::transport::InMemoryTransport,
 };
+
+pub use transport::InMemoryTransport;
+pub use util::DelayedTransport;
 
 /// Container for all active transports
 #[derive(Clone)]
@@ -13,17 +18,16 @@ pub struct InMemoryNetwork {
 impl Default for InMemoryNetwork {
     fn default() -> Self {
         let [mut first, mut second, mut third] = [
-            InMemoryTransport::setup(1.try_into().unwrap()),
-            InMemoryTransport::setup(2.try_into().unwrap()),
-            InMemoryTransport::setup(3.try_into().unwrap()),
+            InMemoryTransport::with_stub_callbacks(1.try_into().unwrap()),
+            InMemoryTransport::with_stub_callbacks(2.try_into().unwrap()),
+            InMemoryTransport::with_stub_callbacks(3.try_into().unwrap()),
         ];
-
-        InMemoryTransport::link(&mut first, &mut second);
-        InMemoryTransport::link(&mut second, &mut third);
-        InMemoryTransport::link(&mut third, &mut first);
+        first.connect(&mut second);
+        second.connect(&mut third);
+        third.connect(&mut first);
 
         Self {
-            transports: [first.listen(), second.listen(), third.listen()].map(Arc::new),
+            transports: [first.start(), second.start(), third.start()],
         }
     }
 }
@@ -41,7 +45,7 @@ impl InMemoryNetwork {
     }
 
     #[must_use]
-    pub fn transport(&self, id: HelperIdentity) -> Option<impl Transport + Clone> {
+    pub fn transport(&self, id: HelperIdentity) -> Option<impl Transport> {
         self.transports
             .iter()
             .find(|t| t.identity() == id)
@@ -57,6 +61,7 @@ impl InMemoryNetwork {
             .map(Arc::downgrade)
             .collect::<Vec<_>>()
             .try_into()
+            .map_err(|_| "What is dead may never die")
             .unwrap();
         transports
     }

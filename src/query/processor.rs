@@ -1,10 +1,9 @@
+#![cfg(never)]
+
 use crate::{
     helpers::{
-        messaging::Gateway,
-        network::Network,
         query::{PrepareQuery, QueryCommand, QueryConfig, QueryInput},
-        GatewayConfig, HelperIdentity, Role, RoleAssignment, SubscriptionType, Transport,
-        TransportCommand, TransportError,
+        Gateway, GatewayConfig, HelperIdentity, Role, RoleAssignment,
     },
     protocol::QueryId,
     query::{
@@ -22,7 +21,6 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-#[allow(dead_code)]
 #[pin_project]
 pub struct Processor<T: Transport> {
     /// Input stream of commands this processor is attached to. It is not being actively listened
@@ -85,7 +83,7 @@ pub enum QueryCompletionError {
     },
 }
 
-#[allow(dead_code)]
+#[cfg(never)]
 impl<T: Transport + Clone> Processor<T> {
     pub async fn new(transport: T) -> Self {
         Self {
@@ -287,6 +285,7 @@ impl<T: Transport + Clone> Processor<T> {
 }
 
 #[cfg(all(test, not(feature = "shuttle")))]
+#[cfg(never)]
 mod tests {
     use super::*;
     use crate::{
