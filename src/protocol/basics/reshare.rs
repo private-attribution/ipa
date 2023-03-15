@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField},
+    ff::Field,
     helpers::{Direction, Role},
     protocol::{
         context::{Context, MaliciousContext, SemiHonestContext},
@@ -14,10 +14,9 @@ use crate::{
     secret_sharing::{
         replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+            semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
-        SharedValue,
     },
 };
 use async_trait::async_trait;
@@ -68,52 +67,6 @@ pub trait ReshareBorrowed<C: Context, B: RecordBinding> {
         C: 'fut;
 }
 
-/// A common semi-honest reshare algorithm for `AdditiveShare<F: Field>` and `XorShare<B: GaloisField>`.
-/// We compute the new shares by adding/subtracting shared values and random values. Since `GaloisField`
-/// implements `ArithmeticOps` using binary operations i.e., `Add`/`Sub` -> `BitXor`, we can use the
-/// same code for both sharing schemes.
-async fn semi_honest_reshare<'a, V: SharedValue, S: ReplicatedSecretSharing<V>>(
-    ctx: SemiHonestContext<'a>,
-    record_id: RecordId,
-    to_helper: Role,
-    share: &S,
-    (r0, r1): (V, V),
-) -> Result<S, Error> {
-    let channel = ctx.mesh();
-
-    // `to_helper.left` calculates part1 = (self.0 + self.1) - r1 and sends part1 to `to_helper.right`
-    // This is same as (a1 + a2) - r2 in the diagram
-    if ctx.role() == to_helper.peer(Direction::Left) {
-        let part1 = share.left() + share.right() - r1;
-        channel
-            .send(to_helper.peer(Direction::Right), record_id, part1)
-            .await?;
-
-        // Sleep until `to_helper.right` sends us their part2 value
-        let part2 = channel
-            .receive(to_helper.peer(Direction::Right), record_id)
-            .await?;
-
-        Ok(S::new(part1 + part2, r1))
-    } else if ctx.role() == to_helper.peer(Direction::Right) {
-        // `to_helper.right` calculates part2 = (self.left() - r0) and sends it to `to_helper.left`
-        // This is same as (a3 - r3) in the diagram
-        let part2 = share.left() - r0;
-        channel
-            .send(to_helper.peer(Direction::Left), record_id, part2)
-            .await?;
-
-        // Sleep until `to_helper.left` sends us their part1 value
-        let part1: V = channel
-            .receive(to_helper.peer(Direction::Left), record_id)
-            .await?;
-
-        Ok(S::new(r0, part1 + part2))
-    } else {
-        Ok(S::new(r0, r1))
-    }
-}
-
 #[async_trait]
 /// Reshare(i, \[x\])
 /// This implements semi-honest reshare algorithm of "Efficient Secure Three-Party Sorting Protocol with an Honest Majority" at communication cost of 2R.
@@ -129,8 +82,40 @@ impl<'a, F: Field> Reshare<SemiHonestContext<'a>, RecordId> for Replicated<F> {
     where
         SemiHonestContext<'a>: 'fut,
     {
-        let r = ctx.prss().generate_fields(record_id);
-        semi_honest_reshare(ctx, record_id, to_helper, self, r).await
+        let channel = ctx.mesh();
+        let (r0, r1) = ctx.prss().generate_fields(record_id);
+
+        // `to_helper.left` calculates part1 = (self.0 + self.1) - r1 and sends part1 to `to_helper.right`
+        // This is same as (a1 + a2) - r2 in the diagram
+        if ctx.role() == to_helper.peer(Direction::Left) {
+            let part1 = self.left() + self.right() - r1;
+            channel
+                .send(to_helper.peer(Direction::Right), record_id, part1)
+                .await?;
+
+            // Sleep until `to_helper.right` sends us their part2 value
+            let part2 = channel
+                .receive(to_helper.peer(Direction::Right), record_id)
+                .await?;
+
+            Ok(Replicated::new(part1 + part2, r1))
+        } else if ctx.role() == to_helper.peer(Direction::Right) {
+            // `to_helper.right` calculates part2 = (self.left() - r0) and sends it to `to_helper.left`
+            // This is same as (a3 - r3) in the diagram
+            let part2 = self.left() - r0;
+            channel
+                .send(to_helper.peer(Direction::Left), record_id, part2)
+                .await?;
+
+            // Sleep until `to_helper.left` sends us their part1 value
+            let part1: F = channel
+                .receive(to_helper.peer(Direction::Left), record_id)
+                .await?;
+
+            Ok(Replicated::new(r0, part1 + part2))
+        } else {
+            Ok(Replicated::new(r0, r1))
+        }
     }
 }
 
@@ -173,23 +158,7 @@ impl<'a, F: Field> Reshare<MaliciousContext<'a, F>, RecordId> for MaliciousRepli
     }
 }
 
-#[async_trait]
-/// Reshare algorithm for xor secret shares.
-impl<'a, B: GaloisField> Reshare<SemiHonestContext<'a>, RecordId> for XorReplicated<B> {
-    async fn reshare<'fut>(
-        &self,
-        ctx: SemiHonestContext<'a>,
-        record_id: RecordId,
-        to_helper: Role,
-    ) -> Result<Self, Error>
-    where
-        SemiHonestContext<'a>: 'fut,
-    {
-        let r = ctx.prss().generate_bit_arrays(record_id);
-        semi_honest_reshare(ctx, record_id, to_helper, self, r).await
-    }
-}
-
+/*
 #[async_trait]
 /// Malicious version of xor resharing is executed in semi-honest context.
 ///
@@ -210,6 +179,7 @@ impl<'a, F: Field, B: GaloisField> Reshare<MaliciousContext<'a, F>, RecordId> fo
         panic!("we don't know how to do this");
     }
 }
+*/
 
 // `T` must be `Send + Sync` because we are passing `&T` into futures. In practice `T` is plain old data,
 // which is always `Sync`.
@@ -299,7 +269,7 @@ mod tests {
             helpers::Role,
             protocol::{basics::Reshare, context::Context, prss::SharedRandomness, RecordId},
             rand::{thread_rng, Rng},
-            secret_sharing::replicated::{semi_honest::XorShare, ReplicatedSecretSharing},
+            secret_sharing::replicated::{ReplicatedSecretSharing, semi_honest::AdditiveShare},
             test_fixture::{Reconstruct, Runner, TestWorld},
         };
 
@@ -342,7 +312,7 @@ mod tests {
             for &target in Role::all() {
                 let secret = thread_rng().gen::<Gf40Bit>();
                 let shares = world
-                    .semi_honest(secret, |ctx, share: XorShare<Gf40Bit>| async move {
+                    .semi_honest(secret, |ctx, share: AdditiveShare<Gf40Bit>| async move {
                         let record_id = RecordId::from(0);
                         let ctx = ctx.set_total_records(1);
 
@@ -350,7 +320,7 @@ mod tests {
                         if ctx.role() == target {
                             // test follows the reshare protocol
                             let (r0, r1) = ctx.prss().generate_bit_arrays(record_id);
-                            XorShare::new(r0, r1)
+                            AdditiveShare::new(r0, r1)
                         } else {
                             share.reshare(ctx, record_id, target).await.unwrap()
                         }

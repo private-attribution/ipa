@@ -1,11 +1,11 @@
 use crate::{
-    ff::{Field, GaloisField},
+    ff::Field,
     helpers::Role,
     protocol::context::{Context, MaliciousContext, SemiHonestContext},
     secret_sharing::{
         replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::{AdditiveShare as Replicated, XorShare},
+            semi_honest::AdditiveShare as Replicated,
             ReplicatedSecretSharing,
         },
         SharedValue,
@@ -22,16 +22,6 @@ impl<'a, F: Field> ShareKnownValue<SemiHonestContext<'a>, F> for Replicated<F> {
             Role::H1 => Self::new(value, F::ZERO),
             Role::H2 => Self::new(F::ZERO, F::ZERO),
             Role::H3 => Self::new(F::ZERO, value),
-        }
-    }
-}
-
-impl<'a, V: GaloisField> ShareKnownValue<SemiHonestContext<'a>, V> for XorShare<V> {
-    fn share_known_value(ctx: &SemiHonestContext<'a>, value: V) -> Self {
-        match ctx.role() {
-            Role::H1 => Self::new(value, V::ZERO),
-            Role::H2 => Self::new(V::ZERO, V::ZERO),
-            Role::H3 => Self::new(V::ZERO, value),
         }
     }
 }

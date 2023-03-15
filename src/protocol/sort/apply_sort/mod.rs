@@ -58,7 +58,7 @@ mod tests {
             MatchKey,
         },
         rand::{thread_rng, Rng},
-        secret_sharing::{replicated::semi_honest::XorShare, SharedValue},
+        secret_sharing::{SharedValue, replicated::semi_honest::AdditiveShare},
         test_fixture::{input::GenericReportTestInput, Reconstruct, Runner, TestWorld},
     };
 
@@ -96,7 +96,7 @@ mod tests {
                 (match_keys, sidecar),
                 |ctx,
                  (mk_shares, secret): (
-                    Vec<XorShare<MatchKey>>,
+                    Vec<AdditiveShare<MatchKey>>,
                     Vec<AccumulateCreditInputRow<Fp32BitPrime, BreakdownKey>>,
                 )| async move {
                     let local_lists =

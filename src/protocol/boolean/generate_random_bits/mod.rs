@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf40Bit},
+    ff::{Field, GaloisField, Gf40Bit, PrimeField},
     protocol::{
         basics::SecureMul,
         context::Context,
@@ -9,10 +9,8 @@ use crate::{
         BitOpStep, RecordId,
     },
     secret_sharing::{
-        replicated::{
-            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
-            ReplicatedSecretSharing,
-        },
+        replicated::semi_honest::AdditiveShare as Replicated,
+        replicated::ReplicatedSecretSharing,
         Linear as LinearSecretSharing, SecretSharing, SharedValue,
     },
 };
@@ -34,7 +32,7 @@ fn random_bits_triples<F, C>(
     record_id: RecordId,
 ) -> Vec<BitConversionTriple<Replicated<F>>>
 where
-    F: Field,
+    F: PrimeField,
     C: Context,
 {
     // Calculate the number of bits we need to form a random number that
@@ -46,7 +44,7 @@ where
     let (b_bits_left, b_bits_right) = ctx.prss().generate_values(record_id);
 
     // Same here. For now, 256-bit is enough for our F_p
-    let xor_share = XorReplicated::new(
+    let xor_share = Replicated::new(
         Gf40Bit::truncate_from(b_bits_left),
         Gf40Bit::truncate_from(b_bits_right),
     );

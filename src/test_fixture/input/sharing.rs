@@ -10,7 +10,7 @@ use crate::{
     },
     rand::Rng,
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        replicated::semi_honest::AdditiveShare as Replicated,
         IntoShares,
     },
     test_fixture::Reconstruct,
@@ -20,8 +20,8 @@ use rand::{distributions::Standard, prelude::Distribution};
 impl<F, MK, BK> IntoShares<GenericReportShare<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [GenericReportShare<F, MK, BK>; 3] {
@@ -83,8 +83,8 @@ impl<F, MK, BK> IntoShares<ApplyAttributionWindowInputRow<F, BK>>
     for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [ApplyAttributionWindowInputRow<F, BK>; 3] {
@@ -119,8 +119,8 @@ where
 impl<F, MK, BK> IntoShares<AccumulateCreditInputRow<F, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AccumulateCreditInputRow<F, BK>; 3] {
@@ -152,8 +152,8 @@ where
 impl<F, MK, BK> IntoShares<AggregateCreditInputRow<F, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [AggregateCreditInputRow<F, BK>; 3] {
@@ -179,8 +179,8 @@ where
 impl<F, MK, BK> IntoShares<IPAInputRow<F, MK, BK>> for GenericReportTestInput<F, MK, BK>
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
     Standard: Distribution<F>,
 {
     fn share_with<R: Rng>(self, rng: &mut R) -> [IPAInputRow<F, MK, BK>; 3] {

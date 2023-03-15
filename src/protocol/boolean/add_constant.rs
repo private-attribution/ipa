@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, PrimeField},
     protocol::{basics::SecureMul, context::Context, BasicProtocols, BitOpStep, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
 };
@@ -128,7 +128,7 @@ pub async fn maybe_add_constant_mod2l<F, C, S>(
     maybe: &S,
 ) -> Result<Vec<S>, Error>
 where
-    F: Field,
+    F: PrimeField,
     C: Context,
     S: LinearSecretSharing<F> + SecureMul<C>,
 {
@@ -202,7 +202,7 @@ impl AsRef<str> for Step {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{
             boolean::add_constant::{add_constant, maybe_add_constant_mod2l},
             context::Context,
@@ -214,7 +214,7 @@ mod tests {
     use bitvec::macros::internal::funty::Fundamental;
     use rand::{distributions::Standard, prelude::Distribution};
 
-    async fn add<F: Field>(world: &TestWorld, a: F, b: u128) -> Vec<F>
+    async fn add<F: PrimeField>(world: &TestWorld, a: F, b: u128) -> Vec<F>
     where
         Standard: Distribution<F>,
     {
@@ -242,7 +242,7 @@ mod tests {
         result
     }
 
-    async fn maybe_add<F: Field>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
+    async fn maybe_add<F: PrimeField>(world: &TestWorld, a: F, b: u128, maybe: F) -> Vec<F>
     where
         Standard: Distribution<F>,
     {

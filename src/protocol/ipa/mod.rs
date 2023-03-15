@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Serializable},
+    ff::{Field, GaloisField, Serializable, PrimeField},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -23,7 +23,7 @@ use crate::{
     secret_sharing::{
         replicated::{
             malicious::AdditiveShare as MaliciousReplicated,
-            semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+            semi_honest::AdditiveShare as Replicated,
         },
         Linear as LinearSecretSharing,
     },
@@ -81,50 +81,50 @@ impl AsRef<str> for IPAInputRowResharableStep {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct IPAInputRow<F: Field, MK: GaloisField, BK: GaloisField> {
-    pub mk_shares: XorReplicated<MK>,
+    pub mk_shares: Replicated<MK>,
     pub is_trigger_bit: Replicated<F>,
-    pub breakdown_key: XorReplicated<BK>,
+    pub breakdown_key: Replicated<BK>,
     pub trigger_value: Replicated<F>,
 }
 
 impl<F: Field, MK: GaloisField, BK: GaloisField> Serializable for IPAInputRow<F, MK, BK>
 where
-    XorReplicated<BK>: Serializable,
-    XorReplicated<MK>: Serializable,
+    Replicated<BK>: Serializable,
+    Replicated<MK>: Serializable,
     Replicated<F>: Serializable,
-    <XorReplicated<BK> as Serializable>::Size: Add<<Replicated<F> as Serializable>::Size>,
+    <Replicated<BK> as Serializable>::Size: Add<<Replicated<F> as Serializable>::Size>,
     <Replicated<F> as Serializable>::Size:
         Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<
                 <Replicated<F> as Serializable>::Size,
             >>::Output,
         >,
-    <XorReplicated<MK> as Serializable>::Size: Add<
+    <Replicated<MK> as Serializable>::Size: Add<
         <<Replicated<F> as Serializable>::Size as Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<
                 <Replicated<F> as Serializable>::Size,
             >>::Output,
         >>::Output,
     >,
-    <<XorReplicated<MK> as Serializable>::Size as Add<
+    <<Replicated<MK> as Serializable>::Size as Add<
         <<Replicated<F> as Serializable>::Size as Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<
                 <Replicated<F> as Serializable>::Size,
             >>::Output,
         >>::Output,
     >>::Output: ArrayLength<u8>,
 {
-    type Size = <<XorReplicated<MK> as Serializable>::Size as Add<
+    type Size = <<Replicated<MK> as Serializable>::Size as Add<
         <<Replicated<F> as Serializable>::Size as Add<
-            <<XorReplicated<BK> as Serializable>::Size as Add<
+            <<Replicated<BK> as Serializable>::Size as Add<
                 <Replicated<F> as Serializable>::Size,
             >>::Output,
         >>::Output,
     >>::Output;
 
     fn serialize(self, buf: &mut GenericArray<u8, Self::Size>) {
-        let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
-        let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
+        let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
         self.mk_shares
@@ -140,14 +140,14 @@ where
     }
 
     fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
-        let mk_sz = <XorReplicated<MK> as Serializable>::Size::USIZE;
-        let bk_sz = <XorReplicated<BK> as Serializable>::Size::USIZE;
+        let mk_sz = <Replicated<MK> as Serializable>::Size::USIZE;
+        let bk_sz = <Replicated<BK> as Serializable>::Size::USIZE;
         let f_sz = <Replicated<F> as Serializable>::Size::USIZE;
 
-        let mk_shares = XorReplicated::<MK>::deserialize(GenericArray::from_slice(&buf[..mk_sz]));
+        let mk_shares = Replicated::<MK>::deserialize(GenericArray::from_slice(&buf[..mk_sz]));
         let is_trigger_bit =
             Replicated::<F>::deserialize(GenericArray::from_slice(&buf[mk_sz..mk_sz + f_sz]));
-        let breakdown_key = XorReplicated::<BK>::deserialize(GenericArray::from_slice(
+        let breakdown_key = Replicated::<BK>::deserialize(GenericArray::from_slice(
             &buf[mk_sz + f_sz..mk_sz + f_sz + bk_sz],
         ));
         let trigger_value =
@@ -272,7 +272,7 @@ pub async fn ipa<F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
+    F: PrimeField,
     MK: GaloisField,
     BK: GaloisField,
     Replicated<F>: Serializable,
@@ -361,7 +361,7 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
+    F: PrimeField,
     MK: GaloisField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,

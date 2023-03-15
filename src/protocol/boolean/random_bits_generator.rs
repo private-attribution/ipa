@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     error::Error,
-    ff::Field,
+    ff::PrimeField,
     helpers::messaging::TotalRecords,
     protocol::{context::Context, BasicProtocols, RecordId},
     secret_sharing::Linear as LinearSecretSharing,
@@ -30,7 +30,7 @@ pub struct RandomBitsGenerator<F, S, C> {
 
 impl<F, S, C> RandomBitsGenerator<F, S, C>
 where
-    F: Field,
+    F: PrimeField,
     S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     C: Context + RandomBits<F, Share = S>,
 {

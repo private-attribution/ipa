@@ -7,7 +7,7 @@ use crate::{
     net::MpcHelperClient,
     protocol::{attribution::input::MCAggregateCreditOutputRow, ipa::IPAInputRow, QueryId},
     secret_sharing::{
-        replicated::semi_honest::{AdditiveShare as Replicated, XorShare as XorReplicated},
+        replicated::semi_honest::AdditiveShare as Replicated,
         IntoShares,
     },
     test_fixture::input::GenericReportTestInput,
@@ -28,8 +28,8 @@ pub async fn semi_honest<F, MK, BK>(
 ) -> [Vec<impl Send + Debug>; 3]
 where
     F: Field + IntoShares<Replicated<F>>,
-    MK: GaloisField + IntoShares<XorReplicated<MK>>,
-    BK: GaloisField + IntoShares<XorReplicated<BK>>,
+    MK: GaloisField + IntoShares<Replicated<MK>>,
+    BK: GaloisField + IntoShares<Replicated<BK>>,
     Standard: Distribution<F>,
     IPAInputRow<F, MK, BK>: Serializable,
     Replicated<F>: Serializable,

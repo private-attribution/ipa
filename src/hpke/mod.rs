@@ -12,7 +12,7 @@ mod registry;
 
 use crate::{
     ff::{Gf40Bit, Serializable},
-    secret_sharing::replicated::semi_honest::XorShare,
+    secret_sharing::replicated::semi_honest::AdditiveShare,
 };
 pub use info::Info;
 pub use registry::KeyRegistry;
@@ -27,7 +27,7 @@ pub type KeyIdentifier = u8;
 /// Right now we assume the match keys to be 40 bits long. If it is not the case, the decryption
 /// will fail. This assumption allows to keep the bitstrings on the stack, for dynamically sized
 /// match keys we would have to heap allocate.
-type XorReplicated = XorShare<Gf40Bit>;
+type XorReplicated = AdditiveShare<Gf40Bit>;
 
 /// Event epoch as described [`ipa-spec`]
 /// For the purposes of this module, epochs are used to authenticate match key encryption. As

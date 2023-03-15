@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, FieldType, Fp31, GaloisField, Serializable},
+    ff::{Field, FieldType, Fp31, GaloisField, Serializable, PrimeField},
     helpers::{
         messaging::{Gateway, TotalRecords},
         negotiate_prss,
@@ -101,7 +101,7 @@ where
     results
 }
 
-async fn execute_ipa<F: Field, MK: GaloisField, BK: GaloisField>(
+async fn execute_ipa<F: PrimeField, MK: GaloisField, BK: GaloisField>(
     ctx: SemiHonestContext<'_>,
     query_config: IpaQueryConfig,
     mut input: AlignedByteArrStream,

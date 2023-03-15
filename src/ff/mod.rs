@@ -8,7 +8,7 @@ mod prime_field;
 
 pub use field::{Field, FieldType, Int};
 pub use galois_field::{Gf40Bit, Gf8Bit};
-pub use prime_field::{Fp31, Fp32BitPrime};
+pub use prime_field::{PrimeField, Fp31, Fp32BitPrime};
 
 use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};
@@ -69,7 +69,7 @@ where
 /// Trait for data types storing arbitrary number of bits.
 // TODO: Implement `Message`
 pub trait GaloisField:
-    SharedValue + TryFrom<u128> + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
+    Field + TryFrom<u128> + Into<u128> + Index<usize, Output = bool> + Index<u32, Output = bool>
 {
     const POLYNOMIAL: u128;
 

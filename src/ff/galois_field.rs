@@ -1,8 +1,8 @@
 use crate::{
-    ff::{GaloisField, Serializable},
+    ff::{Field, GaloisField, Serializable, Int},
     secret_sharing::SharedValue,
 };
-use bitvec::prelude::{BitArr, Lsb0};
+use bitvec::prelude::{BitArr, bitarr, Lsb0};
 use generic_array::GenericArray;
 use typenum::{Unsigned, U1, U4, U5};
 
@@ -10,6 +10,18 @@ use typenum::{Unsigned, U1, U4, U5};
 type U8_1 = BitArr!(for 8, in u8, Lsb0);
 type U8_4 = BitArr!(for 32, in u8, Lsb0);
 type U8_5 = BitArr!(for 40, in u8, Lsb0);
+
+impl Int for U8_1 {
+    const BITS: u32 = 8;
+}
+
+impl Int for U8_4 {
+    const BITS: u32 = 32;
+}
+
+impl Int for U8_5 {
+    const BITS: u32 = 40;
+}
 
 /// The implementation below cannot be constrained without breaking Rust's
 /// macro processor.  This noop ensures that the instance of `GenericArray` used
@@ -19,7 +31,7 @@ fn assert_copy<C: Copy>(c: C) -> C {
 }
 
 macro_rules! bit_array_impl {
-    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty, $polynomial:expr ) => {
+    ( $modname:ident, $name:ident, $store:ty, $bits:expr, $arraylen:ty, $one:expr, $polynomial:expr ) => {
         #[allow(clippy::suspicious_arithmetic_impl)]
         #[allow(clippy::suspicious_op_assign_impl)]
         mod $modname {
@@ -38,12 +50,34 @@ macro_rules! bit_array_impl {
                 const ZERO: Self = Self(<$store>::ZERO);
             }
 
+            impl Field for $name {
+                type Integer = $store;
+                type Size = $arraylen;
+                const ONE: Self = Self($one);
+
+                fn as_u128(&self) -> u128 {
+                    (*self).into()
+                }
+            }
+
             impl GaloisField for $name {
                 const POLYNOMIAL: u128 = $polynomial;
 
                 fn truncate_from<T: Into<u128>>(v: T) -> Self {
                     let v = &v.into().to_le_bytes()[..<Self as Serializable>::Size::to_usize()];
                     Self(<$store>::new(v.try_into().unwrap()))
+                }
+            }
+
+            impl From<u128> for $name {
+                fn from(v: u128) -> Self {
+                    Self::truncate_from(v)
+                }
+            }
+
+            impl From<$name> for $store {
+                fn from(v: $name) -> Self {
+                    v.0
                 }
             }
 
@@ -201,6 +235,7 @@ macro_rules! bit_array_impl {
                 }
             }
 
+            /*
             impl TryFrom<u128> for $name {
                 type Error = String;
 
@@ -219,6 +254,7 @@ macro_rules! bit_array_impl {
                     }
                 }
             }
+            */
 
             #[allow(clippy::from_over_into)]
             impl Into<u128> for $name {
@@ -288,7 +324,6 @@ macro_rules! bit_array_impl {
             mod tests {
                 use super::*;
                 use crate::{ff::GaloisField, secret_sharing::SharedValue};
-                use bitvec::prelude::*;
                 use rand::{thread_rng, Rng};
 
                 const MASK: u128 = u128::MAX >> (u128::BITS - $name::BITS);
@@ -424,6 +459,7 @@ bit_array_impl!(
     U8_5,
     40,
     U5,
+    bitarr!(const u8, Lsb0; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
     // x^40 + x^5 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_0000_0000_0010_1101_u128
 );
@@ -434,6 +470,7 @@ bit_array_impl!(
     U8_4,
     32,
     U4,
+    bitarr!(const u8, Lsb0; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
     // x^32 + x^7 + x^3 + x^2 + 1
     0b1_0000_0000_0000_0000_0000_0000_1000_1101_u128
 );
@@ -444,6 +481,7 @@ bit_array_impl!(
     U8_1,
     8,
     U1,
+    bitarr!(const u8, Lsb0; 0, 0, 0, 0, 0, 0, 0, 1),
     // x^8 + x^4 + x^3 + x + 1
     0b1_0001_1011_u128
 );

@@ -2,7 +2,7 @@ use futures::future::try_join_all;
 
 use crate::{
     error::Error,
-    ff::Field,
+    ff::{Field, PrimeField},
     protocol::{basics::SecureMul, BasicProtocols},
     secret_sharing::{Linear as LinearSecretSharing, SecretSharing},
 };
@@ -31,7 +31,7 @@ pub use xor::{xor, xor_sparse};
 /// local replicated share.
 pub fn local_secret_shared_bits<F, C, S>(ctx: &C, x: u128) -> Vec<S>
 where
-    F: Field,
+    F: PrimeField,
     C: Context,
     S: SecretSharing<F> + ShareKnownValue<C, F>,
 {
