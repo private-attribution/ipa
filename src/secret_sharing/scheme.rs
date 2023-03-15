@@ -1,5 +1,5 @@
 use super::SharedValue;
-use crate::ff::{ArithmeticRefOps, BooleanRefOps, GaloisField};
+use crate::ff::{ArithmeticRefOps, GaloisField};
 use std::fmt::Debug;
 
 /// Secret sharing scheme i.e. Replicated secret sharing
@@ -11,4 +11,4 @@ pub trait SecretSharing<V: SharedValue>: Clone + Debug + Sized + Send + Sync {
 pub trait Linear<V: SharedValue>: SecretSharing<V> + ArithmeticRefOps<V> {}
 
 /// Secret share of a secret in bits. It has additive and multiplicative properties.
-pub trait Bitwise<V: GaloisField>: SecretSharing<V> + BooleanRefOps {}
+pub trait Bitwise<V: GaloisField>: SecretSharing<V> + Linear<V> {}

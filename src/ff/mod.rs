@@ -12,7 +12,7 @@ pub use prime_field::{Fp31, Fp32BitPrime};
 
 use crate::secret_sharing::SharedValue;
 use generic_array::{ArrayLength, GenericArray};
-use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Index, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Index, Mul, MulAssign, Neg, Sub, SubAssign};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -81,16 +81,6 @@ pub trait GaloisField:
     fn as_u128(self) -> u128 {
         <Self as Into<u128>>::into(self)
     }
-}
-
-pub trait BooleanRefOps:
-    for<'a> BitXor<&'a Self, Output = Self> + for<'a> BitXorAssign<&'a Self>
-{
-}
-
-impl<T> BooleanRefOps for T where
-    T: for<'a> BitXor<&'a Self, Output = Self> + for<'a> BitXorAssign<&'a Self>
-{
 }
 
 /// Trait for items that have fixed-byte length representation.
