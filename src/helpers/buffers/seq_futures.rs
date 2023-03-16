@@ -1,4 +1,7 @@
-use futures::{stream::Fuse, Future, Stream, StreamExt};
+use futures::{
+    stream::{iter, Fuse},
+    Future, Stream, StreamExt,
+};
 use pin_project::pin_project;
 use std::{
     collections::VecDeque,
@@ -39,6 +42,8 @@ use std::{
 /// # Panics
 ///
 /// If a future produced from the stream resolves ahead of a preceding future.
+/// To help ensure that earlier futures resolve first, this guarantees that
+/// earlier futures are always polled before later futures.
 ///
 /// # Deadlocks
 ///
@@ -58,6 +63,26 @@ where
         stream: stream.fuse(),
         active: VecDeque::with_capacity(active.get()),
     }
+}
+
+/// A substitute for [`futures::future::try_join_all`] that uses [`seq_join`].
+///
+/// [`seq_join`]: raw_ipa::helpers::buffers::seq_join
+pub async fn try_join_all<I, O, E>(futures: I) -> Result<Vec<O>, E>
+where
+    I: IntoIterator,
+    I::Item: Future<Output = Result<O, E>>,
+{
+    const ACTIVE: Option<NonZeroUsize> = NonZeroUsize::new(256);
+
+    let futures = futures.into_iter();
+    let (lower, upper) = futures.size_hint();
+    let mut res = Vec::with_capacity(lower.saturating_add(upper.unwrap_or(0)));
+    let mut s = seq_join(ACTIVE.unwrap(), iter(futures));
+    while let Some(r) = s.next().await {
+        res.push(r?);
+    }
+    Ok(res)
 }
 
 #[pin_project]
@@ -120,13 +145,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::helpers::buffers::seq_futures::seq_join;
+    use crate::helpers::buffers::seq_futures::{seq_join, try_join_all};
     use futures::{
         future::{lazy, pending, BoxFuture},
         stream::{iter, poll_fn, repeat_with},
-        StreamExt,
+        Future, StreamExt,
     };
     use std::{
+        convert::Infallible,
         iter::once,
         num::NonZeroUsize,
         ptr::null,
@@ -270,5 +296,30 @@ mod test {
         let res = joined.poll_next_unpin(&mut cx);
         assert_count(&produced_r, 0);
         assert!(matches!(res, Poll::Ready(None)));
+    }
+
+    #[tokio::test]
+    async fn join_success() {
+        fn ok(v: u32) -> impl Future<Output = Result<u32, Infallible>> {
+            lazy(move |_| Ok(v))
+        }
+
+        let res = try_join_all([ok(1), ok(2), ok(3)]).await.unwrap();
+        assert_eq!(vec![1, 2, 3], res);
+    }
+
+    #[tokio::test]
+    async fn join_early_abort() {
+        const ERROR: &str = "error message";
+        fn f(i: u32) -> impl Future<Output = Result<u32, &'static str>> {
+            lazy(move |_| match i {
+                1 => Ok(1),
+                2 => Err(ERROR),
+                _ => panic!("should have aborted earlier"),
+            })
+        }
+
+        let err = try_join_all([f(1), f(2), f(3)]).await.unwrap_err();
+        assert_eq!(err, ERROR);
     }
 }
