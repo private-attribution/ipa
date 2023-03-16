@@ -1,5 +1,28 @@
 use super::Field;
-use crate::secret_sharing::SharedValue;
+use crate::{ff::Serializable, secret_sharing::SharedValue};
+use generic_array::GenericArray;
+
+pub trait PrimeField: Field {
+    type PrimeInteger: Into<u128>;
+
+    const PRIME: Self::PrimeInteger;
+}
+
+impl<F: PrimeField> Serializable for F {
+    type Size = <F as Field>::Size;
+
+    fn serialize(&self, buf: &mut GenericArray<u8, Self::Size>) {
+        let raw = &self.as_u128().to_le_bytes()[..buf.len()];
+        buf.copy_from_slice(raw);
+    }
+
+    fn deserialize(buf: &GenericArray<u8, Self::Size>) -> Self {
+        let mut buf_to = [0u8; 16];
+        buf_to[..buf.len()].copy_from_slice(buf);
+
+        Self::from(u128::from_le_bytes(buf_to))
+    }
+}
 
 macro_rules! field_impl {
     ( $field:ident, $int:ty, $prime:expr, $arraylen:ty ) => {
@@ -12,8 +35,17 @@ macro_rules! field_impl {
         impl Field for $field {
             type Integer = $int;
             type Size = $arraylen;
-            const PRIME: Self::Integer = $prime;
             const ONE: Self = $field(1);
+
+            fn as_u128(&self) -> u128 {
+                let int: Self::Integer = (*self).into();
+                int.into()
+            }
+        }
+
+        impl PrimeField for $field {
+            type PrimeInteger = Self::Integer;
+            const PRIME: Self::PrimeInteger = $prime;
         }
 
         impl SharedValue for $field {

@@ -1,7 +1,7 @@
 use super::{convert_triples_to_shares, random_bits_triples, RandomBits, Step};
 use crate::{
     error::Error,
-    ff::Field,
+    ff::PrimeField,
     protocol::{
         context::{Context, SemiHonestContext},
         RecordId,
@@ -11,7 +11,7 @@ use crate::{
 use async_trait::async_trait;
 
 #[async_trait]
-impl<F: Field> RandomBits<F> for SemiHonestContext<'_> {
+impl<F: PrimeField> RandomBits<F> for SemiHonestContext<'_> {
     type Share = Replicated<F>;
 
     /// Generates a sequence of `l` random bit sharings in the target field `F`.

@@ -1,7 +1,7 @@
 use super::{any_ones, or::or};
 use crate::{
     error::Error,
-    ff::Field,
+    ff::PrimeField,
     protocol::{
         boolean::multiply_all_shares, context::Context, BasicProtocols, BitOpStep, RecordId,
     },
@@ -26,7 +26,7 @@ pub struct BitwiseLessThanPrime {}
 impl BitwiseLessThanPrime {
     pub async fn less_than_prime<F, C, S>(ctx: C, record_id: RecordId, x: &[S]) -> Result<S, Error>
     where
-        F: Field,
+        F: PrimeField,
         C: Context,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
@@ -41,7 +41,7 @@ impl BitwiseLessThanPrime {
         x: &[S],
     ) -> Result<S, Error>
     where
-        F: Field,
+        F: PrimeField,
         C: Context,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
@@ -91,7 +91,7 @@ impl BitwiseLessThanPrime {
         x: &[S],
     ) -> Result<S, Error>
     where
-        F: Field,
+        F: PrimeField,
         C: Context,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
@@ -148,7 +148,7 @@ impl BitwiseLessThanPrime {
         x: &[S],
     ) -> Result<S, Error>
     where
-        F: Field,
+        F: PrimeField,
         C: Context,
         S: LinearSecretSharing<F> + BasicProtocols<C, F>,
     {
@@ -201,7 +201,7 @@ impl AsRef<str> for Step {
 mod tests {
     use super::BitwiseLessThanPrime;
     use crate::{
-        ff::{Field, Fp31, Fp32BitPrime},
+        ff::{Field, Fp31, Fp32BitPrime, PrimeField},
         protocol::{context::Context, RecordId},
         secret_sharing::SharedValue,
         test_fixture::{get_bits, Reconstruct, Runner, TestWorld},
@@ -283,7 +283,7 @@ mod tests {
 
     async fn bitwise_less_than_prime<F>(a: u32, num_bits: u32) -> F
     where
-        F: Field + Sized,
+        F: PrimeField + Sized,
         Standard: Distribution<F>,
     {
         let world = TestWorld::default();

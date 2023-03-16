@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Gf40Bit},
+    ff::{Field, GaloisField, Gf40Bit, PrimeField},
     protocol::{
         basics::SecureMul,
         context::Context,
@@ -34,7 +34,7 @@ fn random_bits_triples<F, C>(
     record_id: RecordId,
 ) -> Vec<BitConversionTriple<Replicated<F>>>
 where
-    F: Field,
+    F: PrimeField,
     C: Context,
 {
     // Calculate the number of bits we need to form a random number that

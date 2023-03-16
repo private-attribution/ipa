@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    ff::{Field, GaloisField, Serializable},
+    ff::{Field, GaloisField, PrimeField, Serializable},
     helpers::Role,
     protocol::{
         attribution::{input::MCAggregateCreditOutputRow, malicious, semi_honest},
@@ -272,7 +272,7 @@ pub async fn ipa<F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
+    F: PrimeField,
     MK: GaloisField,
     BK: GaloisField,
     Replicated<F>: Serializable,
@@ -361,7 +361,7 @@ pub async fn ipa_malicious<'a, F, MK, BK>(
     num_multi_bits: u32,
 ) -> Result<Vec<MCAggregateCreditOutputRow<F, Replicated<F>, BK>>, Error>
 where
-    F: Field,
+    F: PrimeField,
     MK: GaloisField,
     BK: GaloisField,
     MaliciousReplicated<F>: Serializable + BasicProtocols<MaliciousContext<'a, F>, F>,

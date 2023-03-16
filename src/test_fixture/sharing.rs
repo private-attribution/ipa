@@ -1,5 +1,5 @@
 use crate::{
-    ff::{Field, GaloisField},
+    ff::{Field, GaloisField, PrimeField},
     protocol::boolean::RandomBitsShare,
     secret_sharing::{
         replicated::{
@@ -13,7 +13,7 @@ use crate::{
 use std::{borrow::Borrow, iter::zip};
 
 /// Deconstructs a field value into N values, one for each bit.
-pub fn into_bits<F: Field>(v: F) -> Vec<F> {
+pub fn into_bits<F: PrimeField>(v: F) -> Vec<F> {
     (0..(u128::BITS - F::PRIME.into().leading_zeros()))
         .map(|i| F::from((v.as_u128() >> i) & 1))
         .collect::<Vec<_>>()
